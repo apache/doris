@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 
@@ -30,7 +31,6 @@
 #include "core/value/bitmap_value.h"
 #include "core/value/timestamp_ns_value.h"
 #include "exec/common/int_exp.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/mow/historical_row_fetcher.h"
 #include "storage/mow/key_probe.h"
@@ -61,12 +61,30 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
                                bool is_strict_mode_, int64_t timestamp_ms_, int32_t nano_seconds_,
                                const std::string& timezone_,
                                const std::string& auto_increment_column,
-                               int32_t sequence_map_col_uid, int64_t cur_max_version) {
+                               int32_t sequence_map_col_uid, int64_t cur_max_version,
+                               const PUniqueId* load_id) {
+    if (unique_key_update_mode == UniqueKeyUpdateModePB::UPDATE_FLEXIBLE_COLUMNS &&
+        !tablet_schema.has_skip_bitmap_col()) {
+        return Status::InvalidArgument(
+                "Flexible partial update requires a skip bitmap column, tablet_id={}, txn_id={}",
+                tablet_id, txn_id);
+    }
+    // After TTL GC, a missing old row would supply defaults instead of stored missing columns.
+    // Reject the combination at the writer boundary too, including requests from an older FE.
+    if (tablet_schema.has_ttl_col() && unique_key_update_mode != UniqueKeyUpdateModePB::UPSERT) {
+        return Status::InvalidArgument(
+                "Partial update is not supported on tables with row TTL, tablet_id={}, txn_id={}",
+                tablet_id, txn_id);
+    }
     partial_update_mode = unique_key_update_mode;
     partial_update_new_key_policy = policy;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     sequence_map_col_unqiue_id = sequence_map_col_uid;
+    // Callers with only deterministic defaults need no load seed.
+    has_load_id = load_id != nullptr;
+    load_id_hi = has_load_id ? load_id->hi() : 0;
+    load_id_lo = has_load_id ? load_id->lo() : 0;
     timestamp_ms = timestamp_ms_;
     nano_seconds = nano_seconds_;
     timezone = timezone_;
@@ -135,6 +153,10 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
     partial_update_info_pb->set_can_insert_new_rows_in_partial_update(
             can_insert_new_rows_in_partial_update);
     partial_update_info_pb->set_is_strict_mode(is_strict_mode);
+    if (has_load_id) {
+        partial_update_info_pb->mutable_load_id()->set_hi(load_id_hi);
+        partial_update_info_pb->mutable_load_id()->set_lo(load_id_lo);
+    }
     partial_update_info_pb->set_timestamp_ms(timestamp_ms);
     partial_update_info_pb->set_nano_seconds(nano_seconds);
     partial_update_info_pb->set_timezone(timezone);
@@ -179,6 +201,9 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
     can_insert_new_rows_in_partial_update =
             partial_update_info_pb->can_insert_new_rows_in_partial_update();
     is_strict_mode = partial_update_info_pb->is_strict_mode();
+    has_load_id = partial_update_info_pb->has_load_id();
+    load_id_hi = partial_update_info_pb->load_id().hi();
+    load_id_lo = partial_update_info_pb->load_id().lo();
     timestamp_ms = partial_update_info_pb->timestamp_ms();
     timezone = partial_update_info_pb->timezone();
     is_input_columns_contains_auto_inc_column =
@@ -273,11 +298,16 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
         const auto& column = tablet_schema.column(cur_cid);
         if (column.has_default_value()) {
             std::string default_value;
+            // TIMESTAMPTZ schema-change defaults store a fixed backfill literal separately;
+            // new rows in partial updates must still evaluate CURRENT_TIMESTAMP at load time.
+            const auto& default_value_expr = column.has_default_value_expr()
+                                                     ? column.default_value_expr()
+                                                     : column.default_value();
             if (UNLIKELY((column.type() == FieldType::OLAP_FIELD_TYPE_DATETIMEV2 ||
                           column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ) &&
-                         to_lower(column.default_value()).find(to_lower("CURRENT_TIMESTAMP")) !=
+                         to_lower(default_value_expr).find(to_lower("CURRENT_TIMESTAMP")) !=
                                  std::string::npos)) {
-                auto pos = to_lower(column.default_value()).find('(');
+                auto pos = to_lower(default_value_expr).find('(');
                 if (pos == std::string::npos) {
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, timezone);
@@ -286,7 +316,7 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                         default_value += timezone;
                     }
                 } else {
-                    int precision = std::stoi(column.default_value().substr(pos + 1));
+                    int precision = std::stoi(default_value_expr.substr(pos + 1));
                     DateV2Value<DateTimeV2ValueType> dtv;
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
                     default_value = dtv.to_string();
@@ -295,14 +325,8 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                     }
                 }
             } else if (UNLIKELY(column.type() == FieldType::OLAP_FIELD_TYPE_TIMESTAMP_NS &&
-                                to_lower(column.has_default_value_expr()
-                                                 ? column.default_value_expr()
-                                                 : column.default_value())
-                                                .find(to_lower("CURRENT_TIMESTAMP")) !=
+                                to_lower(default_value_expr).find(to_lower("CURRENT_TIMESTAMP")) !=
                                         std::string::npos)) {
-                const auto& default_value_expr = column.has_default_value_expr()
-                                                         ? column.default_value_expr()
-                                                         : column.default_value();
                 auto pos = to_lower(default_value_expr).find('(');
                 DateV2Value<DateTimeV2ValueType> dtv;
                 uint16_t nanosecond_remainder = 0;
@@ -312,7 +336,9 @@ void PartialUpdateInfo::_generate_default_values_for_missing_cids(
                     int precision = std::stoi(default_value_expr.substr(pos + 1));
                     dtv.from_unixtime(timestamp_ms / 1000, nano_seconds, timezone, precision);
                     if (precision > 6) {
-                        const int64_t factor = static_cast<int64_t>(int_exp10(9 - precision));
+                        const auto factor = static_cast<int64_t>(int_exp10(9 - precision));
+                        // FE validates precision <= 9; this branch's factor is 1, 10 or 100.
+                        // NOLINTNEXTLINE(clang-analyzer-core.DivideZero)
                         const int64_t truncated_nanos = nano_seconds / factor * factor;
                         nanosecond_remainder = static_cast<uint16_t>(truncated_nanos % 1000);
                     }
@@ -438,8 +464,6 @@ Status FixedReadPlan::fill_missing_columns(
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         uint32_t segment_start_pos, const Block* block,
         std::vector<signed char>* old_delete_signs) const {
-    auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
-    auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     // create old value columns
     DCHECK(historical_context.partial_update_info != nullptr);
     DCHECK(historical_context.tablet_schema != nullptr);
@@ -472,11 +496,16 @@ Status FixedReadPlan::fill_missing_columns(
                                           use_default_or_null_flag.size(), old_delete_signs));
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
-    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(tablet_schema, missing_cids,
-                                                             partial_update_info.default_values,
-                                                             old_value_block, default_value_block));
+    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
+            tablet_schema, missing_cids, partial_update_info, *block, default_value_block));
+    // The V2 writer passes the same block as input and output. Read its key columns before
+    // acquiring mutable ownership, which temporarily removes columns from the Block.
+    auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
+    auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     auto mutable_default_value_columns_guard = default_value_block.mutate_columns_scoped();
     auto& mutable_default_value_columns = mutable_default_value_columns_guard.mutable_columns();
+    const int32_t version_col_idx = tablet_schema.version_col_idx();
+    const int32_t commit_tso_col_idx = tablet_schema.commit_tso_col_idx();
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
@@ -489,7 +518,16 @@ Status FixedReadPlan::fill_missing_columns(
             const auto& tablet_column = tablet_schema.column(missing_cids[i]);
             auto& missing_col = mutable_full_columns[missing_cids[i]];
 
-            bool should_use_default = use_default_or_null_flag[idx];
+            // These values belong to the output rowset and are unknown until publish. For example,
+            // rebuilding a row from historical rowset [2-2] must write physical placeholder 0
+            // instead of carrying the historical version or commit TSO into the new segment.
+            const auto missing_cid = missing_cids[i];
+            const bool is_output_rowset_metadata =
+                    (version_col_idx >= 0 &&
+                     missing_cid == static_cast<uint32_t>(version_col_idx)) ||
+                    (commit_tso_col_idx >= 0 &&
+                     missing_cid == static_cast<uint32_t>(commit_tso_col_idx));
+            bool should_use_default = use_default_or_null_flag[idx] || is_output_rowset_metadata;
             if (!should_use_default) {
                 bool old_row_delete_sign = old_delete_sign_column_data[pos_in_old_block] != 0;
                 if (old_row_delete_sign) {
@@ -506,7 +544,8 @@ Status FixedReadPlan::fill_missing_columns(
 
             if (should_use_default) {
                 if (tablet_column.has_default_value()) {
-                    missing_col->insert_from(*mutable_default_value_columns[i], 0);
+                    const auto& defaults = *mutable_default_value_columns[i];
+                    missing_col->insert_from(defaults, defaults.size() == 1 ? 0 : idx);
                 } else if (tablet_column.is_nullable()) {
                     auto* nullable_column = assert_cast<ColumnNullable*>(missing_col.get());
                     nullable_column->insert_many_defaults(1);
@@ -685,7 +724,8 @@ static void fill_non_primary_key_cell_for_column_store(
         }
         if (use_default) {
             if (tablet_column.has_default_value()) {
-                new_col->insert_from(default_value_col, 0);
+                new_col->insert_from(default_value_col,
+                                     default_value_col.size() == 1 ? 0 : block_pos);
             } else if (tablet_column.is_nullable()) {
                 assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
                         ->insert_many_defaults(1);
@@ -731,8 +771,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
     auto default_value_block = old_value_block.clone_empty();
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
         RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                tablet_schema, non_sort_key_cids, info->default_values, old_value_block,
-                default_value_block));
+                tablet_schema, non_sort_key_cids, *info, *block, default_value_block));
     }
 
     // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
@@ -792,7 +831,8 @@ static void fill_non_primary_key_cell_for_row_store(
         }
         if (use_default) {
             if (tablet_column.has_default_value()) {
-                new_col->insert_from(default_value_col, 0);
+                new_col->insert_from(default_value_col,
+                                     default_value_col.size() == 1 ? 0 : block_pos);
             } else if (tablet_column.is_nullable()) {
                 assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
                         ->insert_many_defaults(1);
@@ -836,8 +876,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
     auto default_value_block = old_value_block.clone_empty();
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
         RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                tablet_schema, non_sort_key_cids, info->default_values, old_value_block,
-                default_value_block));
+                tablet_schema, non_sort_key_cids, *info, *block, default_value_block));
     }
 
     // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
@@ -876,18 +915,8 @@ BlockAggregator::BlockAggregator(TabletSchema& tablet_schema, BaseTabletSPtr tab
           _mow_context(std::move(mow_context)),
           _partial_update_info(partial_update_info),
           _key_encoder(key_encoder),
-          _convertor(std::make_unique<OlapBlockDataConvertor>()),
           _probe(probe),
-          _fetcher(fetcher) {
-    _convertor->resize(tablet_schema.num_columns());
-    for (uint32_t cid = 0; cid < tablet_schema.num_key_columns(); ++cid) {
-        _convertor->add_column_data_convertor_at(tablet_schema.column(cid), cid);
-    }
-    if (tablet_schema.has_sequence_col()) {
-        auto cid = cast_set<uint32_t>(tablet_schema.sequence_col_idx());
-        _convertor->add_column_data_convertor_at(tablet_schema.column(cid), cid);
-    }
-}
+          _fetcher(fetcher) {}
 
 BlockAggregator::~BlockAggregator() = default;
 
@@ -979,7 +1008,7 @@ void BlockAggregator::append_or_merge_row(MutableBlock& dst_block, Block* src_bl
 Status BlockAggregator::aggregate_rows(
         MutableBlock& output_block, Block* block, int start, int end, std::string key,
         std::vector<BitmapValue>* skip_bitmaps, const signed char* delete_signs,
-        IOlapColumnDataAccessor* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
+        const IColumn* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
     VLOG_DEBUG << fmt::format("merge rows in range=[{}-{})", start, end);
     if (end - start == 1) {
@@ -1076,21 +1105,14 @@ Status BlockAggregator::_generate_encoded_default_seq_value(std::string* encoded
         block.get_by_position(0).column->assert_mutable()->insert_default();
     }
     DCHECK_EQ(block.rows(), 1);
-    auto olap_data_convertor = std::make_unique<OlapBlockDataConvertor>();
-    olap_data_convertor->add_column_data_convertor(seq_column);
-    olap_data_convertor->set_source_content(&block, 0, 1);
-    auto [status, column] = olap_data_convertor->convert_column_data(0);
-    if (!status.ok()) {
-        return status;
-    }
     // include marker
-    _key_encoder.append_seq_suffix(encoded_value, column, 0);
+    _key_encoder.append_seq_suffix(encoded_value, block.get_by_position(0).column.get(), 0);
     return Status::OK();
 }
 
 Status BlockAggregator::aggregate_for_sequence_column(
-        Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
-        IOlapColumnDataAccessor* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
+        Block* block, int num_rows, const std::vector<const IColumn*>& key_columns,
+        const IColumn* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         std::vector<int64_t>* row_lsns) {
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
@@ -1176,7 +1198,7 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
 }
 
 Status BlockAggregator::aggregate_for_insert_after_delete(
-        Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
+        Block* block, size_t num_rows, const std::vector<const IColumn*>& key_columns,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags) {
@@ -1312,50 +1334,34 @@ Status BlockAggregator::filter_block(Block* block, size_t num_rows, MutableColum
     return Status::OK();
 }
 
-Status BlockAggregator::convert_pk_columns(Block* block, size_t row_pos, size_t num_rows,
-                                           std::vector<IOlapColumnDataAccessor*>& key_columns) {
+void BlockAggregator::collect_pk_columns(const Block& block,
+                                         std::vector<const IColumn*>& key_columns) const {
     key_columns.clear();
     for (uint32_t cid {0}; cid < _tablet_schema.num_key_columns(); cid++) {
-        RETURN_IF_ERROR(_convertor->set_source_content_with_specifid_column(
-                block->get_by_position(cid), row_pos, num_rows, cid));
-        auto [status, column] = _convertor->convert_column_data(cid);
-        if (!status.ok()) {
-            return status;
-        }
-        key_columns.push_back(column);
+        key_columns.push_back(block.get_by_position(cid).column.get());
     }
-    return Status::OK();
 }
 
-Status BlockAggregator::convert_seq_column(Block* block, size_t row_pos, size_t num_rows,
-                                           IOlapColumnDataAccessor*& seq_column) {
+void BlockAggregator::collect_seq_column(const Block& block, const IColumn*& seq_column) const {
     seq_column = nullptr;
     if (_tablet_schema.has_sequence_col()) {
-        auto seq_col_idx = _tablet_schema.sequence_col_idx();
-        RETURN_IF_ERROR(_convertor->set_source_content_with_specifid_column(
-                block->get_by_position(seq_col_idx), row_pos, num_rows, seq_col_idx));
-        auto [status, column] = _convertor->convert_column_data(seq_col_idx);
-        if (!status.ok()) {
-            return status;
-        }
-        seq_column = column;
+        seq_column = block.get_by_position(_tablet_schema.sequence_col_idx()).column.get();
     }
-    return Status::OK();
-};
+}
 
 Status BlockAggregator::aggregate_for_flexible_partial_update(
         Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags) {
     if (row_lsns != nullptr && row_lsns->size() != num_rows) {
-        return Status::InvalidArgument("row binlog LSN count {} does not match row count {}",
+        return Status::InvalidArgument("changelog LSN count {} does not match row count {}",
                                        row_lsns->size(), num_rows);
     }
-    std::vector<IOlapColumnDataAccessor*> key_columns {};
-    IOlapColumnDataAccessor* seq_column {nullptr};
+    std::vector<const IColumn*> key_columns {};
+    const IColumn* seq_column = nullptr;
 
-    RETURN_IF_ERROR(convert_pk_columns(block, 0, num_rows, key_columns));
-    RETURN_IF_ERROR(convert_seq_column(block, 0, num_rows, seq_column));
+    collect_pk_columns(*block, key_columns);
+    collect_seq_column(*block, seq_column);
 
     // 1. merge duplicate rows when table has sequence column
     // When there are multiple rows with the same keys in memtable, some of them specify specify the sequence column,
@@ -1365,16 +1371,11 @@ Status BlockAggregator::aggregate_for_flexible_partial_update(
         RETURN_IF_ERROR(aggregate_for_sequence_column(block, static_cast<int>(num_rows),
                                                       key_columns, seq_column, specified_rowsets,
                                                       segment_caches, row_lsns));
+        num_rows = block->rows();
+        collect_pk_columns(*block, key_columns);
     }
 
     // 2. merge duplicate rows and handle insert after delete
-    if (block->rows() != num_rows) {
-        num_rows = block->rows();
-        // data in block has changed, should re-encode key columns, sequence column
-        _convertor->clear_source_content();
-        RETURN_IF_ERROR(convert_pk_columns(block, 0, num_rows, key_columns));
-        RETURN_IF_ERROR(convert_seq_column(block, 0, num_rows, seq_column));
-    }
     RETURN_IF_ERROR(aggregate_for_insert_after_delete(block, num_rows, key_columns,
                                                       specified_rowsets, segment_caches, row_lsns,
                                                       insert_after_delete_flags));

@@ -20,38 +20,24 @@ syntax = "proto2";
 package doris.snii;
 
 message SniiMetadataDirectoryPB {
-    // Known values: 1 = blob logical index entries are present (set iff any
-    // entry has kind != SNII_KIND_INVERTED). Readers accept a whitelist of
-    // known values and reject everything else as Unsupported.
+    // Feature 1 marks blob indexes; readers reject unknown required features.
     repeated uint32 required_features = 1 [packed = true];
     repeated SniiLogicalIndexMetadataPB indexes = 2;
 }
 
-// Logical index kinds. INVERTED keeps the existing three-blob contract; blob
-// kinds carry an opaque named-file table instead. The `kind` field below is
-// deliberately uint32 (not this enum type): proto2 drops unknown enum values
-// into unknown fields, which would make a future kind indistinguishable from
-// an absent one instead of a clean Unsupported.
+// Logical index kinds for the kind field.
 enum SniiLogicalIndexKindPB {
     SNII_KIND_INVERTED = 0; // default: SNII text inverted index
     SNII_KIND_BKD = 1;      // opaque CLucene BKD blobs
     SNII_KIND_ANN = 2;      // opaque faiss blobs
 }
 
-// One opaque sub-file of a blob logical index. Offsets are absolute file
-// offsets into the container. NOTE: length may legitimately be 0 (an empty
-// BKD segment writes 0-byte `bkd` / `bkd_index`); this deliberately differs
-// from SniiBlobRefPB, whose length==0 is Corruption.
+// Blob offsets are absolute, and empty blobs may have zero length.
 message SniiNamedBlobPB {
     optional bytes name = 1; // e.g. "bkd_meta", "ann.faiss"
     optional uint64 offset = 2;
     optional uint64 length = 3; // may be 0
-    // Whole-blob checksum, recorded by the writer. NOT verified on the read
-    // path: a blob is served through random-access reads, so a whole-file
-    // verification would defeat the point, and BKD/faiss both carry their own
-    // structural checks. It exists so an offline inspect/fsck tool (and the
-    // writer's own unit tests) can distinguish "container bytes rotted" from
-    // "reader is buggy". No such tool exists yet.
+    // The checksum covers the whole blob for offline validation.
     optional uint32 crc32c = 4;
 }
 
@@ -61,11 +47,12 @@ message SniiLogicalIndexMetadataPB {
     optional SniiBlobRefPB core_metadata = 3;        // INVERTED only
     optional SniiBlobRefPB sampled_term_index = 4;   // INVERTED only
     optional SniiBlobRefPB dict_block_directory = 5; // INVERTED only
-    // SniiLogicalIndexKindPB. Writers MUST NOT set this field (not even to 0)
-    // on INVERTED entries: proto2 presence semantics would serialize it and
-    // change the bytes of every pure-text directory.
+    // Use uint32 to detect unknown kinds; omit this field for inverted indexes.
     optional uint32 kind = 6;
     repeated SniiNamedBlobPB files = 7; // blob kinds only
+    // Set when an inverted index drops postings. Omit it when false so unchanged
+    // directories keep their wire bytes; rewrites use it to preserve the feature.
+    optional bool dropped_postings = 8;
 }
 
 message SniiBlobRefPB {
@@ -77,19 +64,28 @@ message SniiCoreMetadataPB {
     optional uint32 index_config = 1;
     optional SniiStatsPB stats = 2;
     optional SniiSectionRefsPB section_refs = 3;
-    // Fields 4/5 belonged to the removed CommonGrams feature. Keep their numbers as opaque
-    // bytes/integers so readers can identify and reject CommonGrams segments without parsing
-    // the contents. Older production 4.1.7-series readers already ignore these fields.
+    // Keep tags 4 and 5 to reject unsupported CommonGrams metadata.
     optional bytes legacy_common_grams = 4;
     optional uint32 legacy_common_grams_posting_policy = 5;
+    // Stores the resolved scheme of a gram-family index. Omit it for other
+    // indexes to preserve their wire bytes.
+    optional SniiGramSchemePB gram_scheme = 6;
+    // Summarizes high-frequency terms for the query cost gate.
+    optional SniiHighDfTermsPB high_df_terms = 7;
 }
 
-// FIELD NUMBERS ARE ON DISK. The SNII format shipped before this message reached
-// upstream, and those segments put null_count at 4. Upstream later inserted
-// sum_total_term_freq at 4 and pushed null_count to 5, so the two layouts
-// disagree on what tag 4 means -- and both are uint64, so a mismatched read
-// returns a plausible wrong number instead of failing. Numbering here follows
-// the shipped layout; append new fields, never insert.
+// Stores high-frequency terms by hash and document frequency. The digest bounds
+// candidate counts without reading dictionary blocks.
+message SniiHighDfTermsPB {
+    // Sorted by bsbf_hash for binary search.
+    repeated fixed64 term_hash = 1 [packed = true];
+    // Document frequencies, parallel to term_hash.
+    repeated uint32 df = 2 [packed = true];
+    // Upper bound for terms absent from this digest.
+    optional uint32 df_ceiling = 3;
+}
+
+// Field numbers are stored on disk; add fields without renumbering existing ones.
 message SniiStatsPB {
     optional uint64 doc_count = 1;
     optional uint64 indexed_doc_count = 2;
@@ -103,10 +99,7 @@ message SniiRegionRefPB {
     optional uint64 length = 2;
 }
 
-// FIELD NUMBERS ARE ON DISK -- see the note on SniiStatsPB. Shipped segments put
-// null_bitmap at 3 and bsbf at 4; upstream inserted norms at 3 and shifted both,
-// which makes a reader take the null bitmap's offset/length for the norms region
-// and lose bsbf entirely. Numbering here follows the shipped layout.
+// Keep existing field numbers when adding sections.
 message SniiSectionRefsPB {
     optional SniiRegionRefPB dict_region = 1;
     optional SniiRegionRefPB posting_region = 2;
@@ -114,4 +107,13 @@ message SniiSectionRefsPB {
     optional SniiRegionRefPB bsbf = 4;
     optional SniiRegionRefPB norms = 5;
 }
-
+// Stores the gram scheme used to write the index, so readers can split query
+// patterns the same way. Auto mode is resolved before serialization.
+message SniiGramSchemePB {
+    optional uint32 mode = 1;              // on-disk encoding of GramMode: 1 = dense, 2 = sparse
+    optional uint32 min_len = 2;
+    optional uint32 max_len = 3;
+    optional uint32 density_permille = 4;
+    optional bool lower_case = 5;
+    optional uint32 hash_version = 6;
+}

@@ -64,7 +64,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     private static void assertOptions(Map<String, String> expected, Map<String, String> input,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
         Assertions.assertEquals(new TreeMap<>(expected),
-                new TreeMap<>(IcebergCatalogFactory.buildCatalogProperties(IcebergCatalogProperties.of(input), chosenS3)));
+                new TreeMap<>(IcebergCatalogFactory.buildCatalogProperties(IcebergCatalogProperties.of(input), chosenS3, false)));
     }
 
     private static Optional<S3CompatibleFileSystemProperties> s3(FakeS3CompatibleStorageProperties fake) {
@@ -87,6 +87,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void restMinimalSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "rest",
+                        "http-client.type", "urlconnection",
                         "uri", "https://rest.example/api",
                         "warehouse", "s3://bucket/wh",
                         "catalog-impl", "org.apache.iceberg.rest.RESTCatalog",
@@ -106,6 +107,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void restOAuth2CredentialFlowSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "rest",
+                        "http-client.type", "urlconnection",
                         "iceberg.rest.uri", "https://rest/api",
                         "uri", "https://rest/api",
                         "iceberg.rest.prefix", "main",
@@ -148,6 +150,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void restOAuth2TokenFlowSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "rest",
+                        "http-client.type", "urlconnection",
                         "uri", "https://rest/api",
                         "iceberg.rest.security.type", "oauth2",
                         "iceberg.rest.oauth2.token", "tkn-123",
@@ -174,6 +177,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void restTrimsSurroundingWhitespaceSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "rest",
+                        "http-client.type", "urlconnection",
                         "iceberg.rest.uri", "  https://rest/api  ",
                         "iceberg.rest.security.type", "oauth2",
                         "iceberg.rest.oauth2.token", " tkn-123 ",
@@ -196,6 +200,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void restSigningGlueWithBoundS3Snapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "rest",
+                        "http-client.type", "urlconnection",
                         "uri", "https://rest/api",
                         "iceberg.rest.signing-name", "glue",
                         "iceberg.rest.signing-region", "us-east-1",
@@ -233,6 +238,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void restSigningGlueAssumeRoleSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "rest",
+                        "http-client.type", "urlconnection",
                         "uri", "https://rest/api",
                         "iceberg.rest.signing-name", "glue",
                         "iceberg.rest.signing-region", "us-east-1",
@@ -266,6 +272,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void restSigningOtherNameWithRestCredentialsSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "rest",
+                        "http-client.type", "urlconnection",
                         "uri", "https://rest/api",
                         "iceberg.rest.signing-name", "custom",
                         "iceberg.rest.signing-region", "cn-north-1",
@@ -301,6 +308,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void restSigningProviderChainSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "rest",
+                        "http-client.type", "urlconnection",
                         "uri", "https://rest/api",
                         "iceberg.rest.signing-name", "custom",
                         "iceberg.rest.credentials_provider_type", "instance-profile",
@@ -331,6 +339,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void glueStaticCredentialsSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "glue",
+                        "http-client.type", "urlconnection",
                         "warehouse", "s3://bucket/wh",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com",
                         "glue.access_key", "GAK",
@@ -366,6 +375,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void glueAssumeRoleWithoutWarehouseSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "glue",
+                        "http-client.type", "urlconnection",
                         "glue.endpoint", "https://glue.eu-west-1.amazonaws.com",
                         "glue.role_arn", "arn:aws:iam::1:role/r",
                         "glue.external_id", "eid",
@@ -388,6 +398,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void glueExplicitRegionAliasSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "glue",
+                        "http-client.type", "urlconnection",
                         "warehouse", "s3://bucket/wh",
                         "glue.endpoint", "https://glue.us-east-1.amazonaws.com",
                         "aws.glue.region", "ap-southeast-1",
@@ -415,6 +426,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void glueRegionFallsBackToUsEast1Snapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "glue",
+                        "http-client.type", "urlconnection",
                         "warehouse", "s3://bucket/wh",
                         "glue.endpoint", "https://vpce-1234.glue.privatelink.aws",
                         "glue.role_arn", "arn:aws:iam::1:role/r",
@@ -443,6 +455,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void jdbcWithoutUriEmitsEmptyUriSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "jdbc",
+                        "http-client.type", "urlconnection",
                         "warehouse", "s3://bucket/wh",
                         "uri", "",
                         "catalog-impl", "org.apache.iceberg.jdbc.JdbcCatalog"),
@@ -460,6 +473,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void jdbcFullSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "jdbc",
+                        "http-client.type", "urlconnection",
                         "uri", "jdbc:postgresql://h/db",
                         "warehouse", "s3://bucket/wh",
                         "iceberg.jdbc.user", "u",
@@ -495,6 +509,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void jdbcUriAliasOrderSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "jdbc",
+                        "http-client.type", "urlconnection",
                         "uri", "jdbc:postgresql://plain/db",
                         "iceberg.jdbc.uri", "jdbc:postgresql://prefixed/db",
                         "warehouse", "s3://bucket/wh",
@@ -519,6 +534,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void hmsSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "hms",
+                        "http-client.type", "urlconnection",
                         "hive.metastore.uris", "thrift://h:9083",
                         "warehouse", "s3://bucket/wh",
                         "catalog-impl", DorisHiveCatalog.class.getName()),
@@ -536,6 +552,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void hadoopWithNonGenericStoreSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "hadoop",
+                        "http-client.type", "urlconnection",
                         "warehouse", "oss://bucket/wh",
                         "catalog-impl", "org.apache.iceberg.hadoop.HadoopCatalog",
                         "s3.endpoint", "https://oss",
@@ -556,6 +573,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     public void manifestCacheDerivationSnapshot() {
         assertOptions(
                 props("iceberg.catalog.type", "hadoop",
+                        "http-client.type", "urlconnection",
                         "warehouse", "s3://bucket/wh",
                         "meta.cache.iceberg.manifest.enable", "true",
                         "meta.cache.iceberg.manifest.ttl-second", "3600",
@@ -576,6 +594,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     @Test
     public void s3TablesWithStaticCredentialsSnapshot() {
         Map<String, String> expected = props("iceberg.catalog.type", "s3tables",
+                "http-client.type", "urlconnection",
                 "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
                 "s3.role_arn", "arn:aws:iam::1:role/ignored",
                 "client.region", "us-east-1",
@@ -586,7 +605,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                         "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
                         "s3.role_arn", "arn:aws:iam::1:role/ignored")),
                 Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")
-                        .accessKey("AK").secretKey("SK").roleArn("arn:aws:iam::1:role/ignored")));
+                        .accessKey("AK").secretKey("SK").roleArn("arn:aws:iam::1:role/ignored")), false);
         Assertions.assertEquals(new TreeMap<>(expected), new TreeMap<>(actual));
     }
 
@@ -594,6 +613,7 @@ public class IcebergCatalogOptionsSnapshotTest {
     @Test
     public void s3TablesWithoutBoundStorageSnapshot() {
         Map<String, String> expected = props("iceberg.catalog.type", "s3tables",
+                "http-client.type", "urlconnection",
                 "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
                 "s3.region", "us-east-1",
                 "client.region", "us-east-1");
@@ -601,7 +621,7 @@ public class IcebergCatalogOptionsSnapshotTest {
                 IcebergCatalogProperties.of(props("iceberg.catalog.type", "s3tables",
                         "warehouse", "arn:aws:s3tables:us-east-1:1:bucket/b",
                         "s3.region", "us-east-1")),
-                Optional.empty());
+                Optional.empty(), false);
         Assertions.assertEquals(new TreeMap<>(expected), new TreeMap<>(actual));
     }
 }

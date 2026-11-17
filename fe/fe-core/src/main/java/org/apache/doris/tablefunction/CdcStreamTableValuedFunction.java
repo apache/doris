@@ -29,6 +29,7 @@ import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.extensions.insert.streaming.DataSourceConfigValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJdbcUrlNormalizer;
 import org.apache.doris.job.util.StreamingJobUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
@@ -60,7 +61,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     private final boolean includeDeleteSign;
 
     public CdcStreamTableValuedFunction(Map<String, String> properties) throws AnalysisException {
-        validate(properties);
+        validateProperties(properties);
         includeDeleteSign = Boolean.parseBoolean(properties.getOrDefault(INCLUDE_DELETE_SIGN, "false"));
         processProps(properties);
     }
@@ -83,6 +84,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         StreamingJobUtils.populateDefaultSourceProperties(sourceType, copyProps, jobId);
 
         super.parseCommonProperties(copyProps);
+        StreamingJobUtils.checkCdcDriverPrivilege(ConnectContext.get(),
+                processedParams.get(DataSourceConfigKeys.DRIVER_URL));
         this.processedParams.put(ENABLE_CDC_CLIENT_KEY, "true");
         this.processedParams.put(URI_KEY, URI);
         this.processedParams.put(HTTP_ENABLE_RANGE_REQUEST_KEY, "false");
@@ -117,7 +120,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         }
     }
 
-    private void validate(Map<String, String> properties) throws AnalysisException {
+    public static void validateProperties(Map<String, String> properties) throws AnalysisException {
         if (StringUtils.isEmpty(properties.get(DataSourceConfigKeys.JDBC_URL))) {
             throw new AnalysisException("jdbc_url is required");
         }
@@ -154,11 +157,13 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         }
         String offset = properties.get(DataSourceConfigKeys.OFFSET);
         if (!DataSourceConfigValidator.isValidOffset(offset, sourceType.name())) {
-            throw new AnalysisException("Invalid value for key 'offset': " + offset);
+            throw new AnalysisException(DataSourceConfigValidator.invalidValueMessage(
+                    DataSourceConfigKeys.OFFSET, offset));
         }
         String sslMode = properties.get(DataSourceConfigKeys.SSL_MODE);
         if (sslMode != null && !DataSourceConfigValidator.isValidSslMode(sslMode)) {
-            throw new AnalysisException("Invalid value for key 'ssl_mode': " + sslMode);
+            throw new AnalysisException(DataSourceConfigValidator.invalidValueMessage(
+                    DataSourceConfigKeys.SSL_MODE, sslMode));
         }
         try {
             DataSourceConfigValidator.validateSslVerifyCaPair(properties);
@@ -184,7 +189,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
             return;
         }
         if (!DataSourceConfigValidator.isPositiveInt(value)) {
-            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+            throw new AnalysisException(DataSourceConfigValidator.invalidValueMessage(key, value));
         }
     }
 
@@ -195,7 +200,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
             return;
         }
         if (!DataSourceConfigValidator.isValidPgIdentifier(value)) {
-            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+            throw new AnalysisException(DataSourceConfigValidator.invalidValueMessage(key, value));
         }
     }
 
@@ -206,7 +211,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
             return;
         }
         if (!DataSourceConfigValidator.isValidBoolean(value)) {
-            throw new AnalysisException("Invalid value for key '" + key + "': " + value);
+            throw new AnalysisException("Invalid value for key '" + key + "': " + value
+                    + ". Expected true or false.");
         }
     }
 
@@ -227,6 +233,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
                 throw new AnalysisException("Table does not exist: " + table);
             }
             List<Column> columns = new ArrayList<>(jdbcClient.getColumnsFromJdbc(database, table));
+            // Match the CDC JSON carrier for both binary and timestamp columns, including array elements.
+            columns.forEach(column -> column.setType(StreamingJobUtils.getCdcTransportType(column.getType())));
             if (includeDeleteSign) {
                 columns.add(new Column(Column.DELETE_SIGN, PrimitiveType.TINYINT, false));
             }

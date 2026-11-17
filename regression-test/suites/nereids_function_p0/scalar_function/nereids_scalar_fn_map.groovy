@@ -335,6 +335,19 @@ suite("nereids_scalar_fn_map") {
     qt_sql "select map('postal_code', 10001, 'area_code', 10002, 'zip_plus_4', 10003)"
     qt_sql "select map('{\"zip\":10001}', '{\"city\":\"NY\"}', '{\"code\":10002}', '{\"state\":\"NY\"}')"
 
+    test {
+        sql "select map(array(1, 2), 'v')"
+        exception "MAP key type must be a primitive type"
+    }
+    test {
+        sql "select map(named_struct('a', 1), 'v')"
+        exception "MAP key type must be a primitive type"
+    }
+    test {
+        sql "select map(map(1, 2), 'v')"
+        exception "MAP key type must be a primitive type"
+    }
+
     sql """ drop table if exists fn_test_element_at_map_date """
     sql """
         create table fn_test_element_at_map_date (

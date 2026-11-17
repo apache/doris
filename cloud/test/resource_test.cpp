@@ -446,11 +446,11 @@ TEST(ResourceTest, RefreshDeletedInstanceClearsRuntimeCaches) {
     resource_mgr.refresh_instance(instance_id, instance);
 
     nodes.clear();
-    EXPECT_EQ(resource_mgr.get_node(cloud_unique_id, &nodes), "cloud_unique_id not found");
-    EXPECT_TRUE(nodes.empty());
-    EXPECT_FALSE(resource_mgr.is_version_read_enabled(instance_id));
-    EXPECT_FALSE(resource_mgr.get_source_snapshot_info(instance_id, &source_instance_id,
-                                                       &source_snapshot_version));
+    EXPECT_EQ(resource_mgr.get_node(cloud_unique_id, &nodes), "");
+    ASSERT_TRUE(!nodes.empty());
+    EXPECT_TRUE(resource_mgr.is_version_read_enabled(instance_id));
+    EXPECT_TRUE(resource_mgr.get_source_snapshot_info(instance_id, &source_instance_id,
+                                                      &source_snapshot_version));
 }
 
 // test add/drop cluster

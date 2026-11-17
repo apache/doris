@@ -30,8 +30,10 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/orc_timestamp_decode_context.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "core/data_type_serde/parquet_timestamp.h"
 #include "core/types.h"
@@ -52,8 +54,7 @@ static const int64_t micro_to_nano_second = 1000;
 
 namespace {
 
-Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view,
-                                   const cctz::time_zone& timezone) {
+Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColumnView& orc_view) {
     const auto* orc_batch = dynamic_cast<const ::orc::TimestampVectorBatch*>(orc_view.batch);
     if (orc_batch == nullptr) {
         return Status::InternalError("Unexpected ORC timestamp batch type {}",
@@ -72,20 +73,26 @@ Status decode_timestamp_orc_values(IColumn& nested_column, const OrcDecodedColum
         }
         auto& value =
                 reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(data[old_data_size + row]);
-        orc_serde_utils::TruncatedOrcTimestamp timestamp;
-        auto status = orc_serde_utils::truncate_orc_timestamp_to_microseconds(
-                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        const int64_t seconds = orc_batch->data[source_row];
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                seconds, orc_batch->nanoseconds[source_row], &timestamp);
         if (!status.ok()) {
             data.resize(old_data_size);
             return status;
         }
-        value.from_unixtime(orc_batch->data[source_row], timezone);
-        if (!value.is_valid_date()) {
+        const bool is_timestamp_instant =
+                orc_view.file_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT;
+        // Instant carry precedes timezone conversion; plain TIMESTAMP carry stays in civil time
+        // so rounding cannot jump across a daylight-saving gap or fold.
+        status = orc_serde_utils::orc_timestamp_to_datetime(
+                is_timestamp_instant ? timestamp.seconds : seconds, timestamp.microseconds,
+                orc_view.timestamp_context->timezone_for(*orc_view.file_type, seconds),
+                !is_timestamp_instant && timestamp.carry, &value);
+        if (!status.ok()) {
             data.resize(old_data_size);
-            return Status::DataQualityError(
-                    "Decoded ORC timestamp is outside the target timezone range");
+            return status;
         }
-        value.set_microsecond(timestamp.microseconds);
     }
     return Status::OK();
 }
@@ -426,12 +433,16 @@ Status DataTypeDateTimeV2SerDe::from_int_batch(const typename IntDataType::Colum
 
 template <typename IntDataType>
 Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch(
-        const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
+        const typename IntDataType::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(target_col);
     col_data.resize(int_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         DateV2Value<DateTimeV2ValueType> val;
         CastToDatetimeV2::from_integer<DatelikeParseMode::STRICT>(int_col.get_element(i), val,
                                                                   params);
@@ -471,12 +482,16 @@ Status DataTypeDateTimeV2SerDe::from_float_batch(
 
 template <typename FloatDataType>
 Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch(
-        const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
+        const typename FloatDataType::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(target_col);
     col_data.resize(float_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         DateV2Value<DateTimeV2ValueType> val;
         CastToDatetimeV2::from_float<DatelikeParseMode::STRICT>(float_col.get_data()[i], val,
                                                                 _scale, params);
@@ -517,12 +532,16 @@ Status DataTypeDateTimeV2SerDe::from_decimal_batch(
 
 template <typename DecimalDataType>
 Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch(
-        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
+        const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const {
     auto& col_data = assert_cast<ColumnDateTimeV2&>(target_col);
     col_data.resize(decimal_col.size());
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
+        if (null_map && null_map[i]) {
+            continue;
+        }
         DateV2Value<DateTimeV2ValueType> val;
         CastToDatetimeV2::from_decimal<DatelikeParseMode::STRICT>(
                 decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
@@ -622,6 +641,29 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
     return Status::OK();
 }
 
+Status DataTypeDateTimeV2SerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (field->type()->id() != arrow::Type::TIMESTAMP) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    // The pinned Paimon schema must agree with the declared precision; do not silently rescale.
+    const auto& timestamp = assert_cast<const arrow::TimestampType&>(*field->type());
+    const arrow::TimeUnit::type expected_unit = type->get_scale() > 3   ? arrow::TimeUnit::MICRO
+                                                : type->get_scale() > 0 ? arrow::TimeUnit::MILLI
+                                                                        : arrow::TimeUnit::SECOND;
+    if (timestamp.unit() != expected_unit) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+}
+
 Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
@@ -663,6 +705,12 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
+            // Nullable SerDe has already copied the validity bitmap. The payload of a null Arrow
+            // slot is unspecified, so keep only a default value in the nested column.
+            if (concrete_array->IsNull(value_i)) {
+                col_data.emplace_back();
+                continue;
+            }
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
             auto date_value = unaligned_load<int64_t>(raw_byte_ptr);
 
@@ -676,14 +724,42 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                 --seconds;
                 remainder += divisor;
             }
-            v.from_unixtime(seconds, real_ctz);
+            // from_unixtime() narrows the cctz year to uint16_t without a check, so an instant
+            // whose civil year in real_ctz is outside 0000..9999 would read as another value:
+            // timestamp(us) 2005980768000000000 (65537-01-01) as 0001-01-01, and the years
+            // 10000..65535 as dates DATETIMEV2 cannot hold. Check the civil year before packing,
+            // as orc_timestamp_to_datetime() does for ORC.
+            const auto civil = cctz::convert(
+                    cctz::time_point<cctz::seconds>(cctz::seconds(seconds)), real_ctz);
+            if (civil.year() < 0 || civil.year() > 9999) {
+                return Status::DataQualityError(
+                        "Arrow timestamp {} of type {} is outside the DATETIMEV2 range", date_value,
+                        type->ToString());
+            }
+            v.unchecked_set_time(
+                    static_cast<uint16_t>(civil.year()), static_cast<uint8_t>(civil.month()),
+                    static_cast<uint8_t>(civil.day()), static_cast<uint8_t>(civil.hour()),
+                    static_cast<uint8_t>(civil.minute()), static_cast<uint16_t>(civil.second()), 0);
+            // cctz counts year 0 as a leap year and Doris does not (is_leap(0) is false), so the
+            // civil date 0000-02-29 passes the year check but is not a DATETIMEV2 value.
+            if (!v.is_valid_date()) {
+                return Status::DataQualityError(
+                        "Arrow timestamp {} of type {} is not a valid DATETIMEV2 value", date_value,
+                        type->ToString());
+            }
             // Get the fractional part.
             // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
             // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
             // "2022-01-01 11:11:11.111", timestamp = 1641035471111, divisor = 1000,
             // set_microsecond(111000)
             v.set_microsecond(remainder * DIVISOR_FOR_MICRO / divisor);
-            col_data.emplace_back(v);
+            DateV2Value<DateTimeV2ValueType> scaled_v;
+            if (!transform_date_scale(_scale, 6, scaled_v, v)) {
+                return Status::DataQualityError(
+                        "Arrow timestamp exceeds DATETIMEV2 range after rounding to scale {}",
+                        _scale);
+            }
+            col_data.emplace_back(scaled_v);
         }
     } else {
         LOG(WARNING) << "not support convert to datetimev2 from arrow type:"
@@ -849,6 +925,13 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
             return Status::InternalError("get unix timestamp error.");
         }
 
+        // ORC-645 aliases this pre-epoch fraction to a positive timestamp on disk.
+        // Keep the same fail-fast contract as TIMESTAMPTZ instead of writing a wrong value.
+        if (timestamp == -1 && datetime_val.microsecond() >= 1000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) seconds "
+                    "without data loss; use Parquet for these values");
+        }
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micro_to_nano_second;
     }
@@ -931,23 +1014,30 @@ template Status DataTypeDateTimeV2SerDe::from_int_batch<DataTypeInt64>(
 template Status DataTypeDateTimeV2SerDe::from_int_batch<DataTypeInt128>(
         const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt8>(
-        const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt8::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt16>(
-        const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt16::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt32>(
-        const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt32::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt64>(
-        const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt64::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch<DataTypeInt128>(
-        const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
+        const DataTypeInt128::ColumnType& int_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_float_batch<DataTypeFloat32>(
         const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_float_batch<DataTypeFloat64>(
         const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch<DataTypeFloat32>(
-        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch<DataTypeFloat64>(
-        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_batch<DataTypeDecimal32>(
         const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_batch<DataTypeDecimal64>(
@@ -959,15 +1049,20 @@ template Status DataTypeDateTimeV2SerDe::from_decimal_batch<DataTypeDecimal128>(
 template Status DataTypeDateTimeV2SerDe::from_decimal_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal32>(
-        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal64>(
-        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
-        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal128>(
-        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 template Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
-        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+        const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col,
+        const NullMap::value_type* null_map) const;
 
 Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
                                                      const OrcDecodedColumnView& view) const {
@@ -975,11 +1070,50 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
     DORIS_CHECK(view.batch != nullptr);
     const auto kind = view.file_type->getKind();
     DORIS_CHECK(kind == ::orc::TypeKind::TIMESTAMP || kind == ::orc::TypeKind::TIMESTAMP_INSTANT);
-    DORIS_CHECK(view.timezone != nullptr);
+    DORIS_CHECK(view.timestamp_context != nullptr);
     if (orc_serde_utils::orc_decode_row_count(view.rows, view.selected_rows) == 0) {
         return Status::OK();
     }
-    return decode_timestamp_orc_values(column, view, *view.timezone);
+    return decode_timestamp_orc_values(column, view);
+}
+
+Status DataTypeDateTimeV2SerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                                  const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_DATE_TIME) {
+        return Status::InvalidArgument("BSON DATETIME requires a date source");
+    }
+    int64_t millis = value.value.value.v_datetime;
+    int64_t seconds = millis / 1000;
+    int64_t remainder = millis % 1000;
+    if (remainder < 0) {
+        --seconds;
+        remainder += 1000;
+    }
+    int64_t quantum = 1;
+    for (int i = _scale; i < 3; ++i) {
+        quantum *= 10;
+    }
+    if (remainder % quantum != 0) {
+        return Status::InvalidArgument("BSON date requires rounding at the target datetime scale");
+    }
+    const auto civil = cctz::convert(cctz::time_point<cctz::seconds>(cctz::seconds(seconds)),
+                                     cctz::utc_time_zone());
+    if (civil.year() < 0 || civil.year() > 9999) {
+        return Status::InvalidArgument("BSON date is outside the DATETIMEV2 range");
+    }
+    DateV2Value<DateTimeV2ValueType> result;
+    result.unchecked_set_time(
+            static_cast<uint16_t>(civil.year()), static_cast<uint8_t>(civil.month()),
+            static_cast<uint8_t>(civil.day()), static_cast<uint8_t>(civil.hour()),
+            static_cast<uint8_t>(civil.minute()), static_cast<uint16_t>(civil.second()),
+            static_cast<uint32_t>(remainder * 1000));
+    if (!result.is_valid_date()) {
+        return Status::InvalidArgument("BSON date is not representable as DATETIMEV2");
+    }
+    assert_cast<ColumnDateTimeV2&>(column).insert_value(
+            binary_cast<decltype(result), UInt64>(result));
+    return Status::OK();
 }
 
 } // namespace doris

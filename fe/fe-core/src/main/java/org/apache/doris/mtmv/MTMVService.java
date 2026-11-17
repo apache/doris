@@ -113,13 +113,15 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
+    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace,
+            MTMVHookService.QueryJudgedChange queryJudgedChange) {
         Objects.requireNonNull(oldTableInfo, "oldTableInfo can not be null");
         Objects.requireNonNull(newTableInfo, "newTableInfo can not be null");
-        LOG.info("alterTable, oldTableInfo: {}, newTableInfo: {}, isReplace: {}", oldTableInfo, newTableInfo,
-                isReplace);
+        LOG.info("alterTable, oldTableInfo: {}, newTableInfo: {}, isReplace: {}, queryJudgedColumns: {}",
+                oldTableInfo, newTableInfo, isReplace,
+                queryJudgedChange == null ? null : queryJudgedChange.columns());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterTable(oldTableInfo, newTableInfo, isReplace);
+            mtmvHookService.alterTable(oldTableInfo, newTableInfo, isReplace, queryJudgedChange);
         }
     }
 

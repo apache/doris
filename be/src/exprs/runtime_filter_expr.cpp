@@ -34,6 +34,7 @@
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
+#include "util/simd/bits.h"
 
 namespace doris {
 
@@ -168,52 +169,31 @@ Status RuntimeFilterExpr::execute_filter(VExprContext* context, const Block* blo
             rf_selectivity.update_judge_selectivity(_filter_id, 0, rows, _ignore_thredhold);
             return Status::OK();
         }
-    } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+    }
+
+    simd::FilterCounts counts;
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         // nullable(bool)
         const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
         const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
         const auto* __restrict filter_data = filter.data();
         const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
-        const size_t input_rows = rows - simd::count_zero_num((int8_t*)result_filter_data, rows);
-
-        for (size_t i = 0; i < rows; ++i) {
-            result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
-        }
-
-        const size_t output_rows = rows - simd::count_zero_num((int8_t*)result_filter_data, rows);
-
-        COUNTER_UPDATE(_rf_filter_rows, input_rows - output_rows);
-        COUNTER_UPDATE(_rf_input_rows, input_rows);
-        rf_selectivity.update_judge_selectivity(_filter_id, input_rows - output_rows, input_rows,
-                                                _ignore_thredhold);
-
-        if (output_rows == 0) {
-            *can_filter_all = true;
-            return Status::OK();
-        }
+        counts = simd::filter_and_count<true>(result_filter_data, filter_data, rows, null_map_data);
     } else {
         // bool
         const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
         const auto* __restrict filter_data = filter.data();
 
-        const size_t input_rows = rows - simd::count_zero_num((int8_t*)result_filter_data, rows);
-
-        for (size_t i = 0; i < rows; ++i) {
-            result_filter_data[i] &= filter_data[i];
-        }
-
-        const size_t output_rows = rows - simd::count_zero_num((int8_t*)result_filter_data, rows);
-
-        COUNTER_UPDATE(_rf_filter_rows, input_rows - output_rows);
-        COUNTER_UPDATE(_rf_input_rows, input_rows);
-        rf_selectivity.update_judge_selectivity(_filter_id, input_rows - output_rows, input_rows,
-                                                _ignore_thredhold);
-
-        if (output_rows == 0) {
-            *can_filter_all = true;
-            return Status::OK();
-        }
+        counts = simd::filter_and_count(result_filter_data, filter_data, rows);
+    }
+    const auto [input_rows, output_rows] = counts;
+    COUNTER_UPDATE(_rf_filter_rows, input_rows - output_rows);
+    COUNTER_UPDATE(_rf_input_rows, input_rows);
+    rf_selectivity.update_judge_selectivity(_filter_id, input_rows - output_rows, input_rows,
+                                            _ignore_thredhold);
+    if (output_rows == 0) {
+        *can_filter_all = true;
     }
     return Status::OK();
 }

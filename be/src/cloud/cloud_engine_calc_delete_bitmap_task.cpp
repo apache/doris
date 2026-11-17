@@ -158,8 +158,8 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
         return Status::Error<ErrorCode::PUSH_TABLE_NOT_EXIST>(
                 "can't get tablet when calculate delete bitmap. tablet_id={}", _tablet_id);
     }
-    if (tablet->is_row_binlog_tablet()) {
-        VLOG_DEBUG << "skip calculating delete bitmap for row binlog tablet, tablet_id="
+    if (tablet->is_changelog_tablet()) {
+        VLOG_DEBUG << "skip calculating delete bitmap for changelog tablet, tablet_id="
                    << _tablet_id << ", txn_id=" << _transaction_id
                    << ", it will be handled with its base tablet";
         return Status::OK();
@@ -218,6 +218,15 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     }
 
     int64_t t3 = MonotonicMicros();
+    DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.handle.block_for_restart", {
+        if (dp->param<int64_t>("tablet_id", -1) == _tablet_id) {
+            // The restart regression pairs this marker with the persisted MS lock owner.
+            LOG(INFO) << "delete bitmap restart barrier token="
+                      << dp->param<std::string>("token", "") << " lock_id=" << _transaction_id
+                      << " tablet_id=" << _tablet_id;
+            DBUG_BLOCK;
+        }
+    });
     DBUG_EXECUTE_IF("CloudEngineCalcDeleteBitmapTask.handle.inject_sleep", {
         auto p = dp->param("percent", 0.01);
         // 100s > Config.calculate_delete_bitmap_task_timeout_seconds = 60s
@@ -280,6 +289,23 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
             DCHECK(invisible_rowsets.size() == i + 1 - empty_rowset_count);
         }
     }
+    DBUG_EXECUTE_IF("CloudTabletCalcDeleteBitmapTask.handle.block_after_calc", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", 0);
+        auto target_transaction_id = dp->param<int64_t>("transaction_id", 0);
+        if (status.ok() && target_tablet_id == _tablet_id &&
+            (target_transaction_id == 0 || target_transaction_id == _transaction_id)) {
+            // Delay the response after calculation without preventing another transaction from
+            // calculating the delete bitmap on the same tablet.
+            wrlock.unlock();
+            LOG(INFO) << "start debug block after calculating delete bitmap"
+                      << ", tablet_id=" << _tablet_id << ", txn_id=" << _transaction_id;
+            while (DebugPoints::instance()->is_enable(DP_NAME)) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            LOG(INFO) << "finish debug block after calculating delete bitmap"
+                      << ", tablet_id=" << _tablet_id << ", txn_id=" << _transaction_id;
+        }
+    });
     DBUG_EXECUTE_IF("CloudCalcDbmTask.handle.return.block",
                     auto target_tablet_id = dp->param<int64_t>("tablet_id", 0);
                     if (target_tablet_id == tablet->tablet_id()) {DBUG_BLOCK});
@@ -315,10 +341,10 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     std::shared_ptr<PublishStatus> publish_status;
     int64_t txn_expiration;
     TxnPublishInfo previous_publish_info;
-    RowBinlogTxnInfo attach_row_binlog;
+    ChangelogTxnInfo attach_changelog;
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info, &publish_status, &previous_publish_info, &attach_row_binlog);
+            &partial_update_info, &publish_status, &previous_publish_info, &attach_changelog);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id << ", " << txn_str
                      << ", status=" << status;
@@ -326,10 +352,18 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     }
 
     rowset->set_version(Version(version, version));
+    if (rowset->tablet_schema()->is_tso_enabled() && rowset->commit_tso().start_tso() == -1) {
+        DORIS_CHECK_EQ(rowset->commit_tso().end_tso(), -1);
+        // FE allocates the real commit TSO after delete-bitmap calculation. Partial-update
+        // alignment reads this pending rowset with its assigned version, so use the physical
+        // COMMIT_TSO placeholder here. MS overwrites it when committing the transaction; TSO
+        // tablets fetch the published metadata instead of using the BE fast-publish cache.
+        rowset->rowset_meta()->set_commit_tso(0);
+    }
     TabletTxnInfo txn_info;
     txn_info.rowset = rowset;
     txn_info.delete_bitmap = delete_bitmap;
-    txn_info.attach_row_binlog = attach_row_binlog;
+    txn_info.attach_changelog = attach_changelog;
     txn_info.rowset_ids = rowset_ids;
     txn_info.partial_update_info = partial_update_info;
     txn_info.publish_status = publish_status;

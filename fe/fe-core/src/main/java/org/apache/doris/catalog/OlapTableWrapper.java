@@ -80,6 +80,11 @@ public class OlapTableWrapper extends OlapTable {
         this(originTable, new HashMap<>());
     }
 
+    @Override
+    public boolean getVariantEscapeDotsInKeys() {
+        return originTable.getVariantEscapeDotsInKeys();
+    }
+
     public OlapTable getOriginTable() {
         return originTable;
     }
@@ -176,8 +181,8 @@ public class OlapTableWrapper extends OlapTable {
     }
 
     @Override
-    public boolean needRowBinlog() {
-        return originTable.needRowBinlog();
+    public boolean hasChangelog() {
+        return originTable.hasChangelog();
     }
 
     @Override

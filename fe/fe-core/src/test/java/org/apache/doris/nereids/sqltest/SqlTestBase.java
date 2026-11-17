@@ -96,7 +96,8 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
                         + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                         + "PROPERTIES (\n"
                         + "  \"replication_num\" = \"1\"\n"
-                        + ")\n",
+                        + ")\n");
+        createTableWithChangelog(
                 "CREATE TABLE IF NOT EXISTS T4 (\n"
                         + "    id bigint,\n"
                         + "    score bigint\n"
@@ -108,9 +109,9 @@ public abstract class SqlTestBase extends TestWithFeService implements MemoPatte
                         + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                         + "PROPERTIES (\n"
                         + "  \"replication_num\" = \"1\",\n"
-                        + "  \"binlog.enable\" = \"true\",\n"
-                        + "  \"binlog.format\" = \"ROW\"\n"
-                        + ")\n",
+                        + "  \"changelog.enable\" = \"true\"\n"
+                        + ")\n");
+        createTables(
                 "CREATE TABLE IF NOT EXISTS orders  (\n"
                         + "      o_orderkey       INTEGER NOT NULL,\n"
                         + "      o_custkey        INTEGER NOT NULL,\n"

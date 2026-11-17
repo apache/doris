@@ -818,8 +818,8 @@ Status ParquetMetadataReader::_do_get_next_block(Block* block, size_t* read_rows
 
         RETURN_IF_ERROR(_build_rows(columns));
         for (size_t i = 0; i < _slots.size(); ++i) {
-            block->insert(ColumnWithTypeAndName(
-                    std::move(columns[i]), _slots[i]->get_data_type_ptr(), _slots[i]->col_name()));
+            block->insert(ColumnWithTypeAndName(std::move(columns[i]), _slots[i]->type(),
+                                                _slots[i]->col_name()));
         }
         produced = block->rows();
     } else {

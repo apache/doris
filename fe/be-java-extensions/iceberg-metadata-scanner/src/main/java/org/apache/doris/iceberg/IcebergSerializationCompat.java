@@ -17,10 +17,12 @@
 
 package org.apache.doris.iceberg;
 
+import org.apache.iceberg.IcebergBuild;
 import org.apache.iceberg.Schema;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectStreamClass;
 import java.io.UncheckedIOException;
@@ -44,10 +46,15 @@ final class IcebergSerializationCompat {
         try (ByteArrayInputStream input = new ByteArrayInputStream(bytes);
                 ObjectInputStream objectInput = new SchemaCompatibleObjectInputStream(input)) {
             return (T) objectInput.readObject();
+        } catch (InvalidClassException | ClassNotFoundException e) {
+            // A class in the task differs from, or is missing in, this BE's Iceberg: the split was serialized by an
+            // FE on another Iceberg version. Only Schema is shimmed; Iceberg 1.12 changed BaseFile, PartitionData and
+            // their anonymous classes, which every task carries, so the task cannot be read here.
+            throw new IllegalStateException("Cannot read an Iceberg system table split serialized with a different"
+                    + " Iceberg version than this BE's (" + IcebergBuild.version() + "). Iceberg system tables are"
+                    + " unavailable while FE and BE run different Doris versions, e.g. during a rolling upgrade.", e);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to deserialize object", e);
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException("Could not read object ", e);
         }
     }
 

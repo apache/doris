@@ -1,0 +1,214 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.connector.fluss;
+
+import org.apache.fluss.client.admin.OffsetSpec;
+import org.apache.fluss.client.metadata.KvSnapshots;
+import org.apache.fluss.client.metadata.LakeSnapshot;
+import org.apache.fluss.exception.LakeTableSnapshotNotExistException;
+import org.apache.fluss.exception.TableNotExistException;
+import org.apache.fluss.metadata.PartitionInfo;
+import org.apache.fluss.metadata.PartitionSpec;
+import org.apache.fluss.metadata.TableInfo;
+import org.apache.fluss.metadata.TablePath;
+import org.apache.fluss.metadata.TableStats;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Programmable {@link FlussAdminOps} for unit tests: canned answers plus a log of the calls made.
+ *
+ * <p>This is the connector's substitute for a mocking framework (which the fe-connector modules do not
+ * carry). Two things it buys that a live cluster cannot: a test can put the cluster in states that are
+ * awkward or slow to reach for real — a bucket whose lake offset has caught up with its log, a partition
+ * present only in the lake — and it can assert <em>which</em> remote calls were made, which is how
+ * per-statement memoization and partition pushdown are pinned down.
+ *
+ * <p>Anything a test has not programmed throws rather than returning a neutral value: silently answering
+ * "empty" would let a test pass while the code under test called something nobody meant it to call.
+ */
+class RecordingFlussAdminOps implements FlussAdminOps {
+
+    /** Every call made, in order, as {@code method(args)} — the assertion target for call-count tests. */
+    final List<String> calls = new ArrayList<>();
+
+    List<String> databases = Collections.emptyList();
+    final Map<String, List<String>> tablesByDatabase = new HashMap<>();
+    final Map<TablePath, TableInfo> tableInfos = new HashMap<>();
+    final Map<TablePath, List<PartitionInfo>> partitionsByTable = new HashMap<>();
+    final Map<TablePath, TableStats> statsByTable = new HashMap<>();
+    /**
+     * Latest log offset per bucket, keyed by fluss's own partition name ({@code null} for an
+     * unpartitioned table) — what split planning stops each bucket at.
+     */
+    final Map<String, Map<Integer, Long>> latestOffsetsByPartition = new HashMap<>();
+    /**
+     * Earliest log offset per bucket, keyed the same way — how far back fluss can still serve. Kept apart
+     * from the latest offsets rather than sharing one map: a union read of a primary-key table asks for
+     * both, and a fixture that answered the same numbers to both questions would make the guard that
+     * compares them ("is the tail still there?") pass no matter what it was given.
+     */
+    final Map<String, Map<Integer, Long>> earliestOffsetsByPartition = new HashMap<>();
+    /**
+     * Latest kv snapshot per bucket, keyed by fluss's own partition name ({@code null} for an
+     * unpartitioned table) — where primary-key planning starts each bucket's change log.
+     */
+    final Map<String, KvSnapshots> kvSnapshotsByPartition = new HashMap<>();
+    /** The readable lake snapshot, or {@code null} to answer as a table nothing has been tiered from. */
+    LakeSnapshot readableLakeSnapshot;
+    /** When set, every call throws this instead of answering — the "cluster is unreachable" case. */
+    RuntimeException failure;
+
+    @Override
+    public List<String> listDatabases() {
+        calls.add("listDatabases()");
+        return databases;
+    }
+
+    @Override
+    public boolean databaseExists(String databaseName) {
+        calls.add("databaseExists(" + databaseName + ")");
+        return databases.contains(databaseName);
+    }
+
+    @Override
+    public List<String> listTables(String databaseName) {
+        calls.add("listTables(" + databaseName + ")");
+        List<String> tables = tablesByDatabase.get(databaseName);
+        if (tables == null) {
+            throw new IllegalStateException("no tables programmed for database '" + databaseName + "'");
+        }
+        return tables;
+    }
+
+    @Override
+    public boolean tableExists(TablePath tablePath) {
+        throw notProgrammed("tableExists");
+    }
+
+    @Override
+    public TableInfo getTableInfo(TablePath tablePath) {
+        calls.add("getTableInfo(" + tablePath + ")");
+        if (failure != null) {
+            throw failure;
+        }
+        TableInfo tableInfo = tableInfos.get(tablePath);
+        if (tableInfo == null) {
+            // What a real fluss cluster answers for an unknown table; the connector discriminates on it.
+            throw new TableNotExistException("Table '" + tablePath + "' does not exist.");
+        }
+        return tableInfo;
+    }
+
+    @Override
+    public List<PartitionInfo> listPartitionInfos(TablePath tablePath) {
+        calls.add("listPartitionInfos(" + tablePath + ")");
+        List<PartitionInfo> partitions = partitionsByTable.get(tablePath);
+        if (partitions == null) {
+            throw new IllegalStateException("no partitions programmed for table '" + tablePath + "'");
+        }
+        return partitions;
+    }
+
+    @Override
+    public List<PartitionInfo> listPartitionInfos(TablePath tablePath, PartitionSpec partialPartitionSpec) {
+        throw notProgrammed("listPartitionInfos");
+    }
+
+    @Override
+    public TableStats getTableStats(TablePath tablePath) {
+        calls.add("getTableStats(" + tablePath + ")");
+        if (failure != null) {
+            throw failure;
+        }
+        TableStats stats = statsByTable.get(tablePath);
+        if (stats == null) {
+            throw new IllegalStateException("no stats programmed for table '" + tablePath + "'");
+        }
+        return stats;
+    }
+
+    @Override
+    public KvSnapshots getLatestKvSnapshots(TablePath tablePath) {
+        return recordedKvSnapshots(tablePath, null);
+    }
+
+    @Override
+    public KvSnapshots getLatestKvSnapshots(TablePath tablePath, String partitionName) {
+        return recordedKvSnapshots(tablePath, partitionName);
+    }
+
+    private KvSnapshots recordedKvSnapshots(TablePath tablePath, String partitionName) {
+        calls.add("getLatestKvSnapshots(" + tablePath
+                + (partitionName == null ? "" : ", " + partitionName) + ")");
+        KvSnapshots snapshots = kvSnapshotsByPartition.get(partitionName);
+        if (snapshots == null) {
+            throw new IllegalStateException(
+                    "no kv snapshots programmed for partition '" + partitionName + "'");
+        }
+        return snapshots;
+    }
+
+    @Override
+    public LakeSnapshot getReadableLakeSnapshot(TablePath tablePath) {
+        calls.add("getReadableLakeSnapshot(" + tablePath + ")");
+        if (readableLakeSnapshot == null) {
+            // What a real cluster answers for a table tiering has never committed for; the connector
+            // discriminates on this exact type to decide whether a union read is possible at all.
+            throw new LakeTableSnapshotNotExistException(
+                    "Lake snapshot for table '" + tablePath + "' does not exist.");
+        }
+        return readableLakeSnapshot;
+    }
+
+    @Override
+    public Map<Integer, Long> listOffsets(TablePath tablePath, Collection<Integer> buckets, OffsetSpec offsetSpec) {
+        return recordedOffsets(tablePath, null, buckets, offsetSpec);
+    }
+
+    @Override
+    public Map<Integer, Long> listOffsets(TablePath tablePath, String partitionName,
+            Collection<Integer> buckets, OffsetSpec offsetSpec) {
+        return recordedOffsets(tablePath, partitionName, buckets, offsetSpec);
+    }
+
+    private Map<Integer, Long> recordedOffsets(TablePath tablePath, String partitionName,
+            Collection<Integer> buckets, OffsetSpec offsetSpec) {
+        calls.add("listOffsets(" + tablePath + (partitionName == null ? "" : ", " + partitionName)
+                + ", " + buckets + ", " + offsetSpec.getClass().getSimpleName() + ")");
+        boolean earliest = offsetSpec instanceof OffsetSpec.EarliestSpec;
+        Map<Integer, Long> offsets = earliest
+                ? earliestOffsetsByPartition.get(partitionName)
+                : latestOffsetsByPartition.get(partitionName);
+        if (offsets == null) {
+            throw new IllegalStateException("no " + (earliest ? "earliest" : "latest")
+                    + " offsets programmed for partition '" + partitionName + "'");
+        }
+        return offsets;
+    }
+
+    private static UnsupportedOperationException notProgrammed(String method) {
+        return new UnsupportedOperationException(
+                method + " was called but this test programmed no answer for it");
+    }
+}

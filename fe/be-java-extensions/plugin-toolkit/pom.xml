@@ -49,6 +49,18 @@ under the License.
 
     <dependencies>
         <!--
+          The SPI a helper here may build on - NestedProjection walks the ColumnType tree BE hands a
+          scanner. Provided, never compile: the enforcer below only pre-authorises it in that scope,
+          because a compile-scope SPI would be copied into every consuming plugin's directory and
+          the loader rejects a plugin that ships its own SPI copy.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>jni-spi</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <!--
           Narrowed to test scope for the same reason as in jni-spi: the fe parent pom declares
           these for every module, and a child cannot drop an inherited dependency. See that pom
           for the full explanation. Do not "fix" these to compile scope.

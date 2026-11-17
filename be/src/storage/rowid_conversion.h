@@ -20,11 +20,13 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <set>
 #include <utility>
 #include <vector>
 
 #include "common/cast_set.h"
 #include "common/check.h"
+#include "core/custom_allocator.h"
 #include "runtime/thread_context.h"
 #include "storage/olap_common.h"
 #include "storage/utils.h"
@@ -39,6 +41,8 @@ namespace doris {
 class RowIdConversion {
 public:
     enum class Mode { DENSE, LAZY_CHUNKED };
+    using VisibilityFilteredRows =
+            std::set<RowLocation, std::less<>, CustomStdAllocator<RowLocation>>;
 
     struct DestinationRowId {
         uint32_t segment_pos;
@@ -93,6 +97,16 @@ public:
     // set dst rowset id
     void set_dst_rowset_id(const RowsetId& dst_rowset_id) { _dst_rowst_id = dst_rowset_id; }
     const RowsetId& get_dst_rowset_id() const { return _dst_rowst_id; }
+
+    // Debug correctness checks distinguish rows discarded by visibility filtering from
+    // missing mappings. Such rows can acquire delete-bitmap entries during concurrent loads.
+    void enable_visibility_filter_tracking() {
+        _visibility_filtered_rows = std::make_unique<VisibilityFilteredRows>();
+    }
+    VisibilityFilteredRows* visibility_filtered_rows() { return _visibility_filtered_rows.get(); }
+    bool is_visibility_filtered(const RowLocation& src) const {
+        return _visibility_filtered_rows != nullptr && _visibility_filtered_rows->contains(src);
+    }
 
     // add row id to the map
     Status add(const std::vector<RowLocation>& rss_row_ids,
@@ -253,6 +267,7 @@ private:
     size_t _seg_rowid_map_mem_used {0};
     size_t _std_pair_cap {0};
     Mode _mode;
+    std::unique_ptr<VisibilityFilteredRows> _visibility_filtered_rows;
 
     // Map source segment to 0 to n
     std::map<std::pair<RowsetId, uint32_t>, uint32_t> _segment_to_id_map;

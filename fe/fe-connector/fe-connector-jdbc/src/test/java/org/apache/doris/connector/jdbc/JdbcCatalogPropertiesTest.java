@@ -67,8 +67,8 @@ class JdbcCatalogPropertiesTest {
         Assertions.assertFalse(p.isOnlySpecifiedDatabase());
         Assertions.assertEquals("", p.getIncludeDatabaseList());
         Assertions.assertEquals("", p.getExcludeDatabaseList());
-        Assertions.assertFalse(p.isEnableMappingVarbinary());
-        Assertions.assertFalse(p.isEnableMappingTimestampTz());
+        Assertions.assertTrue(p.isEnableMappingVarbinary());
+        Assertions.assertTrue(p.isEnableMappingTimestampTz());
         Assertions.assertEquals("", p.getFunctionRules());
         Assertions.assertFalse(p.isLowerCaseMetaNames());
         Assertions.assertEquals("", p.getMetaNamesMapping());

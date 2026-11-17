@@ -369,11 +369,15 @@ Status parse_json_batch(ColumnPtr json, const LayoutConfig& config, uint32_t row
     DORIS_CHECK(function != nullptr);
     block.insert({nullptr, result_type, "result"});
     auto context = FunctionContext::create_context(nullptr, result_type, {input_type});
-    RETURN_IF_ERROR(function->open(context.get(), FunctionContext::FRAGMENT_LOCAL));
-    RETURN_IF_ERROR(function->open(context.get(), FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(
+            function->open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(
+            function->open(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL));
     Status status = function->execute(context.get(), block, {0}, 1, rows);
-    Status close_thread = function->close(context.get(), FunctionContext::THREAD_LOCAL);
-    Status close_fragment = function->close(context.get(), FunctionContext::FRAGMENT_LOCAL);
+    Status close_thread =
+            function->close(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL);
+    Status close_fragment =
+            function->close(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL);
     RETURN_IF_ERROR(status);
     RETURN_IF_ERROR(close_thread);
     RETURN_IF_ERROR(close_fragment);

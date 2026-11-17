@@ -51,12 +51,14 @@
 #include "io/cache/block_file_cache_ttl_mgr.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/file_cache_io_adaptor.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/inflight_write_buffer_index.h"
 #include "io/cache/mem_file_cache_storage.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
+#include "util/defer_op.h"
 #include "util/mem_info.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
@@ -190,7 +192,8 @@ int64_t steady_clock_seconds() {
 
 BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                const FileCacheSettings& cache_settings)
-        : _cache_base_path(cache_base_path),
+        : _io_adaptor(std::make_unique<FileCacheIOAdaptor>()),
+          _cache_base_path(cache_base_path),
           _capacity(cache_settings.capacity),
           _max_file_block_size(cache_settings.max_file_block_size) {
     _cur_cache_size_metrics = std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(),
@@ -403,6 +406,10 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
             _cache_base_path.c_str(), "file_cache_lru_dump_latency_us");
     _recycle_keys_length_recorder = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_recycle_keys_length");
+    _deleting_block_count_metrics = std::make_shared<bvar::Status<size_t>>(
+            _cache_base_path.c_str(), "file_cache_deleting_block_count", 0);
+    _recycle_deleting_blocks_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_recycle_deleting_blocks");
     _need_update_lru_blocks_length_recorder = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_need_update_lru_blocks_length");
     _need_update_lru_blocks_produce_metrics = std::make_shared<bvar::Adder<size_t>>(
@@ -701,12 +708,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
         if (_async_open_done) {
             return {};
         }
-        FileCacheKey key;
-        key.hash = hash;
-        key.meta.type = context.cache_type;
-        key.meta.expiration_time = context.expiration_time;
-        key.meta.tablet_id = context.tablet_id;
-        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
 
         it = _files.find(hash);
         if (it == _files.end()) [[unlikely]] {
@@ -791,6 +793,22 @@ void BlockFileCache::add_need_update_lru_block(FileBlockSPtr block) {
     }
 }
 
+void BlockFileCache::record_query_cache_hit(const FileBlocks& blocks) {
+    // Adaptor hits skip get_or_set. Count only completed disk reads so remote bypasses and
+    // failed copies retried by the planner cannot inflate disk-cache hit ratios.
+    const size_t count = blocks.size();
+    size_t bytes = 0;
+    for (const auto& block : blocks) {
+        bytes += block->range().size();
+    }
+    *_num_read_blocks << count;
+    *_num_hit_blocks << count;
+    *_no_warmup_num_read_blocks << count;
+    *_no_warmup_num_hit_blocks << count;
+    *_total_read_size_metrics << bytes;
+    *_total_hit_size_metrics << bytes;
+}
+
 Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash,
                                                               size_t offset, size_t size,
                                                               const CacheContext& context,
@@ -805,6 +823,14 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
         return Status::OK();
     }
 
+    // Async touch defers LRU moves; queue them after the cache lock is released, as get_or_set()
+    // does. Declared before the lock so it runs after the lock guard is destroyed.
+    std::vector<FileBlockSPtr> need_update_lru_blocks;
+    Defer queue_lru_updates {[&]() {
+        for (auto& block : need_update_lru_blocks) {
+            add_need_update_lru_block(std::move(block));
+        }
+    }};
     FileBlock::Range range(offset, offset + size - 1);
     std::lock_guard cache_lock(_mutex);
     auto it = _files.find(hash);
@@ -812,12 +838,7 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
         if (_async_open_done) {
             return Status::OK();
         }
-        FileCacheKey key;
-        key.hash = hash;
-        key.meta.type = context.cache_type;
-        key.meta.expiration_time = context.expiration_time;
-        key.meta.tablet_id = context.tablet_id;
-        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
 
         it = _files.find(hash);
         if (it == _files.end()) {
@@ -875,11 +896,89 @@ Status BlockFileCache::get_downloaded_blocks_if_fully_covered(const UInt128Wrapp
     if (!*fully_covered) {
         return Status::OK();
     }
+    const bool async_touch = config::enable_file_cache_async_touch_on_get_or_set;
     for (const auto* cell : covered_cells) {
-        use_cell(*cell, blocks, need_to_move(cell->file_block->cache_type(), context.cache_type),
-                 cache_lock);
+        const bool move_iter = need_to_move(cell->file_block->cache_type(), context.cache_type);
+        use_cell(*cell, blocks, move_iter, cache_lock);
+        if (async_touch && move_iter) {
+            need_update_lru_blocks.push_back(cell->file_block);
+        }
     }
     return Status::OK();
+}
+
+std::vector<FileBlock::Range> BlockFileCache::downloaded_ranges(const UInt128Wrapper& hash,
+                                                                size_t offset, size_t size) {
+    DORIS_CHECK(size > 0);
+    const size_t end = offset + size;
+    DORIS_CHECK(end > offset);
+    std::vector<FileBlock::Range> ranges;
+    std::lock_guard lock(_mutex);
+    const auto file = _files.find(hash);
+    if (file == _files.end()) {
+        return ranges;
+    }
+    const auto& blocks = file->second;
+    auto iterator = blocks.lower_bound(offset);
+    if (iterator != blocks.begin()) {
+        --iterator;
+    }
+    for (; iterator != blocks.end(); ++iterator) {
+        const auto& block = iterator->second.file_block;
+        const auto& range = block->range();
+        if (range.left >= end) {
+            break;
+        }
+        if (range.right >= offset && block->state() == FileBlock::State::DOWNLOADED) {
+            ranges.emplace_back(std::max(offset, range.left), std::min(end - 1, range.right));
+        }
+    }
+    return ranges;
+}
+
+bool BlockFileCache::is_range_downloaded_or_downloading(const UInt128Wrapper& hash, size_t offset,
+                                                        size_t size, const CacheContext& context) {
+    DORIS_CHECK(size > 0);
+    const size_t end = offset + size;
+    DORIS_CHECK(end > offset);
+    SCOPED_CACHE_LOCK(_mutex, this);
+    auto file = _files.find(hash);
+    if (file == _files.end() && !_async_open_done) {
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
+        file = _files.find(hash);
+    }
+    if (file == _files.end()) {
+        return false;
+    }
+
+    const auto& blocks = file->second;
+    DORIS_CHECK(!blocks.empty());
+    auto iterator = blocks.lower_bound(offset);
+    if (iterator != blocks.begin()) {
+        --iterator;
+    }
+    // Old upload boundaries can leave [0, 512 KiB) and [512 KiB, 1.5 MiB). Walk their
+    // actual intervals rather than assuming one cached cell per aligned writeback block.
+    size_t covered = offset;
+    for (; iterator != blocks.end(); ++iterator) {
+        const auto& block = iterator->second.file_block;
+        const auto& range = block->range();
+        if (range.right < covered) {
+            continue;
+        }
+        if (range.left > covered) {
+            return false;
+        }
+        const auto state = block->state();
+        if (state != FileBlock::State::DOWNLOADED && state != FileBlock::State::DOWNLOADING) {
+            return false;
+        }
+        if (range.right >= end - 1) {
+            return true;
+        }
+        covered = range.right + 1;
+    }
+    return false;
 }
 
 FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t offset, size_t size,
@@ -893,12 +992,7 @@ FileBlocksProbeResult BlockFileCache::probe(const UInt128Wrapper& hash, size_t o
 
     auto file_iterator = _files.find(hash);
     if (file_iterator == _files.end() && !_async_open_done) {
-        FileCacheKey key;
-        key.hash = hash;
-        key.meta.type = context.cache_type;
-        key.meta.expiration_time = context.expiration_time;
-        key.meta.tablet_id = context.tablet_id;
-        _storage->load_blocks_directly_unlocked(this, key, cache_lock);
+        _storage->load_file_blocks_directly_unlocked(this, hash, context.tablet_id, cache_lock);
         file_iterator = _files.find(hash);
     }
 
@@ -990,6 +1084,63 @@ bool BlockFileCache::is_block_deleting(const FileBlockSPtr& block) const {
     return block->_is_deleting;
 }
 
+template <class T>
+    requires IsXLock<T>
+void BlockFileCache::mark_cell_deleting(FileBlockCell& cell, T& /* cache_lock */) {
+    cell.file_block->set_deleting();
+    // The block stays in _files until its last reference is dropped. Remember it so that
+    // run_background_gc() can finish the job if that reference is not released through
+    // FileBlock::release_cache_reference(). remove() forgets it again when it erases the cell.
+    _deleting_blocks.emplace(cell.file_block->get_hash_value(), cell.file_block->offset());
+}
+
+size_t BlockFileCache::recycle_deleting_blocks(size_t batch_limit) {
+    if (batch_limit == 0) {
+        return 0;
+    }
+    size_t recycled = 0;
+    size_t pending = 0;
+    {
+        SCOPED_CACHE_LOCK(_mutex, this);
+        std::vector<FileBlockSPtr> to_remove;
+        for (const auto& [hash, offset] : _deleting_blocks) {
+            if (to_remove.size() >= batch_limit) {
+                break;
+            }
+            auto* cell = get_cell(hash, offset, cache_lock);
+            if (cell == nullptr || !cell->file_block->is_deleting()) [[unlikely]] {
+                // Cannot happen: remove() erases the key together with the cell.
+                DCHECK(false) << "stale deleting block, hash=" << hash.to_string()
+                              << " offset=" << offset;
+                continue;
+            }
+            if (!cell->releasable() ||
+                cell->file_block->state_unsafe() == FileBlock::State::DOWNLOADING) {
+                // Still in use, or still being downloaded. Look at it again in the next round.
+                continue;
+            }
+            to_remove.push_back(cell->file_block);
+        }
+        // remove() erases the key of every block it removes, so it must not run while
+        // _deleting_blocks is being iterated above.
+        for (auto& file_block : to_remove) {
+            std::lock_guard block_lock(file_block->_mutex);
+            // Deleting the file itself happens asynchronously: the storage must not be touched
+            // while the cache lock is held.
+            remove(file_block, cache_lock, block_lock, false);
+            ++recycled;
+        }
+        pending = _deleting_blocks.size();
+    }
+    if (recycled > 0) {
+        *_recycle_deleting_blocks_metrics << recycled;
+        LOG(INFO) << "recycled deleting blocks, path=" << _cache_base_path << " num=" << recycled
+                  << " pending=" << pending;
+    }
+    _deleting_block_count_metrics->set_value(pending);
+    return recycled;
+}
+
 std::string BlockFileCache::clear_file_cache_async() {
     return clear_file_cache_impl(false);
 }
@@ -1021,6 +1172,11 @@ std::string BlockFileCache::clear_file_cache_impl(bool sync_remove) {
             }
         }
 
+        // Drop the pending LRU updates before the scan below, not after it: every block still
+        // queued there carries an extra reference that would make the block look busy and send
+        // it down the wait-for-recycle path for no reason.
+        clear_need_update_lru_blocks();
+
         // Do not erase while walking _files above: remove() may erase the current map element.
         //
         // sync_remove only changes how already releasable DOWNLOADED blocks are deleted from
@@ -1029,8 +1185,9 @@ std::string BlockFileCache::clear_file_cache_impl(bool sync_remove) {
         for (auto& cell : deleting_cells) {
             if (!cell->releasable()) {
                 LOG(INFO) << "cell is not releasable, hash="
+                          << cell->file_block->get_hash_value().to_string()
                           << " offset=" << cell->file_block->offset();
-                cell->file_block->set_deleting();
+                mark_cell_deleting(*cell, cache_lock);
                 ++num_cells_wait_recycle;
                 continue;
             }
@@ -1041,7 +1198,6 @@ std::string BlockFileCache::clear_file_cache_impl(bool sync_remove) {
                 ++num_cells_to_delete;
             }
         }
-        clear_need_update_lru_blocks();
     }
 
     std::stringstream ss;
@@ -1318,7 +1474,7 @@ size_t BlockFileCache::try_release() {
             if (cell.releasable()) {
                 trash.emplace_back(&cell);
             } else {
-                cell.file_block->set_deleting();
+                mark_cell_deleting(cell, cache_lock);
             }
         }
     }
@@ -1551,7 +1707,7 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
             if (cell.releasable()) {
                 to_remove.push_back(&cell);
             } else {
-                cell.file_block->set_deleting();
+                mark_cell_deleting(cell, cache_lock);
             }
         }
     }
@@ -1576,7 +1732,7 @@ void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
             if (cell.releasable()) {
                 to_remove.push_back(&cell);
             } else {
-                cell.file_block->set_deleting();
+                mark_cell_deleting(cell, cache_lock);
             }
         }
     }
@@ -1802,7 +1958,8 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto* cell = get_cell(hash, offset, cache_lock);
     file_block->cell = nullptr;
     // Holder cleanup can race with prior cache metadata cleanup. In that case,
-    // skip the duplicate remove instead of touching a detached or replaced cell.
+    // skip the duplicate remove instead of touching a detached or replaced cell. That includes
+    // _deleting_blocks: a key found there now belongs to the block that replaced this one.
     if (cell == nullptr) {
         LOG(WARNING) << "remove skipped because cache cell is missing. hash=" << hash.to_string()
                      << " offset=" << offset << " size=" << file_block->range().size()
@@ -1832,7 +1989,8 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                                     : "<null>");
         return;
     }
-    DCHECK(cell->queue_iterator);
+    // No iterator means the block was already taken out of its queue by an earlier remove()
+    // that could not erase the cell because the block was still downloading.
     if (cell->queue_iterator) {
         auto& queue = get_queue(file_block->cache_type());
         queue.remove(*cell->queue_iterator, cache_lock);
@@ -1888,7 +2046,11 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
             }
         }
     } else if (state == FileBlock::State::DOWNLOADING) {
-        file_block->set_deleting();
+        // The block is already out of its LRU queue, but the cell stays in _files until the
+        // downloader is done with it. Forget the iterator: it points at a freed queue entry now,
+        // and whoever finally erases this cell must not touch it again.
+        cell->queue_iterator.reset();
+        mark_cell_deleting(*cell, cache_lock);
         return;
     } else {
         *_evict_not_downloaded_size_metrics << file_block->range().size();
@@ -1901,6 +2063,10 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
     auto it = _files.find(hash);
     if (it != _files.end()) {
         it->second.erase(file_block->offset());
+        if (file_block->is_deleting()) {
+            // The key leaves _deleting_blocks together with its cell.
+            _deleting_blocks.erase(AccessKeyAndOffset(hash, offset));
+        }
         if (it->second.empty()) {
             _files.erase(hash);
         }
@@ -2113,8 +2279,12 @@ void BlockFileCache::change_cache_type(const UInt128Wrapper& hash, size_t offset
         auto& file_blocks = iter->second;
         if (auto cell_it = file_blocks.find(offset); cell_it != file_blocks.end()) {
             FileBlockCell& cell = cell_it->second;
+            // No iterator means remove() already took the block out of its queue while it was
+            // downloading. The block is deleting, so keep it out of every queue.
+            if (!cell.queue_iterator) {
+                return;
+            }
             auto& cur_queue = get_queue(cell.file_block->cache_type());
-            DCHECK(cell.queue_iterator.has_value());
             cur_queue.remove(*cell.queue_iterator, cache_lock);
             _lru_recorder->record_queue_event(
                     cell.file_block->cache_type(), CacheLRULogType::REMOVE,
@@ -2180,7 +2350,7 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
                     queue_released += entry_size;
                     auto* cell = get_cell(entry_key, entry_offset, cache_lock);
                     if (!cell->releasable()) {
-                        cell->file_block->set_deleting();
+                        mark_cell_deleting(*cell, cache_lock);
                         continue;
                     }
                     to_evict.push_back(cell);
@@ -2462,6 +2632,10 @@ void BlockFileCache::run_background_gc() {
             }
         }
 
+        // Blocks that were busy when they were marked deleting, but are not referenced any
+        // more, are only reclaimed here.
+        recycle_deleting_blocks(batch_limit);
+
         while (batch_count < batch_limit && _recycle_keys.try_dequeue(key)) {
             int64_t duration_ns = 0;
             Status st;
@@ -2547,6 +2721,9 @@ void BlockFileCache::run_background_block_lru_update() {
                 update_block_lru(block, cache_lock);
             }
         }
+        // Drop the references now instead of at the top of the next round: holding them across
+        // the sleep would keep every block in this batch looking busy for a whole interval.
+        batch.clear();
         *_update_lru_blocks_latency_us << (duration_ns / 1000);
         *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
     }
@@ -2634,7 +2811,6 @@ std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128W
     if (_files.contains(hash)) {
         for (auto& [offset, cell] : _files[hash]) {
             if (cell.file_block->state() == FileBlock::State::DOWNLOADED) {
-                cell.file_block->_owned_by_cached_reader = true;
                 offset_to_block.emplace(offset, cell.file_block);
             }
         }

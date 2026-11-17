@@ -25,18 +25,21 @@ import org.apache.doris.connector.spi.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.spi.ddl.ConnectorSortField;
 
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -69,6 +72,9 @@ import java.util.UUID;
 public final class IcebergSchemaBuilder {
 
     private static final List<String> ICEBERG_TABLE_LOCATION_CHILD_DIRS = java.util.Arrays.asList("data", "metadata");
+    // The Flink and Spark nickname of write.format.default, which wins over it (as IcebergWriterHelper reads them).
+    private static final String WRITE_FORMAT = "write-format";
+    static final String NESTED_VARIANT_DDL_ERROR = "Iceberg VARIANT DDL currently supports only top-level columns";
 
     private IcebergSchemaBuilder() {
     }
@@ -89,7 +95,7 @@ public final class IcebergSchemaBuilder {
         List<Types.NestedField> fields = new ArrayList<>(columns.size());
         for (int i = 0; i < columns.size(); i++) {
             ConnectorColumn col = columns.get(i);
-            Type type = convert(col.getType(), ids);
+            Type type = convertColumn(col.getType(), ids);
             if (col.isNullable()) {
                 fields.add(Types.NestedField.optional(i, col.getName(), type, col.getComment()));
             } else {
@@ -111,6 +117,9 @@ public final class IcebergSchemaBuilder {
     private static Type convert(ConnectorType type, IdAllocator ids) {
         String name = type.getTypeName().toUpperCase(Locale.ROOT);
         switch (name) {
+            case "VARIANT":
+            case "VARIANT_COMPUTE_V2":
+                throw new DorisConnectorException(NESTED_VARIANT_DDL_ERROR);
             case "ARRAY": {
                 // Element type/ids first, then the list's element id (post-order, matching legacy visitor).
                 Type element = convert(type.getChildren().get(0), ids);
@@ -146,6 +155,17 @@ public final class IcebergSchemaBuilder {
             default:
                 return IcebergTypeMapping.toIcebergPrimitive(type);
         }
+    }
+
+    /** Converts the type of a top-level column, the only place a VARIANT may be declared. */
+    private static Type convertColumn(ConnectorType type, IdAllocator ids) {
+        return isVariant(type) ? Types.VariantType.get() : convert(type, ids);
+    }
+
+    /** Whether {@code type} is a VARIANT, as declared by DDL or read from an Iceberg table. */
+    static boolean isVariant(ConnectorType type) {
+        String name = type.getTypeName().toUpperCase(Locale.ROOT);
+        return "VARIANT".equals(name) || "VARIANT_COMPUTE_V2".equals(name);
     }
 
     /**
@@ -319,6 +339,33 @@ public final class IcebergSchemaBuilder {
     }
 
     /**
+     * The effective iceberg data file format for a CREATE TABLE: catalog {@code table-default} properties, then
+     * the table request, then catalog {@code table-override} properties, each overriding the former; of the
+     * resulting {@code write-format} nickname and standard {@code write.format.default}, the nickname wins, as
+     * for an existing table ({@link IcebergWriterHelper#getFileFormat}). Without either, Parquet.
+     */
+    public static FileFormat getEffectiveFileFormat(Map<String, String> requestProperties,
+            Map<String, String> catalogProperties) {
+        Map<String, String> effective = new HashMap<>();
+        copyFileFormat(effective, catalogProperties, CatalogProperties.TABLE_DEFAULT_PREFIX);
+        copyFileFormat(effective, requestProperties, "");
+        copyFileFormat(effective, catalogProperties, CatalogProperties.TABLE_OVERRIDE_PREFIX);
+        String fileFormat = effective.containsKey(WRITE_FORMAT) ? effective.get(WRITE_FORMAT)
+                : effective.getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, FileFormat.PARQUET.name());
+        return IcebergWriterHelper.toFileFormat(fileFormat);
+    }
+
+    private static void copyFileFormat(Map<String, String> effective, Map<String, String> properties,
+            String prefix) {
+        for (String property : new String[] {WRITE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT}) {
+            String value = properties.get(prefix + property);
+            if (value != null) {
+                effective.put(property, value);
+            }
+        }
+    }
+
+    /**
      * Builds the iceberg {@link Type} for a SINGLE column added/modified on an EXISTING table, reusing the
      * same neutral-type conversion as {@link #buildSchema} (scalars via {@link IcebergTypeMapping}, plus
      * ARRAY/MAP/STRUCT recursively). Iceberg's {@code UpdateSchema.addColumn/updateColumn} assigns the field
@@ -331,6 +378,15 @@ public final class IcebergSchemaBuilder {
      * @throws DorisConnectorException if the column type cannot be represented in iceberg
      */
     public static Type buildColumnType(ConnectorType type) {
+        return convertColumn(type, new IdAllocator(0));
+    }
+
+    /**
+     * Like {@link #buildColumnType}, for a field nested in a STRUCT, which cannot be a VARIANT.
+     *
+     * @throws DorisConnectorException if the field type cannot be represented in iceberg
+     */
+    public static Type buildNestedFieldType(ConnectorType type) {
         return convert(type, new IdAllocator(0));
     }
 
@@ -360,10 +416,16 @@ public final class IcebergSchemaBuilder {
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Int string: " + value, e);
                 }
+            case TIMESTAMP_NANO:
+                // ADD COLUMN carries the validated SQL datetime, not an epoch integer.
+                if (!value.matches("[+-]?[0-9]+")) {
+                    return Expressions.nanos((Long) IcebergPartitionUtils.parsePartitionValueFromString(
+                            value, type, ZoneOffset.UTC));
+                }
+                return Expressions.nanos(Long.parseLong(value));
             case LONG:
             case TIME:
             case TIMESTAMP:
-            case TIMESTAMP_NANO:
                 try {
                     return Literal.of(Long.parseLong(value));
                 } catch (NumberFormatException e) {
@@ -400,6 +462,8 @@ public final class IcebergSchemaBuilder {
                 } catch (NumberFormatException e) {
                     throw new IllegalArgumentException("Invalid Decimal string: " + value, e);
                 }
+            case VARIANT:
+                throw new IllegalArgumentException("Iceberg VARIANT default values must be NULL");
             default:
                 throw new IllegalArgumentException("Cannot parse unknown type: " + type);
         }

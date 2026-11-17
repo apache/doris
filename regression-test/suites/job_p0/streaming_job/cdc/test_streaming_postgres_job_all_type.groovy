@@ -124,6 +124,7 @@ suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,ex
             throw ex;
         }
 
+        // CDC stores PostgreSQL UUID as native UUID even though its JSON transport uses text.
         qt_desc_all_types_null """desc ${currentDb}.${table1};"""
         qt_select_all_types_null """select * from ${currentDb}.${table1} order by 1;"""
 

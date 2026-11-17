@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -55,6 +56,86 @@ import java.util.Optional;
  * iceberg) produces its own {@code T*TableSink} this way.</p>
  */
 public class PluginDrivenTableSinkTest {
+
+    private static PluginDrivenTableSink newSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider provider, ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> columns) {
+        return newSink(targetTable, provider, session, tableHandle, columns,
+                columns, null, WriteOperation.INSERT, true, false, null, null);
+    }
+
+    private static PluginDrivenTableSink newSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider provider, ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> columns, TSortInfo sortInfo) {
+        return newSink(targetTable, provider, session, tableHandle, columns,
+                columns, sortInfo, WriteOperation.INSERT, true, false, null, null);
+    }
+
+    private static PluginDrivenTableSink newSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider provider, ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> columns, TSortInfo sortInfo,
+            WriteOperation operation) {
+        return newSink(targetTable, provider, session, tableHandle, columns,
+                columns, sortInfo, operation, true, false, null, null);
+    }
+
+    private static PluginDrivenTableSink newSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider provider, ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> columns, TSortInfo sortInfo,
+            WriteOperation operation, boolean writesDataFiles, boolean requireMergeCardinalityCheck) {
+        return newSink(targetTable, provider, session, tableHandle, columns,
+                columns, sortInfo, operation, writesDataFiles, requireMergeCardinalityCheck, null, null);
+    }
+
+    private static PluginDrivenTableSink newSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider provider, ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo sortInfo,
+            WriteOperation operation, boolean requireMergeCardinalityCheck) {
+        return newSink(targetTable, provider, session, tableHandle, columns,
+                boundTargetColumns, sortInfo, operation, true, requireMergeCardinalityCheck, null, null);
+    }
+
+    private static PluginDrivenTableSink newSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider provider, ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo sortInfo,
+            WriteOperation operation, boolean requireMergeCardinalityCheck, String metadataIdentity) {
+        return newSink(targetTable, provider, session, tableHandle, columns,
+                boundTargetColumns, sortInfo, operation, true, requireMergeCardinalityCheck,
+                metadataIdentity, null);
+    }
+
+    private static PluginDrivenTableSink newSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider provider, ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
+            TSortInfo sortInfo, WriteOperation operation, boolean requireMergeCardinalityCheck,
+            ConnectorMetadata metadata) {
+        return newSink(targetTable, provider, session, tableHandle, columns,
+                columns, sortInfo, operation, true, requireMergeCardinalityCheck, null, metadata);
+    }
+
+    private static PluginDrivenTableSink newSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider provider, ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo sortInfo,
+            WriteOperation operation, boolean writesDataFiles, boolean requireMergeCardinalityCheck,
+            String metadataIdentity, ConnectorMetadata metadata) {
+        return newSink(targetTable, provider, session, tableHandle, columns, boundTargetColumns,
+                sortInfo, operation, writesDataFiles, requireMergeCardinalityCheck,
+                metadataIdentity, metadata, Config.max_be_exec_version);
+    }
+
+    private static PluginDrivenTableSink newSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider provider, ConnectorSession session,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo sortInfo,
+            WriteOperation operation, boolean writesDataFiles, boolean requireMergeCardinalityCheck,
+            String metadataIdentity, ConnectorMetadata metadata, int beExecVersion) {
+        return new PluginDrivenTableSink(targetTable, provider, session, tableHandle, columns,
+                boundTargetColumns, sortInfo, operation, writesDataFiles, requireMergeCardinalityCheck,
+                metadataIdentity, metadata, beExecVersion);
+    }
 
     /** Hand-written {@link ConnectorWritePlanProvider} double recording the delegated call. */
     private static final class RecordingWritePlanProvider implements ConnectorWritePlanProvider {
@@ -93,7 +174,7 @@ public class PluginDrivenTableSinkTest {
         // resolves table facts from its own tableHandle), so a unit of the delegation needs
         // no full PluginDrivenExternalTable.
         PluginDrivenTableSink sink =
-                new PluginDrivenTableSink(null, provider, null, tableHandle, columns);
+                newSink(null, provider, null, tableHandle, columns);
         sink.bindDataSink(Optional.empty());
 
         // The connector-built opaque sink is adopted verbatim.
@@ -109,6 +190,27 @@ public class PluginDrivenTableSinkTest {
     }
 
     @Test
+    public void bindDataSinkKeepsStatementExecutionVersion() throws AnalysisException {
+        int original = Config.be_exec_version;
+        try {
+            int statementVersion = Config.PAIMON_WRITE_MIN_BE_EXEC_VERSION;
+            RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                    new ConnectorSinkPlan(new TDataSink(TDataSinkType.PAIMON_TABLE_SINK)));
+            PluginDrivenTableSink sink = newSink(
+                    null, provider, null, new ConnectorTableHandle() { }, Collections.emptyList(),
+                    Collections.emptyList(), null, WriteOperation.INSERT, true, false,
+                    null, null, statementVersion);
+
+            Config.be_exec_version = statementVersion - 1;
+            sink.bindDataSink(Optional.empty());
+
+            Assertions.assertEquals(statementVersion, provider.seenHandle.getBeExecVersion());
+        } finally {
+            Config.be_exec_version = original;
+        }
+    }
+
+    @Test
     public void bindDataSinkKeepsWriteSubsetSeparateFromBoundTargetSchema() throws AnalysisException {
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
                 new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
@@ -117,7 +219,7 @@ public class PluginDrivenTableSinkTest {
         List<ConnectorColumn> writeColumns = Collections.singletonList(id);
         List<ConnectorColumn> boundTargetColumns = java.util.Arrays.asList(id, name);
 
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 null, provider, null, new ConnectorTableHandle() { }, writeColumns,
                 boundTargetColumns, null, WriteOperation.INSERT, false);
         sink.bindDataSink(Optional.empty());
@@ -139,7 +241,7 @@ public class PluginDrivenTableSinkTest {
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
                 new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
 
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(), engineBuilt);
         sink.bindDataSink(Optional.empty());
 
@@ -152,7 +254,7 @@ public class PluginDrivenTableSinkTest {
                 new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)));
         String metadataIdentity = "sort-generation-3/spec-generation-7";
 
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
                 Collections.emptyList(), null, WriteOperation.INSERT, false, metadataIdentity);
         sink.bindDataSink(Optional.empty());
@@ -172,7 +274,7 @@ public class PluginDrivenTableSinkTest {
         PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
         ctx.setBranchName(Optional.of("br_1"));
 
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>());
         sink.bindDataSink(Optional.of(ctx));
 
@@ -199,7 +301,7 @@ public class PluginDrivenTableSinkTest {
             }
         };
 
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 targetTable, provider, null, tableHandle, new ArrayList<>());
 
         String explain = sink.getExplainString("", TExplainLevel.NORMAL);
@@ -215,13 +317,13 @@ public class PluginDrivenTableSinkTest {
 
     @Test
     public void bindDataSinkDefaultsWriteOperationToInsert() throws AnalysisException {
-        // WHY: a plain INSERT sink (the 5-arg / 6-arg ctors) must keep WriteOperation.INSERT on the write
+        // WHY: a plain INSERT sink must keep WriteOperation.INSERT on the write
         // handle so the connector's planWrite stays on the byte-identical INSERT path (TIcebergTableSink,
         // promoted to OVERWRITE only via isOverwrite()). This pins the dormant-default that guarantees
         // pre-flip parity for every existing write-capable connector (jdbc / maxcompute / iceberg INSERT).
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
                 new ConnectorSinkPlan(new TDataSink(TDataSinkType.MAXCOMPUTE_TABLE_SINK)));
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>());
         sink.bindDataSink(Optional.empty());
 
@@ -237,7 +339,7 @@ public class PluginDrivenTableSinkTest {
         // and a MERGE would write as an append. MUTATION: thread INSERT here -> assertion red.
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
                 new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
                 null, WriteOperation.MERGE);
         sink.bindDataSink(Optional.empty());
@@ -252,7 +354,7 @@ public class PluginDrivenTableSinkTest {
         // hazard as MERGE. MUTATION: thread INSERT here -> assertion red.
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
                 new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK)));
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
                 null, WriteOperation.DELETE);
         sink.bindDataSink(Optional.empty());
@@ -264,7 +366,7 @@ public class PluginDrivenTableSinkTest {
     public void bindDataSinkThreadsDeleteOnlyMergeToHandle() throws AnalysisException {
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
                 new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
                 null, WriteOperation.MERGE, false, true);
         sink.bindDataSink(Optional.empty());
@@ -276,33 +378,27 @@ public class PluginDrivenTableSinkTest {
 
     @Test
     public void deleteOnlyMergeVersionFenceAppliesOnlyToVariantSchemas() throws AnalysisException {
-        int original = Config.be_exec_version;
-        try {
-            Config.be_exec_version = 11;
-            RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
-                    new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
-            ConnectorColumn id = new ConnectorColumn(
-                    "id", ConnectorType.of("INT"), null, true, null);
-            PluginDrivenTableSink nonVariantSink = new PluginDrivenTableSink(
-                    null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
-                    Collections.singletonList(id), null, WriteOperation.MERGE, false, true, null, null);
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
+                new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
+        ConnectorColumn id = new ConnectorColumn(
+                "id", ConnectorType.of("INT"), null, true, null);
+        PluginDrivenTableSink nonVariantSink = newSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                Collections.singletonList(id), null, WriteOperation.MERGE, false, true, null, null, 11);
 
-            nonVariantSink.bindDataSink(Optional.empty());
-            Assertions.assertNotNull(provider.seenHandle);
-            Assertions.assertEquals(11, provider.seenHandle.getBeExecVersion());
+        nonVariantSink.bindDataSink(Optional.empty());
+        Assertions.assertNotNull(provider.seenHandle);
+        Assertions.assertEquals(11, provider.seenHandle.getBeExecVersion());
 
-            ConnectorColumn payload = new ConnectorColumn(
-                    "payload", ConnectorType.of("VARIANT_COMPUTE_V2"), null, true, null);
-            PluginDrivenTableSink variantSink = new PluginDrivenTableSink(
-                    null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
-                    Collections.singletonList(payload), null, WriteOperation.MERGE, false, true, null, null);
+        ConnectorColumn payload = new ConnectorColumn(
+                "payload", ConnectorType.of("VARIANT_COMPUTE_V2"), null, true, null);
+        PluginDrivenTableSink variantSink = newSink(
+                null, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
+                Collections.singletonList(payload), null, WriteOperation.MERGE, false, true, null, null, 11);
 
-            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                    () -> variantSink.bindDataSink(Optional.empty()));
-            Assertions.assertTrue(exception.getMessage().contains("rolling upgrade"));
-        } finally {
-            Config.be_exec_version = original;
-        }
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> variantSink.bindDataSink(Optional.empty()));
+        Assertions.assertTrue(exception.getMessage().contains("rolling upgrade"));
     }
 
     @Test
@@ -315,7 +411,7 @@ public class PluginDrivenTableSinkTest {
         Mockito.when(targetTable.getName()).thenReturn("t1");
         RecordingWritePlanProvider provider = new RecordingWritePlanProvider(
                 new ConnectorSinkPlan(new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK)));
-        PluginDrivenTableSink sink = new PluginDrivenTableSink(
+        PluginDrivenTableSink sink = newSink(
                 targetTable, provider, null, new ConnectorTableHandle() { }, new ArrayList<>(),
                 null, WriteOperation.MERGE);
 

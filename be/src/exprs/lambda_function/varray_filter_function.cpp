@@ -67,20 +67,25 @@ public:
         RETURN_IF_ERROR(children[1]->execute_column(context, block, expr_selector, output_count,
                                                     column_ptr_1));
 
+        if (column_ptr_0->only_null() || column_ptr_1->only_null()) {
+            result_column = result_type->create_column_const(output_count, Field());
+            return Status::OK();
+        }
+
         //2. get first and second array column
         auto first_column = column_ptr_0->convert_to_full_column_if_const();
 
         auto second_column = column_ptr_1->convert_to_full_column_if_const();
 
         auto input_rows = first_column->size();
-        auto first_outside_null_map = ColumnUInt8::create(input_rows, 0);
+        auto result_outside_null_map = ColumnUInt8::create(input_rows, 0);
         auto first_arg_column = first_column;
         if (is_column_nullable(*first_arg_column)) {
             first_arg_column =
                     assert_cast<const ColumnNullable*>(first_column.get())->get_nested_column_ptr();
             const auto& column_array_nullmap =
                     assert_cast<const ColumnNullable*>(first_column.get())->get_null_map_column();
-            VectorizedUtils::update_null_map(first_outside_null_map->get_data(),
+            VectorizedUtils::update_null_map(result_outside_null_map->get_data(),
                                              column_array_nullmap.get_data());
         }
         const auto& first_col_array = assert_cast<const ColumnArray&>(*first_arg_column);
@@ -96,13 +101,12 @@ public:
         result_offset_data.reserve(input_rows);
 
         auto second_arg_column = second_column;
-        auto second_outside_null_map = ColumnUInt8::create(input_rows, 0);
         if (is_column_nullable(*second_arg_column)) {
             second_arg_column = assert_cast<const ColumnNullable*>(second_column.get())
                                         ->get_nested_column_ptr();
             const auto& column_array_nullmap =
                     assert_cast<const ColumnNullable*>(second_column.get())->get_null_map_column();
-            VectorizedUtils::update_null_map(second_outside_null_map->get_data(),
+            VectorizedUtils::update_null_map(result_outside_null_map->get_data(),
                                              column_array_nullmap.get_data());
         }
         const auto& second_col_array = assert_cast<const ColumnArray&>(*second_arg_column);
@@ -120,8 +124,7 @@ public:
         //3. get the idx of second column data is not null and not 0
         for (int row = 0; row < input_rows; ++row) {
             //first or second column is null, so current row is invalid data
-            if (first_outside_null_map->get_data()[row] ||
-                second_outside_null_map->get_data()[row]) {
+            if (result_outside_null_map->get_data()[row]) {
                 result_offset_data.push_back(result_offset_data.back());
             } else {
                 unsigned long count = 0;
@@ -150,7 +153,7 @@ public:
             result_column =
                     ColumnNullable::create(ColumnArray::create(std::move(result_data_column),
                                                                std::move(result_offset_column)),
-                                           std::move(first_outside_null_map));
+                                           std::move(result_outside_null_map));
         } else {
             DCHECK(!first_column->is_nullable());
             DCHECK(!second_column->is_nullable());

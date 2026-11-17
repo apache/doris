@@ -1230,4 +1230,22 @@ public class PaimonConnectorMetadataMvccTest {
                 "paimon must declare SUPPORTS_SHOW_CREATE_DDL so SHOW CREATE TABLE keeps rendering "
                         + "LOCATION/PROPERTIES");
     }
+
+    @Test
+    public void connectorDeclaresNestedColumnPruneButNotFieldIdAccessPath() {
+        ConnectorContext ctx = new RecordingConnectorContext();
+        Set<ConnectorCapability> caps = new PaimonConnector(Collections.emptyMap(), ctx).getCapabilities();
+
+        // WHY: fe-core prunes nested types and plans Variant sub-path access paths for a table only when its
+        // connector declares SUPPORTS_NESTED_COLUMN_PRUNE. The paimon JNI scanner turns them into a paimon read
+        // type and Variant projections, and the native parquet/orc path resolves them by name. MUTATION:
+        // dropping SUPPORTS_NESTED_COLUMN_PRUNE -> paimon scans read whole nested and Variant columns -> red.
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
+                "paimon must declare SUPPORTS_NESTED_COLUMN_PRUNE");
+        // Paimon carries no field id on the Doris column tree, so rewriting the access paths to ids would make
+        // every segment "-1", which BE matches neither as an id nor as a name, and the pruned leaves would read
+        // back NULL. MUTATION: declaring SUPPORTS_FIELD_ID_ACCESS_PATH on paimon -> this assertion red.
+        Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH),
+                "paimon must NOT declare SUPPORTS_FIELD_ID_ACCESS_PATH (its access paths are by name)");
+    }
 }

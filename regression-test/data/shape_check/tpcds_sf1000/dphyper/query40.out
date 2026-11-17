@@ -8,7 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[RIGHT_OUTER_JOIN shuffle] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF3 cs_order_number->cr_order_number;RF4 cs_item_sk->cr_item_sk
+----------------hashJoin[RIGHT_OUTER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=() build RFs:RF3 cs_order_number->cr_order_number;RF4 cs_item_sk->cr_item_sk
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[catalog_returns] apply RFs: RF3 RF4
 ------------------PhysicalProject

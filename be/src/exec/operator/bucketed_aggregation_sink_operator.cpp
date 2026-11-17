@@ -17,6 +17,7 @@
 
 #include "exec/operator/bucketed_aggregation_sink_operator.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
@@ -53,6 +54,7 @@ Status BucketedAggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& 
     _expr_timer = ADD_TIMER(Base::custom_profile(), "ExprTime");
     _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
+    _partition_timer = ADD_TIMER(Base::custom_profile(), "PartitionTime");
     _hash_table_input_counter =
             ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
     _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
@@ -71,29 +73,40 @@ Status BucketedAggSinkLocalState::open(RuntimeState* state) {
     // Initialize per-instance data and shared metadata. Multiple sink instances call open()
     // concurrently, so all shared-state writes must be inside call_once to avoid data races.
     // init_instances stores the init status in shared state so all threads see failures.
-    RETURN_IF_ERROR(shared_state.init_instances(state->task_num(), [&]() -> Status {
-        // Copy metadata to shared state (once, from the first instance to reach here).
-        shared_state.align_aggregate_states = p._align_aggregate_states;
-        shared_state.total_size_of_aggregate_states = p._total_size_of_aggregate_states;
-        shared_state.offsets_of_aggregate_states = p._offsets_of_aggregate_states;
-        shared_state.make_nullable_keys = p._make_nullable_keys;
+    RETURN_IF_ERROR(shared_state.init_instances(
+            state->task_num(),
+            [&]() -> Status {
+                // Copy metadata to shared state (once, from the first instance to reach here).
+                shared_state.align_aggregate_states = p._align_aggregate_states;
+                shared_state.total_size_of_aggregate_states = p._total_size_of_aggregate_states;
+                shared_state.offsets_of_aggregate_states = p._offsets_of_aggregate_states;
+                shared_state.make_nullable_keys = p._make_nullable_keys;
 
-        shared_state.probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
-        for (size_t i = 0; i < shared_state.probe_expr_ctxs.size(); i++) {
-            RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, shared_state.probe_expr_ctxs[i]));
-        }
+                shared_state.probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
+                for (size_t i = 0; i < shared_state.probe_expr_ctxs.size(); i++) {
+                    RETURN_IF_ERROR(
+                            p._probe_expr_ctxs[i]->clone(state, shared_state.probe_expr_ctxs[i]));
+                }
 
-        for (auto& evaluator : p._aggregate_evaluators) {
-            shared_state.aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
-        }
+                for (auto& evaluator : p._aggregate_evaluators) {
+                    shared_state.aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
+                }
 
-        // Detect simple_count: exactly one COUNT(*) with no args, with GROUP BY present.
-        // Bucketed agg always has GROUP BY (without-key not supported).
-        if (p._aggregate_evaluators.size() == 1 && p._aggregate_evaluators[0]->is_simple_count()) {
-            shared_state.use_simple_count = true;
-        }
-        return Status::OK();
-    }));
+                // Detect simple_count: exactly one COUNT(*) / COUNT(slot), with GROUP BY present.
+                // Bucketed agg always has GROUP BY (without-key not supported).
+                if (p._aggregate_evaluators.size() == 1 &&
+                    p._aggregate_evaluators[0]->is_simple_count()) {
+                    shared_state.use_simple_count = true;
+                }
+                return Status::OK();
+            },
+            p._num_buckets));
+
+    _num_buckets = shared_state.num_buckets;
+    COUNTER_SET(ADD_COUNTER(custom_profile(), "NumBuckets", TUnit::UNIT),
+                static_cast<int64_t>(_num_buckets));
+    COUNTER_SET(ADD_COUNTER(custom_profile(), "NumSinkInstances", TUnit::UNIT),
+                static_cast<int64_t>(shared_state.num_sink_instances));
 
     // Now safe to access per_instance_data since init_instances has been called.
     auto& inst = shared_state.per_instance_data[_instance_idx];
@@ -116,13 +129,13 @@ Status BucketedAggSinkLocalState::open(RuntimeState* state) {
         _aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
     }
 
-    // Set up _bucket_agg_data as 256 pointers into this instance's bucket hash tables.
-    _bucket_agg_data.resize(BUCKETED_AGG_NUM_BUCKETS);
-    for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+    // Set up _bucket_agg_data as pointers into this instance's bucket hash tables.
+    _bucket_agg_data.resize(_num_buckets);
+    for (int b = 0; b < _num_buckets; ++b) {
         _bucket_agg_data[b] = inst.bucket_agg_data[b].get();
     }
 
-    // Initialize hash method for all 256 bucket hash tables. Each bucket uses
+    // Initialize hash method for all bucket hash tables. Each bucket uses
     // the same hash key type. We use per-instance _probe_expr_ctxs here (read-only
     // for data types), which is safe since they were cloned above.
     RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
@@ -182,7 +195,8 @@ Status BucketedAggSinkLocalState::_execute_with_serialized_key(Block* block) {
     }
 
     auto rows = (uint32_t)block->rows();
-    if (_places.size() < rows) {
+    // Inline COUNT updates mapped counters and never reads the places array.
+    if (!shared_state.use_simple_count && _places.size() < rows) {
         _places.resize(rows);
     }
 
@@ -204,7 +218,7 @@ void BucketedAggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* place
     auto& p = Base::_parent->template cast<BucketedAggSinkOperatorX>();
 
     // Use bucket 0's method to compute keys and hash values for all rows.
-    // All 256 buckets use the same hash key type, so the hash function is identical.
+    // All buckets use the same hash key type, so the hash function is identical.
     std::visit(
             Overload {[&](std::monostate& arg) -> void {
                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
@@ -255,23 +269,37 @@ void BucketedAggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* place
                           {
                               SCOPED_TIMER(_hash_table_emplace_timer);
 
-                              // Phase 1: Pre-group rows by bucket index.
-                              // Single pass over hash_values to partition row indices
-                              // into 256 bucket groups. This converts random 256-way scatter
-                              // into sequential per-bucket batches with good cache locality.
-                              for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
-                                  _bucket_row_indices[b].clear();
-                              }
-                              for (uint32_t i = 0; i < num_rows; ++i) {
-                                  int bucket = static_cast<int>((agg_method.hash_values[i] >> 24) &
-                                                                0xFF);
-                                  _bucket_row_indices[bucket].push_back(i);
+                              // A single bucket can consume the whole batch without scattering.
+                              if (_num_buckets == 1) {
+                                  lazy_emplace_batch(agg_method, state, num_rows, creator,
+                                                     creator_for_null_key,
+                                                     [&](uint32_t row, auto& mapped) {
+                                                         if (use_simple_count) {
+                                                             ++reinterpret_cast<UInt64&>(mapped);
+                                                         } else {
+                                                             places[row] = mapped;
+                                                         }
+                                                     });
+                                  COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                                  return;
                               }
 
-                              // Phase 2: Process each bucket's rows as a batch.
-                              // All rows in a bucket hit the same hash table, enabling
-                              // effective prefetch and cache-friendly access patterns.
-                              for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+                              // Phase 1: Group rows by bucket to turn random scatter into sequential batches.
+                              {
+                                  SCOPED_TIMER(_partition_timer);
+                                  for (int b = 0; b < _num_buckets; ++b) {
+                                      _bucket_row_indices[b].clear();
+                                  }
+                                  for (uint32_t i = 0; i < num_rows; ++i) {
+                                      int bucket =
+                                              static_cast<int>(BucketedAggSharedState::bucket_index(
+                                                      agg_method.hash_values[i], _num_buckets));
+                                      _bucket_row_indices[bucket].push_back(i);
+                                  }
+                              }
+
+                              // Phase 2: Process each bucket's rows as a batch for cache locality and prefetch.
+                              for (int b = 0; b < _num_buckets; ++b) {
                                   auto& indices = _bucket_row_indices[b];
                                   if (indices.empty()) {
                                       continue;
@@ -281,9 +309,7 @@ void BucketedAggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* place
                                           _bucket_agg_data[b]->method_variant);
                                   auto& bucket_ht = *bucket_method.hash_table;
 
-                                  // Batch emplace with prefetch into this bucket's hash table.
                                   for (size_t j = 0; j < indices.size(); ++j) {
-                                      // Prefetch ahead within this bucket's hash table.
                                       if (j + HASH_MAP_PREFETCH_DIST < indices.size()) {
                                           uint32_t prefetch_row =
                                                   indices[j + HASH_MAP_PREFETCH_DIST];
@@ -312,7 +338,7 @@ void BucketedAggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* place
 
 size_t BucketedAggSinkLocalState::_get_hash_table_size() const {
     size_t total = 0;
-    for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+    for (int b = 0; b < _num_buckets; ++b) {
         total += std::visit(Overload {[&](std::monostate& arg) -> size_t { return 0; },
                                       [&](auto& agg_method) -> size_t {
                                           return agg_method.hash_table->size();
@@ -323,9 +349,9 @@ size_t BucketedAggSinkLocalState::_get_hash_table_size() const {
 }
 
 Status BucketedAggSinkLocalState::_init_hash_method(const VExprContextSPtrs& probe_exprs) {
-    // Initialize all 256 bucket hash tables with the same hash key type.
+    // Initialize all bucket hash tables with the same hash key type.
     auto data_types = get_data_types(probe_exprs);
-    for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+    for (int b = 0; b < _num_buckets; ++b) {
         RETURN_IF_ERROR(init_hash_method<BucketedAggDataVariants>(_bucket_agg_data[b], data_types,
                                                                   true /* is_first_phase */));
     }
@@ -334,7 +360,7 @@ Status BucketedAggSinkLocalState::_init_hash_method(const VExprContextSPtrs& pro
 
 void BucketedAggSinkLocalState::_update_memusage() {
     int64_t hash_table_memory_usage = 0;
-    for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+    for (int b = 0; b < _num_buckets; ++b) {
         std::visit(Overload {[&](std::monostate& arg) -> void {},
                              [&](auto& agg_method) -> void {
                                  hash_table_memory_usage +=
@@ -350,23 +376,15 @@ void BucketedAggSinkLocalState::_update_memusage() {
 }
 
 size_t BucketedAggSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) const {
-    // Estimate the memory needed for the next batch across all 256 bucket hash tables.
-    // Each bucket's hash table may need to resize, so we take the max estimate across
-    // all buckets and multiply conservatively. In practice, data is distributed across
-    // buckets, so the per-bucket growth is batch_size/256 on average, but we use the
-    // full batch_size estimate from the largest bucket for safety.
+    // Sum the growth estimates for all active buckets. Allow twice the average
+    // batch contribution per bucket, capped at the full batch for a single bucket.
     size_t size_to_reserve = 0;
-    for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+    for (int b = 0; b < _num_buckets; ++b) {
         size_to_reserve += std::visit(
                 Overload {[&](std::monostate& arg) -> size_t { return 0; },
                           [&](auto& agg_method) -> size_t {
-                              // estimate_memory returns the delta needed if we insert
-                              // num_elem more entries. Since rows are distributed across
-                              // 256 buckets, each bucket sees ~batch_size/256 rows on average.
-                              // However, skew is possible, so we use a conservative per-bucket
-                              // estimate of batch_size/128 (2x average).
                               auto per_bucket_rows = std::max<size_t>(
-                                      1, state->batch_size() / (BUCKETED_AGG_NUM_BUCKETS / 2));
+                                      1, state->batch_size() / std::max(1, _num_buckets / 2));
                               return agg_method.hash_table->estimate_memory(per_bucket_rows);
                           }},
                 _bucket_agg_data[b]->method_variant);
@@ -386,6 +404,10 @@ Status BucketedAggSinkLocalState::close(RuntimeState* state, Status exec_status)
     return Base::close(state, exec_status);
 }
 
+bool BucketedAggSinkLocalState::is_blockable() const {
+    return Base::_parent->template cast<BucketedAggSinkOperatorX>().has_blockable_aggregate();
+}
+
 // ============ BucketedAggSinkOperatorX ============
 
 BucketedAggSinkOperatorX::BucketedAggSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
@@ -395,8 +417,17 @@ BucketedAggSinkOperatorX::BucketedAggSinkOperatorX(ObjectPool* pool, int operato
           _tuple_id(tnode.bucketed_agg_node.tuple_id),
           _pool(pool) {}
 
+bool BucketedAggSinkOperatorX::has_blockable_aggregate() const {
+    return std::any_of(_aggregate_evaluators.begin(), _aggregate_evaluators.end(),
+                       [](const AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
+}
+
 Status BucketedAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<BucketedAggSinkLocalState>::init(tnode, state));
+
+    if (tnode.bucketed_agg_node.__isset.num_buckets) {
+        _num_buckets = tnode.bucketed_agg_node.num_buckets;
+    }
 
     RETURN_IF_ERROR(
             VExpr::create_expr_trees(tnode.bucketed_agg_node.grouping_exprs, _probe_expr_ctxs));

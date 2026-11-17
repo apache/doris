@@ -26,12 +26,16 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
 #include "core/string_view.h"
@@ -250,21 +254,113 @@ TEST_F(ColumnVarbinaryTest, TabletRoutingHashIsNotSupported) {
     }
 }
 
-TEST_F(ColumnVarbinaryTest, HashingIsNotSupported) {
+TEST_F(ColumnVarbinaryTest, ShuffleHashesMatchStringOfTheSameBytes) {
+    // An exchange routes a VARBINARY value by its bytes, as it routes a STRING. Empty, NUL and
+    // invalid UTF-8 values, and values on both sides of the inline size, must hash like the same
+    // bytes in a ColumnString.
+    const std::vector<std::string> values = {"",
+                                             std::string("\0\xff", 2),
+                                             "abc",
+                                             make_bytes(doris::StringView::kInlineSize, 0x11),
+                                             make_bytes(doris::StringView::kInlineSize + 1, 0x22),
+                                             make_bytes(40, 0x80)};
+    const std::vector<uint8_t> null_map = {0, 1, 0, 0, 1, 0};
+    auto binary = ColumnVarbinary::create();
+    auto string = ColumnString::create();
+    for (const auto& value : values) {
+        binary->insert_data(value.data(), value.size());
+        string->insert_data(value.data(), value.size());
+    }
+    const auto rows = static_cast<uint32_t>(values.size());
+    // Distinct seeds, so a method that ignored the bytes or the row would not match by accident.
+    auto seeds = [&]() {
+        std::vector<uint32_t> hashes(rows);
+        for (uint32_t i = 0; i < rows; ++i) {
+            hashes[i] = 7 * i + 1;
+        }
+        return hashes;
+    };
+
+    for (const uint8_t* nulls : {static_cast<const uint8_t*>(nullptr), null_map.data()}) {
+        SCOPED_TRACE(nulls == nullptr ? "without null map" : "with null map");
+        auto binary_crcs = seeds();
+        auto string_crcs = seeds();
+        binary->update_crcs_with_value(binary_crcs.data(), TYPE_VARBINARY, rows, 0, nulls);
+        string->update_crcs_with_value(string_crcs.data(), TYPE_STRING, rows, 0, nulls);
+        EXPECT_EQ(binary_crcs, string_crcs);
+        EXPECT_NE(binary_crcs, seeds());
+
+        auto binary_crc32cs = seeds();
+        auto string_crc32cs = seeds();
+        binary->update_crc32c_batch(binary_crc32cs.data(), nulls);
+        string->update_crc32c_batch(string_crc32cs.data(), nulls);
+        EXPECT_EQ(binary_crc32cs, string_crc32cs);
+        EXPECT_NE(binary_crc32cs, seeds());
+
+        for (const auto& [start, end] :
+             std::vector<std::pair<size_t, size_t>> {{0, rows}, {1, rows - 1}}) {
+            uint32_t binary_crc = 23;
+            uint32_t string_crc = 23;
+            binary->update_crc_with_value(start, end, binary_crc, nulls);
+            string->update_crc_with_value(start, end, string_crc, nulls);
+            EXPECT_EQ(binary_crc, string_crc);
+            EXPECT_NE(binary_crc, 23);
+
+            uint32_t binary_crc32c = 29;
+            uint32_t string_crc32c = 29;
+            binary->update_crc32c_single(start, end, binary_crc32c, nulls);
+            string->update_crc32c_single(start, end, string_crc32c, nulls);
+            EXPECT_EQ(binary_crc32c, string_crc32c);
+            EXPECT_NE(binary_crc32c, 29);
+        }
+    }
+}
+
+TEST_F(ColumnVarbinaryTest, ArrayOfVarbinaryHashesLikeArrayOfString) {
+    // A shuffle join on ARRAY<VARBINARY> keys hashes the array elements through
+    // update_crc32c_single.
+    // Rows: [X'01', X'0203'], [], [NULL, X'01'].
+    auto make_array = [](MutableColumnPtr nested) {
+        nested->insert_data("\x01", 1);
+        nested->insert_data("\x02\x03", 2);
+        nested->insert_default();
+        nested->insert_data("\x01", 1);
+        auto null_map = ColumnUInt8::create();
+        for (uint8_t is_null : {0, 0, 1, 0}) {
+            null_map->insert_value(is_null);
+        }
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        for (uint64_t offset : {2, 2, 4}) {
+            offsets->insert_value(offset);
+        }
+        return ColumnArray::create(ColumnNullable::create(std::move(nested), std::move(null_map)),
+                                   std::move(offsets));
+    };
+    auto binary = make_array(ColumnVarbinary::create());
+    auto string = make_array(ColumnString::create());
+
+    std::vector<uint32_t> binary_crc32cs(3, 5);
+    std::vector<uint32_t> string_crc32cs(3, 5);
+    binary->update_crc32c_batch(binary_crc32cs.data(), nullptr);
+    string->update_crc32c_batch(string_crc32cs.data(), nullptr);
+    EXPECT_EQ(binary_crc32cs, string_crc32cs);
+
+    std::vector<uint32_t> binary_crcs(3, 5);
+    std::vector<uint32_t> string_crcs(3, 5);
+    binary->update_crcs_with_value(binary_crcs.data(), TYPE_ARRAY, 3, 0, nullptr);
+    string->update_crcs_with_value(string_crcs.data(), TYPE_ARRAY, 3, 0, nullptr);
+    EXPECT_EQ(binary_crcs, string_crcs);
+}
+
+TEST_F(ColumnVarbinaryTest, ValueHashesAreNotSupported) {
     auto binary = ColumnVarbinary::create();
     binary->insert_data("\0\xff", 2);
     SipHash sip;
     uint64_t hash64 = 17;
-    uint32_t hash32 = 23;
     EXPECT_THROW(binary->update_hash_with_value(0, sip), Exception);
     EXPECT_THROW(binary->update_hashes_with_value(&hash64, nullptr), Exception);
     EXPECT_THROW(binary->update_xxHash_with_value(0, 1, hash64, nullptr), Exception);
-    EXPECT_THROW(binary->update_crcs_with_value(&hash32, TYPE_VARBINARY, 1, 0, nullptr), Exception);
-    EXPECT_THROW(binary->update_crc_with_value(0, 1, hash32, nullptr), Exception);
-    EXPECT_THROW(binary->update_crc32c_batch(&hash32, nullptr), Exception);
-    EXPECT_THROW(binary->update_crc32c_single(0, 1, hash32, nullptr), Exception);
     EXPECT_EQ(hash64, 17);
-    EXPECT_EQ(hash32, 23);
 }
 
 TEST_F(ColumnVarbinaryTest, InsertFromAndRanges) {

@@ -80,6 +80,19 @@ public interface AuthenticationPlugin extends Plugin {
     }
 
     /**
+     * Validate and normalize an AS identity at CREATE/ALTER USER execution time only.
+     * The stored value is compared exactly with Principal.getExternalPrincipal() at login.
+     */
+    default String normalizeBoundIdentity(String rawIdentity) throws AuthenticationException {
+        return rawIdentity;
+    }
+
+    /** Whether a user binding must specify AS. */
+    default boolean requiresBoundIdentity() {
+        return false;
+    }
+
+    /**
      * Whether this plugin supports multi-step authentication (challenge-response).
      * Kerberos/OIDC may need this, Password/LDAP don't.
      *

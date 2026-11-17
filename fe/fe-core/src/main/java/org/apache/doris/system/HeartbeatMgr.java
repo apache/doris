@@ -61,6 +61,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +69,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -81,6 +83,11 @@ public class HeartbeatMgr extends MasterDaemon {
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
     private final ExecutorService abortTxnExecutor;
+    private final ExecutorService changelogTtlExecutor;
+    private final AtomicBoolean changelogTtlRefreshPending = new AtomicBoolean();
+    private final Map<Long, TNetworkAddress> backendHeartbeatAddresses = Maps.newConcurrentMap();
+    private long lastChangelogTtlRefreshMs;
+
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
@@ -91,6 +98,9 @@ public class HeartbeatMgr extends MasterDaemon {
                 Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool", needRegisterMetric);
         this.abortTxnExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1,
                 Config.heartbeat_mgr_blocking_queue_size, "abort-txn-executor", needRegisterMetric);
+        // ATTN(changelog-rename): formerly "row-binlog-ttl-reference"
+        this.changelogTtlExecutor = ThreadPoolManager.newDaemonFixedThreadPool(1, 1,
+                "changelog-ttl-reference", needRegisterMetric);
         this.heartbeatFlags = new HeartbeatFlags();
     }
 
@@ -110,6 +120,24 @@ public class HeartbeatMgr extends MasterDaemon {
         masterInfo.set(tMasterInfo);
     }
 
+    // Called by the dedicated refresh worker, never by a heartbeat sender. The CAS discards
+    // a result acquired across a master transition (setMaster replaces the object).
+    public static boolean refreshChangelogTtlReferenceTso() {
+        TMasterInfo before = masterInfo.get();
+        if (before == null || !Config.enable_feature_changelog) {
+            return false;
+        }
+        try {
+            long tso = Env.getCurrentTSOService().getTSO();
+            TMasterInfo after = new TMasterInfo(before);
+            after.setChangelogTtlReferenceTso(Math.max(before.getChangelogTtlReferenceTso(), tso));
+            return masterInfo.compareAndSet(before, after);
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to refresh changelog TTL reference; keep previous boundary", e);
+            return false;
+        }
+    }
+
     /**
      * At each round:
      * 1. send heartbeat to all nodes
@@ -117,6 +145,19 @@ public class HeartbeatMgr extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
+        long now = System.currentTimeMillis();
+        if (now - lastChangelogTtlRefreshMs >= 15000 && changelogTtlRefreshPending.compareAndSet(false, true)) {
+            lastChangelogTtlRefreshMs = now;
+            changelogTtlExecutor.submit(() -> {
+                try {
+                    if (Env.getCurrentEnv().isMaster()) {
+                        refreshChangelogTtlReferenceTso();
+                    }
+                } finally {
+                    changelogTtlRefreshPending.set(false);
+                }
+            });
+        }
         if (Config.isCloudMode() && masterInfo.get() != null) {
             masterInfo.get().setMetaServiceEndpoint(Config.meta_service_endpoint);
         }
@@ -131,6 +172,7 @@ public class HeartbeatMgr extends MasterDaemon {
             LOG.warn("can not get backends", e);
             return;
         }
+        clearRemovedBackendHeartbeatPools();
         for (Backend backend : bes) {
             BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend, feInfos);
             hbResponses.add(executor.submit(handler));
@@ -273,8 +315,19 @@ public class HeartbeatMgr extends MasterDaemon {
         }
     }
 
+    void clearRemovedBackendHeartbeatPools() {
+        backendHeartbeatAddresses.entrySet().removeIf(entry -> {
+            // Removed BEs will never borrow again, so their idle connections must be closed here.
+            if (nodeMgr.getBackend(entry.getKey()) == null) {
+                ClientPool.backendHeartbeatPool.clearPool(entry.getValue());
+                return true;
+            }
+            return false;
+        });
+    }
+
     // backend heartbeat
-    private class BackendHeartbeatHandler implements Callable<HeartbeatResponse> {
+    class BackendHeartbeatHandler implements Callable<HeartbeatResponse> {
         private Backend backend;
         private List<TFrontendInfo> feInfos;
 
@@ -322,6 +375,20 @@ public class HeartbeatMgr extends MasterDaemon {
                 }
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
+                    if (Config.enable_fqdn_mode) {
+                        String realIp = Env.getCurrentEnv().getDnsCache().get(backend.getHost());
+                        // DNSCache returns an empty address when the first lookup fails.
+                        if (realIp.isEmpty()) {
+                            throw new UnknownHostException("Failed to resolve hostname: " + backend.getHost());
+                        }
+                        beAddr = new TNetworkAddress(realIp, backend.getHeartbeatPort());
+                    }
+                    TNetworkAddress previousAddress = backendHeartbeatAddresses.put(backendId, beAddr);
+                    // A reused Pod IP can lead to a healthy connection to the wrong BE, even when
+                    // its heartbeat succeeds. Switch pools as soon as DNSCache observes the new IP.
+                    if (previousAddress != null && !previousAddress.equals(beAddr)) {
+                        ClientPool.backendHeartbeatPool.clearPool(previousAddress);
+                    }
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
                     result = client.heartbeat(copiedMasterInfo);
                 } else {
@@ -346,7 +413,6 @@ public class HeartbeatMgr extends MasterDaemon {
                     result.getStatus().addToErrorMsgs("debug point HeartbeatMgr.deadBeIds set dead be");
                 }
 
-                ok = true;
                 if (result.getStatus().getStatusCode() == TStatusCode.OK) {
                     TBackendInfo tBackendInfo = result.getBackendInfo();
                     int bePort = tBackendInfo.getBePort();
@@ -377,9 +443,13 @@ public class HeartbeatMgr extends MasterDaemon {
                         isShutDown = tBackendInfo.isIsShutdown();
                     }
                     long beMemory = tBackendInfo.isSetBeMem() ? tBackendInfo.getBeMem() : 0;
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
+                    BackendHbResponse response = new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
                             System.currentTimeMillis(), beStartTime, version, nodeRole,
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
+                    response.setPaimonRustReaderSupported(tBackendInfo.isSetSupportsPaimonRustReader()
+                            && tBackendInfo.isSupportsPaimonRustReader());
+                    ok = true;
+                    return response;
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                             result.getStatus().getErrorMsgs().isEmpty()
@@ -394,6 +464,8 @@ public class HeartbeatMgr extends MasterDaemon {
                     if (ok) {
                         ClientPool.backendHeartbeatPool.returnObject(beAddr, client);
                     } else {
+                        // Identity errors are normal RPC replies. Reusing that socket would keep
+                        // contacting the wrong BE after DNS has converged.
                         ClientPool.backendHeartbeatPool.invalidateObject(beAddr, client);
                     }
                 }

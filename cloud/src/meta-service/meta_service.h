@@ -308,9 +308,6 @@ public:
     void get_iam(google::protobuf::RpcController* controller, const GetIamRequest* request,
                  GetIamResponse* response, ::google::protobuf::Closure* done) override;
 
-    void alter_iam(google::protobuf::RpcController* controller, const AlterIamRequest* request,
-                   AlterIamResponse* response, ::google::protobuf::Closure* done) override;
-
     void alter_ram_user(google::protobuf::RpcController* controller,
                         const AlterRamUserRequest* request, AlterRamUserResponse* response,
                         ::google::protobuf::Closure* done) override;
@@ -489,6 +486,10 @@ private:
 
     bool is_version_read_enabled(std::string_view instance_id) const;
     bool is_version_write_enabled(std::string_view instance_id) const;
+
+    bool wait_for_committed_txn(const std::string& instance_id, const TxnInfoPB& txn_info,
+                                std::unique_ptr<Transaction>& txn, CommitTxnResponse* response,
+                                MetaServiceCode& code, std::string& msg, KVStats& stats);
 
     void commit_txn_immediately(
             const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
@@ -866,11 +867,6 @@ public:
     void get_iam(google::protobuf::RpcController* controller, const GetIamRequest* request,
                  GetIamResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_iam, controller, request, response, done);
-    }
-
-    void alter_iam(google::protobuf::RpcController* controller, const AlterIamRequest* request,
-                   AlterIamResponse* response, ::google::protobuf::Closure* done) override {
-        call_impl(&cloud::MetaService::alter_iam, controller, request, response, done);
     }
 
     void alter_ram_user(google::protobuf::RpcController* controller,

@@ -41,11 +41,9 @@ public class BackendServiceClient {
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
     private final long execPlanTimeout;
-    private final long channelConfigVersion;
 
     public BackendServiceClient(TNetworkAddress address, String resolvedIp, Executor executor) {
         this.address = address;
-        channelConfigVersion = CHANNEL_PROVIDER.currentConfigVersion();
         channel = CHANNEL_PROVIDER.createChannel(address, resolvedIp, executor);
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
@@ -59,10 +57,6 @@ public class BackendServiceClient {
         return state == ConnectivityState.CONNECTING
                 || state == ConnectivityState.IDLE
                 || state == ConnectivityState.READY;
-    }
-
-    public boolean isUsingLatestChannelConfig() {
-        return channelConfigVersion == CHANNEL_PROVIDER.currentConfigVersion();
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentAsync(

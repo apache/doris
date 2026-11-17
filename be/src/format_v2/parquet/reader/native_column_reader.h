@@ -52,6 +52,8 @@ inline constexpr int64_t MAX_NATIVE_LAZY_SKIP_ROWS = std::numeric_limits<uint16_
 inline int64_t bounded_native_lazy_skip_rows(int64_t rows) {
     return std::min(rows, MAX_NATIVE_LAZY_SKIP_ROWS);
 }
+
+Status sync_native_field_types(const ParquetColumnSchema& schema, NativeFieldSchema* field);
 } // namespace detail
 
 // Production adapter from FileScannerV2's selection-oriented reader contract to Doris' native
@@ -152,7 +154,6 @@ private:
     DataTypePtr _native_type;
     std::unique_ptr<VariantMaterializationNode> _variant_plan;
     MutableColumnPtr _variant_physical_column;
-    std::unique_ptr<RuntimeState> _page_cache_runtime_state;
     std::vector<RowRange> _selected_ranges;
     size_t _selected_range_idx = 0;
     int64_t _logical_row_position = 0;

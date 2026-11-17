@@ -57,6 +57,10 @@ Status MemoryScratchSinkLocalState::close(RuntimeState* state, Status exec_statu
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_queue != nullptr) {
+        // The nullptr sentinel alone reads as a complete result. Record a failed execution (a scan
+        // error, a rejected Arrow batch, a cancellation) first, so the external scanner reports it
+        // instead of ending with the batches queued so far. update_status() ignores OK.
+        _queue->update_status(exec_status);
         _queue->blocking_put(nullptr);
     }
     RETURN_IF_ERROR(Base::close(state, exec_status));
@@ -102,8 +106,7 @@ Status MemoryScratchSinkOperatorX::sink_impl(RuntimeState* state, Block* input_b
         RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(
                 local_state._output_vexpr_ctxs, *input_block, &block));
     }
-    DorisArrowBlockConvertor converter(block, state->timezone(), _timezone_obj,
-                                       /*datetime_naive=*/true);
+    ArrowFlightArrowBlockConvertor converter(block, state->timezone(), _timezone_obj);
     {
         SCOPED_TIMER(local_state._get_arrow_schema_timer);
         // After expr executed, use recaculated schema as final schema

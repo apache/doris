@@ -6,16 +6,18 @@
 3
 
 -- !test_case_2_internal_not --
-4
+6
 
 -- !test_case_2_external_not --
-4
+6
 
 -- !test_case_2_phrase_not --
 1
 2
 3
+4
 5
+6
 7
 9
 10
@@ -35,13 +37,13 @@
 2
 
 -- !test_case_6_not_title_search --
-6
+8
 
 -- !test_case_6_not_title_external --
-6
+8
 
 -- !test_case_7_mixed --
-2
+3
 
 -- !test_case_8_all_null --
 0
@@ -80,13 +82,13 @@
 15
 
 -- !nested_3_search --
-14
+28
 
 -- !nested_3_match --
 14
 
 -- !nested_4_search --
-14
+20
 
 -- !nested_4_match --
 14
@@ -132,10 +134,10 @@
 1
 
 -- !ternary_3_search --
-14
+18
 
 -- !ternary_3_external --
-14
+18
 
 -- !ternary_4_search --
 6
@@ -150,10 +152,11 @@
 2
 
 -- !ternary_6_search --
-14
+18
 
 -- !ternary_6_match --
 14
 
 -- !ternary_7_all_null --
 0
+

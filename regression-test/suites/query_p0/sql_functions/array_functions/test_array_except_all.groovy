@@ -123,17 +123,17 @@ suite("test_array_except_all") {
 
     test {
         sql "select array_except_all([[1], [1], [2]], [[1]])"
-        exception "array_except_all does not support types"
+        exception "array_except_all does not support element type"
     }
     test {
         sql "select array_except_all(array(map(1, 'a')), array(map(1, 'a')))"
-        exception "array_except_all does not support types"
+        exception "array_except_all does not support element type"
     }
     test {
         sql """
             select array_except_all(
                 array(named_struct('a', 1)), array(named_struct('a', 1)))
         """
-        exception "array_except_all does not support types"
+        exception "array_except_all does not support element type"
     }
 }

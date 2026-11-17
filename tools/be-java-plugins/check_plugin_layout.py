@@ -216,6 +216,58 @@ CLOSURE_ALLOWLIST = {
 }
 
 
+# gcs-connector 3.1.18 is a shaded uber-jar. Making its Hadoop filesystem a root
+# also scans optional transports, test helpers and native-image substitutions.
+# Match BOTH ends of these edges: a missing library referenced by Doris or the
+# GCS filesystem/authentication implementation must still fail the check.
+_GCS = "com.google.cloud.hadoop.repackaged.gcs."
+_GCS_NETTY = _GCS + "io.grpc.netty.shaded.io.netty."
+_GCS_CODECS = ("Optional Netty codecs bundled in the GCS jar. GCS uses HTTP/gRPC, not "
+               "SPDY, JBoss marshalling or protobuf-nano. Its gzip/deflate path uses "
+               "JDK zlib; Brotli and Zstd HTTP handlers probe isAvailable() before use.")
+_GCS_ANNOTATIONS = ("Compile-time annotations in the shaded GCS jar; the generated "
+                    "AutoValue implementations are already bundled.")
+# Each tuple is (referencing class prefix, missing class prefix, reason).
+GCS_CLOSURE_ALLOWLIST = [
+    (_GCS + "com.google.api.client.extensions.appengine.http.", "com.google.appengine.api.urlfetch.",
+     "App Engine's UrlFetch transport; BE uses the normal JVM HTTP transport."),
+    ("com.google.cloud.hadoop.", "com.google.auto.value.AutoValue", _GCS_ANNOTATIONS),
+    (_GCS + "com.google.common.flogger.", "org.checkerframework.checker.nullness.compatqual.",
+     _GCS_ANNOTATIONS),
+    (_GCS_NETTY + "util.concurrent.", "org.jetbrains.annotations.Async", _GCS_ANNOTATIONS),
+    (_GCS_NETTY + "util.", "com.oracle.svm.core.annotate.",
+     "Graal native-image substitutions are not used by BE's JVM."),
+    (_GCS_NETTY + "util.internal.Hidden$NettyBlockHoundIntegration", "reactor.blockhound.",
+     "Optional BlockHound integration; BE does not install a BlockHound agent."),
+    (_GCS_NETTY + "handler.ssl.", "org.bouncycastle.",
+     "Optional PEM/self-signed certificate helpers. GCS uses trust-store TLS; "
+     "BouncyCastlePemReader checks availability and JDK PEM parsing is the fallback."),
+    (_GCS_NETTY + "handler.ssl.JettyAlpnSslEngine", "org.eclipse.jetty.alpn.",
+     "Legacy Jetty ALPN for old JDKs; BE requires JDK 17 and uses JDK ALPN."),
+    (_GCS_NETTY + "handler.ssl.JettyNpnSslEngine", "org.eclipse.jetty.npn.",
+     "Legacy NPN transport; GCS uses HTTP/2 ALPN on JDK 17."),
+    (_GCS + "io.grpc.testing.", "org.junit.",
+     "Upstream GrpcCleanupRule/GrpcServerRule test helpers bundled in the shaded runtime jar."),
+    (_GCS + "io.opentelemetry.sdk.", _GCS + "io.opentelemetry.api.incubator.",
+     "SdkTracer, SdkLogger and instrument builders probe incubator availability "
+     "with Class.forName and use the stable implementation when it is absent."),
+    ("com.google.cloud.hadoop.fs.gcs.auth.GcsDtFetcher",
+     "com.google.cloud.hadoop.gcsio.GoogleCloudStorageFileSystem",
+     "Unused pre-shading constant-pool entry in 3.1.18: javap shows no instruction "
+     "or signature using it. The actual filesystem implementation is relocated."),
+] + [(_GCS_NETTY + "handler.codec.", target, _GCS_CODECS) for target in (
+    "com.aayushatharva.brotli4j.", "com.github.luben.zstd.", "com.jcraft.jzlib.",
+    "com.ning.compress.", "lzma.sdk.", "net.jpountz.lz4.", "net.jpountz.xxhash.",
+    "org.jboss.marshalling.", _GCS + "com.google.protobuf.nano.",
+)]
+
+
+def _gcs_optional_reference(plugin, source, target):
+    return plugin in ("hudi", "iceberg", "paimon") and any(
+        source.startswith(src) and target.startswith(dst)
+        for src, dst, _reason in GCS_CLOSURE_ALLOWLIST)
+
+
 def _allowed(rules, path):
     for kind, pattern, _reason in rules:
         if kind == "basename" and path.rsplit("/", 1)[-1] == pattern:
@@ -456,6 +508,8 @@ def _doris_owned(jars):
 # Entries are class file paths. A name absent from a plugin costs nothing: that plugin simply
 # bundles no such filesystem, and the root set is what it was.
 _NAMED_BY_DORIS = (
+    # Native GCP Hadoop access in the isolated Hudi, Paimon and Iceberg scanners.
+    "com/google/cloud/hadoop/fs/gcs/GoogleHadoopFileSystem.class",
     # fs.s3.impl / fs.s3a.impl / fs.cos.impl / fs.cosn.impl / fs.gs.impl, and the fallback
     # fs.obs.impl - one jar, hadoop-aws, and the S3A credential providers live in it too.
     "org/apache/hadoop/fs/s3a/S3AFileSystem.class",
@@ -515,6 +569,8 @@ def check_closure_self_contained(plugin, jars, spi_jar, fail):
         if "." not in src or "." not in target:
             continue
         if any(target.startswith(prefix) for prefix, _reason in rules):
+            continue
+        if _gcs_optional_reference(plugin, src, target):
             continue
         missing[target].add(src)
     for target in sorted(missing):

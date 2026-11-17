@@ -21,9 +21,11 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -34,6 +36,7 @@ import org.apache.doris.nereids.types.StringType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
@@ -176,5 +179,23 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("(a / b > 1) <=> true", "(a / b > 1) <=> true");
         assertRewriteAfterTypeCoercion("(a / b > 1 and c > 1 or (d > 1)) <=> true",
                 "(a / b > 1) <=> true and (c > 1 and c is not null) or (d > 1 and d is not null)");
+    }
+
+    @Test
+    void testPreserveShortCircuitIf() {
+        // Rewriting the condition of a ShortCircuitIf must keep the function, so its branches still
+        // evaluate lazily.
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(NullSafeEqualToEqual.INSTANCE)
+        ));
+        SlotReference left = new SlotReference("a", StringType.INSTANCE, false);
+        SlotReference right = new SlotReference("b", StringType.INSTANCE, false);
+        ShortCircuitIf shortCircuitIf = new ShortCircuitIf(
+                new NullSafeEqual(left, right), IntegerLiteral.of(1), IntegerLiteral.of(0));
+
+        Expression rewritten = executor.rewrite(shortCircuitIf, context);
+
+        Assertions.assertInstanceOf(ShortCircuitIf.class, rewritten);
+        Assertions.assertInstanceOf(EqualTo.class, ((ShortCircuitIf) rewritten).getCondition());
     }
 }

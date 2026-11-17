@@ -76,7 +76,7 @@ suite("test_iceberg_varbinary", "p0,external") {
         select * from test_ice_uuid_parquet order by id;
     """
 
-    // no mapping orc
+    // The obsolete false value is accepted but must not disable VARBINARY mapping.
     qt_select3 """
         insert into test_ice_uuid_orc_write_no_mapping select * from test_ice_uuid_orc;
     """
@@ -93,7 +93,7 @@ suite("test_iceberg_varbinary", "p0,external") {
         select * from test_ice_uuid_orc_write_no_mapping order by id;
     """
 
-    // no mapping parquet
+    // Parquet follows the same binary-safe mapping regardless of the old property value.
     qt_select7 """
         insert into test_ice_uuid_parquet_write_no_mapping select * from test_ice_uuid_parquet;
     """

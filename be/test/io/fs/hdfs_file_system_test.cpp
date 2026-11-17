@@ -40,6 +40,9 @@ TEST(HdfsFileSystemTest, RejectsCacheBlockSizeNotDividingHdfsBatch) {
     EXPECT_TRUE(io::validate_hdfs_write_batch_buffer_size(1, 256 * 1024).ok());
     EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, 640 * 1024).ok());
     EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, 2 * 1024 * 1024).ok());
+    // ExecEnv::init_file_cache_factory relies on this rejection before it divides by the size.
+    EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, 0).ok());
+    EXPECT_FALSE(io::validate_hdfs_write_batch_buffer_size(1, -1).ok());
 }
 
 TEST(HdfsFileSystemTest, Write) {

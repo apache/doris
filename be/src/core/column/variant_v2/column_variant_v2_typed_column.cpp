@@ -44,6 +44,7 @@ bool is_supported_variant_typed_identity(PrimitiveType type) {
     case TYPE_STRING:
     case TYPE_IPV4:
     case TYPE_IPV6:
+    case TYPE_UUID:
         return true;
     default:
         return false;

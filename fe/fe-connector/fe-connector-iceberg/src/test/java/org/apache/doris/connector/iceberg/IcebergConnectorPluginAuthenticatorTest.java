@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -25,8 +26,12 @@ import org.apache.iceberg.hive.CachedClientPool;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.PrivilegedExceptionAction;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -63,6 +68,71 @@ public class IcebergConnectorPluginAuthenticatorTest {
                         "hadoop.kerberos.keytab", "/etc/security/doris.keytab"),
                 new HashMap<>());
         Assertions.assertNotNull(auth, "storage kerberos must yield a plugin authenticator");
+    }
+
+    @Test
+    public void canonicalStorageKerberosBuildsPluginAuthenticator() {
+        HadoopAuthenticator auth = IcebergConnector.buildPluginAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hdfs.authentication.type", "kerberos",
+                        "hdfs.authentication.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hdfs.authentication.kerberos.keytab", "/etc/security/storage.keytab"),
+                props("hadoop.security.authentication", "kerberos",
+                        "hadoop.kerberos.principal", "storage@EXAMPLE.COM",
+                        "hadoop.kerberos.keytab", "/etc/security/storage.keytab"));
+        Assertions.assertTrue(auth instanceof HadoopKerberosAuthenticator,
+                "Canonical storage configuration must select the plugin-side Kerberos UGI");
+    }
+
+    @Test
+    public void xmlKerberosWithoutCredentialsPreservesStorageIdentity(@TempDir Path tmp) throws Exception {
+        Path resource = tmp.resolve("core-site.xml");
+        Files.writeString(resource, "<configuration><property>"
+                + "<name>hadoop.security.authentication</name><value>kerberos</value>"
+                + "</property></configuration>");
+        Configuration xml = new Configuration(false);
+        xml.addResource(new org.apache.hadoop.fs.Path(resource.toUri()));
+        Map<String, String> storageConfig = new HashMap<>();
+        xml.forEach(entry -> storageConfig.put(entry.getKey(), entry.getValue()));
+        HadoopAuthenticator auth = IcebergConnector.buildPluginAuthenticator(
+                props("iceberg.catalog.type", "hadoop",
+                        "hdfs.authentication.type", "simple",
+                        "hadoop.config.resources", resource.toString()),
+                storageConfig);
+        RecordingConnectorContext delegate = new RecordingConnectorContext();
+        TcclPinningConnectorContext context = new TcclPinningConnectorContext(
+                delegate, getClass().getClassLoader(), () -> auth);
+
+        String user = UserGroupInformation.createRemoteUser("storage-user").doAs(
+                (PrivilegedExceptionAction<String>) () -> context.executeAuthenticated(
+                        () -> UserGroupInformation.getCurrentUser().getUserName()));
+
+        Assertions.assertEquals("storage-user", user,
+                "XML without a Kerberos login pair must preserve the existing storage identity");
+        Assertions.assertNull(auth);
+        Assertions.assertEquals(1, delegate.authCount);
+    }
+
+    @Test
+    public void incompleteStorageKerberosCredentialsDoNotBuildAuthenticator() {
+        for (String credential : new String[] {"hadoop.kerberos.principal", "hadoop.kerberos.keytab"}) {
+            HadoopAuthenticator auth = IcebergConnector.buildPluginAuthenticator(
+                    props("iceberg.catalog.type", "hadoop"),
+                    props("hadoop.security.authentication", "kerberos", credential, "unused"));
+            Assertions.assertNull(auth, "A single Kerberos credential must not select a SIMPLE plugin identity");
+        }
+    }
+
+    @Test
+    public void kerberosHmsWithSimpleStorageDoesNotBuildStorageAuthenticator() {
+        HadoopAuthenticator auth = IcebergConnector.buildPluginAuthenticator(
+                props("iceberg.catalog.type", "hms",
+                        "hive.metastore.authentication.type", "kerberos",
+                        "hive.metastore.client.principal", "metastore@EXAMPLE.COM",
+                        "hive.metastore.client.keytab", "/etc/security/metastore.keytab",
+                        "hdfs.authentication.type", "simple"),
+                props("hadoop.security.authentication", "simple"));
+        Assertions.assertNull(auth, "HMS credentials must not select the storage Kerberos identity");
     }
 
     /**

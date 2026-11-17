@@ -27,6 +27,7 @@
 #include <parquet/type_fwd.h>
 #include <parquet/types.h>
 
+#include <algorithm>
 #include <ctime>
 #include <exception>
 #include <ostream>
@@ -43,8 +44,12 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
+namespace {
+constexpr int64_t HADOOP_LZ4_DEFAULT_BUFFER_SIZE = 256 * 1024;
+} // namespace
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
@@ -96,6 +101,25 @@ void ParquetOutputStream::set_written_len(int64_t written_len) {
     _written_len = written_len;
 }
 
+Result<TParquetCompressionType::type> ParquetBuildHelper::to_parquet_compression_type(
+        TFileCompressType::type compression_type) {
+    switch (compression_type) {
+    case TFileCompressType::PLAIN:
+        return TParquetCompressionType::UNCOMPRESSED;
+    case TFileCompressType::SNAPPYBLOCK:
+        return TParquetCompressionType::SNAPPY;
+    case TFileCompressType::ZSTD:
+        return TParquetCompressionType::ZSTD;
+    case TFileCompressType::GZ:
+        return TParquetCompressionType::GZIP;
+    case TFileCompressType::LZ4BLOCK:
+        return TParquetCompressionType::LZ4_HADOOP;
+    default:
+        return ResultError(Status::InternalError("Unsupported compress type {} with parquet",
+                                                 to_string(compression_type)));
+    }
+}
+
 void ParquetBuildHelper::build_compression_type(
         ::parquet::WriterProperties::Builder& builder,
         const TParquetCompressionType::type& compression_type) {
@@ -121,7 +145,6 @@ void ParquetBuildHelper::build_compression_type(
         break;
     }
     case TParquetCompressionType::LZ4_HADOOP: {
-        constexpr int64_t HADOOP_LZ4_DEFAULT_BUFFER_SIZE = 256 * 1024;
         // Hadoop-framed LZ4 -> Parquet thrift codec "LZ4" (deprecated). This matches what
         // Spark/Iceberg writes for `write.parquet.compression-codec=lz4`. Arrow 17 emits one
         // Hadoop LZ4 block per Parquet page/dictionary page, while Hadoop JVM readers default to
@@ -193,6 +216,20 @@ Status VParquetWriter::_parse_properties() {
         ::parquet::WriterProperties::Builder builder;
         ParquetBuildHelper::build_compression_type(builder, _parquet_options.compression_type);
         ParquetBuildHelper::build_version(builder, _parquet_options.parquet_version);
+        const auto& query_options = _state->query_options();
+        // Preserve the current enabled default explicitly, including when older FEs omit the field.
+        if (query_options.enable_parquet_write_page_index) {
+            builder.enable_write_page_index();
+        } else {
+            builder.disable_write_page_index();
+        }
+        int64_t page_size = query_options.parquet_write_data_page_size;
+        DORIS_CHECK_GT(page_size, 0);
+        // A 1 MiB session target must still respect the 128 KiB Hadoop-framed LZ4 limit.
+        if (_parquet_options.compression_type == TParquetCompressionType::LZ4_HADOOP) {
+            page_size = std::min(page_size, HADOOP_LZ4_DEFAULT_BUFFER_SIZE / 2);
+        }
+        builder.data_pagesize(page_size);
         if (_parquet_options.parquet_disable_dictionary) {
             builder.disable_dictionary();
         } else {
@@ -219,9 +256,9 @@ Status VParquetWriter::_parse_properties() {
 
 std::unique_ptr<ArrowBlockConvertor> VParquetWriter::_create_arrow_block_convertor(
         DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
-        const cctz::time_zone& timezone) const {
-    return std::make_unique<ParquetArrowBlockConvertor>(std::move(types), std::move(names),
-                                                        timezone_name, timezone);
+        const cctz::time_zone& timezone, bool enable_int96_timestamps) const {
+    return std::make_unique<ParquetArrowBlockConvertor>(
+            std::move(types), std::move(names), timezone_name, timezone, enable_int96_timestamps);
 }
 
 Status VParquetWriter::write(const Block& block) {
@@ -255,6 +292,13 @@ arrow::Status VParquetWriter::_open_file_writer() {
 Status VParquetWriter::open() {
     _timezone = _state->timezone();
     _timezone_obj = _state->timezone_obj();
+    if (_parquet_options.enable_int96_timestamps && _parquet_options.int96_timezone.has_value()) {
+        _timezone = *_parquet_options.int96_timezone;
+        // Cache the override on this writer, never mutate the shared query RuntimeState.
+        if (!TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj)) {
+            return Status::InvalidArgument("Invalid Parquet INT96 writer timezone: {}", _timezone);
+        }
+    }
     RETURN_IF_ERROR(_parse_properties());
     DataTypes types;
     types.reserve(_output_vexpr_ctxs.size());
@@ -269,8 +313,9 @@ Status VParquetWriter::open() {
             names.emplace_back(schema.schema_column_name);
         }
     }
-    _arrow_block_convertor = _create_arrow_block_convertor(std::move(types), std::move(names),
-                                                           _timezone, _timezone_obj);
+    _arrow_block_convertor =
+            _create_arrow_block_convertor(std::move(types), std::move(names), _timezone,
+                                          _timezone_obj, _parquet_options.enable_int96_timestamps);
     RETURN_IF_ERROR(_arrow_block_convertor->init());
     try {
         RETURN_DORIS_STATUS_IF_ERROR(_open_file_writer());

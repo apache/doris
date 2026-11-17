@@ -43,12 +43,22 @@ suite("test_iceberg_migrated_nested_without_name_mapping", "p0,external") {
     sql """use multi_catalog"""
     sql """set enable_fallback_to_original_planner=false"""
 
-    // The physical Parquet fields predate migration and have no Iceberg IDs. Once the explicit
-    // default name mapping is removed, neither the root nor nested values may match by current name.
-    qt_idless_nested_fields_are_missing """
+    // The physical Parquet fields predate migration and carry no Iceberg IDs, and this registered
+    // metadata has no `schema.name-mapping.default`. Iceberg's Parquet reader binds such a file by
+    // position (ParquetSchemaUtil.addFallbackIds + pruneColumnsFallback, see DORIS-29685): the k-th
+    // physical top-level field is field id k, so `id` (field id 1) must read its real value instead
+    // of NULL. Fallback ids are stamped on top-level fields only, so the nested children stay NULL
+    // until a name mapping is restored.
+    qt_idless_top_level_field_uses_positional_id """
         SELECT id, nested_struct.value_a, nested_struct.value_b
         FROM migrated_nested_without_name_mapping
         ORDER BY id
+    """
+
+    // The same positional binding must feed predicate/row-group filtering, otherwise the row would
+    // be readable but unfilterable.
+    qt_idless_top_level_field_filter_uses_positional_id """
+        SELECT count(*) FROM migrated_nested_without_name_mapping WHERE id = 1
     """
 
     sql """drop catalog if exists ${catalog_name}"""

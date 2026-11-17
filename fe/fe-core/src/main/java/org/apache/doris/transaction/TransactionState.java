@@ -708,7 +708,7 @@ public class TransactionState implements Writable {
         Set<Long> indexIds = loadedTblIndexes.computeIfAbsent(table.getId(), k -> Sets.newHashSet());
         // always equal the index ids
         indexIds.clear();
-        // include the row binlog companion index so it joins commit/publish quorum
+        // include the changelog companion index so it joins commit/publish quorum
         indexIds.addAll(table.getIndexIdToMeta(true).keySet());
     }
 

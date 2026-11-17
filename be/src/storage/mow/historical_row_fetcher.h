@@ -48,7 +48,7 @@ public:
     void plan_fixed_read(const RowLocation& loc, size_t dst_pos);
     void plan_flexible_read(const RowLocation& loc, size_t dst_pos, const BitmapValue& skip_bitmap);
 
-    // Fixed partial update and the binlog AFTER image. Same behavior as
+    // Fixed partial update and the changelog AFTER image. Same behavior as
     // FixedReadPlan::fill_missing_columns, including its default / null / auto-inc order and its
     // handling of delete-signed old rows.
     Status fill_missing_columns(const TabletSchema& tablet_schema, Block& full_block,
@@ -71,7 +71,7 @@ public:
                                         uint32_t block_start_pos, const Block* block,
                                         std::vector<BitmapValue>* skip_bitmaps) const;
 
-    // A raw read on the fixed plan: no fill steps at all. Used by the binlog BEFORE image, where
+    // A raw read on the fixed plan: no fill steps at all. Used by the changelog BEFORE image, where
     // rows missing from *read_index stay NULL.
     Status read_columns(const TabletSchema& tablet_schema, std::vector<uint32_t> cids_to_read,
                         Block& dst_block, std::map<uint32_t, uint32_t>* read_index,

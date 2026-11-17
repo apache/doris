@@ -17,8 +17,13 @@
 
 package org.apache.doris.indexpolicy;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 
 import org.junit.jupiter.api.Assertions;
@@ -32,7 +37,10 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class PolicyValidatorTests {
@@ -68,6 +76,12 @@ public class PolicyValidatorTests {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         policy.write(new DataOutputStream(bytes));
         return IndexPolicy.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+    }
+
+    private static IndexPolicyMgr roundTrip(IndexPolicyMgr manager) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        manager.write(new DataOutputStream(bytes));
+        return IndexPolicyMgr.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
     }
 
     // @ParameterizedTest
@@ -260,6 +274,668 @@ public class PolicyValidatorTests {
 
         Assertions.assertEquals("1",
                 policyMgr.getPolicyByName("new_ngram").getProperties().get("max_ngram_diff"));
+    }
+
+    @Test
+    public void testIkTokenizersAreBuiltIn() {
+        Assertions.assertTrue(IndexPolicy.BUILTIN_TOKENIZERS.contains("ik_smart"));
+        Assertions.assertTrue(IndexPolicy.BUILTIN_TOKENIZERS.contains("ik_max_word"));
+    }
+
+    @Test
+    public void testExactLegacyPolicyPrecedesBuiltinValidation() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                41, "IK", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                43, "LOWERCASE", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+
+        DdlException analyzerException = Assertions.assertThrows(
+                DdlException.class, () -> manager.validateAnalyzerExists("IK"));
+        Assertions.assertTrue(analyzerException.getMessage().contains("is not an analyzer"));
+        Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("ik"));
+
+        DdlException normalizerException = Assertions.assertThrows(
+                DdlException.class, () -> manager.validateNormalizerExists("LOWERCASE"));
+        Assertions.assertTrue(normalizerException.getMessage().contains("is not a normalizer"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("lowercase"));
+    }
+
+    @Test
+    public void testNormalizerNamedAfterBuiltinAnalyzerIsUnreachable() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                45, "ik", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                46, "none", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                47, "norm_ascii", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+
+        for (String name : List.of("ik", "IK", "none", " NONE ")) {
+            DdlException error = Assertions.assertThrows(
+                    DdlException.class, () -> manager.validateNormalizerExists(name));
+            Assertions.assertTrue(error.getMessage().contains("built-in analyzer"), error.getMessage());
+        }
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("norm_ascii"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("lowercase"));
+    }
+
+    @Test
+    public void testExactCaseDistinctNormalizerPolicyRemainsReachable() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                48, "IK", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("IK"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("ik"));
+    }
+
+    @Test
+    public void testCreateNormalizerPolicyRejectsBuiltinAnalyzerName() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        for (String name : List.of("ik", "IK", "none", "standard")) {
+            DdlException error = Assertions.assertThrows(DdlException.class,
+                    () -> manager.createIndexPolicy(false, name, IndexPolicyTypeEnum.NORMALIZER,
+                            new HashMap<>(Map.of("token_filter", "asciifolding"))));
+            Assertions.assertTrue(error.getMessage().contains("conflicts with built-in"), error.getMessage());
+        }
+    }
+
+    @Test
+    public void testReplayedAnalyzerUsesExactTokenizerBinding() throws Exception {
+        Map<String, String> invalidNgram = Map.of(
+                "type", "ngram", "min_gram", "1", "max_gram", "3", "max_ngram_diff", "1");
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                50, "Foo", IndexPolicyTypeEnum.TOKENIZER, invalidNgram));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                51, "foo", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                52, "invalid_exact_tokenizer_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "Foo")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                60, "Bar", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                61, "bar", IndexPolicyTypeEnum.TOKENIZER, invalidNgram));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                62, "valid_exact_tokenizer_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "Bar")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                70, "Baz", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                71, "baz", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                72, "wrong_type_exact_tokenizer_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "Baz")));
+
+        IndexPolicyMgr restored = roundTrip(manager);
+        DdlException invalidException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("invalid_exact_tokenizer_analyzer"));
+        Assertions.assertTrue(invalidException.getMessage().contains("invalid tokenizer 'Foo'"));
+        Assertions.assertDoesNotThrow(
+                () -> restored.validateAnalyzerExists("valid_exact_tokenizer_analyzer"));
+        DdlException typeException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("wrong_type_exact_tokenizer_analyzer"));
+        Assertions.assertTrue(typeException.getMessage().contains("expected TOKENIZER"));
+    }
+
+    @Test
+    public void testReplayedPoliciesRejectWrongExactNestedFilterTypes() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                80, "AnalyzerToken", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                81, "analyzertoken", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                82, "wrong_analyzer_token_filter", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "AnalyzerToken")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                90, "AnalyzerChar", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                91, "analyzerchar", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                92, "wrong_analyzer_char_filter", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "AnalyzerChar")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                100, "NormalizerToken", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                101, "normalizertoken", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                102, "wrong_normalizer_token_filter", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "NormalizerToken")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                110, "NormalizerChar", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                111, "normalizerchar", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                112, "wrong_normalizer_char_filter", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("char_filter", "NormalizerChar")));
+
+        IndexPolicyMgr restored = roundTrip(manager);
+        DdlException analyzerTokenException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("wrong_analyzer_token_filter"));
+        Assertions.assertTrue(analyzerTokenException.getMessage().contains("expected TOKEN_FILTER"));
+        DdlException analyzerCharException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("wrong_analyzer_char_filter"));
+        Assertions.assertTrue(analyzerCharException.getMessage().contains("expected CHAR_FILTER"));
+        DdlException normalizerTokenException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateNormalizerExists("wrong_normalizer_token_filter"));
+        Assertions.assertTrue(normalizerTokenException.getMessage().contains("expected TOKEN_FILTER"));
+        DdlException normalizerCharException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateNormalizerExists("wrong_normalizer_char_filter"));
+        Assertions.assertTrue(normalizerCharException.getMessage().contains("expected CHAR_FILTER"));
+    }
+
+    @Test
+    public void testIfNotExistsKeepsReplayedBuiltinTokenizerNameIdempotent() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy replayed = new IndexPolicy(
+                42, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        manager.replayCreateIndexPolicy(replayed);
+
+        Assertions.assertDoesNotThrow(() -> manager.createIndexPolicy(
+                true, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Assertions.assertSame(replayed, manager.getPolicyByName("ik_smart"));
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> new IndexPolicyMgr().createIndexPolicy(
+                        true, "ik_max_word", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Assertions.assertTrue(exception.getMessage().contains("conflicts with built-in tokenizer name"));
+    }
+
+    @Test
+    public void testNamedIkTokenizerPolicyValidation() throws Exception {
+        Method validate = IndexPolicyMgr.class.getDeclaredMethod(
+                "validateTokenizerProperties", Map.class);
+        validate.setAccessible(true);
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        Assertions.assertDoesNotThrow(() -> validate.invoke(manager, Map.of("type", "ik_smart")));
+        Assertions.assertDoesNotThrow(() -> validate.invoke(manager, Map.of("type", "ik_max_word")));
+    }
+
+    @Test
+    public void testExistingPolicyPrecedesBuiltinAfterReplay() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                42, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Method validate = IndexPolicyMgr.class.getDeclaredMethod(
+                "validatePolicyReference", String.class, IndexPolicyTypeEnum.class);
+        validate.setAccessible(true);
+        Assertions.assertDoesNotThrow(
+                () -> validate.invoke(manager, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+    }
+
+    @Test
+    public void testBuiltinIkValidationIsLocaleIndependent() throws Exception {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            IndexPolicyMgr manager = new IndexPolicyMgr();
+            Method validate = IndexPolicyMgr.class.getDeclaredMethod(
+                    "validatePolicyReference", String.class, IndexPolicyTypeEnum.class);
+            validate.setAccessible(true);
+            Assertions.assertDoesNotThrow(
+                    () -> validate.invoke(manager, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
+    }
+
+    @Test
+    public void testReplayDropPreservesSurvivingLocaleCollision() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy older = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy newer = new IndexPolicy(
+                2, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+
+        manager.replayCreateIndexPolicy(older);
+        manager.replayCreateIndexPolicy(newer);
+        Assertions.assertEquals(2, manager.getCopiedIndexPolicies().size());
+        Assertions.assertTrue(manager.getCopiedIndexPolicies().containsAll(List.of(older, newer)));
+        Assertions.assertEquals(older.getId(), manager.getPolicyByName("IK_SMART").getId());
+        manager.replayDropIndexPolicy(new DropIndexPolicyLog(older.getId()));
+
+        Assertions.assertEquals(newer.getId(), manager.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(List.of(newer), manager.getCopiedIndexPolicies());
+    }
+
+    @Test
+    public void testReplayDropRestoresOlderLocaleCollision() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy older = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy newer = new IndexPolicy(
+                2, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+
+        manager.replayCreateIndexPolicy(older);
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayDropIndexPolicy(new DropIndexPolicyLog(newer.getId()));
+
+        Assertions.assertEquals(older.getId(), manager.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals(List.of(older), manager.getCopiedIndexPolicies());
+    }
+
+    @Test
+    public void testImageRebuildPreservesLegacyExactNameBindings() throws Exception {
+        long newerId = 1L << 32;
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy newer = new IndexPolicy(
+                newerId, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+        IndexPolicy older = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayCreateIndexPolicy(older);
+        IndexPolicyMgr restored = roundTrip(manager);
+
+        Assertions.assertEquals(older.getId(), restored.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(newerId, restored.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals(newerId, restored.getPolicyByName("Ik_Smart").getId());
+    }
+
+    @Test
+    public void testJournalAndImageKeepLegacyExactNameBindings() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy historical = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy newer = new IndexPolicy(
+                2, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+        IndexPolicy dependent = new IndexPolicy(
+                3, "legacy_exact_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "IK_SMART"));
+
+        manager.replayCreateIndexPolicy(historical);
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayCreateIndexPolicy(dependent);
+        Assertions.assertEquals(historical.getId(), manager.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(newer.getId(), manager.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals(3, manager.getCopiedIndexPolicies().size());
+
+        IndexPolicyMgr restored = roundTrip(manager);
+        Assertions.assertEquals(historical.getId(), restored.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(newer.getId(), restored.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals("IK_SMART",
+                restored.getPolicyByName(dependent.getName()).getProperties().get("tokenizer"));
+        Assertions.assertEquals(3, restored.getCopiedIndexPolicies().size());
+    }
+
+    @Test
+    public void testExactLegacyNameControlsValidationAndDropDependencies() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy exactAnalyzer = new IndexPolicy(
+                10, "LEGACY_ANALYZER", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword"));
+        IndexPolicy normalizedNormalizer = new IndexPolicy(
+                11, "legacy_analyzer", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase"));
+        IndexPolicy historicalTokenizer = new IndexPolicy(
+                20, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy normalizedTokenizer = new IndexPolicy(
+                21, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+        IndexPolicy dependentAnalyzer = new IndexPolicy(
+                22, "legacy_exact_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "IK_SMART"));
+
+        manager.replayCreateIndexPolicy(exactAnalyzer);
+        manager.replayCreateIndexPolicy(normalizedNormalizer);
+        manager.replayCreateIndexPolicy(historicalTokenizer);
+        manager.replayCreateIndexPolicy(normalizedTokenizer);
+        manager.replayCreateIndexPolicy(dependentAnalyzer);
+
+        Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("LEGACY_ANALYZER"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("legacy_analyzer"));
+
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertDoesNotThrow(() -> manager.dropIndexPolicy(
+                    false, "ik_smart", IndexPolicyTypeEnum.TOKENIZER));
+            Assertions.assertEquals(historicalTokenizer.getId(), manager.getPolicyByName("ik_smart").getId());
+            Assertions.assertThrows(DdlException.class, () -> manager.dropIndexPolicy(
+                    false, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+        }
+    }
+
+    @Test
+    public void testCanonicalBuiltinAnalyzerWinsValidationOverExactLegacyPolicy() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                30, "ik", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                31, "legacy_grams", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "common_grams")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                32, "standard", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "legacy_grams")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                33, "English", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                34, "lowercase", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword")));
+
+        Assertions.assertAll(
+                () -> Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("ik")),
+                () -> Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("standard")),
+                () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                        () -> manager.validateAnalyzerExists("English")).getMessage()
+                        .contains("is not an analyzer")),
+                () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                        () -> manager.validateNormalizerExists("lowercase")).getMessage()
+                        .contains("is not a normalizer")));
+    }
+
+    @Test
+    public void testDropDependencyFollowsTopLevelBuiltinPrecedence() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy upperIk = new IndexPolicy(
+                40, "IK", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword"));
+        IndexPolicy upperLowercase = new IndexPolicy(
+                41, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding"));
+        IndexPolicy exactLowercase = new IndexPolicy(
+                42, "lowercase", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding"));
+        OlapTable table = new OlapTable();
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(db.getTables()).thenReturn(List.of(table));
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(catalog.getDbs()).thenReturn(List.of(db));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            manager.replayCreateIndexPolicy(upperIk);
+            manager.replayCreateIndexPolicy(upperLowercase);
+            table.setIndexes(List.of(invertedIndex(1, "analyzer", "ik"), invertedIndex(2, "normalizer", "lowercase")));
+            Assertions.assertDoesNotThrow(() -> manager.dropIndexPolicy(false, "IK", IndexPolicyTypeEnum.ANALYZER));
+            Assertions.assertDoesNotThrow(
+                    () -> manager.dropIndexPolicy(false, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER));
+
+            manager.replayCreateIndexPolicy(upperIk);
+            manager.replayCreateIndexPolicy(exactLowercase);
+            table.setIndexes(List.of(invertedIndex(3, "analyzer", "IK"), invertedIndex(4, "normalizer", "lowercase")));
+            Assertions.assertAll(
+                    () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                            () -> manager.dropIndexPolicy(false, "IK", IndexPolicyTypeEnum.ANALYZER))
+                            .getMessage().contains("is used by index")),
+                    () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                            () -> manager.dropIndexPolicy(false, "lowercase", IndexPolicyTypeEnum.NORMALIZER))
+                            .getMessage().contains("is used by index")));
+        }
+    }
+
+    private static Index invertedIndex(long id, String key, String name) {
+        return new Index(id, "idx_" + id, List.of("content"), IndexType.INVERTED, Map.of(key, name), "");
+    }
+
+    // NGramTokenizerValidator gram-mode (auto/sparse/dense) Tests
+    @Test
+    public void testNGramValidator_GramModeSparse() throws DdlException {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "ngram");
+        props.put("mode", "sparse");
+        props.put("min_gram", "3");
+        props.put("max_gram", "16");
+        props.put("density", "0.25");
+        props.put("lower_case", "true");
+        validator.validate(props);   // does not throw
+    }
+
+    @Test
+    public void testNGramValidator_GramModeRejectsBadValues() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> bad = new HashMap<>();
+        bad.put("type", "ngram");
+        bad.put("mode", "fuzzy");
+        DdlException e1 = Assertions.assertThrows(DdlException.class, () -> validator.validate(bad));
+        Assertions.assertTrue(e1.getMessage().contains("mode must be one of"));
+
+        Map<String, String> noMode = new HashMap<>();
+        noMode.put("type", "ngram");
+        noMode.put("density", "0.25");
+        DdlException e2 = Assertions.assertThrows(DdlException.class, () -> validator.validate(noMode));
+        Assertions.assertTrue(e2.getMessage().contains("requires mode"));
+
+        Map<String, String> badDensity = new HashMap<>();
+        badDensity.put("type", "ngram");
+        badDensity.put("mode", "sparse");
+        badDensity.put("density", "1.5");
+        Assertions.assertTrue(Assertions.assertThrows(DdlException.class, () -> validator.validate(badDensity))
+                .getMessage().contains("density must be"));
+
+        Map<String, String> tokenChars = new HashMap<>();
+        tokenChars.put("type", "ngram");
+        tokenChars.put("mode", "dense");
+        tokenChars.put("token_chars", "letter");
+        Assertions.assertTrue(Assertions.assertThrows(DdlException.class, () -> validator.validate(tokenChars))
+                .getMessage().contains("token_chars cannot be used"));
+
+        Map<String, String> wideGap = new HashMap<>();   // max-min>1 is allowed once mode is set
+        wideGap.put("type", "ngram");
+        wideGap.put("mode", "sparse");
+        wideGap.put("min_gram", "3");
+        wideGap.put("max_gram", "24");
+        Assertions.assertDoesNotThrow(() -> validator.validate(wideGap));
+    }
+
+    @Test
+    public void testNGramValidator_GramModeRejectsEmptyMode() {
+        // BE treats an empty mode as legacy, but FE validation must reject an empty mode string
+        // already at DDL time.
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> emptyMode = new HashMap<>();
+        emptyMode.put("type", "ngram");
+        emptyMode.put("mode", "");
+        DdlException e = Assertions.assertThrows(DdlException.class, () -> validator.validate(emptyMode));
+        Assertions.assertTrue(e.getMessage().contains("mode must be one of"), e.getMessage());
+        // The empty value must be recognizable in the message, not leave a blank "got: "
+        Assertions.assertTrue(e.getMessage().contains("got: '' (empty)"), e.getMessage());
+    }
+
+    private static Map<String, String> sparseGramProps() {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "ngram");
+        props.put("mode", "sparse");
+        return props;
+    }
+
+    private static String assertGramPropRejected(Map<String, String> props) {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        return Assertions.assertThrows(DdlException.class, () -> validator.validate(props)).getMessage();
+    }
+
+    /**
+     * The value domains of the gram-family parameters must match BE's
+     * `gram_scheme.cpp::from_properties`:
+     * min_gram in [1, 64], max_gram in [1, 256], density in [0.001, 1].
+     * Letting an out-of-range value through in FE only defers the error to a BE InvalidArgument at
+     * write time.
+     */
+    @Test
+    public void testNGramValidator_GramModeValueDomainsMirrorBe() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+
+        Map<String, String> maxGramTooBig = sparseGramProps();
+        maxGramTooBig.put("max_gram", "257");                     // BE's upper bound is 256
+        String maxGramMessage = assertGramPropRejected(maxGramTooBig);
+        Assertions.assertTrue(maxGramMessage.contains("max_gram must be an integer in [1, 256]"), maxGramMessage);
+
+        Map<String, String> minGramTooBig = sparseGramProps();
+        minGramTooBig.put("min_gram", "65");                      // BE's upper bound is 64
+        String minGramMessage = assertGramPropRejected(minGramTooBig);
+        Assertions.assertTrue(minGramMessage.contains("min_gram must be an integer in [1, 64]"), minGramMessage);
+
+        Map<String, String> gramAtBound = sparseGramProps();      // the bounds themselves must pass
+        gramAtBound.put("min_gram", "64");
+        gramAtBound.put("max_gram", "256");
+        Assertions.assertDoesNotThrow(() -> validator.validate(gramAtBound));
+
+        Map<String, String> densityTooSmall = sparseGramProps();
+        densityTooSmall.put("density", "0.0005");                 // BE's lower bound is 0.001 (permille)
+        String densityMessage = assertGramPropRejected(densityTooSmall);
+        Assertions.assertTrue(densityMessage.contains("density must be in [0.001, 1]"), densityMessage);
+
+        Map<String, String> densityAtBound = sparseGramProps();
+        densityAtBound.put("density", "0.001");
+        Assertions.assertDoesNotThrow(() -> validator.validate(densityAtBound));
+
+        // stop_gram_df is not a property of this tokenizer: nothing ever consumed it, so the
+        // concept was removed rather than left as a knob that quietly does nothing. It must now be
+        // rejected as an unknown property, not accepted and ignored.
+        Map<String, String> stopGramDf = sparseGramProps();
+        stopGramDf.put("stop_gram_df", "0.10");
+        String stopGramDfMessage = assertGramPropRejected(stopGramDf);
+        Assertions.assertTrue(stopGramDfMessage.contains("stop_gram_df"), stopGramDfMessage);
+
+        Map<String, String> badLowerCase = sparseGramProps();
+        badLowerCase.put("lower_case", "yes");
+        String lowerCaseMessage = assertGramPropRejected(badLowerCase);
+        Assertions.assertTrue(lowerCaseMessage.contains("lower_case must be true or false"), lowerCaseMessage);
+
+        Map<String, String> inverted = sparseGramProps();         // min <= max holds with mode too
+        inverted.put("min_gram", "5");
+        inverted.put("max_gram", "4");
+        String invertedMessage = assertGramPropRejected(inverted);
+        Assertions.assertTrue(invertedMessage.contains("min_gram (5) must be <= max_gram (4)"), invertedMessage);
+    }
+
+    /**
+     * Integer gram properties must be spelled in ASCII, the same way the decimal ones must.
+     * `Integer.parseInt` resolves any Unicode decimal digit through `Character.digit`, so a
+     * full-width spelling would pass DDL validation here and then be rejected by BE's
+     * `gram_scheme.cpp::parse_uint`, which uses `strtol` and only accepts ASCII digits. The result
+     * would be a CREATE that succeeds and a load that fails with an opaque analyzer error, so FE
+     * has to reject the non-portable spelling up front.
+     */
+    @Test
+    public void testNGramValidator_GramIntegerPropsRejectNonAsciiDigits() {
+        // Spelled as escapes so the assertion does not depend on the source file's encoding.
+        Map<String, String> fullWidthMin = sparseGramProps();
+        fullWidthMin.put("min_gram", "３");                  // FULLWIDTH DIGIT THREE
+        String minMessage = assertGramPropRejected(fullWidthMin);
+        Assertions.assertTrue(minMessage.contains("min_gram must be an integer in [1, 64]"), minMessage);
+
+        Map<String, String> fullWidthMax = sparseGramProps();
+        fullWidthMax.put("max_gram", "１６");            // FULLWIDTH ONE, FULLWIDTH SIX
+        String maxMessage = assertGramPropRejected(fullWidthMax);
+        Assertions.assertTrue(maxMessage.contains("max_gram must be an integer in [1, 256]"), maxMessage);
+
+        // Arabic-Indic digits reach Integer.parseInt through the same Character.digit path.
+        Map<String, String> arabicIndic = sparseGramProps();
+        arabicIndic.put("min_gram", "٣");                   // ARABIC-INDIC DIGIT THREE
+        String arabicMessage = assertGramPropRejected(arabicIndic);
+        Assertions.assertTrue(arabicMessage.contains("min_gram must be an integer in [1, 64]"), arabicMessage);
+
+        // The portable ASCII spellings, including an explicit sign that strtol also accepts, stay
+        // valid -- this rule rejects non-ASCII, it does not narrow the accepted number syntax.
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> ascii = sparseGramProps();
+        ascii.put("min_gram", "3");
+        ascii.put("max_gram", "+16");
+        Assertions.assertDoesNotThrow(() -> validator.validate(ascii));
+    }
+
+    /**
+     * The mode value is neither trimmed nor case-folded: BE's `from_properties` compares strings
+     * exactly, so if FE accepted " Sparse " it would be persisted verbatim and only fail with a BE
+     * InvalidArgument at write time.
+     * This pins down the "FE rejects outright" ruling (the alternative would be for FE to normalize
+     * before persisting, which this implementation does not do).
+     */
+    @Test
+    public void testNGramValidator_GramModeRejectsUntrimmedAndMixedCase() {
+        Map<String, String> padded = new HashMap<>();
+        padded.put("type", "ngram");
+        padded.put("mode", " Sparse ");
+        String message = assertGramPropRejected(padded);
+        Assertions.assertTrue(message.contains("mode must be one of"), message);
+        Assertions.assertTrue(message.contains("got: ' Sparse '"), message);
+
+        Map<String, String> upper = new HashMap<>();
+        upper.put("type", "ngram");
+        upper.put("mode", "SPARSE");
+        String upperMessage = assertGramPropRejected(upper);
+        Assertions.assertTrue(upperMessage.contains("mode must be one of"), upperMessage);
+    }
+
+    @Test
+    public void testNGramValidator_GramDecimalPropertiesHavePortableSyntax() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        for (String key : new String[] {"density"}) {
+            // Policies are persisted verbatim and parsed by BE. Java-only suffixes and
+            // implicit trimming must not defer an accepted DDL's failure to data loading.
+            for (String value : new String[] {"0.25f", "0.25D", "0.25 ", " 0.25", "0.25\t",
+                    "0x1p-2", "NaN", "Infinity", "", ".", "1e", "０.２５"}) {
+                Map<String, String> props = sparseGramProps();
+                props.put(key, value);
+                Assertions.assertThrows(DdlException.class, () -> validator.validate(props),
+                        key + "=" + value);
+            }
+            for (String value : new String[] {"0.25", ".25", "1.", "+0.25", "2.5e-1", "0.001", "1"}) {
+                Map<String, String> props = sparseGramProps();
+                props.put(key, value);
+                Assertions.assertDoesNotThrow(() -> validator.validate(props), key + "=" + value);
+            }
+        }
+    }
+
+    // NGramTokenizerValidator gram mode with the max_ngram_diff compatibility marker
+    @Test
+    public void testNGramValidator_GramModeIgnoresDifferenceLimit() {
+        // IndexPolicyMgr stores max_ngram_diff=1 on every new ngram tokenizer, gram mode included,
+        // so that marker must not limit max_gram - min_gram once mode is set.
+        Map<String, String> props = sparseGramProps();
+        props.put("min_gram", "3");
+        props.put("max_gram", "16");
+        props.put("max_ngram_diff", "1");
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Assertions.assertDoesNotThrow(() -> validator.validate(props));
+    }
+
+    @Test
+    public void testGramNGramPolicyWithCompatibilityMarkerRemainsValidAfterReplay() throws Exception {
+        Map<String, String> props = sparseGramProps();
+        props.put("min_gram", "3");
+        props.put("max_gram", "16");
+        IndexPolicy withoutMarker = roundTrip(new IndexPolicy(
+                3, "gram_without_marker", IndexPolicyTypeEnum.TOKENIZER, props));
+        Assertions.assertFalse(withoutMarker.isInvalid());
+
+        props.put("max_ngram_diff", "1");
+        IndexPolicy withMarker = roundTrip(new IndexPolicy(
+                4, "gram_with_marker", IndexPolicyTypeEnum.TOKENIZER, props));
+        Assertions.assertFalse(withMarker.isInvalid());
+    }
+
+    @Test
+    public void testNewGramNGramPolicyWithCompatibilityMarkerIsUsable() throws Exception {
+        Map<String, String> tokenizerProps = sparseGramProps();
+        tokenizerProps.put("min_gram", "3");
+        tokenizerProps.put("max_gram", "16");
+        Map<String, String> analyzerProps = new HashMap<>();
+        analyzerProps.put(IndexPolicy.PROP_TOKENIZER, "new_gram_tokenizer");
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getNextId()).thenReturn(5L, 6L);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            policyMgr.createIndexPolicy(false, "new_gram_tokenizer", IndexPolicyTypeEnum.TOKENIZER,
+                    tokenizerProps);
+            // Creating the analyzer re-validates the stored tokenizer, marker included.
+            policyMgr.createIndexPolicy(false, "new_gram_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                    analyzerProps);
+        }
+
+        IndexPolicy tokenizer = policyMgr.getPolicyByName("new_gram_tokenizer");
+        Assertions.assertEquals("1", tokenizer.getProperties().get("max_ngram_diff"));
+        Assertions.assertFalse(tokenizer.isInvalid());
+        Assertions.assertDoesNotThrow(() -> policyMgr.validateAnalyzerExists("new_gram_analyzer"));
     }
 
     // StandardTokenizerValidator Tests

@@ -26,6 +26,7 @@
 #include <ranges>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -39,10 +40,12 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+// Adding a format source changes unity groups; cache calls cannot depend on a neighbor's includes.
+#include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/iceberg_scan_semantics.h"
-#include "format/table/paimon_reader.h"
+#include "format/table/paimon_deletion_vector.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
@@ -53,9 +56,29 @@
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
+#include "util/hash_util.hpp"
 #include "util/string_util.h"
 
 namespace doris::format {
+
+std::optional<std::string> TableReader::_get_int96_timezone_override(
+        const TFileScanRangeParams* params) {
+    if (params == nullptr) {
+        return std::nullopt;
+    }
+    // The timezone field predates the version marker. Honor intermediate FEs that send it alone,
+    // including an explicit empty value selecting wall-clock semantics.
+    if (params->__isset.hive_parquet_time_zone) {
+        return params->hive_parquet_time_zone;
+    }
+    // Only a plan lacking both an explicit timezone and the new contract uses the legacy session.
+    if (!params->__isset.parquet_timestamp_semantics_version ||
+        params->parquet_timestamp_semantics_version < 1) {
+        return std::nullopt;
+    }
+    return std::string {};
+}
+
 namespace {
 
 template <typename T, typename Formatter>
@@ -88,8 +111,14 @@ std::string file_format_to_string(FileFormat format) {
         return "JNI";
     case FileFormat::ARROW:
         return "ARROW";
+    case FileFormat::MONGODB:
+        return "MONGODB";
+    case FileFormat::ES_HTTP:
+        return "ES_HTTP";
     case FileFormat::WAL:
         return "WAL";
+    case FileFormat::LANCE:
+        return "LANCE";
     }
     return "UNKNOWN";
 }
@@ -240,51 +269,6 @@ bool find_column_identity_path_by_id(const std::vector<ColumnDefinition>& fields
         path->pop_back();
     }
     return false;
-}
-
-ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field) {
-    ColumnDefinition identity;
-    if (field.__isset.id) {
-        identity.identifier = Field::create_field<TYPE_INT>(field.id);
-    }
-    identity.name = field.__isset.name ? field.name : "";
-    identity.name_mapping =
-            field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {};
-    identity.has_name_mapping =
-            field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative;
-    if (!field.__isset.nestedField) {
-        return identity;
-    }
-    if (field.nestedField.__isset.struct_field && field.nestedField.struct_field.__isset.fields) {
-        for (const auto& child_ptr : field.nestedField.struct_field.fields) {
-            if (const auto* child = get_field_ptr(child_ptr); child != nullptr) {
-                identity.children.push_back(build_schema_identity_from_external_field(*child));
-            }
-        }
-    } else if (field.nestedField.__isset.array_field &&
-               field.nestedField.array_field.__isset.item_field) {
-        if (const auto* child = get_field_ptr(field.nestedField.array_field.item_field);
-            child != nullptr) {
-            identity.children.push_back(build_schema_identity_from_external_field(*child));
-            identity.children.back().name = "element";
-        }
-    } else if (field.nestedField.__isset.map_field) {
-        if (field.nestedField.map_field.__isset.key_field) {
-            if (const auto* child = get_field_ptr(field.nestedField.map_field.key_field);
-                child != nullptr) {
-                identity.children.push_back(build_schema_identity_from_external_field(*child));
-                identity.children.back().name = "key";
-            }
-        }
-        if (field.nestedField.map_field.__isset.value_field) {
-            if (const auto* child = get_field_ptr(field.nestedField.map_field.value_field);
-                child != nullptr) {
-                identity.children.push_back(build_schema_identity_from_external_field(*child));
-                identity.children.back().name = "value";
-            }
-        }
-    }
-    return identity;
 }
 
 const ColumnDefinition* find_identity_child(const ColumnDefinition& projected_child,
@@ -494,21 +478,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
 
 const schema::external::TField* find_external_root_field(const TFileScanRangeParams* params,
                                                          const ColumnDefinition& column) {
-    if (params == nullptr || !params->__isset.history_schema_info ||
-        params->history_schema_info.empty()) {
-        return nullptr;
-    }
-    const auto* schema = &params->history_schema_info.front();
-    if (params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == params->current_schema_id) {
-                schema = &candidate_schema;
-                break;
-            }
-        }
-    }
-    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+    const auto* schema = find_current_schema(params);
+    if (schema == nullptr || !schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
     if (!supports_iceberg_scan_semantics_v1(params)) {
@@ -748,16 +719,7 @@ std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
                                          : nullptr;
     };
 
-    const auto* current_schema = &_scan_params->history_schema_info.front();
-    if (_scan_params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : _scan_params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == _scan_params->current_schema_id) {
-                current_schema = &candidate_schema;
-                break;
-            }
-        }
-    }
+    const auto* current_schema = find_current_schema(_scan_params);
     if (const auto* field = find_field(*current_schema); field != nullptr) {
         return build_schema_column_from_external_field(
                 *field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
@@ -835,16 +797,7 @@ std::optional<std::vector<ColumnDefinition>> TableReader::_find_table_column_pat
         return result;
     };
 
-    const auto* current_schema = &_scan_params->history_schema_info.front();
-    if (_scan_params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : _scan_params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == _scan_params->current_schema_id) {
-                current_schema = &candidate_schema;
-                break;
-            }
-        }
-    }
+    const auto* current_schema = find_current_schema(_scan_params);
     if (auto path = build_path(*current_schema); path.has_value()) {
         return path;
     }
@@ -899,16 +852,7 @@ TableReader::_find_table_column_identity_path_by_field_id(int32_t field_id,
         return std::nullopt;
     };
 
-    const auto* current_schema = &_scan_params->history_schema_info.front();
-    if (_scan_params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : _scan_params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == _scan_params->current_schema_id) {
-                current_schema = &candidate_schema;
-                break;
-            }
-        }
-    }
+    const auto* current_schema = find_current_schema(_scan_params);
     if (auto path = find_path(*current_schema); path.has_value()) {
         return path;
     }
@@ -938,6 +882,7 @@ TableReader::_find_table_column_identity_path_by_field_id(int32_t field_id,
 
 Status TableReader::init(TableReadOptions&& options) {
     _scanner_profile = options.scanner_profile;
+    _parquet_profile_cache = options.parquet_profile_cache;
     if (_scanner_profile != nullptr) {
         const auto hierarchy = file_scan_profile::ensure_hierarchy(_scanner_profile);
         static const char* table_profile = file_scan_profile::TABLE_READER;
@@ -1219,6 +1164,16 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     if (file_request.conjuncts.empty()) {
         return false;
     }
+    // Localization may inject schema-evolution casts absent from the scanner's digest. Honor
+    // their uncacheable contract: an unchanged field ID can acquire different timestamp semantics,
+    // and reusing an old all-false granule would silently discard matching rows.
+    uint64_t localized_digest = 0xcbf29ce484222325ULL;
+    for (const auto& conjunct : file_request.conjuncts) {
+        localized_digest = conjunct->get_digest(localized_digest);
+        if (localized_digest == 0) {
+            return false;
+        }
+    }
     // Delete files/deletion vectors are table-format state. They may change independently of the
     // data file path/mtime/size used by the external cache key, so caching their result can become
     // stale. Keep delete filtering enabled, but do not read or write condition cache.
@@ -1245,8 +1200,22 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
         return Status::OK();
     }
     const auto& file = *_current_file_description;
+    auto cache_digest = _condition_cache_digest;
+    if (_format == FileFormat::PARQUET) {
+        const auto timezone = _get_int96_timezone_override(_scan_params);
+        if (timezone.has_value()) {
+            // A cached false granule is valid only under the same INT96 interpretation. The
+            // helper normalizes versioned omission to explicit empty; legacy absence keeps
+            // the session-based key. Do not mutate the predicate seed reused by later splits.
+            constexpr std::string_view contract_tag = "parquet-int96-timezone:";
+            cache_digest = HashUtil::xxHash64WithSeed(contract_tag.data(), contract_tag.size(),
+                                                      cache_digest);
+            cache_digest =
+                    HashUtil::xxHash64WithSeed(timezone->data(), timezone->size(), cache_digest);
+        }
+    }
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
-            file.path, file.mtime, file.file_size, _condition_cache_digest, file.range_start_offset,
+            file.path, file.mtime, file.file_size, cache_digest, file.range_start_offset,
             file.range_size,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
 
@@ -1355,10 +1324,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_varbinary = _scan_params != nullptr &&
                                           _scan_params->__isset.enable_mapping_varbinary &&
                                           _scan_params->enable_mapping_varbinary;
-    const std::string hive_parquet_time_zone =
-            _scan_params != nullptr && _scan_params->__isset.hive_parquet_time_zone
-                    ? _scan_params->hive_parquet_time_zone
-                    : "";
+    const std::optional<std::string> hive_parquet_time_zone =
+            _get_int96_timezone_override(_scan_params);
     if (_format == FileFormat::PARQUET) {
         // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
         // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer
@@ -1366,13 +1333,13 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                hive_parquet_time_zone);
+                hive_parquet_time_zone, preserve_binary_uuid(), _parquet_profile_cache);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
         *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz);
+                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary);
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {
@@ -1598,8 +1565,8 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         bool decoded_cache_hit = false;
         _deletion_vector = options.cache->get<DeletionVector>(
                 desc.key,
-                [&]() -> DeletionVector* {
-                    auto deletion_vector = std::make_unique<DeletionVector>();
+                [&]() -> std::shared_ptr<DeletionVector> {
+                    auto deletion_vector = std::make_shared<DeletionVector>();
 
                     DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params,
                                                    desc, _io_ctx.get());
@@ -1640,7 +1607,7 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         return nullptr;
                     }
                     COUNTER_UPDATE(_profile.num_delete_rows, deletion_vector->cardinality());
-                    return deletion_vector.release();
+                    return deletion_vector;
                 },
                 &decoded_cache_hit);
         RETURN_IF_ERROR(create_status);

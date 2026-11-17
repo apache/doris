@@ -20,8 +20,10 @@ package org.apache.doris.connector.hudi;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Opaque table handle for a Hudi table, carrying database/table coordinates,
@@ -44,6 +46,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
     private final String inputFormat;
     private final String serdeLib;
     private final List<String> partitionKeyNames;
+    private final Set<String> timestampPartitionKeys;
     private final Map<String, String> tableParameters;
 
     // Set after applyFilter for partition pruning
@@ -80,6 +83,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
         this.partitionKeyNames = builder.partitionKeyNames != null
                 ? Collections.unmodifiableList(builder.partitionKeyNames)
                 : Collections.emptyList();
+        this.timestampPartitionKeys = Collections.unmodifiableSet(new HashSet<>(builder.timestampPartitionKeys));
         this.tableParameters = builder.tableParameters != null
                 ? Collections.unmodifiableMap(builder.tableParameters)
                 : Collections.emptyMap();
@@ -125,6 +129,10 @@ public class HudiTableHandle implements ConnectorTableHandle {
         return partitionKeyNames;
     }
 
+    public Set<String> getTimestampPartitionKeys() {
+        return timestampPartitionKeys;
+    }
+
     public Map<String, String> getTableParameters() {
         return tableParameters;
     }
@@ -165,6 +173,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
         b.inputFormat = this.inputFormat;
         b.serdeLib = this.serdeLib;
         b.partitionKeyNames = this.partitionKeyNames;
+        b.timestampPartitionKeys = this.timestampPartitionKeys;
         b.tableParameters = this.tableParameters;
         b.prunedPartitionPaths = this.prunedPartitionPaths;
         b.queryInstant = this.queryInstant;
@@ -191,6 +200,7 @@ public class HudiTableHandle implements ConnectorTableHandle {
         private String inputFormat;
         private String serdeLib;
         private List<String> partitionKeyNames;
+        private Set<String> timestampPartitionKeys = Collections.emptySet();
         private Map<String, String> tableParameters;
         private List<String> prunedPartitionPaths;
         private String queryInstant;
@@ -217,6 +227,11 @@ public class HudiTableHandle implements ConnectorTableHandle {
 
         public Builder partitionKeyNames(List<String> val) {
             this.partitionKeyNames = val;
+            return this;
+        }
+
+        public Builder timestampPartitionKeys(Set<String> val) {
+            this.timestampPartitionKeys = val;
             return this;
         }
 

@@ -20,15 +20,32 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.connector.ConnectorFactory;
+import org.apache.doris.connector.ConnectorPluginManager;
+import org.apache.doris.connector.hive.HiveConnectorProvider;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public class HMSExternalCatalogParquetTimeZoneTest {
+    @BeforeEach
+    public void setUp() {
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.registerProvider(new HiveConnectorProvider());
+        ConnectorFactory.initPluginManager(manager);
+    }
+
+    @AfterEach
+    public void tearDown() {
+        ConnectorFactory.initPluginManager(new ConnectorPluginManager());
+    }
+
     private static Map<String, String> baseProperties() {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "hms");
@@ -90,5 +107,20 @@ public class HMSExternalCatalogParquetTimeZoneTest {
             DdlException exception = Assertions.assertThrows(DdlException.class, catalog::checkProperties);
             Assertions.assertTrue(exception.getMessage().contains(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
         }
+    }
+
+    @Test
+    public void testAlterValidatesCandidateTimezoneBeforePublishing() throws Exception {
+        Map<String, String> current = baseProperties();
+        current.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "UTC");
+        PluginDrivenExternalCatalog catalog = catalog(current);
+        Map<String, String> updated = new HashMap<>();
+        updated.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "Not/A_Timezone");
+        // ALTER must validate its candidate map, not the still-valid live catalog properties.
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(current, updated));
+        Assertions.assertEquals("UTC", catalog.getProperties().get(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE));
+        updated.put(FileFormatConstants.PROP_HIVE_PARQUET_TIME_ZONE, "+05:45");
+        Assertions.assertTrue(catalog.validatePropertiesBeforeUpdate(current, updated));
     }
 }

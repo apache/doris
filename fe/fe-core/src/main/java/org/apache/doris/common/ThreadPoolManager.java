@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 
+import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
 import org.apache.doris.metric.Metric;
 import org.apache.doris.metric.Metric.MetricUnit;
@@ -102,6 +103,15 @@ public class ThreadPoolManager {
             registerMetric(poolName, "task_rejected", counter, nounit,
                     ((LogDiscardPolicy) rejectedHandler).rejectedNum::get);
         }
+    }
+
+    public static void registerFairTaskExecutorMetric(String name, FairTaskExecutor executor) {
+        registerMetric(name, "pool_size", Metric.MetricType.GAUGE, MetricUnit.NOUNIT, executor::getPoolSize);
+        registerMetric(name, "active_thread_num", Metric.MetricType.GAUGE, MetricUnit.NOUNIT, executor::getActiveCount);
+        registerMetric(name, "task_in_queue", Metric.MetricType.GAUGE, MetricUnit.NOUNIT, executor::getQueuedTaskCount);
+        registerMetric(name, "query_groups", Metric.MetricType.GAUGE, MetricUnit.NOUNIT, executor::getGroupCount);
+        registerMetric(name, "completed_task_count", Metric.MetricType.COUNTER, MetricUnit.NOUNIT,
+                executor::getCompletedTaskCount);
     }
 
     private static <T> void registerMetric(String poolName, String metricName,
@@ -383,6 +393,32 @@ public class ThreadPoolManager {
         }
     }
 
+    /** Submit without queue-space waits; the owner can run the returned future before awaiting it. */
+    public static <T> RunnableFuture<T> submitWithCallerHelp(ThreadPoolExecutor executor, Callable<T> callable) {
+        HelpableTask<T> task = new HelpableTask<>(callable, executor);
+        try {
+            executor.execute(task);
+        } catch (RejectedExecutionException rejected) {
+            // Keep it unstarted for its owner, rather than blocking inside BlockedPolicy.
+        }
+        return task;
+    }
+
+    private static final class HelpableTask<T> extends FutureTask<T> {
+        private final ThreadPoolExecutor executor;
+
+        private HelpableTask(Callable<T> callable, ThreadPoolExecutor executor) {
+            super(callable);
+            this.executor = executor;
+        }
+
+        @Override
+        protected void done() {
+            // Caller help or cancellation can finish a future before a worker dequeues it.
+            executor.remove(this);
+        }
+    }
+
     /**
      * A handler for rejected task that try to be blocked until the pool enqueue task succeed or timeout,
      * used for fixed thread pool
@@ -402,6 +438,9 @@ public class ThreadPoolManager {
 
         @Override
         public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
+            if (r instanceof HelpableTask) {
+                throw new RejectedExecutionException("Metadata task deferred to caller help: " + threadPoolName);
+            }
             try {
                 boolean ret = executor.getQueue().offer(r, timeoutSeconds, TimeUnit.SECONDS);
                 if (!ret) {

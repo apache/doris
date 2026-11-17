@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -110,8 +111,7 @@ public class StmtExecutionAction extends RestBaseController {
         LOG.info("stmt: {}, isSync:{}, limit: {}", stmtRequestBody.stmt, stmtRequestBody.is_sync,
                 stmtRequestBody.limit);
 
-        ConnectContext.get().changeDefaultCatalog(ns);
-        ConnectContext.get().setDatabase(dbName);
+        setDefaultNamespace(ns, dbName);
 
         String streamHeader = request.getHeader("X-Doris-Stream");
         boolean isStream = !("false".equalsIgnoreCase(streamHeader));
@@ -145,8 +145,7 @@ public class StmtExecutionAction extends RestBaseController {
             sql = sql.replaceAll(NEW_LINE_PATTERN, NEW_LINE_REPLACEMENT);
         }
         LOG.info("sql: {}", sql);
-        ConnectContext.get().changeDefaultCatalog(ns);
-        ConnectContext.get().setDatabase(dbName);
+        setDefaultNamespace(ns, dbName);
         return getSchema(sql);
     }
 
@@ -210,6 +209,12 @@ public class StmtExecutionAction extends RestBaseController {
                 ConnectContext.get().setStatementContext(originalContext);
             }
         }
+    }
+
+    private void setDefaultNamespace(String catalog, String database) {
+        // The URL supplies a default for name resolution, not a dependency of every SQL statement.
+        // Resolve metadata only when the statement uses it, so an outage cannot block catalog repair.
+        ConnectContext.get().restoreNameSpaceContext(new NameSpaceContext(catalog, database, -1));
     }
 
     private static class StmtRequestBody {

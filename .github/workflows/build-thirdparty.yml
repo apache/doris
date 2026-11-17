@@ -201,6 +201,9 @@ jobs:
           cd "${GITHUB_WORKSPACE}"
           thirdparty/test/libunwind-page-size-test.sh
 
+          # Check descriptor ownership when resuming and rotating existing logs.
+          thirdparty/test/glog-logfile-resume-test.sh
+
   build_macos:
     name: Build Third Party Libraries (macOS)
     needs: changes

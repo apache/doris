@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 
@@ -65,41 +66,17 @@ public final class FilePartitionUtils {
      */
     public static List<String> parseColumnsFromPath(String filePath, List<String> columnsFromPath)
             throws UserException {
-        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, true, false).getValues();
-    }
-
-    /**
-     * Parses partition column values from a Hive-style file path.
-     *
-     * @param filePath        absolute file path that contains partition segments
-     * @param columnsFromPath ordered list of partition column names to extract
-     * @param caseSensitive   whether column name matching is case-sensitive
-     * @param isACID          whether the path follows the ACID layout
-     *                        ({@code table/par=val/delta_xxx/file}), which adds one extra path level
-     * @return ordered list of partition values (parallel to {@code columnsFromPath})
-     * @throws UserException if the path does not contain the expected partition segments
-     */
-    public static List<String> parseColumnsFromPath(
-            String filePath,
-            List<String> columnsFromPath,
-            boolean caseSensitive,
-            boolean isACID)
-            throws UserException {
-        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, caseSensitive, isACID)
-                .getValues();
+        return parseColumnsFromPathWithNullInfo(filePath, columnsFromPath, true).getValues();
     }
 
     public static ParsedColumnsFromPath parseColumnsFromPathWithNullInfo(
             String filePath,
             List<String> columnsFromPath,
-            boolean caseSensitive,
-            boolean isACID)
+            boolean caseSensitive)
             throws UserException {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return new ParsedColumnsFromPath(Collections.emptyList(), Collections.emptyList());
         }
-        // ACID paths have one extra level: table/par=val/delta_xxx/file → pathCount = 3
-        int pathCount = isACID ? 3 : 2;
         List<String> expectedColumns = columnsFromPath;
         if (!caseSensitive) {
             expectedColumns = new ArrayList<>(columnsFromPath.size());
@@ -116,13 +93,13 @@ public final class FilePartitionUtils {
         Boolean[] columnValueIsNull = new Boolean[expectedColumns.size()];
         int size = 0;
         boolean skipOnce = true;
-        for (int i = strings.length - pathCount; i >= 0; i--) {
+        for (int i = strings.length - 2; i >= 0; i--) {
             String str = strings[i];
             if (str != null && str.isEmpty()) {
                 continue;
             }
             if (str == null || !str.contains("=")) {
-                if (!isACID && skipOnce) {
+                if (skipOnce) {
                     skipOnce = false;
                     continue;
                 }
@@ -153,6 +130,29 @@ public final class FilePartitionUtils {
                     + expectedColumns + ", filePath: " + filePath);
         }
         return new ParsedColumnsFromPath(Lists.newArrayList(columns), Lists.newArrayList(columnValueIsNull));
+    }
+
+    /**
+     * Parses partition column values from a load source path. Unlike the query path, a load also
+     * treats a literal {@code \N} directory value as NULL, the semantics loads had before the
+     * null flag existed.
+     */
+    public static ParsedColumnsFromPath parseColumnsFromPathWithNullInfoForLoad(
+            String filePath,
+            List<String> columnsFromPath,
+            boolean caseSensitive)
+            throws UserException {
+        ParsedColumnsFromPath parsed = parseColumnsFromPathWithNullInfo(
+                filePath, columnsFromPath, caseSensitive);
+        List<String> values = new ArrayList<>(parsed.getValues());
+        List<Boolean> isNull = new ArrayList<>(parsed.getIsNull());
+        for (int i = 0; i < values.size(); i++) {
+            if (FeConstants.null_string.equals(values.get(i))) {
+                values.set(i, "");
+                isNull.set(i, true);
+            }
+        }
+        return new ParsedColumnsFromPath(values, isNull);
     }
 
     public static ParsedColumnsFromPath normalizeColumnsFromPath(List<String> columnsFromPath) {

@@ -40,11 +40,15 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "core/value/variant/variant_batch_builder.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/file_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -621,6 +625,61 @@ TEST(AdbcReaderTest, CreatesMaterializedColumnMapper) {
     auto mapper = reader->create_column_mapper({.mode = TableColumnMappingMode::BY_NAME});
 
     ASSERT_NE(dynamic_cast<MaterializedColumnMapper*>(mapper.get()), nullptr);
+}
+
+TEST(AdbcReaderTest, MaterializesNativeVariantAndSqlNull) {
+    auto variant = std::make_shared<DataTypeVariantV2>();
+    VariantBatchBuilder encoded;
+    auto row = encoded.begin_row();
+    row.add_int(42);
+    row.finish();
+    auto data = ColumnVariantV2::create();
+    data->insert_encoded_batch(encoded.finish_batch());
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().push_back(0);
+    auto column = ColumnNullable::create(std::move(data), std::move(nulls));
+    column->insert_default();
+    auto type = make_nullable(variant);
+    Block source {{std::move(column), type, "v"}};
+    ArrowFlightArrowBlockConvertor converter(source, "UTC", cctz::utc_time_zone());
+    ASSERT_TRUE(converter.init().ok());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(converter.convert_to_arrow(source, arrow::default_memory_pool(), &batch).ok());
+
+    ObjectPool pool;
+    DescriptorTblBuilder descriptors(&pool);
+    descriptors.declare_tuple() << std::make_tuple(type, std::string("v"));
+    auto* descriptor = descriptors.build();
+    RuntimeState state;
+    RuntimeProfile profile("native_variant_reader");
+    auto close_count = std::make_shared<int>(0);
+    auto reader = create_reader(
+            &profile, fake_adbc_range(), descriptor->get_tuple_descriptor(0)->slots(),
+            [batch, close_count](const TFileRangeDesc&, std::unique_ptr<AdbcStream>* out) {
+                *out = std::make_unique<BatchAdbcStream>(
+                        std::vector<std::shared_ptr<arrow::RecordBatch>> {batch}, close_count);
+                return Status::OK();
+            });
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_non_predicate_column(LocalColumnId(0)).ok());
+    ASSERT_TRUE(reader->open(request).ok());
+    auto block = make_request_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(rows, 2);
+    const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ(assert_cast<const ColumnVariantV2&>(result.get_nested_column())
+                      .get_value_ref(0)
+                      .get_int(),
+              42);
+    EXPECT_TRUE(result.is_null_at(1));
+    ASSERT_TRUE(reader->close().ok());
 }
 
 TEST(AdbcReaderTest, RejectsReorderedSameTypedStructFields) {

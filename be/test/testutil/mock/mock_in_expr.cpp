@@ -47,7 +47,7 @@ TEST(MockInExprTest, test) {
     {
         auto* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(in->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         state->use_set = true;
         state->hybrid_set.reset(create_set(TYPE_BIGINT, 0, true));
@@ -61,7 +61,7 @@ TEST(MockInExprTest, create_with_ctx) {
 
     auto* state = reinterpret_cast<InState*>(
             expr_ctx->fn_context(pred->fn_context_index())
-                    ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                    ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
     EXPECT_TRUE(state->use_set);
 }

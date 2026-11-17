@@ -45,6 +45,7 @@ suite("test_mysql_varbinary_with_udf", "p0,external") {
 
         def jarPath = """${context.file.parent}/../../../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
         scp_udf_file_to_all_be(jarPath)
+        scp_udf_file_to_all_fe(jarPath)
         log.info("Jar path: ${jarPath}".toString())
 
         try_sql("DROP FUNCTION IF EXISTS udf_test_varbinary(varbinary);")

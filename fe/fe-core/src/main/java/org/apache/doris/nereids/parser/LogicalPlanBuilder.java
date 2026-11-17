@@ -1108,6 +1108,7 @@ import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
@@ -1161,6 +1162,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private static String DEFAULT_NESTED_COLUMN_NAME = "unnest";
     private static String DEFAULT_ORDINALITY_COLUMN_NAME = "ordinality";
+    // The built-in values of the default_variant_* session variables.
+    private static final SessionVariable BUILT_IN_SESSION_VARIABLE = new SessionVariable();
 
     private static class ColumnDefinitionWithPath {
         private final ColumnDefinition columnDefinition;
@@ -1711,7 +1714,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan logicalPlan = new UnboundResultSink<>(visitQuery(ctx.query()));
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new CreateMaterializedViewCommand(new TableNameInfo(nameParts), logicalPlan, properties);
+        return new CreateMaterializedViewCommand(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+                logicalPlan, properties);
     }
 
     /**
@@ -2575,7 +2579,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 mergeType = LoadTask.MergeType.MERGE;
             }
         }
-        String comment = visitCommentSpec(ctx.commentSpec());
+        // Read as a string literal, as column comments are, so that the COMMENT that SHOW CREATE ROUTINE LOAD
+        // prints reads back unchanged
+        String comment = ctx.commentSpec() == null ? ""
+                : SqlLiteralUtils.parseStringLiteral(ctx.commentSpec().STRING_LITERAL().getText());
         Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
         for (DorisParser.LoadPropertyContext oneLoadPropertyCOntext : ctx.loadProperty()) {
             LoadProperty loadProperty = visitLoadProperty(oneLoadPropertyCOntext);
@@ -4291,6 +4298,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(DefaultValue.E_NUM_DEFAULT_VALUE);
             } else if (ctx.BITMAP_EMPTY() != null) {
                 defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
+            } else if (ctx.defaultFunction != null) {
+                defaultValue = Optional.of(DefaultValue.uuidDefaultValue(ctx.defaultFunction.getText()));
             }
         }
         if (ctx.UPDATE() != null) {
@@ -4601,9 +4610,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
                     .map(key -> {
                         if (key.getExpr() instanceof IntegerLikeLiteral) {
-                            return key.withExpression(
-                                    new UnboundSlot(String.valueOf(
-                                            ((IntegerLikeLiteral) key.getExpr()).getIntValue())));
+                            // The slot is named after the literal, so narrowing it renames it:
+                            // getIntValue() truncates to the low 32 bits, turning
+                            // `order by 4294967297` into a reference to "1". Keep the digits
+                            // the user wrote.
+                            return key.withExpression(new UnboundSlot(
+                                    ((IntegerLikeLiteral) key.getExpr())
+                                            .getBigDecimalValue().toBigIntegerExact().toString()));
                         }
                         return key;
                     })
@@ -5425,26 +5438,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? visitVariantSubColTypeList(variantCtx.variantSubColTypeList()) : Lists.newArrayList();
         Map<String, String> properties = variantCtx.properties != null
                 ? Maps.newHashMap(visitPropertyClause(variantCtx.properties)) : Maps.newHashMap();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)) {
+            throw new NotSupportedException("variant_escape_dots_in_keys is a table property; "
+                    + "use CREATE TABLE PROPERTIES(\"variant_escape_dots_in_keys\"=\"true\")");
+        }
 
-        int variantMaxSubcolumnsCount = ConnectContext.get() == null ? 0 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantMaxSubcolumnsCount();
-        boolean enableTypedPathsToSparse = ConnectContext.get() == null ? false :
-                ConnectContext.get().getSessionVariable().getDefaultEnableTypedPathsToSparse();
-        int variantMaxSparseColumnStatisticsSize = ConnectContext.get() == null ? 0 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantMaxSparseColumnStatisticsSize();
+        // The default_variant_* session variables only drive the tests, which run with debug points enabled.
+        // Elsewhere, and without a session, the properties a DDL leaves out take the built-in values, whatever the
+        // session holds (a global value set before the variables became test-only still loads from an image), so a
+        // DDL text, such as the one CREATE TABLE LIKE prints and parses, creates the same column in every session.
+        SessionVariable variantDefaults = BUILT_IN_SESSION_VARIABLE;
+        if (Config.enable_debug_points && ConnectContext.get() != null) {
+            variantDefaults = ConnectContext.get().getSessionVariable();
+        }
+        int variantMaxSubcolumnsCount = variantDefaults.getDefaultVariantMaxSubcolumnsCount();
+        boolean enableTypedPathsToSparse = variantDefaults.getDefaultEnableTypedPathsToSparse();
+        int variantMaxSparseColumnStatisticsSize = variantDefaults.getDefaultVariantMaxSparseColumnStatisticsSize();
         // default no bucketing
-        int variantSparseHashShardCount = ConnectContext.get() == null ? 0 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantSparseHashShardCount();
+        int variantSparseHashShardCount = variantDefaults.getDefaultVariantSparseHashShardCount();
 
-        boolean enableVariantDocMode = ConnectContext.get() == null ? false :
-                ConnectContext.get().getSessionVariable().getDefaultVariantEnableDocMode();
-        long variantDocMaterializationMinRows = ConnectContext.get() == null ? 0L :
-                ConnectContext.get().getSessionVariable().getDefaultVariantDocMaterializationMinRows();
-        int variantDocHashShardCount = ConnectContext.get() == null ? 128 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantDocHashShardCount();
+        boolean enableVariantDocMode = variantDefaults.getDefaultVariantEnableDocMode();
+        long variantDocMaterializationMinRows = variantDefaults.getDefaultVariantDocMaterializationMinRows();
+        int variantDocHashShardCount = variantDefaults.getDefaultVariantDocHashShardCount();
 
-        boolean enableNestedGroup = ConnectContext.get() == null ? true :
-                ConnectContext.get().getSessionVariable().getDefaultVariantEnableNestedGroup();
+        boolean enableNestedGroup = variantDefaults.getDefaultVariantEnableNestedGroup();
 
         try {
             // validate properties: variant_enable_doc_mode cannot be set together with other properties
@@ -9179,35 +9196,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new TransactionRollbackCommand();
     }
 
+    /**
+     * The object of a table privilege is db, db.tbl or ctl.db.tbl; TablePattern.analyze() checks its wildcards.
+     */
+    private TablePattern parsePrivilegeTablePattern(DorisParser.MultipartIdentifierOrAsteriskContext ctx) {
+        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx);
+        switch (parts.size()) {
+            case 1:
+                return new TablePattern(parts.get(0), "");
+            case 2:
+                return new TablePattern(parts.get(0), parts.get(1));
+            case 3:
+                return new TablePattern(parts.get(0), parts.get(1), parts.get(2));
+            default:
+                throw new ParseException("Privilege object name should be db, db.tbl or ctl.db.tbl, but got: "
+                        + String.join(".", parts), ctx);
+        }
+    }
+
     @Override
     public LogicalPlan visitGrantTablePrivilege(DorisParser.GrantTablePrivilegeContext ctx) {
         List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
-
-        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
-        int size = parts.size();
-
-        if (size < 1) {
-            throw new AnalysisException("grant table privilege statement missing parameters");
-        }
-
-        TablePattern tablePattern = null;
-        if (size == 1) {
-            String db = parts.get(size - 1);
-            tablePattern = new TablePattern(db, "");
-        }
-
-        if (size == 2) {
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(db, tbl);
-        }
-
-        if (size == 3) {
-            String ctl = parts.get(size - 3);
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
+        TablePattern tablePattern = parsePrivilegeTablePattern(ctx.multipartIdentifierOrAsterisk());
 
         Optional<UserIdentity> userIdentity = Optional.empty();
         Optional<String> role = Optional.empty();
@@ -9353,28 +9363,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitRevokeTablePrivilege(DorisParser.RevokeTablePrivilegeContext ctx) {
         List<AccessPrivilegeWithCols> accessPrivilegeWithCols = visitPrivilegeList(ctx.privilegeList());
-
-        List<String> parts = visitMultipartIdentifierOrAsterisk(ctx.multipartIdentifierOrAsterisk());
-        int size = parts.size();
-
-        TablePattern tablePattern = null;
-        if (size == 1) {
-            String db = parts.get(size - 1);
-            tablePattern = new TablePattern(db, "");
-        }
-
-        if (size == 2) {
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(db, tbl);
-        }
-
-        if (size == 3) {
-            String ctl = parts.get(size - 3);
-            String db = parts.get(size - 2);
-            String tbl = parts.get(size - 1);
-            tablePattern = new TablePattern(ctl, db, tbl);
-        }
+        TablePattern tablePattern = parsePrivilegeTablePattern(ctx.multipartIdentifierOrAsterisk());
 
         Optional<UserIdentity> userIdentity = Optional.empty();
         Optional<String> role = Optional.empty();
@@ -9570,7 +9559,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.IDENTIFIED() == null) {
             return new UserDesc(userIdentity);
         }
-        String password = stripQuotes(ctx.STRING_LITERAL().getText());
+        if (ctx.integration != null) {
+            return new UserDesc(userIdentity, stripQuotes(ctx.integration.getText()),
+                    ctx.identity == null ? null : SqlLiteralUtils.parseStringLiteral(ctx.identity.getText()));
+        }
+        String password = stripQuotes(ctx.pwd.getText());
         boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));
     }

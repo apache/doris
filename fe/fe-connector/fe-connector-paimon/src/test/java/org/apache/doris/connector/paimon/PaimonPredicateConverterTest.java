@@ -18,12 +18,17 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLike;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.predicate.Equal;
 import org.apache.paimon.predicate.IsNull;
@@ -37,6 +42,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -98,6 +104,49 @@ public class PaimonPredicateConverterTest {
         LeafPredicate leaf = (LeafPredicate) predicates.get(0);
         Assertions.assertEquals(Timestamp.fromLocalDateTime(literal), leaf.literals().get(0),
                 "an NTZ predicate literal must retain precision below one millisecond");
+    }
+
+    @Test
+    public void precisionRepairDropsOnlyTimestampPredicates() {
+        RowType rowType = RowType.builder()
+                .field("id", DataTypes.INT())
+                .field("ts", DataTypes.TIMESTAMP(6))
+                .build();
+        PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType, true);
+
+        ConnectorComparison idComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("id", ANY),
+                new ConnectorLiteral(ANY, 7));
+        ConnectorComparison timestampComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("ts", ANY),
+                new ConnectorLiteral(ANY, LocalDateTime.of(2025, 1, 1, 0, 0)));
+
+        Assertions.assertEquals(1, converter.convert(idComparison).size(),
+                "non-timestamp predicates must remain pushable during precision repair");
+        Assertions.assertTrue(converter.convert(timestampComparison).isEmpty(),
+                "timestamp predicates must remain Doris residuals during precision repair");
+    }
+
+    @Test
+    public void precisionRepairKeepsSafeAndSiblingsButNotMixedOr() {
+        RowType rowType = RowType.builder()
+                .field("id", DataTypes.INT())
+                .field("ts", DataTypes.TIMESTAMP(6))
+                .build();
+        PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType, true);
+        ConnectorComparison idComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("id", ANY),
+                new ConnectorLiteral(ANY, 7));
+        ConnectorComparison timestampComparison = new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, new ConnectorColumnRef("ts", ANY),
+                new ConnectorLiteral(ANY, LocalDateTime.of(2025, 1, 1, 0, 0)));
+
+        Assertions.assertEquals(1, converter.convert(new ConnectorAnd(
+                Arrays.asList(idComparison, timestampComparison))).size(),
+                "a safe AND sibling must remain available for file pruning");
+        Assertions.assertTrue(converter.convert(new ConnectorOr(
+                Arrays.asList(idComparison, timestampComparison))).isEmpty(),
+                "a mixed OR must remain a residual instead of narrowing the result set");
     }
 
     @Test
@@ -172,6 +221,47 @@ public class PaimonPredicateConverterTest {
         LeafPredicate leaf = (LeafPredicate) predicates.get(0);
         Assertions.assertEquals(42, leaf.literals().get(0),
                 "the INT literal must be carried through unchanged");
+    }
+
+    @Test
+    public void plainStringRangeAndInListPredicatesArePushed() {
+        RowType rowType = RowType.builder()
+                .field("id", DataTypes.INT())
+                .field("code", DataTypes.STRING())
+                .build();
+        PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
+        ConnectorColumnRef id = new ConnectorColumnRef("id", ANY);
+        ConnectorColumnRef code = new ConnectorColumnRef("code", ANY);
+        List<ConnectorExpression> oneAndTwo = Arrays.asList(ConnectorLiteral.ofInt(1), ConnectorLiteral.ofInt(2));
+
+        // WHY: Paimon declares supportsCastPredicatePushdown() = false, so the engine keeps every conjunct that
+        // contains a CAST in Doris and this converter never sees one (PluginDrivenScanNodeCastPredicateTest).
+        // The plain shapes branch-4.x checked next to its CAST cases (#67933) must still be pushed, otherwise
+        // the conservative CAST rule would have turned into "push nothing". The predicates are checked by
+        // evaluating them on rows, since paimon may build IN as an OR of equalities.
+        // MUTATION: dropping string equality, GT or IN support from the converter -> empty result -> red.
+        Predicate stringEquality = single(converter.convert(new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, code, ConnectorLiteral.ofString("5"))));
+        Assertions.assertTrue(stringEquality.test(GenericRow.of(1, BinaryString.fromString("5"))));
+        Assertions.assertFalse(stringEquality.test(GenericRow.of(1, BinaryString.fromString("05"))));
+
+        Predicate greaterThan = single(converter.convert(new ConnectorComparison(
+                ConnectorComparison.Operator.GT, id, ConnectorLiteral.ofInt(1))));
+        Assertions.assertTrue(greaterThan.test(GenericRow.of(2, BinaryString.fromString("x"))));
+        Assertions.assertFalse(greaterThan.test(GenericRow.of(1, BinaryString.fromString("x"))));
+
+        Predicate in = single(converter.convert(new ConnectorIn(id, oneAndTwo, false)));
+        Assertions.assertTrue(in.test(GenericRow.of(2, BinaryString.fromString("x"))));
+        Assertions.assertFalse(in.test(GenericRow.of(3, BinaryString.fromString("x"))));
+
+        Predicate notIn = single(converter.convert(new ConnectorIn(id, oneAndTwo, true)));
+        Assertions.assertTrue(notIn.test(GenericRow.of(3, BinaryString.fromString("x"))));
+        Assertions.assertFalse(notIn.test(GenericRow.of(2, BinaryString.fromString("x"))));
+    }
+
+    private static Predicate single(List<Predicate> predicates) {
+        Assertions.assertEquals(1, predicates.size(), "the predicate must be pushed as one paimon predicate");
+        return predicates.get(0);
     }
 
     // ---------- null-safe equality (<=>) ----------

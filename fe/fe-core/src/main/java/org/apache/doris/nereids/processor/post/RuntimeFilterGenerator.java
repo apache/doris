@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -72,8 +74,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -111,136 +115,162 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         }
 
         Plan result = plan.accept(this, ctx);
-        // try to push rf inside CTEProducer
-        // collect cteProducers
+        pushRuntimeFiltersIntoCTEProducer(plan, ctx);
+        return result;
+    }
+
+    /**
+     * Push the runtime filters of the consumers of a CTE into its producer, where one filter takes the
+     * place of the identical filters of all the consumers. See {@link #selectPushableRuntimeFilters}.
+     */
+    private void pushRuntimeFiltersIntoCTEProducer(Plan plan, CascadesContext ctx) {
         RuntimeFilterContext rfCtx = ctx.getRuntimeFilterContext();
         Map<CTEId, PhysicalCTEProducer> cteProducerMap = plan.collect(PhysicalCTEProducer.class::isInstance)
                 .stream().collect(Collectors.toMap(p -> ((PhysicalCTEProducer) p).getCteId(),
                         p -> (PhysicalCTEProducer) p));
-        // collect cteConsumers which are RF targets
+        // collect the cte consumers that are runtime filter targets, grouped by the cte they read
         Map<CTEId, Set<PhysicalCTEConsumer>> cteIdToConsumersWithRF = Maps.newHashMap();
         Map<PhysicalCTEConsumer, Set<RuntimeFilter>> consumerToRFs = Maps.newHashMap();
-        Map<PhysicalCTEConsumer, Set<Expression>> consumerToSrcExpression = Maps.newHashMap();
-        List<RuntimeFilter> allRFs = rfCtx.getNereidsRuntimeFilter();
-        for (RuntimeFilter rf : allRFs) {
-            PhysicalRelation rel = rf.getTargetScan();
-            if (rel instanceof PhysicalCTEConsumer) {
-                PhysicalCTEConsumer consumer = (PhysicalCTEConsumer) rel;
-                CTEId cteId = consumer.getCteId();
-                cteIdToConsumersWithRF.computeIfAbsent(cteId, key -> Sets.newHashSet()).add(consumer);
+        for (RuntimeFilter rf : rfCtx.getNereidsRuntimeFilter()) {
+            PhysicalRelation target = rf.getTargetScan();
+            if (target instanceof PhysicalCTEConsumer) {
+                PhysicalCTEConsumer consumer = (PhysicalCTEConsumer) target;
+                cteIdToConsumersWithRF.computeIfAbsent(consumer.getCteId(), key -> Sets.newHashSet()).add(consumer);
                 consumerToRFs.computeIfAbsent(consumer, key -> Sets.newHashSet()).add(rf);
-                consumerToSrcExpression.computeIfAbsent(consumer, key -> Sets.newHashSet())
-                        .add(rf.getSrcExpr());
             }
         }
-        for (CTEId cteId : cteIdToConsumersWithRF.keySet()) {
-            // if any consumer does not have RF, RF cannot be pushed down.
-            // cteIdToConsumersWithRF.get(cteId).size() can not be 1, o.w. this cte will be inlined.
-            if (ctx.getCteIdToConsumers().get(cteId).size() == cteIdToConsumersWithRF.get(cteId).size()
-                        && cteIdToConsumersWithRF.get(cteId).size() >= 2) {
-                // check if there is a common srcExpr among all the consumers
-                Set<PhysicalCTEConsumer> consumers = cteIdToConsumersWithRF.get(cteId);
-                PhysicalCTEConsumer consumer0 = consumers.iterator().next();
-                Set<Expression> candidateSrcExpressions = consumerToSrcExpression.get(consumer0);
-                for (PhysicalCTEConsumer currentConsumer : consumers) {
-                    Set<Expression> srcExpressionsOnCurrentConsumer = consumerToSrcExpression.get(currentConsumer);
-                    candidateSrcExpressions.retainAll(srcExpressionsOnCurrentConsumer);
-                    if (candidateSrcExpressions.isEmpty()) {
-                        break;
-                    }
-                }
-                if (!candidateSrcExpressions.isEmpty()) {
-                    // find RFs to push down
-                    for (Expression srcExpr : candidateSrcExpressions) {
-                        List<RuntimeFilter> rfsToPushDown = Lists.newArrayList();
-                        for (PhysicalCTEConsumer consumer : cteIdToConsumersWithRF.get(cteId)) {
-                            for (RuntimeFilter rf : consumerToRFs.get(consumer)) {
-                                if (rf.getSrcExpr().equals(srcExpr)) {
-                                    rfsToPushDown.add(rf);
-                                }
-                            }
-                        }
-                        if (rfsToPushDown.isEmpty()) {
-                            break;
-                        }
-                        if (!canPushDownRuntimeFiltersIntoCTEProducer(rfsToPushDown, cteId)) {
-                            continue;
-                        }
+        for (Map.Entry<CTEId, Set<PhysicalCTEConsumer>> cteAndConsumers : cteIdToConsumersWithRF.entrySet()) {
+            pushRuntimeFiltersIntoCTEProducer(cteAndConsumers.getKey(), cteAndConsumers.getValue(),
+                    consumerToRFs, ctx, rfCtx, cteProducerMap.get(cteAndConsumers.getKey()));
+        }
+    }
 
-                        // the most right deep buildNode from rfsToPushDown is used as buildNode for pushDown rf
-                        // since the srcExpr are the same, all buildNodes of rfToPushDown are in the same tree path
-                        // the longest ancestors means its corresponding rf build node is the most right deep one.
-                        List<RuntimeFilter> rightDeepRfs = Lists.newArrayList();
-                        List<Plan> rightDeepAncestors = rfsToPushDown.get(0).getBuilderNode().getAncestors();
-                        int rightDeepAncestorsSize = rightDeepAncestors.size();
-                        RuntimeFilter leftTop = rfsToPushDown.get(0);
-                        int leftTopAncestorsSize = rightDeepAncestorsSize;
-                        for (RuntimeFilter rf : rfsToPushDown) {
-                            List<Plan> ancestors = rf.getBuilderNode().getAncestors();
-                            int currentAncestorsSize = ancestors.size();
-                            if (currentAncestorsSize >= rightDeepAncestorsSize) {
-                                if (currentAncestorsSize == rightDeepAncestorsSize) {
-                                    rightDeepRfs.add(rf);
-                                } else {
-                                    rightDeepAncestorsSize = currentAncestorsSize;
-                                    rightDeepAncestors = ancestors;
-                                    rightDeepRfs.clear();
-                                    rightDeepRfs.add(rf);
-                                }
-                            }
-                            if (currentAncestorsSize < leftTopAncestorsSize) {
-                                leftTopAncestorsSize = currentAncestorsSize;
-                                leftTop = rf;
-                            }
-                        }
-                        Preconditions.checkArgument(rightDeepAncestors.contains(leftTop.getBuilderNode()));
-                        // check nodes between right deep and left top are SPJ and not denied join and not mark join
-                        boolean valid = true;
-                        for (Plan cursor : rightDeepAncestors) {
-                            if (cursor.equals(leftTop.getBuilderNode())) {
-                                break;
-                            }
-                            // valid = valid && SPJ_PLAN.contains(cursor.getClass());
-                            if (cursor instanceof AbstractPhysicalJoin) {
-                                AbstractPhysicalJoin cursorJoin = (AbstractPhysicalJoin) cursor;
-                                valid = (!RuntimeFilterGenerator.DENIED_JOIN_TYPES
-                                        .contains(cursorJoin.getJoinType())
-                                        || cursorJoin.isMarkJoin()) && valid;
-                            }
-                            if (!valid) {
-                                break;
-                            }
-                        }
+    /**
+     * Push the runtime filters of the consumers of one CTE into the producer of that CTE.
+     */
+    private void pushRuntimeFiltersIntoCTEProducer(CTEId cteId, Set<PhysicalCTEConsumer> consumers,
+            Map<PhysicalCTEConsumer, Set<RuntimeFilter>> consumerToRFs, CascadesContext ctx,
+            RuntimeFilterContext rfCtx, PhysicalCTEProducer cteProducer) {
+        // if any consumer of this cte does not have a runtime filter, none of them can be pushed down.
+        // there are always at least two consumers, otherwise this cte would have been inlined.
+        if (consumers.size() < 2 || ctx.getCteIdToConsumers().get(cteId).size() != consumers.size()) {
+            return;
+        }
+        for (Expression srcExpr : commonSrcExpressions(consumers, consumerToRFs)) {
+            List<RuntimeFilter> rfsOfSrcExpr = runtimeFiltersOfSrcExpression(consumers, consumerToRFs, srcExpr);
+            for (List<RuntimeFilter> rfsOfIdentity : selectPushableRuntimeFilters(rfsOfSrcExpr, consumers, cteId)) {
+                pushDownIdenticalFilters(rfsOfIdentity, cteId, rfCtx, cteProducer);
+            }
+        }
+    }
 
-                        if (!valid) {
-                            break;
-                        }
+    /**
+     * The source expressions that every one of the given consumers has a runtime filter for.
+     */
+    private static Set<Expression> commonSrcExpressions(Set<PhysicalCTEConsumer> consumers,
+            Map<PhysicalCTEConsumer, Set<RuntimeFilter>> consumerToRFs) {
+        Iterator<PhysicalCTEConsumer> iterator = consumers.iterator();
+        Set<Expression> commonSrcExpressions = srcExpressionsOf(consumerToRFs.get(iterator.next()));
+        while (iterator.hasNext() && !commonSrcExpressions.isEmpty()) {
+            commonSrcExpressions.retainAll(srcExpressionsOf(consumerToRFs.get(iterator.next())));
+        }
+        return commonSrcExpressions;
+    }
 
-                        for (RuntimeFilter rfToPush : rightDeepRfs) {
-                            Expression rightDeepTargetExpressionOnCTE = null;
-                            PhysicalRelation rel = rfToPush.getTargetScan();
-                            if (rel instanceof PhysicalCTEConsumer
-                                    && ((PhysicalCTEConsumer) rel).getCteId().equals(cteId)) {
-                                rightDeepTargetExpressionOnCTE = rfToPush.getTargetExpression();
-                            }
+    private static Set<Expression> srcExpressionsOf(Set<RuntimeFilter> rfs) {
+        return rfs.stream().map(RuntimeFilter::getSrcExpr).collect(Collectors.toSet());
+    }
 
-                            boolean pushedDown = doPushDownIntoCTEProducerInternal(
-                                    rfToPush,
-                                    rightDeepTargetExpressionOnCTE,
-                                    rfCtx,
-                                    cteProducerMap.get(cteId)
-                            );
-                            if (pushedDown) {
-                                rfCtx.removeFilter(
-                                        rfToPush,
-                                        rightDeepTargetExpressionOnCTE.getInputSlotExprIds().iterator().next());
-                            }
-                        }
-                    }
+    /**
+     * The runtime filters that all the given consumers have for one source expression.
+     */
+    private static List<RuntimeFilter> runtimeFiltersOfSrcExpression(Set<PhysicalCTEConsumer> consumers,
+            Map<PhysicalCTEConsumer, Set<RuntimeFilter>> consumerToRFs, Expression srcExpr) {
+        List<RuntimeFilter> rfsOfSrcExpr = Lists.newArrayList();
+        for (PhysicalCTEConsumer consumer : consumers) {
+            for (RuntimeFilter rf : consumerToRFs.get(consumer)) {
+                if (rf.getSrcExpr().equals(srcExpr)) {
+                    rfsOfSrcExpr.add(rf);
                 }
             }
         }
-        return result;
+        Preconditions.checkArgument(!rfsOfSrcExpr.isEmpty());
+        return rfsOfSrcExpr;
+    }
+
+    /**
+     * Push one group of identical runtime filters into the shared CTE producer. Only called with a group
+     * that every consumer applies, see {@link #selectPushableRuntimeFilters}.
+     */
+    private void pushDownIdenticalFilters(List<RuntimeFilter> rfsOfIdentity, CTEId cteId,
+            RuntimeFilterContext rfCtx, PhysicalCTEProducer cteProducer) {
+        // the most right deep buildNode from rfsOfIdentity is used as buildNode for pushDown rf
+        // since the srcExpr are the same, all buildNodes of rfsOfIdentity are in the same tree path
+        // the longest ancestors means its corresponding rf build node is the most right deep one.
+        List<RuntimeFilter> rightDeepRfs = Lists.newArrayList();
+        List<Plan> rightDeepAncestors = rfsOfIdentity.get(0).getBuilderNode().getAncestors();
+        int rightDeepAncestorsSize = rightDeepAncestors.size();
+        RuntimeFilter leftTop = rfsOfIdentity.get(0);
+        int leftTopAncestorsSize = rightDeepAncestorsSize;
+        for (RuntimeFilter rf : rfsOfIdentity) {
+            List<Plan> ancestors = rf.getBuilderNode().getAncestors();
+            int currentAncestorsSize = ancestors.size();
+            if (currentAncestorsSize >= rightDeepAncestorsSize) {
+                if (currentAncestorsSize == rightDeepAncestorsSize) {
+                    rightDeepRfs.add(rf);
+                } else {
+                    rightDeepAncestorsSize = currentAncestorsSize;
+                    rightDeepAncestors = ancestors;
+                    rightDeepRfs.clear();
+                    rightDeepRfs.add(rf);
+                }
+            }
+            if (currentAncestorsSize < leftTopAncestorsSize) {
+                leftTopAncestorsSize = currentAncestorsSize;
+                leftTop = rf;
+            }
+        }
+        Preconditions.checkArgument(rightDeepAncestors.contains(leftTop.getBuilderNode()));
+        // The filter of the deepest builder stands in for the filters of the other consumers, which is sound
+        // only when it prunes at most as many rows as each of them would. The source expression therefore has
+        // to keep the values it has on the build side of the deepest builder while it travels up to the
+        // shallowest one: a node which can add a value to it -- the NULL an outer join generates for the
+        // missing side of the source child, or the NULL a repeat synthesizes for a grouping set which does
+        // not group by the source -- would make the filter below it prune the rows the consumers above it
+        // still need.
+        if (!keepsSourceValue(rightDeepAncestors, leftTop.getBuilderNode())) {
+            return;
+        }
+        // The filter created on the producer stands in for every filter of this group, so it has to keep the
+        // group's requirement not to be waited for. The producer feeds all the consumers, while a filter which
+        // waits is produced by the build side of one of them: a replacement which waits for a consumer whose
+        // own filter was non-blocking closes the cycle producer -> consumer build side -> consumer -> producer,
+        // and the query stalls until the runtime filter or the query times out. Waiting less than a member of
+        // the group asks for only makes the filter arrive later, it never prunes a row the member would keep,
+        // so the replacement is non-blocking as soon as one member of the group is.
+        boolean nonBlocking = rfsOfIdentity.stream().anyMatch(RuntimeFilter::isNonBlocking);
+
+        for (RuntimeFilter rfToPush : rightDeepRfs) {
+            Expression rightDeepTargetExpressionOnCTE = null;
+            PhysicalRelation rel = rfToPush.getTargetScan();
+            if (rel instanceof PhysicalCTEConsumer
+                    && ((PhysicalCTEConsumer) rel).getCteId().equals(cteId)) {
+                rightDeepTargetExpressionOnCTE = rfToPush.getTargetExpression();
+            }
+
+            boolean pushedDown = doPushDownIntoCTEProducerInternal(
+                    rfToPush,
+                    rightDeepTargetExpressionOnCTE,
+                    rfCtx,
+                    cteProducer,
+                    nonBlocking
+            );
+            if (pushedDown) {
+                rfCtx.removeFilter(
+                        rfToPush,
+                        rightDeepTargetExpressionOnCTE.getInputSlotExprIds().iterator().next());
+            }
+        }
     }
 
     /**
@@ -881,20 +911,153 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     /**
-     * Check whether runtime filters on CTE consumers can be pushed into their shared CTE producer.
+     * Whether the nodes between the deepest builder and the given shallowest builder only restrict the rows
+     * the source expression of the runtime filters is evaluated on, see {@link #pushDownIdenticalFilters}.
+     * The list of ancestors starts with the deepest builder itself, whose filter is the one which is pushed,
+     * so it is not part of the path.
      */
     @VisibleForTesting
-    public static boolean canPushDownRuntimeFiltersIntoCTEProducer(
-            List<RuntimeFilter> rfsToPushDown, CTEId cteId) {
-        if (rfsToPushDown.isEmpty()) {
-            LOG.warn("Skip pushing runtime filters into CTE producer because no runtime filters exist for cteId: {}",
-                    cteId);
+    public static boolean keepsSourceValue(List<Plan> ancestors, Plan shallowestBuilder) {
+        if (ancestors.get(0).equals(shallowestBuilder)) {
+            // both filters are computed by the same node, their source values are identical
+            return true;
+        }
+        for (int i = 1; i < ancestors.size(); i++) {
+            Plan node = ancestors.get(i);
+            if (node.equals(shallowestBuilder)) {
+                break;
+            }
+            if (SPJ_PLAN.stream().noneMatch(clazz -> clazz.isInstance(node))) {
+                return false;
+            }
+            if (node instanceof AbstractPhysicalJoin) {
+                AbstractPhysicalJoin<?, ?> join = (AbstractPhysicalJoin<?, ?>) node;
+                if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(join.getJoinType()) || join.isMarkJoin()) {
+                    return false;
+                }
+                // the source is null extended when it comes from the side the join generates NULLs for
+                if (isNullGeneratingChild(join.getJoinType(), join.child(0) == ancestors.get(i - 1))) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether the given child of a join of that type is the side the join generates NULLs for. Mirrors
+     * {@link RuntimeFilterPushDownVisitor}; the outer join types which are denied already do not get here.
+     */
+    private static boolean isNullGeneratingChild(JoinType joinType, boolean isLeftChild) {
+        if (joinType.isFullOuterJoin()) {
+            return true;
+        }
+        if (isLeftChild) {
+            return joinType.isRightOuterJoin() || joinType.isAsofRightOuterJoin();
+        }
+        return joinType.isLeftOuterJoin() || joinType.isAsofLeftOuterJoin();
+    }
+
+    /**
+     * Select the runtime filters of one source expression that may be pushed into the shared CTE producer.
+     *
+     * <p>The producer feeds every consumer, so a filter may only be applied on the producer when all the
+     * consumers apply the very same filter; a filter that only holds for one consumer would prune the rows
+     * that the other consumers still need. The filters are therefore grouped by identity -- same type, same
+     * min/max direction, same NULL semantics and same target expression on the producer -- and only a group
+     * that every consumer applies is selected. For example, with `t c1 where c1.k &gt; b.x` and
+     * `t c2 where c2.k &lt; b.x` the consumers produce a MIN and a MAX filter on the same producer column:
+     * neither group covers both
+     * consumers, so neither is pushed. When on the other hand every consumer applies the same pair of
+     * filters, for example a MIN_MAX and an IN_OR_BLOOM filter of the same column, both groups are selected
+     * and each of them is still pushed once on the producer.
+     */
+    @VisibleForTesting
+    public static List<List<RuntimeFilter>> selectPushableRuntimeFilters(
+            List<RuntimeFilter> rfsOfSrcExpr, Set<PhysicalCTEConsumer> consumers, CTEId cteId) {
+        Map<FilterIdentity, List<RuntimeFilter>> rfsByIdentity = Maps.newLinkedHashMap();
+        for (RuntimeFilter rf : rfsOfSrcExpr) {
+            rfsByIdentity.computeIfAbsent(new FilterIdentity(rf, cteId), key -> Lists.newArrayList()).add(rf);
+        }
+        List<List<RuntimeFilter>> pushable = Lists.newArrayList();
+        for (List<RuntimeFilter> rfsOfIdentity : rfsByIdentity.values()) {
+            Set<PhysicalCTEConsumer> consumersApplying = rfsOfIdentity.stream()
+                    .map(rf -> (PhysicalCTEConsumer) rf.getTargetScan())
+                    .collect(Collectors.toSet());
+            if (consumersApplying.size() == consumers.size()) {
+                pushable.add(rfsOfIdentity);
+            } else {
+                LOG.debug("Skip pushing runtime filters into CTE producer because only {} of {} consumers"
+                                + " of cteId: {} apply the filter {}, while all of them have to apply it",
+                        consumersApplying.size(), consumers.size(), cteId, rfsOfIdentity.get(0));
+            }
+        }
+        return pushable;
+    }
+
+    /**
+     * Identity of a runtime filter with respect to a CTE producer. Two filters with the same identity apply
+     * the very same predicate on the producer, therefore applying one of them once on the producer is
+     * equivalent to applying it on every consumer. The source expression is the same for all the filters
+     * compared here, so it does not take part in the identity.
+     */
+    private static final class FilterIdentity {
+        private final TRuntimeFilterType type;
+        private final TMinMaxRuntimeFilterType minMaxType;
+        private final boolean nullAware;
+        private final Expression producerTargetExpression;
+
+        private FilterIdentity(RuntimeFilter rf, CTEId cteId) {
+            this.type = rf.getType();
+            this.minMaxType = rf.gettMinMaxType();
+            this.nullAware = isNullAware(rf);
+            this.producerTargetExpression = getProducerTargetExpression(rf, cteId);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof FilterIdentity)) {
+                return false;
+            }
+            FilterIdentity that = (FilterIdentity) obj;
+            return type == that.type && minMaxType == that.minMaxType && nullAware == that.nullAware
+                    && producerTargetExpression.equals(that.producerTargetExpression);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, minMaxType, nullAware, producerTargetExpression);
+        }
+
+        @Override
+        public String toString() {
+            return type + "/" + minMaxType + (nullAware ? "/nullAware" : "") + " -> " + producerTargetExpression;
+        }
+    }
+
+    /**
+     * Whether the filter also keeps the rows whose probe column is NULL. The legacy translation derives the
+     * mode from the builder of the filter -- a hash join conjunct with EQ_FOR_NULL, or a set operation --
+     * see {@link org.apache.doris.planner.RuntimeFilter}, so it is a property of the filter and not of the
+     * consumer which happens to push it down. Two filters which differ in it must not be substituted for
+     * each other: a filter built from '=' prunes the rows of the NULL value of its source, while the rows a
+     * '&lt;=&gt;' predicate matches are exactly those.
+     */
+    private static boolean isNullAware(RuntimeFilter rf) {
+        AbstractPhysicalPlan builder = rf.getBuilderNode();
+        if (builder instanceof PhysicalSetOperation) {
+            return true;
+        }
+        if (!(builder instanceof PhysicalHashJoin) || rf.getExprOrder() < 0) {
             return false;
         }
-        Set<Expression> producerTargetExpressions = rfsToPushDown.stream()
-                .map(rf -> getProducerTargetExpression(rf, cteId))
-                .collect(Collectors.toSet());
-        return producerTargetExpressions.size() == 1;
+        List<Expression> hashJoinConjuncts = ((PhysicalHashJoin<?, ?>) builder).getHashJoinConjuncts();
+        Preconditions.checkArgument(rf.getExprOrder() < hashJoinConjuncts.size(),
+                "exprOrder %s of the runtime filter is not a hash join conjunct", rf.getExprOrder());
+        return hashJoinConjuncts.get(rf.getExprOrder()) instanceof NullSafeEqual;
     }
 
     private static Expression getProducerTargetExpression(RuntimeFilter rf, CTEId cteId) {
@@ -910,7 +1073,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     }
 
     private boolean doPushDownIntoCTEProducerInternal(RuntimeFilter rf, Expression targetExpression,
-                                                    RuntimeFilterContext ctx, PhysicalCTEProducer cteProducer) {
+                                                    RuntimeFilterContext ctx, PhysicalCTEProducer cteProducer,
+                                                    boolean nonBlocking) {
         PhysicalPlan inputPlanNode = (PhysicalPlan) cteProducer.child(0);
         Slot unwrappedSlot = checkTargetChild(targetExpression);
         if (unwrappedSlot == null) {
@@ -940,12 +1104,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         if (!checkCanPushDownIntoBasicTable(inputPlanNode)) {
             return false;
         }
-        // Use the PushDownVisitor to push inside the CTE producer subtree
+        // Use the PushDownVisitor to push inside the CTE producer subtree. The non-blocking requirement of the
+        // filters this one replaces travels with it: the visitor creates a new filter object, which would
+        // otherwise wait by default.
         RuntimeFilterPushDownVisitor.PushDownContext pushDownContext =
                 RuntimeFilterPushDownVisitor.PushDownContext.createPushDownContext(
                         ctx, rf.getBuilderNode(), rf.getSrcExpr(), producerTargetExpression,
                         rf.getType(), rf.gettMinMaxType(),
-                        !rf.isBloomFilterSizeCalculatedByNdv(), rf.getBuildSideNdv(), rf.getExprOrder());
+                        !rf.isBloomFilterSizeCalculatedByNdv(), rf.getBuildSideNdv(), rf.getExprOrder())
+                        .withNonBlocking(nonBlocking);
         if (pushDownContext.isValid()) {
             return inputPlanNode.accept(new RuntimeFilterPushDownVisitor(), pushDownContext);
         }

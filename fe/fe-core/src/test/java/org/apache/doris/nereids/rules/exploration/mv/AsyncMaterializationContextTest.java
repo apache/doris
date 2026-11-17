@@ -24,7 +24,13 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.FloatType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -39,6 +45,105 @@ import java.util.Map;
 import java.util.Set;
 
 public class AsyncMaterializationContextTest {
+
+    @Test
+    public void testNonNullableOutputAlsoRepresentsSourceSlot() {
+        SlotReference source = new SlotReference("vec", ArrayType.of(FloatType.INSTANCE), true);
+        NonNullable expression = new NonNullable(source);
+        SlotReference target = new SlotReference("mv_vec", source.getDataType(), false);
+        Plan scan = Mockito.mock(Plan.class);
+        Mockito.doReturn(ImmutableList.of(target)).when(scan).getOutput();
+        AsyncMaterializationContext context = createMappingContext(ImmutableList.of(expression), scan);
+
+        context.tryGenerateScanPlan(null);
+
+        Assertions.assertEquals(ImmutableList.of(target), ImmutableList.copyOf(
+                context.getShuttledExprToScanExprMapping().getExpressionMapping().get(expression)));
+        Assertions.assertEquals(ImmutableList.of(target), ImmutableList.copyOf(
+                context.getShuttledExprToScanExprMapping().getExpressionMapping().get(source)));
+        NamedExpression aligned = MaterializedViewUtils.normalizeExpression(source, target, false);
+        Assertions.assertEquals(source.getExprId(), aligned.getExprId());
+        Assertions.assertTrue(aligned.nullable());
+        Assertions.assertTrue(aligned.child(0) instanceof Nullable);
+        Assertions.assertTrue(source.nullable());
+        Assertions.assertFalse(target.nullable());
+
+        SlotReference regenerated = new SlotReference("mv_vec", source.getDataType(), false);
+        Mockito.doReturn(ImmutableList.of(regenerated)).when(scan).getOutput();
+        context.clearScanPlan(null);
+        context.tryGenerateScanPlan(null);
+        Assertions.assertEquals(ImmutableList.of(regenerated), ImmutableList.copyOf(
+                context.getShuttledExprToScanExprMapping().getExpressionMapping().get(source)));
+    }
+
+    @Test
+    public void testDirectOutputMappingTakesPrecedence() {
+        SlotReference source = new SlotReference("vec", ArrayType.of(FloatType.INSTANCE), true);
+        NonNullable expression = new NonNullable(source);
+        SlotReference assertedTarget = new SlotReference("asserted_vec", source.getDataType(), false);
+        SlotReference directTarget = new SlotReference("original_vec", source.getDataType(), true);
+        Plan scan = Mockito.mock(Plan.class);
+        Mockito.doReturn(ImmutableList.of(assertedTarget, directTarget)).when(scan).getOutput();
+        AsyncMaterializationContext context = createMappingContext(ImmutableList.of(expression, source), scan);
+
+        context.tryGenerateScanPlan(null);
+
+        Assertions.assertEquals(ImmutableList.of(directTarget), ImmutableList.copyOf(
+                context.getShuttledExprToScanExprMapping().getExpressionMapping().get(source)));
+    }
+
+    @Test
+    public void testRepeatedAssertionsDoNotMultiplySourceMappings() {
+        SlotReference source = new SlotReference("vec", ArrayType.of(FloatType.INSTANCE), true);
+        NonNullable expression = new NonNullable(source);
+        SlotReference first = new SlotReference("first_vec", source.getDataType(), false);
+        SlotReference second = new SlotReference("second_vec", source.getDataType(), false);
+        Plan scan = Mockito.mock(Plan.class);
+        Mockito.doReturn(ImmutableList.of(first, second)).when(scan).getOutput();
+        AsyncMaterializationContext context = createMappingContext(ImmutableList.of(expression, expression), scan);
+
+        context.tryGenerateScanPlan(null);
+
+        Assertions.assertEquals(ImmutableList.of(first), ImmutableList.copyOf(
+                context.getShuttledExprToScanExprMapping().getExpressionMapping().get(source)));
+        Assertions.assertEquals(2, context.getShuttledExprToScanExprMapping().flattenMap().size());
+    }
+
+    @Test
+    public void testDoNotInferSourceMappingFromNullableTargetOrNestedExpression() {
+        SlotReference source = new SlotReference("vec", ArrayType.of(FloatType.INSTANCE), true);
+        NonNullable expression = new NonNullable(source);
+        Nullable nested = new Nullable(source);
+        NonNullable nestedExpression = new NonNullable(nested);
+        SlotReference nullableTarget = new SlotReference("nullable_vec", source.getDataType(), true);
+        SlotReference nestedTarget = new SlotReference("nested_vec", source.getDataType(), false);
+        Plan scan = Mockito.mock(Plan.class);
+        Mockito.doReturn(ImmutableList.of(nullableTarget, nestedTarget)).when(scan).getOutput();
+        AsyncMaterializationContext context = createMappingContext(
+                ImmutableList.of(expression, nestedExpression), scan);
+
+        context.tryGenerateScanPlan(null);
+
+        Assertions.assertFalse(context.getShuttledExprToScanExprMapping().getExpressionMapping().containsKey(source));
+        Assertions.assertFalse(context.getShuttledExprToScanExprMapping().getExpressionMapping().containsKey(nested));
+    }
+
+    private static AsyncMaterializationContext createMappingContext(List<Expression> expressions, Plan scan) {
+        CascadesContext cascadesContext = Mockito.mock(CascadesContext.class);
+        Mockito.when(cascadesContext.getStatementContext()).thenReturn(Mockito.mock(StatementContext.class));
+        StructInfo structInfo = Mockito.mock(StructInfo.class);
+        Mockito.when(structInfo.withoutRedundantMvFilters(cascadesContext)).thenReturn(structInfo);
+        Mockito.doReturn(expressions).when(structInfo).getPlanOutputShuttledExpressions();
+        Plan plan = Mockito.mock(Plan.class);
+        Mockito.doReturn(scan.getOutput()).when(plan).getOutput();
+        return new AsyncMaterializationContext(Mockito.mock(MTMV.class), plan, plan,
+                ImmutableList.of(), ImmutableList.of(), cascadesContext, structInfo) {
+            @Override
+            Plan doGenerateScanPlan(CascadesContext ignored) {
+                return scan;
+            }
+        };
+    }
 
     @Test
     public void testCalculatePartitionMappingsMergesUncoveredFilters() throws Exception {

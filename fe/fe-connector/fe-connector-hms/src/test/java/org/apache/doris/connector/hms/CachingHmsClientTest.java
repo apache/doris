@@ -162,6 +162,94 @@ public class CachingHmsClientTest {
         Assertions.assertEquals(2, delegate.getColumnStatsCalls);
     }
 
+    // ---- tableExists shares positive table metadata ----
+
+    @Test
+    public void tableExistsUsesLoadedMetadataAcrossLookups() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
+
+        Assertions.assertTrue(cache.tableExists("db", "t"));
+        HmsTableInfo table = cache.getTable("db", "t");
+        // A later statement's existence probe and getTable share the same catalog-owned entry.
+        Assertions.assertTrue(cache.tableExists("db", "t"));
+        Assertions.assertTrue(cache.tableExists("db", "t"));
+        Assertions.assertSame(table, cache.getTable("db", "t"));
+        Assertions.assertEquals(1, delegate.tableExistsCalls);
+        Assertions.assertEquals(1, delegate.getTableCalls);
+    }
+
+    @Test
+    public void tableExistsCacheIsScopedByDatabaseAndTable() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
+        cache.getTable("db", "t");
+        delegate.tableExistsResult = false;
+
+        Assertions.assertTrue(cache.tableExists("db", "t"));
+        Assertions.assertFalse(cache.tableExists("other_db", "t"));
+        Assertions.assertFalse(cache.tableExists("db", "other_t"));
+        Assertions.assertEquals(2, delegate.tableExistsCalls);
+    }
+
+    @Test
+    public void tableExistsDoesNotRetainBooleanResults() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
+        delegate.tableExistsResult = false;
+        Assertions.assertFalse(cache.tableExists("db", "t"));
+
+        // A missing CTAS target can be created and resolved again without a negative cache entry.
+        delegate.tableExistsResult = true;
+        Assertions.assertTrue(cache.tableExists("db", "t"));
+        delegate.tableExistsResult = false;
+        Assertions.assertFalse(cache.tableExists("db", "t"));
+        Assertions.assertEquals(3, delegate.tableExistsCalls);
+        Assertions.assertEquals(0, delegate.getTableCalls);
+    }
+
+    @Test
+    public void tableExistsHonorsDisabledTableCache() {
+        for (Map<String, String> properties : Arrays.asList(
+                props("meta.cache.hive.table.enable", "false"),
+                props("meta.cache.hive.table.ttl-second", "0"),
+                props("schema.cache.ttl-second", "0"))) {
+            RecordingHmsClient delegate = new RecordingHmsClient();
+            CachingHmsClient cache = cache(delegate, properties);
+            cache.getTable("db", "t");
+            delegate.tableExistsResult = false;
+            Assertions.assertFalse(cache.tableExists("db", "t"));
+            Assertions.assertEquals(1, delegate.tableExistsCalls);
+        }
+    }
+
+    @Test
+    public void tableExistsHonorsTableInvalidation() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
+        cache.getTable("db", "t");
+        delegate.tableExistsResult = false;
+        Assertions.assertTrue(cache.tableExists("db", "t"));
+
+        owner.invalidateTable("db", "t");
+        Assertions.assertFalse(cache.tableExists("db", "t"));
+        Assertions.assertEquals(1, delegate.tableExistsCalls);
+    }
+
+    @Test
+    public void tableExistsPropagatesFailuresWithoutCachingThem() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
+        delegate.tableExistsError = new HmsClientException("HMS unavailable");
+        Assertions.assertSame(delegate.tableExistsError, Assertions.assertThrows(HmsClientException.class,
+                () -> cache.tableExists("db", "t")));
+
+        delegate.tableExistsError = null;
+        Assertions.assertTrue(cache.tableExists("db", "t"));
+        Assertions.assertEquals(2, delegate.tableExistsCalls);
+    }
+
     // ---- listPartitionNames ----
 
     @Test
@@ -253,6 +341,72 @@ public class CachingHmsClientTest {
     }
 
     // ---- getPartitions ----
+
+    @Test
+    public void cachedPartitionProbeDoesNotWaitForAnInFlightLoad() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        RecordingHmsClient delegate = new RecordingHmsClient() {
+            @Override
+            public List<HmsPartitionInfo> getPartitions(String db, String table, List<String> names) {
+                entered.countDown();
+                awaitLatch(release);
+                return super.getPartitions(db, table, names);
+            }
+        };
+        CachingHmsClient cache = cache(delegate, Collections.emptyMap());
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try {
+            List<String> names = Collections.singletonList("p=1");
+            Future<List<HmsPartitionInfo>> loading = workers.submit(() -> cache.getPartitions("db", "t", names));
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            Future<Boolean> probe = workers.submit(() -> cache.getCachedPartitionsWithStats("db", "t", names)
+                    .isPresent());
+            Assertions.assertFalse(probe.get(5, TimeUnit.SECONDS));
+            Assertions.assertFalse(loading.isDone());
+            release.countDown();
+            HmsPartitionInfo loaded = loading.get(5, TimeUnit.SECONDS).get(0);
+            Assertions.assertSame(loaded, cache.getCachedPartitionsWithStats("db", "t", names)
+                    .orElseThrow().getPartitions().get(0));
+            Assertions.assertEquals(1, delegate.getPartitionsCalls);
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            cache.close();
+        }
+    }
+
+    @Test
+    public void cachedPartitionProbeNeverLoadsAndRespectsInvalidation() {
+        RecordingHmsClient delegate = new RecordingHmsClient();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
+        CachingHmsClient cache = new CachingHmsClient(owner, delegate, Collections.emptyMap());
+        Assertions.assertFalse(cache.getCachedPartitionsWithStats("db", "t", Arrays.asList("p=1", "p=2"))
+                .isPresent());
+        Assertions.assertEquals(0, delegate.getPartitionsCalls);
+        List<HmsPartitionInfo> loaded = cache.getPartitions("db", "t", Arrays.asList("p=1", "p=2"));
+        HmsPartitionBatchResult hit = cache.getCachedPartitionsWithStats("db", "t", Arrays.asList("p=2", "p=1"))
+                .orElseThrow(AssertionError::new);
+        Assertions.assertSame(loaded.get(1), hit.getPartitions().get(0));
+        Assertions.assertSame(loaded.get(0), hit.getPartitions().get(1));
+        Assertions.assertEquals(2, hit.getStats().getRequestedItems());
+        Assertions.assertEquals(0, hit.getStats().getTransportInvocations());
+        Assertions.assertFalse(cache.getCachedPartitionsWithStats("db", "t", Arrays.asList("p=1", "p=3"))
+                .isPresent());
+        Assertions.assertEquals(1, delegate.getPartitionsCalls);
+        owner.invalidateTable("db", "t");
+        Assertions.assertFalse(cache.getCachedPartitionsWithStats("db", "t", Collections.singletonList("p=1"))
+                .isPresent());
+        Assertions.assertEquals(1, delegate.getPartitionsCalls);
+    }
+
+    @Test
+    public void nonCachingClientProbeDoesNotFetchPartitions() {
+        RecordingHmsClient raw = new RecordingHmsClient();
+        Assertions.assertFalse(raw.getCachedPartitionsWithStats("db", "t", Collections.singletonList("p=1"))
+                .isPresent());
+        Assertions.assertEquals(0, raw.getPartitionsCalls);
+    }
 
     @Test
     public void getPartitionsSharesPerPartitionEntriesAcrossRequests() {
@@ -1365,6 +1519,9 @@ public class CachingHmsClientTest {
      */
     private static class RecordingHmsClient implements HmsClient {
         int getTableCalls;
+        int tableExistsCalls;
+        boolean tableExistsResult = true;
+        HmsClientException tableExistsError;
         int listPartitionNamesCalls;
         int getPartitionsCalls;
         int getColumnStatsCalls;
@@ -1497,7 +1654,11 @@ public class CachingHmsClientTest {
 
         @Override
         public boolean tableExists(String dbName, String tableName) {
-            return false;
+            tableExistsCalls++;
+            if (tableExistsError != null) {
+                throw tableExistsError;
+            }
+            return tableExistsResult;
         }
 
         @Override

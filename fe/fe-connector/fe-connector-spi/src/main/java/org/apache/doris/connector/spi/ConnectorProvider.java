@@ -130,6 +130,17 @@ public interface ConnectorProvider extends PluginFactory {
     }
 
     /**
+     * The security-sensitive property surface of this connector: the user-supplied property keys the
+     * engine's CREATE / ALTER CATALOG security gates must police (SSRF endpoints, jdbc driver_url). The
+     * engine looks this up by type (without initializing a connector) so those gates stay connector-agnostic
+     * — it never hard-codes a catalog type's property names. Default {@link ConnectorSecuritySurface#EMPTY}:
+     * a connector that names no network endpoint and loads no driver jar needs nothing policed.
+     */
+    default ConnectorSecuritySurface securitySurface() {
+        return ConnectorSecuritySurface.EMPTY;
+    }
+
+    /**
      * Whether connectors of this type expose an incremental metadata-change source through
      * {@code Connector#getEventSource()}.
      *

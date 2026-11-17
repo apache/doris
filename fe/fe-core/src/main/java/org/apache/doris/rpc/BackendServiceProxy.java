@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PAlterVaultSyncRequest;
@@ -130,8 +131,7 @@ public class BackendServiceProxy {
 
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
-                && serviceClientExtIp.client.isNormalState()
-                && serviceClientExtIp.client.isUsingLatestChannelConfig()) {
+                && serviceClientExtIp.client.isNormalState()) {
             return serviceClientExtIp.client;
         }
 
@@ -142,12 +142,6 @@ public class BackendServiceProxy {
             serviceClientExtIp = serviceMap.get(address);
             if (serviceClientExtIp != null && !serviceClientExtIp.realIp.equals(realIp)) {
                 LOG.warn("Cached ip changed, before ip: {}, curIp: {}", serviceClientExtIp.realIp, realIp);
-                serviceMap.remove(address);
-                removedClient = serviceClientExtIp.client;
-                serviceClientExtIp = null;
-            }
-            if (serviceClientExtIp != null && !serviceClientExtIp.client.isUsingLatestChannelConfig()) {
-                LOG.info("BackendServiceClient channel config changed, recreate client for {}", address);
                 serviceMap.remove(address);
                 removedClient = serviceClientExtIp.client;
                 serviceClientExtIp = null;
@@ -176,6 +170,8 @@ public class BackendServiceProxy {
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
             TPipelineFragmentParamsList params, boolean twoPhaseExecution) throws TException, RpcException {
+        // This direct entry bypasses the pipeline task builder, but has the same transport restriction.
+        FileScanEncryptionGuard.checkFragments(params);
         InternalService.PExecPlanFragmentRequest.Builder builder =
                 InternalService.PExecPlanFragmentRequest.newBuilder();
         if (Config.use_compact_thrift_rpc) {

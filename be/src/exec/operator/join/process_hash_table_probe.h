@@ -39,7 +39,7 @@ using MutableColumns = std::vector<MutableColumnPtr>;
 using NullMap = ColumnUInt8::Container;
 using ConstNullMapPtr = const NullMap*;
 
-template <int JoinOpType>
+template <TJoinOp::type JoinOpType>
 struct ProcessHashTableProbe {
     ProcessHashTableProbe(HashJoinProbeLocalState* parent, int batch_size);
     ~ProcessHashTableProbe() = default;
@@ -71,10 +71,10 @@ struct ProcessHashTableProbe {
     Status do_mark_join_conjuncts(Block* output_block, const uint8_t* null_map);
 
     // ASOF JOIN optimized: use pre-sorted index to find best match in O(log K) per probe row
-    // Returns the number of matched rows
+    // Writes the number of matched rows, or propagates an ASOF expression error.
     template <typename HashTableType>
-    uint32_t _find_batch_asof_optimized(HashTableType& hash_table_ctx, const uint8_t* null_map,
-                                        uint32_t probe_rows);
+    Status _find_batch_asof_optimized(HashTableType& hash_table_ctx, const uint8_t* null_map,
+                                      uint32_t probe_rows, uint32_t& matched_rows);
 
     Status finalize_block_with_filter(Block* output_block, size_t filter_column_id,
                                       size_t column_to_keep);

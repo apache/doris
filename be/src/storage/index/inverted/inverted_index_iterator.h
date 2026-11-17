@@ -19,11 +19,12 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/factory_creator.h"
 #include "core/field.h"
 #include "storage/index/index_iterator.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/inverted/inverted_index_selector.h"
+#include "storage/index/inverted/reader/inverted_index_selector.h"
 
 namespace doris::segment_v2 {
 
@@ -60,7 +61,7 @@ public:
 
     [[nodiscard]] Result<InvertedIndexReaderPtr> select_best_reader(
             const DataTypePtr& column_type, InvertedIndexQueryType query_type,
-            const std::string& analyzer_key);
+            const std::string& analyzer_key, const std::string& legacy_analyzer_key = "");
 
     [[nodiscard]] Result<InvertedIndexReaderPtr> select_any_reader();
 

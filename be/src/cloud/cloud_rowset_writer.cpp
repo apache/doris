@@ -21,7 +21,6 @@
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/packed_file_manager.h"
-#include "io/fs/packed_file_writer.h"
 #include "storage/rowset/rowset_factory.h"
 
 namespace doris {
@@ -41,9 +40,9 @@ CloudRowsetWriter::~CloudRowsetWriter() {
 
 Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
-    // Row-binlog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
+    // Changelog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
     _context._need_allocate_lsn =
-            _context.write_binlog_opt().enable ||
+            _context.write_changelog_opt().enable ||
             (_context.tablet_schema != nullptr && _context.tablet_schema->row_lsn_col_idx() >= 0);
     _rowset_meta = std::make_shared<RowsetMeta>();
 
@@ -83,13 +82,14 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
         _rowset_meta->set_inverted_index_storage_format(*_context.inverted_index_storage_format);
     }
     _rowset_meta->set_job_id(_context.job_id);
-    if (_context.write_binlog_opt().enable) {
-        _rowset_meta->mark_row_binlog();
+    if (_context.write_changelog_opt().enable) {
+        _rowset_meta->mark_changelog();
     }
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     if (_context.mow_context != nullptr) {
-        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token();
+        _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor_for_load()->create_token(
+                _context.load_cancel_status);
     }
     return Status::OK();
 }
@@ -218,18 +218,12 @@ Status CloudRowsetWriter::_collect_packed_slice_location(io::FileWriter* file_wr
         return Status::OK();
     }
 
-    // Check if file is actually in packed file (not direct write for large files)
-    if (!file_writer->is_in_packed_file()) {
-        return Status::OK();
-    }
-
     // Ask the writer, which holds a reference to its own slice location. Looking it up by
     // path in PackedFileManager would race with the retention based cleanup of the index.
     io::PackedSliceLocation index;
-    RETURN_IF_ERROR(
-            static_cast<io::PackedFileWriter*>(file_writer)->get_packed_slice_location(&index));
+    RETURN_IF_ERROR(file_writer->get_packed_slice_location(&index));
     if (index.packed_file_path.empty()) {
-        return Status::OK(); // File not in packed file, skip
+        return Status::OK(); // File not in packed file (e.g. direct write for large files), skip
     }
 
     rowset_meta->add_packed_slice_location(file_path, index.packed_file_path, index.offset,

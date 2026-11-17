@@ -23,9 +23,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.ImmutableList;
@@ -60,16 +61,16 @@ public abstract class BaseTableStream extends Table {
             }
         }
 
-        public static TBinlogScanType toThrift(StreamScanType streamScanType) {
+        public static TChangelogScanType toThrift(StreamScanType streamScanType) {
             switch (streamScanType) {
                 case MIN_DELTA:
-                    return TBinlogScanType.MIN_DELTA;
+                    return TChangelogScanType.MIN_DELTA;
                 case APPEND_ONLY:
-                    return TBinlogScanType.APPEND_ONLY;
+                    return TChangelogScanType.APPEND_ONLY;
                 case DETAIL:
-                    return TBinlogScanType.DETAIL;
+                    return TChangelogScanType.DETAIL;
                 default:
-                    return TBinlogScanType.UNKNOWN;
+                    return TChangelogScanType.UNKNOWN;
             }
         }
     }
@@ -152,9 +153,16 @@ public abstract class BaseTableStream extends Table {
     }
 
     public void setProperties(Map<String, String> properties) throws org.apache.doris.common.AnalysisException {
-        showInitialRows = PropertyAnalyzer.analyzeBooleanProp(properties,
-                PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS,
-                false);
+        showInitialRows = false;
+        String key = PropertyAnalyzer.PROPERTIES_STREAM_SHOW_INITIAL_ROWS;
+        if (properties != null && properties.containsKey(key)) {
+            try {
+                showInitialRows = Util.parseBooleanProperty(properties.get(key), key);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new org.apache.doris.common.AnalysisException(key + " must be `true` or `false`", e);
+            }
+            properties.remove(key);
+        }
         streamScanType = PropertyAnalyzer.analyzeStreamType(properties);
     }
 

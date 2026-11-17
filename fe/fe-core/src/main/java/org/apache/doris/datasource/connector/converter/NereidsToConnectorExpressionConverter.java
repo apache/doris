@@ -57,8 +57,9 @@ import java.util.List;
  * IcebergNereidsUtils.convertNereidsToIcebergExpression}): {@code And}/{@code Or}/{@code Not}, the five
  * comparisons ({@code EqualTo}/{@code GreaterThan}/{@code GreaterThanEqual}/{@code LessThan}/{@code
  * LessThanEqual}), {@code InPredicate}, {@code IsNull}, {@code Between}. Comparisons require a bare
- * {@link SlotReference} on one side and a {@link Literal} on the other (operands are normalised to
- * column-on-left, the operator unchanged — mirroring legacy {@code convertNereidsBinaryPredicate}).</p>
+ * {@link SlotReference} on one side and a {@link Literal} on the other. Loose conversion preserves the
+ * legacy operator behavior; strict conversion mirrors the operator when it normalises operands to
+ * column-on-left.</p>
  *
  * <p><b>Anything else yields {@code null}</b> — {@code NullSafeEqual}, {@code Cast}-wrapped columns,
  * column-to-column comparisons, bare literals, etc. The legacy conflict path drops exactly these. Dropping a
@@ -83,26 +84,49 @@ public final class NereidsToConnectorExpressionConverter {
     /** Convert a Nereids predicate to a neutral {@link ConnectorExpression}, or {@code null} if not
      * representable in the legacy iceberg conflict matrix (a safe over-approximation). */
     public static ConnectorExpression convert(Expression expr) {
+        return convert(expr, false);
+    }
+
+    /**
+     * Strict variant of {@link #convert}: it refuses to <i>drop</i> anything. The loose variant is a safe
+     * over-approximation for its consumers (a dropped {@code AND} arm only widens a conflict-detection filter),
+     * but the whole-file "metadata delete" fast path consumes the result as the <i>exact</i> statement predicate:
+     * a dropped conjunct would widen the delete and drop data files that still hold live rows. Strict mode
+     * therefore collapses the whole expression to {@code null} — "not usable" — as soon as any node outside the
+     * matrix is met, so the caller falls back to the row-level path instead of guessing.
+     */
+    public static ConnectorExpression convertStrict(Expression expr) {
+        return convert(expr, true);
+    }
+
+    private static ConnectorExpression convert(Expression expr, boolean strict) {
         if (expr == null) {
             return null;
         }
         if (expr instanceof And) {
-            return convertAnd((And) expr);
+            return convertAnd((And) expr, strict);
         } else if (expr instanceof Or) {
-            return convertOr((Or) expr);
+            return convertOr((Or) expr, strict);
         } else if (expr instanceof Not) {
-            ConnectorExpression child = convert(((Not) expr).child());
+            // SQL negation is not exact for a destructive whole-file predicate: Iceberg's notEqual/notIn
+            // matching treats NULL rows as matching, while SQL NOT(UNKNOWN) is UNKNOWN (deletes nothing), so
+            // lowering NOT(col = x) would drop files whose rows are all NULL. Only IS NOT NULL keeps SQL
+            // semantics under negation; every other negated form falls back to the row-level path in strict mode.
+            if (strict && !(((Not) expr).child() instanceof IsNull)) {
+                return null;
+            }
+            ConnectorExpression child = convert(((Not) expr).child(), strict);
             return child == null ? null : new ConnectorNot(child);
         } else if (expr instanceof EqualTo) {
-            return convertComparison(expr, ConnectorComparison.Operator.EQ);
+            return convertComparison(expr, ConnectorComparison.Operator.EQ, strict);
         } else if (expr instanceof GreaterThan) {
-            return convertComparison(expr, ConnectorComparison.Operator.GT);
+            return convertComparison(expr, ConnectorComparison.Operator.GT, strict);
         } else if (expr instanceof GreaterThanEqual) {
-            return convertComparison(expr, ConnectorComparison.Operator.GE);
+            return convertComparison(expr, ConnectorComparison.Operator.GE, strict);
         } else if (expr instanceof LessThan) {
-            return convertComparison(expr, ConnectorComparison.Operator.LT);
+            return convertComparison(expr, ConnectorComparison.Operator.LT, strict);
         } else if (expr instanceof LessThanEqual) {
-            return convertComparison(expr, ConnectorComparison.Operator.LE);
+            return convertComparison(expr, ConnectorComparison.Operator.LE, strict);
         } else if (expr instanceof InPredicate) {
             return convertIn((InPredicate) expr);
         } else if (expr instanceof IsNull) {
@@ -114,9 +138,12 @@ public final class NereidsToConnectorExpressionConverter {
         return null;
     }
 
-    private static ConnectorExpression convertAnd(And and) {
+    private static ConnectorExpression convertAnd(And and, boolean strict) {
         List<ConnectorExpression> conjuncts = new ArrayList<>();
-        flattenAnd(and, conjuncts);
+        boolean complete = flattenAnd(and, conjuncts, strict);
+        if (!complete) {
+            return null;
+        }
         conjuncts.removeIf(c -> c == null);
         if (conjuncts.isEmpty()) {
             return null;
@@ -124,34 +151,42 @@ public final class NereidsToConnectorExpressionConverter {
         return conjuncts.size() == 1 ? conjuncts.get(0) : new ConnectorAnd(conjuncts);
     }
 
-    private static void flattenAnd(Expression expr, List<ConnectorExpression> out) {
+    private static boolean flattenAnd(Expression expr, List<ConnectorExpression> out, boolean strict) {
         if (expr instanceof And) {
             for (Expression child : expr.children()) {
-                flattenAnd(child, out);
+                if (!flattenAnd(child, out, strict)) {
+                    return false;
+                }
             }
+            return true;
         } else {
-            out.add(convert(expr));
+            ConnectorExpression converted = convert(expr, strict);
+            if (converted == null && strict) {
+                return false;
+            }
+            out.add(converted);
+            return true;
         }
     }
 
-    private static ConnectorExpression convertOr(Or or) {
+    private static ConnectorExpression convertOr(Or or, boolean strict) {
         List<ConnectorExpression> disjuncts = new ArrayList<>();
-        if (!flattenOr(or, disjuncts) || disjuncts.isEmpty()) {
+        if (!flattenOr(or, disjuncts, strict) || disjuncts.isEmpty()) {
             return null;
         }
         return disjuncts.size() == 1 ? disjuncts.get(0) : new ConnectorOr(disjuncts);
     }
 
-    private static boolean flattenOr(Expression expr, List<ConnectorExpression> out) {
+    private static boolean flattenOr(Expression expr, List<ConnectorExpression> out, boolean strict) {
         if (expr instanceof Or) {
             for (Expression child : expr.children()) {
-                if (!flattenOr(child, out)) {
+                if (!flattenOr(child, out, strict)) {
                     return false;
                 }
             }
             return true;
         }
-        ConnectorExpression c = convert(expr);
+        ConnectorExpression c = convert(expr, strict);
         if (c == null) {
             return false;
         }
@@ -159,7 +194,8 @@ public final class NereidsToConnectorExpressionConverter {
         return true;
     }
 
-    private static ConnectorExpression convertComparison(Expression cmp, ConnectorComparison.Operator op) {
+    private static ConnectorExpression convertComparison(
+            Expression cmp, ConnectorComparison.Operator op, boolean strict) {
         Expression left = cmp.child(0);
         Expression right = cmp.child(1);
         SlotReference slot;
@@ -170,6 +206,11 @@ public final class NereidsToConnectorExpressionConverter {
         } else if (left instanceof Literal && right instanceof SlotReference) {
             slot = (SlotReference) right;
             literal = (Literal) left;
+            if (strict) {
+                // Exact destructive predicates must commute the operator with the operands: `1 < id` is
+                // `id > 1`. Loose conflict-filter behavior is deliberately unchanged by this feature.
+                op = commute(op);
+            }
         } else {
             return null;
         }
@@ -178,6 +219,23 @@ public final class NereidsToConnectorExpressionConverter {
             return null;
         }
         return new ConnectorComparison(op, columnRef(slot), litExpr);
+    }
+
+    /** Mirrors {@code op} across the operands: {@code 1 < id} is {@code id > 1}. */
+    private static ConnectorComparison.Operator commute(ConnectorComparison.Operator op) {
+        switch (op) {
+            case LT:
+                return ConnectorComparison.Operator.GT;
+            case LE:
+                return ConnectorComparison.Operator.GE;
+            case GT:
+                return ConnectorComparison.Operator.LT;
+            case GE:
+                return ConnectorComparison.Operator.LE;
+            default:
+                // EQ / NE / EQ_FOR_NULL are symmetric.
+                return op;
+        }
     }
 
     private static ConnectorExpression convertIn(InPredicate in) {

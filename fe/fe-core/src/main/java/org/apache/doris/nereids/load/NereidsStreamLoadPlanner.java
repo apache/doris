@@ -30,6 +30,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -160,9 +161,10 @@ public class NereidsStreamLoadPlanner {
                 }
                 existInExpr = NereidsLoadUtils.hasImportColumn(taskInfo.getColumnExprDescs().descs, col);
                 if (existInExpr) {
-                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())) {
+                    if (!col.isVisible() && !Column.DELETE_SIGN.equals(col.getName())
+                            && !(col.isTtlColumn() && destTable.isDirectRowTtl())) {
                         throw new UserException("Partial update should not include invisible column except"
-                                + " delete sign column: " + col.getName());
+                                + " delete sign or direct TTL column: " + col.getName());
                     }
                     partialUpdateInputColumns.add(col.getName());
                     if (destTable.hasSequenceCol()
@@ -176,7 +178,8 @@ public class NereidsStreamLoadPlanner {
                         throw new UserException("Partial update should include all key columns, missing: "
                                 + col.getName());
                     }
-                    if (!(col.isKey() && col.isAutoInc()) && col.isVisible()) {
+                    if (!(col.isKey() && col.isAutoInc())
+                            && (col.isVisible() || (col.isTtlColumn() && destTable.isDirectRowTtl()))) {
                         hasMissingColExceptAutoIncKey = true;
                     }
                 }
@@ -302,6 +305,8 @@ public class NereidsStreamLoadPlanner {
         params.setTotalLoadStreams(taskInfo.getStreamPerNode());
         params.setNumLocalSink(1);
         TQueryOptions queryOptions = new TQueryOptions();
+        // Retain the deprecated wire option for older backends; loads always use V2.
+        queryOptions.setEnableFileScannerV2(true);
         queryOptions.setQueryType(TQueryType.LOAD);
         int timeout = taskInfo.getTimeout();
         queryOptions.setQueryTimeout(timeout);
@@ -326,7 +331,7 @@ public class NereidsStreamLoadPlanner {
         params.setQueryOptions(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         CoordinatorContext.setQueryGlobalsCurrentTime(queryGlobals);
-        queryGlobals.setTimeZone(taskInfo.getTimezone());
+        queryGlobals.setTimeZone(TimeUtils.getCanonicalTimeZone(taskInfo.getTimezone()));
         if (taskInfo instanceof NereidsRoutineLoadTaskInfo) {
             queryGlobals.setLoadZeroTolerance(false);
         } else {

@@ -87,8 +87,8 @@ public class DropPartitionOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Dropping partition is allowed for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Dropping partition is allowed for changelog tables.
         return true;
     }
 

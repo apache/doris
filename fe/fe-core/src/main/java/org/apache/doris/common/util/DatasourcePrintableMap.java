@@ -24,6 +24,7 @@ import com.google.common.collect.Sets;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -42,6 +43,9 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("kerberos_keytab_content");
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
+        // MongoDB URIs can embed credentials even when no separate password is configured.
+        SENSITIVE_KEY.add("mongodb.uri");
+        SENSITIVE_KEY.add("mongodb.password");
         SENSITIVE_KEY.add("elasticsearch.password");
         SENSITIVE_KEY.add("ai.api_key");
         SENSITIVE_KEY.add("ai.embed.api_key");
@@ -155,6 +159,37 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         }
     }
 
+    /**
+     * Whether a property key must be masked in any user-visible catalog rendering.
+     *
+     * <p>Most connectors register exact aliases. Fluss lake options are deliberately open-ended and
+     * namespaced, however: new paimon/filesystem credential names may arrive without a Doris release.
+     * Match credential-like tails only inside that namespace so endpoints and other operational settings
+     * remain visible. Fluss client SASL credentials use a small, stable set of exact keys.
+     */
+    public static boolean isSensitiveKey(Object key) {
+        if (!(key instanceof String)) {
+            return false;
+        }
+        String stringKey = (String) key;
+        if (SENSITIVE_KEY.contains(stringKey)) {
+            return true;
+        }
+        String lower = stringKey.toLowerCase(Locale.ROOT);
+        if (lower.equals("fluss.client.security.sasl.username")
+                || lower.equals("fluss.client.security.sasl.password")
+                || lower.equals("fluss.client.security.sasl.jaas.config")) {
+            return true;
+        }
+        String lakePrefix = "fluss.lake.paimon.";
+        if (!lower.startsWith(lakePrefix)) {
+            return false;
+        }
+        String tail = lower.substring(lakePrefix.length());
+        return tail.contains("key") || tail.contains("secret") || tail.contains("password")
+                || tail.contains("token") || tail.contains("credential");
+    }
+
     @Override
     protected boolean shouldIncludeEntry(Map.Entry<K, V> entry) {
         return !HIDDEN_KEY.contains(entry.getKey()) && !additionalHiddenKeys.contains(entry.getKey());
@@ -162,7 +197,7 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
 
     @Override
     protected String formatValue(Map.Entry<K, V> entry) {
-        if (hidePassword && SENSITIVE_KEY.contains(entry.getKey())) {
+        if (hidePassword && isSensitiveKey(entry.getKey())) {
             return PASSWORD_MASK;
         }
         return super.formatValue(entry);

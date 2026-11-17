@@ -60,8 +60,8 @@ suite('test_file_cache_warmup_read_metrics_docker', 'docker') {
         'DORIS_CLOUD_AK=minioadmin',
         'DORIS_CLOUD_SK=minioadmin',
         "DORIS_CLOUD_BUCKET=${minioBucket}",
-        "DORIS_CLOUD_ENDPOINT=host.docker.internal:${minioPort}",
-        "DORIS_CLOUD_EXTERNAL_ENDPOINT=host.docker.internal:${minioPort}",
+        "DORIS_CLOUD_ENDPOINT=http://host.docker.internal:${minioPort}",
+        "DORIS_CLOUD_EXTERNAL_ENDPOINT=http://host.docker.internal:${minioPort}",
         'DORIS_CLOUD_REGION=us-east-1',
         'DORIS_CLOUD_PROVIDER=S3',
     ]

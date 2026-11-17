@@ -42,6 +42,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -59,6 +60,7 @@ import java.util.stream.Collectors;
 final class COWIncrementalRelation implements IncrementalRelation {
 
     private final Map<String, String> optParams;
+    private final Set<String> timestampPartitionKeys;
     private final HoodieTableMetaClient metaClient;
     private final HollowCommitHandling hollowCommitHandling;
     private final boolean startInstantArchived;
@@ -74,8 +76,9 @@ final class COWIncrementalRelation implements IncrementalRelation {
 
     COWIncrementalRelation(HoodieTableMetaClient metaClient, Configuration configuration,
             String startTs, String endTs, HollowCommitHandling hollowCommitHandling,
-            Map<String, String> optParams) throws IOException {
+            Map<String, String> optParams, Set<String> timestampPartitionKeys) throws IOException {
         this.optParams = optParams;
+        this.timestampPartitionKeys = timestampPartitionKeys;
         this.metaClient = metaClient;
         this.hollowCommitHandling = hollowCommitHandling;
         this.startTs = startTs;
@@ -195,6 +198,7 @@ final class COWIncrementalRelation implements IncrementalRelation {
         List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
                 : Collections.emptyList();
 
+        boolean urlEncoded = HudiScanPlanProvider.urlEncodePartitioning(metaClient);
         Consumer<String> generatorSplit = baseFile -> {
             HoodieWriteStat stat = fileToWriteStat.get(baseFile);
             splits.add(new HudiScanRange.Builder()
@@ -207,7 +211,8 @@ final class COWIncrementalRelation implements IncrementalRelation {
                     .fileSize(stat.getFileSizeInBytes())
                     .fileFormat(HudiScanPlanProvider.detectFileFormat(baseFile))
                     .partitionValues(
-                            HudiScanPlanProvider.parsePartitionValues(stat.getPartitionPath(), partitionNames))
+                            HudiScanPlanProvider.parsePartitionValues(
+                                    stat.getPartitionPath(), partitionNames, urlEncoded, timestampPartitionKeys))
                     .build());
         };
 

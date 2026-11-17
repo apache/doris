@@ -106,7 +106,10 @@ public:
         if (newcapacity <= capacity_) [[likely]] {
             return;
         }
-        GrowArray(newcapacity);
+        // Grow by at least 50% rather than to exactly `newcapacity`. Callers such
+        // as BitWriter reserve a few bytes at a time, and reallocating on every
+        // call makes appending n bytes cost O(n^2) in memcpy.
+        GrowToAtLeast(newcapacity);
     }
 
     // Append the given data to the string, resizing capacity as necessary.

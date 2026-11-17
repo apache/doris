@@ -480,6 +480,12 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
         fi
+        # Arrow also verifies the overridden Brotli archive against its own SHA256.
+        # A separate marker updates sources that already have the other Arrow patches.
+        if [[ ! -f "${PATCHED_MARK}_brotli_1_0_10" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-24.0.0-brotli-1.0.10.patch"
+            touch "${PATCHED_MARK}_brotli_1_0_10"
+        fi
         cd -
     fi
     echo "Finished patching ${ARROW_SOURCE}"
@@ -499,10 +505,10 @@ fi
 
 # patch librdkafka to avoid crash
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
-    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-2.11.0" ]]; then
+    if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-2.16.0" ]]; then
         cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p0 <"${TP_PATCH_DIR}/librdkafka-2.11.0.patch"
+            patch -p0 <"${TP_PATCH_DIR}/librdkafka-2.16.0.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -752,23 +758,23 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# Apply Doris lance-c patches as one chain to the pinned release archive.
+# Foyer remains a local patch until its cache interface is accepted upstream.
+# All search fixes are supplied by the immutable lance-c dependency revision.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}" ]]; then
-        # Apply the merged PRs first; the latest PR #73 and #79 both require Lance v11.
-        # This order keeps the upstream patches unchanged, including Cargo.lock.
-        for lance_patch in pr-74 pr-75-pr-78 pr-77 pr-73 pr-79 pr-80; do
-            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-                -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-${lance_patch}.patch"
-        done
-        touch "${PATCHED_MARK}"
+    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
+    foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
+    # A new local patch must also replace previously patched cached sources.
+    # Empty markers from older builds cannot identify the applied patch version.
+    if [[ -f "${foyer_patch_marker}" ]] &&
+        [[ "$(cat "${foyer_patch_marker}")" != "${foyer_patch_checksum}" ]]; then
+        rm -rf "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_C_NAME}" -C "${TP_SOURCE_DIR}/"
     fi
-    # The base marker may already exist in cached sources; apply PR #83 independently.
-    if [[ ! -f "${PATCHED_MARK}_pr83" ]]; then
+    cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
         patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-            -p1 <"${TP_PATCH_DIR}/${LANCE_C_SOURCE}-pr-83.patch"
-        touch "${PATCHED_MARK}_pr83"
+            -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
+        printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
     fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
@@ -798,6 +804,33 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " BOOST " ]]; then
     fi
     cd -
     echo "Finished patching ${BOOST_SOURCE}"
+fi
+
+# Clang on AArch64 supports __int128. Keep the existing hash mixer patch and
+# accelerate ARM control scans without changing the eight-byte group layout.
+if [[ " ${TP_ARCHIVES[*]} " =~ " PARALLEL_HASHMAP " ]]; then
+    (
+        cd "${TP_SOURCE_DIR}/${PARALLEL_HASHMAP_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}_aarch64_int128" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/parallel-hashmap-1.3.8-aarch64-int128.patch"
+            touch "${PATCHED_MARK}_aarch64_int128"
+        fi
+        neon_patch="${TP_PATCH_DIR}/parallel-hashmap-1.3.8-arm-neon.patch"
+        # A run can stop after patching but before writing the marker. Check the
+        # source even when the marker exists: the old insertion-only patch could
+        # be applied twice and still leave a marker claiming success.
+        # --forward prevents either dry-run probe from automatically changing direction.
+        if ! patch --dry-run --batch --forward --reverse --fuzz=0 -p1 \
+            <"${neon_patch}" >/dev/null 2>&1; then
+            rm -f "${PATCHED_MARK}_arm_neon"
+            # Check every hunk before modifying any file; partial or incompatible
+            # sources must fail without accepting or further applying the patch.
+            patch --dry-run --batch --forward --fuzz=0 -p1 <"${neon_patch}"
+            patch --batch --forward --fuzz=0 -p1 <"${neon_patch}"
+        fi
+        touch "${PATCHED_MARK}_arm_neon"
+    )
+    echo "Finished patching ${PARALLEL_HASHMAP_SOURCE} (AArch64 int128 and ARM NEON)"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

@@ -25,10 +25,12 @@
 #include "exec/common/agg_utils.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/util.hpp"
+#include "exec/operator/bucketed_aggregation_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -158,8 +160,19 @@ Status BucketedAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
     _insert_values_to_column_timer = ADD_TIMER(custom_profile(), "InsertValuesToColumnTime");
     _merge_timer = ADD_TIMER(custom_profile(), "MergeTime");
+    _memory_usage_merge_arena =
+            ADD_COUNTER(custom_profile(), "MemoryUsageMergeArena", TUnit::BYTES);
+    _memory_usage_merged_hash_tables =
+            ADD_COUNTER(custom_profile(), "MemoryUsageMergedHashTables", TUnit::BYTES);
 
     return Status::OK();
+}
+
+void BucketedAggLocalState::_update_memusage(Arena& merge_arena) {
+    int64_t arena_memory_usage = merge_arena.size();
+    COUNTER_SET(_memory_usage_merge_arena, arena_memory_usage);
+    COUNTER_SET(_memory_usage_merged_hash_tables, _hash_table_merge_growth);
+    COUNTER_SET(_memory_used_counter, arena_memory_usage + _hash_table_merge_growth);
 }
 
 Status BucketedAggLocalState::close(RuntimeState* state) {
@@ -204,7 +217,16 @@ void BucketedAggLocalState::_wake_up_other_sources() {
 int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
     SCOPED_TIMER(_merge_timer);
     auto& shared_state = *_shared_state;
+    // The sole sink already owns the final states. Source-side bucket ownership
+    // still coordinates output when the number of source tasks differs.
+    if (shared_state.num_sink_instances == 1) {
+        return 0;
+    }
     auto& bs = shared_state.bucket_states[bucket];
+    // Other source instances may merge other buckets at the same time, so aggregate
+    // function merges must allocate from this source instance's own arena.
+    DCHECK_LT(_task_idx, shared_state.source_merge_arenas.size());
+    auto& merge_arena = *shared_state.source_merge_arenas[_task_idx];
 
     // Merge target's bucket is the destination.
     auto& dst_agg_data = *shared_state.per_instance_data[merge_target].bucket_agg_data[bucket];
@@ -218,6 +240,7 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                     [&](auto& dst_method) -> void {
                         using AggMethodType = std::decay_t<decltype(dst_method)>;
                         auto& dst_data = *dst_method.hash_table;
+                        const int64_t dst_bytes_before = dst_data.get_buffer_size_in_bytes();
 
                         // Merge all finished sink instances (except merge_target itself)
                         // into the merge target's bucket.
@@ -260,6 +283,10 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                     // allocating intermediate vectors (keys,
                                                     // mappeds, hashes) and eliminates the separate
                                                     // null-out traversal.
+                                                    // The source slot is cleared only after the
+                                                    // state is owned by dst: emplace and merge can
+                                                    // throw, and then shared-state cleanup must
+                                                    // still find and destroy the source state.
                                                     const bool use_simple_count =
                                                             shared_state.use_simple_count;
                                                     src_data.for_each([&](const auto& key,
@@ -267,8 +294,6 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                         if (!mapped) {
                                                             return;
                                                         }
-                                                        auto src_mapped = mapped;
-                                                        mapped = nullptr;
 
                                                         typename std::remove_reference_t<
                                                                 decltype(dst_data)>::LookupResult
@@ -279,20 +304,31 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
 
                                                         if (inserted) {
                                                             *::lookup_result_get_mapped(dst_it) =
-                                                                    src_mapped;
+                                                                    mapped;
                                                         } else {
                                                             auto& dst_mapped =
                                                                     *::lookup_result_get_mapped(
                                                                             dst_it);
+                                                            DBUG_EXECUTE_IF(
+                                                                    "BucketedAggLocalState._merge_"
+                                                                    "bucket.fail_merge",
+                                                                    {
+                                                                        throw Exception(
+                                                                                ErrorCode::
+                                                                                        INTERNAL_ERROR,
+                                                                                "injected merge "
+                                                                                "failure");
+                                                                    });
                                                             merge_agg_states(
-                                                                    dst_mapped, src_mapped,
+                                                                    dst_mapped, mapped,
                                                                     use_simple_count,
                                                                     shared_state
                                                                             .aggregate_evaluators,
                                                                     shared_state
                                                                             .offsets_of_aggregate_states,
-                                                                    *src_inst.arena);
+                                                                    merge_arena);
                                                         }
+                                                        mapped = nullptr;
                                                     });
 
                                                     merge_null_key(
@@ -300,7 +336,7 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                             shared_state.aggregate_evaluators,
                                                             shared_state
                                                                     .offsets_of_aggregate_states,
-                                                            *src_inst.arena);
+                                                            merge_arena);
 
                                                     // Mark this instance as merged for this bucket.
                                                     bs.merged_instances[inst_idx] = true;
@@ -308,9 +344,16 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                             }},
                                     src_agg_data.method_variant);
                         }
+                        // Emplacing the source entries can rehash the destination bucket.
+                        _hash_table_merge_growth +=
+                                static_cast<int64_t>(dst_data.get_buffer_size_in_bytes()) -
+                                dst_bytes_before;
                     }},
             dst_agg_data.method_variant);
 
+    if (merged_count > 0) {
+        _update_memusage(merge_arena);
+    }
     return merged_count;
 }
 
@@ -501,7 +544,7 @@ Status BucketedAggLocalState::_merge_and_output_null_keys(RuntimeState* state, B
     size_t key_size = shared_state.probe_expr_ctxs.size();
     int merge_target = shared_state.merge_target_instance.load(std::memory_order_relaxed);
 
-    // Merge null keys from all 256 buckets (in merge target) into bucket 0.
+    // Merge null keys from all buckets (in merge target) into bucket 0.
     // After per-bucket merge, each bucket in merge target may have its own null key data.
     // We merge them all into bucket 0's null key.
     auto& target_inst = shared_state.per_instance_data[merge_target];
@@ -517,8 +560,8 @@ Status BucketedAggLocalState::_merge_and_output_null_keys(RuntimeState* state, B
                              if constexpr (has_nullable_key_v<
                                                    std::remove_reference_t<decltype(dst_data)>>) {
                                  const bool use_simple_count = shared_state.use_simple_count;
-                                 // Merge null keys from buckets [1..255] into bucket 0.
-                                 for (int b = 1; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+                                 // Merge null keys from the other active buckets into bucket 0.
+                                 for (int b = 1; b < shared_state.num_buckets; ++b) {
                                      auto& src_method = std::get<AggMethodType>(
                                              target_inst.bucket_agg_data[b]->method_variant);
                                      auto& src_data = *src_method.hash_table;
@@ -616,7 +659,7 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
                           shared_state.num_sink_instances;
     bool did_work = false;
 
-    for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+    for (int b = 0; b < shared_state.num_buckets; ++b) {
         auto& bs = shared_state.bucket_states[b];
 
         // Skip buckets already fully output.
@@ -675,15 +718,15 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
         }
     }
 
-    // Check if all 256 buckets have been output.
+    // Check if all buckets have been output.
     {
         int actually_done = 0;
-        for (int b = 0; b < BUCKETED_AGG_NUM_BUCKETS; ++b) {
+        for (int b = 0; b < shared_state.num_buckets; ++b) {
             if (shared_state.bucket_states[b].output_done.load(std::memory_order_acquire)) {
                 ++actually_done;
             }
         }
-        if (actually_done == BUCKETED_AGG_NUM_BUCKETS) {
+        if (actually_done == shared_state.num_buckets) {
             // All buckets output. Handle null key.
             bool expected = false;
             if (shared_state.null_key_output_claimed.compare_exchange_strong(expected, true)) {
@@ -729,9 +772,18 @@ BucketedAggSourceOperatorX::BucketedAggSourceOperatorX(ObjectPool* pool, const T
         : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.bucketed_agg_node.need_finalize) {}
 
+bool BucketedAggSourceOperatorX::is_blockable(RuntimeState* state) const {
+    return Base::is_blockable(state) ||
+           (_sink_operator != nullptr && _sink_operator->has_blockable_aggregate());
+}
+
 Status BucketedAggSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    // Merging finished sinks (hash table rehash, aggregate merge() allocations) happens
+    // inside _get_results, so let the pipeline task reserve what the last round needed
+    // instead of only the minimum operator memory (see OperatorX::get_reserve_mem_size).
+    SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
 
     RETURN_IF_ERROR(local_state._get_results(state, block, eos));
 

@@ -24,8 +24,43 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class IndexTest {
+
+    @Test
+    public void testInvertedIndexPhraseDefaultsFollowTokenization() {
+        Index exact = new Index(1, "exact", List.of("col"), IndexType.INVERTED, Map.of(), "");
+        Assertions.assertFalse(exact.getProperties().containsKey("support_phrase"));
+
+        Index keyword = new Index(2, "keyword", List.of("col"), IndexType.INVERTED,
+                Map.of("parser", "none"), "");
+        Assertions.assertFalse(keyword.getProperties().containsKey("support_phrase"));
+
+        Index normalized = new Index(3, "normalized", List.of("col"), IndexType.INVERTED,
+                Map.of("normalizer", "lowercase"), "");
+        Assertions.assertFalse(normalized.getProperties().containsKey("support_phrase"));
+
+        Index customNormalizer = new Index(7, "custom_normalizer", List.of("col"), IndexType.INVERTED,
+                Map.of("normalizer", "split_norm"), "");
+        Assertions.assertEquals("true", customNormalizer.getProperties().get("support_phrase"));
+
+        Index disabledCustomNormalizer = new Index(8, "disabled_custom_normalizer", List.of("col"),
+                IndexType.INVERTED, Map.of("normalizer", "split_norm", "support_phrase", "false"), "");
+        Assertions.assertEquals("false", disabledCustomNormalizer.getProperties().get("support_phrase"));
+
+        Index parsed = new Index(4, "parsed", List.of("col"), IndexType.INVERTED,
+                Map.of("parser", "english"), "");
+        Assertions.assertEquals("true", parsed.getProperties().get("support_phrase"));
+
+        Index analyzed = new Index(5, "analyzed", List.of("col"), IndexType.INVERTED,
+                Map.of("analyzer", "english"), "");
+        Assertions.assertEquals("true", analyzed.getProperties().get("support_phrase"));
+
+        Index disabled = new Index(6, "disabled", List.of("col"), IndexType.INVERTED,
+                Map.of("parser", "english", "support_phrase", "false"), "");
+        Assertions.assertEquals("false", disabled.getProperties().get("support_phrase"));
+    }
 
     @Test
     public void testGetColumnUniqueIds() {
@@ -160,5 +195,16 @@ public class IndexTest {
         Assertions.assertEquals(Integer.valueOf(103), reverseUniqueIds.get(0));
         Assertions.assertEquals(Integer.valueOf(102), reverseUniqueIds.get(1));
         Assertions.assertEquals(Integer.valueOf(101), reverseUniqueIds.get(2));
+    }
+
+    // During a schema change the new schema names a changed column with the shadow prefix; its index still names
+    // the column without it, case-insensitively, and the new tablet metadata must keep the column's unique id.
+    @Test
+    public void testGetColumnUniqueIdsForShadowColumn() {
+        Column shadowColumn = new Column(Column.getShadowName("MiXeD_CaSe"), Type.STRING);
+        shadowColumn.setUniqueId(107);
+        Index index = new Index(12, "shadow_index", List.of("mixed_case"), IndexType.INVERTED, null, null);
+
+        Assertions.assertEquals(List.of(107), index.getColumnUniqueIds(List.of(shadowColumn)));
     }
 }

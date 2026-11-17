@@ -41,6 +41,9 @@ import org.apache.paimon.types.DataTypes;
 import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -49,6 +52,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 public class PaimonHmsCatalogTest {
 
@@ -96,15 +100,33 @@ public class PaimonHmsCatalogTest {
         Assertions.assertInstanceOf(PaimonHmsClientPool.class, clients.get(loadedRoot));
     }
 
-    @Test
-    public void formatTableKeepsPreparationUnderStorageUserButPersistsHmsOwner() throws Exception {
+    static Stream<Arguments> formatTableStorageClasses() {
+        String hiveIo = "org.apache.hadoop.hive.ql.io.";
+        String textInput = "org.apache.hadoop.mapred.TextInputFormat";
+        String textOutput = hiveIo + "HiveIgnoreKeyTextOutputFormat";
+        String textSerde = "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe";
+        return Stream.of(
+                Arguments.of("parquet", hiveIo + "parquet.MapredParquetInputFormat",
+                        hiveIo + "parquet.MapredParquetOutputFormat", hiveIo + "parquet.serde.ParquetHiveSerDe"),
+                Arguments.of("orc", hiveIo + "orc.OrcInputFormat", hiveIo + "orc.OrcOutputFormat",
+                        hiveIo + "orc.OrcSerde"),
+                Arguments.of("text", textInput, textOutput, textSerde),
+                Arguments.of("csv", textInput, textOutput, textSerde),
+                Arguments.of("json", textInput, textOutput, "org.apache.hive.hcatalog.data.JsonSerDe"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("formatTableStorageClasses")
+    public void formatTableKeepsPreparationUnderStorageUserButPersistsHmsOwner(
+            String format, String inputFormat, String outputFormat, String serde) throws Exception {
         Options options = Options.fromMap(Map.of(
                 "format-table.enabled", "true",
                 "warehouse", "record:///warehouse"));
         HiveConf hiveConf = new HiveConf();
         hiveConf.set("hive.metastore.sasl.enabled", "true");
         HiveCatalog hiveCatalog = new HiveCatalog(
-                new RecordingFileIO(), hiveConf, null, options, "record:///warehouse");
+                new RecordingFileIO(), hiveConf, null,
+                CatalogContext.create(options, hiveConf), "record:///warehouse");
         AtomicReference<Table> createdTable = new AtomicReference<>();
         AtomicReference<String> rpcUser = new AtomicReference<>();
         IMetaStoreClient client = (IMetaStoreClient) Proxy.newProxyInstance(
@@ -138,7 +160,7 @@ public class PaimonHmsCatalogTest {
         AtomicReference<String> preparationUser = new AtomicReference<>();
         Schema schema = new Schema(
                 List.of(DataTypes.FIELD(0, "id", DataTypes.INT())), List.of(), List.of(),
-                Map.of("type", "format-table", "file.format", "parquet",
+                Map.of("type", "format-table", "file.format", format,
                         "path", "record:///warehouse/format_table"), null) {
             @Override
             public Map<String, String> options() {
@@ -156,6 +178,10 @@ public class PaimonHmsCatalogTest {
         Assertions.assertEquals("paimon-storage-user", preparationUser.get());
         Assertions.assertEquals("paimon-hms-user", rpcUser.get());
         Assertions.assertEquals("paimon-hms-user", createdTable.get().getOwner());
+        // These names are persisted in HMS and must remain readable by unshaded Hive/Spark clients.
+        Assertions.assertEquals(inputFormat, createdTable.get().getSd().getInputFormat());
+        Assertions.assertEquals(outputFormat, createdTable.get().getSd().getOutputFormat());
+        Assertions.assertEquals(serde, createdTable.get().getSd().getSerdeInfo().getSerializationLib());
     }
 
     private static void setClientPool(HiveCatalog catalog,

@@ -90,7 +90,8 @@ struct AggregateFunctionTraits<AggregateOperation::AVERAGE> {
     struct TypeTraits {
         static constexpr PrimitiveType ResultType =
                 Element == TYPE_DECIMALV2 ? TYPE_DECIMALV2 : TYPE_DOUBLE;
-        using AggregateDataType = AggregateFunctionAvgData<ResultType>;
+        // Add up the values in the same type as avg(). A double sum loses digits of large integers.
+        using AggregateDataType = AggregateFunctionAvgData<avg_sum_type(Element)>;
         using Function = AggregateFunctionAvg<Element, ResultType, AggregateDataType>;
         static_assert(std::is_same_v<typename PrimitiveTypeTraits<ResultType>::CppType,
                                      typename Function::ResultType>,
@@ -167,9 +168,10 @@ struct ArrayAggregateImpl {
         const auto& offsets = array.get_offsets();
         if constexpr (operation == AggregateOperation::MAX ||
                       operation == AggregateOperation::MIN) {
-            // min/max can only be applied on ip type
+            // These fixed-width non-numeric types support min/max only.
             if (execute_type<TYPE_IPV4>(res, type, data, offsets) ||
-                execute_type<TYPE_IPV6>(res, type, data, offsets)) {
+                execute_type<TYPE_IPV6>(res, type, data, offsets) ||
+                execute_type<TYPE_UUID>(res, type, data, offsets)) {
                 block.replace_by_position(result, std::move(res));
                 return Status::OK();
             }

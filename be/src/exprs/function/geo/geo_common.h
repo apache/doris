@@ -22,7 +22,7 @@
 
 namespace doris {
 
-enum GeoShapeType {
+enum class GeoShapeType {
     GEO_SHAPE_ANY = 0,
     GEO_SHAPE_POINT = 1,
     GEO_SHAPE_LINE_STRING = 2,
@@ -33,7 +33,7 @@ enum GeoShapeType {
     GEO_SHAPE_CIRCLE = 7,
 };
 
-enum GeoParseStatus {
+enum class GeoParseStatus {
     GEO_PARSE_OK = 0,
     GEO_PARSE_COORD_INVALID = 1,
     GEO_PARSE_LOOP_NOT_CLOSED = 2,

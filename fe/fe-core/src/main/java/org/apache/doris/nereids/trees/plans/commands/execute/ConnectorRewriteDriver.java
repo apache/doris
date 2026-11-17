@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.execute;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -33,20 +34,22 @@ import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.scheduler.executor.TransientTaskExecutor;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -83,6 +86,14 @@ public class ConnectorRewriteDriver {
     // The engine-lowered WHERE restricting which files to rewrite, or null when there is no WHERE. Passed
     // straight through to the connector's planRewrite (the connector scopes the rewrite to the matching files).
     private final ConnectorPredicate whereCondition;
+    // The outer statement executor, or null in tests/standalone use. Cancellation of the outer statement is
+    // handed to this driver so the distributed rewrite does not commit after the statement is terminal.
+    private final StmtExecutor owner;
+    // Serializes the outer cancellation handoff with the source-registration/final-commit decision.
+    private final Object cancelLock = new Object();
+    private volatile Status outerCancelReason;
+    private volatile List<ConnectorRewriteGroupTask> submittedGroups = Collections.emptyList();
+    private final AtomicBoolean cancelHandoffInstalled = new AtomicBoolean(false);
 
     /**
      * Builds a driver bound to one {@code ALTER TABLE ... EXECUTE rewrite_data_files} invocation; all of
@@ -91,7 +102,7 @@ public class ConnectorRewriteDriver {
     public ConnectorRewriteDriver(ConnectContext ctx, ExternalTable table, PluginDrivenExternalCatalog catalog,
             ConnectorMetadata metadata, ConnectorProcedureOps procedureOps, ConnectorSession session,
             ConnectorTableHandle tableHandle, String procedureName, Map<String, String> properties,
-            List<String> partitionNames, ConnectorPredicate whereCondition) {
+            List<String> partitionNames, ConnectorPredicate whereCondition, StmtExecutor owner) {
         this.ctx = ctx;
         this.table = table;
         this.catalog = catalog;
@@ -103,6 +114,79 @@ public class ConnectorRewriteDriver {
         this.properties = properties;
         this.partitionNames = partitionNames;
         this.whereCondition = whereCondition;
+        this.owner = owner;
+    }
+
+    /**
+     * Installs the sticky outer-executor cancellation handoff: pick up a cancellation that landed before the
+     * driver existed, then register for the ones that arrive while the rewrite runs.
+     */
+    private void installCancelHandoff() {
+        StmtExecutor outer = this.owner;
+        if (outer == null) {
+            return;
+        }
+        Status prior = outer.getPendingCancelReason();
+        if (prior != null && !prior.ok()) {
+            synchronized (cancelLock) {
+                if (outerCancelReason == null) {
+                    outerCancelReason = prior;
+                }
+            }
+        }
+        outer.setCancelDelegate(this::onOuterCancel);
+        cancelHandoffInstalled.set(true);
+    }
+
+    private void clearCancelHandoff() {
+        if (cancelHandoffInstalled.compareAndSet(true, false) && owner != null) {
+            owner.clearCancelDelegate();
+        }
+    }
+
+    /**
+     * Runs on the cancelling thread. Records the sticky reason and stops the live groups; the owner thread
+     * drains them (with a shared budget) before it rolls the shared transaction back.
+     */
+    private void onOuterCancel(Status reason) {
+        synchronized (cancelLock) {
+            if (outerCancelReason == null) {
+                outerCancelReason = reason;
+            }
+        }
+        for (ConnectorRewriteGroupTask task : submittedGroups) {
+            try {
+                task.cancel();
+            } catch (Exception e) {
+                LOG.warn("Failed to cancel rewrite task {}: {}", task.getId(), e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Sticky: picks up the owner's first terminal reason the first time it is observed. Polled by the wait
+     * loop and re-checked at the register/commit decision, so it also covers a cancellation whose delegate
+     * notification was missed.
+     */
+    private boolean isOuterCancelled() {
+        StmtExecutor outer = this.owner;
+        if (outer != null && outerCancelReason == null) {
+            Status current = outer.getPendingCancelReason();
+            if (current != null && !current.ok()) {
+                synchronized (cancelLock) {
+                    if (outerCancelReason == null) {
+                        outerCancelReason = current;
+                    }
+                }
+            }
+        }
+        return outerCancelReason != null;
+    }
+
+    private UserException cancelledException() {
+        Status reason = outerCancelReason;
+        return new UserException("Rewrite is cancelled: "
+                + (reason == null ? "statement terminated" : reason.getErrorMsg()));
     }
 
     /**
@@ -146,31 +230,49 @@ public class ConnectorRewriteDriver {
         }
         RewriteCapableTransaction rewriteTx = (RewriteCapableTransaction) connectorTx;
 
+        installCancelHandoff();
         try {
-            // STEP 2: run one INSERT-SELECT per group concurrently, all sharing the transaction.
-            runGroups(groups, txnId, connectorTx);
+            try {
+                // STEP 2: run one INSERT-SELECT per group concurrently, all sharing the transaction.
+                runGroups(groups, txnId, connectorTx);
 
-            // STEP 3: register the UNION of every group's source data files in a SINGLE call. The connector
-            // re-derives them from the table at the pinned OCC snapshot with ONE planFiles() scan; the former
-            // per-group loop repeated that full-table scan once per group (G groups = G+1 scans). Ordering is
-            // unchanged — still AFTER the groups ran (so the first group's write loaded the table + pinned the
-            // OCC snapshot that the connector re-derives against) and BEFORE commit (which consumes the
-            // registered files in the RewriteFiles op). Every per-group call scanned the SAME pinned snapshot, so
-            // one union scan is equivalent; the connector's registration accumulates and dedups by path, and the
-            // planner emits path-DISJOINT groups (iceberg: planFiles() yields one task per data file, bin-packed
-            // into disjoint groups), so the union reconstructs exactly the per-group calls' accumulated file set.
-            rewriteTx.registerRewriteSourceFiles(unionSourceFilePaths(groups));
-        } catch (Exception e) {
-            txnManager.rollback(txnId);
-            if (e instanceof UserException) {
-                throw (UserException) e;
+                // STEP 3: register the UNION of every group's source data files in a SINGLE call. The connector
+                // re-derives them from the table at the pinned OCC snapshot with ONE planFiles() scan; the former
+                // per-group loop repeated that full-table scan once per group (G groups = G+1 scans). Ordering is
+                // unchanged — still AFTER the groups ran (so the first group's write loaded the table + pinned the
+                // OCC snapshot that the connector re-derives against) and BEFORE commit (which consumes the
+                // registered files in the RewriteFiles op). Every per-group call scanned the SAME pinned snapshot, so
+                // one union scan is equivalent; the connector's registration accumulates and dedups by path, and the
+                // planner emits path-DISJOINT groups (iceberg: planFiles() yields one task per data file, bin-packed
+                // into disjoint groups), so the union reconstructs exactly the per-group calls' accumulated file set.
+                synchronized (cancelLock) {
+                    if (isOuterCancelled()) {
+                        throw cancelledException();
+                    }
+                    rewriteTx.registerRewriteSourceFiles(unionSourceFilePaths(groups));
+                }
+            } catch (Exception e) {
+                txnManager.rollback(txnId);
+                if (e instanceof UserException) {
+                    throw (UserException) e;
+                }
+                throw new UserException("Failed to rewrite data files: " + e.getMessage(), e);
             }
-            throw new UserException("Failed to rewrite data files: " + e.getMessage(), e);
-        }
 
-        // STEP 4: commit once. The manager deregisters the transaction on both success and failure, so a
-        // failed commit needs no rollback (it would find nothing) — surface it directly.
-        txnManager.commit(txnId);
+            // STEP 4: commit once, serialized on cancelLock with the outer cancellation handoff. Cancellation
+            // that wins the lock first rolls back instead of committing; cancellation that arrives while the
+            // critical section runs is linearized after the commit. The manager deregisters the transaction on
+            // both success and failure, so a failed commit needs no rollback — surface it directly.
+            synchronized (cancelLock) {
+                if (isOuterCancelled()) {
+                    txnManager.rollback(txnId);
+                    throw cancelledException();
+                }
+                txnManager.commit(txnId);
+            }
+        } finally {
+            clearCancelHandoff();
+        }
 
         // The rewrite is committed. Persist follower replay identity and refresh leader caches before the
         // post-commit statistics and result construction below, which can fail independently of the mutation.
@@ -224,27 +326,85 @@ public class ConnectorRewriteDriver {
             tasks.add(task);
         }
 
+        List<ConnectorRewriteGroupTask> submitted = Lists.newArrayList();
         try {
-            for (TransientTaskExecutor task : tasks) {
+            for (ConnectorRewriteGroupTask task : tasks) {
                 Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(task);
+                submitted.add(task);
             }
         } catch (JobException e) {
+            // Groups submitted before the failing call already bind the shared transaction; drain them so the
+            // caller never rolls that transaction back while a live group still reports into it.
+            drain(submitted, drainBudgetNanos());
             throw new UserException("Failed to submit rewrite tasks: " + e.getMessage(), e);
         }
+        submittedGroups = submitted;
 
-        int maxWaitTime = ctx.getSessionVariable().getInsertTimeoutS();
-        try {
-            boolean completed = collector.await(maxWaitTime, TimeUnit.SECONDS);
-            if (!completed) {
-                throw new UserException("Rewrite tasks did not complete within timeout");
+        long maxWaitTime = ctx.getSessionVariable().getInsertTimeoutS();
+        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(maxWaitTime);
+        boolean completed = false;
+        while (!completed) {
+            // A TIMEOUT/KILL on the outer statement only reaches this driver through the handoff; poll it so
+            // live groups are stopped instead of finishing and committing after the statement is terminal.
+            if (isOuterCancelled()) {
+                drain(submitted, drainBudgetNanos());
+                throw cancelledException();
             }
-            if (collector.getFirstError() != null) {
-                throw new UserException("Some rewrite tasks failed: " + collector.getFirstError().getMessage(),
-                        collector.getFirstError());
+            long remainingMs = TimeUnit.NANOSECONDS.toMillis(deadlineNanos - System.nanoTime());
+            if (remainingMs <= 0) {
+                completed = collector.isDone();
+                break;
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new UserException("Wait for rewrite tasks completion was interrupted", e);
+            try {
+                completed = collector.await(Math.min(200L, remainingMs), TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                // The interrupt flag was cleared by the exception, so the drain below can still wait.
+                drain(submitted, drainBudgetNanos());
+                Thread.currentThread().interrupt();
+                throw new UserException("Wait for rewrite tasks completion was interrupted", e);
+            }
+        }
+        if (!completed) {
+            // The owner gave up waiting: stop every live group and wait for its terminal callback so no group
+            // is still reporting into the shared transaction when the caller rolls it back.
+            drain(submitted, drainBudgetNanos());
+            throw new UserException("Rewrite tasks did not complete within timeout");
+        }
+        if (collector.getFirstError() != null) {
+            throw new UserException("Some rewrite tasks failed: " + collector.getFirstError().getMessage(),
+                    collector.getFirstError());
+        }
+    }
+
+    private long drainBudgetNanos() {
+        return TimeUnit.SECONDS.toNanos(Math.max(1, ctx.getSessionVariable().getInsertTimeoutS()));
+    }
+
+    /**
+     * Cancels every submitted group and waits (bounded) for its terminal callback within ONE shared budget,
+     * so a shared transaction is never rolled back while a live group still has commit data flowing into it,
+     * and G never-terminal groups cannot multiply the drain deadline into G * insert_timeout.
+     */
+    private void drain(List<ConnectorRewriteGroupTask> submitted, long budgetNanos) {
+        for (ConnectorRewriteGroupTask task : submitted) {
+            try {
+                task.cancel();
+            } catch (Exception e) {
+                LOG.warn("Failed to cancel rewrite task {}: {}", task.getId(), e.getMessage());
+            }
+        }
+        long deadline = System.nanoTime() + budgetNanos;
+        for (ConnectorRewriteGroupTask task : submitted) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) {
+                return;
+            }
+            try {
+                task.awaitTerminal(remaining, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 
@@ -297,6 +457,10 @@ public class ConnectorRewriteDriver {
 
         public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
             return completionLatch.await(timeout, unit);
+        }
+
+        public boolean isDone() {
+            return completionLatch.getCount() == 0;
         }
 
         public Exception getFirstError() {

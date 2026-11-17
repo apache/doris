@@ -37,6 +37,7 @@ import io.trino.spi.type.TypeOperators;
 import io.trino.spi.type.UuidType;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
+import io.trino.type.JsonType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -82,7 +83,7 @@ public class TrinoTypeMappingTest {
         Assertions.assertEquals("CHAR", name(CharType.createCharType(10)));
         Assertions.assertEquals("STRING", name(VarcharType.createVarcharType(20)));
         Assertions.assertEquals("STRING", name(VarcharType.VARCHAR));
-        Assertions.assertEquals("STRING", name(VarbinaryType.VARBINARY));
+        Assertions.assertEquals("VARBINARY", name(VarbinaryType.VARBINARY));
     }
 
     @Test
@@ -164,9 +165,26 @@ public class TrinoTypeMappingTest {
     }
 
     @Test
-    public void testUnknownTypeThrows() {
-        // An unmapped Trino type must fail loudly rather than silently produce a wrong type.
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> TrinoTypeMapping.toConnectorType(UuidType.UUID));
+    public void testNativeUuidType() {
+        // A native UUID must not lose its logical type at the connector boundary.
+        Assertions.assertEquals("UUID", name(UuidType.UUID));
+    }
+
+    @Test
+    public void testJsonMapsToNativeJson() {
+        Assertions.assertEquals("JSONB", Assertions.assertDoesNotThrow(() -> name(JsonType.JSON)));
+    }
+
+    @Test
+    public void testNestedJsonRetainsItsLogicalType() {
+        ConnectorType array = Assertions.assertDoesNotThrow(
+                () -> TrinoTypeMapping.toConnectorType(new ArrayType(JsonType.JSON)));
+        Assertions.assertEquals("JSONB", array.getChildren().get(0).getTypeName());
+        ConnectorType map = TrinoTypeMapping.toConnectorType(
+                new MapType(VarcharType.VARCHAR, JsonType.JSON, new TypeOperators()));
+        Assertions.assertEquals("JSONB", map.getChildren().get(1).getTypeName());
+        ConnectorType row = TrinoTypeMapping.toConnectorType(RowType.rowType(RowType.field("payload", JsonType.JSON)));
+        Assertions.assertEquals(Collections.singletonList("payload"), row.getFieldNames());
+        Assertions.assertEquals("JSONB", row.getChildren().get(0).getTypeName());
     }
 }

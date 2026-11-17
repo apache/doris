@@ -16,27 +16,16 @@
 // under the License.
 
 import groovy.json.JsonSlurper
+import org.apache.doris.regression.util.Http
 
 def getProfileList = {
-    def dst = "http://" + context.config.feHttpAddress
-    def conn = new URL(dst + "/rest/v1/query_profile").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword))
-            .getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
+    return Http.GET("http://${context.config.feHttpAddress}/rest/v1/query_profile", false, false,
+            context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 def getProfile = { id ->
-    def dst = "http://" + context.config.feHttpAddress
-    def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
-    conn.setRequestMethod("GET")
-    def encoding = Base64.getEncoder().encodeToString((context.config.feHttpUser + ":" +
-            (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword))
-            .getBytes("UTF-8"))
-    conn.setRequestProperty("Authorization", "Basic ${encoding}")
-    return conn.getInputStream().getText()
+    return Http.GET("http://${context.config.feHttpAddress}/api/profile/text/?query_id=$id", false, false,
+            context.config.feHttpUser, context.config.feHttpPassword)
 }
 
 def extractCounterValue = { String profileText, String counterName ->

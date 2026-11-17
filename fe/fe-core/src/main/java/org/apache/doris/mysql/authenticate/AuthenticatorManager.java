@@ -39,6 +39,7 @@ import org.apache.doris.mysql.authenticate.integration.AuthenticationIntegration
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.mysql.authenticate.plugin.AuthenticationPluginAuthenticator;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
@@ -184,19 +185,33 @@ public class AuthenticatorManager {
             MysqlProto.sendResponsePacket(context);
             return false;
         }
-        if (certDecision.shouldSkipPasswordVerification()) {
-            // a certificate-only login is an authentication too: a locked account stays refused
-            if (refuseIfAccountLocked(context, certDecision.getUserIdentity())) {
-                return false;
-            }
-            context.setCurrentUserIdentity(certDecision.getUserIdentity());
-            context.setRemoteIP(remoteIp);
-            context.setIsTempUser(false);
-            return true;
+        if (certDecision.shouldSkipPasswordVerification()
+                && Env.getCurrentEnv().getAuth().getAuthenticationBinding(userName, remoteIp) == null) {
+            return finishSuccessfulAuthentication(context, remoteIp,
+                    new AuthenticateResponse(true, certDecision.getUserIdentity()), false);
         }
         UserIdentity preferredUserIdentity = certDecision.isVerified() ? certDecision.getUserIdentity() : null;
 
         Authenticator primaryAuthenticator = chooseAuthenticator(userName, remoteIp);
+        boolean boundAuthentication = primaryAuthenticator instanceof AuthenticationIntegrationAuthenticator
+                && ((AuthenticationIntegrationAuthenticator) primaryAuthenticator).isBoundAuthentication();
+        if (boundAuthentication) {
+            try {
+                boolean requiresClear = ((AuthenticationIntegrationAuthenticator) primaryAuthenticator)
+                        .prepareBoundAuthentication();
+                if (requiresClear && !channel.isSslMode()) {
+                    context.getState().setError(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED,
+                            "Authentication-bound users require TLS before supplying clear text credentials");
+                    MysqlProto.sendResponsePacket(context);
+                    return false;
+                }
+            } catch (org.apache.doris.authentication.AuthenticationException e) {
+                return reportAuthenticationFailure(context, userName, remoteIp, null,
+                        java.util.Collections.singletonList(AuthenticationFailureSummary.forException(e,
+                                "Unable to resolve bound authentication integration")));
+            }
+        }
+
         boolean debugEnabled = LOG.isDebugEnabled();
         long resolveStart = 0L;
         if (debugEnabled) {
@@ -236,6 +251,9 @@ public class AuthenticatorManager {
         List<AuthenticationFailureSummary> failureSummaries = new ArrayList<>();
         addFailureSummary(failureSummaries, primaryResponse);
 
+        if (boundAuthentication) {
+            return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(), failureSummaries);
+        }
         AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
                 channel, serializer, authPacket, handshakePacket, request);
         if (chainResponse != null && chainResponse.isSuccess()) {
@@ -247,6 +265,10 @@ public class AuthenticatorManager {
     }
 
     Authenticator chooseAuthenticator(String userName, String remoteIp) {
+        User binding = Env.getCurrentEnv().getAuth().getAuthenticationBinding(userName, remoteIp);
+        if (binding != null) {
+            return new AuthenticationIntegrationAuthenticator(binding);
+        }
         Authenticator primaryAuthenticator = authTypeAuthenticator;
         return primaryAuthenticator.canDeal(userName) ? primaryAuthenticator : defaultAuthenticator;
     }
@@ -334,6 +356,17 @@ public class AuthenticatorManager {
     @VisibleForTesting
     boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,
             AuthenticateResponse response, boolean setOkState) throws IOException {
+        User binding = Env.getCurrentEnv().getAuth().getAuthenticationBinding(
+                response.getUserIdentity().getQualifiedUser(), remoteIp);
+        if ((binding == null && (response.getAuthenticationIntegration() != null
+                || Env.getCurrentEnv().getAuth().isAuthenticationBound(response.getUserIdentity())))
+                || (binding != null && (!binding.getUserIdentity().equals(response.getUserIdentity())
+                || response.isTemp()
+                || !binding.getAuthIntegration().equals(response.getAuthenticationIntegration())
+                || !java.util.Objects.equals(binding.getAuthIdentity(), response.getBoundIdentity())))) {
+            return reportAuthenticationFailure(context, response.getUserIdentity().getQualifiedUser(), remoteIp,
+                    null, java.util.Collections.emptyList());
+        }
         if (refuseIfAccountLocked(context, response.getUserIdentity())) {
             return false;
         }

@@ -28,6 +28,7 @@
 #include <type_traits>
 
 #include "core/column/column_complex.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_bitmap.h"
@@ -229,6 +230,7 @@ public:
             std::conditional_t<is_int_or_bool(T) || is_float_or_double(T),
                                typename PrimitiveTypeTraits<T>::ColumnType, ColumnString>;
     static constexpr bool has_key_columns = true;
+    static constexpr bool requires_non_null_formula = true;
 
     void add(const IColumn** columns, size_t row_num) {
         const auto& bitmap_col =
@@ -393,6 +395,17 @@ public:
               _argument_size(int(argument_types_.size())) {}
 
     DataTypePtr get_return_type() const override { return Impl::get_return_type(); }
+
+    void check_nullable_input_columns(const IColumn** columns) const {
+        if constexpr (requires { Impl::requires_non_null_formula; }) {
+            // The formula is constant, so its first value represents the entire input block.
+            const auto* formula = check_and_get_column<ColumnNullable>(*columns[2]);
+            if (formula != nullptr && !formula->empty() && formula->is_null_at(0)) {
+                throw Exception(Status::InvalidArgument("The third argument of {} must not be null",
+                                                        get_name()));
+            }
+        }
+    }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 

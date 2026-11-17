@@ -26,11 +26,17 @@ import org.apache.iceberg.Table;
 final class IcebergScanPlanning {
     private IcebergScanPlanning() {}
 
+    /** Whether the SDK table plans its scans on the catalog server ({@code RESTTable}), not from local manifests. */
+    static boolean requiresServerSideScanPlanning(Table table) {
+        // RESTTable overrides this to false; plain BaseTable inherits true.
+        return table instanceof SupportsDistributedScanPlanning
+                && !((SupportsDistributedScanPlanning) table).allowDistributedPlanning();
+    }
+
     static void rejectServerSideScanPlanning(Table table, String tableName) {
-        if (table instanceof SupportsDistributedScanPlanning
-                && !((SupportsDistributedScanPlanning) table).allowDistributedPlanning()) {
-            // RESTTable overrides this to false; plain BaseTable inherits true. Doris cannot consume
-            // server tasks/residuals or scan-scoped credentials yet, so reject before local manifest I/O.
+        if (requiresServerSideScanPlanning(table)) {
+            // Doris cannot consume server tasks/residuals or scan-scoped credentials yet, so reject before
+            // local manifest I/O.
             throw new DorisConnectorException("Iceberg server-side scan planning is not supported for table "
                     + tableName + "; configure the REST catalog to use client-side scan planning");
         }

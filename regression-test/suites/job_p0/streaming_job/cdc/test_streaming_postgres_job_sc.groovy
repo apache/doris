@@ -27,10 +27,10 @@ import static java.util.concurrent.TimeUnit.SECONDS
  *                      Also verifies: pre-ADD rows get NULL for the new column (existing-data
  *                      correctness), and UPDATE/DELETE right after ADD COLUMN are propagated.
  *   2. DROP COLUMN   – column dropped in PG → DDL executed in Doris, subsequent data lands correctly.
- *   3. RENAME COLUMN – rename detected as simultaneous ADD+DROP (rename guard) →
- *                      no DDL in Doris, 'age' column remains, new rows get age=NULL.
- *   4. MODIFY COLUMN – type-only change is invisible to the name-based diff →
- *                      no DDL in Doris, data continues to flow.
+ *   3. RENAME COLUMN – pause, add the new target column while retaining the replay column,
+ *                      then manually resume.
+ *   4. MODIFY COLUMN – a new native type pauses again after the recovery task commits;
+ *                      manual resume accepts compatible values without equal target types.
  */
 suite("test_streaming_postgres_job_sc", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName     = "test_streaming_postgres_job_name_sc"
@@ -84,6 +84,23 @@ suite("test_streaming_postgres_job_sc", "p0,external,pg,external_docker,external
             Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
                 def rows = sql "SELECT ${colName} FROM ${table1} WHERE name='${rowName}'"
                 rows.size() == 1 && String.valueOf(rows[0][0]) == String.valueOf(expected)
+            })
+        }
+
+        // Call after observing the last row: row visibility alone does not commit the source baseline.
+        def waitForCommit = {
+            long completed = (sql """select SucceedTaskCount from jobs("type"="insert")
+                                       where Name='${jobName}'""")[0][0] as long
+            Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+                (sql """select SucceedTaskCount from jobs("type"="insert")
+                         where Name='${jobName}'""")[0][0] as long > completed
+            })
+        }
+        def waitForSchemaPause = {
+            Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+                def rows = sql """select Status, ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
+                (rows.size() == 1 && rows[0][0] == 'PAUSED'
+                        && rows[0][1].toString().contains('[SCHEMA_CHANGE_UNSUPPORTED]'))
             })
         }
 
@@ -144,6 +161,7 @@ suite("test_streaming_postgres_job_sc", "p0,external,pg,external_docker,external
 
         // Snapshot data: A1(1), B1(2)
         qt_snapshot """ SELECT name, age FROM ${table1} ORDER BY name """
+        waitForCommit()
 
         // ── Phase 1: ADD COLUMN c1 ────────────────────────────────────────────
         // PG adds VARCHAR column c1; CDC detects ADD via name diff and executes
@@ -194,6 +212,7 @@ suite("test_streaming_postgres_job_sc", "p0,external,pg,external_docker,external
 
         // A1 deleted; B1(99,'updated'); C1(10,'world')
         qt_add_column_dml """ SELECT name, age, c1 FROM ${table1} ORDER BY name """
+        waitForCommit()
 
         // ── Phase 2: DROP COLUMN c1 ───────────────────────────────────────────
         // PG drops c1; CDC detects DROP and executes ALTER TABLE … DROP COLUMN c1 on Doris.
@@ -214,51 +233,57 @@ suite("test_streaming_postgres_job_sc", "p0,external,pg,external_docker,external
         assert !(sql "DESC ${table1}").any { it[0] == 'c1' } : "c1 column must be gone from Doris after DROP COLUMN"
         // B1(99), C1(10), D1(20)  [A1 was deleted in Phase 1b]
         qt_drop_column """ SELECT name, age FROM ${table1} ORDER BY name """
+        waitForCommit()
 
         // ── Phase 3: RENAME COLUMN age → age2 (rename guard) ─────────────────
         // PG rename looks like a simultaneous ADD(age2) + DROP(age) to the name diff.
-        // The rename guard detects this and emits a WARN with no DDL, so Doris schema
-        // is unchanged.  New PG rows carry 'age2' which has no matching column in Doris,
-        // so 'age' is NULL for those rows.
+        // First pause without changing Doris. Keep age for replay while manually adding age2.
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """ALTER TABLE ${pgSchema}.${table1} RENAME COLUMN age TO age2"""
             sql """INSERT INTO ${pgSchema}.${table1} (name, age2) VALUES ('E1', 30)"""
         }
 
-        try {
-            waitForRow('E1')
-        } catch (Exception ex) {
-            dumpJobState()
-            throw ex
-        }
-
-        // 'age' must still exist; 'age2' must NOT have been added.
+        waitForSchemaPause()
         def descAfterRename = sql "DESC ${table1}"
         assert  descAfterRename.any { it[0] == 'age'  } : "'age' column must remain after rename guard"
         assert !descAfterRename.any { it[0] == 'age2' } : "'age2' must NOT be added (rename guard, no DDL)"
-        // B1(99), C1(10), D1(20), E1(null) — age=NULL because PG sends age2 which Doris ignores
-        qt_rename """ SELECT name, age FROM ${table1} ORDER BY name """
+        sql "ALTER TABLE ${table1} ADD COLUMN age2 SMALLINT NULL"
+        waitForColumn('age2', true)
+        sql """RESUME JOB where jobname = '${jobName}'"""
+        waitForValue('E1', 'age2', 30)
+        waitForCommit()
+        qt_rename """ SELECT name, age, age2 FROM ${table1} ORDER BY name """
 
-        // ── Phase 4: MODIFY COLUMN type (name-only diff, no DDL) ─────────────
-        // Type-only change is invisible to the name-based diff, so no DDL is emitted.
-        // Data continues to flow; age2 values still have no mapping in Doris → age=NULL.
+        // ── Phase 4: MODIFY COLUMN native type requires a new confirmation ────
+        // The previous successful task cleared tolerance. SMALLINT still accepts these values.
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """ALTER TABLE ${pgSchema}.${table1} ALTER COLUMN age2 TYPE INT4"""
             sql """INSERT INTO ${pgSchema}.${table1} (name, age2) VALUES ('F1', 50)"""
         }
 
-        try {
-            waitForRow('F1')
-        } catch (Exception ex) {
-            dumpJobState()
-            throw ex
-        }
+        waitForSchemaPause()
+        sql """RESUME JOB where jobname = '${jobName}'"""
+        waitForValue('F1', 'age2', 50)
+        waitForCommit()
 
         // Doris 'age' column type must remain smallint (mapped from PG int2).
         assert (sql "DESC ${table1}").find { it[0] == 'age' }[1] == 'smallint' \
             : "Doris 'age' type must remain smallint after type-only change in PG"
-        // B1(99), C1(10), D1(20), E1(null), F1(null)
-        qt_modify """ SELECT name, age FROM ${table1} ORDER BY name """
+        assert (sql "DESC ${table1}").find { it[0] == 'age2' }[1] == 'smallint'
+        qt_modify """ SELECT name, age, age2 FROM ${table1} ORDER BY name """
+
+        // Column comments do not change native types and must not require confirmation.
+        long failuresBeforeComment = (sql """select FailedTaskCount from jobs("type"="insert")
+                                             where Name='${jobName}'""")[0][0] as long
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """COMMENT ON COLUMN ${pgSchema}.${table1}.age2 IS 'source-only comment'"""
+            sql """UPDATE ${pgSchema}.${table1} SET age2=51 WHERE name='F1'"""
+        }
+        waitForValue('F1', 'age2', 51)
+        waitForCommit()
+        qt_column_comment """ SELECT name, age, age2 FROM ${table1} ORDER BY name """
+        qt_column_comment_failures """select FailedTaskCount - ${failuresBeforeComment}
+            from jobs("type"="insert") where Name='${jobName}'"""
 
         assert (sql """select * from jobs("type"="insert") where Name='${jobName}'""")[0][5] == "RUNNING"
 

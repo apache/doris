@@ -63,6 +63,7 @@ import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.TimeV2Literal;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
 import org.apache.doris.analysis.TryCastExpr;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.analysis.VarBinaryLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
@@ -143,6 +144,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.connector.converter.ConnectorUnknownType;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
@@ -239,6 +241,7 @@ public class GsonUtils {
             .of(org.apache.doris.catalog.Type.class, "clazz")
             // TODO: register other sub type after Doris support more types.
             .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName())
+            .registerSubtype(ConnectorUnknownType.class, ConnectorUnknownType.class.getSimpleName())
             .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName())
             .registerSubtype(MapType.class, MapType.class.getSimpleName())
             .registerSubtype(StructType.class, StructType.class.getSimpleName())
@@ -270,6 +273,7 @@ public class GsonUtils {
             .registerSubtype(TimeStampNsLiteral.class, TimeStampNsLiteral.class.getSimpleName())
             .registerSubtype(IPv4Literal.class, IPv4Literal.class.getSimpleName())
             .registerSubtype(IPv6Literal.class, IPv6Literal.class.getSimpleName())
+            .registerSubtype(UuidLiteral.class, UuidLiteral.class.getSimpleName())
             .registerSubtype(JsonLiteral.class, JsonLiteral.class.getSimpleName())
             .registerSubtype(MapLiteral.class, MapLiteral.class.getSimpleName())
             .registerSubtype(MaxLiteral.class, MaxLiteral.class.getSimpleName())
@@ -411,7 +415,12 @@ public class GsonUtils {
                 // was never migrated to a connector, so the remapped catalog has no backing connector and
                 // errors on access (it must be dropped); this only keeps old images/edit-logs loadable.
                 .registerCompatibleSubtype(
-                        PluginDrivenExternalCatalog.class, "LakeSoulExternalCatalog");
+                        PluginDrivenExternalCatalog.class, "LakeSoulExternalCatalog")
+                // Migrate Lance catalogs written by 4.1.4+ (4.1.x / 4.2) to PluginDriven on deserialization.
+                // Until a lance connector plugin is installed the catalog has no backing connector and errors
+                // on access; without this label the whole image fails to parse and the FE cannot start.
+                .registerCompatibleSubtype(
+                        PluginDrivenExternalCatalog.class, "LanceExternalCatalog");
         if (Config.isNotCloudMode()) {
             dsTypeAdapterFactory
                     .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName());
@@ -470,7 +479,10 @@ public class GsonUtils {
                     PluginDrivenExternalDatabase.class, "HMSExternalDatabase")
             // Migrate old LakeSoul databases to PluginDriven on deserialization (deprecated, no connector)
             .registerCompatibleSubtype(
-                    PluginDrivenExternalDatabase.class, "LakeSoulExternalDatabase");
+                    PluginDrivenExternalDatabase.class, "LakeSoulExternalDatabase")
+            // Migrate Lance databases (4.1.4+) to PluginDriven on deserialization
+            .registerCompatibleSubtype(
+                    PluginDrivenExternalDatabase.class, "LanceExternalDatabase");
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz").registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
@@ -506,6 +518,10 @@ public class GsonUtils {
             // PluginDrivenMvccExternalTable — matching what buildTableInternal rebuilds it as on replay.
             .registerCompatibleSubtype(
                     PluginDrivenMvccExternalTable.class, "HMSExternalTable")
+            // Lance tables (4.1.4+) migrate to the MVCC variant: LanceExternalTable implemented MvccTable
+            // (dataset versions back snapshots/time-travel)
+            .registerCompatibleSubtype(
+                    PluginDrivenMvccExternalTable.class, "LanceExternalTable")
             .registerSubtype(BrokerTable.class, BrokerTable.class.getSimpleName())
             .registerSubtype(EsTable.class, EsTable.class.getSimpleName())
             .registerSubtype(FunctionGenTable.class, FunctionGenTable.class.getSimpleName())

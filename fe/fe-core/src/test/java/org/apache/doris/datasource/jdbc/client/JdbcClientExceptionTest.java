@@ -66,6 +66,14 @@ public class JdbcClientExceptionTest {
     }
 
     @Test
+    public void testExceptionWithAbsentCause() {
+        JdbcClientException exception = new JdbcClientException("context", (Throwable) null);
+        Assertions.assertEquals("context", exception.getMessage());
+        Assertions.assertNull(exception.getCause());
+        Assertions.assertEquals("", JdbcClientException.getAllExceptionMessages(null));
+    }
+
+    @Test
     public void testExceptionWithCause() {
         String message = "Database connection failed.";
         Exception cause = new Exception("Timeout occurred");

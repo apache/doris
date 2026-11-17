@@ -112,16 +112,27 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
     // Test BIT_SHUFFLE encoding - should have BitShufflePagePreDecoder
     // Test various integer types
     std::vector<FieldType> bitshuffle_types = {
-            FieldType::OLAP_FIELD_TYPE_TINYINT,      FieldType::OLAP_FIELD_TYPE_SMALLINT,
-            FieldType::OLAP_FIELD_TYPE_INT,          FieldType::OLAP_FIELD_TYPE_BIGINT,
-            FieldType::OLAP_FIELD_TYPE_LARGEINT,     FieldType::OLAP_FIELD_TYPE_FLOAT,
-            FieldType::OLAP_FIELD_TYPE_DOUBLE,       FieldType::OLAP_FIELD_TYPE_BOOL,
-            FieldType::OLAP_FIELD_TYPE_DATE,         FieldType::OLAP_FIELD_TYPE_DATEV2,
-            FieldType::OLAP_FIELD_TYPE_DATETIMEV2,   FieldType::OLAP_FIELD_TYPE_DATETIME,
-            FieldType::OLAP_FIELD_TYPE_DECIMAL,      FieldType::OLAP_FIELD_TYPE_DECIMAL32,
-            FieldType::OLAP_FIELD_TYPE_DECIMAL64,    FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
-            FieldType::OLAP_FIELD_TYPE_DECIMAL256,   FieldType::OLAP_FIELD_TYPE_IPV4,
-            FieldType::OLAP_FIELD_TYPE_IPV6,         FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT,
+            FieldType::OLAP_FIELD_TYPE_TINYINT,
+            FieldType::OLAP_FIELD_TYPE_SMALLINT,
+            FieldType::OLAP_FIELD_TYPE_INT,
+            FieldType::OLAP_FIELD_TYPE_BIGINT,
+            FieldType::OLAP_FIELD_TYPE_LARGEINT,
+            FieldType::OLAP_FIELD_TYPE_FLOAT,
+            FieldType::OLAP_FIELD_TYPE_DOUBLE,
+            FieldType::OLAP_FIELD_TYPE_BOOL,
+            FieldType::OLAP_FIELD_TYPE_DATE,
+            FieldType::OLAP_FIELD_TYPE_DATEV2,
+            FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
+            FieldType::OLAP_FIELD_TYPE_DATETIME,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL32,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL64,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL256,
+            FieldType::OLAP_FIELD_TYPE_IPV4,
+            FieldType::OLAP_FIELD_TYPE_IPV6,
+            FieldType::OLAP_FIELD_TYPE_UUID,
+            FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT,
             FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT,
     };
 
@@ -186,7 +197,7 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
         ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
                                         << " with PLAIN_ENCODING_V2 should have pre_decoder";
         // CHAR PLAIN_ENCODING_V2 is wired to BinaryPlainPageV2PreDecoder<true>
-        // so the trailing '\0' padding written by OlapColumnDataConvertorChar
+        // so the trailing '\0' padding written by ScalarColumnWriter
         // is stripped at page load time; other binary types use the regular
         // <false> instantiation.
         bool ok =
@@ -229,33 +240,20 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
 
     // Test PLAIN_ENCODING - should NOT have pre_decoder
     std::vector<FieldType> plain_encoding_types = {
-            FieldType::OLAP_FIELD_TYPE_TINYINT,
-            FieldType::OLAP_FIELD_TYPE_SMALLINT,
-            FieldType::OLAP_FIELD_TYPE_INT,
-            FieldType::OLAP_FIELD_TYPE_BIGINT,
-            FieldType::OLAP_FIELD_TYPE_LARGEINT,
-            FieldType::OLAP_FIELD_TYPE_FLOAT,
-            FieldType::OLAP_FIELD_TYPE_DOUBLE,
-            FieldType::OLAP_FIELD_TYPE_BOOL,
-            FieldType::OLAP_FIELD_TYPE_DATE,
-            FieldType::OLAP_FIELD_TYPE_DATEV2,
-            FieldType::OLAP_FIELD_TYPE_DATETIMEV2,
-            FieldType::OLAP_FIELD_TYPE_DATETIME,
-            FieldType::OLAP_FIELD_TYPE_DECIMAL,
-            FieldType::OLAP_FIELD_TYPE_DECIMAL32,
-            FieldType::OLAP_FIELD_TYPE_DECIMAL64,
-            FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
-            FieldType::OLAP_FIELD_TYPE_DECIMAL256,
-            FieldType::OLAP_FIELD_TYPE_IPV4,
-            FieldType::OLAP_FIELD_TYPE_IPV6,
-            FieldType::OLAP_FIELD_TYPE_CHAR,
-            FieldType::OLAP_FIELD_TYPE_VARCHAR,
-            FieldType::OLAP_FIELD_TYPE_STRING,
-            FieldType::OLAP_FIELD_TYPE_JSONB,
-            FieldType::OLAP_FIELD_TYPE_VARIANT,
-            FieldType::OLAP_FIELD_TYPE_HLL,
-            FieldType::OLAP_FIELD_TYPE_BITMAP,
-            FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE,
+            FieldType::OLAP_FIELD_TYPE_TINYINT,    FieldType::OLAP_FIELD_TYPE_SMALLINT,
+            FieldType::OLAP_FIELD_TYPE_INT,        FieldType::OLAP_FIELD_TYPE_BIGINT,
+            FieldType::OLAP_FIELD_TYPE_LARGEINT,   FieldType::OLAP_FIELD_TYPE_FLOAT,
+            FieldType::OLAP_FIELD_TYPE_DOUBLE,     FieldType::OLAP_FIELD_TYPE_BOOL,
+            FieldType::OLAP_FIELD_TYPE_DATE,       FieldType::OLAP_FIELD_TYPE_DATEV2,
+            FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FieldType::OLAP_FIELD_TYPE_DATETIME,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL,    FieldType::OLAP_FIELD_TYPE_DECIMAL32,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL64,  FieldType::OLAP_FIELD_TYPE_DECIMAL128I,
+            FieldType::OLAP_FIELD_TYPE_DECIMAL256, FieldType::OLAP_FIELD_TYPE_IPV4,
+            FieldType::OLAP_FIELD_TYPE_IPV6,       FieldType::OLAP_FIELD_TYPE_UUID,
+            FieldType::OLAP_FIELD_TYPE_CHAR,       FieldType::OLAP_FIELD_TYPE_VARCHAR,
+            FieldType::OLAP_FIELD_TYPE_STRING,     FieldType::OLAP_FIELD_TYPE_JSONB,
+            FieldType::OLAP_FIELD_TYPE_VARIANT,    FieldType::OLAP_FIELD_TYPE_HLL,
+            FieldType::OLAP_FIELD_TYPE_BITMAP,     FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE,
             FieldType::OLAP_FIELD_TYPE_AGG_STATE,
     };
 
@@ -266,7 +264,7 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
             if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                 // CHAR PLAIN_ENCODING has a CHAR-strip pre-decoder that strips
-                // the trailing '\0' padding written by the convertor.
+                // the trailing '\0' padding written by the column writer.
                 EXPECT_NE(nullptr, pre_decoder)
                         << "CHAR with PLAIN_ENCODING should have a pre_decoder";
                 EXPECT_NE(nullptr, dynamic_cast<BinaryPlainPageCharStripPreDecoder*>(pre_decoder))
@@ -382,6 +380,7 @@ const std::vector<DefaultExpectation> kV3DefaultExpect = {
         {FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE, "DECIMAL256"},
         {FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE, "IPV4"},
         {FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, "IPV6"},
+        {FieldType::OLAP_FIELD_TYPE_UUID, BIT_SHUFFLE, "UUID"},
         {FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V3, "HLL"},
         {FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V3, "BITMAP"},
         {FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V3, "QUANTILE_STATE"},
@@ -417,6 +416,7 @@ const std::vector<DefaultExpectation> kV2DefaultExpect = {
         {FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE, "DECIMAL256"},
         {FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE, "IPV4"},
         {FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, "IPV6"},
+        {FieldType::OLAP_FIELD_TYPE_UUID, BIT_SHUFFLE, "UUID"},
         {FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING, "HLL"},
         {FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING, "BITMAP"},
         {FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING, "QUANTILE_STATE"},
@@ -454,6 +454,7 @@ const std::vector<DefaultExpectation> kIndexColumnEncodingExpect = {
         {FieldType::OLAP_FIELD_TYPE_DECIMAL256, UNKNOWN_ENCODING, "DECIMAL256"},
         {FieldType::OLAP_FIELD_TYPE_IPV4, UNKNOWN_ENCODING, "IPV4"},
         {FieldType::OLAP_FIELD_TYPE_IPV6, UNKNOWN_ENCODING, "IPV6"},
+        {FieldType::OLAP_FIELD_TYPE_UUID, UNKNOWN_ENCODING, "UUID"},
         {FieldType::OLAP_FIELD_TYPE_HLL, UNKNOWN_ENCODING, "HLL"},
         {FieldType::OLAP_FIELD_TYPE_BITMAP, UNKNOWN_ENCODING, "BITMAP"},
         {FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, UNKNOWN_ENCODING, "QUANTILE_STATE"},
@@ -545,6 +546,8 @@ const std::vector<EncodingMapEntry> kEncodingMapEntries = {
         {FieldType::OLAP_FIELD_TYPE_IPV4, PLAIN_ENCODING, true, "IPV4+PLAIN"},
         {FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, true, "IPV6+BIT_SHUFFLE"},
         {FieldType::OLAP_FIELD_TYPE_IPV6, PLAIN_ENCODING, true, "IPV6+PLAIN"},
+        {FieldType::OLAP_FIELD_TYPE_UUID, BIT_SHUFFLE, true, "UUID+BIT_SHUFFLE"},
+        {FieldType::OLAP_FIELD_TYPE_UUID, PLAIN_ENCODING, true, "UUID+PLAIN"},
         // aggregate-flavored binary
         {FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING, true, "HLL+PLAIN"},
         {FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2, true, "HLL+PLAIN_V2"},

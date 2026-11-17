@@ -161,6 +161,16 @@ public interface ConnectorWritePlanProvider {
     }
 
     /**
+     * Returns the table's write distribution, or {@code null} to retain the engine's existing generic
+     * distribution rules. FE Core treats an external hash function name and its options as opaque values and
+     * transports them to BE, but the named function must be registered in the BE build.
+     */
+    default ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return null;
+    }
+
+    /**
      * Declares the connector's <b>synthetic write columns</b> for the target — request-scoped hidden
      * columns the engine injects into {@code PluginDrivenExternalTable.getFullSchema()} while a write/DML
      * over this table is in flight, in an engine-neutral form. The engine appends these (converted via
@@ -191,12 +201,60 @@ public interface ConnectorWritePlanProvider {
      * The write operations this provider can plan, in one place — the single source of truth for a
      * connector's write capability. Replaces the removed {@code ConnectorWriteOps} boolean methods and
      * the removed INSERT-support capability switch. Default: INSERT only (any write provider can at least
-     * append). A connector overrides this to add OVERWRITE / DELETE / MERGE / REWRITE. Connector-level
-     * (does not vary per table); per-table mode constraints stay in
-     * {@link org.apache.doris.connector.spi.ConnectorWriteOps#validateRowLevelDmlMode}.
+     * append). A connector overrides this to add OVERWRITE / DELETE / UPDATE / MERGE / REWRITE. The engine
+     * resolves the provider for the target table handle, so a heterogeneous connector may return a provider
+     * whose operation set varies by table. Per-table mode constraints stay in
+     * {@link org.apache.doris.connector.spi.ConnectorWriteOps#validateRowLevelDmlMode}. A provider
+     * advertising DELETE, UPDATE, or MERGE must also declare its {@link #getRowChangeStyle()}.
      */
     default Set<WriteOperation> supportedOperations() {
         return EnumSet.of(WriteOperation.INSERT);
+    }
+
+    /**
+     * Returns the physical representation of row-level changes planned by this provider.
+     * The engine selects this provider per table handle, so a heterogeneous catalog can
+     * use different row-level plans for different tables. Connectors that only insert
+     * rows retain {@link ConnectorRowChangeStyle#NONE}.
+     */
+    default ConnectorRowChangeStyle getRowChangeStyle() {
+        return ConnectorRowChangeStyle.NONE;
+    }
+
+    /**
+     * Returns the connector-owned operation-column encoding for {@link ConnectorRowChangeStyle#CHANGELOG}.
+     * A provider declaring another row-change style keeps the empty default.
+     */
+    default Optional<ConnectorChangelogMode> getChangelogMode() {
+        return Optional.empty();
+    }
+
+    /** Returns the target primary-key columns used to shape changelog DELETE and MERGE plans. */
+    default List<String> getRowLevelPrimaryKeyColumns(ConnectorSession session,
+            ConnectorTableHandle tableHandle) {
+        return Collections.emptyList();
+    }
+
+    /** Performs connector-specific validation before a row-level DML plan is synthesized. */
+    default void validateRowLevelDml(ConnectorSession session, ConnectorTableHandle tableHandle,
+            ConnectorRowLevelDmlRequest request) {
+        // Default: no additional validation.
+    }
+
+    /**
+     * Column names that must not participate in row-level optimistic-conflict predicates.
+     * Connectors use this for synthetic row identity and file-position metadata columns.
+     */
+    default Set<String> getRowLevelWriteConstraintExcludedColumns() {
+        return Collections.emptySet();
+    }
+
+    /**
+     * Stable transaction-label prefix for a row-level operation. The provider selected for
+     * the table supplies it so generic engine planning does not embed a connector name.
+     */
+    default String getRowLevelDmlLabelPrefix(WriteOperation operation) {
+        return "connector_" + operation.name().toLowerCase(java.util.Locale.ROOT);
     }
 
     /** Whether this connector can write into a named table branch ({@code INSERT INTO t@branch(name)}). Default: no. */
@@ -226,7 +284,9 @@ public interface ConnectorWritePlanProvider {
 
     /**
      * Whether dynamic-partition writes must be hash-distributed by partition columns and locally sorted by
-     * them before the sink (e.g. MaxCompute Storage API). Formerly a static {@code ConnectorCapability}
+     * them before the sink (e.g. MaxCompute Storage API). The required shape is "shuffle by the partition
+     * columns, then sort locally inside each writer", so every partition's rows end up contiguous in one
+     * writer stream. Formerly a static {@code ConnectorCapability}
      * switch; now this per-provider method is the single source of truth. A connector declaring this must
      * also declare {@link #requiresParallelWrite()} and {@link #requiresFullSchemaWriteOrder()}. Default: no.
      */
@@ -241,8 +301,11 @@ public interface ConnectorWritePlanProvider {
      * partition writer as soon as a different partition value appears and therefore needs the rows grouped by a
      * local sort) — the hash distribution alone keeps each partition's rows on one instance and the output file
      * count at ~one-per-partition, with no sort cost. The engine ({@code PhysicalConnectorTableSink}) picks the
-     * matching distribution: {@code requiresPartitionLocalSort} ⇒ hash + {@code MustLocalSortOrderSpec};
-     * {@code requiresPartitionHashWrite} ⇒ hash only. A connector sets at most one of the two hash arms; a
+     * matching distribution: {@code requiresPartitionLocalSort} ⇒ hash + a local sort <em>after</em> the
+     * shuffle, expressed as a plain {@code OrderSpec} (deliberately <b>not</b>
+     * {@code MustLocalSortOrderSpec}, which the enforcer reads as "sort before distributing" and therefore
+     * turns into distribution + a merging exchange); {@code requiresPartitionHashWrite} ⇒ hash only. A
+     * connector sets at most one of the two hash arms; a
      * connector declaring this should also declare {@link #requiresParallelWrite()} +
      * {@link #requiresFullSchemaWriteOrder()}. Default: no.
      */

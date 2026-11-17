@@ -41,6 +41,7 @@
 #include "core/pod_array_fwd.h"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
+#include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
@@ -77,6 +78,10 @@ public:
         auto res = std::make_shared<DataTypeArray>(nested_type);
         return make_nullable(res);
     }
+
+    // range_execute skips the rows with a NULL argument. The default NULL handling would build a
+    // range from the value under the NULL, which can be larger than the array size limit.
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
@@ -147,6 +152,13 @@ struct RangeImplUtil {
         for (int i = 0; i < 3; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[i])) {
+                // Read the null map before replacing the column, because the replacement can free
+                // the nullable column.
+                VectorizedUtils::update_null_map(args_null_map->get_data(),
+                                                 nullable->get_null_map_data());
+                argument_columns[i] = nullable->get_nested_column_ptr();
+            }
         }
         auto start_column =
                 assert_cast<const ColumnVector<SourceDataPType>*>(argument_columns[0].get());
@@ -228,8 +240,9 @@ private:
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;
                     int move = 0;
-                    while (doris::datetime_diff<UNIT::value>(idx, end_row) > 0) {
-                        if (move > max_array_size_as_field) {
+                    // A value below end belongs to the range even if less than one unit remains.
+                    while (idx < end_row) {
+                        if (move >= max_array_size_as_field) {
                             return Status::InvalidArgument("Array size exceeds the limit {}",
                                                            max_array_size_as_field);
                         }
@@ -237,17 +250,23 @@ private:
                         dest_nested_null_map.push_back(0);
                         offset++;
                         move++;
-                        if constexpr (SourceDataPType == TYPE_TIMESTAMP_NS) {
-                            auto next = idx;
-                            if (!next.template date_add_interval<UNIT::value>(
-                                        TimeInterval(UNIT::value, step_row, false))) {
-                                break;
-                            }
-                            idx = next;
+                        auto next = idx;
+                        bool advanced;
+                        if constexpr (SourceDataPType == TYPE_DATETIMEV2 &&
+                                      (UNIT::value == TimeUnit::DAY ||
+                                       UNIT::value == TimeUnit::WEEK)) {
+                            const Int64 days = static_cast<Int64>(step_row) *
+                                               (UNIT::value == TimeUnit::WEEK ? 7 : 1);
+                            advanced = next.template date_add_days<false>(days);
                         } else {
-                            idx = doris::date_time_add<UNIT::value, SourceDataPType, Int32>(
-                                    idx, step_row);
+                            advanced = next.template date_add_interval<UNIT::value>(
+                                    TimeInterval(UNIT::value, step_row, false));
                         }
+                        // The successor can exceed the date range after emitting a valid value.
+                        if (!advanced) {
+                            break;
+                        }
+                        idx = next;
                     }
                     dest_offsets.push_back(offset);
                 }

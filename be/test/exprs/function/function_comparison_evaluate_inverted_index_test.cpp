@@ -17,12 +17,16 @@
 
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
+#include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
+#include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "exprs/function/functions_comparison.h"
+#include "exprs/function/simple_function_factory.h"
 #include "gtest/gtest.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -124,53 +128,38 @@ TEST(FunctionComparisonTest, evaluate_inverted_index_with_null_param) {
             << "bitmap_result should not be set when param is NULL";
 }
 
-TEST(FunctionComparisonTest, TimestampNsComparesExactlyWithOutOfRangeDateTimeV2) {
-    DateV2Value<DateTimeV2ValueType> timestamp_datetime;
-    ASSERT_TRUE(timestamp_datetime.check_range_and_set_time(2024, 2, 29, 12, 34, 56, 123456));
-    TimeStampNsValue timestamp;
-    ASSERT_TRUE(timestamp.from_datetime(timestamp_datetime, 789));
-    TimeStampNsValue timestamp_at_microsecond;
-    ASSERT_TRUE(timestamp_at_microsecond.from_datetime(timestamp_datetime));
-
-    DateV2Value<DateTimeV2ValueType> old_datetime;
-    ASSERT_TRUE(old_datetime.check_range_and_set_time(1600, 1, 1, 0, 0, 0, 0));
-    DateV2Value<DateTimeV2ValueType> later_datetime;
-    ASSERT_TRUE(later_datetime.check_range_and_set_time(2024, 2, 29, 12, 34, 56, 123457));
-
-    auto timestamp_column = ColumnTimeStampNs::create();
-    timestamp_column->insert_value(timestamp);
-    timestamp_column->insert_value(timestamp);
-    timestamp_column->insert_value(timestamp);
-    timestamp_column->insert_value(timestamp_at_microsecond);
-    auto datetime_column = ColumnDateTimeV2::create();
-    datetime_column->insert_value(
-            binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(old_datetime));
-    datetime_column->insert_value(
-            binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(timestamp_datetime));
-    datetime_column->insert_value(
-            binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(later_datetime));
-    datetime_column->insert_value(
-            binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(timestamp_datetime));
-
-    Block block;
-    block.insert({std::move(timestamp_column), std::make_shared<DataTypeTimeStampNs>(), "ts"});
-    block.insert({std::move(datetime_column), std::make_shared<DataTypeDateTimeV2>(6), "dt"});
-    block.insert({nullptr, std::make_shared<DataTypeUInt8>(), "result"});
-
-    FunctionComparison<GreaterOp, NameGreater> greater;
-    ASSERT_TRUE(greater.execute_impl(nullptr, block, {0, 1}, 2, 4).ok());
-    const auto& result = assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column);
-    EXPECT_EQ(result.get_data(), (ColumnUInt8::Container {1, 1, 0, 0}));
-
-    FunctionComparison<LessOp, NameLess> less;
-    ASSERT_TRUE(less.execute_impl(nullptr, block, {1, 0}, 2, 4).ok());
-    const auto& reversed_result = assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column);
-    EXPECT_EQ(reversed_result.get_data(), (ColumnUInt8::Container {1, 1, 0, 0}));
-
-    FunctionComparison<EqualsOp, NameEquals> equals;
-    ASSERT_TRUE(equals.execute_impl(nullptr, block, {0, 1}, 2, 4).ok());
-    const auto& equals_result = assert_cast<const ColumnUInt8&>(*block.get_by_position(2).column);
-    EXPECT_EQ(equals_result.get_data(), (ColumnUInt8::Container {0, 0, 0, 1}));
+TEST(FunctionComparisonTest, RejectMixedTimestampNsTemporalComparisons) {
+    const auto timestamp_type = std::make_shared<DataTypeTimeStampNs>();
+    const DataTypes temporal_types = {
+            std::make_shared<DataTypeDate>(), std::make_shared<DataTypeDateV2>(),
+            std::make_shared<DataTypeDateTime>(), std::make_shared<DataTypeDateTimeV2>(6),
+            std::make_shared<DataTypeTimeStampTz>(6)};
+    const auto result_type = std::make_shared<DataTypeUInt8>();
+    for (const auto& temporal_type : temporal_types) {
+        for (const bool timestamp_on_left : {false, true}) {
+            const auto& left_type = timestamp_on_left ? timestamp_type : temporal_type;
+            const auto& right_type = timestamp_on_left ? temporal_type : timestamp_type;
+            auto left_column = left_type->create_column();
+            auto right_column = right_type->create_column();
+            left_column->insert_default();
+            right_column->insert_default();
+            const ColumnsWithTypeAndName arguments = {
+                    {std::move(left_column), left_type, "left"},
+                    {std::move(right_column), right_type, "right"}};
+            for (const auto* name : {"eq", "ne", "lt", "le", "gt", "ge", "eq_for_null"}) {
+                SCOPED_TRACE(std::string(name) + " " + left_type->get_name() + " " +
+                             right_type->get_name());
+                auto function = SimpleFunctionFactory::instance().get_function(name, arguments,
+                                                                               result_type);
+                ASSERT_NE(function, nullptr);
+                Block block(arguments);
+                block.insert({nullptr, result_type, "result"});
+                const auto status = function->execute(nullptr, block, {0, 1}, 2, 1);
+                ASSERT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("not same type in function"), std::string::npos);
+            }
+        }
+    }
 }
 
 } // namespace doris

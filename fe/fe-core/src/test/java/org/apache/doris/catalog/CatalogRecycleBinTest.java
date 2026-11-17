@@ -55,8 +55,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 public class CatalogRecycleBinTest extends TestWithFeService {
-    private static final long ROW_BINLOG_INDEX_ID = 10001L;
-    private static final long ROW_BINLOG_TABLET_ID = 10002L;
+    private static final long CHANGELOG_INDEX_ID = 10001L;
+    private static final long CHANGELOG_TABLET_ID = 10002L;
 
     private Env env;
 
@@ -845,43 +845,43 @@ public class CatalogRecycleBinTest extends TestWithFeService {
         Assertions.assertTrue(table.get() instanceof OlapTable);
 
         OlapTable olapTable = (OlapTable) table.get();
-        addRowBinlogIndex(olapTable);
+        addChangelogIndex(olapTable);
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable, false, false, 0);
 
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         invertedIndex.clear();
         TabletMeta tabletMeta = invertedIndex.getTabletMeta(CatalogTestUtil.testTabletId1);
         Assertions.assertNull(tabletMeta);
-        Assertions.assertNull(invertedIndex.getTabletMeta(ROW_BINLOG_TABLET_ID));
+        Assertions.assertNull(invertedIndex.getTabletMeta(CHANGELOG_TABLET_ID));
 
         recycleBin.addTabletToInvertedIndex();
 
         // verify tablets are added to inverted index
         tabletMeta = invertedIndex.getTabletMeta(CatalogTestUtil.testTabletId1);
         Assertions.assertNotNull(tabletMeta);
-        assertRowBinlogTabletMetaFlags(invertedIndex);
+        assertChangelogTabletMetaFlags(invertedIndex);
     }
 
     @Test
-    public void testRecreateTabletInvertIndexPreservesRowBinlogFlag() {
+    public void testRecreateTabletInvertIndexPreservesChangelogFlag() {
         try (FakeEnv ignored = new FakeEnv()) {
             FakeEnv.setEnv(env);
             Database db = Env.getCurrentInternalCatalog().getDbNullable(CatalogTestUtil.testDbId1);
             Assertions.assertNotNull(db);
             OlapTable olapTable = (OlapTable) db.getTableNullable(CatalogTestUtil.testTableId1);
             Assertions.assertNotNull(olapTable);
-            addRowBinlogIndex(olapTable);
+            addChangelogIndex(olapTable);
 
             TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
             invertedIndex.clear();
             Env.getCurrentInternalCatalog().recreateTabletInvertIndex();
 
-            assertRowBinlogTabletMetaFlags(invertedIndex);
+            assertChangelogTabletMetaFlags(invertedIndex);
         }
     }
 
     @Test
-    public void testAddRecycledPartitionTabletPreservesRowBinlogFlag() {
+    public void testAddRecycledPartitionTabletPreservesChangelogFlag() {
         try (FakeEnv ignored = new FakeEnv()) {
             FakeEnv.setEnv(env);
             CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
@@ -889,7 +889,7 @@ public class CatalogRecycleBinTest extends TestWithFeService {
             Assertions.assertNotNull(db);
             OlapTable olapTable = (OlapTable) db.getTableNullable(CatalogTestUtil.testTableId1);
             Assertions.assertNotNull(olapTable);
-            addRowBinlogIndex(olapTable);
+            addChangelogIndex(olapTable);
             Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
 
             Assertions.assertTrue(recycleBin.recyclePartition(
@@ -908,25 +908,25 @@ public class CatalogRecycleBinTest extends TestWithFeService {
             invertedIndex.clear();
             recycleBin.addTabletToInvertedIndex();
 
-            assertRowBinlogTabletMetaFlags(invertedIndex);
+            assertChangelogTabletMetaFlags(invertedIndex);
         }
     }
 
-    private void addRowBinlogIndex(OlapTable olapTable) {
+    private void addChangelogIndex(OlapTable olapTable) {
         Partition partition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
         Tablet baseTablet = partition.getBaseIndex().getTablet(CatalogTestUtil.testTabletId1);
-        LocalTablet rowBinlogTablet = new LocalTablet(ROW_BINLOG_TABLET_ID);
-        baseTablet.setRowBinlogTabletId(ROW_BINLOG_TABLET_ID);
-        rowBinlogTablet.setRowBinlogBaseTabletId(baseTablet.getId());
+        LocalTablet changelogTablet = new LocalTablet(CHANGELOG_TABLET_ID);
+        baseTablet.setChangelogTabletId(CHANGELOG_TABLET_ID);
+        changelogTablet.setChangelogBaseTabletId(baseTablet.getId());
 
-        MaterializedIndex rowBinlogIndex = new MaterializedIndex(ROW_BINLOG_INDEX_ID, IndexState.NORMAL);
-        rowBinlogIndex.setIsRowBinlog(true);
-        rowBinlogIndex.addTablet(rowBinlogTablet, null, true);
-        partition.createRollupIndex(rowBinlogIndex);
+        MaterializedIndex changelogIndex = new MaterializedIndex(CHANGELOG_INDEX_ID, IndexState.NORMAL);
+        changelogIndex.setIsChangelog(true);
+        changelogIndex.addTablet(changelogTablet, null, true);
+        partition.createRollupIndex(changelogIndex);
 
         MaterializedIndexMeta baseIndexMeta = olapTable.getBaseIndexMeta();
-        MaterializedIndexMeta rowBinlogMeta = new MaterializedIndexMeta(
-                ROW_BINLOG_INDEX_ID,
+        MaterializedIndexMeta changelogIndexMeta = new MaterializedIndexMeta(
+                CHANGELOG_INDEX_ID,
                 baseIndexMeta.getSchema(),
                 baseIndexMeta.getSchemaVersion(),
                 baseIndexMeta.getSchemaHash(),
@@ -934,16 +934,16 @@ public class CatalogRecycleBinTest extends TestWithFeService {
                 baseIndexMeta.getStorageType(),
                 baseIndexMeta.getKeysType(),
                 null);
-        olapTable.setRowBinlogMeta(rowBinlogMeta, "test_row_binlog_index");
+        olapTable.setChangelogIndexMeta(changelogIndexMeta, "test_changelog_index");
     }
 
-    private void assertRowBinlogTabletMetaFlags(TabletInvertedIndex invertedIndex) {
+    private void assertChangelogTabletMetaFlags(TabletInvertedIndex invertedIndex) {
         TabletMeta baseTabletMeta = invertedIndex.getTabletMeta(CatalogTestUtil.testTabletId1);
-        TabletMeta rowBinlogTabletMeta = invertedIndex.getTabletMeta(ROW_BINLOG_TABLET_ID);
+        TabletMeta changelogTabletMeta = invertedIndex.getTabletMeta(CHANGELOG_TABLET_ID);
         Assertions.assertNotNull(baseTabletMeta);
-        Assertions.assertNotNull(rowBinlogTabletMeta);
-        Assertions.assertFalse(baseTabletMeta.isRowBinlog());
-        Assertions.assertTrue(rowBinlogTabletMeta.isRowBinlog());
+        Assertions.assertNotNull(changelogTabletMeta);
+        Assertions.assertFalse(baseTabletMeta.isChangelog());
+        Assertions.assertTrue(changelogTabletMeta.isChangelog());
     }
 
     public void recycleAllTables(Database db, CatalogRecycleBin recycleBin) {

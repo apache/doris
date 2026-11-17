@@ -19,6 +19,7 @@
 
 #include "common/exception.h"
 #include "exprs/function/cast/cast_to_timestamptz_impl.hpp"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -31,6 +32,12 @@ bool TimestampTzValue::from_string(const StringRef& str, const cctz::time_zone* 
 }
 
 std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) const {
+    char buffer[64];
+    const int len = to_buffer(buffer, tz, scale);
+    return {buffer, static_cast<size_t>(len)};
+}
+
+int TimestampTzValue::to_buffer(char* buffer, const cctz::time_zone& tz, int scale) const {
     cctz::civil_second utc_cs(_utc_dt.year(), _utc_dt.month(), _utc_dt.day(), _utc_dt.hour(),
                               _utc_dt.minute(), _utc_dt.second());
 
@@ -62,8 +69,6 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
                               (uint8_t)civ.hour(), (uint8_t)civ.minute(), (uint8_t)civ.second(),
                               _utc_dt.microsecond());
 
-    char buffer[64];
-
     int len = tmp_dt.to_buffer(buffer, scale);
     // timezone +03:00
     // buffer[len++] = ' ';
@@ -81,7 +86,7 @@ std::string TimestampTzValue::to_string(const cctz::time_zone& tz, int scale) co
         buffer[len++] = static_cast<char>('0' + offset_seconds / 10);
         buffer[len++] = static_cast<char>('0' + offset_seconds % 10);
     }
-    return {buffer, static_cast<size_t>(len)};
+    return len;
 }
 
 bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& origin_dt,
@@ -96,7 +101,7 @@ bool TimestampTzValue::from_datetime(const DateV2Value<DateTimeV2ValueType>& ori
 
     cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
                                 dt.second());
-    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+    const auto local_tp = TimezoneUtils::convert_local_to_instant(local_cs, local_time_zone);
 
     auto utc_cs = cctz::convert(local_tp, cctz::utc_time_zone());
 
@@ -142,7 +147,7 @@ void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zo
                                             const DateV2Value<DateTimeV2ValueType>& dt) {
     cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
                                 dt.second());
-    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+    const auto local_tp = TimezoneUtils::convert_local_to_instant(local_cs, local_time_zone);
     auto utc_cs = cctz::convert(local_tp, cctz::utc_time_zone());
 
     _utc_dt.unchecked_set_time((uint16_t)utc_cs.year(), (uint8_t)utc_cs.month(),
@@ -164,7 +169,8 @@ void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zo
     cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
                                 dt.second());
     const auto lookup = local_time_zone.lookup(local_cs);
-    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+    // A preferred offset applies only to an overlap. A gap uses the earlier offset.
+    cctz::time_point<cctz::seconds> local_tp = lookup.pre;
 
     if (lookup.kind == cctz::time_zone::civil_lookup::REPEATED) {
         const auto pre_offset = local_time_zone.lookup(lookup.pre).offset;

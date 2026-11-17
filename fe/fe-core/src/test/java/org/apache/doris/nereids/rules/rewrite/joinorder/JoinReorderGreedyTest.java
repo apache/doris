@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -144,6 +145,61 @@ class JoinReorderGreedyTest {
 
         JoinReorderGreedy greedy = new JoinReorderGreedy();
         Assertions.assertFalse(greedy.reorder(ImmutableList.of(a, b), ImmutableList.of(predicate)));
+    }
+
+    @Test
+    void testRejectNonFiniteAtomRowCount() {
+        for (double rowCount : new double[] {Double.NaN, Double.POSITIVE_INFINITY}) {
+            LogicalOlapScan a = scan(51, "a", rowCount, 10);
+            LogicalOlapScan b = scan(52, "b", 100, 10);
+            JoinReorderGreedy greedy = new JoinReorderGreedy();
+            Assertions.assertFalse(greedy.reorder(ImmutableList.of(a, b), ImmutableList.of()));
+        }
+    }
+
+    @Test
+    void testRejectNonFiniteJoinRowCount() {
+        for (double rowCount : new double[] {Double.NaN, Double.POSITIVE_INFINITY}) {
+            LogicalOlapScan a = scan(61, "a", 100, 10);
+            LogicalOlapScan b = scan(62, "b", 100, 10);
+            JoinReorderGreedy greedy = new JoinReorderGreedy() {
+                @Override
+                protected Optional<PlanInfo> buildJoin(GroupInfo leftGroup, GroupInfo rightGroup) {
+                    Optional<PlanInfo> join = super.buildJoin(leftGroup, rightGroup);
+                    ((LogicalJoin<?, ?>) join.get().plan).setStatistics(
+                            new Statistics(rowCount, ImmutableMap.of()));
+                    return join;
+                }
+            };
+            Assertions.assertFalse(greedy.reorder(ImmutableList.of(a, b), ImmutableList.of()));
+        }
+    }
+
+    @Test
+    void testRejectNonFiniteBushyJoinRowCount() {
+        List<Plan> atoms = ImmutableList.of(scan(63, "a", 10, 10), scan(64, "b", 10, 10),
+                scan(65, "c", 10, 10), scan(66, "d", 10, 10));
+        JoinReorderGreedy greedy = new JoinReorderGreedy() {
+            @Override
+            protected Optional<PlanInfo> buildJoin(GroupInfo leftGroup, GroupInfo rightGroup) {
+                Optional<PlanInfo> join = super.buildJoin(leftGroup, rightGroup);
+                if (leftGroup.atoms.cardinality() == 2 && rightGroup.atoms.cardinality() == 2) {
+                    ((LogicalJoin<?, ?>) join.get().plan).setStatistics(
+                            new Statistics(Double.NaN, ImmutableMap.of()));
+                }
+                return join;
+            }
+        };
+        Assertions.assertFalse(greedy.reorder(atoms, ImmutableList.of()));
+    }
+
+    @Test
+    void testMaximumFiniteAtomCost() {
+        LogicalOlapScan a = scan(71, "a", Double.MAX_VALUE, 10);
+        LogicalOlapScan b = scan(72, "b", 1, 1);
+        JoinReorderGreedy greedy = new JoinReorderGreedy();
+        Assertions.assertTrue(greedy.reorder(ImmutableList.of(a, b), ImmutableList.of()));
+        Assertions.assertEquals(ImmutableList.of("a", "b"), collectTableNames(greedy.getResult().get(0)));
     }
 
     private static LogicalOlapScan scan(long tableId, String tableName, double rowCount, double ndv) {

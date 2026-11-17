@@ -80,6 +80,12 @@ public class IcebergConnectorMetadataSysTableTest {
         return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), ctx);
     }
 
+    private static IcebergConnectorMetadata restMetadataWith(RecordingIcebergCatalogOps ops) {
+        Map<String, String> props = new HashMap<>();
+        props.put(IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST);
+        return new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(props), new RecordingConnectorContext());
+    }
+
     private static IcebergTableHandle baseHandle() {
         return new IcebergTableHandle("db1", "t1");
     }
@@ -378,9 +384,7 @@ public class IcebergConnectorMetadataSysTableTest {
 
     @Test
     public void getTableSchemaForSysHandleThreadsMappingFlags() {
-        // committed_at is a TIMESTAMP-with-zone column of the snapshots metadata table, so its mapped
-        // Doris type depends on enable.mapping.timestamp_tz -- a clean probe that the connector's
-        // properties flags thread into the SYS-table schema parse (deviation 5).
+        // Metadata-table timestamps follow the same unconditional mapping as data-table timestamps.
         IcebergConnectorMetadata mdDefault = metadataWith(seamWith(inMemoryBaseTable()));
 
         Map<String, String> tzProps = new HashMap<>();
@@ -392,13 +396,8 @@ public class IcebergConnectorMetadataSysTableTest {
         ConnectorColumn committedDefault = committedAtColumn(mdDefault);
         ConnectorColumn committedTz = committedAtColumn(mdTz);
 
-        // WHY: deviation 5 -- the sys branch must reuse parseSchema so the per-catalog enable.mapping.*
-        // flags (read from the connector properties) reach the metadata-table schema. With the flag ON,
-        // committed_at maps to TIMESTAMPTZ; OFF (default) it does not. A sys branch that parsed the schema
-        // WITHOUT threading the flags would yield identical types. MUTATION: building the sys schema from
-        // a flag-less parse -> equal types -> red.
-        Assertions.assertNotEquals(committedDefault.getType(), committedTz.getType(),
-                "enable.mapping.timestamp_tz must change the sys-table committed_at mapping");
+        Assertions.assertEquals(committedDefault.getType(), committedTz.getType(),
+                "legacy options cannot change the sys-table committed_at mapping");
         Assertions.assertEquals("TIMESTAMPTZ", committedTz.getType().getTypeName(),
                 "with the flag on, the sys-table committed_at must map to TIMESTAMPTZ");
     }
@@ -583,5 +582,49 @@ public class IcebergConnectorMetadataSysTableTest {
                 metadataWith(new RecordingIcebergCatalogOps())
                         .getSysTableHandle(null, baseHandle(), "").isPresent(),
                 "an empty sys name must yield Optional.empty()");
+    }
+
+    // ---------------------------------------------------------------------
+    // $labels (REST catalog labels, not a MetadataTableType)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void listSupportedSysTablesAddsLabelsForRestCatalogOnly() {
+        // WHY: only a REST catalog returns labels with the table load; elsewhere t$labels would always be
+        // empty, so it is not offered. MUTATION: listing labels unconditionally -> non-REST list grows -> red.
+        List<String> expectedRest = expectedSupported();
+        expectedRest.add("labels");
+        Assertions.assertEquals(expectedRest,
+                restMetadataWith(new RecordingIcebergCatalogOps()).listSupportedSysTables(null, baseHandle()));
+        Assertions.assertEquals(expectedSupported(),
+                metadataWith(new RecordingIcebergCatalogOps()).listSupportedSysTables(null, baseHandle()));
+    }
+
+    @Test
+    public void getSysTableHandleResolvesLabelsForRestCatalogOnly() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Optional<ConnectorTableHandle> rest = restMetadataWith(ops).getSysTableHandle(null, baseHandle(), "LABELS");
+
+        Assertions.assertTrue(rest.isPresent());
+        Assertions.assertEquals("labels", ((IcebergTableHandle) rest.get()).getSysTableName());
+        Assertions.assertTrue(ops.log.isEmpty(), "resolving t$labels must not touch the catalog seam");
+        Assertions.assertFalse(metadataWith(new RecordingIcebergCatalogOps())
+                .getSysTableHandle(null, baseHandle(), "labels").isPresent());
+    }
+
+    @Test
+    public void getTableSchemaForLabelsHandleIsFixedAndLoadsNothing() {
+        // WHY: labels has no iceberg metadata table, so the generic sys path (MetadataTableType.from -> null)
+        // cannot build its schema; the schema is fixed and needs no base load. MUTATION: falling through to
+        // loadSysTable -> NPE / a catalog round-trip -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergConnectorMetadata md = restMetadataWith(ops);
+        IcebergTableHandle sysHandle = (IcebergTableHandle) md.getSysTableHandle(null, baseHandle(), "labels").get();
+
+        Assertions.assertEquals(Arrays.asList("scope", "field_id", "field_name", "key", "value"),
+                columnNames(md.getTableSchema(null, sysHandle)));
+        Assertions.assertEquals(Arrays.asList("scope", "field_id", "field_name", "key", "value"),
+                new ArrayList<>(md.getColumnHandles(null, sysHandle).keySet()));
+        Assertions.assertTrue(ops.log.isEmpty(), "t$labels schema must not load the base table");
     }
 }

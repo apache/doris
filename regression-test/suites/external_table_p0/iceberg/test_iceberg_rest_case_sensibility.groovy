@@ -147,9 +147,10 @@ suite("test_iceberg_rest_case_sensibility", "p0,external") {
             // for case 1,2, like is case insensible, and case_tbl22 is not created, so will show CASE_TBL22
             qt_sql12 """show tables from iceberg_rest_case_db2 like "%case_tbl22%""""
 
-            order_qt_sql13 """select * from information_schema.tables where TABLE_SCHEMA="iceberg_rest_case_db2";"""
+            // UPDATE_TIME is populated when an external table object is loaded; it is not a case-mapping result.
+            order_qt_sql13 """select * replace(cast(null as datetime) as UPDATE_TIME) from information_schema.tables where TABLE_SCHEMA="iceberg_rest_case_db2";"""
             order_qt_sql14 """select * from information_schema.columns where TABLE_SCHEMA="iceberg_rest_case_db2";"""
-            order_qt_sql131 """select * from information_schema.tables where TABLE_SCHEMA="ICEBERG_REST_CASE_DB2";"""
+            order_qt_sql131 """select * replace(cast(null as datetime) as UPDATE_TIME) from information_schema.tables where TABLE_SCHEMA="ICEBERG_REST_CASE_DB2";"""
             order_qt_sql141 """select * from information_schema.columns where TABLE_SCHEMA="ICEBERG_REST_CASE_DB2";"""
 
             // 4. insert

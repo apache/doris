@@ -16,6 +16,7 @@
 // under the License.
 #include "core/data_type_serde/data_type_serde.h"
 
+#include <new>
 #include <vector>
 
 #include "common/check.h"
@@ -26,6 +27,7 @@
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/storage_field_type.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_decimal_serde.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
@@ -39,6 +41,14 @@
 #include "util/jsonb_writer.h"
 namespace doris {
 DataTypeSerDe::~DataTypeSerDe() = default;
+
+Status DataTypeSerDe::from_string_as_nested(StringRef& str, IColumn& column,
+                                            const FormatOptions& options,
+                                            bool is_strict_mode) const {
+    auto unquoted = str.trim_quote();
+    return is_strict_mode ? from_string_strict_mode(unquoted, column, options)
+                          : from_string(unquoted, column, options);
+}
 
 bool decoded_column_view_can_null_on_conversion_failure(const DecodedColumnView& view) {
     return !view.enable_strict_mode && view.conversion_failure_null_map != nullptr;
@@ -129,7 +139,7 @@ DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& s
     DataTypeSerDeSPtrs serdes;
     serdes.reserve(slots.size());
     for (const SlotDescriptor* slot : slots) {
-        serdes.push_back(slot->get_data_type_ptr()->get_serde());
+        serdes.push_back(slot->type()->get_serde());
     }
     return serdes;
 }
@@ -144,13 +154,18 @@ Status DataTypeSerDe::default_from_string(StringRef& str, IColumn& column) const
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
-Status DataTypeSerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                       ColumnString& to_column) const {
+Status DataTypeSerDe::serialize_column_to_jsonb_vector(
+        const IColumn& from_column, ColumnString& to_column, const FormatOptions& options,
+        const NullMap::value_type* source_null_map) const {
     const auto size = from_column.size();
     JsonbWriter writer;
     for (int i = 0; i < size; i++) {
+        if (source_null_map && source_null_map[i]) {
+            to_column.insert_default();
+            continue;
+        }
         writer.reset();
-        RETURN_IF_ERROR(serialize_column_to_jsonb(from_column, i, writer));
+        RETURN_IF_ERROR(serialize_column_to_jsonb(from_column, i, writer, options));
         to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
     }
     return Status::OK();
@@ -170,12 +185,16 @@ Status DataTypeSerDe::parse_column_from_jsonb_string(IColumn& column, const Json
     return deserialize_one_cell_from_json(column, slice, format_options);
 }
 
-Status DataTypeSerDe::deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                           const ColumnString& col_from_json,
-                                                           CastParameters& castParms) const {
+Status DataTypeSerDe::deserialize_column_from_jsonb_vector(
+        ColumnNullable& column_to, const ColumnString& col_from_json, CastParameters& castParms,
+        const NullMap::value_type* source_null_map) const {
     const size_t size = col_from_json.size();
     const bool is_strict = castParms.is_strict;
     for (size_t i = 0; i < size; ++i) {
+        if (source_null_map && source_null_map[i]) {
+            column_to.insert_default();
+            continue;
+        }
         const auto& val = col_from_json.get_data_at(i);
         const auto* value = handle_jsonb_value(val);
         if (!value) {
@@ -286,6 +305,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
         HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_UUID, TYPE_UUID)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATE, TYPE_DATE)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
@@ -352,6 +372,7 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
         HANDLE_SIMPLE_SERDE(OLAP_FIELD_TYPE_ARRAY, DataTypeArraySerDe)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV4, TYPE_IPV4)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_IPV6, TYPE_IPV6)
+        HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_UUID, TYPE_UUID)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATE, TYPE_DATE)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATETIME, TYPE_DATETIME)
         HANDLE_T_NUM_SERDE(OLAP_FIELD_TYPE_DATEV2, TYPE_DATEV2)
@@ -378,6 +399,28 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
 #undef HANDLE_T_NUM_SERDE
 #undef HANDLE_SIMPLE_SERDE
     return end;
+}
+
+Status DataTypeSerDe::read_one_cell_from_bson(IColumn& column, const BsonValueView& value,
+                                              const BsonDecodeContext& context) const {
+    const size_t before = column.size();
+    Status status;
+    try {
+        status = decode_bson_value(column, value, context);
+    } catch (const Exception& error) {
+        status = error.to_status();
+    } catch (const std::bad_alloc&) {
+        status = Status::MemoryLimitExceeded("BSON decoding allocation failed");
+    }
+    if (!status.ok() && column.size() > before) {
+        column.pop_back(column.size() - before);
+    }
+    return status;
+}
+
+Status DataTypeSerDe::decode_bson_value(IColumn&, const BsonValueView&,
+                                        const BsonDecodeContext&) const {
+    return Status::NotSupported("BSON decoding is not supported for this Doris type");
 }
 
 } // namespace doris

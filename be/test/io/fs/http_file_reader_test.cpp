@@ -97,6 +97,25 @@ TEST(HttpFileReaderTest, ChunkResponseDisablesFileCache) {
     EXPECT_NE(std::dynamic_pointer_cast<HttpFileReader>(reader.value()), nullptr);
 }
 
+TEST(HttpFileReaderTest, PlainResponseIsNotFileCachedEither) {
+    // The file cache keys an external file by path and modification time. An HTTP source has no
+    // modification time, so a URL whose content changes must not be served from blocks cached
+    // from its old content.
+    FileSystemProperties properties;
+    properties.system_type = TFileType::FILE_HTTP;
+    // A known size skips the HEAD request, so no server is needed.
+    properties.properties = {{"file_size", "4"}};
+    FileDescription file_description;
+    file_description.path = "http://127.0.0.1/data.csv";
+    FileReaderOptions opts;
+    opts.cache_type = FileCachePolicy::FILE_BLOCK_CACHE;
+
+    auto reader = FileFactory::create_file_reader(properties, file_description, opts);
+
+    ASSERT_TRUE(reader.has_value()) << reader.error();
+    EXPECT_NE(std::dynamic_pointer_cast<HttpFileReader>(reader.value()), nullptr);
+}
+
 TEST(HttpFileReaderTest, RangeReadDoesNotCrossKnownEof) {
     const std::string content = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     EofSensitiveRangeHandler handler(content);

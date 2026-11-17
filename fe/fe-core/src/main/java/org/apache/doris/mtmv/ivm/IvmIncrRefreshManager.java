@@ -97,6 +97,8 @@ public class IvmIncrRefreshManager {
         MTMV mtmv = context.getMtmv();
         StatementContext statementContext = new StatementContext(
                 context.getConnectContext(), new OriginStatement(mtmv.getQuerySql(), 0));
+        // SET_VAR hints are applied while parsing the MV query, before executeCommand runs.
+        context.getConnectContext().setStatementContext(statementContext);
         // The delta may only read the base partitions the MV's partition definition keeps. A base
         // partition outside that set, expired by partition_sync_limit, would otherwise still be
         // read through the delta and the join-opposite snapshot, and its rows would have no MV
@@ -108,7 +110,7 @@ public class IvmIncrRefreshManager {
         statementContext.setIvmRewriteContext(
                 Optional.of(IvmRewriteContext.incremental(mtmv, scopePartitionIds)));
         // Excluded trigger tables do not produce delta and must not be validated for
-        // binlog / key-type support during the incremental analyze.
+        // changelog / key-type support during the incremental analyze.
         statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
         InsertIntoTableCommand command = buildInsertCommand(mtmv);
         MTMVPlanUtil.executeCommand(context.getConnectContext(), command,

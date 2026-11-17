@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -77,6 +78,18 @@ public class PluginDrivenScanNodeProjectionTest {
 
         Assertions.assertSame(handle, PluginDrivenScanNode.withProjectedFieldIds(handle, slot));
         Assertions.assertEquals(ImmutableSet.of(10), observed.get());
+    }
+
+    @Test
+    public void nameBasedNestedProjectionIsCarriedWithoutFieldIds() {
+        AtomicReference<Set<Integer>> observed = new AtomicReference<>();
+        ConnectorColumnHandle handle = recordingHandle(observed);
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(3), new TupleId(3));
+        slot.setAllAccessPaths(ImmutableList.of(
+                ColumnAccessPath.data(ImmutableList.of("payload", "nested"))));
+
+        Assertions.assertSame(handle, PluginDrivenScanNode.withProjectedFieldIds(handle, slot));
+        Assertions.assertEquals(Collections.emptySet(), observed.get());
     }
 
     private static ConnectorColumnHandle recordingHandle(AtomicReference<Set<Integer>> observed) {

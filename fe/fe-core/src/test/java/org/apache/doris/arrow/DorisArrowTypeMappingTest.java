@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TPrimitiveType;
 
 import org.apache.arrow.vector.complex.BaseRepeatedValueVector;
 import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.extension.UuidType;
 import org.apache.arrow.vector.types.DateUnit;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.TimeUnit;
@@ -123,6 +124,7 @@ public class DorisArrowTypeMappingTest {
                 // IPV4 rides in an int32 (parquet has no uint32); IPV6 is text.
                 row(PrimitiveType.IPV4, new ArrowType.Int(32, true)),
                 row(PrimitiveType.IPV6, new ArrowType.Utf8()),
+                row(PrimitiveType.UUID, UuidType.INSTANCE),
                 // The v1 date types stay text; DATEV2 is a day number, see dateV2IsDescribedAsDate32.
                 row(PrimitiveType.DATE, new ArrowType.Utf8()),
                 row(PrimitiveType.DATETIME, new ArrowType.Utf8()),
@@ -149,10 +151,10 @@ public class DorisArrowTypeMappingTest {
                 row(PrimitiveType.HLL, new ArrowType.Binary()),
                 row(PrimitiveType.BITMAP, new ArrowType.Binary()),
                 row(PrimitiveType.QUANTILE_STATE, new ArrowType.Binary()),
-                // BE emits float64 for TIMEV2 and binary for VARBINARY and AGG_STATE; the schema says
-                // Null for all three. Kept as is (#67577).
-                row(PrimitiveType.TIMEV2, 18, 0, new ArrowType.Null()),
-                row(PrimitiveType.VARBINARY, new ArrowType.Null()),
+                // As BE emits them: float64 for TIMEV2 and binary for VARBINARY.
+                row(PrimitiveType.TIMEV2, 18, 0, new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
+                row(PrimitiveType.VARBINARY, new ArrowType.Binary()),
+                // BE emits binary for AGG_STATE; the schema says Null. Kept as is (#67577).
                 row(PrimitiveType.AGG_STATE, new ArrowType.Null()),
                 // The element types of a complex column live in the field's children, not in its type.
                 row(PrimitiveType.ARRAY, new ArrowType.List()),

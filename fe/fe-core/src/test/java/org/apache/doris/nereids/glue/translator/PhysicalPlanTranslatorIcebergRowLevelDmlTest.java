@@ -142,6 +142,7 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         Mockito.doReturn(plugin.table).when(sink).getTargetTable();
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
         Mockito.doReturn(ImmutableList.<Slot>of(dataSlot, opSlot, rowidSlot)).when(sink).getOutput();
+        Mockito.doReturn(true).when(sink).isRequireMergeCardinalityCheck();
 
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
         translator.visitPhysicalExternalRowLevelMergeSink(sink, context);
@@ -179,6 +180,8 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
     @Test
     public void mergePluginArmThreadsTheSqlMergeCardinalityRequirementOntoTheWriteHandle() {
         PluginDrivenTableSink pluginSink = translateMergeWithCardinalityRequirement(true);
+        Assertions.assertEquals(WriteOperation.MERGE, Deencapsulation.getField(pluginSink, "writeOperation"),
+                "SQL MERGE must select write.merge.isolation-level through WriteOperation.MERGE");
         Assertions.assertEquals(true,
                 Deencapsulation.getField(pluginSink, "requireMergeCardinalityCheck"),
                 "a SQL MERGE must thread requireMergeCardinalityCheck=true so the connector stamps it onto"
@@ -188,6 +191,8 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
     @Test
     public void updatePluginArmThreadsNoCardinalityRequirementOntoTheWriteHandle() {
         PluginDrivenTableSink pluginSink = translateMergeWithCardinalityRequirement(false);
+        Assertions.assertEquals(WriteOperation.UPDATE, Deencapsulation.getField(pluginSink, "writeOperation"),
+                "UPDATE must select write.update.isolation-level through WriteOperation.UPDATE");
         Assertions.assertEquals(false,
                 Deencapsulation.getField(pluginSink, "requireMergeCardinalityCheck"),
                 "an UPDATE reaches the same sink dialect but carries no SQL cardinality rule");
@@ -392,9 +397,9 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         // Production selects the write provider per-handle; a plain mock does not run the interface default.
         Mockito.when(connector.getWritePlanProvider(Mockito.any())).thenReturn(provider);
         // The row-level DML gate (buildPluginRowLevelDmlSink) resolves the handle, fetches the per-handle
-        // provider and admits on ITS supportedOperations containing DELETE/MERGE.
+        // provider and admits on ITS supportedOperations containing the concrete operation.
         Mockito.when(provider.supportedOperations())
-                .thenReturn(EnumSet.of(WriteOperation.DELETE, WriteOperation.MERGE));
+                .thenReturn(EnumSet.of(WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE));
         Mockito.when(provider.planWrite(Mockito.any(), Mockito.any()))
                 .thenReturn(new ConnectorSinkPlan(new TDataSink()));
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);

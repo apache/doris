@@ -97,9 +97,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO ${ukBase} VALUES (1, 10)"
@@ -131,7 +130,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
 
         // 1.1) Stream hidden columns:
         // - __DORIS_STREAM_CHANGE_TYPE_COL__/__DORIS_STREAM_SEQUENCE_COL__ must be queryable;
-        // - SELECT * should not expose hidden columns or __BEFORE__ columns by default.
+        // - SELECT * should not expose hidden columns or __DORIS_CHANGELOG_BEFORE_<col>__ columns by default.
         def ukMetaRows = sql """
             SELECT id, v1, __DORIS_STREAM_CHANGE_TYPE_COL__, __DORIS_STREAM_SEQUENCE_COL__
             FROM ${ukStream}
@@ -147,13 +146,13 @@ suite("test_min_delta_stream", "nonConcurrent") {
             ORDER BY id, v1
         """
         assertEquals(2, ukAllRows.size())
-        // Base table has 2 visible columns; hidden columns and __BEFORE__v1__ must not be included by default.
+        // Base table has 2 visible columns; hidden columns and __DORIS_CHANGELOG_BEFORE_v1__ must not be included by default.
         assertEquals(2, ukAllRows[0].size())
         assertEquals(2, ukAllRows[1].size())
 
         sql "SET show_hidden_columns=true"
         def ukDescRows = sql "DESC ${ukStream}"
-        def hasBeforeCol = ukDescRows.any { it[0].toString().startsWith("__BEFORE__") }
+        def hasBeforeCol = ukDescRows.any { it[0].toString().startsWith("__DORIS_CHANGELOG_BEFORE_") }
         def hasChangeTypeCol = ukDescRows.any { it[0].toString().equalsIgnoreCase("__DORIS_STREAM_CHANGE_TYPE_COL__") }
         def hasSequenceCol = ukDescRows.any { it[0].toString().equalsIgnoreCase("__DORIS_STREAM_SEQUENCE_COL__") }
         assertEquals(false, hasBeforeCol)
@@ -172,9 +171,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql """
@@ -204,9 +202,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql """
@@ -256,9 +253,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO ${ukMultiBase} VALUES (3, 30)"
@@ -299,9 +295,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO ${ukDeleteBase} VALUES (4, 40)"
@@ -340,9 +335,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         // Seed old value for key=1 before stream starts.
@@ -399,7 +393,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
         """
         assertTrue(ukCrossRowsetSequenceRows.every { it[3] != null })
 
-        // 6) Same key across blocks: set batch_size=1 to force binlog rows of the same key into multiple blocks.
+        // 6) Same key across blocks: set batch_size=1 to force changelog rows of the same key into multiple blocks.
         // Expect only "first BEFORE image + last AFTER image" to be emitted.
         sql """
             CREATE TABLE ${ukCrossBlockBase} (
@@ -411,9 +405,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO ${ukCrossBlockBase} VALUES (7, 70)"
@@ -456,9 +449,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO ${ukPendingBase} VALUES (8, 80), (9, 90)"
@@ -494,7 +486,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
         assertEquals("91", ukPendingRows[3][1].toString())
         assertEquals("UPDATE_AFTER", ukPendingRows[3][2].toString())
 
-        // 8) UPDATE then DELETE: min_delta result is DELETE, and value columns should use __BEFORE__ (pre-delete snapshot).
+        // 8) UPDATE then DELETE: min_delta result is DELETE, and value columns should use __DORIS_CHANGELOG_BEFORE_<col>__ (pre-delete snapshot).
         sql """
             CREATE TABLE ${ukDeleteBeforeBase} (
                 id BIGINT,
@@ -505,9 +497,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO ${ukDeleteBeforeBase} VALUES (10, 100)"
@@ -548,9 +539,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql """
@@ -628,9 +618,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO ${paperBase} VALUES (1, 'Jeff'), (2, 'Donny')"
@@ -693,9 +682,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO ${cteReuseBase} VALUES (1, 10), (2, 20)"
@@ -745,9 +733,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
         sql "INSERT INTO ${incrBase} VALUES (1, 10), (3, 30)"
@@ -769,11 +756,11 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sleep(1200)
 
         def minDeltaRows = sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
+            SELECT id, v1, __DORIS_CHANGELOG_OP__
             FROM ${incrBase}@incr('startTimestamp' = '${startTimestamp}',
                 "endTimestamp" = "${endTimestamp}",
                 "incrementType" =  "MIN_DELTA")
-            ORDER BY id, __DORIS_BINLOG_OP__, v1
+            ORDER BY id, __DORIS_CHANGELOG_OP__, v1
         """
         assertEquals(4, minDeltaRows.size())
         assertEquals("1", minDeltaRows[0][0].toString())
@@ -790,11 +777,11 @@ suite("test_min_delta_stream", "nonConcurrent") {
         assertEquals("1", minDeltaRows[3][2].toString())
 
         def appendOnlyRows = sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
+            SELECT id, v1, __DORIS_CHANGELOG_OP__
             FROM ${incrBase}@incr('startTimestamp' = '${startTimestamp}',
                 "endTimestamp" = "${endTimestamp}",
                 "incrementType" =  "APPEND_ONLY")
-            ORDER BY id, __DORIS_BINLOG_OP__, v1
+            ORDER BY id, __DORIS_CHANGELOG_OP__, v1
         """
         assertEquals(1, appendOnlyRows.size())
         assertEquals("2", appendOnlyRows[0][0].toString())
@@ -802,11 +789,11 @@ suite("test_min_delta_stream", "nonConcurrent") {
         assertEquals("0", appendOnlyRows[0][2].toString())
 
         def detailWithRangeRows = sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
+            SELECT id, v1, __DORIS_CHANGELOG_OP__
             FROM ${incrBase}@incr('startTimestamp' = '${startTimestamp}',
                 "endTimestamp" = "${endTimestamp}",
                 "incrementType" =  "DETAIL")
-            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
         """
         assertEquals(6, detailWithRangeRows.size())
         assertEquals("2", detailWithRangeRows[0][0].toString())
@@ -829,17 +816,17 @@ suite("test_min_delta_stream", "nonConcurrent") {
         assertEquals("1", detailWithRangeRows[5][2].toString())
 
         def detailWithStartRows = sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
+            SELECT id, v1, __DORIS_CHANGELOG_OP__
             FROM ${incrBase}@incr('startTimestamp' = '${startTimestamp}',
                 "incrementType" =  "DETAIL")
-            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
         """
         assertEquals(detailWithRangeRows, detailWithStartRows)
 
         def minDeltaDefaultRows = sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
+            SELECT id, v1, __DORIS_CHANGELOG_OP__
             FROM ${incrBase}@incr("incrementType" =  "MIN_DELTA")
-            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
         """
         assertEquals(2, minDeltaDefaultRows.size())
         assertEquals("2", minDeltaDefaultRows[0][0].toString())
@@ -850,9 +837,9 @@ suite("test_min_delta_stream", "nonConcurrent") {
         assertEquals("0", minDeltaDefaultRows[1][2].toString())
 
         def emptyIncrRows = sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
+            SELECT id, v1, __DORIS_CHANGELOG_OP__
             FROM ${incrBase}@incr()
-            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
         """
         assertEquals(minDeltaDefaultRows, emptyIncrRows)
 
@@ -866,8 +853,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW"
+                "changelog.enable" = "true"
             )
         """
         sql "INSERT INTO ${incrDupBase} VALUES (1, 10), (2, 20)"
@@ -880,10 +866,10 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sleep(1200)
 
         def dupDetailRows = sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
+            SELECT id, v1, __DORIS_CHANGELOG_OP__
             FROM ${incrDupBase}@incr('startTimestamp' = '${dupStartTimestamp}',
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
         """
         assertEquals(1, dupDetailRows.size())
         assertEquals("3", dupDetailRows[0][0].toString())
@@ -891,7 +877,7 @@ suite("test_min_delta_stream", "nonConcurrent") {
         assertEquals("0", dupDetailRows[0][2].toString())
 
         def dupMinDeltaRows =  sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
+            SELECT id, v1, __DORIS_CHANGELOG_OP__
             FROM ${incrDupBase}@incr('startTimestamp' = '${dupStartTimestamp}',
                 "incrementType" = "MIN_DELTA")
         """
@@ -910,9 +896,8 @@ suite("test_min_delta_stream", "nonConcurrent") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "false"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "false"
             )
         """
         sql "INSERT INTO ${incrMowNoHistoryBase} VALUES (1, 10)"
@@ -925,10 +910,10 @@ suite("test_min_delta_stream", "nonConcurrent") {
         sleep(1200)
 
         def mowNoHistoryDetailRows = sql """
-            SELECT id, v1, __DORIS_BINLOG_OP__
+            SELECT id, v1, __DORIS_CHANGELOG_OP__
             FROM ${incrMowNoHistoryBase}@incr('startTimestamp' = '${mowNoHistoryStartTimestamp}',
                 "incrementType" = "DETAIL")
-            ORDER BY __DORIS_BINLOG_TSO__, __DORIS_BINLOG_LSN__
+            ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
         """
         assertEquals(1, mowNoHistoryDetailRows.size())
         assertEquals("1", mowNoHistoryDetailRows[0][0].toString())
@@ -937,11 +922,11 @@ suite("test_min_delta_stream", "nonConcurrent") {
 
         test {
             sql """
-                SELECT id, v1, __DORIS_BINLOG_OP__
+                SELECT id, v1, __DORIS_CHANGELOG_OP__
                 FROM ${incrMowNoHistoryBase}@incr('startTimestamp' = '${mowNoHistoryStartTimestamp}',
                     "incrementType" = "MIN_DELTA")
             """
-            exception "MIN_DELTA INCR query requires base table to enable binlog.need_historical_value=true"
+            exception "MIN_DELTA INCR query requires base table to enable changelog.need_historical_value=true"
         }
     } finally {
         sql "DROP DATABASE IF EXISTS test_min_delta_stream_db"

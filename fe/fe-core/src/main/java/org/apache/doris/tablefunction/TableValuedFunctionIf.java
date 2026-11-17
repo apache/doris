@@ -69,6 +69,8 @@ public abstract class TableValuedFunctionIf {
                 return new MvInfosTableValuedFunction(params);
             case PartitionsTableValuedFunction.NAME:
                 return new PartitionsTableValuedFunction(params);
+            case IndexDiskUsageTableValuedFunction.NAME:
+                return new IndexDiskUsageTableValuedFunction(params);
             case JobsTableValuedFunction.NAME:
                 return new JobsTableValuedFunction(params);
             case TasksTableValuedFunction.NAME:
@@ -100,8 +102,8 @@ public abstract class TableValuedFunctionIf {
                 return new FileTableValuedFunction(params);
             case HttpTableValuedFunction.NAME:
                 return new HttpTableValuedFunction(params);
-            case TableBinlogFunction.NAME:
-                return new TableBinlogFunction(params);
+            case TableChangelogFunction.NAME:
+                return new TableChangelogFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

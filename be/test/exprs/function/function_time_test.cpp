@@ -17,9 +17,13 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <limits>
+#include <memory>
 #include <string>
 
+#include "cctz/time_zone.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_date.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
@@ -29,13 +33,91 @@
 #include "core/data_type/data_type_time.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
+#include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
 #include "exprs/function/function_test_util.h"
+#include "testutil/mock/mock_runtime_state.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
 using namespace ut_type;
+
+TEST(VTimestampFunctionsTest, iso8601_preserves_negative_subhour_offset) {
+    MockRuntimeState state;
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(-1800));
+    FunctionContext context;
+    context._state = &state;
+
+    DateV2Value<DateTimeV2ValueType> utc_datetime;
+    utc_datetime.unchecked_set_time(2024, 1, 1, 0, 0, 0, 0);
+    TimestampTzValue value(utc_datetime);
+    ColumnString::Chars chars;
+    chars.resize(ToIso8601Impl<TYPE_TIMESTAMPTZ>::max_size);
+    size_t offset = 0;
+    ToIso8601Impl<TYPE_TIMESTAMPTZ>::execute(value, chars, offset, nullptr, &context);
+
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(chars.data()), offset),
+              "2023-12-31T23:30:00.000000-00:30");
+
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(8 * 3600 + 5 * 60 + 43));
+    offset = 0;
+    ToIso8601Impl<TYPE_TIMESTAMPTZ>::execute(value, chars, offset, nullptr, &context);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(chars.data()), offset),
+              "2024-01-01T08:05:43.000000+08:05:43");
+}
+
+template <typename Transform>
+void check_quarter_interval_overflow(const typename Transform::InputValueType& date) {
+    SCOPED_TRACE(Transform::name);
+    SCOPED_TRACE(Transform::ArgPType);
+    // Cover small wrapped month offsets and Int32 multiplication/negation boundaries.
+    for (Int32 quarters :
+         {1431655765, 1431655766, -1431655765, -1431655766, 715827882, 715827883, -715827882,
+          -715827883, std::numeric_limits<Int32>::min(), std::numeric_limits<Int32>::max()}) {
+        SCOPED_TRACE(quarters);
+        EXPECT_THROW(Transform::execute(date, quarters), Exception);
+    }
+}
+
+template <typename Transform>
+void check_quarter_sub_int_min(const typename Transform::InputValueType& date) {
+    SCOPED_TRACE(Transform::ArgPType);
+    try {
+        Transform::execute(date, std::numeric_limits<Int32>::min());
+        FAIL() << "Subtracting INT_MIN quarters must report a date-range error";
+    } catch (const Exception& e) {
+        EXPECT_EQ(e.code(), ErrorCode::OUT_OF_BOUND);
+        // Include the delimiter: a negative delta contains the same digits.
+        EXPECT_NE(e.to_string().find(", 6442450944 out of range"), std::string::npos)
+                << e.to_string();
+    }
+}
+
+TEST(VTimestampFunctionsTest, quarter_interval_overflow) {
+    DateV2Value<DateV2ValueType> date;
+    date.unchecked_set_time(2023, 1, 1, 0, 0, 0, 0);
+    DateV2Value<DateTimeV2ValueType> datetime;
+    datetime.unchecked_set_time(2023, 1, 1, 12, 34, 56, 123456);
+    TimestampTzValue timestamptz(datetime);
+    TimeStampNsValue timestamp_ns;
+    ASSERT_TRUE(timestamp_ns.from_datetime(datetime, 789));
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_DATEV2>>(date);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_DATEV2>>(date);
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_DATETIMEV2>>(datetime);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_DATETIMEV2>>(datetime);
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_TIMESTAMPTZ>>(timestamptz);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_TIMESTAMPTZ>>(timestamptz);
+    check_quarter_interval_overflow<AddQuartersImpl<TYPE_TIMESTAMP_NS>>(timestamp_ns);
+    check_quarter_interval_overflow<SubtractQuartersImpl<TYPE_TIMESTAMP_NS>>(timestamp_ns);
+
+    // Both signs exceed the date range, so EXPECT_THROW alone cannot detect narrowing.
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_DATEV2>>(date);
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_DATETIMEV2>>(datetime);
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_TIMESTAMPTZ>>(timestamptz);
+    check_quarter_sub_int_min<SubtractQuartersImpl<TYPE_TIMESTAMP_NS>>(timestamp_ns);
+}
 
 TEST(VTimestampFunctionsTest, current_timestamp_ns_precision_test) {
     TimezoneUtils::load_timezones_to_cache();
@@ -398,7 +480,7 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
                                            PrimitiveType::TYPE_VARCHAR};
         DataSet data_set = {{{std::string {"2021-03-28 02:15:30.123456"},
                               std::string {"Europe/Paris"}, std::string {"UTC"}},
-                             std::string("2021-03-28 01:00:00.000000")},
+                             std::string("2021-03-28 01:15:30.123456")},
                             {{std::string {"2021-03-28 03:00:30.123456"},
                               std::string {"Europe/Paris"}, std::string {"UTC"}},
                              std::string("2021-03-28 01:00:30.123456")},
@@ -1800,6 +1882,83 @@ TEST(VTimestampFunctionsTest, months_between_test) {
     check_function_all_arg_comb<DataTypeFloat64, true>(func_name, input_types, data_set);
 }
 
+namespace {
+
+void expect_invalid_relative_day_weekday(std::string_view weekday) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
+    for (const std::string name : {"next_day", "previous_day"}) {
+        const auto status = check_function<DataTypeDateV2, true>(
+                name, input_types, {{{std::string("2024-01-01"), std::string(weekday)}, Null()}},
+                -1, -1, true);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("failed to parse weekday:"), std::string::npos);
+    }
+}
+
+} // namespace
+
+TEST(WeekdayParserTest, aliases_and_case) {
+    constexpr std::array<std::string_view, 21> aliases = {
+            "MO",     "MON",       "MONDAY", "TU",       "TUE",      "TUESDAY", "WE",
+            "WED",    "WEDNESDAY", "TH",     "THU",      "THURSDAY", "FR",      "FRI",
+            "FRIDAY", "SA",        "SAT",    "SATURDAY", "SU",       "SUN",     "SUNDAY"};
+    constexpr std::array<std::string_view, 7> next_dates = {
+            "2024-01-08", "2024-01-02", "2024-01-03", "2024-01-04",
+            "2024-01-05", "2024-01-06", "2024-01-07"};
+    constexpr std::array<std::string_view, 7> previous_dates = {
+            "2023-12-25", "2023-12-26", "2023-12-27", "2023-12-28",
+            "2023-12-29", "2023-12-30", "2023-12-31"};
+    DataSet next_cases;
+    DataSet previous_cases;
+    for (size_t i = 0; i < aliases.size(); ++i) {
+        // Exercise every ASCII case combination, including all 512 forms of WEDNESDAY.
+        for (size_t mask = 0; mask < (size_t {1} << aliases[i].size()); ++mask) {
+            std::string input(aliases[i]);
+            for (size_t j = 0; j < input.size(); ++j) {
+                if ((mask & (size_t {1} << j)) != 0) {
+                    input[j] += 'a' - 'A';
+                }
+            }
+            next_cases.push_back(
+                    {{std::string("2024-01-01"), input}, std::string(next_dates[i / 3])});
+            previous_cases.push_back(
+                    {{std::string("2024-01-01"), input}, std::string(previous_dates[i / 3])});
+        }
+    }
+    const InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
+    EXPECT_TRUE((check_function<DataTypeDateV2, true>("next_day", input_types, next_cases).ok()));
+    EXPECT_TRUE((check_function<DataTypeDateV2, true>("previous_day", input_types, previous_cases)
+                         .ok()));
+}
+
+TEST(WeekdayParserTest, invalid_names) {
+    constexpr std::array<std::string_view, 16> invalid = {
+            "",     "M",    "MOND",     "MONDDY",   "MONDAYX", "MO ",     " MON", "SO",
+            "TUES", "THUR", "WEDNESDA", "SATURDAX", "SUNDAX",  "Sunday!", "123",  "1234567890"};
+    for (auto input : invalid) {
+        expect_invalid_relative_day_weekday(input);
+    }
+    expect_invalid_relative_day_weekday(std::string_view("MO\0", 3));
+    expect_invalid_relative_day_weekday(std::string_view("MON\0AY", 6));
+    expect_invalid_relative_day_weekday(std::string_view("\xCDON", 3));
+}
+
+TEST(WeekdayParserTest, binary_bytes_in_aliases) {
+    for (const std::string_view name : {"mo", "mon", "monday", "tuesday", "wednesday", "thursday",
+                                        "friday", "saturday", "sunday"}) {
+        for (size_t position = 0; position < name.size(); ++position) {
+            for (unsigned int byte = 128; byte < 256; ++byte) {
+                std::string input(name);
+                input[position] = static_cast<char>(byte);
+                expect_invalid_relative_day_weekday(input);
+            }
+            std::string input(name);
+            input[position] = '\0';
+            expect_invalid_relative_day_weekday(input);
+        }
+    }
+}
+
 TEST(VTimestampFunctionsTest, next_day_test) {
     std::string func_name = "next_day";
     InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
@@ -1870,6 +2029,30 @@ TEST(VTimestampFunctionsTest, relative_day_nullable_test) {
              {{Null(), Null()}, Null()},
              {{std::string("2024-01-01"), Null()}, Null()},
              {{Null(), std::string("MON")}, Null()}}));
+}
+
+TEST(VTimestampFunctionsTest, relative_day_invalid_weekday_after_nulls) {
+    const InputTypeSet input_types = {PrimitiveType::TYPE_DATEV2, PrimitiveType::TYPE_VARCHAR};
+    for (const std::string name : {"next_day", "previous_day"}) {
+        const DataSet all_null_dates = {{{Null(), std::string("MONDDY")}, Null()},
+                                        {{Null(), std::string("MONDDY")}, Null()}};
+        check_function_all_arg_comb<DataTypeDateV2, true>(name, input_types, all_null_dates);
+
+        const auto status = check_function<DataTypeDateV2, true>(
+                name, input_types,
+                {{{Null(), std::string("MONDDY")}, Null()},
+                 {{std::string("2024-01-01"), std::string("MONDDY")}, Null()}},
+                -1, -1, true);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("failed to parse weekday: MONDDY"), std::string::npos);
+        const InputTypeSet constant_weekday = {PrimitiveType::TYPE_DATEV2,
+                                               Consted {PrimitiveType::TYPE_VARCHAR}};
+        EXPECT_FALSE((check_function<DataTypeDateV2, true>(
+                              name, constant_weekday,
+                              {{{std::string("2024-01-01"), std::string("MONDDY")}, Null()}}, -1,
+                              -1, true)
+                              .ok()));
+    }
 }
 
 TEST(VTimestampFunctionsTest, from_iso8601_date) {
@@ -1944,8 +2127,8 @@ TEST(VTimestampFunctionsTest, curtime_test) {
         FunctionUtils fn_utils(fn_ctx_return, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
 
-        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
         block.insert({nullptr, return_type, "result"});
         ColumnNumbers args;
@@ -1960,8 +2143,8 @@ TEST(VTimestampFunctionsTest, curtime_test) {
             EXPECT_LE(time_value, 24.0 * 3600 * 1000000);
         }
 
-        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
-        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     }
 
     // Test curtime with precision
@@ -1987,8 +2170,8 @@ TEST(VTimestampFunctionsTest, curtime_test) {
         FunctionUtils fn_utils(fn_ctx_return, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
 
-        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
         block.insert({nullptr, return_type, "result"});
         ColumnNumbers args = {0};
@@ -2003,8 +2186,8 @@ TEST(VTimestampFunctionsTest, curtime_test) {
             EXPECT_LE(time_value, 24.0 * 3600 * 1000000);
         }
 
-        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
-        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+        EXPECT_TRUE(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     }
 }
 

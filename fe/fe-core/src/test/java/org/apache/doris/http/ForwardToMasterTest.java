@@ -41,6 +41,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .get()
                         .addHeader("Authorization", rootAuth)
                         .addHeader("forward_master_ut_test", "true")
+                        .addHeader("Accept", "application/json")
                         .url(url)
                         .build();
                 Response response = networkClient.newCall(request).execute();
@@ -78,6 +79,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .addHeader("Content-Type", "application/json")
                         .addHeader("Authorization", rootAuth)
                         .addHeader("forward_master_ut_test", "true")
+                        .addHeader("Accept", "application/json")
                         .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
                         .build();
                 Response response = networkClient.newCall(request).execute();
@@ -91,6 +93,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .get()
                         .addHeader("Authorization", rootAuth)
                         .addHeader("forward_master_ut_test", "true")
+                        .addHeader("Accept", "application/json")
                         .url(url)
                         .build();
                 Response response = networkClient.newCall(request).execute();
@@ -129,6 +132,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                         .addHeader("Content-Type", "application/json")
                         .addHeader("Authorization", rootAuth)
                         .addHeader("forward_master_ut_test", "true")
+                        .addHeader("Accept", "application/json")
                         .post(RequestBody.create(jsonBody, MediaType.parse("application/json")))
                         .build();
                 Response response = networkClient.newCall(request).execute();
@@ -141,6 +145,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 Request request = new Request.Builder()
                         .get()
                         .addHeader("forward_master_ut_test", "true")
+                        .addHeader("Accept", "application/json")
                         .addHeader("Authorization", rootAuth)
                         .url(url)
                         .build();
@@ -174,6 +179,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 .url(url)
                 .addHeader("Authorization", rootAuth)
                 .addHeader("forward_master_ut_test", "true")
+                .addHeader("Accept", "application/json")
                 .post(emptyBody)
                 .build();
         Response response = networkClient.newCall(request).execute();
@@ -199,6 +205,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 .url(url)
                 .post(requestBody)
                 .addHeader("forward_master_ut_test", "true")
+                .addHeader("Accept", "application/json")
                 .addHeader("Authorization", rootAuth)
                 .build();
         Response response = networkClient.newCall(request).execute();
@@ -219,6 +226,7 @@ public class ForwardToMasterTest extends DorisHttpTestCase {
                 .get()
                 .addHeader("Authorization", rootAuth)
                 .addHeader("forward_master_ut_test", "true")
+                .addHeader("Accept", "application/json")
                 .url(url)
                 .build();
         Response response = networkClient.newCall(request).execute();

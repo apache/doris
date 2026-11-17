@@ -26,6 +26,7 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "storage/id_manager.h"
 #include "util/debug_points.h"

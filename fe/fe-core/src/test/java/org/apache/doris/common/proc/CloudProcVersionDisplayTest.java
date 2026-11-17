@@ -53,6 +53,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.List;
+
 public class CloudProcVersionDisplayTest {
     private static final long DB_ID = 10001L;
     private static final long TABLE_ID = 20001L;
@@ -121,6 +123,20 @@ public class CloudProcVersionDisplayTest {
     }
 
     @Test
+    public void testTabletsProcDirFiltersByDisplayedCloudVersion() throws AnalysisException {
+        ProcTestContext context = createProcTestContext();
+        TabletsProcDir procDir = new TabletsProcDir(
+                context.table, context.partition.getBaseIndex(), PARTITION_VISIBLE_VERSION);
+
+        List<List<Comparable>> result = procDir.fetchComparableResult(PARTITION_VISIBLE_VERSION, -1, null);
+
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals(
+                PARTITION_VISIBLE_VERSION, result.get(0).get(TabletsProcDir.TITLE_NAMES.indexOf("Version")));
+        Assertions.assertTrue(procDir.fetchComparableResult(STALE_REPLICA_VERSION, -1, null).isEmpty());
+    }
+
+    @Test
     public void testReplicasProcNodeShowsPartitionCachedVersionInCloudMode() throws AnalysisException {
         ProcTestContext context = createProcTestContext();
 
@@ -158,7 +174,7 @@ public class CloudProcVersionDisplayTest {
         tablet.addReplica(replica, true);
 
         TabletMeta tabletMeta = new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, INDEX_ID, SCHEMA_HASH,
-                TStorageMedium.HDD, false /* isRowBinlog */);
+                TStorageMedium.HDD, false /* isChangelog */);
         index.addTablet(tablet, tabletMeta, true);
 
         CloudPartition partition = new CloudPartition(PARTITION_ID, "p1", index, distributionInfo, DB_ID, TABLE_ID);

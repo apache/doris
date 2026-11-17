@@ -33,7 +33,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {

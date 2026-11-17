@@ -564,24 +564,24 @@ TEST_F(RowsetMetaTest, TestSegmentsKeyBoundsAggregationTruncation) {
 
 // is_segments_overlapping() is decided by segment count, the segments_overlap flag,
 // and whether the rowset is a singleton delta (start_version == end_version) or a
-// row-binlog rowset. For a singleton delta the ambiguous OVERLAP_UNKNOWN flag is still
+// changelog rowset. For a singleton delta the ambiguous OVERLAP_UNKNOWN flag is still
 // treated as overlapping (a freshly ingested delta may have overlapping segments only
-// tagged OVERLAP_UNKNOWN). Row-binlog LMax quick merge produces non-singleton rowsets
+// tagged OVERLAP_UNKNOWN). Changelog LMax quick merge produces non-singleton rowsets
 // whose segments overlap, but it writes segments_overlap = OVERLAPPING explicitly, so
-// it is recognized only via the explicit-OVERLAPPING branch; a row-binlog rowset left
+// it is recognized only via the explicit-OVERLAPPING branch; a changelog rowset left
 // as OVERLAP_UNKNOWN is NOT treated as overlapping. A plain non-singleton rowset (e.g. a
 // compaction output) keeps the original semantics and stays non-overlapping regardless
 // of the flag, so that old metadata written before the flag was always set does not
 // inflate compaction score / merge ways or degrade ordered reads after an upgrade.
 TEST_F(RowsetMetaTest, TestIsSegmentsOverlapping) {
     auto check = [](int64_t num_segments, SegmentsOverlapPB overlap, int64_t start_version,
-                    int64_t end_version, bool is_row_binlog, bool expected) {
+                    int64_t end_version, bool is_changelog, bool expected) {
         RowsetMeta rs_meta;
         rs_meta.set_num_segments(num_segments);
         rs_meta.set_segments_overlap(overlap);
         rs_meta.set_version({start_version, end_version});
-        if (is_row_binlog) {
-            rs_meta.mark_row_binlog();
+        if (is_changelog) {
+            rs_meta.mark_changelog();
         }
         EXPECT_EQ(rs_meta.is_segments_overlapping(), expected);
     };
@@ -599,15 +599,15 @@ TEST_F(RowsetMetaTest, TestIsSegmentsOverlapping) {
     check(3, OVERLAPPING, 2, 2, false, true);
     check(3, OVERLAP_UNKNOWN, 2, 2, false, true);
 
-    // Plain (non row-binlog) non-singleton + OVERLAPPING keeps the original semantics: a
+    // Plain (non changelog) non-singleton + OVERLAPPING keeps the original semantics: a
     // compaction output (start < end) is treated as non-overlapping.
     check(3, OVERLAPPING, 2, 5, false, false);
 
-    // Row-binlog non-singleton explicitly marked OVERLAPPING is overlapping: this is the
-    // row-binlog LMax quick-merge output, which sets the flag explicitly.
+    // Changelog non-singleton explicitly marked OVERLAPPING is overlapping: this is the
+    // changelog LMax quick-merge output, which sets the flag explicitly.
     check(3, OVERLAPPING, 2, 5, true, true);
 
-    // Row-binlog non-singleton left as OVERLAP_UNKNOWN must NOT be treated as overlapping.
+    // Changelog non-singleton left as OVERLAP_UNKNOWN must NOT be treated as overlapping.
     check(3, OVERLAP_UNKNOWN, 2, 5, true, false);
 
     // Old-metadata compatibility: a plain compaction output (start < end) left as
@@ -626,7 +626,7 @@ TEST_F(RowsetMetaTest, TestSegmentIdsAccessors) {
     EXPECT_EQ(rowset_meta.num_segments(), 3);
     EXPECT_EQ(rowset_meta.segment_id(0), 0);
     EXPECT_EQ(rowset_meta.segment_id(2), 2);
-    EXPECT_EQ(rowset_meta.position_of(2), 2);
+    EXPECT_EQ(TEST_TRY(rowset_meta.position_of(2)), 2);
 
     // Non-contiguous segment_ids: position <-> real id mapping.
     rowset_meta.set_segment_ids({0, 2, 5});
@@ -635,9 +635,29 @@ TEST_F(RowsetMetaTest, TestSegmentIdsAccessors) {
     EXPECT_EQ(rowset_meta.segment_id(0), 0);
     EXPECT_EQ(rowset_meta.segment_id(1), 2);
     EXPECT_EQ(rowset_meta.segment_id(2), 5);
-    EXPECT_EQ(rowset_meta.position_of(0), 0);
-    EXPECT_EQ(rowset_meta.position_of(2), 1);
-    EXPECT_EQ(rowset_meta.position_of(5), 2);
+    EXPECT_EQ(TEST_TRY(rowset_meta.position_of(0)), 0);
+    EXPECT_EQ(TEST_TRY(rowset_meta.position_of(2)), 1);
+    EXPECT_EQ(TEST_TRY(rowset_meta.position_of(5)), 2);
+}
+
+TEST_F(RowsetMetaTest, TestPositionOfMissingSegment) {
+    RowsetMeta rowset_meta;
+    ASSERT_TRUE(rowset_meta.init_from_json(_json_rowset_meta));
+
+    rowset_meta.set_num_segments(0);
+    EXPECT_TRUE(TEST_RESULT_ERROR(rowset_meta.position_of(0)).is<ErrorCode::NOT_FOUND>());
+    rowset_meta.set_num_segments(3);
+    EXPECT_TRUE(TEST_RESULT_ERROR(rowset_meta.position_of(3)).is<ErrorCode::NOT_FOUND>());
+
+    rowset_meta.set_segment_ids({2, 6});
+    for (int64_t seg_id : {0, 3, 7}) {
+        auto status = TEST_RESULT_ERROR(rowset_meta.position_of(seg_id));
+        EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
+        EXPECT_NE(status.to_string().find("segment " + std::to_string(seg_id)), std::string::npos);
+        EXPECT_NE(status.to_string().find(rowset_meta.rowset_id().to_string()), std::string::npos);
+        EXPECT_NE(status.to_string().find("tablet " + std::to_string(rowset_meta.tablet_id())),
+                  std::string::npos);
+    }
 }
 
 TEST_F(RowsetMetaTest, TestSegmentIdsMustBeStrictlyIncreasing) {

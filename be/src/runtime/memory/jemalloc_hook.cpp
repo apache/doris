@@ -15,6 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <unistd.h>
+
+#include <cerrno>
+#include <limits>
+
 #include "jemalloc/jemalloc.h"
 
 #ifndef __THROW
@@ -35,7 +40,13 @@ void doris_free(void* p) __THROW {
 }
 
 void* doris_realloc(void* p, size_t size) __THROW {
-    return jerealloc(p, size);
+    void* ptr = jerealloc(p, size);
+    // jemalloc 5.3.0 can reject an oversized request without setting errno.
+    // realloc(p, 0) may free p and return nullptr, so only nonzero sizes fail.
+    if (ptr == nullptr && size != 0) {
+        errno = ENOMEM;
+    }
+    return ptr;
 }
 
 void* doris_calloc(size_t n, size_t size) __THROW {
@@ -55,11 +66,21 @@ void* doris_aligned_alloc(size_t align, size_t size) __THROW {
 }
 
 void* doris_valloc(size_t size) __THROW {
-    return jevalloc(size);
+    // Unlike jemalloc's legacy valloc, aligned_alloc keeps zero-size results
+    // page-aligned and sets errno when an allocation fails.
+    return jealigned_alloc(getpagesize(), size);
 }
 
 void* doris_pvalloc(size_t size) __THROW {
-    return jevalloc(size);
+    const size_t page_size = getpagesize();
+    // pvalloc rounds up to whole pages; SIZE_MAX must fail rather than wrap
+    // to a small allocation when adding the page-size adjustment.
+    if (size > std::numeric_limits<size_t>::max() - (page_size - 1)) {
+        errno = ENOMEM;
+        return nullptr;
+    }
+    const size_t rounded_size = (size + page_size - 1) / page_size * page_size;
+    return jealigned_alloc(page_size, rounded_size);
 }
 
 int doris_posix_memalign(void** r, size_t align, size_t size) __THROW {
@@ -77,6 +98,18 @@ void* realloc(void* p, size_t size) __THROW ALIAS(doris_realloc);
 void* calloc(size_t n, size_t size) __THROW ALIAS(doris_calloc);
 void cfree(void* ptr) __THROW ALIAS(doris_cfree);
 void* memalign(size_t align, size_t size) __THROW ALIAS(doris_memalign);
+#ifdef __GLIBC__
+// Keep glibc's exported allocation entry points paired with the public jemalloc
+// hooks. For example, before glibc 2.25, dlopened modules allocate dynamic TLS
+// with __libc_memalign and release it through free.
+void* __libc_malloc(size_t size) __THROW ALIAS(doris_malloc);
+void __libc_free(void* ptr) __THROW ALIAS(doris_free);
+void* __libc_calloc(size_t n, size_t size) __THROW ALIAS(doris_calloc);
+void* __libc_realloc(void* ptr, size_t size) __THROW ALIAS(doris_realloc);
+void* __libc_memalign(size_t align, size_t size) __THROW ALIAS(doris_memalign);
+void* __libc_valloc(size_t size) __THROW ALIAS(doris_valloc);
+void* __libc_pvalloc(size_t size) __THROW ALIAS(doris_pvalloc);
+#endif
 void* aligned_alloc(size_t align, size_t size) __THROW ALIAS(doris_aligned_alloc);
 void* valloc(size_t size) __THROW ALIAS(doris_valloc);
 void* pvalloc(size_t size) __THROW ALIAS(doris_pvalloc);

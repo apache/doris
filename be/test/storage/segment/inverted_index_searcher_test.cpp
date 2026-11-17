@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/inverted/clucene/inverted_index_searcher.h"
 
 #include <CLucene.h>
 #include <CLucene/document/Document.h>

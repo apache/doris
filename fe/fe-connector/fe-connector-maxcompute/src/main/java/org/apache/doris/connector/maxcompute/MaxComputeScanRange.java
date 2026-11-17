@@ -75,6 +75,12 @@ public class MaxComputeScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public String getSplitIdentity() {
+        // Offsets and split indices are relative to the ODPS read session, not a physical file.
+        return getPath().get() + "/" + properties.get(PROP_SESSION_ID);
+    }
+
+    @Override
     public long getStart() {
         return start;
     }

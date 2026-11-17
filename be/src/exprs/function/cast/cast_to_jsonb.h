@@ -24,25 +24,25 @@
 #include "core/value/jsonb_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_string.h"
+#include "runtime/runtime_state.h"
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
 namespace doris::CastWrapper {
 
 struct ConvertImplGenericFromJsonb {
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count,
-                          const NullMap::value_type* null_map = nullptr) {
-        auto data_type_to = block.get_by_position(result).type;
+    static Status execute(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                          ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                          const NullMap::value_type* null_map, bool jsonb_string_as_string) {
+        auto data_type_to = target_column.type;
         auto data_type_serde_to = data_type_to->get_serde();
 
         DataTypeSerDe::FormatOptions options;
         options.converted_from_string = true;
         options.escape_char = '\\';
-        options.timezone = &context->state()->timezone_obj();
+        options.timezone = &state->timezone_obj();
 
-        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
-        const IColumn& col_from = *col_with_type_and_name.column;
+        const IColumn& col_from = *source_column.column;
         if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
             auto col_to = data_type_to->create_column();
 
@@ -54,6 +54,11 @@ struct ConvertImplGenericFromJsonb {
             const bool is_complex = is_complex_type(data_type_to->get_primitive_type());
             const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
+                if (null_map && null_map[i]) {
+                    (*vec_null_map_to)[i] = 1;
+                    col_to->insert_default();
+                    continue;
+                }
                 const auto& val = col_from_string->get_data_at(i);
                 const JsonbDocument* doc = nullptr;
                 auto st = JsonbDocument::checkAndCreateDocument(val.data, val.size, &doc);
@@ -80,7 +85,7 @@ struct ConvertImplGenericFromJsonb {
                     continue;
                 }
                 // add string to string column
-                if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
+                if (jsonb_string_as_string && is_dst_string && value->isString()) {
                     const auto* blob = value->unpack<JsonbBinaryVal>();
                     assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(*col_to).insert_data(
                             blob->getBlob(), blob->getBlobLen());
@@ -88,7 +93,7 @@ struct ConvertImplGenericFromJsonb {
                     continue;
                 }
                 std::string input_str;
-                if (context->jsonb_string_as_string() && value->isString()) {
+                if (jsonb_string_as_string && value->isString()) {
                     const auto* blob = value->unpack<JsonbBinaryVal>();
                     input_str = std::string(blob->getBlob(), blob->getBlobLen());
                 } else {
@@ -107,7 +112,7 @@ struct ConvertImplGenericFromJsonb {
                     col_to->insert_default();
                 }
             }
-            block.get_by_position(result).column =
+            target_column.column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
             return Status::RuntimeError(
@@ -125,30 +130,37 @@ inline bool can_cast_json_type(PrimitiveType pt) {
 
 // check jsonb value type and get to_type value
 WrapperType create_cast_from_jsonb_wrapper(const DataTypeJsonb& from_type,
-                                           const DataTypePtr& to_type,
-                                           bool jsonb_string_as_string) {
-    if (is_string_type(to_type->get_primitive_type()) && jsonb_string_as_string) {
-        return ConvertImplGenericFromJsonb::execute;
+                                           const DataTypePtr& to_type, const CastOptions& options) {
+    if (is_string_type(to_type->get_primitive_type()) && options.jsonb_string_as_string) {
+        return [jsonb_string_as_string = options.jsonb_string_as_string](
+                       RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                       ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                       const NullMap::value_type* null_map) {
+            return ConvertImplGenericFromJsonb::execute(state, source_column, target_column,
+                                                        input_rows_count, null_map,
+                                                        jsonb_string_as_string);
+        };
     }
 
-    return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
+    return [strict_mode = options.strict_mode](
+                   RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                   ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                   const NullMap::value_type* parent_null_map) {
         CastParameters params;
-        params.is_strict = context->enable_strict_mode();
+        params.is_strict = strict_mode;
 
-        auto data_type_to = remove_nullable(block.get_by_position(result).type);
+        auto data_type_to = remove_nullable(target_column.type);
         auto serde_to = data_type_to->get_serde();
 
-        const auto& col_from_json =
-                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+        const auto& col_from_json = assert_cast<const ColumnString&>(*source_column.column);
 
         auto column_to = make_nullable(data_type_to)->create_column();
         auto& column_to_nullable = assert_cast<ColumnNullable&>(*column_to);
 
-        RETURN_IF_ERROR(serde_to->deserialize_column_from_jsonb_vector(column_to_nullable,
-                                                                       col_from_json, params));
+        RETURN_IF_ERROR(serde_to->deserialize_column_from_jsonb_vector(
+                column_to_nullable, col_from_json, params, parent_null_map));
 
-        block.get_by_position(result).column = std::move(column_to);
+        target_column.column = std::move(column_to);
         return Status::OK();
     };
 }
@@ -200,21 +212,20 @@ struct ParseJsonbFromString {
         return Status::OK();
     }
 
-    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          uint32_t result, size_t input_rows_count,
-                          const NullMap::value_type* null_map) {
-        const auto& col_from =
-                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+    static Status execute(const ColumnWithTypeAndName& source_column,
+                          ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                          const NullMap::value_type* null_map, bool strict_mode) {
+        const auto& col_from = assert_cast<const ColumnString&>(*source_column.column);
         const auto size = col_from.size();
 
         ColumnPtr column_result;
-        if (context->enable_strict_mode()) {
+        if (strict_mode) {
             RETURN_IF_ERROR(execute_strict(col_from, null_map, size, column_result));
 
         } else {
             RETURN_IF_ERROR(execute_non_strict(col_from, size, column_result));
         }
-        block.get_by_position(result).column = std::move(column_result);
+        target_column.column = std::move(column_result);
 
         return Status::OK();
     }
@@ -223,21 +234,30 @@ struct ParseJsonbFromString {
 // create corresponding jsonb value with type to_type
 // use jsonb writer to create jsonb value
 WrapperType create_cast_to_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
-                                         bool string_as_jsonb_string) {
+                                         const CastOptions& options) {
     // parse string as jsonb
-    if (is_string_type(from_type->get_primitive_type()) && !string_as_jsonb_string) {
-        return ParseJsonbFromString::execute;
+    if (is_string_type(from_type->get_primitive_type()) && !options.string_as_jsonb_string) {
+        return [strict_mode = options.strict_mode](
+                       RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                       ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                       const NullMap::value_type* null_map) {
+            return ParseJsonbFromString::execute(source_column, target_column, input_rows_count,
+                                                 null_map, strict_mode);
+        };
     }
 
-    return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-              uint32_t result, size_t input_rows_count, const NullMap::value_type*) {
+    return [](RuntimeState* state, const ColumnWithTypeAndName& source_column,
+              ColumnWithTypeAndName& target_column, size_t input_rows_count,
+              const NullMap::value_type* null_map) {
         // same as to_json function
         auto to_column = ColumnString::create();
-        auto from_type_serde = block.get_by_position(arguments[0]).type->get_serde();
-        auto from_column = block.get_by_position(arguments[0]).column;
-        RETURN_IF_ERROR(
-                from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column));
-        block.get_by_position(result).column = std::move(to_column);
+        auto from_type_serde = source_column.type->get_serde();
+        auto from_column = source_column.column;
+        DataTypeSerDe::FormatOptions options;
+        options.timezone = &state->timezone_obj();
+        RETURN_IF_ERROR(from_type_serde->serialize_column_to_jsonb_vector(*from_column, *to_column,
+                                                                          options, null_map));
+        target_column.column = std::move(to_column);
         return Status::OK();
     };
 }

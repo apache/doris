@@ -24,6 +24,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
+#include "core/data_type/data_type_string.h"
 #include "exprs/function/simple_function_factory.h"
 #include "util/string_util.h"
 

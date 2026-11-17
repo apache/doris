@@ -91,6 +91,28 @@ public class WorkloadRuntimeStatusMgrTest {
         Assertions.assertEquals(8, result.getFinishedTasksNum());
     }
 
+    // ---- Merge: spill bytes are summed across BEs, local and remote separately ----
+
+    @Test
+    public void testSpillBytesSummedAcrossBes() {
+        TQueryStatistics be1 = buildStats(1, 1);
+        be1.setSpillWriteBytesToLocalStorage(100);
+        be1.setSpillReadBytesFromLocalStorage(90);
+        be1.setSpillWriteBytesToRemoteStorage(1000);
+        be1.setSpillReadBytesFromRemoteStorage(900);
+        TQueryStatistics be2 = buildStats(1, 1);
+        be2.setSpillWriteBytesToRemoteStorage(2000);
+        be2.setSpillReadBytesFromRemoteStorage(1800);
+        mgr.updateBeQueryStats(buildParams(10001L, "q1", be1));
+        mgr.updateBeQueryStats(buildParams(10002L, "q1", be2));
+
+        TQueryStatistics result = getMergedSnapshot().get("q1");
+        Assertions.assertEquals(100, result.getSpillWriteBytesToLocalStorage());
+        Assertions.assertEquals(90, result.getSpillReadBytesFromLocalStorage());
+        Assertions.assertEquals(3000, result.getSpillWriteBytesToRemoteStorage());
+        Assertions.assertEquals(2700, result.getSpillReadBytesFromRemoteStorage());
+    }
+
     // ---- Merge: multiple BEs, multiple queries remain independent ----
 
     @Test
@@ -264,7 +286,7 @@ public class WorkloadRuntimeStatusMgrTest {
     }
 
     @Test
-    public void testExternalDmlAuditWaitsForEveryBackendFinalSnapshot() {
+    public void testAuditWaitsForEveryBackendFinalSnapshot() {
         int originalAuditTimeout = Config.query_audit_log_timeout_ms;
         try {
             Config.query_audit_log_timeout_ms = 10;
@@ -277,7 +299,7 @@ public class WorkloadRuntimeStatusMgrTest {
             mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(20, 4), false));
 
             List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
-            Assertions.assertTrue(events.isEmpty(), "external DML audit must wait for every participating BE");
+            Assertions.assertTrue(events.isEmpty(), "audit must wait for every participating BE");
 
             mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(20, 4), true));
             events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
@@ -289,7 +311,49 @@ public class WorkloadRuntimeStatusMgrTest {
     }
 
     @Test
-    public void testExternalDmlAuditUsesBoundedFallback() {
+    public void testOrdinaryQueryAuditWaitsForFinalRemoteSpillTotals() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent event = new AuditEvent.AuditEventBuilder().setQueryId("q1").build();
+            mgr.submitFinishQueryToAudit(event, Set.of(10001L, 10002L));
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            TQueryStatistics first = buildStats(2, 2);
+            first.setSpillWriteBytesToRemoteStorage(100);
+            first.setSpillReadBytesFromRemoteStorage(10);
+            mgr.updateBeQueryStats(buildParams(10001L, "q1", first, true));
+            List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assertions.assertTrue(events.isEmpty());
+
+            TQueryStatistics second = buildStats(2, 1);
+            second.setSpillWriteBytesToRemoteStorage(200);
+            second.setSpillReadBytesFromRemoteStorage(20);
+            mgr.updateBeQueryStats(buildParams(10002L, "q1", second, false));
+            events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assertions.assertTrue(events.isEmpty());
+
+            second.setFinishedTasksNum(2);
+            mgr.updateBeQueryStats(buildParams(10002L, "q1", second, true));
+            Env env = Mockito.mock(Env.class);
+            AuditEventProcessor processor = Mockito.mock(AuditEventProcessor.class);
+            Mockito.when(env.getAuditEventProcessor()).thenReturn(processor);
+            Mockito.when(processor.handleAuditEvent(event)).thenReturn(true);
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                mockedEnv.when(Env::getCurrentAuditEventProcessor).thenReturn(processor);
+                Deencapsulation.invoke(mgr, "runAfterCatalogReady");
+            }
+            Mockito.verify(processor).handleAuditEvent(event);
+            Assertions.assertEquals(300, event.spillWriteBytesToRemoteStorage);
+            Assertions.assertEquals(30, event.spillReadBytesFromRemoteStorage);
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
+    }
+
+    @Test
+    public void testAuditUsesBoundedFallback() {
         int originalAuditTimeout = Config.query_audit_log_timeout_ms;
         int originalReportTimeout = Config.be_report_query_statistics_timeout_ms;
         try {
@@ -309,7 +373,7 @@ public class WorkloadRuntimeStatusMgrTest {
     }
 
     @Test
-    public void testExternalDmlAuditUsesFinalCumulativeStatistics() {
+    public void testAuditUsesFinalCumulativeStatistics() {
         int originalAuditTimeout = Config.query_audit_log_timeout_ms;
         try {
             Config.query_audit_log_timeout_ms = 10;

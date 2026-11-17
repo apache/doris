@@ -188,7 +188,8 @@ public class Count extends NotNullableAggregateFunction
         if (this.isDistinct()) {
             return new BitmapUnionCount(param);
         } else {
-            return new Sum(param);
+            // sum0, not sum: count returns 0 on empty input while sum returns NULL
+            return new Sum0(param);
         }
     }
 

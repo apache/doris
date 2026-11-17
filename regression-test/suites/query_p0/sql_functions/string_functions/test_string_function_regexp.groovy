@@ -120,6 +120,13 @@ suite("test_string_function_regexp") {
     qt_sql_regexp_extract_all_3 'SELECT REGEXP_EXTRACT_ALL(\'foo123bar456baz\', \'(\\\\d{3})(?=bar|baz)\');'
     qt_sql_regexp_extract_all_4 'SELECT REGEXP_EXTRACT_ALL(\'ID:AA-1,ID:BB-2,ID:CC-3\', \'(?<=ID:)([A-Z]{2}-\\\\d)\');'
     qt_sql_regexp_extract_all_5 'SELECT REGEXP_EXTRACT_ALL(\'EdgeCase1EdgeCase2EdgeCase3\', \'(?<=Edge)(Case\\\\d)(?=Edge|$)\');'
+    // zero-width Boost matches must be extracted once per position
+    qt_sql_regexp_extract_all_zero_width_1 "SELECT REGEXP_EXTRACT_ALL('ba', '(?=(a))');"
+    qt_sql_regexp_extract_all_zero_width_2 "SELECT REGEXP_EXTRACT_ALL('aba', '(?=(a))');"
+    qt_sql_regexp_extract_all_zero_width_3 "SELECT REGEXP_EXTRACT_ALL('aaa', '(?=(a))');"
+    qt_sql_regexp_extract_all_zero_width_4 "SELECT REGEXP_EXTRACT_ALL('aa', '(?<=(a))');"
+    qt_sql_regexp_extract_all_zero_width_5 "SELECT REGEXP_EXTRACT_ALL('xa', '((?<=x)|a)');"
+    qt_sql_regexp_extract_all_zero_width_6 "SELECT REGEXP_EXTRACT_ALL('xxa?b', '(?<=a)|^(b)');"
     sql "set enable_extended_regex = false;"
 
     qt_sql_regexp_extract_all_6 "SELECT REGEXP_EXTRACT_ALL(concat('foo', char(10), 'bar'), '(foo.bar)');"
@@ -143,6 +150,14 @@ suite("test_string_function_regexp") {
     qt_regexp_extract_all_array_9 "SELECT regexp_extract_all_array(k, '([a-z]+)') from test_string_function_regexp ORDER BY k;"
     qt_regexp_extract_all_array_10 "SELECT k, v, regexp_extract_all_array(k, '(\\\\w+)') from test_string_function_regexp ORDER BY k, v;"
     qt_regexp_extract_all_array_11 "SELECT regexp_extract_all_array(k, concat('^', k)) from test_string_function_regexp WHERE k IS NOT NULL ORDER BY k;"
+    sql "set enable_extended_regex = true;"
+    qt_regexp_extract_all_array_zero_width_1 "SELECT regexp_extract_all_array('ba', '(?=(a))');"
+    qt_regexp_extract_all_array_zero_width_2 "SELECT regexp_extract_all_array('aba', '(?=(a))');"
+    qt_regexp_extract_all_array_zero_width_3 "SELECT regexp_extract_all_array('aaa', '(?=(a))');"
+    qt_regexp_extract_all_array_zero_width_4 "SELECT regexp_extract_all_array('aa', '(?<=(a))');"
+    qt_regexp_extract_all_array_zero_width_5 "SELECT regexp_extract_all_array('xa', '((?<=x)|a)');"
+    qt_regexp_extract_all_array_zero_width_6 "SELECT regexp_extract_all_array('xxa?b', '(?<=a)|^(b)');"
+    sql "set enable_extended_regex = false;"
 
     qt_sql "SELECT regexp_replace('a b c', \" \", \"-\");"
     qt_sql "SELECT regexp_replace('a b c','(b)','<\\\\1>');"

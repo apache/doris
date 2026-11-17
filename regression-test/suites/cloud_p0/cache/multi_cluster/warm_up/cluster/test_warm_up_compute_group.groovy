@@ -15,9 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.WarmupMetricsUtils
 
-suite("test_warm_up_compute_group") {
+suite("test_warm_up_compute_group", "nonConcurrent") {
+    // This setting is static in FE; isolate it and restore it even when a cache assertion fails.
+    String originalSyncLoad = sql("select @@enable_multi_cluster_sync_load")[0][0].toString()
+    assertTrue(originalSyncLoad.toLowerCase() in ["true", "false", "1", "0"],
+            "Unexpected sync-load setting: ${originalSyncLoad}")
+    onFinish {
+        sql "set enable_multi_cluster_sync_load = ${originalSyncLoad}"
+        logger.info("Restored enable_multi_cluster_sync_load=${originalSyncLoad}")
+    }
+    // Only explicit warm-up should populate the target cache in this case.
+    sql "set enable_multi_cluster_sync_load = false"
+    logger.info("Explicit warmup: disabled automatic sync load, previous=${originalSyncLoad}")
+
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="12000") """
     def getJobState = { jobId ->
          def jobStateResult = sql """  SHOW WARM UP JOB WHERE ID = ${jobId} """
@@ -25,31 +37,24 @@ suite("test_warm_up_compute_group") {
     }
     def table = "customer"
 
-    List<String> ipList = new ArrayList<>();
-    List<String> hbPortList = new ArrayList<>()
-    List<String> httpPortList = new ArrayList<>()
-    List<String> brpcPortList = new ArrayList<>()
-    List<String> beUniqueIdList = new ArrayList<>()
-
-    String[] bes = context.config.multiClusterBes.split(',');
-    println("the value is " + context.config.multiClusterBes);
-    int num = 0
-    for(String values : bes) {
-        if (num++ == 2) break;
-        println("the value is " + values);
-        String[] beInfo = values.split(':');
-        ipList.add(beInfo[0]);
-        hbPortList.add(beInfo[1]);
-        httpPortList.add(beInfo[2]);
-        beUniqueIdList.add(beInfo[3]);
-        brpcPortList.add(beInfo[4]);
+    String sourceCluster = "regression_cluster_name0"
+    String targetCluster = "regression_cluster_name1"
+    def backends = sql_return_maparray("SHOW BACKENDS")
+    def clusterBackends = [sourceCluster, targetCluster].collectEntries { clusterName ->
+        def members = backends.findAll { be ->
+            "${be.Alive}".equalsIgnoreCase("true") &&
+                    parseJson(be.Tag.toString()).compute_group_name == clusterName
+        }.collect { be ->
+            [id: be.BackendId as Long, ip: be.Host.toString(),
+             httpPort: be.HttpPort.toString(), brpcPort: be.BrpcPort.toString()]
+        }
+        assertTrue(!members.isEmpty(), "No alive backends in ${clusterName}")
+        [(clusterName): members]
     }
-
-    println("the ip is " + ipList);
-    println("the heartbeat port is " + hbPortList);
-    println("the http port is " + httpPortList);
-    println("the be unique id is " + beUniqueIdList);
-    println("the brpc port is " + brpcPortList);
+    logger.info("Warmup source=${sourceCluster}, target=${targetCluster}, backends=${clusterBackends}")
+    sql "use @${sourceCluster}"
+    sql "set enable_sql_cache = false"
+    sql "set enable_query_cache = false"
 
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
     sql new File("""${context.file.parent}/../ddl/supplier_delete.sql""").text
@@ -73,26 +78,46 @@ suite("test_warm_up_compute_group") {
     
     
 
-    def clearFileCache = { ip, port ->
-        httpTest {
-            endpoint ""
-            uri ip + ":" + port + """/api/file_cache?op=clear&sync=true"""
-            op "get"
-            body ""
+    // Capture the IDs before DROP so the final check can still address this case's tablets.
+    def tableTabletIds = [table, "supplier"].collectEntries { tableName ->
+        def ids = sql("show tablets from ${tableName}").collect { it[0] as Long }.unique()
+        assertTrue(!ids.isEmpty(), "No tablets found for ${tableName}")
+        [(tableName): ids]
+    }
+    logger.info("Case table tablets: ${tableTabletIds}")
+
+    def getGlobalTtlBytes = {
+        [source: WarmupMetricsUtils.getBackendMetricSum(clusterBackends[sourceCluster], "ttl_cache_size"),
+         target: WarmupMetricsUtils.getBackendMetricSum(clusterBackends[targetCluster], "ttl_cache_size")]
+    }
+    def clearCacheAndLogTtl = { List<String> clustersToClear, String phase ->
+        def before = getGlobalTtlBytes()
+        clustersToClear.each { clusterName ->
+            clusterBackends[clusterName].each { be ->
+                WarmupMetricsUtils.clearFileCache(be.ip, be.httpPort)
+            }
+        }
+        // sync=true can leave referenced blocks pending recycle. Record the residual baseline;
+        // it is diagnostic data, not an assertion that either BE's entire cache must be empty.
+        def after = getGlobalTtlBytes()
+        logger.info("TTL cache clear phase=${phase}, bytes_before=${before}, bytes_after=${after}, " +
+                "source_minus_target_after_clear=${after.source - after.target}, " +
+                "source_change_after_clear=${after.source - before.source}, " +
+                "target_change_after_clear=${after.target - before.target}")
+        return after
+    }
+    def getTableTtlBytes = { String clusterName ->
+        sql "use @${clusterName}"
+        def backendIds = clusterBackends[clusterName].collect { it.id }.join(',')
+        tableTabletIds.collectEntries { tableName, ids ->
+            def rows = sql """select coalesce(sum(size), 0)
+                from information_schema.file_cache_info
+                where tablet_id in (${ids.join(',')})
+                  and be_id in (${backendIds}) and lower(type) = 'ttl'"""
+            [(tableName): rows[0][0] as Long]
         }
     }
-
-    def getMetricsMethod = { ip, port, check_func ->
-        httpTest {
-            endpoint ip + ":" + port
-            uri "/brpc_metrics"
-            op "get"
-            check check_func
-        }
-    }
-
-    clearFileCache.call(ipList[0], httpPortList[0]);
-    clearFileCache.call(ipList[1], httpPortList[1]);
+    def initialTtlAfterClear = clearCacheAndLogTtl([sourceCluster, targetCluster], "before_load")
 
     def load_customer_once =  { 
         def uniqueID = Math.abs(UUID.randomUUID().hashCode()).toString()
@@ -172,47 +197,33 @@ suite("test_warm_up_compute_group") {
     }
     waitJobDone(jobId_)
     
-    sleep(30000)
-    long ttl_cache_size = 0
-    getMetricsMethod.call(ipList[0], brpcPortList[0]) {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag = false;
-            for (String line in strs) {
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    ttl_cache_size = line.substring(i).toLong()
-                    flag = true
-                    break
-                }
-            }
-            assertTrue(flag)
+    // Cache metadata is published asynchronously. Compare each table independently so that
+    // missing bytes in one table cannot be hidden by extra bytes in the other table.
+    long cacheDeadline = System.currentTimeMillis() + 120000L
+    def sourceTableBytes = [:]
+    def targetTableBytes = [:]
+    boolean cacheMatches = false
+    while (System.currentTimeMillis() < cacheDeadline) {
+        sourceTableBytes = getTableTtlBytes(sourceCluster)
+        targetTableBytes = getTableTtlBytes(targetCluster)
+        logger.info("Case table TTL cache bytes: source=${sourceTableBytes}, target=${targetTableBytes}")
+        cacheMatches = tableTabletIds.keySet().every { tableName ->
+            sourceTableBytes[tableName] > 0L &&
+                    sourceTableBytes[tableName] == targetTableBytes[tableName]
+        }
+        if (cacheMatches) {
+            break
+        }
+        sleep(1000)
     }
-
-    getMetricsMethod.call(ipList[1], brpcPortList[1]) {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag = false;
-            for (String line in strs) {
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def i = line.indexOf(' ')
-                    assertEquals(ttl_cache_size, line.substring(i).toLong())
-                    flag = true
-                    break
-                }
-            }
-            assertTrue(flag)
-    }
+    def ttlAfterWarmup = getGlobalTtlBytes()
+    logger.info("Global TTL cache bytes after warmup=${ttlAfterWarmup}, " +
+            "source_minus_target=${ttlAfterWarmup.source - ttlAfterWarmup.target}, " +
+            "baseline_after_clear=${initialTtlAfterClear}, " +
+            "source_change_since_clear=${ttlAfterWarmup.source - initialTtlAfterClear.source}, " +
+            "target_change_since_clear=${ttlAfterWarmup.target - initialTtlAfterClear.target}")
+    assertTrue(cacheMatches, "Case table TTL cache bytes must be positive and match on both clusters: " +
+            "source=${sourceTableBytes}, target=${targetTableBytes}, tablets=${tableTabletIds}")
 
     try {
         sql "WARM UP COMPUTE GROUP regression_cluster_name1 WITH COMPUTE GROUP regression_cluster_name2"
@@ -238,27 +249,21 @@ suite("test_warm_up_compute_group") {
     sql new File("""${context.file.parent}/../ddl/${table}_delete.sql""").text
     sql new File("""${context.file.parent}/../ddl/supplier_delete.sql""").text
 
-    clearFileCache.call(ipList[1], httpPortList[1]);
+    clearCacheAndLogTtl([targetCluster], "after_drop")
     jobId_ = sql "WARM UP COMPUTE GROUP regression_cluster_name1 WITH COMPUTE GROUP regression_cluster_name0"
     waitJobDone(jobId_)
-    sleep(40000)
-    getMetricsMethod.call(ipList[1], brpcPortList[1]) {
-        respCode, body ->
-            assertEquals("${respCode}".toString(), "200")
-            String out = "${body}".toString()
-            def strs = out.split('\n')
-            Boolean flag = false;
-            for (String line in strs) {
-                if (line.contains("ttl_cache_size")) {
-                    if (line.startsWith("#")) {
-                        continue
-                    }
-                    def j = line.indexOf(' ')
-                    assertEquals(0, line.substring(j).toLong())
-                    flag = true
-                    break
-                }
-            }
-            assertTrue(flag)
+    long droppedCacheDeadline = System.currentTimeMillis() + 120000L
+    def droppedTableBytes = [:]
+    boolean droppedCacheCleared = false
+    while (System.currentTimeMillis() < droppedCacheDeadline) {
+        droppedTableBytes = getTableTtlBytes(targetCluster)
+        droppedCacheCleared = droppedTableBytes.values().every { it == 0L }
+        if (droppedCacheCleared) {
+            break
+        }
+        logger.info("Waiting for dropped table TTL cache to clear on ${targetCluster}: ${droppedTableBytes}")
+        sleep(1000)
     }
+    assertTrue(droppedCacheCleared,
+            "Dropped tables must have no TTL cache on ${targetCluster}: ${droppedTableBytes}")
 }

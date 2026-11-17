@@ -7352,6 +7352,40 @@ TEST(RecyclerTest, delete_rowset_data) {
     }
 }
 
+TEST(RecyclerTest, delete_partial_update_rowset_data_by_recycling_state) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr auto resource_id = "partial_update_delete";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    instance.add_obj_info()->set_id(resource_id);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.at(resource_id);
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto rowset = create_rowset(resource_id, 10001, 10002, 1, schema,
+                                RowsetStatePB::BEGIN_PARTIAL_UPDATE);
+    const auto segment = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 0);
+    const auto extra_segment = segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 1);
+    std::map<std::string, doris::RowsetMetaCloudPB> rowsets {{rowset.rowset_id_v2(), rowset}};
+
+    for (auto type : {RowsetRecyclingState::FORMAL_ROWSET, RowsetRecyclingState::TMP_ROWSET}) {
+        SCOPED_TRACE(static_cast<int>(type));
+        ASSERT_EQ(accessor->put_file(segment, ""), 0);
+        ASSERT_EQ(accessor->put_file(extra_segment, ""), 0);
+
+        RecyclerMetricsContext metrics_context;
+        ASSERT_EQ(recycler.delete_rowset_data(rowsets, type, metrics_context), 0);
+        EXPECT_EQ(accessor->exists(segment), 1);
+        EXPECT_EQ(accessor->exists(extra_segment),
+                  type == RowsetRecyclingState::FORMAL_ROWSET ? 0 : 1);
+    }
+}
+
 TEST(RecyclerTest, delete_v2_inverted_index_with_segment_list) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -7485,6 +7519,62 @@ TEST(RecyclerTest, delete_rowset_data_without_delete_bitmap_meta) {
     EXPECT_EQ(deleted_paths[0], segment_path(rowset.tablet_id(), rowset.rowset_id_v2(), 0));
 }
 
+TEST(RecyclerTest, delete_rowset_data_skips_delete_bitmap_for_non_mow_table) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    constexpr std::string_view resource_id = "delete_rowset_data_skip_non_mow_dbm";
+    InstanceRecycler recycler(txn_kv, create_recycler_test_instance(std::string(resource_id)),
+                              thread_group, std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    constexpr int64_t table_id = 29901;
+    constexpr int64_t index_id = 29902;
+    constexpr int64_t non_mow_partition_id = 29903;
+    constexpr int64_t non_mow_tablet_id = 29904;
+    constexpr int64_t mow_partition_id = 29905;
+    constexpr int64_t mow_tablet_id = 29906;
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, index_id, non_mow_partition_id,
+                            non_mow_tablet_id, false),
+              0);
+    ASSERT_EQ(
+            create_tablet(txn_kv.get(), table_id, index_id, mow_partition_id, mow_tablet_id, true),
+            0);
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    schema.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+
+    auto non_mow_rowset =
+            create_rowset(std::string(resource_id), non_mow_tablet_id, index_id, 1, schema);
+    non_mow_rowset.set_partition_id(non_mow_partition_id);
+    auto mow_rowset = create_rowset(std::string(resource_id), mow_tablet_id, index_id, 1, schema);
+    mow_rowset.set_partition_id(mow_partition_id);
+
+    std::atomic<int> decrement_calls {0};
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts",
+            [&](auto&&) { ++decrement_calls; }, &guard);
+    sp->enable_processing();
+
+    RecyclerMetricsContext metrics_context;
+    std::map<std::string, doris::RowsetMetaCloudPB> rowsets;
+    rowsets.emplace(non_mow_rowset.rowset_id_v2(), non_mow_rowset);
+    ASSERT_EQ(recycler.delete_rowset_data(rowsets, RowsetRecyclingState::FORMAL_ROWSET,
+                                          metrics_context),
+              0);
+    EXPECT_EQ(decrement_calls.load(), 0);
+
+    rowsets.clear();
+    rowsets.emplace(mow_rowset.rowset_id_v2(), mow_rowset);
+    ASSERT_EQ(recycler.delete_rowset_data(rowsets, RowsetRecyclingState::FORMAL_ROWSET,
+                                          metrics_context),
+              0);
+    EXPECT_EQ(decrement_calls.load(), 1);
+}
+
 TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_caches_partition_mow_state) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
@@ -7555,39 +7645,38 @@ TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_only_deletes_mow_tablet) {
     check_delete_bitmap_keys_size(txn_kv.get(), non_mow_tablet_id, 1);
 }
 
-TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_cleans_row_binlog_without_caching_false) {
+TEST(RecyclerTest, delete_versioned_delete_bitmap_kvs_cleans_changelog_without_caching_false) {
     auto txn_kv = std::make_shared<MemTxnKv>();
     ASSERT_EQ(txn_kv->init(), 0);
 
     constexpr int64_t table_id = 30201;
     constexpr int64_t data_index_id = 30202;
-    constexpr int64_t row_binlog_index_id = 30203;
+    constexpr int64_t changelog_index_id = 30203;
     constexpr int64_t partition_id = 30204;
     constexpr int64_t data_tablet_id = 30205;
-    constexpr int64_t row_binlog_tablet_id = 30206;
-    InstanceRecycler recycler(txn_kv, create_recycler_test_instance("versioned_dbm_row_binlog"),
+    constexpr int64_t changelog_tablet_id = 30206;
+    InstanceRecycler recycler(txn_kv, create_recycler_test_instance("versioned_dbm_changelog"),
                               thread_group, std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
     auto accessor = recycler.accessor_map_.begin()->second;
-    ASSERT_EQ(
-            create_tablet(txn_kv.get(), table_id, row_binlog_index_id, partition_id,
-                          row_binlog_tablet_id, false, false, TabletRolePB::TABLET_ROLE_ROW_BINLOG),
-            0);
+    ASSERT_EQ(create_tablet(txn_kv.get(), table_id, changelog_index_id, partition_id,
+                            changelog_tablet_id, false, false, TabletRolePB::TABLET_ROLE_CHANGELOG),
+              0);
     ASSERT_EQ(create_tablet(txn_kv.get(), table_id, data_index_id, partition_id, data_tablet_id,
                             true),
               0);
-    ASSERT_EQ(create_delete_bitmaps_v2(txn_kv.get(), accessor.get(), row_binlog_tablet_id,
-                                       "row_binlog_rowset"),
+    ASSERT_EQ(create_delete_bitmaps_v2(txn_kv.get(), accessor.get(), changelog_tablet_id,
+                                       "changelog_rowset"),
               0);
     ASSERT_EQ(create_delete_bitmaps_v2(txn_kv.get(), accessor.get(), data_tablet_id, "data_rowset"),
               0);
 
-    const int64_t get_count_before_row_binlog = txn_kv->get_count_;
-    ASSERT_EQ(recycler.delete_versioned_delete_bitmap_kvs(partition_id, row_binlog_tablet_id,
-                                                          "row_binlog_rowset"),
+    const int64_t get_count_before_changelog = txn_kv->get_count_;
+    ASSERT_EQ(recycler.delete_versioned_delete_bitmap_kvs(partition_id, changelog_tablet_id,
+                                                          "changelog_rowset"),
               0);
-    EXPECT_EQ(txn_kv->get_count_, get_count_before_row_binlog + 2);
-    check_delete_bitmap_keys_size(txn_kv.get(), row_binlog_tablet_id, 0);
+    EXPECT_EQ(txn_kv->get_count_, get_count_before_changelog + 2);
+    check_delete_bitmap_keys_size(txn_kv.get(), changelog_tablet_id, 0);
 
     const int64_t get_count_before_data = txn_kv->get_count_;
     ASSERT_EQ(recycler.delete_versioned_delete_bitmap_kvs(partition_id, data_tablet_id,

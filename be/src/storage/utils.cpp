@@ -38,6 +38,7 @@
 #include "common/status.h"
 #include "core/value/ipv4_value.h"
 #include "core/value/ipv6_value.h"
+#include "core/value/uuid_value.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -316,5 +317,9 @@ bool valid_ipv4(const std::string& value_str) {
 
 bool valid_ipv6(const std::string& value_str) {
     return IPv6Value::is_valid_string(value_str.c_str(), value_str.size());
+}
+
+bool valid_uuid(const std::string& value_str) {
+    return UUIDValue::is_valid_string(value_str.c_str(), value_str.size());
 }
 } // namespace doris

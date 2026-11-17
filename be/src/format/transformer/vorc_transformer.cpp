@@ -47,6 +47,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/pod_array.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -54,7 +55,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
-#include "format/orc/vorc_reader.h"
+#include "format_v2/orc/orc_file_input_stream.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
 #include "orc/MemoryPool.hh"
@@ -64,8 +65,45 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
+
+static Status annotate_orc_uuid(const DataTypePtr& data_type, orc::Type* orc_type) {
+    const auto nested_type = remove_nullable(data_type);
+    DataTypes children;
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_UUID:
+        if (orc_type->getKind() != orc::BINARY) {
+            return Status::InvalidArgument("ORC UUID requires BINARY, got {}",
+                                           orc_type->toString());
+        }
+        orc_type->setAttribute("doris.logical_type", "uuid");
+        return Status::OK();
+    case TYPE_ARRAY:
+        children = {assert_cast<const DataTypeArray&>(*nested_type).get_nested_type()};
+        break;
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        children = {map_type.get_key_type(), map_type.get_value_type()};
+        break;
+    }
+    case TYPE_STRUCT:
+        children = assert_cast<const DataTypeStruct&>(*nested_type).get_elements();
+        break;
+    default:
+        return Status::OK();
+    }
+    if (orc_type->getSubtypeCount() != children.size()) {
+        return Status::InvalidArgument("ORC schema {} does not match {}", orc_type->toString(),
+                                       data_type->get_name());
+    }
+    for (size_t index = 0; index < children.size(); ++index) {
+        RETURN_IF_ERROR(annotate_orc_uuid(children[index],
+                                          const_cast<orc::Type*>(orc_type->getSubtype(index))));
+    }
+    return Status::OK();
+}
 
 static Status normalize_iceberg_binary_column(const ColumnPtr& column, const DataTypePtr& type,
                                               const iceberg::NestedField& nested_field,
@@ -145,15 +183,23 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
                                  std::vector<std::string> column_names, bool output_object_data,
                                  TFileCompressType::type compress_type,
                                  const iceberg::Schema* iceberg_schema,
-                                 std::shared_ptr<io::FileSystem> fs)
+                                 std::shared_ptr<io::FileSystem> fs,
+                                 const std::vector<int32_t>& nan_count_field_ids)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _fs(fs),
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
           _schema_str(std::move(schema)),
-          _iceberg_schema(iceberg_schema) {
-    _write_options->setTimezoneName(_state->timezone());
+          _iceberg_schema(iceberg_schema),
+          _nan_count_field_ids(nan_count_field_ids) {
+    // ORC recognizes GMT as its UTC fast path. Other UTC aliases can lack a zoneinfo file
+    // or resolve through a locally overridden UTC file, shifting timestamp statistics.
+    int32_t fixed_offset = 0;
+    const bool is_utc =
+            TimezoneUtils::try_get_fixed_offset_seconds(_state->timezone_obj(), &fixed_offset) &&
+            fixed_offset == 0;
+    _write_options->setTimezoneName(is_utc ? "GMT" : _state->timezone());
     _write_options->setUseTightNumericVector(true);
     set_compression_type(compress_type);
     if (_iceberg_schema != nullptr) {
@@ -169,6 +215,12 @@ Status VOrcTransformer::open() {
     if (!_schema_str.empty()) {
         try {
             _schema = orc::Type::buildTypeFromString(_schema_str);
+            DORIS_CHECK_EQ(_schema->getSubtypeCount(), _output_vexpr_ctxs.size());
+            for (size_t index = 0; index < _output_vexpr_ctxs.size(); ++index) {
+                RETURN_IF_ERROR(
+                        annotate_orc_uuid(_output_vexpr_ctxs[index]->root()->data_type(),
+                                          const_cast<orc::Type*>(_schema->getSubtype(index))));
+            }
         } catch (const std::exception& e) {
             return Status::InternalError("Orc build schema from \"{}\" failed: {}", _schema_str,
                                          e.what());
@@ -192,6 +244,11 @@ Status VOrcTransformer::open() {
         }
     }
 
+    if (orc_serde_utils::has_nanosecond_timestamp(*_schema)) {
+        // ORC and cctz use different ancient local offsets. A UTC wall-clock carrier avoids
+        // shifting nanosecond boundary dates when another session reads the file.
+        _write_options->setTimezoneName("GMT");
+    }
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
     try {
         _write_options->setMemoryPool(ExecEnv::GetInstance()->orc_memory_pool());
@@ -200,6 +257,9 @@ Status VOrcTransformer::open() {
         return Status::InternalError("failed to create writer: {}", e.what());
     }
     _writer->addUserMetadata("CreatedBy", doris::get_short_version());
+    if (_iceberg_schema != nullptr) {
+        _nan_value_counter.emplace(*_iceberg_schema, _nan_count_field_ids);
+    }
     return Status::OK();
 }
 
@@ -286,8 +346,18 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         type = orc::createPrimitiveType(orc::STRING);
         break;
     }
+    case TYPE_UUID: {
+        type = orc::createPrimitiveType(orc::BINARY);
+        type->setAttribute("doris.logical_type", "uuid");
+        break;
+    }
     case TYPE_DATEV2: {
         type = orc::createPrimitiveType(orc::DATE);
+        break;
+    }
+    case TYPE_TIMESTAMP_NS: {
+        type = orc::createPrimitiveType(orc::TIMESTAMP);
+        type->setAttribute("iceberg.timestamp-unit", "NANOS");
         break;
     }
     case TYPE_DATETIMEV2: {
@@ -365,6 +435,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         };
         switch (nested_field->field_type()->type_id()) {
         case iceberg::TypeID::UUID:
+            // Native UUID serde already writes network-order bytes; retain its ORC annotation.
+            if (primitive_type == TYPE_UUID) {
+                type->setAttribute(ICEBERG_BINARY_TYPE, "UUID");
+                break;
+            }
             use_iceberg_binary_type("UUID");
             break;
         case iceberg::TypeID::FIXED:
@@ -427,9 +502,9 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
         io::FileReaderSPtr file_reader;
         io::FileReaderOptions reader_options;
         RETURN_IF_ERROR(_fs->open_file(_file_writer->path(), &file_reader, &reader_options));
-        auto input_stream = std::make_unique<ORCFileInputStream>(
-                _file_writer->path().native(), file_reader, nullptr, nullptr, 8L * 1024L * 1024L,
-                1L * 1024L * 1024L);
+        auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+                _file_writer->path().native(), file_reader, nullptr, nullptr,
+                format::orc::OrcFileInputStreamOptions {});
         std::unique_ptr<orc::Reader> reader =
                 orc::createReader(std::move(input_stream), orc::ReaderOptions());
         std::unique_ptr<orc::Statistics> file_stats = reader->getStatistics();
@@ -483,6 +558,12 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
         }
 
         stats->__set_value_counts(value_counts);
+        // ORC statistics carry no NaN count, so it comes from the counter fed during write() rather than
+        // from the footer read above. Left unset when no column was counted, so FE keeps reporting
+        // "unknown" instead of an empty claim -- the same shape an older BE produces.
+        if (_nan_value_counter.has_value() && !_nan_value_counter->empty()) {
+            stats->__set_nan_value_counts(_nan_value_counter->counts());
+        }
         if (has_any_null_count) {
             stats->__set_null_value_counts(null_value_counts);
         }
@@ -567,10 +648,26 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
         }
     } else if (const auto* ts_stats =
                        dynamic_cast<const orc::TimestampColumnStatistics*>(col_stats)) {
+        if (remove_nullable(data_type)->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+            // Omit bounds rather than publish microseconds as Iceberg nanoseconds.
+            return false;
+        }
         if (ts_stats->hasMinimum() && ts_stats->hasMaximum()) {
+            // ORC stores milliseconds plus a sub-millisecond nanos tail. Dropping that tail
+            // makes Iceberg's upper bound smaller than real rows and causes false-negative pruning.
+            const int32_t min_nanos = ts_stats->getMinimumNanos();
+            const int32_t max_nanos = ts_stats->getMaximumNanos();
+            int64_t min_val;
+            int64_t max_val;
+            if (min_nanos < 0 || min_nanos > 999999 || max_nanos < 0 || max_nanos > 999999 ||
+                __builtin_mul_overflow(ts_stats->getMinimum(), int64_t(1000), &min_val) ||
+                __builtin_mul_overflow(ts_stats->getMaximum(), int64_t(1000), &max_val) ||
+                __builtin_add_overflow(min_val, int64_t(min_nanos / 1000), &min_val) ||
+                __builtin_add_overflow(max_val, int64_t((max_nanos + 999) / 1000), &max_val) ||
+                min_val > max_val) {
+                return false;
+            }
             has_bounds = true;
-            int64_t min_val = ts_stats->getMinimum() * 1000;
-            int64_t max_val = ts_stats->getMaximum() * 1000;
             (*lower_bounds)[field_id] =
                     std::string(reinterpret_cast<const char*>(&min_val), sizeof(int64_t));
             (*upper_bounds)[field_id] =
@@ -580,32 +677,27 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
                        dynamic_cast<const orc::DecimalColumnStatistics*>(col_stats)) {
         if (decimal_stats->hasMinimum() && decimal_stats->hasMaximum()) {
             has_bounds = true;
-            (*lower_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMinimum());
-            (*upper_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMaximum());
+            const auto scale = static_cast<int32_t>(remove_nullable(data_type)->get_scale());
+            (*lower_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMinimum(), scale);
+            (*upper_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMaximum(), scale);
         }
     }
 
     return has_bounds;
 }
 
-std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
-    orc::Int128 val = decimal.value;
-    if (val == 0) {
-        char zero = 0;
-        return std::string(&zero, 1);
-    }
+std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal, int32_t scale) {
+    // ORC footer statistics trim trailing zeros: -1.00 becomes value=-1, scale=0.
+    // Iceberg requires the unscaled value at the column's declared scale, which is -100 here.
+    DORIS_CHECK_GE(scale, decimal.scale);
+    bool overflow = false;
+    auto val = orc::scaleUpInt128ByPowerOfTen(decimal.value, scale - decimal.scale, overflow);
+    DORIS_CHECK(!overflow);
 
-    // Convert Int128 -> signed big-endian minimal bytes
-    bool negative = val < 0;
-    auto high = static_cast<uint64_t>(val.getHighBits());
-    auto low = val.getLowBits();
-
-    // If negative, convert to two's complement explicitly
-    if (negative) {
-        // two's complement for 128-bit
-        low = ~low + 1;
-        high = ~high + (low == 0 ? 1 : 0);
-    }
+    // Int128 already exposes two's-complement bits; negating -1 again would encode +1.
+    const bool negative = val < 0;
+    const auto high = static_cast<uint64_t>(val.getHighBits());
+    const auto low = val.getLowBits();
 
     // Serialize to big-endian bytes
     uint8_t buf[16];
@@ -614,9 +706,10 @@ std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
         buf[i + 8] = static_cast<uint8_t>(low >> (56 - i * 8));
     }
 
-    // Strip leading sign-extension bytes (Iceberg minimal encoding)
+    // Strip redundant sign extension, retaining one byte for zero and the sign prefix
+    // when the next byte has the opposite sign: 128 -> 00 80, -129 -> FF 7F.
     int start = 0;
-    uint8_t sign_byte = negative ? 0xFF : 0x00;
+    const uint8_t sign_byte = negative ? 0xFF : 0x00;
     while (start < 15 && buf[start] == sign_byte &&
            ((buf[start + 1] & 0x80) == (sign_byte & 0x80))) {
         ++start;
@@ -627,6 +720,9 @@ std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
 Status VOrcTransformer::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
+    }
+    if (_nan_value_counter.has_value()) {
+        _nan_value_counter->count(block);
     }
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
@@ -656,9 +752,9 @@ Status VOrcTransformer::write(const Block& block) {
             normalized_columns.push_back(std::move(raw_column));
             const auto& write_column = normalized_columns.back();
             RETURN_IF_ERROR(_resize_row_batch(col.type, *write_column, root->fields[i]));
-            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(_state->timezone(), *write_column,
-                                                            nullptr, root->fields[i], 0, sz, arena,
-                                                            options));
+            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(_write_options->getTimezoneName(),
+                                                            *write_column, nullptr, root->fields[i],
+                                                            0, sz, arena, options));
         }
         root->numElements = sz;
         _writer->add(*row_batch);
@@ -836,6 +932,11 @@ static Status normalize_iceberg_binary_column(const ColumnPtr& column, const Dat
 
     switch (nested_field.field_type()->type_id()) {
     case iceberg::TypeID::UUID:
+        if (type->get_primitive_type() == TYPE_UUID) {
+            // Native UUID SerDe emits network-order bytes; do not reinterpret its in-memory layout.
+            *normalized_column = column;
+            return Status::OK();
+        }
         return normalize_iceberg_uuid_column(column, normalized_column, skipped_rows);
     case iceberg::TypeID::FIXED:
         return normalize_iceberg_fixed_column(column, nested_field, normalized_column,

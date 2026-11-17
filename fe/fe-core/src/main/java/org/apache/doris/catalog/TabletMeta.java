@@ -34,10 +34,10 @@ public class TabletMeta {
     private int newSchemaHash;
 
     private TStorageMedium storageMedium;
-    private final boolean isRowBinlog;
+    private final boolean isChangelog;
 
     public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
-            TStorageMedium storageMedium, boolean isRowBinlog) {
+            TStorageMedium storageMedium, boolean isChangelog) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -47,7 +47,7 @@ public class TabletMeta {
         this.newSchemaHash = -1;
 
         this.storageMedium = storageMedium;
-        this.isRowBinlog = isRowBinlog;
+        this.isChangelog = isChangelog;
     }
 
     public long getDbId() {
@@ -74,8 +74,8 @@ public class TabletMeta {
         this.storageMedium = storageMedium;
     }
 
-    public boolean isRowBinlog() {
-        return isRowBinlog;
+    public boolean isChangelog() {
+        return isChangelog;
     }
 
     public int getOldSchemaHash() {

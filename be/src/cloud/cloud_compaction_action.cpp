@@ -145,6 +145,14 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
 
     // check compaction_type equals 'base' or 'cumulative'
     auto& compaction_type = req->param(PARAM_COMPACTION_TYPE);
+    if (compaction_type == PARAM_COMPACTION_CHANGELOG_TTL) {
+        if (tablet_id == 0 || table_id != 0) {
+            return Status::InvalidArgument("changelog_ttl requires a tablet_id");
+        }
+        RETURN_IF_ERROR(_engine.submit_changelog_ttl(tablet_id, true));
+        *json_result = R"({"status":"Success","msg":"changelog TTL task queued"})";
+        return Status::OK();
+    }
     if (compaction_type != PARAM_COMPACTION_BASE &&
         compaction_type != PARAM_COMPACTION_CUMULATIVE &&
         compaction_type != PARAM_COMPACTION_FULL) {

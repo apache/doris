@@ -1,0 +1,386 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/index/inverted/query/exec/cursor_chained_postings.h"
+
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <numeric>
+
+#include "common/check.h"
+#include "storage/index/inverted/query/exec/docid_sink.h"
+
+namespace doris::index_query {
+
+namespace {
+
+constexpr size_t kBitSetDocs = 16 * 1024;
+constexpr size_t kBitSetMinInput = 32;
+
+struct DocumentOutput {
+    static constexpr bool needs_ordinals = false;
+    std::vector<uint32_t>* rows;
+
+    void append(uint32_t doc, uint32_t /*ordinal*/) const { rows->push_back(doc); }
+    void append_all(std::span<const uint32_t> docs) const {
+        rows->insert(rows->end(), docs.begin(), docs.end());
+    }
+};
+
+struct OrdinalOutput {
+    static constexpr bool needs_ordinals = true;
+    std::vector<uint32_t>* ordinals;
+
+    void append(uint32_t /*doc*/, uint32_t ordinal) const { ordinals->push_back(ordinal); }
+    void append_all(std::span<const uint32_t> docs) const {
+        const size_t begin = ordinals->size();
+        ordinals->resize(begin + docs.size());
+        std::iota(ordinals->begin() + begin, ordinals->end(), 0U);
+    }
+};
+
+struct SelectedOutput : DocumentOutput {
+    static constexpr bool needs_ordinals = true;
+    std::vector<uint32_t>* ordinals;
+
+    void append(uint32_t doc, uint32_t ordinal) const {
+        rows->push_back(doc);
+        ordinals->push_back(ordinal);
+    }
+};
+
+// Ordinal selection intersects one word at a time and ranks matches among the document bits.
+template <typename Output>
+void intersect_through_bit_set(std::span<const uint32_t> docs, std::span<const uint32_t> candidates,
+                               Output out) {
+    const uint32_t first = docs.front();
+    const size_t words = ((docs.back() - first) >> 6) + 1;
+    std::array<uint64_t, kBitSetDocs / 64> bits;
+    std::fill_n(bits.begin(), words, 0);
+    for (const uint32_t doc : docs) {
+        const uint32_t off = doc - first;
+        bits[off >> 6] |= uint64_t {1} << (off & 63);
+    }
+    if constexpr (Output::needs_ordinals) {
+        size_t candidate = 0;
+        uint32_t preceding = 0;
+        for (size_t word = 0; word < words; ++word) {
+            uint64_t matches = 0;
+            const auto end = static_cast<uint32_t>((word + 1) * 64);
+            while (candidate < candidates.size() && candidates[candidate] - first < end) {
+                matches |= uint64_t {1} << ((candidates[candidate++] - first) & 63);
+            }
+            matches &= bits[word];
+            while (matches != 0) {
+                const auto bit = static_cast<uint32_t>(std::countr_zero(matches));
+                const uint32_t ordinal =
+                        preceding + static_cast<uint32_t>(std::popcount(
+                                            bits[word] & ((uint64_t {1} << bit) - 1)));
+                out.append(first + static_cast<uint32_t>(word * 64) + bit, ordinal);
+                matches &= matches - 1;
+            }
+            preceding += static_cast<uint32_t>(std::popcount(bits[word]));
+        }
+    } else {
+        // Every candidate is written and kept only when its bit is set, so no branch depends on
+        // whether it matches.
+        std::vector<uint32_t>& rows = *out.rows;
+        const size_t begin = rows.size();
+        rows.resize(begin + candidates.size());
+        uint32_t* next = rows.data() + begin;
+        for (const uint32_t candidate : candidates) {
+            const uint32_t off = candidate - first;
+            *next = candidate;
+            next += (bits[off >> 6] >> (off & 63)) & 1;
+        }
+        rows.resize(static_cast<size_t>(next - rows.data()));
+    }
+}
+
+// Selects documents or their block ordinals with the same intersection strategy.
+template <typename Output>
+void intersect_block(std::span<const uint32_t> docs, std::span<const uint32_t> candidates,
+                     Output out) {
+    if (docs.empty() || candidates.empty()) {
+        return;
+    }
+    if (candidates.size() == docs.size() && candidates.front() == docs.front() &&
+        candidates.back() == docs.back() && std::ranges::equal(candidates, docs)) {
+        out.append_all(docs);
+        return;
+    }
+    const uint64_t width = static_cast<uint64_t>(docs.back()) - docs.front() + 1;
+    if (candidates.size() == width) {
+        out.append_all(docs);
+        return;
+    }
+    const size_t probes_per_candidate = std::bit_width(docs.size()) + 1;
+    if (candidates.size() < docs.size() / probes_per_candidate) {
+        auto next = docs.begin();
+        for (const uint32_t candidate : candidates) {
+            next = std::lower_bound(next, docs.end(), candidate);
+            if (next == docs.end()) {
+                break;
+            }
+            if (*next == candidate) {
+                out.append(*next, static_cast<uint32_t>(next - docs.begin()));
+                ++next;
+            }
+        }
+        return;
+    }
+    const size_t probes_per_doc = std::bit_width(candidates.size()) + 1;
+    if (docs.size() < candidates.size() / probes_per_doc) {
+        auto next = candidates.begin();
+        for (size_t ordinal = 0; ordinal < docs.size(); ++ordinal) {
+            next = std::lower_bound(next, candidates.end(), docs[ordinal]);
+            if (next == candidates.end()) {
+                break;
+            }
+            if (*next == docs[ordinal]) {
+                out.append(docs[ordinal], static_cast<uint32_t>(ordinal));
+                ++next;
+            }
+        }
+        return;
+    }
+    if (candidates.size() >= kBitSetMinInput && docs.size() >= kBitSetMinInput &&
+        width <= kBitSetDocs) {
+        intersect_through_bit_set(docs, candidates, out);
+        return;
+    }
+    size_t ordinal = 0;
+    size_t candidate = 0;
+    while (ordinal < docs.size() && candidate < candidates.size()) {
+        if (docs[ordinal] < candidates[candidate]) {
+            ++ordinal;
+        } else if (candidates[candidate] < docs[ordinal]) {
+            ++candidate;
+        } else {
+            out.append(docs[ordinal], static_cast<uint32_t>(ordinal));
+            ++ordinal;
+            ++candidate;
+        }
+    }
+}
+
+} // namespace
+
+void intersect_block_ordinals(std::span<const uint32_t> docs, std::span<const uint32_t> candidates,
+                              std::vector<uint32_t>* ordinals) {
+    intersect_block(docs, candidates, OrdinalOutput {ordinals});
+}
+
+Status CursorChainedPostings::start(const std::vector<uint32_t>* candidates) {
+    _candidates = candidates;
+    if (_selected != nullptr) {
+        _selected->ordinals.clear();
+        _selected->blocks.clear();
+    }
+    return _cursor.prefetch(candidates, /*positions=*/false);
+}
+
+Status CursorChainedPostings::collect(std::vector<uint32_t>* out) {
+    if (_candidates == nullptr) {
+        out->reserve(out->size() + _cursor.doc_freq());
+        VectorDocIdSink sink(*out);
+        return list_blocks(_cursor, sink);
+    }
+    out->reserve(out->size() + std::min<uint64_t>(_candidates->size(), _cursor.doc_freq()));
+    return for_each_candidate_block(
+            _cursor, *_candidates,
+            [this, out](const PostingsBlock& block, std::span<const uint32_t> slice) {
+                // A dense block holds every candidate in its span.
+                if (block.dense) {
+                    out->insert(out->end(), slice.begin(), slice.end());
+                } else if (_selected != nullptr) {
+                    const size_t begin = _selected->ordinals.size();
+                    intersect_block(block.docs, slice,
+                                    SelectedOutput {{out}, &_selected->ordinals});
+                    if (_selected->ordinals.size() != begin) {
+                        _selected->blocks.push_back(
+                                {block.docs.back(), _selected->ordinals.size()});
+                    }
+                } else {
+                    intersect_block(block.docs, slice, DocumentOutput {out});
+                }
+                return Status::OK();
+            });
+}
+
+namespace {
+
+template <typename Cursors>
+Status chain(const Cursors& cursors, const std::vector<uint32_t>* candidates,
+             std::vector<uint32_t>* rows) {
+    std::vector<CursorChainedPostings> terms;
+    terms.reserve(cursors.size());
+    std::vector<ChainedPostings*> chain;
+    chain.reserve(cursors.size());
+    for (const auto& cursor : cursors) {
+        terms.emplace_back(*cursor);
+        chain.push_back(&terms.back());
+    }
+    return chained_conjunction(chain, candidates, rows);
+}
+
+} // namespace
+
+Status chain_cursors(std::span<const std::unique_ptr<PostingsCursor>> cursors,
+                     const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows) {
+    return chain(cursors, candidates, rows);
+}
+
+Status chain_cursors(std::span<PostingsCursor* const> cursors,
+                     const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows) {
+    return chain(cursors, candidates, rows);
+}
+
+namespace {
+
+// The most rows of the cheapest cursor a stream lists at once.
+constexpr size_t kStreamRows = size_t {1} << 16;
+
+// The cheapest cursor of a stream, handing on its rows a batch at a time.
+class StreamLead {
+public:
+    explicit StreamLead(PostingsCursor& cursor) : _cursor(cursor) {}
+
+    Status start() { return _cursor.next_block(&_block, &_eof); }
+    bool exhausted() const { return _eof; }
+
+    // Replaces `rows` by the cursor's next rows, at most kStreamRows of them; the rest of the
+    // current block waits for the next batch.
+    Status take_batch(std::vector<uint32_t>* rows) {
+        rows->clear();
+        while (!_eof) {
+            const size_t size = _block.size();
+            const size_t stop = std::min(size, _taken + (kStreamRows - rows->size()));
+            if (_block.dense) {
+                const size_t old = rows->size();
+                rows->resize(old + stop - _taken);
+                std::iota(rows->begin() + old, rows->end(),
+                          static_cast<uint32_t>(_block.range_begin + _taken));
+            } else {
+                rows->insert(rows->end(), _block.docs.begin() + _taken, _block.docs.begin() + stop);
+            }
+            if (stop < size) {
+                _taken = stop;
+                return Status::OK();
+            }
+            RETURN_IF_ERROR(_cursor.next_block(&_block, &_eof));
+            _taken = 0;
+            if (rows->size() == kStreamRows) {
+                return Status::OK();
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    PostingsCursor& _cursor;
+    PostingsBlock _block;
+    size_t _taken = 0;
+    bool _eof = false;
+};
+
+// A cursor narrowing a stream's rows; it keeps its current block for the next batch's rows.
+class StreamFollower {
+public:
+    explicit StreamFollower(PostingsCursor& cursor) : _cursor(cursor) {}
+
+    // Appends the ascending `rows` the cursor holds to `out`; `ended` once it holds no later row.
+    Status narrow(std::span<const uint32_t> rows, std::vector<uint32_t>* out, bool* ended) {
+        size_t next = 0;
+        while (next < rows.size()) {
+            if (!_loaded || _last < rows[next]) {
+                bool eof = false;
+                RETURN_IF_ERROR(_cursor.seek_block(rows[next], &_block, &eof));
+                if (eof) {
+                    *ended = true;
+                    return Status::OK();
+                }
+                _loaded = true;
+                _last = _block.doc_at(_block.size() - 1);
+            }
+            const uint32_t first = _block.doc_at(0);
+            const size_t begin =
+                    gallop_past(rows, next, [first](uint32_t doc) { return doc < first; });
+            next = gallop_past(rows, begin, [this](uint32_t doc) { return doc <= _last; });
+            if (next == begin) {
+                continue;
+            }
+            const auto slice = rows.subspan(begin, next - begin);
+            // A dense block holds every row in its span.
+            if (_block.dense) {
+                out->insert(out->end(), slice.begin(), slice.end());
+            } else {
+                intersect_block(_block.docs, slice, DocumentOutput {out});
+            }
+        }
+        return Status::OK();
+    }
+
+private:
+    PostingsCursor& _cursor;
+    PostingsBlock _block;
+    uint32_t _last = 0;
+    bool _loaded = false;
+};
+
+} // namespace
+
+Status stream_cursors(std::span<PostingsCursor* const> cursors, DocIdSink& sink) {
+    DORIS_CHECK(!cursors.empty());
+    std::vector<PostingsCursor*> order(cursors.begin(), cursors.end());
+    std::ranges::stable_sort(order, {},
+                             [](const PostingsCursor* cursor) { return cursor->doc_freq(); });
+    for (PostingsCursor* cursor : order) {
+        RETURN_IF_ERROR(cursor->prefetch(nullptr, /*positions=*/false));
+    }
+    StreamLead lead(*order.front());
+    std::vector<StreamFollower> followers;
+    followers.reserve(order.size() - 1);
+    for (size_t i = 1; i < order.size(); ++i) {
+        followers.emplace_back(*order[i]);
+    }
+    std::vector<uint32_t> rows;
+    std::vector<uint32_t> narrowed;
+    RETURN_IF_ERROR(lead.start());
+    while (!lead.exhausted()) {
+        RETURN_IF_ERROR(lead.take_batch(&rows));
+        bool ended = false;
+        for (StreamFollower& follower : followers) {
+            narrowed.clear();
+            RETURN_IF_ERROR(follower.narrow(rows, &narrowed, &ended));
+            rows.swap(narrowed);
+            if (rows.empty()) {
+                break;
+            }
+        }
+        if (!rows.empty()) {
+            RETURN_IF_ERROR(sink.append_sorted(rows));
+        }
+        if (ended) {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
+}
+
+} // namespace doris::index_query

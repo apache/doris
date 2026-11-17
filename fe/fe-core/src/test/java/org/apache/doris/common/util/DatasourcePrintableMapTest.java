@@ -60,6 +60,15 @@ public class DatasourcePrintableMapTest {
     }
 
     @Test
+    public void testMongoCredentialsAreMasked() {
+        String result = new DatasourcePrintableMap<>(Map.of(
+                "mongodb.uri", "mongodb://fixture-user:fixture-secret@localhost:27017",
+                "mongodb.password", "fixture-secret"), "=", true, true, true).toString();
+        Assertions.assertFalse(result.contains("fixture-secret"));
+        Assertions.assertFalse(result.contains("mongodb://"));
+    }
+
+    @Test
     public void testBasicConstructor() {
         Map<String, String> testMap = new HashMap<>();
         testMap.put("key1", "value1");
@@ -205,6 +214,29 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(result.contains("PASSWORD = " + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("Password = " + DatasourcePrintableMap.PASSWORD_MASK));
         Assertions.assertTrue(result.contains("password = " + DatasourcePrintableMap.PASSWORD_MASK));
+    }
+
+    @Test
+    public void testFlussNamespacedCredentialsAreMaskedWithoutEnumeratingProviders() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("fluss.client.security.sasl.username", "alice");
+        properties.put("fluss.client.security.sasl.password", "client-password");
+        properties.put("fluss.client.security.sasl.jaas.config", "jaas-secret");
+        properties.put("fluss.lake.paimon.s3.access-key", "s3-key");
+        properties.put("fluss.lake.paimon.oss.secret-key", "oss-secret");
+        properties.put("fluss.lake.paimon.azure.oauth2_client_secret", "azure-secret");
+        properties.put("fluss.lake.paimon.rest.token", "rest-token");
+        properties.put("fluss.lake.paimon.s3.endpoint", "http://minio:9000");
+
+        String result = new DatasourcePrintableMap<>(properties, "=", false, false, true).toString();
+        Assertions.assertFalse(result.contains("alice"), result);
+        Assertions.assertFalse(result.contains("client-password"), result);
+        Assertions.assertFalse(result.contains("jaas-secret"), result);
+        Assertions.assertFalse(result.contains("s3-key"), result);
+        Assertions.assertFalse(result.contains("oss-secret"), result);
+        Assertions.assertFalse(result.contains("azure-secret"), result);
+        Assertions.assertFalse(result.contains("rest-token"), result);
+        Assertions.assertTrue(result.contains("fluss.lake.paimon.s3.endpoint = http://minio:9000"), result);
     }
 
     @Test

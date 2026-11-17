@@ -56,25 +56,25 @@ static void check_array_remove_case(DataTypePtr array_type, DataTypePtr element_
 
     ColumnNumbers arguments = {0, 1};
     std::vector<DataTypePtr> arg_types = {array_type, element_type};
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols = {nullptr, nullptr};
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_cols = {nullptr, nullptr};
     if (const_array) {
-        constant_cols[0] = std::make_shared<ColumnPtrWrapper>(block.get_by_position(0).column);
+        constant_cols[0] = std::make_shared<ConstantExprResult>(block.get_by_position(0).column);
     }
     if (const_target) {
-        constant_cols[1] = std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column);
+        constant_cols[1] = std::make_shared<ConstantExprResult>(block.get_by_position(1).column);
     }
 
     FunctionUtils fn_utils(return_type, arg_types, false);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols(constant_cols);
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 
     block.insert({nullptr, return_type, "result"});
     auto result_idx = block.columns() - 1;
     ASSERT_TRUE(func->execute(fn_ctx, block, arguments, result_idx, row_size).ok());
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
     MutableColumnPtr expected_column = return_type->create_column();
     ASSERT_TRUE(insert_cell(expected_column, return_type, expected));

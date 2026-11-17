@@ -35,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
@@ -91,6 +92,11 @@ public class DropColumnOp extends AlterTableOp {
                 .getTableOrDdlException(tableName.getTbl());
         if (table instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) table;
+            if (olapTable.hasRowTtl()
+                    && (colName.equalsIgnoreCase(olapTable.getRowTtlCol())
+                    || colName.equalsIgnoreCase(Column.TTL_COL))) {
+                throw new AnalysisException("Can not drop a row ttl source or hidden column");
+            }
             if (!Strings.isNullOrEmpty(rollupName)) {
                 Long indexId = olapTable.getIndexIdByName(rollupName);
                 if (indexId != null) {
@@ -173,8 +179,21 @@ public class DropColumnOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Drop column is considered safe for row binlog tables after whitelist
+    public Set<String> queryJudgedColumnNames() {
+        return Collections.singleton(getColName());
+    }
+
+    @Override
+    public boolean hasReachedTheTable(OlapTable table) {
+        // A path into a column leaves the column itself in place, so what the table holds is the container
+        // of the part this asks about: dropping the part cannot be told apart from a change that has not
+        // been applied, and that is the answer which keeps the views invalidated.
+        return !columnPath.isNested() && table.getColumn(getColName()) == null;
+    }
+
+    @Override
+    public boolean allowOnChangelogTable() {
+        // Drop column is considered safe for changelog tables after whitelist
         // check in schema change job.
         return true;
     }

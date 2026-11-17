@@ -51,6 +51,8 @@ set(EXEC_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/operator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/partitioned_aggregation_sink_operator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/operator/scan_operator.cpp
+    # Small standalone helper; preserve the existing scanner/writer unity batches.
+    ${CMAKE_CURRENT_SOURCE_DIR}/scan/scan_key_bucket_pruner.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/sink/writer/vfile_result_writer.cpp)
 doris_skip_unity_inclusion(${EXEC_UNITY_SKIP})
 set_target_properties(Exec PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}

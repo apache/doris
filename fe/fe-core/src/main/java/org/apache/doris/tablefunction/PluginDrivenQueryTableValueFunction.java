@@ -32,6 +32,7 @@ import org.apache.doris.datasource.scan.PluginDrivenScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import org.apache.logging.log4j.LogManager;
@@ -73,7 +74,9 @@ public class PluginDrivenQueryTableValueFunction extends QueryTableValueFunction
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         PassthroughQueryTableHandle queryHandle = new PassthroughQueryTableHandle(query);
         return new PluginDrivenScanNode(id, desc, false, sv,
-                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build(),
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName())
+                        .beExecVersion(ConnectContext.get().getStatementContext().getBeExecVersion())
+                        .build(),
                 pluginCatalog.getConnector(), session, queryHandle);
     }
 }

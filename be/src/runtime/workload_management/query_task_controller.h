@@ -53,6 +53,8 @@ public:
     void inc_finished_task_num();
     int get_total_task_num() const;
     int get_finished_task_num() const;
+    // Whether the QueryContext this controller belongs to has not been destroyed yet.
+    bool is_query_context_alive() const { return !query_ctx_.expired(); }
 
 protected:
     QueryTaskController(const std::shared_ptr<QueryContext>& query_ctx) : query_ctx_(query_ctx) {}

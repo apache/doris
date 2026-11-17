@@ -66,6 +66,17 @@ bool is_compaction_or_checksum_reader(const StorageReadOptions* opts) {
                                opts->io_ctx.reader_type == ReaderType::READER_CHECKSUM);
 }
 
+int32_t variant_root_uid(const TabletColumn& column) {
+    // A VARIANT root has path information too, but its parent uid remains -1. Preserve the original
+    // resolution rule so root `v` uses its own uid=7, while a BE-generated `v.user.id` whose uid is
+    // -1 reaches the same root through parent_uid=7.
+    const int32_t root_uid =
+            column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
+    DORIS_CHECK_GE(root_uid, 0) << "VARIANT column does not have a root uid: "
+                                << column.debug_string();
+    return root_uid;
+}
+
 void add_variant_search_binding_diagnostic(OlapReaderStatistics* stats,
                                            const std::string& diagnostic) {
     VLOG_DEBUG << diagnostic;
@@ -185,6 +196,9 @@ const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_
     }
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
+    if (_path_encoding == 1) {
+        return nullptr;
+    }
     auto path = PathInData(relative_path.get_path());
     node = _subcolumns_meta_info->find_leaf(path);
     return node;
@@ -294,7 +308,7 @@ Status VariantColumnReader::_create_hierarchical_reader(
     }
     RETURN_IF_ERROR(HierarchicalDataIterator::create(
             reader, col_uid, path, node, std::move(sparse_iter), std::move(root_column_reader),
-            column_reader_cache, stats, read_type, io_ctx));
+            column_reader_cache, stats, read_type, io_ctx, _path_encoding));
     return Status::OK();
 }
 
@@ -438,8 +452,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
 
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
 
-    int32_t col_uid =
-            target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
+    const int32_t col_uid = variant_root_uid(target_col);
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
     const auto* node = (!relative_path.empty() && target_col.has_path_info())
                                ? _subcolumns_meta_info->find_leaf(relative_path)
@@ -838,10 +851,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
                                              const StorageReadOptions* opt,
                                              ColumnReaderCache* column_reader_cache,
                                              PathToBinaryColumnCache* binary_column_cache_ptr) {
-    // root column use unique id, leaf column use parent_unique_id
-    int32_t col_uid =
-            target_col.unique_id() >= 0 ? target_col.unique_id() : target_col.parent_unique_id();
-    // root column use unique id, leaf column use parent_unique_id
+    const int32_t col_uid = variant_root_uid(target_col);
     auto relative_path = target_col.path_info_ptr()->copy_pop_front();
 
     RETURN_IF_ERROR(_validate_access_paths_debug(target_col, opt, col_uid, relative_path));
@@ -864,7 +874,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
-    if (node == nullptr) {
+    if (node == nullptr && _path_encoding == 0) {
         relative_path = PathInData(relative_path.get_path());
         node = _subcolumns_meta_info->find_exact(relative_path);
     }
@@ -1023,12 +1033,10 @@ Status VariantColumnReader::_create_iterator_from_plan(
         // HIERARCHICAL reconstructs the requested object from extracted subcolumns plus sparse
         // state. Reading root `v` through this branch may therefore read regular children such as
         // `v.keep` / `v.owner` and merge them into the final variant result.
-        int32_t col_uid = target_col.unique_id() >= 0 ? target_col.unique_id()
-                                                      : target_col.parent_unique_id();
         RETURN_IF_ERROR(_create_hierarchical_reader(
-                iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
-                opt->stats, HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE,
-                &opt->io_ctx));
+                iterator, variant_root_uid(target_col), plan.relative_path, plan.node, plan.root,
+                column_reader_cache, opt->stats,
+                HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE, &opt->io_ctx));
         return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::LEAF: {
@@ -1064,7 +1072,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
         return Status::OK();
     }
     case ReadKind::DEFAULT_FILL: {
-        RETURN_IF_ERROR(Segment::new_default_iterator(target_col, iterator));
+        RETURN_IF_ERROR(Segment::new_constant_iterator(target_col, iterator));
         if (opt && opt->stats) {
             opt->stats->variant_subtree_default_iter_count++;
         }
@@ -1074,15 +1082,15 @@ Status VariantColumnReader::_create_iterator_from_plan(
         DCHECK(plan.binary_column_reader);
         ColumnIteratorUPtr inner_iter;
         RETURN_IF_ERROR(plan.binary_column_reader->new_iterator(&inner_iter, nullptr));
-        *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter));
+        *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter),
+                                                                     _path_encoding);
         return Status::OK();
     }
     case ReadKind::HIERARCHICAL_DOC: {
-        int32_t col_uid = target_col.unique_id() >= 0 ? target_col.unique_id()
-                                                      : target_col.parent_unique_id();
         RETURN_IF_ERROR(_create_hierarchical_reader(
-                iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
-                opt->stats, HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN, &opt->io_ctx));
+                iterator, variant_root_uid(target_col), plan.relative_path, plan.node, plan.root,
+                column_reader_cache, opt->stats,
+                HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN, &opt->io_ctx));
         if (opt && opt->stats) {
             opt->stats->variant_doc_value_column_iter_count++;
         }
@@ -1189,8 +1197,13 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
                                              &_root_column_reader));
     }
 
-    _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
+    _path_encoding = self_column_pb.variant_path_encoding();
+    if (_path_encoding > 1) {
+        return Status::Corruption("Unknown Variant path encoding {} for column {}", _path_encoding,
+                                  column_uid);
+    }
     _root_unique_id = self_column_pb.unique_id();
+    _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
     const bool should_record_path_stats = variant_util::should_record_variant_path_stats(
             opts.tablet_schema->column_by_uid(self_column_pb.unique_id()));
     const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());
@@ -1349,7 +1362,9 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         // Rebuild via the string constructor when the path has neither typed
         // nor nested metadata, so the tree matches the new shape.
         if (!relative_path.get_is_typed() && !relative_path.has_nested_part()) {
-            relative_path = PathInData(relative_path.get_path());
+            if (_path_encoding == 0) {
+                relative_path = PathInData(relative_path.get_path());
+            }
         }
         _subcolumns_meta_info->add(
                 relative_path,
@@ -1519,7 +1534,8 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
                                                  {.unique_id = -1,
                                                   .parent_unique_id = column.parent_unique_id(),
                                                   .path_info = index_path});
-        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column);
+        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column,
+                                    _path_encoding == 1);
         for (const auto& index : sub_column_info.indexes) {
             add_variant_search_binding_diagnostic(
                     stats,

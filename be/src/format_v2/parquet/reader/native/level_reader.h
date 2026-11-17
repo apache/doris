@@ -28,6 +28,10 @@
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 
+namespace doris::format::parquet {
+class ParquetColumnCrypto;
+}
+
 namespace doris::io {
 struct IOContext;
 } // namespace doris::io
@@ -50,7 +54,8 @@ public:
                          NativeFieldSchema* field, size_t total_rows, size_t max_buffer_size,
                          io::IOContext* io_ctx, bool enable_page_cache,
                          const std::string& page_cache_file_key, const ParquetReaderCompat& compat,
-                         std::unique_ptr<LevelReader>* reader);
+                         std::unique_ptr<LevelReader>* reader,
+                         std::shared_ptr<ParquetColumnCrypto> crypto = nullptr);
 
     ~LevelReader();
 

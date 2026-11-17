@@ -18,7 +18,7 @@
 #pragma once
 
 #include "common/status.h"
-#include "storage/index/inverted/inverted_index_common.h"
+#include "storage/index/index_common.h"
 
 namespace doris::segment_v2 {
 

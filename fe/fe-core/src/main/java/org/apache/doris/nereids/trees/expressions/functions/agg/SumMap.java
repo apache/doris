@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -36,7 +37,7 @@ import com.google.common.base.Preconditions;
 import java.util.List;
 
 /** AggregateFunction 'sum_map'. */
-public class SumMap extends MapAggregateFunction {
+public class SumMap extends MapAggregateFunction implements NeedSessionVarGuard {
 
     public SumMap(Expression arg) {
         this(false, arg);
@@ -88,17 +89,7 @@ public class SumMap extends MapAggregateFunction {
     }
 
     private static DecimalV3Type sumDecimalArgumentType(DataType valueType) {
-        DecimalV3Type decimalType = DecimalV3Type.forType(valueType);
-        boolean enableDecimal256 = false;
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null) {
-            enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
-        }
-        if (decimalType.getPrecision() > DecimalV3Type.MAX_DECIMAL128_PRECISION && !enableDecimal256) {
-            int scale = Math.min(DecimalV3Type.MAX_DECIMAL128_PRECISION, decimalType.getScale());
-            return DecimalV3Type.createDecimalV3Type(DecimalV3Type.MAX_DECIMAL128_PRECISION, scale);
-        }
-        return decimalType;
+        return DecimalV3Type.narrowToDecimal128IfDisabled(DecimalV3Type.forType(valueType));
     }
 
     @Override

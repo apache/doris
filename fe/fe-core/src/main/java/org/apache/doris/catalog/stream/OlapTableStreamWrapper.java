@@ -32,6 +32,7 @@ import org.apache.doris.tso.TSOTimestamp;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -39,6 +40,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 // runtime-only class for unified query/insert experience, created when bind relation with OlapTableStream
@@ -361,6 +363,41 @@ public class OlapTableStreamWrapper extends OlapTable {
                 // historicalTso is an inclusive upper bound; shift to the half-open exclusive end.
                 .collect(Collectors.toMap(Map.Entry::getKey,
                         s -> Pair.of(null, TSOTimestamp.toExclusiveBound(s.getValue().first))));
+    }
+
+    /**
+     * Whether the snapshot read of these partitions answers with the table as it is now.
+     *
+     * <p>It does not when the read leaves out rows the table holds, and that happens in two ways. The read
+     * drops the partitions with no consumption baseline -- no offset, or the sentinel one of a partition that
+     * was empty when the stream was created -- because there is no offset to read them from; rows such a
+     * partition holds by now are rows the answer does not have. And the partitions it does read it reads as
+     * the table is only where the offset reached the end of the partition: what is behind that offset it
+     * answers with the image at the offset, which is the table as it was then. This is the question
+     * {@code NormalizeOlapTableStreamScan} answers when it binds the read, asked by the refresh that may not
+     * record a partition it answered from an incomplete or older image as holding the table's current state.
+     *
+     * <p>Asked in one expression for both key types: a duplicate-key read is bounded by the offset for every
+     * partition rather than split into the two kinds, and a partition whose offset reached the end is read as
+     * the table is by either of them.
+     */
+    public boolean answersWithTheCurrentTable(List<Long> partitionIds) {
+        List<Long> consumed = filterConsumedPartitionIds(partitionIds);
+        Set<Long> consumedIds = ImmutableSet.copyOf(consumed);
+        Set<Long> atTheEnd = ImmutableSet.copyOf(filterNormalSnapshotPartitionIds(consumed));
+        for (Long partitionId : partitionIds) {
+            if (!consumedIds.contains(partitionId)) {
+                // Not read at all: rows it holds are missing from the answer.
+                if (getBaseTable().getPartition(partitionId).hasData()) {
+                    return false;
+                }
+                continue;
+            }
+            if (!atTheEnd.contains(partitionId)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public List<Long> filterNormalSnapshotPartitionIds(List<Long> partitionIds) {

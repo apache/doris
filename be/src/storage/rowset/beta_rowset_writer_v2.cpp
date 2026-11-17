@@ -37,8 +37,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "storage/data_dir.h"
-#include "storage/index/inverted/inverted_index_cache.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_cache.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"
@@ -61,9 +61,9 @@ BetaRowsetWriterV2::~BetaRowsetWriterV2() = default;
 
 Status BetaRowsetWriterV2::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
-    // Row-binlog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
+    // Changelog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
     _context._need_allocate_lsn =
-            _context.write_binlog_opt().enable ||
+            _context.write_changelog_opt().enable ||
             (_context.tablet_schema != nullptr && _context.tablet_schema->row_lsn_col_idx() >= 0);
     _context.segment_collector = std::make_shared<SegmentCollectorT<BetaRowsetWriterV2>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BetaRowsetWriterV2>>(this);

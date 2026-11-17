@@ -26,9 +26,12 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -46,6 +49,11 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
         switch (type.getType()) {
+            case UUID: {
+                // Driver UUID objects and textual GUIDs share the canonical JDBC string form.
+                String value = rs.getString(columnIndex);
+                return value == null ? null : java.util.UUID.fromString(value);
+            }
             case BOOLEAN:
                 return rs.getObject(columnIndex, Boolean.class);
             case SMALLINT:
@@ -77,11 +85,24 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
                 return rs.getBytes(columnIndex);
             case TIMESTAMPTZ: {
                 OffsetDateTime odt = rs.getObject(columnIndex, OffsetDateTime.class);
-                return odt == null ? null : Timestamp.from(odt.toInstant());
+                return odt == null ? null : toDorisTimestamp(odt.toInstant());
             }
             case ARRAY: {
                 Array array = rs.getArray(columnIndex);
-                return array == null ? null : convertArrayToList(array.getArray());
+                if (array == null) {
+                    return null;
+                }
+                try {
+                    ColumnType leaf = type;
+                    while (leaf.getType() == ColumnType.Type.ARRAY) {
+                        leaf = leaf.getChildTypes().get(0);
+                    }
+                    return leaf.getType() == ColumnType.Type.TIMESTAMPTZ
+                            ? readTimestampArray(array, type.getChildTypes().get(0))
+                            : convertArrayToList(array.getArray());
+                } finally {
+                    array.free();
+                }
             }
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
@@ -113,11 +134,10 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
                 }, LocalDateTime.class);
             case TIMESTAMPTZ:
                 return createConverter(input -> {
-                    if (input instanceof Timestamp) {
-                        return checkSubSecondFits(LocalDateTime.ofInstant(
-                                ((Timestamp) input).toInstant(), java.time.ZoneOffset.UTC), columnType);
-                    }
-                    return input;
+                    LocalDateTime value = input instanceof Timestamp
+                            ? toDorisTimestamp(((Timestamp) input).toInstant()) : (LocalDateTime) input;
+                    // Out-of-range PostgreSQL instants become NULL before checking fractional precision.
+                    return value == null ? null : checkSubSecondFits(value, columnType);
                 }, LocalDateTime.class);
             case CHAR:
                 return createConverter(input -> trimSpaces(input.toString()), String.class);
@@ -138,6 +158,30 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
             default:
                 return null;
         }
+    }
+
+    private static List<?> readTimestampArray(Array array, ColumnType childType) throws SQLException {
+        List<Object> values = new ArrayList<>();
+        // getArray() materializes java.sql.Timestamp through a hybrid Julian calendar, shifting
+        // ancient instants. Typed element reads use the same proleptic calendar as scalar reads.
+        try (ResultSet elements = array.getResultSet()) {
+            while (elements.next()) {
+                if (childType.getType() == ColumnType.Type.ARRAY) {
+                    Array nested = elements.getArray(2);
+                    try {
+                        values.add(nested == null ? null
+                                : readTimestampArray(nested, childType.getChildTypes().get(0)));
+                    } finally {
+                        if (nested != null) {
+                            nested.free();
+                        }
+                    }
+                } else {
+                    values.add(elements.getObject(2, OffsetDateTime.class));
+                }
+            }
+        }
+        return values;
     }
 
     /**
@@ -213,13 +257,21 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
                 }
                 return result;
             }
+            case TIMESTAMPTZ: {
+                List<LocalDateTime> result = new ArrayList<>(input.size());
+                for (Object element : input) {
+                    result.add(element == null ? null : toDorisTimestamp(element instanceof OffsetDateTime
+                            ? ((OffsetDateTime) element).toInstant() : ((Timestamp) element).toInstant()));
+                }
+                return result;
+            }
             case ARRAY: {
                 List<List<?>> result = new ArrayList<>(input.size());
                 for (Object element : input) {
                     if (element == null) {
                         result.add(null);
                     } else {
-                        List<?> nestedList = convertArrayToList(element);
+                        List<?> nestedList = element instanceof List ? (List<?>) element : convertArrayToList(element);
                         result.add(convertArray(nestedList, childType.getChildTypes().get(0)));
                     }
                 }
@@ -259,4 +311,24 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
         }
         return v;
     }
+
+    private static final Instant MIN_TIMESTAMP = LocalDateTime.of(0, 1, 1, 0, 0).toInstant(ZoneOffset.UTC);
+    private static final Instant MAX_TIMESTAMP = LocalDateTime.of(10000, 1, 1, 0, 0).toInstant(ZoneOffset.UTC);
+
+    private static LocalDateTime toDorisTimestamp(Instant value) {
+        // PostgreSQL supports BC years and infinities. Reject them before Timestamp/packed JNI
+        // conversion can overflow into an unrelated date or emit an invalid offset-only value.
+        if (value.isBefore(MIN_TIMESTAMP) || !value.isBefore(MAX_TIMESTAMP)) {
+            return null;
+        }
+        return LocalDateTime.ofInstant(value, ZoneOffset.UTC);
+    }
+
+    @Override
+    public void setTimestampTz(java.sql.PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        // Declare the parameter as an instant so PostgreSQL never interprets UTC fields in its session zone.
+        statement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE);
+    }
+
 }

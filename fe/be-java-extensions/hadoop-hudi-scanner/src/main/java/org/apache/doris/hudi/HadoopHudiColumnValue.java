@@ -113,7 +113,21 @@ public class HadoopHudiColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getTimeStampTz() {
-        return ((Timestamp) fieldData).toLocalDateTime();
+        // Different Hudi readers expose the same instant through different physical carriers.
+        Instant instant;
+        if (fieldData instanceof Timestamp) {
+            instant = ((Timestamp) fieldData).toInstant();
+        } else if (fieldData instanceof TimestampWritableV2) {
+            org.apache.hadoop.hive.common.type.Timestamp timestamp =
+                    ((TimestampObjectInspector) fieldInspector).getPrimitiveJavaObject(fieldData);
+            instant = Instant.ofEpochSecond(timestamp.toEpochSecond(), timestamp.getNanos());
+        } else {
+            long value = ((LongWritable) fieldData).get();
+            long units = dorisType.getPrecision() == 3 ? 1000L : 1_000_000L;
+            instant = Instant.ofEpochSecond(Math.floorDiv(value, units),
+                    Math.floorMod(value, units) * (1_000_000_000L / units));
+        }
+        return LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC);
     }
 
     @Override
@@ -131,25 +145,9 @@ public class HadoopHudiColumnValue implements ColumnValue {
     public LocalDateTime getDateTime() {
         if (fieldData instanceof Timestamp) {
             return ((Timestamp) fieldData).toLocalDateTime();
-        } else if (fieldData instanceof TimestampWritableV2) {
-            return LocalDateTime.ofInstant(Instant.ofEpochSecond((((TimestampObjectInspector) fieldInspector)
-                    .getPrimitiveJavaObject(fieldData)).toEpochSecond()), zoneId);
-        } else {
-            long datetime = ((LongWritable) fieldData).get();
-            long seconds;
-            long nanoseconds;
-            if (dorisType.getPrecision() == 3) {
-                seconds = datetime / 1000;
-                nanoseconds = (datetime % 1000) * 1000000;
-            } else if (dorisType.getPrecision() == 6) {
-                seconds = datetime / 1000000;
-                nanoseconds = (datetime % 1000000) * 1000;
-            } else {
-                throw new RuntimeException("Hoodie timestamp only support milliseconds and microseconds, "
-                        + "wrong precision = " + dorisType.getPrecision());
-            }
-            return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanoseconds), zoneId);
         }
+        // DATETIMEV2 now denotes local-timestamp annotations: decode their fields without a zone shift.
+        return getTimeStampTz();
     }
 
     @Override

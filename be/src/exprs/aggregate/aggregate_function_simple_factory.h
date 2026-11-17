@@ -122,40 +122,17 @@ public:
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
                              const DataTypePtr& result_type, const bool result_is_nullable,
                              int be_version, AggregateFunctionAttr attr = {}) {
-        bool nullable = false;
-        for (const auto& type : argument_types) {
-            if (type->is_nullable()) {
-                nullable = true;
-            }
-        }
+        return get_impl(name, argument_types, result_type, result_is_nullable, be_version,
+                        std::move(attr), true);
+    }
 
-        std::string name_str = name;
-        temporary_function_update(be_version, name_str);
-
-        if (function_alias.contains(name)) {
-            name_str = function_alias[name];
-        }
-
-        if (attr.new_version_percentile) {
-            if (name_str == "percentile" || name_str == "percentile_cont") {
-                name_str = "percentile_v2";
-            } else if (name_str == "percentile_array") {
-                name_str = "percentile_array_v2";
-            }
-        }
-
-        if (nullable) {
-            return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
-                           ? nullptr
-                           : nullable_aggregate_functions[name_str](name_str, argument_types,
-                                                                    result_type, result_is_nullable,
-                                                                    attr);
-        } else {
-            return aggregate_functions.find(name_str) == aggregate_functions.end()
-                           ? nullptr
-                           : aggregate_functions[name_str](name_str, argument_types, result_type,
-                                                           result_is_nullable, attr);
-        }
+    AggregateFunctionPtr get_nested(const std::string& name, const DataTypes& argument_types,
+                                    const DataTypePtr& result_type, const bool result_is_nullable,
+                                    int be_version, AggregateFunctionAttr attr = {}) {
+        // The wrapper has already passed top-level compatibility checks. Nested lookup still
+        // needs versioned alternative routing, but must not reapply direct-function restrictions.
+        return get_impl(name, argument_types, result_type, result_is_nullable, be_version,
+                        std::move(attr), false);
     }
 
     void register_function(const std::string& name, const Creator& creator, bool nullable = false) {
@@ -186,14 +163,66 @@ public:
         BeExecVersionManager::registe_old_function_compatibility(old_be_exec_version, name);
     }
 
+    void register_transient_alternative_function(const std::string& name, const Creator& creator,
+                                                 bool nullable, int old_be_exec_version) {
+        auto new_name = name + BeExecVersionManager::get_function_suffix(old_be_exec_version);
+        register_function(new_name, creator, nullable);
+        BeExecVersionManager::register_old_function_alternative(old_be_exec_version, name);
+    }
+
+    static AggregateFunctionSimpleFactory& instance();
+
+private:
+    AggregateFunctionPtr get_impl(const std::string& name, const DataTypes& argument_types,
+                                  const DataTypePtr& result_type, const bool result_is_nullable,
+                                  int be_version, AggregateFunctionAttr attr,
+                                  bool check_restriction) {
+        bool nullable = false;
+        for (const auto& type : argument_types) {
+            if (type->is_nullable()) {
+                nullable = true;
+            }
+        }
+
+        std::string name_str = name;
+        if (check_restriction) {
+            BeExecVersionManager::check_function_restriction(be_version, name_str);
+        }
+        temporary_function_update(be_version, name_str);
+        attr.be_exec_version = be_version;
+
+        if (function_alias.contains(name)) {
+            name_str = function_alias[name];
+        }
+
+        if (attr.new_version_percentile) {
+            if (name_str == "percentile" || name_str == "percentile_cont") {
+                name_str = "percentile_v2";
+            } else if (name_str == "percentile_array") {
+                name_str = "percentile_array_v2";
+            }
+        }
+
+        if (nullable) {
+            return nullable_aggregate_functions.find(name_str) == nullable_aggregate_functions.end()
+                           ? nullptr
+                           : nullable_aggregate_functions[name_str](name_str, argument_types,
+                                                                    result_type, result_is_nullable,
+                                                                    attr);
+        } else {
+            return aggregate_functions.find(name_str) == aggregate_functions.end()
+                           ? nullptr
+                           : aggregate_functions[name_str](name_str, argument_types, result_type,
+                                                           result_is_nullable, attr);
+        }
+    }
+
     void temporary_function_update(int fe_version_now, std::string& name) {
-        int old_version = BeExecVersionManager::get_function_compatibility(fe_version_now, name);
+        int old_version = BeExecVersionManager::get_function_alternative(fe_version_now, name);
         if (!old_version) {
             return;
         }
         name = name + BeExecVersionManager::get_function_suffix(old_version);
     }
-
-    static AggregateFunctionSimpleFactory& instance();
 };
 }; // namespace doris

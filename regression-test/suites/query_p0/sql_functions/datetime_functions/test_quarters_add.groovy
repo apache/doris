@@ -216,4 +216,60 @@ suite("test_quarters_add") {
             assertTrue(exception != null)
         }
     }
+
+    // Int32 multiplication wraps these to -1 and +2 months. The BE unit test covers
+    // the full numeric boundary set; P0 covers folding and constant/vector execution.
+    def intervals = [1431655765, 1431655766]
+    def types = ["date", "datetime(6)", "timestamptz(6)", "timestamp_ns"]
+    for (def skipFold : [false, true]) {
+        sql "set debug_skip_fold_constant = ${skipFold}"
+        for (def type : types) {
+            for (def function : ["quarters_add", "quarters_sub"]) {
+                for (def quarters : intervals) {
+                    test {
+                        sql "select ${function}(cast('2023-01-01' as ${type}), cast(${quarters} as int))"
+                        exception "out of range"
+                    }
+                }
+            }
+        }
+        test {
+            sql "select quarters_add(date '9999-12-01', 1)"
+            exception "out of range"
+        }
+        test {
+            sql "select quarters_sub(date '0000-01-01', 1)"
+            exception "out of range"
+        }
+    }
+
+    sql "set debug_skip_fold_constant = false"
+    sql "drop table if exists test_quarters_overflow"
+    sql """
+        create table test_quarters_overflow (
+            q int not null,
+            d date,
+            dt datetime(6),
+            tz timestamptz(6),
+            ns timestamp_ns
+        )
+        duplicate key(q)
+        distributed by hash(q) buckets 1
+        properties("replication_num" = "1")
+    """
+    def rows = intervals.collect { quarters ->
+        "(${quarters}, '2023-01-01', '2023-01-01 12:34:56.123456', " +
+                "'2023-01-01 12:34:56.123456', '2023-01-01 12:34:56.123456789')"
+    }
+    sql "insert into test_quarters_overflow values ${rows.join(',')}"
+    for (def column : ["d", "dt", "tz", "ns"]) {
+        for (def function : ["quarters_add", "quarters_sub"]) {
+            for (def quarters : intervals) {
+                test {
+                    sql "select ${function}(${column}, q) from test_quarters_overflow where q = ${quarters}"
+                    exception "out of range"
+                }
+            }
+        }
+    }
 }

@@ -50,6 +50,8 @@ public class CreateUserInfo {
     private UserIdentity userIdent;
     private PassVar passVar;
     private String userId;
+    private String authIntegration;
+    private String authIdentity;
 
     /**
      * CreateUserInfo
@@ -66,6 +68,8 @@ public class CreateUserInfo {
         this.ifNotExist = ifNotExist;
         this.userIdent = userDesc.getUserIdent();
         this.passVar = userDesc.getPassVar();
+        this.authIntegration = userDesc.getAuthIntegration();
+        this.authIdentity = userDesc.getAuthIdentity();
         this.role = role;
         this.passwordOptions = passwordOptions;
         this.comment = comment;
@@ -151,6 +155,14 @@ public class CreateUserInfo {
 
     public byte[] getPassword() {
         return passVar.getScrambled();
+    }
+
+    public String getAuthIntegration() {
+        return authIntegration;
+    }
+
+    public String getAuthIdentity() {
+        return authIdentity;
     }
 
     public PassVar getPassVar() {

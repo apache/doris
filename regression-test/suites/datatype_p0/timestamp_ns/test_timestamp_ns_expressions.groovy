@@ -153,16 +153,23 @@ suite("test_timestamp_ns_expressions") {
         from timestamp_ns_mixed_temporal
         order by id
     """
-    order_qt_mixed_temporal_comparisons_overflow """
+    sql "set enable_strict_cast = false"
+    test {
+        sql """
             select ts < cast('9999-12-31 23:59:59.999999' as datetimev2(6))
             from timestamp_ns_mixed_temporal
             where id = 1
         """
-    order_qt_mixed_temporal_comparisons_underflow """
+        exception "outside Int64 epoch nanosecond range"
+    }
+    test {
+        sql """
             select ts > cast('1600-01-01 00:00:00.000000' as datetimev2(6))
             from timestamp_ns_mixed_temporal
             where id = 1
-    """
+        """
+        exception "outside Int64 epoch nanosecond range"
+    }
     qt_mixed_datetime_range_comparisons """
         select ts > dt,
                ts < cast('2024-02-29 12:34:56.123457' as datetimev2(6))

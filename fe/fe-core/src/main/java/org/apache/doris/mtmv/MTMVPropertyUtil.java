@@ -26,10 +26,12 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -57,12 +59,14 @@ public class MTMVPropertyUtil {
             PropertyAnalyzer.ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES,
             PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM,
             PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP,
+            PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP,
             PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
             PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION,
             PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE,
             PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS,
+            PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW,
             PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT
     );
 
@@ -83,6 +87,9 @@ public class MTMVPropertyUtil {
             case PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP:
                 analyzeWorkloadGroup(value);
                 break;
+            case PropertyAnalyzer.PROPERTIES_COMPUTE_GROUP:
+                analyzeComputeGroup(value);
+                break;
             case PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT:
                 analyzePartitionTimeUnit(value);
                 break;
@@ -100,6 +107,9 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS:
                 analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS);
+                break;
+            case PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW:
+                analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW);
                 break;
             case PropertyAnalyzer.PROPERTIES_IVM_PARTITION_WINDOW_LIMIT:
                 analyzePartitionWindowLimit(value);
@@ -133,6 +143,17 @@ public class MTMVPropertyUtil {
                 .fromString(value);
         if (!mtmvPartitionSyncTimeUnit.isPresent()) {
             throw new AnalysisException("valid partition_sync_time_unit: " + value);
+        }
+    }
+
+    private static void analyzeComputeGroup(String value) {
+        if (StringUtils.isEmpty(value)) {
+            return;
+        }
+        try {
+            ComputeGroupBindingUtil.validateDeclaredComputeGroup(ConnectContext.get(), value);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 
@@ -400,5 +421,10 @@ public class MTMVPropertyUtil {
     public static boolean isIvmUseFullKeys(Map<String, String> mvProperties) {
         return mvProperties != null && "true".equalsIgnoreCase(
                 mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_USE_FULL_KEYS));
+    }
+
+    public static boolean isIvmForceMow(Map<String, String> mvProperties) {
+        return mvProperties != null && "true".equalsIgnoreCase(
+                mvProperties.get(PropertyAnalyzer.PROPERTIES_IVM_FORCE_MOW));
     }
 }

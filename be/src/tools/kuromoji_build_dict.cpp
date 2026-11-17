@@ -34,8 +34,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
-#include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_ipadic_parser.h"
+#include "storage/index/inverted/analysis/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
+#include "storage/index/inverted/analysis/analyzer/kuromoji/dict/kuromoji_ipadic_parser.h"
 
 namespace fs = std::filesystem;
 using namespace doris::segment_v2::inverted_index::kuromoji;

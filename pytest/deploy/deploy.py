@@ -21,7 +21,6 @@
 This module provide Palo deployer.
 Date:    2015/10/07 17:23:06
 """
-import os
 import init_env
 import backup
 import config_be
@@ -36,10 +35,6 @@ import time
 def deploy_palo():
     """deploy palo
     """
-    if os.path.exists('./output/audit_loader/auditloader.zip'):
-        deploy_audit = True
-    else:
-        deploy_audit = False
     # 集群停止，备份
     backup.backup_palo()
     # 初始化fe/be目录等
@@ -48,13 +43,13 @@ def deploy_palo():
     # 更新conf文件
     process_config_file.process_palo_conf()
     # 准备部署表
-    prepare_package.prepare_palo_package(deploy_audit=deploy_audit)
+    prepare_package.prepare_palo_package()
     # hadoop_mkdir.create_hdfs_dir()
     # 分发部署包到fe/be机器
     distribute.distribute_package()
     time.sleep(100)
     # config_be.config_be()
-    start.start_palo(init_state=True, deploy_audit=deploy_audit)
+    start.start_palo(init_state=True)
 
 
 if __name__ == '__main__':

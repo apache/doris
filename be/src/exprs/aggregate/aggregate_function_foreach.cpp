@@ -47,8 +47,8 @@ void register_aggregate_function_combinator_foreach(AggregateFunctionSimpleFacto
                         ->get_nested_type();
         auto nested_function_name = name.substr(0, name.size() - suffix.size());
         auto nested_function =
-                factory.get(nested_function_name, transform_arguments, result_item_type,
-                            result_is_nullable, BeExecVersionManager::get_newest_version(), attr);
+                factory.get_nested(nested_function_name, transform_arguments, result_item_type,
+                                   result_is_nullable, attr.be_exec_version, attr);
         if (!nested_function) {
             throw Exception(
                     ErrorCode::INTERNAL_ERROR,

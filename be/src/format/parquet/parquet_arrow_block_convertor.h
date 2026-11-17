@@ -18,17 +18,39 @@
 #pragma once
 
 #include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
 
 namespace doris {
+
+class ParquetArrowSchemaConvertor final : public DorisArrowSchemaConvertor {
+public:
+    ParquetArrowSchemaConvertor(DataTypes types, std::vector<std::string> names,
+                                std::string timezone, bool enable_int96_timestamps)
+            : DorisArrowSchemaConvertor(std::move(timezone)),
+              _types(std::move(types)),
+              _names(std::move(names)),
+              _enable_int96_timestamps(enable_int96_timestamps) {}
+    Status get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const override;
+
+protected:
+    std::string timestamp_timezone(PrimitiveType type) const override;
+
+private:
+    const DataTypes _types;
+    const std::vector<std::string> _names;
+    const bool _enable_int96_timestamps;
+};
 
 class ParquetArrowBlockConvertor : public ArrowBlockConvertor {
 public:
     ParquetArrowBlockConvertor(DataTypes types, std::vector<std::string> names,
-                               std::string timezone_name, const cctz::time_zone& timezone)
+                               std::string timezone_name, const cctz::time_zone& timezone,
+                               bool enable_int96_timestamps)
             : ArrowBlockConvertor(nullptr, timezone),
               _types(std::move(types)),
               _names(std::move(names)),
-              _timezone_name(std::move(timezone_name)) {}
+              _timezone_name(std::move(timezone_name)),
+              _enable_int96_timestamps(enable_int96_timestamps) {}
     Status init() override;
 
 protected:
@@ -41,6 +63,7 @@ private:
     DataTypes _types;
     std::vector<std::string> _names;
     std::string _timezone_name;
+    bool _enable_int96_timestamps;
 };
 
 } // namespace doris

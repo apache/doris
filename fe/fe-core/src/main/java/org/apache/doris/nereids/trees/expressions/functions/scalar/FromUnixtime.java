@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -157,10 +158,7 @@ public class FromUnixtime extends ScalarFunction
         }
         Instant lowerInstant = toInstant(lower);
         Instant upperInstant = toInstant(upper);
-        if (lowerInstant == null || upperInstant == null || upperInstant.isBefore(lowerInstant)) {
-            return false;
-        }
-        return !DateUtils.hasFallbackTransitionInInstantRange(timeZone, lowerInstant, upperInstant);
+        return MonotonicityUtils.isInstantToLocalMonotonic(timeZone, lowerInstant, upperInstant);
     }
 
     @Override
@@ -182,11 +180,7 @@ public class FromUnixtime extends ScalarFunction
     }
 
     private boolean isMonotonicFormat() {
-        Expression format = child(1);
-        if (!(format instanceof StringLikeLiteral)) {
-            return false;
-        }
-        return DateUtils.monoFormat.contains(((StringLikeLiteral) format).getValue());
+        return MonotonicityUtils.hasMonotonicFormat(child(1));
     }
 
     private void checkFractionFormatSpecifiers() {

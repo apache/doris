@@ -33,6 +33,7 @@
 #include "cpp/obj-client/obj_storage_client.h"
 #include "exprs/function/ai/ai_adapter.h"
 #include "exprs/function/simple_function_factory.h"
+#include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
@@ -493,6 +494,7 @@ TEST(EMBED_TEST, embed_function_multimodal_direct_url) {
 
 TEST(EMBED_TEST, embed_function_partial_null_through_framework) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     std::vector<std::string> resources(5, "mock_resource");
@@ -520,6 +522,12 @@ TEST(EMBED_TEST, embed_function_partial_null_through_framework) {
     EXPECT_THAT(MockAdapter::get_embedding_inputs_for_test(),
                 ::testing::ElementsAre("text-a", "text-c"));
     assert_mock_nullable_embedding_column(*block.get_by_position(result_idx).column, null_map);
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 5);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 3);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(EMBED_TEST, embed_function_multimodal_partial_null_through_framework) {
@@ -554,6 +562,7 @@ TEST(EMBED_TEST, embed_function_multimodal_partial_null_through_framework) {
 
 TEST(EMBED_TEST, embed_function_all_null_const_nullable_through_framework) {
     auto runtime_state = std::make_unique<MockRuntimeState>();
+    runtime_state->_query_options.__set_enable_profile(true);
     auto ctx = FunctionContext::create_context(runtime_state.get(), {}, {});
 
     constexpr size_t row_count = 5;
@@ -582,6 +591,12 @@ TEST(EMBED_TEST, embed_function_all_null_const_nullable_through_framework) {
     EXPECT_TRUE(result_column->only_null());
     ColumnPtr full_result = result_column->convert_to_full_column_if_const();
     assert_mock_nullable_embedding_column(*full_result, std::vector<UInt8>(row_count, 1));
+    auto statistics =
+            runtime_state->get_query_ctx()->find_ai_statistics(runtime_state->fragment_id());
+    ASSERT_NE(statistics, nullptr);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionInputRows")->value(), 5);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionSkippedNullRows")->value(), 5);
+    EXPECT_EQ(statistics->profile()->get_counter("AIFunctionRequestCount")->value(), 0);
 }
 
 TEST(EMBED_TEST, embed_function_null_rows_across_batches_through_framework) {

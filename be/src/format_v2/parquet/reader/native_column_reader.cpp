@@ -202,13 +202,20 @@ const NativeFieldSchema* find_child_field(const NativeFieldSchema& parent,
     return field_it == parent.children.end() ? nullptr : &*field_it;
 }
 
-Status sync_native_field_types(const ParquetColumnSchema& schema, NativeFieldSchema* field) {
+} // namespace
+
+Status detail::sync_native_field_types(const ParquetColumnSchema& schema,
+                                       NativeFieldSchema* field) {
     DORIS_CHECK(field != nullptr);
-    // Variant's public type is logical; the native decoder must retain the physical shredded
-    // struct while timestamp semantics are copied into its descendants.
-    field->data_type = schema.kind == ParquetColumnSchemaKind::VARIANT
-                               ? schema.variant_physical_type
-                               : schema.type;
+    if (schema.kind == ParquetColumnSchemaKind::VARIANT) {
+        DORIS_CHECK(schema.variant_physical_type != nullptr);
+        // Native dispatch still needs Variant's physical group after request-level logical types
+        // are applied; replacing it with TYPE_VARIANT would lose every physical leaf index.
+        field->data_type = schema.variant_physical_type;
+        field->variant_physical_type = schema.variant_physical_type;
+    } else {
+        field->data_type = schema.type;
+    }
     for (const auto& child_schema : schema.children) {
         auto child_it = std::ranges::find_if(field->children, [&](const NativeFieldSchema& child) {
             return (child_schema->parquet_field_id >= 0 &&
@@ -219,10 +226,12 @@ Status sync_native_field_types(const ParquetColumnSchema& schema, NativeFieldSch
             return Status::Corruption("Native/reader parquet child schema mismatch at {}.{}",
                                       field->name, child_schema->name);
         }
-        RETURN_IF_ERROR(sync_native_field_types(*child_schema, &*child_it));
+        RETURN_IF_ERROR(detail::sync_native_field_types(*child_schema, &*child_it));
     }
     return Status::OK();
 }
+
+namespace {
 
 void collect_physical_subtree_ids(const NativeFieldSchema& field, std::set<uint64_t>* ids) {
     DORIS_CHECK(ids != nullptr);
@@ -329,7 +338,8 @@ Status NativeColumnReader::create(
     // Footer metadata is cached and shared across scans. Keep per-request timestamp semantics on a
     // reader-owned copy so mixed Paimon TIMESTAMP/TIMESTAMP_LTZ columns cannot contaminate it.
     native_reader->_native_field_schema = *metadata_field;
-    RETURN_IF_ERROR(sync_native_field_types(column_schema, &native_reader->_native_field_schema));
+    RETURN_IF_ERROR(
+            detail::sync_native_field_types(column_schema, &native_reader->_native_field_schema));
     auto* field = &native_reader->_native_field_schema;
     std::shared_ptr<NativeSchemaNode> schema_node;
     RETURN_IF_ERROR(build_native_schema_node(native_type, column_schema, &schema_node));
@@ -373,31 +383,35 @@ Status NativeColumnReader::init(
     _offset_indexes = &offset_indexes;
     _schema_node = std::move(schema_node);
     _projected_column_ids = std::move(projected_column_ids);
-    _dictionary_filter_enabled = enable_dictionary_filter;
+    _dictionary_filter_enabled = enable_dictionary_filter && metadata->encryption() == nullptr;
 
     const size_t max_group_buffer = config::parquet_rowgroup_max_buffer_mb << 20;
     const size_t max_column_buffer = config::parquet_column_max_buffer_mb << 20;
     const size_t max_buffer_size = std::min(max_group_buffer, max_column_buffer);
-    RuntimeState* native_runtime_state = runtime_state;
-    const bool runtime_page_cache_enabled =
-            runtime_state == nullptr ||
-            runtime_state->query_options().enable_parquet_file_page_cache;
-    if (runtime_page_cache_enabled != enable_page_cache) {
-        TQueryOptions query_options =
-                runtime_state == nullptr ? TQueryOptions() : runtime_state->query_options();
-        query_options.__set_enable_parquet_file_page_cache(enable_page_cache);
-        _page_cache_runtime_state = RuntimeState::create_unique(query_options, TQueryGlobals());
-        native_runtime_state = _page_cache_runtime_state.get();
-    }
     const auto& thrift_metadata = metadata->to_thrift();
-    const auto compat = native::parquet_reader_compat(
-            thrift_metadata.__isset.created_by ? thrift_metadata.created_by : "");
-    RETURN_IF_ERROR(native::ColumnReader::create(
-            std::move(file), field, row_group, _row_ranges, timezone, io_ctx, _native_reader,
-            max_buffer_size, *_offset_indexes, native_runtime_state, false, _projected_column_ids,
-            _filter_column_ids, page_cache_file_key, compat,
-            runtime_state != nullptr && runtime_state->enable_strict_mode(),
-            int96_timezone_override));
+    const native::ColumnReaderCreateContext context {
+            .file = std::move(file),
+            .row_group = row_group,
+            .row_ranges = _row_ranges,
+            .col_offsets = *_offset_indexes,
+            .column_ids = _projected_column_ids,
+            .filter_column_ids = _filter_column_ids,
+            .row_group_ordinal = row_group.__isset.ordinal ? row_group.ordinal : row_group_id,
+            .io_ctx = io_ctx,
+            .options = {.max_buf_size = max_buffer_size,
+                        .timezone = timezone,
+                        .int96_timezone_override = int96_timezone_override,
+                        .enable_page_cache = enable_page_cache,
+                        .page_cache_file_key = metadata->encryption() == nullptr
+                                                       ? page_cache_file_key
+                                                       : std::string(),
+                        .compat = native::parquet_reader_compat(thrift_metadata.__isset.created_by
+                                                                        ? thrift_metadata.created_by
+                                                                        : ""),
+                        .enable_strict_mode =
+                                runtime_state != nullptr && runtime_state->enable_strict_mode()},
+            .file_crypto = metadata->encryption().get()};
+    RETURN_IF_ERROR(native::ColumnReader::create(context, field, false, _native_reader));
     DORIS_CHECK(_native_reader != nullptr);
     _skip_column = _native_type->create_column();
     if (_variant_plan != nullptr) {

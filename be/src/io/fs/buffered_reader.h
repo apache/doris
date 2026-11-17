@@ -469,6 +469,11 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     io::FileReaderSPtr _reader;
     std::shared_ptr<const IOContext> _io_ctx_holder;
     const IOContext* _io_ctx = nullptr;
+    // Only the worker writes these statistics. The consumer merges them after observing
+    // completion under _lock, before reusing or closing the buffer.
+    IOContext _prefetch_io_ctx;
+    FileCacheStatistics _file_cache_stats;
+    bool _has_unmerged_cache_stats = false;
     PODArray<char> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
@@ -515,6 +520,9 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     void _collect_profile_at_runtime() override {}
 
     void _collect_profile_before_close() override;
+
+private:
+    void _merge_file_cache_stats();
 };
 
 constexpr int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB

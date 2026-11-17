@@ -25,7 +25,7 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "storage/index/ann/faiss_ann_index.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/index_fs_directory.h"
 
 namespace doris::segment_v2 {
 static std::string get_or_default(const std::map<std::string, std::string>& properties,
@@ -86,7 +86,7 @@ Status AnnIndexColumnWriter::init() {
     return Status::OK();
 }
 
-Status AnnIndexColumnWriter::add_values(const std::string fn, const void* values, size_t count) {
+Status AnnIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
     return Status::OK();
 }
 
@@ -95,15 +95,15 @@ void AnnIndexColumnWriter::close_on_error() {
     _buffered_vectors.swap(empty_buffered_vectors);
 }
 
-Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
-                                              const uint8_t* null_map, const uint8_t* offsets_ptr,
+Status AnnIndexColumnWriter::add_array_values(size_t field_size, const uint8_t* value_ptr,
+                                              const uint8_t* null_map, const uint64_t* offsets_ptr,
                                               size_t num_rows) {
     // TODO: Performance optimization
     if (num_rows == 0) {
         return Status::OK();
     }
 
-    const auto* offsets = reinterpret_cast<const size_t*>(offsets_ptr);
+    const auto* offsets = offsets_ptr;
     const size_t dim = _vector_index->get_dimension();
     for (size_t i = 0; i < num_rows; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];

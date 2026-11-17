@@ -146,10 +146,8 @@ int ScannerContext::_available_pickup_scanner_count() {
         return _max_scan_concurrency;
     }
 
-    int min_scanners = std::max(1, _min_scan_concurrency);
     int max_scanners = _scanner_mem_limiter->available_scanner_count(_ins_idx);
     max_scanners = std::min(max_scanners, _max_scan_concurrency);
-    min_scanners = std::min(min_scanners, max_scanners);
     if (_ins_idx == 0) {
         // Adjust memory limit via memory share arbitrator
         _adjust_scan_mem_limit(_scanner_mem_limiter->get_arb_scanner_mem_bytes(),
@@ -166,14 +164,17 @@ int ScannerContext::_available_pickup_scanner_count() {
     P.adjust_scanners_last_timestamp = now;
     auto old_scanners = P.expected_scanners;
 
-    scanners = std::max(min_scanners, scanners);
-    scanners = std::min(max_scanners, scanners);
+    // The memory limiter is what adapts: its ceiling shrinks when blocks are estimated larger or
+    // the query's scan budget is shared by more scan nodes, and grows back when they are not. Take
+    // the whole ceiling. Clamping the previous value into [minimum, ceiling] instead never raises
+    // it above the minimum, since expected_scanners starts at zero, so every scan would keep a
+    // single scanner however much memory there is. The ceiling still wins over the minimum, and a
+    // scheduler without slack still holds the Context at its minimum in _get_margin() and
+    // can_admit_scan_task().
+    scanners = max_scanners;
     VLOG_DEBUG << fmt::format(
-            "_available_pickup_scanner_count. context = {}, old_scanners = {}, scanners = {} "
-            ", min_scanners: {}, max_scanners: {}",
-            debug_string(), old_scanners, scanners, min_scanners, max_scanners);
-
-    // TODO(gabriel): Scanners are scheduled adaptively based on the memory usage now.
+            "_available_pickup_scanner_count. context = {}, old_scanners = {}, scanners = {}",
+            debug_string(), old_scanners, scanners);
     return scanners;
 }
 
@@ -417,6 +418,12 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
          (_is_shared_scan_limit_exhausted() && _in_flight_tasks_num == 0))) {
         _set_scanner_done();
         _is_finished = true;
+    } else if (scan_task != nullptr && !scan_task->is_eos() && _is_shared_scan_limit_exhausted()) {
+        // Scanners of this operator have already produced the whole shared LIMIT, so this scanner
+        // would only return empty blocks until the outstanding work drains. Park it instead of
+        // resubmitting it. The finish check above did not fire, so a completed or in-flight task
+        // remains to wake the operator, and the context finishes once nothing is in flight.
+        push_pending_scan_task(std::move(scan_task), l);
     } else if (scan_task != nullptr) {
         // Check the terminal state before scheduling more work. In particular, after the shared
         // LIMIT is exhausted, submitting another Context runnable can turn a completed query into
@@ -541,17 +548,18 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
 }
 
 std::string ScannerContext::debug_string() {
+    // Queued scan tasks can outlive the scan operator, including during this context's
+    // destructor. Do not dereference the operator-owned _shared_scan_limit for diagnostics.
     return fmt::format(
             "_query_id: {}, id: {}, total scanners: {}, pending tasks: {}, completed tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
-            " limit: {}, remaining_limit: {}, _in_flight_tasks_num: {}, _is_context_queued: {}, "
+            " limit: {}, _in_flight_tasks_num: {}, _is_context_queued: {}, "
             "_num_finished_scanners: {}, _max_scan_concurrency: {}, expected_scanners: {},"
             " _max_bytes_in_queue: {}, _ins_idx: {}, _enable_adaptive_scanners: {}, "
             "_mem_share_arb: {}, _scanner_mem_limiter: {}",
             print_id(_query_id), ctx_id, _all_scanners.size(), _pending_tasks.size(),
             _completed_tasks.size(), _should_stop, _is_finished, _free_blocks.size_approx(), limit,
-            _shared_scan_limit->load(std::memory_order_relaxed), _in_flight_tasks_num,
-            _is_context_queued, _num_finished_scanners, _max_scan_concurrency,
+            _in_flight_tasks_num, _is_context_queued, _num_finished_scanners, _max_scan_concurrency,
             _enable_adaptive_scanners ? _adaptive_processor->expected_scanners : -1,
             _max_bytes_in_queue, _ins_idx, _enable_adaptive_scanners,
             _enable_adaptive_scanners ? _mem_share_arb->debug_string() : "NULL",
@@ -838,12 +846,15 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
     int32_t effective_max_concurrency = _max_scan_concurrency;
     if (_enable_adaptive_scanners) {
-        effective_max_concurrency = _adaptive_processor->expected_scanners > 0
-                                            ? _adaptive_processor->expected_scanners
-                                            : _max_scan_concurrency;
+        // _get_margin() has just refreshed expected_scanners, so zero is a real allocation here, as
+        // in can_admit_scan_task(), not a missing one. Reading it as _max_scan_concurrency let an
+        // instance whose allocation fell to zero keep every scanner it held.
+        effective_max_concurrency = _adaptive_processor->expected_scanners;
     }
 
-    if (current_concurrency >= effective_max_concurrency) {
+    // Keep one task progressing even when the adaptive limit is zero. Otherwise no worker can
+    // publish a result and wake the operator to make another scheduling decision.
+    if (current_concurrency > 0 && current_concurrency >= effective_max_concurrency) {
         VLOG_DEBUG << fmt::format(
                 "ScannerContext {} current concurrency {} >= effective_max_concurrency {}, skip "
                 "pull",
@@ -862,7 +873,8 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     if (!_pending_tasks.empty()) {
         // Do not submit more pending scanners after the shared LIMIT is exhausted while
         // completed or in-flight tasks can still make progress. If neither exists, allow pending
-        // scanners to be submitted so they can report EOS and wake the pipeline task.
+        // scanners to be submitted so they can complete without reading and wake the pipeline
+        // task, which finishes the context once nothing is in flight.
         if (_is_shared_scan_limit_exhausted() &&
             (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
             return nullptr;

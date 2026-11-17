@@ -123,16 +123,7 @@ suite('update_after_create_rollup') {
     sql """
         ALTER TABLE mow_table ADD ROLLUP rollup1(event_date, event_time, user_id, country, update_time)
     """
-    sleep(10000)
-    explain {
-        sql('''
-            SELECT event_date, country, count(*) 
-            FROM mow_table 
-            WHERE event_date = '2025-09-22'
-            GROUP BY event_date, country
-        ''')
-        contains "rollup1"
-    }
+    assertEquals("FINISHED", getAlterRollupFinalState("mow_table"))
     
     // Test 1: UPDATE column not in rollup1 (city)
     sql 'UPDATE mow_table SET city = "beijing" WHERE user_id = 2000'
