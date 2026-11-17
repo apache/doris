@@ -211,7 +211,6 @@ public class StmtExecutor {
     // Keep this state scoped to the coordinator publication handoff: other execution targets
     // retain their existing cancellation contracts.
     private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
-    private volatile Coordinator externalDmlAuditCoordinator = null;
     // The coordinator may be cleared after a post-dispatch exception or closed before audit.
     // Pair the snapshot with its query id atomically so a retried attempt cannot inherit
     // stale BEs even when audit and query retry run on different threads.
@@ -577,35 +576,24 @@ public class StmtExecutor {
         return masterOpExecutor != null;
     }
 
-    public void setExternalDmlAuditCoordinator(Coordinator coordinator) {
-        externalDmlAuditCoordinator = coordinator;
-    }
-
-    public Set<Long> getExternalDmlAuditBackendIds() {
-        if (masterOpExecutor != null) {
-            return masterOpExecutor.getAuditStatisticsBackendIds();
-        }
-        return externalDmlAuditCoordinator == null
-                ? Collections.emptySet() : externalDmlAuditCoordinator.getDispatchedBackendIdsForAudit();
-    }
-
     public Set<Long> getAuditStatisticsBackendIds() {
         if (masterOpExecutor != null) {
             return masterOpExecutor.getAuditStatisticsBackendIds();
         }
-        Set<Long> backendIds = Sets.newHashSet(getExternalDmlAuditBackendIds());
+        Set<Long> backendIds = Sets.newHashSet();
         AuditBackendSnapshot snapshot = dispatchedAuditBackends;
         if (snapshot != null && Objects.equals(snapshot.queryId, context.queryId())) {
             backendIds.addAll(snapshot.backendIds);
         }
-        if (coord != null) {
-            backendIds.addAll(coord.getDispatchedBackendIdsForAudit());
+        Coordinator currentCoordinator = coord;
+        if (currentCoordinator != null) {
+            backendIds.addAll(currentCoordinator.getDispatchedBackendIds());
         }
         return backendIds;
     }
 
     private void rememberDispatchedAuditBackends(Coordinator executedCoordinator) {
-        Set<Long> backendIds = executedCoordinator.getDispatchedBackendIdsForAudit();
+        Set<Long> backendIds = executedCoordinator.getDispatchedBackendIds();
         if (!backendIds.isEmpty()) {
             dispatchedAuditBackends = new AuditBackendSnapshot(context.queryId().deepCopy(),
                     Set.copyOf(backendIds));
@@ -829,7 +817,6 @@ public class StmtExecutor {
         profile.getSummaryProfile().startQueryAttempt(queryId, TimeUtils.getStartTimeMs());
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
-        externalDmlAuditCoordinator = null;
         // Every attempt starts as the statement did. queryRetry() runs this again after a replan
         // error without going back through the processor's beforeStatement, and the failed attempt
         // may have moved the result to the backends (beforeQuery) and registered where.
