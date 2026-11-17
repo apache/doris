@@ -19,7 +19,10 @@ package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.tls.PrivateRpcTls;
+import org.apache.doris.tls.server.TlsProtocolSet.Protocol;
 
+import com.google.common.net.HostAndPort;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.NettyChannelBuilder;
 
@@ -36,8 +39,14 @@ public class OssBackendServiceClientChannelProvider implements BackendServiceCli
                 .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
                 .enableRetry()
-                .maxRetryAttempts(10)
-                .usePlaintext();
+                .maxRetryAttempts(10);
+        if (PrivateRpcTls.enabled(Protocol.BRPC)) {
+            // DNS resolution may change the connect address, but must not change the certified peer identity.
+            channelBuilder.sslContext(PrivateRpcTls.grpcClientContext()).overrideAuthority(
+                    HostAndPort.fromParts(address.getHostname(), address.getPort()).toString());
+        } else {
+            channelBuilder.usePlaintext();
+        }
         if (Config.grpc_backend_client_use_direct_executor) {
             channelBuilder.directExecutor();
         } else {

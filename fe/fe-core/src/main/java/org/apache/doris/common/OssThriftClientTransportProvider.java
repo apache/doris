@@ -18,6 +18,9 @@
 package org.apache.doris.common;
 
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.tls.PrivateRpcTls;
+import org.apache.doris.tls.TlsThriftSocket;
+import org.apache.doris.tls.server.TlsProtocolSet.Protocol;
 
 import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
@@ -26,8 +29,9 @@ import org.apache.thrift.transport.layered.TFramedTransport;
 public class OssThriftClientTransportProvider implements ThriftClientTransportProvider {
     @Override
     public TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking) throws Exception {
-        return nonBlocking
-                ? new TFramedTransport(new TSocket(address.hostname, address.port, timeoutMs))
+        TSocket socket = PrivateRpcTls.enabled(Protocol.THRIFT)
+                ? new TlsThriftSocket(address.hostname, address.port, timeoutMs)
                 : new TSocket(address.hostname, address.port, timeoutMs);
+        return nonBlocking ? new TFramedTransport(socket) : socket;
     }
 }
