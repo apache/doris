@@ -371,6 +371,8 @@ public class StatementContext implements Closeable {
     private final Map<String, Integer> lowerCaseTableNamesCache = Maps.newHashMap();
     private final Map<String, Integer> lowerCaseDatabaseNamesCache = Maps.newHashMap();
 
+    private volatile boolean forceVariantV2Execution;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -451,6 +453,7 @@ public class StatementContext implements Closeable {
         // Short-circuit gating flags are computed by the previous execution's planning and gate
         // the fast path of this execution before any re-planning happens.
         next.isShortCircuitQuery = isShortCircuitQuery;
+        next.forceVariantV2Execution = forceVariantV2Execution;
         next.hasNondeterministic = hasNondeterministic;
         return next;
     }
@@ -518,9 +521,25 @@ public class StatementContext implements Closeable {
         return insertTargetSchema;
     }
 
+    public boolean isForceVariantV2Execution() {
+        return forceVariantV2Execution;
+    }
+
+    public void requireVariantV2Execution() {
+        forceVariantV2Execution = true;
+    }
+
+    private void selectVariantExecution(TableIf table) {
+        if (table instanceof org.apache.doris.catalog.OlapTable
+                && ((org.apache.doris.catalog.OlapTable) table).getVariantEscapeDotsInKeys()) {
+            requireVariantV2Execution();
+        }
+    }
+
     public void setTables(Map<List<String>, TableIf> tables) {
         this.tables.clear();
         this.tables.putAll(tables);
+        tables.values().forEach(this::selectVariantExecution);
     }
 
     /** get table by table name, try to get from information from dumpfile first */
@@ -540,8 +559,13 @@ public class StatementContext implements Closeable {
             default:
                 throw new AnalysisException("Unknown table from " + tableFrom);
         }
-        return tables.computeIfAbsent(
+        TableIf table = tables.computeIfAbsent(
                 tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv(), unboundRelation));
+        // Candidate MVs are not actual query inputs and must not change query semantics.
+        if (tableFrom != TableFrom.MTMV) {
+            selectVariantExecution(table);
+        }
+        return table;
     }
 
     public void setConnectContext(ConnectContext connectContext) {

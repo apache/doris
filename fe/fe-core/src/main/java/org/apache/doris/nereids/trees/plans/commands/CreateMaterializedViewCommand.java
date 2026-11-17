@@ -196,6 +196,16 @@ public class CreateMaterializedViewCommand extends Command implements ForwardWit
      * @throws Exception auth denied
      */
     public void validate(ConnectContext ctx) throws Exception {
+        if (ctx.getStatementContext() != null) {
+            ctx.getStatementContext().requireVariantV2Execution();
+        }
+        try (org.apache.doris.common.VariantExecutionContext.Scope ignored =
+                     org.apache.doris.common.VariantExecutionContext.forceV2()) {
+            validateWithVariantV2(ctx);
+        }
+    }
+
+    private void validateWithVariantV2(ConnectContext ctx) throws Exception {
         Pair<LogicalPlan, CascadesContext> result = analyzeLogicalPlan(logicalPlan, ctx);
         CheckPrivileges checkPrivileges = new CheckPrivileges();
         checkPrivileges.rewriteRoot(result.first, result.second.getCurrentJobContext());

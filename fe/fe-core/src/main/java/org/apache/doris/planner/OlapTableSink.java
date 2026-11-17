@@ -154,7 +154,7 @@ public class OlapTableSink extends DataSink {
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS, int sendBatchParallelism,
             boolean loadToSingleTablet, boolean isStrictMode, long txnExpirationS) throws AnalysisException {
-        PropertyAnalyzer.requireVariantV2ForEscape(dstTable.getVariantEscapeDotsInKeys());
+        PropertyAnalyzer.requireVariantEscapeStorageSupport(dstTable.getVariantEscapeDotsInKeys());
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoadId(loadId);
         tSink.setTxnId(txnId);

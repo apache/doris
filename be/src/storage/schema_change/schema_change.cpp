@@ -120,12 +120,13 @@ public:
         // The block version is incremental.
         std::stable_sort(row_refs.begin(), row_refs.end(), _cmp);
 
-        auto finalized_block = _tablet->tablet_schema()->create_block();
+        auto execution_schema = _tablet->tablet_schema()->copy_for_variant_v2();
+        auto finalized_block = execution_schema->create_block();
         int columns = finalized_block.columns();
         *merged_rows += rows;
 
         if (_tablet->keys_type() == KeysType::AGG_KEYS) {
-            auto tablet_schema = _tablet->tablet_schema();
+            auto tablet_schema = execution_schema;
             int key_number = cast_set<int>(_tablet->num_key_columns());
 
             std::vector<AggregateFunctionPtr> agg_functions;
@@ -903,6 +904,8 @@ SchemaChangeJob::SchemaChangeJob(StorageEngine& local_storage_engine,
         // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
         // the complete variant is constructed by reading all the sub-columns of the variant.
         _new_tablet_schema = _new_tablet->tablet_schema()->copy_without_variant_extracted_columns();
+        _base_tablet_schema = _base_tablet_schema->copy_for_variant_v2();
+        _new_tablet_schema = _new_tablet_schema->copy_for_variant_v2();
     }
     _job_id = job_id;
 }
@@ -1132,8 +1135,9 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         }
         SchemaChangeParams sc_params;
 
-        RETURN_IF_ERROR(
-                DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
+        auto descriptors = request.desc_tbl;
+        variant_util::set_variant_execution_v2(descriptors);
+        RETURN_IF_ERROR(DescriptorTbl::create(&sc_params.pool, descriptors, &sc_params.desc_tbl));
         sc_params.ref_rowset_readers.reserve(rs_splits.size());
         for (RowSetSplits& split : rs_splits) {
             sc_params.ref_rowset_readers.emplace_back(split.rs_reader);
@@ -1159,6 +1163,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
 
                 if (item.__isset.mv_expr) {
                     mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
+                    variant_util::set_variant_execution_v2(*mv_param.expr);
                 }
                 sc_params.materialized_params_map.insert(
                         std::make_pair(to_lower(item.column_name), mv_param));

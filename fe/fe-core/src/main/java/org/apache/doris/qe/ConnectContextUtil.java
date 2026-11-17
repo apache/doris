@@ -27,11 +27,33 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.StatementContext;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
 public class ConnectContextUtil {
+
+    public static final String MV_VARIANT_EXECUTION_VERSION = "__variant_execution_version";
+
+    public static Map<String, String> getMaterializedViewSessionVariables(ConnectContext ctx) {
+        Map<String, String> variables = new HashMap<>();
+        Map<String, String> current = getAffectQueryResultInPlanVariables(ctx);
+        if (current != null) {
+            variables.putAll(current);
+        }
+        variables.put(MV_VARIANT_EXECUTION_VERSION, "2");
+        return variables;
+    }
+
+    public static Map<String, String> withoutVariantExecutionVersion(Map<String, String> variables) {
+        if (variables == null || !variables.containsKey(MV_VARIANT_EXECUTION_VERSION)) {
+            return variables;
+        }
+        Map<String, String> result = new HashMap<>(variables);
+        result.remove(MV_VARIANT_EXECUTION_VERSION);
+        return result;
+    }
 
     // Sometimes it's necessary to parse SQL, but not in a user thread where no ConnectContext exists.
     // In such cases, we need to simulate one—for example,
@@ -39,6 +61,7 @@ public class ConnectContextUtil {
     // Note: After calling this method, ensure to invoke the cleanup() method of ConnectContext.
     public static ConnectContext getDummyCtx(String dbName) {
         ConnectContext ctx = new ConnectContext();
+        ctx.setForceVariantV2Execution(true);
         ctx.setDatabase(dbName);
         StatementContext statementContext = new StatementContext();
         statementContext.setConnectContext(ctx);

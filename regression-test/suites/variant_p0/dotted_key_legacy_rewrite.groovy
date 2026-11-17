@@ -16,8 +16,10 @@
 // under the License.
 
 suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-        assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+    // The golden results characterize legacy path encoding with V2 execution.
+    // V1 execution is covered by dotted_key_escape_v1_execution and variant_background_v2_execution.
+    setFeConfigTemporary([enable_variant_v2: true]) {
+        assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     // Master rejects doc_mode=false together with explicit subcolumn properties.
     // Pin this one default here; each column still fixes all sparse layout options.
     sql "set default_variant_enable_doc_mode = false"
@@ -30,7 +32,7 @@ suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
                 "variant_sparse_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
-    properties("replication_num"="1", "disable_auto_compaction"="true",
+    properties("replication_num"="1", "variant_escape_dots_in_keys"="false", "disable_auto_compaction"="true",
                "light_schema_change"="true")"""
     sql """insert into dotted_key_legacy_source(id,v) values
         (1, parse_to_variant('{"a":5,"a.b":6}'))"""
@@ -45,7 +47,7 @@ suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
                 "variant_sparse_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
-    properties("replication_num"="1", "disable_auto_compaction"="true",
+    properties("replication_num"="1", "variant_escape_dots_in_keys"="false", "disable_auto_compaction"="true",
                "light_schema_change"="true")"""
     sql "drop table if exists dotted_key_legacy_heavy"
     sql """create table dotted_key_legacy_heavy (
@@ -56,7 +58,7 @@ suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
                 "variant_sparse_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
-    properties("replication_num"="1", "disable_auto_compaction"="true",
+    properties("replication_num"="1", "variant_escape_dots_in_keys"="false", "disable_auto_compaction"="true",
                "light_schema_change"="true")"""
     sql """insert into dotted_key_legacy_heavy(id,v) values
         (1, parse_to_variant('{"a":5,"a.b":6}'))"""
@@ -71,7 +73,7 @@ suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
                 "variant_sparse_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
-    properties("replication_num"="1", "disable_auto_compaction"="true",
+    properties("replication_num"="1", "variant_escape_dots_in_keys"="false", "disable_auto_compaction"="true",
                "light_schema_change"="true")"""
     sql """insert into dotted_key_legacy_vertical(id,v) values
         (1, parse_to_variant('{"a":5,"a.b":6}'))"""
@@ -86,7 +88,7 @@ suite("dotted_key_legacy_rewrite", "p0,nonConcurrent") {
                 "variant_sparse_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>, padding int default '0'
     ) duplicate key(id) distributed by hash(id) buckets 1
-    properties("replication_num"="1", "disable_auto_compaction"="true",
+    properties("replication_num"="1", "variant_escape_dots_in_keys"="false", "disable_auto_compaction"="true",
                "light_schema_change"="true")"""
     sql """insert into dotted_key_legacy_whole(id,v) values
         (1, parse_to_variant('{"a":5,"a.b":6}'))"""

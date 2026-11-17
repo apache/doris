@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
@@ -77,6 +78,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -120,6 +122,22 @@ public class MTMVPlanUtil {
             .add(RuleType.PRUNE_EMPTY_PARTITION)
             .build();
 
+    /** Do not substitute V2 materializations into V1 Variant expressions. Unknown old MVs are conservative. */
+    public static boolean isVariantExecutionCompatible(Plan plan, Map<String, String> sessionVariables,
+            boolean queryUsesV2) {
+        boolean variantOutput = plan.getOutput().stream().anyMatch(slot -> slot.getDataType().isVariantType());
+        boolean variantExpression = plan.anyMatch(node ->
+                !(node instanceof CatalogRelation)
+                        && ((Plan) node).getExpressions().stream().anyMatch(expression ->
+                                expression.anyMatch(child -> ((Expression) child)
+                                        .getDataType().isVariantType())));
+        if (!variantOutput && !variantExpression) {
+            return true;
+        }
+        return queryUsesV2 && sessionVariables != null
+                && "2".equals(sessionVariables.get(ConnectContextUtil.MV_VARIANT_EXECUTION_VERSION));
+    }
+
     public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
         ConnectContext ctx = createBasicMvContext(null, disableRules, mtmv.getSessionVariables());
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
@@ -136,6 +154,7 @@ public class MTMVPlanUtil {
     public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
             List<RuleType> disableRules, Map<String, String> sessionVariables) {
         ConnectContext ctx = new ConnectContext();
+        ctx.setForceVariantV2Execution(true);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
@@ -639,6 +658,10 @@ public class MTMVPlanUtil {
     private static boolean isTypeLike(Type type, Type typeOther) {
         if (type.isStringType()) {
             return typeOther.isStringType();
+        } else if (type instanceof org.apache.doris.catalog.VariantType
+                && typeOther instanceof org.apache.doris.catalog.VariantType) {
+            return ((org.apache.doris.catalog.VariantType) type).equalsIgnoringExecutionVersion(
+                    (org.apache.doris.catalog.VariantType) typeOther);
         } else {
             return type.equals(typeOther);
         }

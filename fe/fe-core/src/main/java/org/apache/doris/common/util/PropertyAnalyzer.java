@@ -2179,7 +2179,7 @@ public class PropertyAnalyzer {
             throw new AnalysisException("variant_escape_dots_in_keys must be true or false");
         }
         boolean escaped = Boolean.parseBoolean(value);
-        requireVariantV2ForEscape(escaped);
+        requireVariantEscapeStorageSupport(escaped);
         return escaped;
     }
 
@@ -2214,7 +2214,7 @@ public class PropertyAnalyzer {
         if (!explicit) {
             escaped = escapedSource;
         }
-        requireVariantV2ForEscape(escaped);
+        requireVariantEscapeStorageSupport(escaped);
         if (escaped) {
             result.put(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
         }
@@ -2243,13 +2243,6 @@ public class PropertyAnalyzer {
     }
 
     /** Compute-only V2 types are transient and cannot authorize a persisted table policy. */
-    public static void requireVariantV2ForEscape(boolean escaped) throws AnalysisException {
-        if (escaped && !Config.enable_variant_v2) {
-            throw new AnalysisException("variant_escape_dots_in_keys=true requires enable_variant_v2=true");
-        }
-        requireVariantEscapeStorageSupport(escaped);
-    }
-
     /** Physical restore needs storage-format support, independently of query execution types. */
     public static void requireVariantEscapeStorageSupport(boolean escaped) throws AnalysisException {
         if (escaped && !Config.enable_variant_escape_dots_in_keys) {

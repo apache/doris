@@ -250,6 +250,10 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _reader_type = read_params.reader_type;
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
+    if (_reader_type != ReaderType::READER_QUERY && _tablet_schema->num_variant_columns() > 0 &&
+        !_tablet_schema->variant_v2_execution()) {
+        _tablet_schema = _tablet_schema->copy_for_variant_v2();
+    }
     _reader_context.runtime_state = read_params.runtime_state;
     _reader_context.target_cast_type_for_variants = read_params.target_cast_type_for_variants;
 
@@ -593,13 +597,13 @@ Status TabletReader::init_reader_params_and_create_block(
     for (auto& del_pred : reader_params->delete_predicates) {
         merge_tablet_schema->merge_dropped_columns(*del_pred->tablet_schema());
     }
-    reader_params->tablet_schema = merge_tablet_schema;
+    reader_params->tablet_schema = merge_tablet_schema->copy_for_variant_v2();
 
     reader_params->return_columns.resize(read_tablet_schema->num_columns());
     std::iota(reader_params->return_columns.begin(), reader_params->return_columns.end(), 0);
     reader_params->origin_return_columns = &reader_params->return_columns;
 
-    *block = read_tablet_schema->create_block();
+    *block = reader_params->tablet_schema->create_block();
 
     return Status::OK();
 }

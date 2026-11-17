@@ -633,6 +633,11 @@ public:
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     Block create_block() const;
+
+    // Private execution view for maintenance; path encoding and persistent metadata are unchanged.
+    TabletSchemaSPtr copy_for_variant_v2() const;
+    bool variant_v2_execution() const { return _variant_v2_execution; }
+
     void set_schema_version(int32_t version) { _schema_version = version; }
     void set_auto_increment_column(const std::string& auto_increment_column) {
         _auto_increment_column = auto_increment_column;
@@ -854,6 +859,10 @@ private:
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
     bool _variant_escape_dots_in_keys = false;
+    bool _variant_v2_execution = false;
+
+    void enable_variant_v2_execution();
+
     bool _deprecated_enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;

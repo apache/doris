@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.VariantExecutionContext;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
@@ -235,6 +236,12 @@ public abstract class AlterJobV2 implements Writable {
      *      db lock
      */
     public synchronized void run() {
+        try (VariantExecutionContext.Scope ignored = VariantExecutionContext.forceV2()) {
+            runWithVariantV2();
+        }
+    }
+
+    private void runWithVariantV2() {
         if (isTimeout()) {
             cancelImpl("Timeout");
             return;

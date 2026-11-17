@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TColumnAccessPath;
 
@@ -155,9 +157,15 @@ public class SlotReference extends Slot {
         return fromColumn(exprId, table, column, column.getName(), qualifier);
     }
 
+    /** Build a slot with the table's Variant execution requirement, without changing catalog metadata. */
     public static SlotReference fromColumn(
             ExprId exprId, TableIf table, Column column, String name, List<String> qualifier) {
         DataType dataType = DataType.fromCatalogType(column.getType());
+        if (table instanceof OlapTable
+                && ((OlapTable) table).getVariantEscapeDotsInKeys()
+                && dataType instanceof VariantType) {
+            dataType = ((VariantType) dataType).withComputeV2(true);
+        }
         return new SlotReference(exprId, name, dataType,
             column.isAllowNull(), qualifier, table, column, table, column, ImmutableList.of());
     }

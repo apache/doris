@@ -31,9 +31,24 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/rowset/vertical_beta_rowset_writer.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 using namespace ErrorCode;
+
+namespace {
+Status init_writer_for_execution(RowsetWriter& writer, const RowsetWriterContext& context) {
+    if ((context.write_type == DataWriteType::TYPE_COMPACTION ||
+         context.write_type == DataWriteType::TYPE_SCHEMA_CHANGE) &&
+        context.tablet_schema && context.tablet_schema->num_variant_columns() > 0 &&
+        !context.tablet_schema->variant_v2_execution()) {
+        auto execution_context = context;
+        execution_context.tablet_schema = context.tablet_schema->copy_for_variant_v2();
+        return writer.init(execution_context);
+    }
+    return writer.init(context);
+}
+} // namespace
 
 Status RowsetFactory::create_rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
                                     const RowsetMetaSharedPtr& rowset_meta,
@@ -61,7 +76,7 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
         } else {
             writer = std::make_unique<BetaRowsetWriter>(engine);
         }
-        RETURN_IF_ERROR_RESULT(writer->init(context));
+        RETURN_IF_ERROR_RESULT(init_writer_for_execution(*writer, context));
         return writer;
     }
 
@@ -79,7 +94,7 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
         writer = std::make_unique<CloudRowsetWriter>(engine);
     }
 
-    RETURN_IF_ERROR_RESULT(writer->init(context));
+    RETURN_IF_ERROR_RESULT(init_writer_for_execution(*writer, context));
     return writer;
 }
 

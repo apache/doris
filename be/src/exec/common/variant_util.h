@@ -42,6 +42,7 @@
 
 namespace doris {
 class TabletSchema;
+class TExpr;
 enum class FieldType;
 namespace segment_v2 {
 struct VariantStatisticsPB;
@@ -67,6 +68,12 @@ using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>,
 
 // Check the requested execution type before a read schema can promote its Variant columns.
 Status check_variant_execution(bool escape_dots_in_keys, const DataTypePtr& type);
+
+// Normalize background descriptors and expressions together, including requests from older FEs.
+// Callers copy the request metadata first; foreground plans and storage encoding are unchanged.
+void set_variant_execution_v2(TTypeDesc& type);
+void set_variant_execution_v2(TDescriptorTable& descriptors);
+void set_variant_execution_v2(TExpr& expr);
 
 inline bool should_record_variant_path_stats(const TabletColumn& column) {
     return !column.variant_enable_nested_group();

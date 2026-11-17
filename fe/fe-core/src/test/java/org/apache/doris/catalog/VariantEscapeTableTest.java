@@ -310,7 +310,7 @@ public class VariantEscapeTableTest extends TestWithFeService {
     }
 
     @Test
-    public void testV1CreationAndInheritanceFailClosed() throws Exception {
+    public void testEscapedCreationAndInheritanceAutomaticallySelectV2() throws Exception {
         createTable("CREATE TABLE v2_source(k INT, padding INT, v VARIANT) DUPLICATE KEY(k,padding) "
                 + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
                 + "'variant_escape_dots_in_keys'='true')");
@@ -321,31 +321,42 @@ public class VariantEscapeTableTest extends TestWithFeService {
                     + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1'" + property + ")");
             Assertions.assertFalse(table("v1_" + policy).getVariantEscapeDotsInKeys());
         }
-        assertV2Required(() -> createTable("CREATE TABLE v1_true(k INT,v VARIANT) DUPLICATE KEY(k) "
+        assertAutomaticV2(() -> createTable("CREATE TABLE v1_true(k INT,v VARIANT) DUPLICATE KEY(k) "
                 + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
                 + "'variant_escape_dots_in_keys'='true')"));
-        assertV2Required(() -> createLike("CREATE TABLE v1_like LIKE v2_source"));
-        assertV2Required(() -> createTable("CREATE TABLE v1_ctas DISTRIBUTED BY HASH(k) BUCKETS 1 "
+        assertAutomaticV2(() -> createLike("CREATE TABLE v1_like LIKE v2_source"));
+        assertAutomaticV2(() -> createTable("CREATE TABLE v1_ctas DISTRIBUTED BY HASH(k) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM v2_source"));
-        assertV2Required(() -> createTable("CREATE TABLE v1_ctas_explicit DISTRIBUTED BY HASH(k) BUCKETS 1 "
+        assertAutomaticV2(() -> createTable("CREATE TABLE v1_ctas_explicit DISTRIBUTED BY HASH(k) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true') "
                 + "AS SELECT k,v FROM v1_default"));
-        assertV2Required(() -> createMvByNereids("CREATE MATERIALIZED VIEW v1_async "
+        assertAutomaticV2(() -> createTable("CREATE TABLE v1_recursive DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1') AS WITH RECURSIVE r(k,v) AS ("
+                + "SELECT k,v FROM v1_default UNION ALL "
+                + "SELECT s.k,s.v FROM r JOIN v2_source s ON r.k=0) SELECT k,v FROM r"));
+        Assertions.assertTrue(table("v1_recursive").getVariantEscapeDotsInKeys());
+        assertAutomaticV2(() -> createMvByNereids("CREATE MATERIALIZED VIEW v1_async "
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM v2_source"));
-        assertV2Required(() -> createMvByNereids("CREATE MATERIALIZED VIEW v1_async_explicit "
-                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true') "
-                + "AS SELECT k FROM v1_default"));
-        assertV2Required(() -> createMv("CREATE MATERIALIZED VIEW v1_sync "
-                + "AS SELECT k AS kk, element_at(v,'obj') AS sub FROM v2_source"));
-        assertV2Required(() -> alterTableSync("ALTER TABLE v2_source ADD ROLLUP v1_rollup(k,v)"));
+        Exception incompatiblePolicy = Assertions.assertThrows(Exception.class,
+                () -> createMvByNereids("CREATE MATERIALIZED VIEW v1_async_explicit "
+                        + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                        + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true') "
+                        + "AS SELECT k FROM v1_default"));
+        Assertions.assertTrue(incompatiblePolicy.getMessage().contains(
+                "async MV must use the same value of variant_escape_dots_in_keys"));
         alterTableSync("ALTER TABLE v2_source ADD COLUMN added VARIANT");
         Assertions.assertTrue(table("v2_source").getVariantEscapeDotsInKeys());
         alterTableSync("ALTER TABLE v2_source DROP COLUMN added");
         alterTableSync("ALTER TABLE v2_source ADD COLUMN ordinary INT DEFAULT '0'");
         alterTableSync("ALTER TABLE v2_source DROP COLUMN ordinary");
         Assertions.assertTrue(table("v2_source").getVariantEscapeDotsInKeys());
+        createTable("CREATE TABLE v1_rollup_source(k INT,padding INT,v VARIANT) DUPLICATE KEY(k,padding) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                + "'variant_escape_dots_in_keys'='true')");
+        assertAutomaticV2(() -> alterTableSync("ALTER TABLE v1_rollup_source ADD ROLLUP v1_rollup(k,v)"));
+        assertAutomaticV2(() -> createMv("CREATE MATERIALIZED VIEW v1_sync "
+                + "AS SELECT k AS kk, element_at(v,'obj') AS sub FROM v2_source"));
         createLike("CREATE TABLE v1_like_false LIKE v1_false");
         createTable("CREATE TABLE v1_ctas_false DISTRIBUTED BY HASH(k) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM v1_default");
@@ -355,9 +366,8 @@ public class VariantEscapeTableTest extends TestWithFeService {
         for (String name : new String[] {"v1_like_false", "v1_ctas_false", "v1_async_false"}) {
             Assertions.assertFalse(table(name).getVariantEscapeDotsInKeys());
         }
-        for (String name : new String[] {"v1_true", "v1_like", "v1_ctas", "v1_async", "v1_async_explicit"}) {
-            Assertions.assertNull(Env.getCurrentInternalCatalog().getDbOrMetaException("variant_escape_table")
-                    .getTableNullable(name));
+        for (String name : new String[] {"v1_true", "v1_like", "v1_ctas", "v1_async"}) {
+            Assertions.assertTrue(table(name).getVariantEscapeDotsInKeys(), name);
         }
     }
 
@@ -375,17 +385,46 @@ public class VariantEscapeTableTest extends TestWithFeService {
         Assertions.assertTrue(sync.getMessage().contains("only be specified when creating"), sync.getMessage());
     }
 
+    @Test
+    public void testEscapedScanUsesV2WithGlobalSwitchOffAndDoesNotAffectLegacyScan() throws Exception {
+        org.apache.doris.common.Config.enable_variant_v2 = false;
+        createTable("CREATE TABLE auto_v2_scan(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                + "'variant_escape_dots_in_keys'='true')");
+        createTable("CREATE TABLE auto_v1_scan(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        assertVariantSlotVersion("SELECT v FROM auto_v2_scan", true);
+        assertVariantSlotVersion("SELECT l.v, e.v FROM auto_v1_scan l JOIN auto_v2_scan e ON l.k=e.k", true);
+        assertVariantSlotVersion("SELECT v FROM auto_v1_scan", false);
+    }
+
+    private void assertVariantSlotVersion(String query, boolean expectedV2) throws Exception {
+        Planner planner = getSqlStmtExecutor(query).planner();
+        int variants = 0;
+        for (TSlotDescriptor slot : planner.getDescTable().toThrift().getSlotDescriptors()) {
+            for (org.apache.doris.thrift.TTypeNode type : slot.getSlotType().getTypes()) {
+                if (type.scalar_type != null
+                        && type.scalar_type.type == org.apache.doris.thrift.TPrimitiveType.VARIANT) {
+                    variants++;
+                    Assertions.assertEquals(expectedV2, type.scalar_type.isVariantIsV2(), query);
+                }
+            }
+        }
+        Assertions.assertTrue(variants > 0, query);
+        Assertions.assertFalse(org.apache.doris.common.Config.enable_variant_v2);
+    }
+
     private void createLike(String sql) throws Exception {
         CreateTableLikeCommand command = (CreateTableLikeCommand) new NereidsParser().parseSingle(sql);
         command.run(connectContext, new org.apache.doris.qe.StmtExecutor(connectContext, sql));
     }
 
-    private void assertV2Required(org.junit.jupiter.api.function.Executable action) {
+    private void assertAutomaticV2(org.junit.jupiter.api.function.Executable action) {
         org.apache.doris.nereids.StatementContext previous = connectContext.getStatementContext();
         connectContext.setStatementContext(new org.apache.doris.nereids.StatementContext(connectContext, null));
         try {
-            Exception error = Assertions.assertThrows(Exception.class, action);
-            Assertions.assertTrue(error.getMessage().contains("requires enable_variant_v2=true"), error.getMessage());
+            Assertions.assertDoesNotThrow(action);
+            Assertions.assertFalse(org.apache.doris.common.Config.enable_variant_v2);
         } finally {
             connectContext.setStatementContext(previous);
         }

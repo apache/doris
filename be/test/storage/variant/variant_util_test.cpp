@@ -17,6 +17,7 @@
 
 #include "testutil/variant_util.h"
 
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <iostream>
@@ -42,6 +43,75 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::variant_util {
+
+TEST(VariantUtilTest, BackgroundDescriptorsAndExpressionsUseV2WithoutMutatingRequest) {
+    TScalarType scalar;
+    scalar.__set_type(TPrimitiveType::VARIANT);
+    scalar.__set_variant_max_subcolumns_count(3);
+    scalar.__set_variant_enable_doc_mode(true);
+    // Thrift initializes optional fields with defaults as present. Model an older sender explicitly.
+    scalar.__isset.variant_is_v2 = false;
+    TTypeNode type_node;
+    type_node.__set_type(TTypeNodeType::SCALAR);
+    type_node.__set_scalar_type(scalar);
+    TTypeDesc v1;
+    v1.types.push_back(type_node);
+
+    TSlotDescriptor slot;
+    slot.__set_slotType(v1);
+    TDescriptorTable request_descriptors;
+    request_descriptors.__set_slotDescriptors({slot});
+    auto descriptors = request_descriptors;
+    set_variant_execution_v2(descriptors);
+    const auto& promoted = descriptors.slotDescriptors[0].slotType.types[0].scalar_type;
+    EXPECT_TRUE(promoted.__isset.variant_is_v2);
+    EXPECT_TRUE(promoted.variant_is_v2);
+    EXPECT_EQ(promoted.variant_max_subcolumns_count, 3);
+    EXPECT_TRUE(promoted.variant_enable_doc_mode);
+    EXPECT_FALSE(request_descriptors.slotDescriptors[0]
+                         .slotType.types[0]
+                         .scalar_type.__isset.variant_is_v2);
+
+    TFunction function;
+    function.__set_arg_types({v1});
+    function.__set_ret_type(v1);
+    TAggregateFunction aggregate;
+    aggregate.__set_intermediate_type(v1);
+    function.__set_aggregate_fn(aggregate);
+    TAggregateExpr aggregate_expr;
+    aggregate_expr.__set_param_types({v1});
+    TExprNode node;
+    node.__set_type(v1);
+    node.__set_fn(function);
+    node.__set_agg_expr(aggregate_expr);
+    TExpr request_expr;
+    request_expr.nodes.push_back(node);
+    auto expr = request_expr;
+    set_variant_execution_v2(expr);
+    const auto& result = expr.nodes[0];
+    for (const auto* type :
+         {&result.type, &result.fn.arg_types[0], &result.fn.ret_type,
+          &result.fn.aggregate_fn.intermediate_type, &result.agg_expr.param_types[0]}) {
+        EXPECT_TRUE(type->types[0].scalar_type.variant_is_v2);
+    }
+    EXPECT_FALSE(request_expr.nodes[0].type.types[0].scalar_type.__isset.variant_is_v2);
+    descriptors.slotDescriptors[0].__set_virtual_column_expr(request_expr);
+    set_variant_execution_v2(descriptors);
+    EXPECT_TRUE(descriptors.slotDescriptors[0]
+                        .virtual_column_expr.nodes[0]
+                        .type.types[0]
+                        .scalar_type.variant_is_v2);
+
+    auto integer = v1;
+    integer.types[0].scalar_type.__set_type(TPrimitiveType::INT);
+    set_variant_execution_v2(integer);
+    EXPECT_FALSE(integer.types[0].scalar_type.__isset.variant_is_v2);
+
+    auto explicit_v1 = v1;
+    explicit_v1.types[0].scalar_type.__set_variant_is_v2(false);
+    set_variant_execution_v2(explicit_v1);
+    EXPECT_TRUE(explicit_v1.types[0].scalar_type.variant_is_v2);
+}
 
 TEST(VariantUtilTest, EscapedStorageChecksExecutionTypeBeforeSchemaPromotion) {
     for (bool nullable : {false, true}) {

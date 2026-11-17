@@ -152,6 +152,7 @@ public class InsertTask extends AbstractTask {
 
     public static ConnectContext makeConnectContext(UserIdentity userIdentity, String currentDb) {
         ConnectContext ctx = new ConnectContext();
+        ctx.setForceVariantV2Execution(true);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.getState().reset();

@@ -23,7 +23,7 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
+import org.apache.doris.common.VariantExecutionContext;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -372,7 +372,7 @@ public class FlightSqlSchemaHelper {
 
     private static void requireVariantV2() {
         // Schema discovery must reject legacy Variant before publishing a native binary layout.
-        if (!Config.enable_variant_v2) {
+        if (!VariantExecutionContext.useV2()) {
             throw CallStatus.UNIMPLEMENTED.withDescription(
                     "Native Arrow Flight output only supports Variant V2, not legacy Variant; "
                             + "cast the result to STRING for text output").toRuntimeException();
