@@ -36,6 +36,8 @@ suite("test_iceberg_encryption_native_reader", "p0,external") {
     String prefix = "native-pme-${UUID.randomUUID()}"
     String plainKey = "${prefix}/mixed/00-plain.parquet"
     String encryptedKey = "${prefix}/mixed/10-encrypted.parquet"
+    String indexedPlainKey = "${prefix}/indexed/00-plain.parquet"
+    String indexedEncryptedKey = "${prefix}/indexed/10-encrypted.parquet"
     String truncatedKey = "${prefix}/invalid/truncated.parquet"
     File fixtures = new File(context.config.dataPath, "external_table_p0/iceberg/encryption")
     File encrypted = new File(fixtures, "iceberg_java.parquet")
@@ -43,7 +45,8 @@ suite("test_iceberg_encryption_native_reader", "p0,external") {
     assertEquals("PARE", new String(Arrays.copyOf(encrypted.bytes, 4), StandardCharsets.US_ASCII))
     assertEquals("PAR1", new String(Arrays.copyOf(plain.bytes, 4), StandardCharsets.US_ASCII))
     def previous = sql """SELECT @@enable_file_scanner_v2,
-        @@enable_count_push_down_for_external_table, @@enable_parquet_file_page_cache"""
+        @@enable_count_push_down_for_external_table, @@enable_parquet_file_page_cache,
+        @@enable_parquet_filter_by_bloom_filter"""
     def client = AmazonS3ClientBuilder.standard()
             .withCredentials(new AWSStaticCredentialsProvider(new BasicAWSCredentials("admin", "password")))
             .withEndpointConfiguration(new AwsClientBuilder.EndpointConfiguration(endpoint, "us-east-1"))
@@ -61,6 +64,8 @@ suite("test_iceberg_encryption_native_reader", "p0,external") {
         bucketCreated = true
         client.putObject(bucket, plainKey, plain)
         client.putObject(bucket, encryptedKey, encrypted)
+        client.putObject(bucket, indexedPlainKey, new File(fixtures, "indexes_java_plain.parquet"))
+        client.putObject(bucket, indexedEncryptedKey, new File(fixtures, "indexes_java.parquet"))
         byte[] encryptedBytes = encrypted.bytes
         truncated.bytes = Arrays.copyOf(encryptedBytes, encryptedBytes.length - 1)
         client.putObject(bucket, truncatedKey, truncated)
@@ -91,6 +96,27 @@ suite("test_iceberg_encryption_native_reader", "p0,external") {
                 order_qt_plain_after_rejection rows
             }
         }
+        // This toggles Bloom probes; native footer/page pruning remains active. The physical-reader
+        // unit test separately disables all metadata pruning for its full-scan reference.
+        for (String bloom : ["false", "true"]) {
+            sql "SET enable_parquet_filter_by_bloom_filter=${bloom}"
+            quickTest("index_tail_${bloom}", """SELECT COUNT(*), MIN(id), MAX(id), COUNT(label)
+                FROM ${tvf(indexedPlainKey)} WHERE id > 900""")
+            quickTest("index_membership_${bloom}", """SELECT id, label FROM ${tvf(indexedPlainKey)}
+                WHERE id IN (3, 900, 1022) ORDER BY id""")
+            quickTest("index_absent_${bloom}", "SELECT COUNT(*) FROM ${tvf(indexedPlainKey)} WHERE id = 3")
+            // A negative Bloom probe must never authorize a keyless scan of an encrypted file.
+            for (String key : [indexedEncryptedKey, prefix + '/indexed/*.parquet']) {
+                test {
+                    sql "SELECT id FROM ${tvf(key)} WHERE id = 3"
+                    exception "File encryption [MISSING_KEY]"
+                }
+                test {
+                    sql "SELECT COUNT(*) FROM ${tvf(key)} WHERE id > 900"
+                    exception "File encryption [MISSING_KEY]"
+                }
+            }
+        }
         test {
             sql "SELECT * FROM ${tvf(truncatedKey)}"
             exception "Invalid Parquet v2 footer magic"
@@ -101,12 +127,13 @@ suite("test_iceberg_encryption_native_reader", "p0,external") {
             sql "SET enable_file_scanner_v2=${previous[0][0]}"
             sql "SET enable_count_push_down_for_external_table=${previous[0][1]}"
             sql "SET enable_parquet_file_page_cache=${previous[0][2]}"
+            sql "SET enable_parquet_filter_by_bloom_filter=${previous[0][3]}"
         } finally {
             try {
                 // A failed bucket creation has nothing to clean up. Once created, this UUID bucket
                 // belongs only to this attempt, including any object from an interrupted upload.
                 if (bucketCreated) {
-                    for (String key : [plainKey, encryptedKey, truncatedKey]) {
+                    for (String key : [plainKey, encryptedKey, truncatedKey, indexedPlainKey, indexedEncryptedKey]) {
                         client.deleteObject(bucket, key)
                     }
                     client.deleteBucket(bucket)

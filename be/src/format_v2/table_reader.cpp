@@ -1335,6 +1335,10 @@ Status TableReader::create_next_reader(bool* eos) {
 
 Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     DORIS_CHECK(reader != nullptr);
+    const auto* encryption = file_encryption_info();
+    if (encryption != nullptr && _format != FileFormat::PARQUET) {
+        return Status::NotSupported("File encryption [UNSUPPORTED_FILE_FORMAT]");
+    }
     const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
                                              _scan_params->__isset.enable_mapping_timestamp_tz &&
                                              _scan_params->enable_mapping_timestamp_tz;
@@ -1351,7 +1355,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
                 hive_parquet_time_zone, preserve_binary_uuid(), _parquet_profile_cache,
-                std::nullopt, parquet_spatial_annotations_as_bytes());
+                encryption == nullptr ? std::nullopt : std::optional(*encryption),
+                parquet_spatial_annotations_as_bytes());
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
