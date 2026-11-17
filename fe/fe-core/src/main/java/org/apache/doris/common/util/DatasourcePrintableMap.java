@@ -43,6 +43,15 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("kerberos_keytab_content");
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
+        // Metastore aliases are stored verbatim, including when a connector has not been loaded.
+        SENSITIVE_KEY.addAll(Arrays.asList(
+                "iceberg.jdbc.password", "paimon.jdbc.password",
+                "paimon.rest.dlf.access-key-id", "paimon.rest.dlf.access-key-secret"));
+        // JDBC and REST URIs can embed credentials in driver-specific formats. Mask the entire
+        // connection string, as for mongodb.uri, rather than trying to parse every driver's syntax.
+        SENSITIVE_KEY.addAll(Arrays.asList(
+                "jdbc_url", "uri", "iceberg.jdbc.uri", "paimon.jdbc.uri",
+                "iceberg.rest.uri", "paimon.rest.uri"));
         // MongoDB URIs can embed credentials even when no separate password is configured.
         SENSITIVE_KEY.add("mongodb.uri");
         SENSITIVE_KEY.add("mongodb.password");

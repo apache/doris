@@ -69,6 +69,64 @@ public class DatasourcePrintableMapTest {
     }
 
     @Test
+    public void testMetastoreCredentialsAreMaskedWithoutProviderRegistration() {
+        Map<String, String> properties = Map.of(
+                "iceberg.jdbc.password", "iceberg-jdbc-secret",
+                "paimon.jdbc.password", "paimon-jdbc-secret",
+                "jdbc.password", "jdbc-alias-secret",
+                "paimon.rest.dlf.access-key-id", "dlf-access-key",
+                "paimon.rest.dlf.access-key-secret", "dlf-secret-key",
+                "PAIMON.JDBC.PASSWORD", "upper-case-secret");
+
+        String result = new DatasourcePrintableMap<>(properties, "=", true, true, true, true).toString();
+        properties.forEach((key, value) -> {
+            Assertions.assertTrue(result.contains("\"" + key + "\" = \"*XXX\""), key);
+            Assertions.assertFalse(result.contains(value), key);
+        });
+    }
+
+    @Test
+    public void testConnectionUrisAreMaskedWithoutProviderRegistration() {
+        Map<String, String> properties = Map.of(
+                "jdbc_url", "jdbc:mysql://localhost:3306/db?user=reader&password=jdbc-url-secret",
+                "uri", "jdbc:postgresql://localhost/db?user=reader&password=generic-uri-secret",
+                "iceberg.jdbc.uri", "jdbc:mysql://localhost/db?password=iceberg-uri-secret",
+                "paimon.jdbc.uri", "jdbc:mysql://localhost/db?password=paimon-uri-secret",
+                "iceberg.rest.uri", "http://reader:iceberg-rest-secret@localhost:8181",
+                "paimon.rest.uri", "http://reader:paimon-rest-secret@localhost:8181",
+                "ICEBERG.JDBC.URI", "jdbc:mysql://localhost/db?password=upper-uri-secret");
+
+        String result = new DatasourcePrintableMap<>(properties, "=", true, true, true, true).toString();
+        properties.forEach((key, value) -> {
+            Assertions.assertTrue(result.contains("\"" + key + "\" = \"*XXX\""), key);
+            Assertions.assertFalse(result.contains(value), key);
+        });
+    }
+
+    @Test
+    public void testUriMaskingPreservesOriginalPropertiesAndOrdinaryOptions() {
+        Map<String, String> properties = Map.of(
+                "uri", "http://localhost:8181",
+                "paimon.jdbc.password", "connection-secret",
+                "type", "iceberg",
+                "warehouse", "s3://warehouse/path",
+                "iceberg.jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
+        Map<String, String> original = new HashMap<>(properties);
+
+        String masked = new DatasourcePrintableMap<>(properties, "=", false, false, true).toString();
+        Assertions.assertTrue(masked.contains("uri = *XXX"), masked);
+        Assertions.assertTrue(masked.contains("paimon.jdbc.password = *XXX"), masked);
+        Assertions.assertTrue(masked.contains("type = iceberg"), masked);
+        Assertions.assertTrue(masked.contains("warehouse = s3://warehouse/path"), masked);
+        Assertions.assertTrue(masked.contains("iceberg.jdbc.driver_class = com.mysql.cj.jdbc.Driver"), masked);
+        Assertions.assertEquals(original, properties);
+
+        String unmasked = new DatasourcePrintableMap<>(properties, "=", false, false, false).toString();
+        Assertions.assertTrue(unmasked.contains("uri = http://localhost:8181"), unmasked);
+        Assertions.assertTrue(unmasked.contains("paimon.jdbc.password = connection-secret"), unmasked);
+    }
+
+    @Test
     public void testBasicConstructor() {
         Map<String, String> testMap = new HashMap<>();
         testMap.put("key1", "value1");
