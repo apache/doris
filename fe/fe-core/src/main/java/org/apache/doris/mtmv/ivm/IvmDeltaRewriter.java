@@ -19,32 +19,19 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.info.TableNameInfoUtils;
-import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVPartitionUtil;
-import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import com.google.common.base.Preconditions;
+
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Entry point for IVM delta rewriting.
@@ -65,16 +52,28 @@ public class IvmDeltaRewriter {
         IvmIncrRefreshContext refreshContext = new IvmIncrRefreshContext(
                 rewriteContext.getMtmv(), connectContext, rewriteResult,
                 rewriteContext.isIncludeExhaustedStreams());
+        if (refreshContext.getMtmv().isIvmAppendOnlyDupTable()) {
+            // An append-only detail MV holds the query's own rows, so its delta is the rows its base
+            // tables appended, and the plan that produces it carries no sign, no sequence and no row-id.
+            // Nothing below applies to it -- and nothing below may read it: the sequence prefix (a
+            // meta-service version allocation in cloud mode), the MV's sequence column type, and the
+            // row-id of the normalized root all belong to the layout only the unique-key model has. The
+            // sink child is taken as it stands for the same reason: the adapter projects below detach and
+            // reattach the hidden columns of that layout.
+            Preconditions.checkState(!rewriteResult.isAggMv(),
+                    "an append-only detail MV holds no aggregate");
+            Optional<Plan> deltaPlan = IvmDupDeltaRewriter.generateIncrRefreshPlan(sinkChild, refreshContext,
+                    rewriteContext.getIncrementalScopePartitionIds());
+            return deltaPlan.orElseGet(() -> emptyDeltaPlan(sinkChild, refreshContext));
+        }
         Pair<Plan, List<LogicalProject<?>>> prefixChain = helper.detachAdaptProjectChain(sinkChild);
         Plan rootPlan = prefixChain.first;
         long sequencePrefix = refreshContext.getMtmv().getNextSequencePrefix();
-        IvmDeltaRewriteState rewriteState = createDeltaRewriteState(rootPlan, refreshContext, sequencePrefix,
+        IvmDeltaRewriteState rewriteState = IvmDeltaRewriteState.forUniqueKeys(rootPlan, refreshContext, sequencePrefix,
                 rewriteContext.getIncrementalScopePartitionIds());
         Optional<IvmDeltaRewriteResult> deltaResult = rewriteDelta(rootPlan, refreshContext, rewriteState);
         if (!deltaResult.isPresent()) {
-            return new LogicalEmptyRelation(
-                    refreshContext.getConnectContext().getStatementContext().getNextRelationId(),
-                    sinkChild.getOutput());
+            return emptyDeltaPlan(sinkChild, refreshContext);
         }
         // A non-empty delta reaches this point, and only an aggregate delta joins the MV's
         // old rows with the new delta. If the previous refresh txn committed but its data is
@@ -102,6 +101,15 @@ public class IvmDeltaRewriter {
         return helper.finalizeQuery(prefixChain, mergedResult, refreshContext);
     }
 
+    /**
+     * The plan of a refresh that has nothing to write: it reads no rows, so the MV keeps the rows it has.
+     */
+    private static Plan emptyDeltaPlan(Plan sinkChild, IvmIncrRefreshContext refreshContext) {
+        return new LogicalEmptyRelation(
+                refreshContext.getConnectContext().getStatementContext().getNextRelationId(),
+                sinkChild.getOutput());
+    }
+
     Optional<IvmDeltaRewriteResult> rewriteDelta(Plan plan, IvmIncrRefreshContext ctx,
             IvmDeltaRewriteState rewriteState) {
         IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
@@ -125,136 +133,6 @@ public class IvmDeltaRewriter {
             }
         }
         return false;
-    }
-
-    static Pair<Plan, Map<Slot, Slot>> preSnapshot(Plan plan, IvmDeltaRewriteState rewriteState) {
-        return rewriteSnapshot(plan, rewriteState, true);
-    }
-
-    static Pair<Plan, Map<Slot, Slot>> postSnapshot(Plan plan, IvmDeltaRewriteState rewriteState) {
-        return rewriteSnapshot(plan, rewriteState, false);
-    }
-
-    private static Pair<Plan, Map<Slot, Slot>> rewriteSnapshot(Plan plan, IvmDeltaRewriteState rewriteState,
-            boolean preSnapshot) {
-        Plan rewritten = plan.rewriteDownShortCircuit(node -> {
-            if (!(node instanceof LogicalOlapScan)) {
-                return node;
-            }
-            LogicalOlapScan scan = (LogicalOlapScan) node;
-            if (rewriteState.isExcluded(scan)) {
-                // Excluded tables produce no delta, but their snapshot side still joins
-                // the delta side; apply the window so the property also saves their scan.
-                return rewriteState.restrictWindow(scan);
-            }
-            scan = rewriteState.restrictWindow(scan);
-            LogicalPlan snapshotScan = preSnapshot
-                    ? scan.withPreSnapshot(Optional.of(rewriteState.getStream(scan)))
-                    : scan.withPostSnapshot();
-            return IvmDeltaRewriteHelper.INSTANCE.remapOlapScanToPlan(scan, snapshotScan);
-        });
-        return IvmDeltaRewriteHelper.INSTANCE.freshPlan(rewritten);
-    }
-
-    private IvmDeltaRewriteState createDeltaRewriteState(Plan plan, IvmIncrRefreshContext ctx, long sequencePrefix,
-            Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
-        Map<OlapTable, OlapTableStream> streams = new HashMap<>();
-        // Window limits apply to every base table in the plan, including excluded
-        // trigger tables (their snapshot side is windowed too, so the property saves
-        // the join-opposite scan cost even when the table produces no delta).
-        Set<OlapTable> planTables = new HashSet<>();
-        Set<TableNameInfo> excludedTriggerTables = ctx.getMtmv().getExcludedTriggerTables();
-        plan.foreach(node -> {
-            if (!(node instanceof LogicalOlapScan)) {
-                return;
-            }
-            LogicalOlapScan scan = (LogicalOlapScan) node;
-            OlapTable table = (OlapTable) scan.getTable();
-            planTables.add(table);
-            if (isExcludedTriggerTable(scan, excludedTriggerTables)) {
-                return;
-            }
-            streams.put(table, IvmUtil.getIvmStream(ctx.getMtmv(), table));
-        });
-        Map<TableNameInfo, Integer> windowLimits =
-                MTMVPropertyUtil.getIvmPartitionWindowLimit(ctx.getMtmv().getMvProperties());
-        Map<OlapTable, List<Long>> windowPartitionIdsByTable = new HashMap<>();
-        if (!windowLimits.isEmpty()) {
-            for (OlapTable table : planTables) {
-                windowPartitionIdsByTable.put(table, MTMVPropertyUtil.getIvmPartitionWindowIds(table,
-                        new TableNameInfo(table.getFullQualifiers()), windowLimits));
-            }
-        }
-        applyScopePartitionIds(windowPartitionIdsByTable, planTables, scopePartitionIds);
-        return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(), sequencePrefix,
-                DataType.fromCatalogType(ctx.getMtmv().getColumn(Column.SEQUENCE_COL).getType()),
-                windowPartitionIdsByTable);
-    }
-
-    /**
-     * Limits every base table whose partition column feeds the MV's partition column to the base
-     * partitions the MV's partition definition keeps. The delta and the join-opposite snapshot
-     * would otherwise also read base partitions the MV does not keep, expired by
-     * partition_sync_limit, and then try to write their rows into MV partitions that do not exist,
-     * which fails the whole insert with "no partition for this tuple" and takes the partitions
-     * that do exist down with it.
-     *
-     * <p>The limit is the partition set the MV is aligned to rather than the partitions it already
-     * has, so a base partition whose MV partition has not been added yet stays readable: the
-     * refresh still reports the missing partition and recovers it by syncing.
-     *
-     * <p>Tables outside {@code scopePartitionIds} keep their full read: the MV partition column
-     * does not come from them, so limiting them would change join results without narrowing the
-     * set of MV partitions the delta can target. A scope that covers every partition of its table
-     * is left alone as well, so an MV that mirrors all of its base partitions keeps the plan it
-     * had before this restriction existed. An entry with no partitions is the opposite case and is
-     * applied as it stands: the scan then reads nothing, which is how the delta and the snapshot
-     * side both stay out of a table the MV has no partition for.
-     *
-     * <p>The scope is keyed by base table identity, but only olap tables are reachable here: the
-     * delta reads them through {@code OlapTableStream} and restricts a scan by partition id.
-     */
-    private static void applyScopePartitionIds(Map<OlapTable, List<Long>> windowPartitionIdsByTable,
-            Set<OlapTable> planTables, Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
-        if (scopePartitionIds.isEmpty()) {
-            return;
-        }
-        for (OlapTable table : planTables) {
-            Set<Long> tableScope = scopePartitionIds.get(new BaseTableInfo(table));
-            if (tableScope == null || tableScope.containsAll(table.getPartitionIds())) {
-                continue;
-            }
-            List<Long> windowPartitionIds = windowPartitionIdsByTable.get(table);
-            List<Long> readablePartitionIds;
-            if (windowPartitionIds == null) {
-                readablePartitionIds = new ArrayList<>(tableScope);
-            } else {
-                // Both limits apply, so only their intersection is readable. One keeps the
-                // partitions above a time cutoff and the other the last N by partition value, so
-                // each is a suffix of the same value order and the two cannot be disjoint.
-                readablePartitionIds = new ArrayList<>();
-                for (Long partitionId : windowPartitionIds) {
-                    if (tableScope.contains(partitionId)) {
-                        readablePartitionIds.add(partitionId);
-                    }
-                }
-            }
-            // Sorted like every other partition selection handed to a scan, so the plan shape does
-            // not depend on the order the two limits were combined in.
-            readablePartitionIds.sort(Long::compareTo);
-            windowPartitionIdsByTable.put(table, readablePartitionIds);
-        }
-    }
-
-    boolean isExcludedTriggerTable(LogicalOlapScan scan, Set<TableNameInfo> excludedTriggerTables) {
-        if (excludedTriggerTables == null || excludedTriggerTables.isEmpty()) {
-            return false;
-        }
-        TableNameInfo tableNameInfo = TableNameInfoUtils.fromTableOrNull(scan.getTable());
-        if (tableNameInfo == null) {
-            return false;
-        }
-        return MTMVPartitionUtil.isTableExcluded(excludedTriggerTables, tableNameInfo);
     }
 
 }

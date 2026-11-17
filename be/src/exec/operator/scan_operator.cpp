@@ -238,7 +238,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
-    if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
+    if (p._enable_condition_cache && state->query_options().condition_cache_digest &&
+        p._topn_filter_source_node_ids.empty()) {
         _condition_cache_digest = state->query_options().condition_cache_digest;
         for (auto& conjunct : _conjuncts) {
             _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);
@@ -657,43 +658,14 @@ Status ScanLocalStateBase::_eval_const_conjuncts(VExprContext* expr_ctx, PushDow
     // Used to handle constant expressions, such as '1 = 1' _eval_const_conjuncts does not handle cases like 'colA = 1'
     const char* constant_val = nullptr;
     if (vexpr->is_constant()) {
-        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+        std::shared_ptr<ConstantExprResult> const_col_wrapper;
         RETURN_IF_ERROR(vexpr->get_const_col(expr_ctx, &const_col_wrapper));
-        if (const auto* const_column =
-                    check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr.get())) {
-            constant_val = const_column->get_data_at(0).data;
-            if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
-                *pdt = PushDownType::ACCEPTABLE;
-                _eos = true;
-                _scan_dependency->set_ready();
-            }
-        } else if (const auto* bool_column =
-                           check_and_get_column<ColumnUInt8>(const_col_wrapper->column_ptr.get())) {
-            // TODO: If `vexpr->is_constant()` is true, a const column is expected here.
-            //  But now we still don't cover all predicates for const expression.
-            //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
-            //  predicate `like` will return a ColumnVector<UInt8> which contains a single value.
-            LOG(WARNING) << "VExpr[" << vexpr->debug_string()
-                         << "] should return a const column but actually is "
-                         << const_col_wrapper->column_ptr->get_name();
-            DCHECK_EQ(bool_column->size(), 1);
-            /// TODO: There is a DCHECK here, but an additional check is still needed. It should return an error code.
-            if (bool_column->size() == 1) {
-                constant_val = bool_column->get_data_at(0).data;
-                if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
-                    *pdt = PushDownType::ACCEPTABLE;
-                    _eos = true;
-                    _scan_dependency->set_ready();
-                }
-            } else {
-                LOG(WARNING) << "Constant predicate in scan node should return a bool column with "
-                                "`size == 1` but actually is "
-                             << bool_column->size();
-            }
-        } else {
-            LOG(WARNING) << "VExpr[" << vexpr->debug_string()
-                         << "] should return a const column but actually is "
-                         << const_col_wrapper->column_ptr->get_name();
+        constant_val = const_col_wrapper->column().get_data_at(0).data;
+        // A constant NULL, like constant false, rejects every row in a WHERE predicate.
+        if (constant_val == nullptr || !*reinterpret_cast<const bool*>(constant_val)) {
+            *pdt = PushDownType::ACCEPTABLE;
+            _eos = true;
+            _scan_dependency->set_ready();
         }
     }
     return Status::OK();
@@ -743,7 +715,7 @@ Status ScanLocalStateBase::_normalize_in_predicate(
         // begin to push InPredicate value into ColumnValueRange
         auto* state = reinterpret_cast<InState*>(
                 expr_ctx->fn_context(tmp->fn_context_index())
-                        ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                        ->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
         // xx in (col, xx, xx) should not be push down
         if (!state->use_set) {
@@ -992,6 +964,15 @@ Status ScanLocalStateBase::_normalize_is_null_predicate(
         return Status::OK();
     }
 
+    // A Variant cast can introduce NULLs for non-NULL stored values, so `CAST(v AS T) IS NULL`
+    // is not equivalent to `v IS NULL`. Keep the null test in the expression tree instead of
+    // pushing a NullPredicate down on the source Variant column.
+    if (root->children()[0]->node_type() == TExprNodeType::CAST_EXPR &&
+        VExpr::expr_without_cast(root->children()[0])->data_type()->get_primitive_type() ==
+                PrimitiveType::TYPE_VARIANT) {
+        return Status::OK();
+    }
+
     auto fn_call = assert_cast<VectorizedFnCall*>(root.get());
     if (fn_call->fn().name.function_name == "is_null_pred") {
         pred = NullPredicate::create_shared(
@@ -1071,10 +1052,12 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 
 template <typename Derived>
 std::atomic<int64_t>* ScanLocalState<Derived>::shared_scan_limit_ptr() {
-    auto* p = &_parent->cast<typename Derived::Parent>()._shared_scan_limit;
-    // -1 means "no SQL LIMIT" — return nullptr so callers naturally skip
-    // all limit logic.
-    return p->load(std::memory_order_relaxed) < 0 ? nullptr : p;
+    auto& parent = _parent->cast<typename Derived::Parent>();
+    // Decide from the SQL LIMIT, not from the counter. -1 means "no SQL LIMIT" — return nullptr
+    // so callers naturally skip all limit logic. Concurrent scanners can return more than the
+    // LIMIT before the operator makes its final cut, leaving this counter negative. A scanner
+    // initialized then must still observe that the shared LIMIT is exhausted.
+    return parent.limit() < 0 ? nullptr : &parent._shared_scan_limit;
 }
 
 template <typename Derived>
@@ -1209,6 +1192,7 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
                                              int operator_id, const DescriptorTbl& descs,
                                              int parallel_tasks)
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
+          _enable_condition_cache(tnode.enable_condition_cache),
           _runtime_filter_descs(tnode.runtime_filters),
           _parallel_tasks(parallel_tasks) {
     if (tnode.__isset.push_down_count) {

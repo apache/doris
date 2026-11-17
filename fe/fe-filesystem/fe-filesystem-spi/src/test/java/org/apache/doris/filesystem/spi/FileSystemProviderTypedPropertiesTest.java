@@ -46,6 +46,12 @@ class FileSystemProviderTypedPropertiesTest {
         Assertions.assertSame(properties, ((TestFileSystem) fileSystem).properties);
     }
 
+    @Test
+    void providerWithoutNativeCredentialsDoesNotClaimCredentialProperties() {
+        Assertions.assertTrue(new TypedProvider().credentialToProperties(
+                new org.apache.doris.filesystem.auth.GcpCredentialSpec(null, null)).isEmpty());
+    }
+
     private static class TypedProvider implements FileSystemProvider<TestProperties> {
         @Override
         public boolean supports(Map<String, String> properties) {

@@ -18,6 +18,7 @@
 #include "exec/operator/exchange_sink_buffer.h"
 
 #include <brpc/controller.h>
+#include <brpc/serialized_request.h>
 #include <butil/errno.h>
 #include <butil/iobuf_inl.h>
 #include <fmt/format.h>
@@ -28,6 +29,7 @@
 #include <pdqsort.h>
 #include <stddef.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <exception>
@@ -49,6 +51,54 @@
 
 namespace doris {
 
+namespace {
+
+void add_borrowed_broadcast_block(PTransmitDataParams& request, PBlock& source) {
+    auto* block = request.add_blocks();
+    block->mutable_column_metas()->CopyFrom(source.column_metas());
+    block->set_be_exec_version(source.be_exec_version());
+    block->set_compressed(source.compressed());
+    block->set_compression_type(source.compression_type());
+    block->set_uncompressed_size(source.uncompressed_size());
+    block->set_allocated_column_values(source.mutable_column_values());
+}
+
+} // namespace
+
+Status BroadcastPBlockHolder::prepare_serialized_block(bool send_multi_blocks,
+                                                       size_t num_receivers) {
+    DCHECK(_serialized_block.empty());
+    if (num_receivers <= 1 || _pblock->column_metas().empty()) {
+        return Status::OK();
+    }
+    PTransmitDataParams fragment;
+    if (send_multi_blocks) {
+        // Match the existing multi-block request's metadata and proto2 field presence.
+        add_borrowed_broadcast_block(fragment, *_pblock);
+    } else {
+        fragment.set_allocated_block(_pblock.get());
+    }
+    Defer detach([&] {
+        if (send_multi_blocks) {
+            static_cast<void>(fragment.mutable_blocks(0)->release_column_values());
+        } else {
+            static_cast<void>(fragment.release_block());
+        }
+    });
+    // Protobuf cannot encode >= 2 GiB messages. Leave these on the existing path,
+    // where the complete request is checked for HTTP attachment transport.
+    if (fragment.ByteSizeLong() >= MIN_HTTP_BRPC_SIZE) {
+        return Status::OK();
+    }
+    butil::IOBufAsZeroCopyOutputStream stream(&_serialized_block);
+    // Routing fields are intentionally absent from this reusable message fragment.
+    // PBlock and its nested metadata contain no required fields.
+    if (!fragment.SerializePartialToZeroCopyStream(&stream)) {
+        return Status::InternalError("Failed to serialize broadcast block");
+    }
+    return Status::OK();
+}
+
 BroadcastPBlockHolder::~BroadcastPBlockHolder() {
     // lock the parent queue, if the queue could lock success, then return the block
     // to the queue, to reuse the block
@@ -64,8 +114,9 @@ void BroadcastPBlockHolderMemLimiter::acquire(BroadcastPBlockHolder& holder) {
     std::unique_lock l(_holders_lock);
     DCHECK(_broadcast_dependency != nullptr);
     holder.set_parent_creator(shared_from_this());
-    auto size = holder._pblock->column_values().size();
-    _total_queue_buffer_size += size;
+    holder._queue_charge_bytes =
+            holder._pblock->column_values().size() + holder._serialized_block.size();
+    _total_queue_buffer_size += holder._queue_charge_bytes;
     _total_queue_blocks_count++;
     if (_total_queue_buffer_size >= _total_queue_buffer_size_limit ||
         _total_queue_blocks_count >= _total_queue_blocks_count_limit) {
@@ -76,8 +127,7 @@ void BroadcastPBlockHolderMemLimiter::acquire(BroadcastPBlockHolder& holder) {
 void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holder) {
     std::unique_lock l(_holders_lock);
     DCHECK(_broadcast_dependency != nullptr);
-    auto size = holder._pblock->column_values().size();
-    _total_queue_buffer_size -= size;
+    _total_queue_buffer_size -= holder._queue_charge_bytes;
     _total_queue_blocks_count--;
     if (_total_queue_buffer_size <= 0) {
         _broadcast_dependency->set_ready();
@@ -418,34 +468,34 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         }
 
+        const bool use_shared_protobuf =
+                std::ranges::any_of(requests,
+                                    [](const auto& req) {
+                                        return !req.block_holder->serialized_block().empty();
+                                    }) &&
+                std::ranges::all_of(requests, [](const auto& req) {
+                    return !req.block_holder->serialized_block().empty() ||
+                           req.block_holder->get_block()->column_metas().empty();
+                });
         auto& request = requests[0];
         auto& brpc_request = instance_data.request;
         brpc_request->set_sender_id(channel->_parent->sender_id());
         brpc_request->set_be_number(channel->_parent->be_number());
 
-        if (_send_multi_blocks) {
-            for (int i = 0; i < requests.size(); i++) {
-                auto& req = requests[i];
+        if (_send_multi_blocks && !use_shared_protobuf) {
+            for (const auto& req : requests) {
                 if (auto block = req.block_holder->get_block();
                     block && !block->column_metas().empty()) {
-                    auto add_block = brpc_request->add_blocks();
-                    for (int j = 0; j < block->column_metas_size(); ++j) {
-                        add_block->add_column_metas()->CopyFrom(block->column_metas(j));
-                    }
-                    add_block->set_be_exec_version(block->be_exec_version());
-                    add_block->set_compressed(block->compressed());
-                    add_block->set_compression_type(block->compression_type());
-                    add_block->set_uncompressed_size(block->uncompressed_size());
-                    add_block->set_allocated_column_values(block->mutable_column_values());
+                    add_borrowed_broadcast_block(*brpc_request, *block);
                 }
             }
-        } else {
+        } else if (!_send_multi_blocks) {
             if (request.block_holder->get_block() &&
                 !request.block_holder->get_block()->column_metas().empty()) {
                 brpc_request->set_allocated_block(request.block_holder->get_block());
             }
         }
-        Defer release_block([&]() {
+        auto detach_blocks = [&]() {
             if (!_send_multi_blocks && request.block_holder->get_block()) {
                 static_cast<void>(brpc_request->release_block());
             } else {
@@ -454,7 +504,8 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
                 }
                 brpc_request->clear_blocks();
             }
-        });
+        };
+        Defer release_block(detach_blocks);
         instance_data.seq += requests.size();
         brpc_request->set_packet_seq(instance_data.seq);
         brpc_request->set_eos(requests.back().eos);
@@ -510,15 +561,30 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         });
         {
-            auto send_remote_block_closure = AutoReleaseClosure<
-                    PTransmitDataParams,
-                    ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
-                                                                              send_callback);
             if (enable_http_send_block(*brpc_request)) {
+                auto send_remote_block_closure = AutoReleaseClosure<
+                        PTransmitDataParams,
+                        ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
+                                                                                  send_callback);
                 RETURN_IF_ERROR(transmit_block_httpv2(_context->exec_env(),
                                                       std::move(send_remote_block_closure),
                                                       channel->_brpc_dest_addr));
+            } else if (use_shared_protobuf) {
+                // The HTTP decision above needs the complete singular request. Detach its
+                // borrowed block before encoding only the per-RPC routing fields.
+                detach_blocks();
+                auto serialized_request = std::make_shared<brpc::SerializedRequest>();
+                RETURN_IF_ERROR(_serialize_broadcast_request(*brpc_request, requests,
+                                                             serialized_request.get()));
+                auto closure = AutoReleaseClosure<brpc::SerializedRequest,
+                                                  ExchangeSendCallback<PTransmitDataResult>>::
+                        create_unique(serialized_request, send_callback);
+                transmit_serialized_block(channel->_brpc_stub.get(), std::move(closure));
             } else {
+                auto send_remote_block_closure = AutoReleaseClosure<
+                        PTransmitDataParams,
+                        ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
+                                                                                  send_callback);
                 transmit_blockv2(channel->_brpc_stub.get(), std::move(send_remote_block_closure));
             }
         }
@@ -526,6 +592,37 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         instance_data.rpc_channel_is_idle = true;
     }
 
+    return Status::OK();
+}
+
+Status ExchangeSinkBuffer::_serialize_broadcast_request(
+        const PTransmitDataParams& header, const std::vector<BroadcastTransmitInfo>& requests,
+        brpc::SerializedRequest* serialized_request) {
+    DCHECK(!header.has_block());
+    DCHECK_EQ(header.blocks_size(), 0);
+    if (!header.IsInitialized()) {
+        return Status::InternalError("Uninitialized broadcast request header: {}",
+                                     header.InitializationErrorString());
+    }
+    size_t size = header.ByteSizeLong();
+    for (const auto& request : requests) {
+        size += request.block_holder->serialized_block().size();
+    }
+    // SerializedRequest bypasses protobuf's normal size check. Preserve that limit
+    // even when a multi-block batch consists of individually encodable fragments.
+    if (size >= MIN_HTTP_BRPC_SIZE) {
+        return Status::InternalError("Broadcast protobuf request exceeds 2 GiB: {} bytes", size);
+    }
+    auto& data = serialized_request->serialized_data();
+    {
+        butil::IOBufAsZeroCopyOutputStream stream(&data);
+        if (!header.SerializeToZeroCopyStream(&stream)) {
+            return Status::InternalError("Failed to serialize broadcast request header");
+        }
+    }
+    for (const auto& request : requests) {
+        data.append(request.block_holder->serialized_block());
+    }
     return Status::OK();
 }
 

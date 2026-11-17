@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapCount;
@@ -89,7 +90,9 @@ abstract class IvmAggProcessorTestBase {
 
     protected IvmAggTarget target(int ordinal, IvmAggFunctionKind kind, String visibleName,
             DataType visibleType, Map<IvmAggStateKey, Slot> hiddenSlots, List<Expression> args) {
-        return new IvmAggTarget(ordinal, kind, slot(visibleName, visibleType), hiddenSlots, args);
+        // No value-state carrier, and the visible column keeps its own name: these targets keep their
+        // value in the visible column.
+        return new IvmAggTarget(ordinal, kind, slot(visibleName, visibleType), hiddenSlots, null, false, args);
     }
 
     protected Slot slot(String name, DataType dataType) {
@@ -98,6 +101,28 @@ abstract class IvmAggProcessorTestBase {
 
     protected String slotName(Expression expression) {
         return ((Slot) expression).getName();
+    }
+
+    /**
+     * True when the expression subtracts the two delta count slots, which is what the
+     * old-NULL branch must do to cancel deletes that match the insert-side extreme.
+     */
+    protected boolean containsSlotSubtract(Expression expression, String leftName, String rightName) {
+        if (expression instanceof Subtract) {
+            Expression left = expression.child(0);
+            Expression right = expression.child(1);
+            if (left instanceof Slot && right instanceof Slot
+                    && ((Slot) left).getName().contains(leftName)
+                    && ((Slot) right).getName().contains(rightName)) {
+                return true;
+            }
+        }
+        for (Expression child : expression.children()) {
+            if (containsSlotSubtract(child, leftName, rightName)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     protected void assertTwoBitmapDeltaOutputs(List<NamedExpression> outputs) {

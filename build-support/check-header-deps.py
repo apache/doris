@@ -24,7 +24,7 @@ every translation unit, so one stray include can multiply rebuild cost by an ord
 of magnitude and does so silently: the code still compiles, only the build slows
 down. This script turns that into a build error instead.
 
-Four kinds of guard, all on the same text include graph (be/src + be/test, all
+Five kinds of guard, all on the same text include graph (be/src + be/test, all
 ifdef branches -- not comparable to ninja-measured radii, each baseline compares
 only with itself):
 
@@ -41,6 +41,9 @@ only with itself):
   PCH whitelist            pch/pch.h's quoted project includes are pinned
                            exactly; the PCH is the single most leveraged
                            regression surface in the repo.
+  CLucene-free roots       SNII, the analysis layer, the query engine, the
+                           shared inverted index code and ANN must not include
+                           CLucene through any chain, nor name its symbols.
 
 Usage:
     build-support/check-header-deps.py                  # enforce everything
@@ -69,16 +72,81 @@ INCLUDE_ROOT = "be/src"
 # through the listed headers. An exception is only appropriate for a header that
 # carries declarations or plain data types and pulls in nothing of its own -- adding
 # one should be a deliberate decision, which is exactly why they are listed here
-# instead of being inferred.
+# instead of being inferred. A hub ending in "/" names every header under it.
 RULES = [
+    *[
+        (
+            "storage/index/inverted/common/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "common vocabulary cannot depend on a processing stage or a storage format",
+        )
+        for module in ("analysis", "query", "reader", "clucene", "snii")
+    ],
+    *[
+        (
+            "storage/index/inverted/analysis/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "text analysis cannot depend on query execution, readers or storage formats",
+        )
+        for module in ("query", "reader", "clucene", "snii")
+    ],
+    (
+        "storage/index/inverted/query/",
+        "storage/index/inverted/analysis/",
+        {
+            "storage/index/inverted/analysis/gram/gram_density.h",
+            "storage/index/inverted/analysis/gram/gram_extractor.h",
+            "storage/index/inverted/analysis/gram/gram_family.h",
+            "storage/index/inverted/analysis/gram/gram_scheme.h",
+        },
+        "query lowering uses gram schemes but cannot depend on text analysis machinery",
+    ),
+    *[
+        (
+            "storage/index/inverted/query/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "the shared query engine cannot depend on a reader or storage format",
+        )
+        for module in ("reader", "clucene", "snii")
+    ],
+    *[
+        (
+            "storage/index/inverted/reader/",
+            f"storage/index/inverted/{module}/",
+            set(),
+            "shared reader execution cannot depend on a storage format",
+        )
+        for module in ("clucene", "snii")
+    ],
+    (
+        "storage/index/inverted/clucene/",
+        "storage/index/inverted/snii/",
+        set(),
+        "storage formats cannot include each other",
+    ),
+    (
+        "storage/index/inverted/snii/",
+        "storage/index/inverted/clucene/",
+        set(),
+        "storage formats cannot include each other",
+    ),
+    (
+        "storage/index/inverted/snii/",
+        "storage/index/inverted/query/engine/",
+        set(),
+        "the SNII format implements the query SPI without including the engine",
+    ),
     (
         "runtime/exec_env.h",
         "storage/index/",
         {
             # A leaf statistics struct with no project includes of its own, which
             # storage/olap_common.h carries as a plain data type.
-            "storage/index/inverted/inverted_index_stats.h",
-            "storage/index/snii/snii_query_stats.h",
+            "storage/index/inverted/common/inverted_index_stats.h",
+            "storage/index/inverted/common/snii_query_stats.h",
         },
         "ExecEnv only ever names index types as pointers and already forward-declares "
         "them; reaching the index implementation headers from here puts the whole "
@@ -261,20 +329,10 @@ RULES = [
         "util/hash_util.hpp, a separate pre-existing wart)",
     ),
     (
-        "format/parquet/decoder.h",
-        "util/rle_encoding.h",
-        set(),
-        "BaseDictDecoder holds RleBatchDecoder<uint32_t> behind a unique_ptr "
-        "(forward-declared; the dtor and every member that dereferences it are "
-        "defined in decoder.cpp); the old include made every one of ~530 TUs "
-        "that transitively see a parquet decoder instantiate the whole "
-        "RLE/BitPacking decode chain at ~0.4 CPU s each",
-    ),
-    (
         "format_v2/parquet/reader/native/decoder.h",
         "util/rle_encoding.h",
         set(),
-        "same contract as format/parquet/decoder.h: the dictionary index "
+        "the native dictionary index "
         "decoder is forward-declared and only decoder.cpp needs the complete "
         "RleBatchDecoder type; keeping rle_encoding.h (and the unrolled "
         "bit_packing.inline.h it carries) out of this header keeps the RLE "
@@ -397,7 +455,19 @@ RULES = [
 # is exact; angle and quoted forms are both caught). These are headers whose
 # formatting/queueing bodies were deliberately moved out of line -- the ban keeps
 # the heavy third-party template machinery from re-entering every includer.
+# (header, banned include spelling or prefix, why). A header ending in "/" names
+# every header under it; a banned spelling ending in "/" bans the whole subtree.
 ANGLE_BANS = [
+    (
+        "storage/index/inverted/query/",
+        "CLucene/",
+        "query algorithms use the format SPI and do not include CLucene headers",
+    ),
+    (
+        "storage/index/inverted/query/",
+        "CLucene.h",
+        "query algorithms use the format SPI and do not include CLucene headers",
+    ),
     (
         "core/uint24.h",
         "fmt/",
@@ -443,25 +513,13 @@ ANGLE_BANS = [
         "breaks the -fno-access-control UT build on libc++",
     ),
     (
-        "format/table/iceberg_reader_mixin.h",
-        "ranges",
-        "rides the table-reader stack; <ranges> is heavy and breaks the "
-        "-fno-access-control UT build on libc++",
-    ),
-    (
-        "storage/index/inverted/query_v2/collect/top_k_collector.h",
+        "storage/index/inverted/query/engine/collect/top_k_collector.h",
         "ranges",
         "rides the inverted-index query stack; <ranges> is heavy and breaks "
         "the -fno-access-control UT build on libc++",
     ),
     (
-        "storage/index/inverted/query_v2/composite_reader.h",
-        "ranges",
-        "rides the inverted-index query stack; <ranges> is heavy and breaks "
-        "the -fno-access-control UT build on libc++",
-    ),
-    (
-        "storage/index/inverted/query_v2/wand/block_wand.h",
+        "storage/index/inverted/query/engine/wand/block_wand.h",
         "ranges",
         "rides the inverted-index query stack; <ranges> is heavy and breaks "
         "the -fno-access-control UT build on libc++",
@@ -495,15 +553,8 @@ FORWARD_CLOSURE_BUDGETS = {
     "core/field.h": 60,
     "core/column/column.h": 66,
     "exprs/function/function.h": 106,
-    # +1 (was 357): storage/index/snii/format/core_metadata.h now carries an
-    # optional gram::GramScheme member (SNII core metadata gram_scheme field,
-    # regex sparse-gram-index P0 Task 12), reachable via
-    # inverted_index_reader.h -> inverted_index_cache.h ->
-    # snii/reader/logical_index_reader.h -> snii/format/core_metadata.h ->
-    # inverted/gram/gram_scheme.h. gram_scheme.h itself is a leaf (cstdint,
-    # map, string, common/status.h -- the last already on this hub), so this
-    # is exactly +1 project header, not a chain.
-    "exec/pipeline/dependency.h": 358,
+    # This dependency hub includes the shared read SPI and SNII gram metadata.
+    "exec/pipeline/dependency.h": 248,
     "pch/pch.h": 8,
 }
 
@@ -519,23 +570,23 @@ REVERSE_REACH_BASELINES = {
     "gen_cpp/Status_types.h": 37,
     # Still carried legitimately by util/uid_util.h (PUniqueId by value) and
     # the profile family; the status.h cut brought these down from 2458/2091.
-    "gen_cpp/types.pb.h": 1791,
+    "gen_cpp/types.pb.h": 1250,
     "gen_cpp/Types_types.h": 1993,
-    "gen_cpp/segment_v2.pb.h": 1234,
-    "gen_cpp/PaloInternalService_types.h": 1133,
-    "util/threadpool.h": 988,
+    "gen_cpp/segment_v2.pb.h": 1200,
+    "gen_cpp/PaloInternalService_types.h": 1150,
+    "util/threadpool.h": 600,
     # parsed_page.h holds RleDecoder<bool> by value and constructs it in the
     # header, so the whole storage read stack sees the RLE machinery; a live
     # dependency, budgeted as-is (trimming it is a refactor, not a gate).
-    "util/rle_encoding.h": 823,
-    "gen_cpp/internal_service.pb.h": 741,
-    "gen_cpp/FrontendService_types.h": 576,
-    "storage/options.h": 464,
-    "gen_cpp/cloud.pb.h": 342,
-    "gen_cpp/BackendService_types.h": 222,
-    "gen_cpp/data.pb.h": 220,
-    "io/fs/s3_file_system.h": 109,  # the AWS SDK surface
-    "util/brpc_closure.h": 61,
+    "util/rle_encoding.h": 250,
+    "gen_cpp/internal_service.pb.h": 600,
+    "gen_cpp/FrontendService_types.h": 350,
+    "storage/options.h": 350,
+    "gen_cpp/cloud.pb.h": 50,
+    "gen_cpp/BackendService_types.h": 150,
+    "gen_cpp/data.pb.h": 120,
+    "io/fs/s3_file_system.h": 50,  # the AWS SDK surface
+    "util/brpc_closure.h": 50,
     "runtime/workload_group/workload_group.h": 42,  # thrift type universe carrier
 }
 REVERSE_SLACK = 0.10
@@ -557,6 +608,79 @@ PCH_QUOTED_WHITELIST = {
 # declarations only, so they cost nothing to include.
 FWD_SUFFIX = "_fwd.h"
 
+# CLucene-free roots. The code under these roots is moving off CLucene, and the other guards
+# cannot hold it there: ANGLE_BANS reads only a header's own includes, load_includes() keeps no
+# angle includes while most CLucene edges are angle includes, and the PCH hands CLucene to every
+# translation unit without any include at all. So two rules of their own:
+#   closure  no file under a root, sources included, and no project header a root reaches
+#            includes a CLucene header;
+#   symbols  the code under a root, with comments, string literals and includes stripped, names
+#            no CLucene symbol.
+CLUCENE_FREE_ROOTS = [
+    "storage/index/inverted/snii/",
+    "storage/index/inverted/analysis/",
+    "storage/index/inverted/query/",
+    "storage/index/inverted/common/",
+    "storage/index/ann/",
+]
+CLUCENE_INCLUDE = re.compile(r'^\s*#\s*include\s+[<"](CLucene(?:\.h|/[^>"]*))[>"]')
+CLUCENE_SYMBOLS = re.compile(
+    r"\b(lucene::|CL_NS\w*|CLuceneError|_CL[A-Z]\w*|CL_ERR_\w+|LUCENE_\w+|TCHAR|StringUtil)"
+)
+# Comments, raw and plain string literals, character literals and include lines, which the symbol
+# rule ignores: a word in a log message or a comment is no dependency.
+CODE_NOISE = re.compile(
+    r'//[^\n]*|/\*.*?\*/|R"([^(\s]*)\(.*?\)\1"|"(?:\\.|[^"\\\n])*"|'
+    r"'(?:\\.|[^'\\\n])*'|^[ \t]*#[ \t]*include[^\n]*",
+    re.S | re.M,
+)
+CLUCENE_WHY = (
+    "SNII, the analysis layer and ANN are moving off CLucene, and an include anywhere in the "
+    "closure of a root, or a symbol the PCH makes visible, ties them back to it"
+)
+# What still breaks the rules while the migration goes on, keyed by the file that breaks them,
+# not by the roots: one shared header puts many roots in violation, and its entry goes when the
+# task that cuts it lands. A missing entry and an entry that no longer breaks the rule both fail
+# the gate, so the tables only shrink.
+# Files that include a CLucene header and are under a root or reached from one.
+CLUCENE_INCLUDING_FILES = {
+    # ANN storage (T11, T12).
+    "storage/index/ann/ann_index_writer.h",
+    "storage/index/ann/faiss_ann_index.cpp",
+    "storage/index/ann/faiss_ann_index.h",
+    # Shared index file headers the roots reach (T11 to T13).
+    "storage/index/index_common_impl.h",
+    "storage/index/index_compound_reader.h",
+    "storage/index/index_file_reader.h",
+    "storage/index/index_file_writer.h",
+    "storage/index/index_fs_directory.h",
+    "storage/index/inverted/clucene/inverted_index_searcher.h",
+    # The analysis layer (T3, T4, T8, T9).
+    "storage/index/inverted/analysis/analyzer/analyzer.cpp",
+    # SNII (T3, T12, T13).
+    "storage/index/inverted/snii/snii_blob_directory.h",
+    "storage/index/inverted/snii/snii_blob_staging_directory.h",
+    "storage/index/inverted/snii/snii_index_reader.cpp",
+}
+# Files under a root whose code names a CLucene symbol.
+CLUCENE_SYMBOL_FILES = {
+    # ANN storage (T11, T12).
+    "storage/index/ann/ann_index.h",
+    "storage/index/ann/ann_index_reader.cpp",
+    "storage/index/ann/ann_index_writer.cpp",
+    "storage/index/ann/ann_index_writer.h",
+    "storage/index/ann/faiss_ann_index.cpp",
+    "storage/index/ann/faiss_ann_index.h",
+    # The analysis layer (T3, T4, T8, T9).
+    "storage/index/inverted/analysis/analyzer/analyzer.cpp",
+    # SNII (T3, T12, T13).
+    "storage/index/inverted/snii/snii_blob_directory.cpp",
+    "storage/index/inverted/snii/snii_blob_directory.h",
+    "storage/index/inverted/snii/snii_blob_staging_directory.cpp",
+    "storage/index/inverted/snii/snii_blob_staging_directory.h",
+    "storage/index/inverted/snii/snii_index_reader.cpp",
+}
+
 
 def load_includes():
     """Maps each repo file to the list of project headers it includes."""
@@ -577,6 +701,42 @@ def load_includes():
                         if match
                     ]
     return includes
+
+
+def load_clucene_includes(includes):
+    """Maps each repo file that includes a CLucene header to those include spellings."""
+    clucene = {}
+    for path in includes:
+        with open(path, encoding="utf-8", errors="ignore") as handle:
+            spellings = [m.group(1) for m in map(CLUCENE_INCLUDE.match, handle) if m]
+        if spellings:
+            clucene[path] = spellings
+    return clucene
+
+
+def clucene_free_files(includes):
+    """Every header and source under the CLucene-free roots, spelled from be/src."""
+    return sorted(
+        path[len(INCLUDE_ROOT) + 1 :]
+        for path in includes
+        if path.startswith(INCLUDE_ROOT + "/")
+        and path.endswith((".h", ".hpp", ".cpp", ".cc"))
+        and any(
+            path[len(INCLUDE_ROOT) + 1 :].startswith(root) for root in CLUCENE_FREE_ROOTS
+        )
+    )
+
+
+def hub_headers(hub, includes):
+    """The headers a hub names: itself, or every header under it for a directory."""
+    if not hub.endswith("/"):
+        return [hub]
+    prefix = os.path.join(INCLUDE_ROOT, hub)
+    return sorted(
+        path[len(INCLUDE_ROOT) + 1 :]
+        for path in includes
+        if path.startswith(prefix) and path.endswith((".h", ".hpp"))
+    )
 
 
 def resolve(header, includes):
@@ -625,11 +785,19 @@ def translation_units_affected(includes):
 
 def enforce(includes):
     failures = 0
-    for hub, forbidden, allowed, why in RULES:
-        if resolve(hub, includes) is None:
-            print(f"error: rule names a missing header: {hub}", file=sys.stderr)
+    for rule_hub, forbidden, allowed, why in RULES:
+        hubs = hub_headers(rule_hub, includes)
+        if not hubs or any(resolve(hub, includes) is None for hub in hubs):
+            print(f"error: rule names a missing header: {rule_hub}", file=sys.stderr)
             failures += 1
             continue
+        failures += enforce_rule(hubs, forbidden, allowed, why, includes)
+    return failures
+
+
+def enforce_rule(hubs, forbidden, allowed, why, includes):
+    failures = 0
+    for hub in hubs:
         chains = reachable(hub, includes)
         for header, chain in sorted(chains.items()):
             if not header.startswith(forbidden) or header.endswith(FWD_SUFFIX):
@@ -660,14 +828,24 @@ def forward_closure(hub, includes):
 ANY_INCLUDE = re.compile(r'^\s*#\s*include\s+[<"]([^>"]+)[>"]')
 
 
-def enforce_angle_bans():
+def enforce_angle_bans(includes):
     failures = 0
-    for header, banned, why in ANGLE_BANS:
-        path = os.path.join(INCLUDE_ROOT, header)
-        if not os.path.exists(path):
-            print(f"error: angle ban names a missing header: {header}", file=sys.stderr)
+    for ban_header, banned, why in ANGLE_BANS:
+        headers = hub_headers(ban_header, includes)
+        if not headers or any(
+            not os.path.exists(os.path.join(INCLUDE_ROOT, h)) for h in headers
+        ):
+            print(f"error: angle ban names a missing header: {ban_header}", file=sys.stderr)
             failures += 1
             continue
+        failures += enforce_angle_ban(headers, banned, why)
+    return failures
+
+
+def enforce_angle_ban(headers, banned, why):
+    failures = 0
+    for header in headers:
+        path = os.path.join(INCLUDE_ROOT, header)
         with open(path, encoding="utf-8", errors="ignore") as handle:
             spellings = [m.group(1) for m in map(ANY_INCLUDE.match, handle) if m]
         hits = [
@@ -686,6 +864,75 @@ def enforce_angle_bans():
                 "message",
                 file=sys.stderr,
             )
+    return failures
+
+
+def enforce_clucene_closure(includes, clucene):
+    """No file under a root, and no project header it reaches, includes CLucene."""
+    failures = 0
+    offenders = {}
+    for root in clucene_free_files(includes):
+        for header, chain in reachable(root, includes).items():
+            path = resolve(header, includes)
+            if path in clucene and (header not in offenders or len(chain) < len(offenders[header])):
+                offenders[header] = chain
+    for header, chain in sorted(offenders.items()):
+        if header in CLUCENE_INCLUDING_FILES:
+            continue
+        failures += 1
+        include = clucene[resolve(header, includes)][0]
+        if len(chain) == 1:
+            print(f"error: {header} includes <{include}>", file=sys.stderr)
+        else:
+            print(f"error: {chain[0]} reaches CLucene through {header}", file=sys.stderr)
+        print(f"  reason: {CLUCENE_WHY}", file=sys.stderr)
+        print("  chain:  " + "\n       -> ".join(chain + [f"<{include}>"]), file=sys.stderr)
+        print(
+            "  fix:    keep the CLucene type out of the header (forward-declare it, or put "
+            "the code behind an interface the root does not see); CLUCENE_INCLUDING_FILES "
+            "only lists what the migration has not cut yet",
+            file=sys.stderr,
+        )
+    for header in sorted(CLUCENE_INCLUDING_FILES - offenders.keys()):
+        failures += 1
+        print(
+            f"error: CLUCENE_INCLUDING_FILES lists {header}, which no CLucene-free root "
+            "reaches with a CLucene include any more",
+            file=sys.stderr,
+        )
+        print("  fix:    delete the entry", file=sys.stderr)
+    return failures
+
+
+def enforce_clucene_symbols(includes):
+    """The code under a root names no CLucene symbol."""
+    failures = 0
+    offenders = {}
+    for name in clucene_free_files(includes):
+        with open(os.path.join(INCLUDE_ROOT, name), encoding="utf-8", errors="ignore") as handle:
+            # Every stripped piece becomes the newlines it held, so line numbers stay right.
+            code = CODE_NOISE.sub(lambda m: "\n" * m.group(0).count("\n"), handle.read())
+        match = CLUCENE_SYMBOLS.search(code)
+        if match:
+            offenders[name] = (code.count("\n", 0, match.start()) + 1, match.group(0))
+    for name, (line, symbol) in sorted(offenders.items()):
+        if name in CLUCENE_SYMBOL_FILES:
+            continue
+        failures += 1
+        print(f"error: {name}:{line} names the CLucene symbol {symbol}", file=sys.stderr)
+        print(f"  reason: {CLUCENE_WHY}", file=sys.stderr)
+        print(
+            "  fix:    use the Doris type or error instead; the PCH makes CLucene visible "
+            "without an include, so the compiler does not catch this",
+            file=sys.stderr,
+        )
+    for name in sorted(CLUCENE_SYMBOL_FILES - offenders.keys()):
+        failures += 1
+        print(
+            f"error: CLUCENE_SYMBOL_FILES lists {name}, which names no CLucene symbol any more",
+            file=sys.stderr,
+        )
+        print("  fix:    delete the entry", file=sys.stderr)
     return failures
 
 
@@ -905,9 +1152,11 @@ def main():
     else:
         failures = (
             enforce(includes)
-            + enforce_angle_bans()
+            + enforce_angle_bans(includes)
             + enforce_budgets(includes)
             + enforce_pch(includes)
+            + enforce_clucene_closure(includes, load_clucene_includes(includes))
+            + enforce_clucene_symbols(includes)
         )
     if failures:
         print(f"\n{failures} header hygiene violation(s)", file=sys.stderr)
@@ -922,7 +1171,8 @@ def main():
             f"header hygiene: {len(RULES)} layering rule(s), "
             f"{len(ANGLE_BANS)} third-party ban(s), "
             f"{len(FORWARD_CLOSURE_BUDGETS)}+{len(REVERSE_REACH_BASELINES)} "
-            "budget(s), pch whitelist: all satisfied"
+            f"budget(s), pch whitelist, CLucene-free roots ({len(CLUCENE_INCLUDING_FILES)}+"
+            f"{len(CLUCENE_SYMBOL_FILES)} exception(s)): all satisfied"
         )
     return 0
 

@@ -2,8 +2,8 @@
 -- !desc_uuid --
 id	int	No	true	\N	
 tag	text	Yes	false	\N	NONE
-uuid_col	text	Yes	false	\N	NONE
-uuid_arr	array<text>	Yes	false	\N	NONE
+uuid_col	uuid	Yes	false	\N	NONE
+uuid_arr	array<uuid>	Yes	false	\N	NONE
 
 -- !select_snapshot --
 1	basic	11111111-2222-3333-4444-555555555555	\N

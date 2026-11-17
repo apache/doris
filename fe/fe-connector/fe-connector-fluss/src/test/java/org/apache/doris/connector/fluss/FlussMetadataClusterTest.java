@@ -198,7 +198,7 @@ public class FlussMetadataClusterTest {
         Assertions.assertEquals("the row id", columns.get("id").getComment());
         Assertions.assertEquals(ConnectorType.of("STRING"), columns.get("name").getType());
         Assertions.assertEquals(ConnectorType.of("DECIMALV3", 20, 4), columns.get("price").getType());
-        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, 0), columns.get("event_time").getType());
+        Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, 0), columns.get("event_time").getType());
         Assertions.assertTrue(columns.get("event_time").isWithTimeZone());
         // TIME survives the round trip as an unsupported column rather than making the table unloadable.
         Assertions.assertEquals(ConnectorType.of("UNSUPPORTED"), columns.get("started").getType());

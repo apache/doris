@@ -29,6 +29,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_varbinary.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -38,10 +39,35 @@
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
+#include "core/value/jsonb_value.h"
 #include "util/string_util.h"
 #include "util/url_coding.h"
 
 namespace doris {
+
+namespace {
+
+Status fill_jsonb_column(JniDataBridge::TableMetaAddress& address, MutableColumnPtr& column,
+                         const bool* null_map, size_t num_rows) {
+    const auto* offsets = static_cast<const int*>(address.next_meta_as_ptr());
+    const auto* chars = static_cast<const char*>(address.next_meta_as_ptr());
+    JsonBinaryValue value;
+    size_t start = 0;
+    for (size_t i = 0; i < num_rows; ++i) {
+        // JNI carries JSON as UTF-8 text, not JSONB bytes. SQL NULL has no text to parse,
+        // whereas the non-null text "null" must become a JSON null value.
+        if (null_map[i]) {
+            column->insert_default();
+        } else {
+            RETURN_IF_ERROR(value.from_json_string(chars + start, offsets[i] - start));
+            column->insert_data(value.value(), value.size());
+        }
+        start = offsets[i];
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 #define FOR_FIXED_LENGTH_TYPES(M)                                  \
     M(PrimitiveType::TYPE_TINYINT, ColumnInt8, Int8)               \
@@ -138,6 +164,10 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
     case PrimitiveType::TYPE_VARCHAR:
         status = _fill_string_column(address, data_column, num_rows);
         break;
+    case PrimitiveType::TYPE_JSONB:
+        status = fill_jsonb_column(address, data_column, static_cast<const bool*>(null_map_ptr),
+                                   num_rows);
+        break;
     case PrimitiveType::TYPE_ARRAY:
         status = _fill_array_column(address, data_column, data_type, num_rows);
         break;
@@ -149,6 +179,9 @@ Status JniDataBridge::fill_column(TableMetaAddress& address, ColumnPtr& doris_co
         break;
     case PrimitiveType::TYPE_VARBINARY:
         status = _fill_varbinary_column(address, data_column, num_rows);
+        break;
+    case PrimitiveType::TYPE_VARIANT:
+        status = _fill_variant_v2_column(address, data_column, num_rows);
         break;
     default:
         status = Status::InvalidArgument("Unsupported type {} in jni scanner",
@@ -178,6 +211,26 @@ Status JniDataBridge::_fill_varbinary_column(TableMetaAddress& address,
             varbinary_col.insert_data(src, static_cast<size_t>(len));
         }
     }
+    return Status::OK();
+}
+
+Status JniDataBridge::_fill_variant_v2_column(TableMetaAddress& address,
+                                              MutableColumnPtr& doris_column, size_t num_rows) {
+    const auto metadata_count = static_cast<size_t>(address.next_meta_as_long());
+    const auto* metadata_offsets = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* metadata_bytes = reinterpret_cast<const char*>(address.next_meta_as_ptr());
+    const auto* metadata_ids = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* value_offsets = reinterpret_cast<const uint32_t*>(address.next_meta_as_ptr());
+    const auto* value_bytes = reinterpret_cast<const char*>(address.next_meta_as_ptr());
+
+    auto& variant_column = assert_cast<ColumnVariantV2&>(*doris_column);
+    variant_column.insert_encoded_rows({
+            .metadata_bytes = {metadata_bytes, metadata_offsets[metadata_count]},
+            .metadata_offsets = {metadata_offsets, metadata_count + 1},
+            .meta_ids = {metadata_ids, num_rows},
+            .value_bytes = {value_bytes, value_offsets[num_rows]},
+            .value_offsets = {value_offsets, num_rows + 1},
+    });
     return Status::OK();
 }
 
@@ -364,6 +417,8 @@ std::string JniDataBridge::get_jni_type(const DataTypePtr& data_type) {
     }
     case TYPE_VARBINARY:
         return "varbinary";
+    case TYPE_VARIANT:
+        return "variant";
     // bitmap, hll, quantile_state, jsonb are transferred as strings via JNI
     case TYPE_BITMAP:
         [[fallthrough]];
@@ -443,6 +498,8 @@ std::string JniDataBridge::get_jni_type_with_different_string(const DataTypePtr&
                << assert_cast<const DataTypeVarbinary*>(remove_nullable(data_type).get())->len()
                << ")";
         return buffer.str();
+    case TYPE_VARIANT:
+        return "variant";
     case TYPE_DECIMALV2: {
         buffer << "decimalv2(" << DecimalV2Value::PRECISION << "," << DecimalV2Value::SCALE << ")";
         return buffer.str();

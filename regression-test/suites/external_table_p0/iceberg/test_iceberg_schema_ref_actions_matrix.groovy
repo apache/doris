@@ -209,23 +209,19 @@ suite("test_iceberg_schema_ref_actions_matrix",
             order by id
         """
 
-        // Scenario T09: writes bind to the target branch's head schema before fast-forward.
-        sql """
-            explain insert into ${fastForwardTable}@branch(pre_rename_branch)
-            (id, old_name, metric) values (3, 'branch-3', 30)
-        """
+        // Scenario T09: writes use the table's latest schema even when targeting an old branch.
         test {
             sql """
                 insert into ${fastForwardTable}@branch(pre_rename_branch)
-                (id, new_name, metric) values (3, 'branch-3', 30)
+                (id, old_name, metric) values (3, 'branch-3', 30)
             """
-            exception "Unknown column 'new_name'"
+            exception "Unknown column 'old_name'"
         }
 
-        // A historical source relation must not replace the branch-head schema used to bind the target.
+        // A historical source relation must not replace the latest schema used to bind the branch target.
         sql """
             explain insert into ${fastForwardTable}@branch(pre_rename_branch)
-            (id, old_name, metric)
+            (id, new_name, metric)
             select id, old_name, metric
             from ${fastForwardTable} for version as of ${preRenameSnapshot}
         """

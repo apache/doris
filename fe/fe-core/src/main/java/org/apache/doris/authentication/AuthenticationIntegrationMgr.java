@@ -17,6 +17,7 @@
 
 package org.apache.doris.authentication;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
@@ -31,6 +32,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -40,17 +42,17 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class AuthenticationIntegrationMgr implements Writable {
     // Lock ordering across authentication metadata managers:
-    // AuthenticationIntegrationMgr.lock -> RoleMappingMgr.lock.
+    // AuthenticationIntegrationMgr.lock -> Auth.lock / RoleMappingMgr.lock.
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "nTi")
     private Map<String, AuthenticationIntegrationMeta> nameToIntegration = new LinkedHashMap<>();
 
-    void readLock() {
+    public void readLock() {
         lock.readLock().lock();
     }
 
-    void readUnlock() {
+    public void readUnlock() {
         lock.readLock().unlock();
     }
 
@@ -134,6 +136,12 @@ public class AuthenticationIntegrationMgr implements Writable {
                     return;
                 }
                 throw new DdlException("Authentication integration " + integrationName + " does not exist");
+            }
+            List<UserIdentity> boundUsers = Env.getCurrentEnv().getAuth()
+                    .getUsersBoundToIntegration(integrationName);
+            if (!boundUsers.isEmpty()) {
+                throw new DdlException("Authentication integration " + integrationName
+                        + " still has bound users: " + boundUsers);
             }
             if (Env.getCurrentEnv().getRoleMappingMgr().hasRoleMapping(integrationName)) {
                 throw new DdlException("Authentication integration " + integrationName + " still has role mapping");

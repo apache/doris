@@ -81,6 +81,11 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
                 DorisExternalMetaCache.ENTRY_SCHEMA, DorisExternalMetaCache.ENTRY_BACKENDS);
     }
 
+    @Override
+    protected String coreMetaCacheEngine() {
+        return DorisExternalMetaCache.ENGINE;
+    }
+
     public List<String> getFeNodes() {
         return parseHttpHosts(catalogProperty.getOrDefault(RemoteDorisProperties.FE_HTTP_HOSTS, ""));
     }

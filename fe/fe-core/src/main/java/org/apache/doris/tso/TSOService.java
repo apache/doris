@@ -257,7 +257,7 @@ public class TSOService extends MasterDaemon {
     private long getTSO(Pair<Long, Long> transactionIdentity, Set<Long> tableIds,
             long rejectedTso, long fenceTso) {
         if (!isTsoEnabled()) {
-            throw new RuntimeException("TSO feature is disabled, please check enable_feature_binlog");
+            throw new RuntimeException("TSO feature is disabled, please check enable_feature_changelog");
         }
         if (!isInitialized.get()) {
             throw new RuntimeException("TSO timestamp is not calibrated, please check");
@@ -594,7 +594,7 @@ public class TSOService extends MasterDaemon {
     private void writeTimestampToBDBJE(long timestamp) {
         if (!isTsoEnabled()) {
             LOG.debug("TSO timestamp {} is not persisted to journal, "
-                    + "please check if enable_feature_binlog is set to true",
+                    + "please check if enable_feature_changelog is set to true",
                     new TSOTimestamp(timestamp, 0));
             return;
         }
@@ -791,9 +791,9 @@ public class TSOService extends MasterDaemon {
     }
 
     /**
-     * Returns whether TSO is globally enabled by the binlog feature switch.
+     * Returns whether TSO is globally enabled by the changelog feature switch.
      */
     private boolean isTsoEnabled() {
-        return Config.enable_feature_binlog;
+        return Config.enable_feature_changelog;
     }
 }

@@ -36,6 +36,7 @@ import io.trino.spi.type.TinyintType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
+import io.trino.type.JsonType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -74,8 +75,17 @@ public final class TrinoTypeMapping {
             return new ConnectorType("CHAR");
         } else if (type instanceof VarcharType) {
             return new ConnectorType("STRING");
+        } else if (type instanceof JsonType) {
+            // Keep JSON logical so JNI parses its UTF-8 carrier into Doris JSONB, including nested values.
+            return new ConnectorType("JSONB");
+        } else if (type instanceof io.trino.spi.type.UuidType) {
+            // Preserve the logical type instead of exposing its physical 16-byte storage.
+            return ConnectorType.of("UUID");
         } else if (type instanceof VarbinaryType) {
-            return new ConnectorType("STRING");
+            return new ConnectorType("VARBINARY");
+        } else if (isObjectIdType(type)) {
+            // ObjectId is twelve raw bytes, including zero and non-UTF-8 bytes.
+            return new ConnectorType("VARBINARY", 12, -1);
         } else if (type instanceof DecimalType) {
             DecimalType decimal = (DecimalType) type;
             return new ConnectorType("DECIMALV3", decimal.getPrecision(), decimal.getScale());
@@ -88,7 +98,7 @@ public final class TrinoTypeMapping {
             return new ConnectorType("DATETIMEV2", precision, -1);
         } else if (type instanceof TimestampWithTimeZoneType) {
             int precision = Math.min(((TimestampWithTimeZoneType) type).getPrecision(), 6);
-            return new ConnectorType("DATETIMEV2", precision, -1);
+            return new ConnectorType("TIMESTAMPTZ", precision, -1);
         } else if (type instanceof io.trino.spi.type.ArrayType) {
             return ConnectorType.arrayOf(toConnectorType(
                     ((io.trino.spi.type.ArrayType) type).getElementType()));
@@ -115,5 +125,10 @@ public final class TrinoTypeMapping {
         } else {
             throw new IllegalArgumentException("Cannot transform unknown Trino type: " + type);
         }
+    }
+
+    static boolean isObjectIdType(Type type) {
+        // The optional MongoDB plugin lives in its own classloader, so do not link its implementation class.
+        return "ObjectId".equalsIgnoreCase(type.getTypeSignature().getBase());
     }
 }

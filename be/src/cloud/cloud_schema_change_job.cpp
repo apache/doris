@@ -33,7 +33,7 @@
 #include "common/status.h"
 #include "service/backend_options.h"
 #include "storage/delete/delete_handler.h"
-#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
@@ -246,7 +246,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(_base_tablet_schema->columns());
     RETURN_IF_ERROR(read_schema->init_from_tablet_schema(*_base_tablet_schema,
                                                          /*merge_by_sequence_mapping=*/false,
-                                                         /*map_row_binlog_columns=*/false));
+                                                         /*map_changelog_columns=*/false));
 
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;

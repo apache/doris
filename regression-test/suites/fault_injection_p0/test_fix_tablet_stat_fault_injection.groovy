@@ -82,10 +82,36 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
 
                 // trigger full compactions for all tablets in ${tableName}
                 trigger_and_wait_compaction(tableName, "full")
+                // In cloud mode the compaction trigger is asynchronous and trigger_and_wait_compaction
+                // returns once every tablet reports a completion timestamp, no matter whether the
+                // compaction succeeded or failed. With 1000 full compactions on one MoW table a few
+                // of them may fail with a transient delete bitmap lock conflict
+                // (DELETE_BITMAP_LOCK_ERROR) after the meta-service retry budget is exhausted. Such a
+                // tablet keeps its original rowsets and misses one injected size delta, which breaks
+                // the SHOW DATA golden below. Re-trigger only the tablets that are still uncompacted.
+                def uncompactedTablets = { ->
+                    tablets.findAll { tablet ->
+                        def (code, out, err) = curl("GET", tablet.CompactionStatus)
+                        assertEquals(code, 0)
+                        def tabletJson = parseJson(out.trim())
+                        assert tabletJson.rowsets instanceof List
+                        // a compacted tablet only holds [0-1] and the compacted [2-6] rowset
+                        ((List<String>) tabletJson.rowsets).size() != 2
+                    }
+                }
+                for (int round = 1; round <= 5; round++) {
+                    def pending = uncompactedTablets()
+                    if (pending.isEmpty()) {
+                        break
+                    }
+                    logger.info("round ${round}: re-trigger full compaction for ${pending.size()} tablets: ${pending.collect { it.TabletId }}")
+                    trigger_and_wait_compaction(tableName, "full", 300, [] as String[], pending.collect { it.TabletId })
+                }
 
                 sleep(60000)
                 // after full compaction, there are 2 rowsets.
                 rowsetCount = 0
+                def notCompacted = []
                 for (def tablet in tablets) {
                     String tablet_id = tablet.TabletId
                     def (code, out, err) = curl("GET", tablet.CompactionStatus)
@@ -93,9 +119,14 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                     assertEquals(code, 0)
                     def tabletJson = parseJson(out.trim())
                     assert tabletJson.rowsets instanceof List
-                    rowsetCount +=((List<String>) tabletJson.rowsets).size()
+                    def rowsets = (List<String>) tabletJson.rowsets
+                    rowsetCount += rowsets.size()
+                    if (rowsets.size() != 2) {
+                        notCompacted.add("tablet_id=${tablet_id} rowsets=${rowsets.size()} last_full_status=${tabletJson['last full status']}")
+                    }
                 }
-                // assert (rowsetCount == 2 * bucketSize * partitionSize)
+                assert notCompacted.isEmpty() : "full compaction did not finish on ${notCompacted.size()} tablets: ${notCompacted}"
+                assert (rowsetCount == 2 * bucketSize * partitionSize)
 
                 // data size should be very large
                 sql "select count(*) from ${tableName};"

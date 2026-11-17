@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import java.util.Optional;
 
 /** Native 128-bit UUID type. */
 public class UuidType extends PrimitiveType {
@@ -61,5 +65,10 @@ public class UuidType extends PrimitiveType {
     @Override
     public String toSql() {
         return "UUID";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new UuidLiteral("00000000-0000-0000-0000-000000000000"));
     }
 }

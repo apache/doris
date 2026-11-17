@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DataSketchesHllDownsample;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrDefault;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ipv6StringToNumOrNull;
@@ -79,6 +80,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PConstantExprResult;
 import org.apache.doris.proto.Types.PScalarType;
@@ -253,7 +255,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
         // Skip those function to avoid incorrect binary data processing during constant folding
         if (expr instanceof FromBase64 || expr instanceof Ipv6StringToNumOrNull
-                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof AIFunction) {
+                || expr instanceof Ipv6StringToNumOrDefault || expr instanceof AIFunction
+                || expr instanceof DataSketchesHllDownsample) {
             return true;
         }
 
@@ -298,6 +301,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                     cast.isStrict() || SessionVariable.enableStrictCast()) || cast.child().isNullLiteral()) {
                 return true;
             }
+            // FoldConstantRuleOnFE leaves a cast of VARBINARY bytes for BE when no FE string literal can carry
+            // its result (see VarBinaryLiteral.castValueToString). Folding the cast here would build that literal
+            // from the BE result anyway: getResultExpression decodes invalid UTF-8 as U+FFFD, and FE string
+            // code treats a NUL byte or a supplementary character unlike BE.
+            if (TypeCoercionUtils.hasVarBinaryType(cast.child().getDataType())) {
+                return true;
+            }
         }
 
         // This kind of function is often used to change the attributes of columns.
@@ -340,12 +350,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
             queryGlobals.setTimestampMs(System.currentTimeMillis());
-            queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-            if (context.getSessionVariable().getTimeZone().equals("CST")) {
-                queryGlobals.setTimeZone(TimeUtils.DEFAULT_TIME_ZONE);
-            } else {
-                queryGlobals.setTimeZone(context.getSessionVariable().getTimeZone());
-            }
+            queryGlobals.setTimeZone(
+                    TimeUtils.getCanonicalTimeZone(context.getSessionVariable().getTimeZone()));
 
             TQueryOptions tQueryOptions = new TQueryOptions();
             tQueryOptions.setBeExecVersion(Config.be_exec_version);
@@ -558,7 +564,14 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
             for (int i = 0; i < num; ++i) {
-                Literal literal = new StringLiteral(resultContent.getStringValue(i));
+                // BE sends the bytes of a string as they are, but a FE string literal holds only valid UTF-8:
+                // getStringValue(i) would turn other bytes, such as the 0xFF of unhex('FF'), into U+FFFD.
+                // Leave such a result unfolded, so that BE evaluates the expression.
+                ByteString bytesValue = resultContent.getStringValueBytes(i);
+                if (!bytesValue.isValidUtf8()) {
+                    return Collections.emptyList();
+                }
+                Literal literal = new StringLiteral(bytesValue.toStringUtf8());
                 res.add(literal);
             }
         } else if (type.isArrayType()) {

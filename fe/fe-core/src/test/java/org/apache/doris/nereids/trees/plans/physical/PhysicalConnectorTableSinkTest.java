@@ -19,19 +19,26 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.plugin.ConnectorWritePlanContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.OrderSpec;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.collect.ImmutableList;
@@ -40,6 +47,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -98,8 +106,14 @@ public class PhysicalConnectorTableSinkTest {
         // The hash key is the child slot at 'part's full-schema position (index 1).
         Assertions.assertEquals(ImmutableList.of(partSlot.getExprId()), dist.getOutputColExprIds(),
                 "hash key must be the partition-column slot taken at its full-schema position");
-        Assertions.assertTrue(props.getOrderSpec() instanceof MustLocalSortOrderSpec,
-                "dynamic-partition write must require a mandatory local sort to group partition rows");
+        // A plain OrderSpec, NOT MustLocalSortOrderSpec: the enforcer reads MustLocalSortOrderSpec as
+        // "sort locally BEFORE distributing", so it would emit localSort -> distribution -> global sort,
+        // i.e. a VMERGING-EXCHANGE after the partition shuffle. That merging receiver can deadlock
+        // against local-channel backpressure and hang the write until the client-side socket times out.
+        Assertions.assertFalse(props.getOrderSpec() instanceof MustLocalSortOrderSpec,
+                "dynamic-partition write must not use MustLocalSortOrderSpec (it appends a merging exchange)");
+        Assertions.assertInstanceOf(OrderSpec.class, props.getOrderSpec(),
+                "dynamic-partition write must require a local sort to group partition rows");
         List<OrderKey> orderKeys = props.getOrderSpec().getOrderKeys();
         Assertions.assertEquals(1, orderKeys.size(), "exactly one partition column to sort by");
         Assertions.assertEquals(partSlot, orderKeys.get(0).getExpr(),
@@ -195,8 +209,12 @@ public class PhysicalConnectorTableSinkTest {
         Assertions.assertEquals(ImmutableList.of(dsSlot.getExprId(), regionSlot.getExprId()),
                 dist.getOutputColExprIds(),
                 "hash keys must be the partition-column slots at their full-schema positions");
-        Assertions.assertTrue(props.getOrderSpec() instanceof MustLocalSortOrderSpec,
-                "partial-static write must require a mandatory local sort");
+        // Same rationale as dynamicPartitionWriteRequiresHashAndLocalSort: a plain OrderSpec, so the
+        // remaining dynamic partition column is shuffled and then locally sorted without a merging exchange.
+        Assertions.assertFalse(props.getOrderSpec() instanceof MustLocalSortOrderSpec,
+                "partial-static write must not use MustLocalSortOrderSpec (it appends a merging exchange)");
+        Assertions.assertInstanceOf(OrderSpec.class, props.getOrderSpec(),
+                "partial-static write must require a local sort");
         List<OrderKey> orderKeys = props.getOrderSpec().getOrderKeys();
         Assertions.assertEquals(2, orderKeys.size(), "sort by both partition columns in full-schema order");
         Assertions.assertEquals(dsSlot, orderKeys.get(0).getExpr());
@@ -353,7 +371,7 @@ public class PhysicalConnectorTableSinkTest {
         SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
         PluginDrivenExternalTable table = table(false, false, ImmutableList.of(),
                 ImmutableList.of(DATA, PART));
-        Mockito.when(table.getConnectorWriteDistribution()).thenReturn(Optional.of(
+        Mockito.when(table.resolveWritePlanContext().getDistribution()).thenReturn(Optional.of(
                 ConnectorWriteDistribution.externalHash(ImmutableList.of("part"),
                         "connector_bucket", java.util.Collections.singletonMap("buckets", "8"),
                         ConnectorWriteDistribution.WriterAssignment.IDENTITY)));
@@ -376,7 +394,7 @@ public class PhysicalConnectorTableSinkTest {
         SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
         PluginDrivenExternalTable table = table(true, true, ImmutableList.of(PART),
                 ImmutableList.of(DATA, PART));
-        Mockito.when(table.getConnectorWriteDistribution()).thenReturn(Optional.of(
+        Mockito.when(table.resolveWritePlanContext().getDistribution()).thenReturn(Optional.of(
                 ConnectorWriteDistribution.externalHash(ImmutableList.of("part"),
                         "connector_bucket", java.util.Collections.emptyMap(),
                         ConnectorWriteDistribution.WriterAssignment.IDENTITY)));
@@ -387,7 +405,10 @@ public class PhysicalConnectorTableSinkTest {
 
         Assertions.assertInstanceOf(DistributionSpecExternalTableSinkHashPartitioned.class,
                 properties.getDistributionSpec());
-        Assertions.assertInstanceOf(MustLocalSortOrderSpec.class, properties.getOrderSpec());
+        Assertions.assertFalse(properties.getOrderSpec() instanceof MustLocalSortOrderSpec,
+                "a connector-provided distribution must not be paired with MustLocalSortOrderSpec, which "
+                        + "would make the enforcer append a merging exchange after the shuffle");
+        Assertions.assertInstanceOf(OrderSpec.class, properties.getOrderSpec());
         Assertions.assertEquals(partSlot, properties.getOrderSpec().getOrderKeys().get(0).getExpr());
     }
 
@@ -397,7 +418,7 @@ public class PhysicalConnectorTableSinkTest {
         SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
         PluginDrivenExternalTable table = table(false, false, ImmutableList.of(),
                 ImmutableList.of(DATA, PART));
-        Mockito.when(table.getConnectorWriteDistribution()).thenReturn(Optional.of(
+        Mockito.when(table.resolveWritePlanContext().getDistribution()).thenReturn(Optional.of(
                 ConnectorWriteDistribution.hash(ImmutableList.of("part"))));
         PhysicalConnectorTableSink<Plan> sink = sink(table, Arrays.asList(PART, DATA),
                 ImmutableList.of(partSlot, dataSlot));
@@ -414,16 +435,77 @@ public class PhysicalConnectorTableSinkTest {
                 "a storage-natural distribution must not bypass the sink's execution hash shuffle");
     }
 
+    /**
+     * Positional-write connector (one returning {@code true} from {@code requiresFullSchemaWriteOrder()}, e.g.
+     * Paimon) with a reordered explicit column list ({@code INSERT INTO t (part, data) ...}, schema [data, part]):
+     * the bind layer projects the child to bound-target-schema order, so child output = [dataSlot, partSlot] while
+     * cols keeps the user's order [part, data]. The connector's route columns must be resolved against the bound
+     * target schema; a cols-based lookup would route by the wrong slots and split one Paimon bucket across writers.
+     * {@link #nameMappedDistributionUsesExplicitColumnOrder} pins the opposite, name-mapped case.
+     */
+    @Test
+    public void fullSchemaOrderDistributionResolvesRouteColumnsByBoundSchema() {
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
+        PluginDrivenExternalTable table = table(false, false, ImmutableList.of(PART),
+                ImmutableList.of(DATA, PART));
+        Mockito.when(table.resolveWritePlanContext().requiresFullSchemaWriteOrder()).thenReturn(true);
+        Mockito.when(table.resolveWritePlanContext().getDistribution()).thenReturn(Optional.of(
+                ConnectorWriteDistribution.externalHash(ImmutableList.of("part", "data"),
+                        "paimon_fixed_bucket", java.util.Collections.emptyMap(),
+                        ConnectorWriteDistribution.WriterAssignment.IDENTITY)));
+        PhysicalConnectorTableSink<Plan> sink = sink(table, Arrays.asList(PART, DATA),
+                ImmutableList.of(dataSlot, partSlot));
+
+        DistributionSpecExternalTableSinkHashPartitioned distribution
+                = (DistributionSpecExternalTableSinkHashPartitioned)
+                sink.getRequirePhysicalProperties().getDistributionSpec();
+
+        // 'part' at bound-schema index 1 -> child[1] = partSlot; 'data' at index 0 -> child[0] = dataSlot.
+        // A cols-position lookup would yield [dataSlot, partSlot].
+        Assertions.assertEquals(ImmutableList.of(partSlot.getExprId(), dataSlot.getExprId()),
+                distribution.getOutputColumnExprIds(),
+                "route columns must be taken at their bound-schema positions, not their cols positions");
+    }
+
+    @Test
+    public void writePlanContextStaysPinnedAcrossPhysicalPlanCopies() {
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        ConnectorWritePlanContext first = Mockito.mock(ConnectorWritePlanContext.class);
+        ConnectorWritePlanContext refreshed = Mockito.mock(ConnectorWritePlanContext.class);
+        Mockito.when(table.resolveWritePlanContext()).thenReturn(first, refreshed);
+        Plan child = Mockito.mock(Plan.class);
+        Mockito.when(child.getOutput()).thenReturn(ImmutableList.of(dataSlot));
+        Mockito.when(child.getAllChildrenTypes()).thenReturn(new BitSet());
+        Mockito.when(child.depth()).thenReturn(1);
+        PhysicalConnectorTableSink<Plan> sink = new PhysicalConnectorTableSink<>(
+                Mockito.mock(ExternalDatabase.class), table, ImmutableList.of(DATA),
+                ImmutableList.of(), "generation-1", ImmutableList.of(DATA),
+                ImmutableList.of(dataSlot), Optional.empty(),
+                new LogicalProperties(() -> ImmutableList.of(dataSlot), () -> DataTrait.EMPTY_TRAIT),
+                null, null, false, DMLCommandType.NONE, false, child);
+
+        Assertions.assertSame(first, sink.getWritePlanContext());
+        PhysicalConnectorTableSink<?> copy = (PhysicalConnectorTableSink<?>)
+                sink.withPhysicalPropertiesAndStats(PhysicalProperties.GATHER, null);
+        Assertions.assertSame(first, copy.getWritePlanContext());
+        Mockito.verify(table, Mockito.times(1)).resolveWritePlanContext();
+    }
+
     // ==================== helpers ====================
 
     private static PluginDrivenExternalTable table(boolean parallelWrite, boolean requirePartitionSort,
             List<Column> partitionColumns, List<Column> fullSchema) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
-        Mockito.when(table.supportsParallelWrite()).thenReturn(parallelWrite);
-        Mockito.when(table.requirePartitionLocalSortOnWrite()).thenReturn(requirePartitionSort);
+        ConnectorWritePlanContext writePlanContext = Mockito.mock(ConnectorWritePlanContext.class);
+        Mockito.when(writePlanContext.requiresParallelWrite()).thenReturn(parallelWrite);
+        Mockito.when(writePlanContext.requiresPartitionLocalSort()).thenReturn(requirePartitionSort);
+        Mockito.when(writePlanContext.getBeExecVersion()).thenReturn(Config.max_be_exec_version);
+        Mockito.when(writePlanContext.getDistribution()).thenReturn(Optional.empty());
+        Mockito.when(table.resolveWritePlanContext()).thenReturn(writePlanContext);
         Mockito.when(table.getPartitionColumns()).thenReturn(partitionColumns);
         Mockito.when(table.getFullSchema()).thenReturn(fullSchema);
-        Mockito.when(table.getConnectorWriteDistribution()).thenReturn(Optional.empty());
         return table;
     }
 
@@ -431,7 +513,8 @@ public class PhysicalConnectorTableSinkTest {
     private static PluginDrivenExternalTable table(boolean parallelWrite, boolean requirePartitionSort,
             boolean requirePartitionHash, List<Column> partitionColumns, List<Column> fullSchema) {
         PluginDrivenExternalTable table = table(parallelWrite, requirePartitionSort, partitionColumns, fullSchema);
-        Mockito.when(table.requirePartitionHashOnWrite()).thenReturn(requirePartitionHash);
+        Mockito.when(table.resolveWritePlanContext().requiresPartitionHashWrite())
+                .thenReturn(requirePartitionHash);
         return table;
     }
 
@@ -454,6 +537,7 @@ public class PhysicalConnectorTableSinkTest {
         Deencapsulation.setField(sink, "boundPartitionColumns", table.getPartitionColumns());
         Deencapsulation.setField(sink, "cols", cols);
         Deencapsulation.setField(sink, "children", ImmutableList.of(child));
+        Mockito.doReturn(table.resolveWritePlanContext()).when(sink).getWritePlanContext();
         return sink;
     }
 

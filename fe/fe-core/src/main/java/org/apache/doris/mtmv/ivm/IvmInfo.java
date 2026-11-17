@@ -31,10 +31,6 @@ public class IvmInfo {
     @SerializedName("en")
     private boolean enableIvm = false;
 
-    /** Persisted ivm_use_full_keys flag: true means the MV unique keys include identity key columns. */
-    @SerializedName("ukf")
-    private boolean useFullKeys = false;
-
     /** Compact persisted SHA-256 layout signature; see IvmPlanSignature#canonicalString for details. */
     @SerializedName("ps")
     private String planSignature;
@@ -48,7 +44,6 @@ public class IvmInfo {
 
     public IvmInfo(IvmInfo other) {
         this.enableIvm = other.enableIvm;
-        this.useFullKeys = other.useFullKeys;
         this.planSignature = other.planSignature;
         this.sequencePrefix = other.sequencePrefix;
     }
@@ -59,14 +54,6 @@ public class IvmInfo {
 
     public void setEnableIvm(boolean enableIvm) {
         this.enableIvm = enableIvm;
-    }
-
-    public boolean isUseFullKeys() {
-        return useFullKeys;
-    }
-
-    public void setUseFullKeys(boolean useFullKeys) {
-        this.useFullKeys = useFullKeys;
     }
 
     public String getPlanSignature() {
@@ -89,7 +76,6 @@ public class IvmInfo {
     public String toString() {
         return "IvmInfo{"
                 + "enableIvm=" + enableIvm
-                + ", useFullKeys=" + useFullKeys
                 + ", planSignature='" + planSignature + '\''
                 + '}';
     }

@@ -20,19 +20,24 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -54,7 +59,44 @@ public class ProfileTest {
 
     @AfterEach
     public void tearDown() {
-        ProfileManager.getInstance().removeProfile(profile.getId());
+        ProfileManager.getInstance().removeProfile(profile);
+    }
+
+    @Test
+    public void testClearAttemptSummaryState() {
+        SummaryProfile summary = profile.getSummaryProfile();
+        summary.setQueryBeginTime(123);
+        summary.update(Map.of(SummaryProfile.DISTRIBUTED_PLAN, "abandoned-plan",
+                SummaryProfile.QUERY_BACKEND_SELECTION, "abandoned-query-selection",
+                SummaryProfile.LOAD_BACKEND_SELECTION, "abandoned-load-selection"));
+        TNetworkAddress address = new TNetworkAddress("abandoned-backend", 9060);
+        summary.setRpcPhase1Latency(Map.of(address, List.of(1L, 2L, 3L, 4L)));
+        summary.setRpcPhase2Latency(Map.of(address, List.of(5L, 6L, 7L, 8L)));
+        Backend backend = new Backend(1L, "abandoned-backend", 9050);
+        summary.setAssignedWeightPerBackend(Map.of(backend, 100L));
+        summary.queryFinished();
+        summary.update(Collections.emptyMap());
+        Assertions.assertTrue(summary.getExecutionSummary().getInfoString(SummaryProfile.SCHEDULE_TIME_PER_BE)
+                .contains("abandoned-backend"));
+
+        profile.clearExecutionProfiles();
+        summary.update(Collections.emptyMap());
+        Assertions.assertEquals("{}", summary.getExecutionSummary()
+                .getInfoString(SummaryProfile.SCHEDULE_TIME_PER_BE));
+        // Inner retries reuse scan assignments.
+        Assertions.assertEquals("abandoned-plan", summary.getSummary().getInfoString(SummaryProfile.DISTRIBUTED_PLAN));
+        Assertions.assertTrue(summary.getExecutionSummary().getInfoString(SummaryProfile.SPLITS_ASSIGNMENT_WEIGHT)
+                .contains("abandoned-backend"));
+
+        profile.clearPlan();
+        summary.queryFinished();
+        summary.update(Collections.emptyMap());
+        Assertions.assertEquals("N/A", summary.getSummary().getInfoString(SummaryProfile.DISTRIBUTED_PLAN));
+        for (String key : List.of(SummaryProfile.QUERY_BACKEND_SELECTION, SummaryProfile.LOAD_BACKEND_SELECTION,
+                SummaryProfile.SPLITS_ASSIGNMENT_WEIGHT)) {
+            Assertions.assertEquals("N/A", summary.getExecutionSummary().getInfoString(key));
+        }
+        Assertions.assertEquals(123, summary.getQueryBeginTime());
     }
 
     @Test
@@ -85,6 +127,77 @@ public class ProfileTest {
         profile.updateSummary(summaryInfo, true, null);
         Assertions.assertTrue(profile.isQueryFinished);
         Assertions.assertTrue(Long.MAX_VALUE != profile.getQueryFinishTimestamp());
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testShortFailedQueryRemovesExecutionProfileWithoutSummary() {
+        ProfileManager manager = ProfileManager.getInstance();
+        TUniqueId queryId = executionProfile.getQueryId();
+        profile.autoProfileDurationMs = 10_000;
+        profile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        manager.addExecutionProfile(executionProfile);
+
+        try {
+            Assertions.assertSame(executionProfile, manager.getExecutionProfile(queryId));
+            Assertions.assertNull(manager.findProfileElementObject(profile.getId()));
+
+            profile.updateSummary(new HashMap<>(), true, null);
+
+            Assertions.assertNull(manager.getExecutionProfile(queryId));
+            Assertions.assertNull(manager.findProfileElementObject(profile.getId()));
+        } finally {
+            manager.cleanProfile();
+        }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testShortCompletedQueryRemovesStoredProfileAndExecutionProfile() {
+        ProfileManager manager = ProfileManager.getInstance();
+        TUniqueId queryId = executionProfile.getQueryId();
+        profile.autoProfileDurationMs = 10_000;
+        profile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        manager.addExecutionProfile(executionProfile);
+
+        try {
+            profile.updateSummary(new HashMap<>(), false, null);
+            Assertions.assertNotNull(manager.findProfileElementObject(profile.getId()));
+
+            profile.updateSummary(new HashMap<>(), true, null);
+
+            Assertions.assertNull(manager.getExecutionProfile(queryId));
+            Assertions.assertNull(manager.findProfileElementObject(profile.getId()));
+        } finally {
+            manager.cleanProfile();
+        }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testJobBelowCombinedThresholdRemovesMultipleExecutionProfiles() {
+        ProfileManager manager = ProfileManager.getInstance();
+        TUniqueId firstQueryId = executionProfile.getQueryId();
+        UUID secondUuid = UUID.randomUUID();
+        TUniqueId secondQueryId = new TUniqueId(secondUuid.getMostSignificantBits(),
+                secondUuid.getLeastSignificantBits());
+        ExecutionProfile secondExecutionProfile = new ExecutionProfile(secondQueryId, Collections.emptyList());
+        profile.addExecutionProfile(secondExecutionProfile);
+        profile.autoProfileDurationMs = 10_000;
+        // Broker Load keeps its per-task threshold.
+        profile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis() - 15_000);
+        manager.addExecutionProfile(executionProfile);
+        manager.addExecutionProfile(secondExecutionProfile);
+
+        try {
+            profile.updateSummary(new HashMap<>(), true, null);
+
+            Assertions.assertNull(manager.getExecutionProfile(firstQueryId));
+            Assertions.assertNull(manager.getExecutionProfile(secondQueryId));
+            Assertions.assertNull(manager.findProfileElementObject(profile.getId()));
+        } finally {
+            manager.cleanProfile();
+        }
     }
 
     @Test

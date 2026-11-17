@@ -15,25 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import com.azure.storage.blob.BlobClientBuilder
+import com.azure.storage.common.StorageSharedKeyCredential
+
 suite("test_array_with_single_row_max_than_uint16", "query") {
     // define a sql table
-    List<List<Object>> backends =  sql """ select * from backends(); """
-    assertTrue(backends.size() > 0)
-    def be_id = backends[0][0]
-    def dataFilePath = context.config.dataPath + "/query_p0"
     def testTable = "arr_dd"
     sql "DROP TABLE IF EXISTS ${testTable}"
-    def outFilePath= dataFilePath
-    if (backends.size() > 1) {
-        // cluster mode need to make sure all be has this data
-        outFilePath="/"
-        def transFile01 = "${dataFilePath}/arr_max.orc"
-        for (List<Object> backend : backends) {
-            def be_host = backend[1]
-            scpFiles("root", be_host, transFile01, outFilePath, false)
-        }
-    }
-
     sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL,
@@ -51,11 +39,46 @@ suite("test_array_with_single_row_max_than_uint16", "query") {
             )
             """
     // prepare data
-    qt_sql """
-            insert into ${testTable} select * from local(
-                "file_path" = "${outFilePath}/arr_max.orc",
-                "backend_id" = "${be_id}",
-                "format" = "orc");"""
+    String bucket = getS3BucketName()
+    String key = "regression/local_tvf_migration/${UUID.randomUUID()}/arr_max.orc"
+    String provider = getS3Provider()
+    String endpoint = getS3Endpoint()
+    File fixture = new File(context.config.dataPath, "query_p0/arr_max.orc")
+    def deleteFixture
+    if (provider.equalsIgnoreCase("AZURE")) {
+        if (endpoint == "azure-endpoint") {
+            endpoint = "https://${getS3AK()}.blob.core.windows.net"
+        } else if (!endpoint.contains("://")) {
+            endpoint = "https://${endpoint}"
+        }
+        def blobClient = new BlobClientBuilder()
+                .endpoint(endpoint)
+                .containerName(bucket)
+                .blobName(key)
+                .credential(new StorageSharedKeyCredential(getS3AK(), getS3SK()))
+                .buildClient()
+        blobClient.uploadFromFile(fixture.absolutePath)
+        deleteFixture = { blobClient.delete() }
+    } else {
+        def s3Client = getS3Client()
+        s3Client.putObject(bucket, key, fixture)
+        deleteFixture = { s3Client.deleteObject(bucket, key) }
+    }
+    try {
+        sql """INSERT INTO ${testTable} SELECT k1, k2, c_decimal FROM S3(
+            "uri" = "s3://${bucket}/${key}",
+            "format" = "orc",
+            "s3.endpoint" = "${endpoint}",
+            "provider" = "${provider}",
+            "s3.region" = "${getS3Region()}",
+            "s3.access_key" = "${getS3AK()}",
+            "s3.secret_key" = "${getS3SK()}"
+        )"""
+    } finally {
+        deleteFixture()
+    }
+    sql "sync"
+    qt_sql "SELECT COUNT(*) FROM ${testTable}"
 
     qt_select """ select * from ${testTable} order by k1"""
 }

@@ -22,6 +22,7 @@
 #  Optional options:
 #     --clean            clean and build ut
 #     --run              build and run all ut
+#     --jemalloc-hook    build standalone jemalloc hook tests without sanitizers
 #     --run --filter=xx  build and run specified ut
 #     --gdb              debug with gdb, does not take effect if --run is not specified
 #     --coverage         generate coverage report, does not take effect if --gdb is specified
@@ -117,6 +118,7 @@ Usage: $0 <options>
   Optional options:
      --clean            clean and build ut
      --run              build and run all ut
+     --jemalloc-hook    build standalone Linux jemalloc hook tests without sanitizers
      --run --filter=xx  build and run specified ut
      --run --gen_out    generate expected check data for test
      --run --gen_regression_case    generate regression test cases corrresponding to ut cases for ut cases that support it
@@ -124,6 +126,9 @@ Usage: $0 <options>
      --coverage         generage coverage after run ut, DOES NOT take effect if --gdb is specified
      -j                 build parallel
      -h                 print this help message
+
+  Environment:
+    DORIS_BE_UT_EXECUTABLE  Existing test binary to run after the build, for benchmark comparisons.
 
   Eg.
     $0                                                              build tests
@@ -142,7 +147,7 @@ Usage: $0 <options>
     exit 1
 }
 
-if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,gdb,clean,filter: -- "$@")"; then
+if ! OPTS="$(getopt -n "$0" -o vhj:f: -l gen_out,gen_regression_case,coverage,benchmark,run,gdb,clean,jemalloc-hook,filter: -- "$@")"; then
     usage
 fi
 
@@ -150,6 +155,7 @@ eval set -- "${OPTS}"
 
 CLEAN=0
 RUN=0
+JEMALLOC_HOOK=0
 GDB=0
 DENABLE_CLANG_COVERAGE='OFF'
 BUILD_AZURE='ON'
@@ -165,6 +171,10 @@ if [[ "$#" != 1 ]]; then
             ;;
         --run)
             RUN=1
+            shift
+            ;;
+        --jemalloc-hook)
+            JEMALLOC_HOOK=1
             shift
             ;;
         --gdb)
@@ -204,6 +214,29 @@ fi
 
 if [[ -z "${PARALLEL}" ]]; then
     PARALLEL="$(($(nproc) / 5 + 1))"
+fi
+
+# The regular BE UT uses ASAN and disables jemalloc. Exercise allocator
+# interposition in a separate native executable, before initializing BE's
+# unrelated submodules or configuring the sanitizer build.
+if [[ "${JEMALLOC_HOOK}" -eq 1 ]]; then
+    # These modes belong to the sanitizer BE UT, not the native allocator test.
+    if [[ "${GDB}" -eq 1 || "${DENABLE_CLANG_COVERAGE}" == 'ON' || -n "${GEN_OUT}${GEN_REGRESSION_CASE}" ]]; then
+        echo "--jemalloc-hook supports --run, --filter, --clean and -j"
+        exit 1
+    fi
+    JEMALLOC_TEST_BUILD_DIR="${DORIS_HOME}/be/ut_build_JEMALLOC"
+    if [[ "${CLEAN}" -eq 1 ]]; then
+        rm -rf "${JEMALLOC_TEST_BUILD_DIR}"
+    fi
+    "${CMAKE_CMD}" -S "${DORIS_HOME}/be/test/jemalloc_hook" \
+        -B "${JEMALLOC_TEST_BUILD_DIR}" -G "${GENERATOR}"
+    "${CMAKE_CMD}" --build "${JEMALLOC_TEST_BUILD_DIR}" --parallel "${PARALLEL}"
+    if [[ "${RUN}" -eq 1 ]]; then
+        "${JEMALLOC_TEST_BUILD_DIR}/jemalloc_hook_test" "${FILTER:---gtest_filter=*}" \
+            "--gtest_output=xml:${JEMALLOC_TEST_BUILD_DIR}/gtest_output/jemalloc_hook_test.xml"
+    fi
+    exit 0
 fi
 
 CMAKE_BUILD_TYPE="${BUILD_TYPE_UT:-ASAN}"
@@ -253,12 +286,14 @@ update_submodule() {
 
 # Keep this list in sync with build.sh: be/CMakeLists.txt adds storage/index/ann
 # unconditionally, and its cmake-protect target add_subdirectory()s both faiss and openblas,
-# so the configure step fails outright when either is missing.
+# so the configure step fails outright when either is missing. The H3 wrapper also
+# requires its submodule to be initialized before configuring BE.
 update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
 update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
 update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
 update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
+update_submodule "contrib/h3" "h3" "https://github.com/uber/h3/archive/refs/tags/v4.5.0.tar.gz"
 
 if [[ "_${DENABLE_CLANG_COVERAGE}" == "_ON" ]]; then
     echo "export DORIS_TOOLCHAIN=clang" >>custom_env.sh
@@ -561,8 +596,9 @@ export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow
 export UBSAN_OPTIONS=print_stacktrace=1
 export JAVA_OPTS="-Xmx1024m -DlogPath=${DORIS_HOME}/log/jni.log -Xloggc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} -Dsun.java.command=DorisBE -XX:-CriticalJNINatives -DJDBC_MIN_POOL=1 -DJDBC_MAX_POOL=100 -DJDBC_MAX_IDLE_TIME=300000"
 
-# find all executable test files
-test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
+# A saved reference binary keeps benchmark comparisons independent of relinking.
+test="${DORIS_BE_UT_EXECUTABLE:-${DORIS_TEST_BINARY_DIR}/doris_be_test}"
+echo "Using test executable: ${test}"
 profraw=${DORIS_TEST_BINARY_DIR}/doris_be_test.profraw
 profdata=${DORIS_TEST_BINARY_DIR}/doris_be_test.profdata
 
@@ -594,4 +630,5 @@ if [[ -f "${test}" ]]; then
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
 else
     echo "unit test file: ${test} does not exist."
+    exit 1
 fi

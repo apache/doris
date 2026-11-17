@@ -698,6 +698,56 @@ TEST_F(TestRle, TestPutFlushThenFastPath) {
     }
 }
 
+// Regression test for a hang on repeated runs that a single run indicator
+// cannot describe.
+//
+// FlushRepeatedRun() used to write `repeat_count_ << 1` into an int32_t, so a
+// run of 2^30 or more values overflowed into a negative indicator.
+// BitWriter::PutVlqInt() then took an int32_t and shifted it right
+// arithmetically, which sticks at -1 instead of reaching 0 -- an infinite loop
+// appending 0xFF to the output buffer. In the wild this showed up as a base
+// compaction thread spinning forever while flushing the null bitmap of a
+// nullable column whose page held one run of 2^30 null rows.
+TEST_F(TestRle, TestRepeatedRunExceedingIndicatorRange) {
+    constexpr int64_t kMaxRun = RleEncoder<bool>::MAX_VALUES_PER_REPEATED_RUN;
+    const std::vector<int64_t> run_lengths = {
+            kMaxRun - 1,
+            kMaxRun,
+            kMaxRun + 1,
+            int64_t {1} << 30, // smallest run length that used to overflow
+            (int64_t {1} << 30) + 12345,
+            int64_t {1} << 31,
+            3 * (int64_t {1} << 30),
+    };
+
+    for (int64_t run_length : run_lengths) {
+        faststring buffer;
+        RleEncoder<bool> encoder(&buffer, 1);
+        // Put() extends an established run in O(1), so this stays cheap even for
+        // billions of values.
+        encoder.Put(true, run_length);
+        const int encoded_len = encoder.Flush();
+
+        // A split run stays compact: one short header per emitted run.
+        const int64_t expected_runs = (run_length + kMaxRun - 1) / kMaxRun;
+        EXPECT_LE(encoded_len, expected_runs * 8 + 8) << "run_length=" << run_length;
+
+        // GetNextRun() merges adjacent repeated runs carrying the same value, so
+        // splitting is invisible to readers: this must read back as one run of
+        // the original length.
+        RleDecoder<bool> decoder(buffer.data(), encoded_len, 1);
+        int64_t decoded = 0;
+        while (decoded < run_length) {
+            bool val = false;
+            size_t run = decoder.GetNextRun(&val, static_cast<size_t>(run_length - decoded));
+            ASSERT_GT(run, 0u) << "run_length=" << run_length << " decoded=" << decoded;
+            ASSERT_TRUE(val) << "run_length=" << run_length << " decoded=" << decoded;
+            decoded += static_cast<int64_t>(run);
+        }
+        EXPECT_EQ(decoded, run_length) << "run_length=" << run_length;
+    }
+}
+
 // Benchmark for Put function performance with consecutive equal values
 // This test compares:
 // 1. Put(value) called N times in a loop

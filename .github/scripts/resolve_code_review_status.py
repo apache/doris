@@ -73,19 +73,30 @@ def resolve_status(
 
     approved_contexts: set[tuple[int, str]] = set()
     blocked_contexts: set[tuple[int, str]] = set()
+    incomplete_contexts: set[tuple[int, str]] = set()
     for context, item in latest_by_context.items():
         match = SOURCE_CONTEXT_RE.fullmatch(context)
         if match is not None and item["state"] == "success":
             approved_contexts.add((int(match.group(1)), match.group(2).casefold()))
         elif (match is not None and item["state"] == "failure"
               and context.startswith("code-review/source/automated/")):
-            blocked_contexts.add((int(match.group(1)), match.group(2).casefold()))
+            key = (int(match.group(1)), match.group(2).casefold())
+            blocked_contexts.add(key)
+            # State remains the sole gating signal. Use the runner's description
+            # only to explain an already-blocking result, never to grant a pass.
+            description = item.get("description")
+            if isinstance(description, str) and description.startswith("Review did not converge after "):
+                incomplete_contexts.add(key)
 
     # Preserve the authorized local PASS / skip override. Otherwise a completed
-    # automated review with P0/P1 blocks, rather than appearing to still be running.
+    # automated review with P0/P1 or incomplete coverage blocks instead of pending.
     blocked = sorted((open_contexts - approved_contexts) & blocked_contexts)
     if blocked:
         number, base_sha = blocked[0]
+        if (number, base_sha) in incomplete_contexts:
+            return Resolution(
+                "failure", f"Review did not converge for PR #{number} at {base_sha[:12]}.",
+            )
         return Resolution(
             "failure", f"Review completed with P0/P1 for PR #{number} at {base_sha[:12]}.",
         )

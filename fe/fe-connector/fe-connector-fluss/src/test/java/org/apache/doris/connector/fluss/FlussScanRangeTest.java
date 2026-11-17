@@ -50,6 +50,7 @@ public class FlussScanRangeTest {
     @Test
     public void logRangeCarriesOffsetsAndNothingElse() {
         FlussScanRange range = FlussScanRange.log(FlussScanRange.Partition.NONE, 3, 10L, 42L);
+        FlussScanRange otherRange = FlussScanRange.log(FlussScanRange.Partition.NONE, 4, 10L, 42L);
 
         Map<String, String> expected = new LinkedHashMap<>();
         expected.put("fluss.range_type", "LOG");
@@ -58,6 +59,7 @@ public class FlussScanRangeTest {
         expected.put("fluss.log_stop_offset", "42");
         Assertions.assertEquals(expected, range.getProperties());
         Assertions.assertEquals(FlussScanRange.RangeType.LOG, range.getRangeType());
+        Assertions.assertNotEquals(range.getSplitIdentity(), otherRange.getSplitIdentity());
     }
 
     @Test

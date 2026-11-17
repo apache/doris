@@ -111,6 +111,19 @@ public class FlussConnectorMetadataTest {
     }
 
     @Test
+    public void binaryPartitionValuesUseTheVarbinaryWireEncoding() {
+        RecordingFlussAdminOps adminOps = withPartitionColumnOfType(DataTypes.BINARY(2));
+        adminOps.partitionsByTable.put(PART_TABLE,
+                Collections.singletonList(partition(1L, 1, "p", "00ff")));
+        FlussConnectorMetadata metadata = metadata(adminOps, new FlussTypeMapping.Options(false, false));
+        ConnectorTableHandle handle = metadata.getTableHandle(null, "db", "part_table")
+                .orElseThrow(AssertionError::new);
+        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(null, handle, Optional.empty());
+        Assertions.assertEquals("p=0x00ff", partitions.get(0).getPartitionName());
+        Assertions.assertEquals(Collections.singletonList("0x00ff"), partitions.get(0).getOrderedPartitionValues());
+    }
+
+    @Test
     public void listingIsPassedThroughToTheClusterUnchanged() {
         // Fluss already has database/table names in Doris's own shape, so nothing here may invent,
         // filter or re-case a name: what the cluster reports is what SHOW DATABASES / SHOW TABLES show.
@@ -384,7 +397,7 @@ public class FlussConnectorMetadataTest {
         List<ConnectorPartitionInfo> partitions = metadata.listPartitions(null, handle, Optional.empty());
         Assertions.assertEquals(1, partitions.size());
         Assertions.assertEquals("p_str=cn/p_char=c1/p_bool=true/p_tiny=1/p_small=10/p_int=100/"
-                + "p_big=1000/p_date=2026-01-01/p_bin=0102", partitions.get(0).getPartitionName());
+                + "p_big=1000/p_date=2026-01-01/p_bin=0x0102", partitions.get(0).getPartitionName());
     }
 
     /**
@@ -436,26 +449,6 @@ public class FlussConnectorMetadataTest {
         Assertions.assertTrue(failure.getMessage().contains("no type"), failure.getMessage());
         Assertions.assertFalse(adminOps.calls.stream().anyMatch(call -> call.startsWith("listPartitionInfos")),
                 "the partitions should not have been fetched, calls were: " + adminOps.calls);
-    }
-
-    @Test
-    public void binaryPartitionIsRefusedOnlyWhenTheColumnIsNotText() {
-        // Fluss names such a partition with the hex text of the bytes. Read as a string that is exactly
-        // what was written; asked for as a VARBINARY it is not a literal of anything.
-        FlussConnectorMetadata asText = metadata(withPartitionColumnOfType(DataTypes.BINARY(2)));
-        Assertions.assertEquals(1, asText.listPartitions(null,
-                asText.getTableHandle(null, "db", "part_table").orElseThrow(AssertionError::new),
-                Optional.empty()).size());
-
-        RecordingFlussAdminOps adminOps = withPartitionColumnOfType(DataTypes.BINARY(2));
-        FlussConnectorMetadata asVarbinary = metadata(adminOps, new FlussTypeMapping.Options(true, false));
-        ConnectorTableHandle handle = asVarbinary.getTableHandle(null, "db", "part_table")
-                .orElseThrow(AssertionError::new);
-        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
-                () -> asVarbinary.listPartitions(null, handle, Optional.empty()));
-        Assertions.assertTrue(
-                failure.getMessage().contains(FlussCatalogProperties.ENABLE_MAPPING_VARBINARY),
-                "the fix is a property, so name it: " + failure.getMessage());
     }
 
     @Test

@@ -706,18 +706,18 @@ public class TypeCoercionMatrixTest {
                 new EqualTo(new SlotReference("left", TimeStampNsType.INSTANCE),
                         new SlotReference("right", DateV2Type.INSTANCE)));
         Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsDate.child(0).getDataType());
-        Assertions.assertEquals(DateTimeV2Type.SYSTEM_DEFAULT,
+        Assertions.assertEquals(TimeStampNsType.INSTANCE,
                 timestampNsDate.child(1).getDataType());
         Expression timestampNsDateTime = TypeCoercionUtils.processComparisonPredicate(
                 new EqualTo(new SlotReference("left", TimeStampNsType.INSTANCE),
                         new SlotReference("right", DateTimeV2Type.MAX)));
         Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsDateTime.child(0).getDataType());
-        Assertions.assertEquals(DateTimeV2Type.MAX, timestampNsDateTime.child(1).getDataType());
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsDateTime.child(1).getDataType());
         Expression timestampNsTimestampTz = TypeCoercionUtils.processComparisonPredicate(
                 new EqualTo(new SlotReference("left", TimeStampNsType.INSTANCE),
                         new SlotReference("right", TimeStampTzType.MAX)));
         Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsTimestampTz.child(0).getDataType());
-        Assertions.assertEquals(DateTimeV2Type.MAX, timestampNsTimestampTz.child(1).getDataType());
+        Assertions.assertEquals(TimeStampNsType.INSTANCE, timestampNsTimestampTz.child(1).getDataType());
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, TimeV2Type.MAX, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(TimeStampNsType.INSTANCE, StringType.INSTANCE, TimeStampNsType.INSTANCE);
         testProcessComparisonPredicate(DateTimeV2Type.of(4), ArrayType.of(StringType.INSTANCE), null);

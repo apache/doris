@@ -57,12 +57,12 @@ void check_array_except_all(const DataTypePtr& array_type, const TestArray& left
 
     FunctionUtils function_utils(array_type, {array_type, array_type}, false);
     auto* context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     block.insert({nullptr, array_type, "result"});
     ASSERT_TRUE(function->execute(context, block, {0, 1}, 2, row_count).ok());
-    ASSERT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
 
     MutableColumnPtr expected_column = array_type->create_column();
     ASSERT_TRUE(insert_cell(expected_column, array_type, expected));

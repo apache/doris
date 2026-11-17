@@ -30,8 +30,6 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
-#include "format/generic_reader.h"
-#include "format/table/table_schema_change_helper.h"
 #include "util/slice.h"
 #include "util/string_util.h"
 
@@ -316,12 +314,8 @@ std::pair<DataTypePtr, bool> FieldDescriptor::convert_to_doris_type(
     } else if (logicalType.__isset.JSON) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
     } else if (logicalType.__isset.UUID) {
-        if (_enable_mapping_varbinary) {
-            ans.first = DataTypeFactory::instance().create_data_type(TYPE_VARBINARY, nullable, -1,
-                                                                     -1, 16);
-        } else {
-            ans.first = DataTypeFactory::instance().create_data_type(TYPE_STRING, nullable);
-        }
+        // UUID is a logical type; its binary storage does not make it an untyped byte array.
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_UUID, nullable);
     } else if (logicalType.__isset.FLOAT16) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
     } else {

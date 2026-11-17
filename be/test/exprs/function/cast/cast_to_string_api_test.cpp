@@ -50,7 +50,8 @@ TEST(CastToStringTest, NullableTimestampSkipsInvalidPayload) {
         Block block {{input_column, std::make_shared<DataTypeTimeStampTz>(6), "input"},
                      {nullptr, std::make_shared<DataTypeString>(), "result"}};
         ASSERT_NO_THROW({
-            ASSERT_TRUE(CastToStringFunction::execute_impl(nullptr, block, {0}, 1, rows,
+            ASSERT_TRUE(CastToStringFunction::execute_impl(nullptr, block.get_by_position(0),
+                                                           block.get_by_position(1), rows,
                                                            null_map.data())
                                 .ok());
         });
@@ -71,8 +72,9 @@ TEST(CastToStringTest, NonNullInvalidTimestampIsStillRejected) {
     Block block {{std::move(input), std::make_shared<DataTypeTimeStampTz>(6), "input"},
                  {nullptr, std::make_shared<DataTypeString>(), "result"}};
     const NullMap null_map {0};
-    EXPECT_THROW(static_cast<void>(CastToStringFunction::execute_impl(nullptr, block, {0}, 1, 1,
-                                                                      null_map.data())),
+    EXPECT_THROW(static_cast<void>(CastToStringFunction::execute_impl(
+                         nullptr, block.get_by_position(0), block.get_by_position(1), 1,
+                         null_map.data())),
                  Exception);
 }
 

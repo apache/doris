@@ -17,34 +17,118 @@
 
 #include "storage/schema.h"
 
+#include <limits>
 #include <ranges>
 #include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_dictionary.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
-#include "storage/binlog.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_variant_v2.h"
+#include "core/data_type/primitive_type.h"
+#include "runtime/descriptors.h"
+#include "storage/changelog.h"
 
 namespace doris {
 
 namespace {
 
-bool row_binlog_value_columns_have_same_type(const TabletColumn& lhs, const TabletColumn& rhs) {
+bool changelog_value_columns_have_same_type(const TabletColumn& lhs, const TabletColumn& rhs) {
     if (lhs.type() != rhs.type() || lhs.is_nullable() != rhs.is_nullable() ||
         lhs.length() != rhs.length() || lhs.precision() != rhs.precision() ||
         lhs.frac() != rhs.frac() || lhs.get_subtype_count() != rhs.get_subtype_count()) {
         return false;
     }
     for (uint32_t i = 0; i < lhs.get_subtype_count(); ++i) {
-        if (!row_binlog_value_columns_have_same_type(lhs.get_sub_column(i),
-                                                     rhs.get_sub_column(i))) {
+        if (!changelog_value_columns_have_same_type(lhs.get_sub_column(i), rhs.get_sub_column(i))) {
             return false;
         }
     }
     return true;
+}
+
+// Sets the type of `column` from `data_type`, sub columns included. Sub columns get the names FE
+// gives them, and the length is computed the same way as for a column FE sends.
+void set_type_from_data_type(const DataTypePtr& data_type, TabletColumn* column) {
+    const DataTypePtr type = remove_nullable(data_type);
+    const PrimitiveType primitive_type = type->get_primitive_type();
+    column->set_type(type->get_storage_field_type());
+    column->set_is_nullable(data_type->is_nullable());
+    uint32_t string_length = 0;
+    switch (primitive_type) {
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING:
+        string_length = cast_set<uint32_t>(assert_cast<const DataTypeString&>(*type).len());
+        break;
+    case TYPE_DECIMALV2: {
+        // DECIMALV2 always computes as (27, 9). Keep the precision and scale the column declares.
+        const auto& decimal_type = assert_cast<const DataTypeDecimalV2&>(*type);
+        column->set_precision(decimal_type.get_original_precision());
+        column->set_frac(decimal_type.get_original_scale());
+        break;
+    }
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I:
+    case TYPE_DECIMAL256:
+        column->set_precision(type->get_precision());
+        column->set_frac(type->get_scale());
+        break;
+    case TYPE_DATETIMEV2:
+    case TYPE_TIMESTAMPTZ:
+        column->set_frac(type->get_scale());
+        break;
+    case TYPE_VARIANT: {
+        const auto& variant_type = assert_cast<const DataTypeVariantV2&>(*type);
+        column->set_variant_max_subcolumns_count(variant_type.variant_max_subcolumns_count());
+        column->set_variant_enable_doc_mode(variant_type.enable_doc_mode());
+        break;
+    }
+    case TYPE_ARRAY: {
+        TabletColumn item;
+        item.set_name("item");
+        set_type_from_data_type(assert_cast<const DataTypeArray&>(*type).get_nested_type(), &item);
+        column->add_sub_column(item);
+        break;
+    }
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*type);
+        TabletColumn key;
+        key.set_name("key");
+        set_type_from_data_type(map_type.get_key_type(), &key);
+        column->add_sub_column(key);
+        TabletColumn value;
+        value.set_name("value");
+        set_type_from_data_type(map_type.get_value_type(), &value);
+        column->add_sub_column(value);
+        break;
+    }
+    case TYPE_STRUCT: {
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+        for (size_t i = 0; i < struct_type.get_elements().size(); ++i) {
+            TabletColumn field;
+            field.set_name(struct_type.get_element_name(i));
+            set_type_from_data_type(struct_type.get_element(i), &field);
+            column->add_sub_column(field);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    column->set_length(cast_set<int32_t>(
+            TabletColumn::get_field_length_by_type(to_thrift(primitive_type), string_length)));
 }
 
 } // namespace
@@ -97,6 +181,19 @@ void ReadSchema::append_dropped_columns(std::vector<TabletColumn> columns) {
     }
 }
 
+void ReadSchema::append_compaction_rowid_column() {
+    DORIS_CHECK_EQ(_num_block_columns, _read_columns.size());
+    DORIS_CHECK_EQ(_rowid_ordinal, -1);
+    auto column = std::make_shared<TabletColumn>(
+            FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, FieldType::OLAP_FIELD_TYPE_STRING,
+            false, std::numeric_limits<int32_t>::max(), sizeof(RowLocation));
+    column->set_name(BeConsts::COMPACTION_ROWID_COL);
+    _read_columns.emplace_back(column);
+    _read_types.emplace_back(column->get_vec_type());
+    ++_num_block_columns;
+    _init_descriptors();
+}
+
 void ReadSchema::_init_before_column_ordinals() {
     std::unordered_map<std::string_view, ColumnId> name_to_ordinal;
     name_to_ordinal.reserve(_num_block_columns);
@@ -112,26 +209,26 @@ void ReadSchema::_init_before_column_ordinals() {
             _before_column_ordinals[ordinal] = ordinal;
             continue;
         }
-        auto before_name = binlog::build_before_column_name(_read_columns[ordinal]->name());
+        auto before_name = changelog::build_before_column_name(_read_columns[ordinal]->name());
         auto before = name_to_ordinal.find(before_name);
         _before_column_ordinals[ordinal] =
                 before == name_to_ordinal.end() ? ordinal : before->second;
     }
 }
 
-void ReadSchema::_init_row_binlog_column_mappings(const TabletSchema& tablet_schema) {
+void ReadSchema::_init_changelog_column_mappings(const TabletSchema& tablet_schema) {
     DORIS_CHECK_GE(_op_ordinal, 0);
     DORIS_CHECK_EQ(_before_column_ordinals.size(), _num_block_columns);
 
-    _row_binlog_value_column_pairs.clear();
-    _row_binlog_value_pairs_complete = false;
+    _changelog_value_column_pairs.clear();
+    _changelog_value_pairs_complete = false;
 
     std::vector<ColumnId> value_column_ids;
     value_column_ids.reserve(tablet_schema.num_columns() - tablet_schema.num_key_columns());
     for (ColumnId cid = 0; cid < tablet_schema.num_columns(); ++cid) {
-        if (static_cast<int32_t>(cid) == tablet_schema.binlog_tso_col_idx() ||
-            static_cast<int32_t>(cid) == tablet_schema.binlog_lsn_col_idx() ||
-            static_cast<int32_t>(cid) == tablet_schema.binlog_op_col_idx() ||
+        if (static_cast<int32_t>(cid) == tablet_schema.changelog_tso_col_idx() ||
+            static_cast<int32_t>(cid) == tablet_schema.changelog_lsn_col_idx() ||
+            static_cast<int32_t>(cid) == tablet_schema.changelog_op_col_idx() ||
             tablet_schema.column(cid).is_key()) {
             continue;
         }
@@ -146,20 +243,20 @@ void ReadSchema::_init_row_binlog_column_mappings(const TabletSchema& tablet_sch
     for (size_t i = 0; i < value_column_count; ++i) {
         const auto& after = tablet_schema.column(value_column_ids[i]);
         const auto& before = tablet_schema.column(value_column_ids[i + value_column_count]);
-        if (before.name() != binlog::build_before_column_name(after.name()) ||
-            !row_binlog_value_columns_have_same_type(after, before)) {
+        if (before.name() != changelog::build_before_column_name(after.name()) ||
+            !changelog_value_columns_have_same_type(after, before)) {
             return;
         }
     }
 
-    // A valid physical row-binlog layout starts from an identity mapping. Only AFTER value
+    // A valid physical changelog layout starts from an identity mapping. Only AFTER value
     // columns map to their BEFORE companions; keys, metadata and BEFORE columns map to themselves.
     for (ColumnId ordinal = 0; ordinal < _num_block_columns; ++ordinal) {
         _before_column_ordinals[ordinal] = ordinal;
     }
 
     bool complete = true;
-    _row_binlog_value_column_pairs.reserve(value_column_count);
+    _changelog_value_column_pairs.reserve(value_column_count);
     for (size_t i = 0; i < value_column_count; ++i) {
         const auto after_cid = value_column_ids[i];
         const auto before_cid = value_column_ids[i + value_column_count];
@@ -179,10 +276,10 @@ void ReadSchema::_init_row_binlog_column_mappings(const TabletSchema& tablet_sch
             complete = false;
             continue;
         }
-        _row_binlog_value_column_pairs.emplace_back(after, before);
+        _changelog_value_column_pairs.emplace_back(after, before);
     }
-    _row_binlog_value_pairs_complete =
-            complete && _row_binlog_value_column_pairs.size() == value_column_count;
+    _changelog_value_pairs_complete =
+            complete && _changelog_value_column_pairs.size() == value_column_count;
 }
 
 Block ReadSchema::create_read_block() const {
@@ -224,8 +321,8 @@ std::string ReadSchema::read_columns_to_string() const {
 
 Status ReadSchema::init_from_tablet_schema(const TabletSchema& tablet_schema,
                                            bool merge_by_sequence_mapping,
-                                           bool map_row_binlog_columns) {
-    DORIS_CHECK(!(merge_by_sequence_mapping && map_row_binlog_columns));
+                                           bool map_changelog_columns) {
+    DORIS_CHECK(!(merge_by_sequence_mapping && map_changelog_columns));
     _tablet_has_sequence_map = tablet_schema.has_seq_map();
     _tablet_has_extracted_variant_columns =
             std::ranges::any_of(tablet_schema.columns(),
@@ -233,8 +330,8 @@ Status ReadSchema::init_from_tablet_schema(const TabletSchema& tablet_schema,
     if (merge_by_sequence_mapping) {
         RETURN_IF_ERROR(_init_sequence_map(tablet_schema));
     }
-    if (map_row_binlog_columns) {
-        _init_row_binlog_column_mappings(tablet_schema);
+    if (map_changelog_columns) {
+        _init_changelog_column_mappings(tablet_schema);
     }
     return Status::OK();
 }
@@ -284,6 +381,17 @@ IColumn::MutablePtr ReadSchema::get_predicate_column_ptr(const DataTypePtr& data
         return ptr;
     }
     return data_type->create_column();
+}
+
+TabletColumn ReadSchema::tablet_column_from_slot(const SlotDescriptor& slot) {
+    TabletColumn column;
+    column.set_name(slot.col_name());
+    column.set_unique_id(slot.col_unique_id());
+    set_type_from_data_type(slot.type(), &column);
+    if (!slot.col_default_value().empty()) {
+        column.set_default_value(slot.col_default_value());
+    }
+    return column;
 }
 
 } // namespace doris

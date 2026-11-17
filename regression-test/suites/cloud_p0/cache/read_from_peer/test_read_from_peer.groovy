@@ -157,6 +157,7 @@ suite('test_read_from_peer', 'docker') {
             set 'compress_type', 'GZ'
             file """${getS3Url()}/regression/tpcds/sf1/store_sales.dat.gz"""
             time 10000
+            retryIfHttpError true
             setFeAddr cluster.getAllFrontends().get(0).host, cluster.getAllFrontends().get(0).httpPort
 
             check { res, exception, startTime, endTime ->

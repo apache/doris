@@ -22,8 +22,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PatternType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantField;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.indexpolicy.IndexPolicy;
@@ -683,6 +686,28 @@ public class InvertedIndexPropertiesTest {
     }
 
     @Test
+    public void testOverlappingFieldPatternsPickTheFirstPredefinedFieldLikeTheBe() {
+        // The BE writer routes a subcolumn to the first predefined field whose pattern matches its path,
+        // so the query side has to pick the index of that same field when the patterns overlap.
+        Index globIndex = new Index(30, "idx_glob", List.of("v"), IndexType.INVERTED,
+                Map.of("field_pattern", "a.*"), "");
+        Index exactIndex = new Index(31, "idx_exact", List.of("v"), IndexType.INVERTED,
+                Map.of("field_pattern", "a.b"), "");
+        VariantField glob = new VariantField("a.*", Type.STRING, "", PatternType.MATCH_NAME_GLOB);
+        VariantField exact = new VariantField("a.b", Type.STRING, "", PatternType.MATCH_NAME);
+        OlapTable table = new OlapTable();
+        table.setIndexes(List.of(globIndex, exactIndex));
+
+        Column globFirst = new Column("v", new VariantType(new ArrayList<>(List.of(glob, exact))));
+        Assertions.assertSame(globIndex, table.getInvertedIndex(globFirst, List.of("a", "b")));
+
+        Column exactFirst = new Column("v", new VariantType(new ArrayList<>(List.of(exact, glob))));
+        Assertions.assertSame(exactIndex, table.getInvertedIndex(exactFirst, List.of("a", "b")));
+        // A path only the glob covers still resolves to the glob's index.
+        Assertions.assertSame(globIndex, table.getInvertedIndex(exactFirst, List.of("a", "c")));
+    }
+
+    @Test
     public void testExplicitBuiltinIkFallsBackToTheOnlyLegacyIndex() {
         Column column = new Column("content", PrimitiveType.STRING);
         Index legacySmart = new Index(20, "idx_legacy_smart", List.of("content"), IndexType.INVERTED,
@@ -849,10 +874,11 @@ public class InvertedIndexPropertiesTest {
         policyMgr.replayCreateIndexPolicy(new IndexPolicy(
                 92, "norm_lower", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase")));
         Map<String, String> mixedNormalizer = new HashMap<>(Map.of("normalizer", "LowerCase"));
+        Map<String, String> customNormalizer = new HashMap<>(Map.of("normalizer", "lowercase"));
         Map<String, String> mixedAnalyzer = new HashMap<>(Map.of("analyzer", "Standard"));
 
         withIndexPolicyManager(policyMgr, () -> {
-            for (Map<String, String> properties : List.of(mixedNormalizer, mixedAnalyzer)) {
+            for (Map<String, String> properties : List.of(mixedNormalizer, customNormalizer, mixedAnalyzer)) {
                 Assertions.assertDoesNotThrow(() -> InvertedIndexUtil.checkInvertedIndexParser("c",
                         PrimitiveType.VARCHAR, properties, TInvertedIndexFileStorageFormat.V3));
             }
@@ -860,6 +886,8 @@ public class InvertedIndexPropertiesTest {
                     // The exact policy shadows the canonical name, so only the mixed spelling still
                     // reaches the built-in normalizer on BE.
                     () -> Assertions.assertEquals("LowerCase", mixedNormalizer.get("normalizer")),
+                    () -> Assertions.assertFalse(mixedNormalizer.containsKey("support_phrase")),
+                    () -> Assertions.assertEquals("true", customNormalizer.get("support_phrase")),
                     () -> Assertions.assertEquals("LowerCase",
                             InvertedIndexUtil.resolveAnalyzerName("LowerCase")),
                     () -> Assertions.assertEquals("lowercase",

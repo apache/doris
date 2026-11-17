@@ -63,6 +63,21 @@ public class JdbcClickHouseClientTest {
     }
 
     @Test
+    public void testPrefixedDriverVersions() throws Exception {
+        Method method = JdbcClickHouseClient.class.getDeclaredMethod("isNewClickHouseDriver", String.class);
+        method.setAccessible(true);
+        Assertions.assertFalse((boolean) method.invoke(null,
+                "clickhouse-jdbc 0.3.2-patch11 (revision: 27f8951)"));
+        Assertions.assertFalse((boolean) method.invoke(null, "clickhouse-jdbc 0.4.2 (revision: 1513b27)"));
+        Assertions.assertTrue((boolean) method.invoke(null, "clickhouse-jdbc 0.5.0 (revision: test)"));
+        Assertions.assertTrue((boolean) method.invoke(null, "clickhouse-jdbc 1.0.0"));
+        DatabaseMetaData metadata = Mockito.mock(DatabaseMetaData.class);
+        Mockito.when(metadata.supportsCatalogsInDataManipulation()).thenReturn(true);
+        Assertions.assertFalse(JdbcClickHouseClient.isDatabaseTermCatalog(metadata,
+                "clickhouse-jdbc 0.3.2-patch11 (revision: 27f8951)"));
+    }
+
+    @Test
     public void testIsNewClickHouseDriver() {
         try {
             Method method = JdbcClickHouseClient.class.getDeclaredMethod("isNewClickHouseDriver", String.class);

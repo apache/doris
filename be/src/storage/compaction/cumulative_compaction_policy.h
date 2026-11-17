@@ -22,6 +22,8 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "common/config.h"
@@ -192,6 +194,15 @@ public:
     /// to construct the policy. Now it can product size based and num based policies.
     static std::shared_ptr<CumulativeCompactionPolicy> create_cumulative_compaction_policy(
             const std::string_view& compaction_policy);
+
+    /// Returns the policy registered under `compaction_policy` in `policies`, which must hold
+    /// the size-based policy. The name comes from the meta of tablet `tablet_id`; a name this
+    /// build does not know falls back to the size-based policy with a warning, the same as
+    /// create_cumulative_compaction_policy() does.
+    static std::shared_ptr<CumulativeCompactionPolicy> get_cumulative_compaction_policy(
+            const std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>&
+                    policies,
+            std::string_view compaction_policy, int64_t tablet_id);
 };
 
 } // namespace doris

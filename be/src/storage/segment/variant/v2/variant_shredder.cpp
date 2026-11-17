@@ -157,16 +157,11 @@ struct VariantShredder::Impl {
         PathState& path_state = paths[path_index];
         const size_t row_marker = row + 1;
         if (path_state.last_row_marker == row_marker) {
-            if (!options.check_duplicate_json_path) {
-                return Status::InvalidArgument("may contains duplicated entry : {}",
-                                               path_state.path.get_path());
-            }
-            return Status::OK();
+            return Status::InvalidArgument("may contains duplicated entry : {}",
+                                           path_state.path.get_path());
         }
         path_state.last_row_marker = row_marker;
-        if (value.is_null()) {
-            return Status::OK();
-        }
+        DCHECK(!value.is_null());
         return get_or_create_builder(path_index)->append(value, row);
     }
 
@@ -183,12 +178,17 @@ struct VariantShredder::Impl {
             return found->second;
         }
 
+        auto key = metadata_cache.metadata.key_at(field).to_string_view();
+        std::string encoded;
+        if (options.escape_dots_in_keys) {
+            encoded = encode_variant_path_component(key);
+            key = encoded;
+        }
         PathInDataBuilder builder;
-        builder.append(paths[parent].path.get_parts(), false)
-                .append(metadata_cache.metadata.key_at(field).to_string_view(), false);
+        builder.append(paths[parent].path.get_parts(), false).append(key, false);
         PathInData child = builder.build();
         // V2 object traversal keeps arrays as leaves. Canonicalizing into the dotted on-disk
-        // namespace also makes {"a.b": 1} and {"a": {"b": 1}} share one path.
+        // namespace merges dotted keys only in legacy mode; escaped components contain no dots.
         child = PathInData(child.get_path());
 
         PathIndex child_index = 0;
@@ -209,9 +209,9 @@ struct VariantShredder::Impl {
 
     Status visit(VariantRef value, MetadataPathCache& metadata_cache, PathIndex path_index,
                  size_t row) {
+        // A null member occupies no path, so {"a":{"b":null},"a.b":3} does not collide.
         if (value.is_null()) {
-            return options.check_duplicate_json_path ? append_leaf(value, path_index, row)
-                                                     : Status::OK();
+            return Status::OK();
         }
         if (value.basic_type() != VariantBasicType::OBJECT) {
             return append_leaf(value, path_index, row);
@@ -514,6 +514,11 @@ struct VariantShredder::Impl {
 
         DorisVector<SparsePlan> sparse_plan = build_sparse_plan(selection, candidate_builders);
         select_sparse_statistics(&sparse_plan);
+        // Readers search full path bytes: a-b must precede a.c, unlike component order.
+        // Select statistics first to retain the existing encounter-order budget tie-break.
+        std::ranges::sort(sparse_plan, [](const SparsePlan& left, const SparsePlan& right) {
+            return *left.path < *right.path;
+        });
         RETURN_IF_ERROR(append_binary_rows(sparse_plan, sparse_maps));
         DorisVector<VariantStatistics> bucket_statistics(options.sparse_bucket_count);
         publish_sparse_statistics(sparse_plan, &bucket_statistics, result);

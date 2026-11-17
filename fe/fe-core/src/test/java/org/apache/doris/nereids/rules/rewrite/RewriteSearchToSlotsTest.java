@@ -373,4 +373,27 @@ public class RewriteSearchToSlotsTest {
                 0, 0, (short) 0, TStorageType.COLUMN, KeysType.PRIMARY_KEYS);
         return table;
     }
+
+    @Test
+    public void testEscapedStorageFieldsBecomeLogicalElementAtChains() throws Exception {
+        OlapTable table = buildVariantTableWithInvertedIndex(190L);
+        table.setVariantEscapeDotsInKeys(true);
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table, ImmutableList.of("db"));
+        Method method = RewriteSearchToSlots.class.getDeclaredMethod("rewriteSearch", Search.class, LogicalOlapScan.class);
+        method.setAccessible(true);
+        SearchExpression dotted = (SearchExpression) method.invoke(rewriteRule,
+                new Search(new StringLiteral("v.a%2Eb:value")), scan);
+        ElementAt key = (ElementAt) dotted.getSlotChildren().get(0);
+        Assertions.assertInstanceOf(SlotReference.class, key.child(0));
+        Assertions.assertEquals("a.b", ((StringLiteral) key.child(1)).getStringValue());
+        SearchExpression nested = (SearchExpression) method.invoke(rewriteRule,
+                new Search(new StringLiteral("v.a.b:value")), scan);
+        ElementAt leaf = (ElementAt) nested.getSlotChildren().get(0);
+        Assertions.assertInstanceOf(ElementAt.class, leaf.child(0));
+        Assertions.assertEquals("b", ((StringLiteral) leaf.child(1)).getStringValue());
+        InvocationTargetException error = Assertions.assertThrows(InvocationTargetException.class,
+                () -> method.invoke(rewriteRule, new Search(new StringLiteral("v.bad%2e:value")), scan));
+        Assertions.assertTrue(error.getCause().getMessage().contains("Invalid escaped Variant path component"));
+    }
+
 }

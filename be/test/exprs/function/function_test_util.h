@@ -364,15 +364,15 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     // 1.2 prepare args for function call
     ColumnNumbers arguments;
     std::vector<DataTypePtr> arg_types;
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_col_ptrs;
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_col_ptrs;
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_cols;
     for (size_t i = 0; i < descs.size(); ++i) {
         auto& desc = descs[i];
         arguments.push_back(static_cast<unsigned int>(i));
         arg_types.push_back(desc.data_type);
         if (desc.is_const) {
             constant_col_ptrs.push_back(
-                    std::make_shared<ColumnPtrWrapper>(block.get_by_position(i).column));
+                    std::make_shared<ConstantExprResult>(block.get_by_position(i).column));
             constant_cols.push_back(constant_col_ptrs.back());
         } else {
             constant_cols.push_back(nullptr);
@@ -409,8 +409,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     FunctionUtils fn_utils(fn_ctx_return, arg_types, is_strict_mode);
     auto* fn_ctx = fn_utils.get_fn_ctx();
     fn_ctx->set_constant_cols(constant_cols);
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::THREAD_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    RETURN_IF_ERROR(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
 
     block.insert({nullptr, return_type, "result"});
 
@@ -427,8 +427,8 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
         }
     }
 
-    static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
+    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
 
     // 3.0. create expected result column in block
     DataTypePtr result_type_ptr;

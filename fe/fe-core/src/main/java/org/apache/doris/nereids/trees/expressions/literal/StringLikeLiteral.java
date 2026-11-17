@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -68,9 +69,11 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             + "(?:\\s*(?<tz>[+-]\\d{1,2}(?::?(?:00|30|45))?"
             + "|(?i)([A-Za-z]+\\S*)))?"
             + ")?\\s*$";
+    // Same grammar as BE StringParser::string_to_float: only ASCII whitespace around the number is
+    // skipped, and fast_float also accepts a NaN payload such as nan(ind).
     public static final String toDoubleRegex
-            = "^\\s*[+-]?(?:(?:[0-9]+|[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|(?"
-            + "i)(?:INF|INFINITY)|(?i)NAN)\\s*$";
+            = "^\\s*(?<number>[+-]?(?:(?:[0-9]+|[0-9]+\\.[0-9]*|[0-9]*\\.[0-9]+)(?:[eE][+-]?[0-9]+)?|(?"
+            + "i)(?:INF|INFINITY)|(?i)NAN(?:\\([0-9A-Za-z_]*\\))?))\\s*$";
     public static final String toDecimalRegex
             = "^\\s*[+-]?((\\d+\\.\\d+)|(\\d+)|(\\d+\\.)|(\\.\\d+))(?:([eE])[+-]?\\d+)?\\s*$";
     public static final String toIntStrict = "\\s*[+-]?\\d+\\s*";
@@ -145,9 +148,7 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             if (DateTimeChecker.hasTimeZone(value)) {
                 return new TimestampTzLiteral(timeStampTzType, value);
             }
-            DateTimeV2Literal datetime = (DateTimeV2Literal) castToDateTime(
-                    DateTimeV2Type.MAX, strictCast);
-            return TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, datetime);
+            return castToDateTime(timeStampTzType, strictCast);
         } else if (targetType.isTimeStampNsType() || targetType.isDateTimeV2Type()) {
             return castToDateTime(targetType, strictCast);
         } else if (targetType.isFloatType()) {
@@ -200,37 +201,37 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
     }
 
     protected Expression castToFloat() {
-        String trimmedValue = value.trim();
-        if (doublePattern.matcher(trimmedValue).matches()) {
-            if (DoubleLiteral.POS_INF_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Float.POSITIVE_INFINITY);
-            }
-            if (DoubleLiteral.NEG_INF_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Float.NEGATIVE_INFINITY);
-            }
-            if (DoubleLiteral.NAN_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Float.NaN);
-            }
-            return Literal.of(Float.parseFloat(value.trim()));
-        }
-        throw new CastException(String.format("%s can't cast to float in strict mode.", value));
+        // BE parses the string into a double and then narrows it to float, so round twice the same way
+        // instead of parsing directly to float, which can differ for a value next to a float midpoint.
+        return new DoubleLiteral(parseDouble("float")).uncheckedCastTo(FloatType.INSTANCE);
     }
 
     protected Expression castToDouble() {
-        String trimmedValue = value.trim();
-        if (doublePattern.matcher(trimmedValue).matches()) {
+        return Literal.of(parseDouble("double"));
+    }
+
+    private double parseDouble(String targetType) {
+        Matcher matcher = doublePattern.matcher(value);
+        if (matcher.matches()) {
+            String trimmedValue = matcher.group("number");
             if (DoubleLiteral.POS_INF_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Double.POSITIVE_INFINITY);
+                return Double.POSITIVE_INFINITY;
             }
             if (DoubleLiteral.NEG_INF_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Double.NEGATIVE_INFINITY);
+                return Double.NEGATIVE_INFINITY;
             }
-            if (DoubleLiteral.NAN_NAME.contains(trimmedValue.toLowerCase())) {
-                return Literal.of(Double.NaN);
+            if (DoubleLiteral.NAN_NAME.contains(trimNanPayload(trimmedValue).toLowerCase())) {
+                // fast_float negates the quiet NaN for a leading '-', which signbit() can observe
+                return trimmedValue.startsWith("-") ? Math.copySign(Double.NaN, -1.0) : Double.NaN;
             }
-            return Literal.of(Double.parseDouble(value.trim()));
+            return Double.parseDouble(trimmedValue);
         }
-        throw new CastException(String.format("%s can't cast to double in strict mode.", value));
+        throw new CastException(String.format("%s can't cast to %s in strict mode.", value, targetType));
+    }
+
+    private static String trimNanPayload(String number) {
+        int payloadStart = number.indexOf('(');
+        return payloadStart < 0 ? number : number.substring(0, payloadStart);
     }
 
     protected Expression castToBoolean() {
@@ -303,9 +304,6 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                         ? strictMatcher.group("fraction2") : strictMatcher.group("fraction1");
                 tz = strictMatcher.group("tz");
             }
-            if (tz != null && tz.equalsIgnoreCase("CST")) {
-                tz = "+08:00";
-            }
             return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
         } else if (!strictCast) {
             Matcher unStrictMatcher = dateUnStrictPattern.matcher(value);
@@ -318,9 +316,6 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 second = unStrictMatcher.group("second");
                 fraction = unStrictMatcher.group("fraction");
                 tz = unStrictMatcher.group("tz");
-                if (tz != null && tz.equalsIgnoreCase("CST")) {
-                    tz = "+08:00";
-                }
                 return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
             }
         }
@@ -339,30 +334,12 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             String second, String fraction, String tz, DataType targetType) {
         String year4 = year2ToYear4(year);
         tz = tz == null ? "" : tz;
-        if ((tz.startsWith("+") || tz.startsWith("-")) && !tz.contains(":")) {
-            if (tz.length() == 2) {
-                tz = String.format("%s0%s:00", tz.charAt(0), tz.charAt(1));
-            } else if (tz.length() == 3) {
-                tz = String.format("%s%s:00", tz.charAt(0), tz.substring(1, 3));
-            } else if (tz.length() == 4) {
-                tz = String.format("%s0%s:%s", tz.charAt(0), tz.charAt(1), tz.substring(2, 4));
-            } else {
-                tz = String.format("%s%s:%s", tz.charAt(0), tz.substring(1, 3), tz.substring(3, 5));
-            }
-        }
         hour = hour == null ? "00" : hour;
         minute = minute == null ? "00" : minute;
         second = second == null ? "00" : second;
         fraction = fraction == null || fraction.equals(".") ? "" : fraction;
         if (fraction.endsWith(".")) {
             fraction = fraction.substring(0, fraction.length() - 1);
-        }
-        if (tz.contains(":")) {
-            int hourOffset = Integer.parseInt(tz.substring(1, tz.indexOf(":")));
-            int minuteOffset = Integer.parseInt(tz.substring(tz.indexOf(":") + 1));
-            if (hourOffset > 14 || hourOffset == 14 && minuteOffset > 0) {
-                throw new CastException("Time zone offset couldn't be larger than 14:00");
-            }
         }
         String format = String.format("%s-%s-%sT%s:%s:%s%s%s", year4, month, date, hour, minute, second, fraction, tz);
         if (targetType.isDateType()) {
@@ -380,6 +357,12 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
         } else if (targetType.isDateTimeType()) {
             try {
                 return new DateTimeLiteral(format);
+            } catch (AnalysisException e) {
+                throw new CastException(e.getMessage(), e);
+            }
+        } else if (targetType instanceof TimeStampTzType) {
+            try {
+                return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) targetType, format);
             } catch (AnalysisException e) {
                 throw new CastException(e.getMessage(), e);
             }

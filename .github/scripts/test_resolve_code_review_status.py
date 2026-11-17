@@ -115,6 +115,36 @@ class ResolveCodeReviewStatusTest(unittest.TestCase):
         self.assertEqual("failure", result.state)
         self.assertIn("P0/P1", result.description)
 
+    def test_nonconverged_result_blocks_with_an_explicit_description(self) -> None:
+        incomplete = dict(status(1, source="automated", state="failure"),
+                          description="Review did not converge after 3 rounds for PR #123: P0=0, P1=0.")
+        result = resolve_status([pull(123)], [incomplete], head_sha=HEAD_SHA)
+        self.assertEqual("failure", result.state)
+        self.assertIn("did not converge", result.description)
+        self.assertNotIn("P0/P1", result.description)
+
+    def test_description_does_not_decide_whether_review_passes(self) -> None:
+        for state in ("success", "pending", "failure"):
+            with self.subTest(state=state):
+                source = dict(status(1, source="automated", state=state),
+                              description="Review did not converge after 3 rounds")
+                self.assertEqual(state, resolve_status([pull(123)], [source], head_sha=HEAD_SHA).state)
+
+    def test_incomplete_result_can_be_replaced_or_explicitly_overridden(self) -> None:
+        incomplete = dict(status(1, source="automated", state="failure"),
+                          description="Review did not converge after 3 rounds")
+        for source in ("automated", "local", "skip"):
+            with self.subTest(source=source):
+                result = resolve_status([pull(123)], [incomplete, status(2, source=source)], head_sha=HEAD_SHA)
+                self.assertEqual("success", result.state)
+
+    def test_incomplete_result_does_not_follow_other_heads_or_bases(self) -> None:
+        incomplete = dict(status(1, source="automated", state="failure"),
+                          description="Review did not converge after 3 rounds")
+        for pulls in ([pull(124)], [pull(123, base=OTHER_BASE_SHA)], [pull(123, head=OTHER_HEAD_SHA)]):
+            with self.subTest(pulls=pulls):
+                self.assertEqual("pending", resolve_status(pulls, [incomplete], head_sha=HEAD_SHA).state)
+
     def test_local_or_skip_success_can_override_blocking_review(self) -> None:
         for source in ("local", "skip"):
             with self.subTest(source=source):

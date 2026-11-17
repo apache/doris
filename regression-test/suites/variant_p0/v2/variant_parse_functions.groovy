@@ -36,42 +36,37 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
         FROM (${nullableInput}) t ORDER BY id
     """
 
-    setBeConfigTemporary([variant_throw_exeception_on_invalid_json: true]) {
-        test {
-            sql """
-                SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                    parse_to_variant('{')
-            """
-            exception "Parse json document failed at row 0, error:"
-        }
-        test {
-            sql """
-                SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                    json_parse('{')
-            """
-            exception "Parse json document failed at row 0, error:"
-        }
-        order_qt_strict_error_to_null """
+    // Text that is not a JSON document, including an empty string, is an error; the TRY form
+    // returns NULL instead.
+    test {
+        sql """
             SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                try_parse_to_variant('{') IS NULL,
-                try_parse_to_variant('') IS NULL
+                parse_to_variant('{')
         """
+        exception "Parse json document failed at row 0, error:"
     }
-
-    setBeConfigTemporary([variant_throw_exeception_on_invalid_json: false]) {
-        order_qt_permissive_invalid_json_is_string """
+    test {
+        sql """
             SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                CAST(parse_to_variant('{') AS STRING),
-                parse_to_variant('{') IS NULL,
-                CAST(try_parse_to_variant('{') AS STRING),
-                try_parse_to_variant('{') IS NULL
+                parse_to_variant('')
         """
+        exception "Parse json document failed at row 0, error:"
     }
+    test {
+        sql """
+            SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
+                json_parse('{')
+        """
+        exception "Parse json document failed at row 0, error:"
+    }
+    order_qt_strict_error_to_null """
+        SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
+            try_parse_to_variant('{') IS NULL,
+            try_parse_to_variant('') IS NULL,
+            try_parse_to_variant('not-json') IS NULL
+    """
 
-    setBeConfigTemporary([
-            variant_throw_exeception_on_invalid_json: true,
-            variant_max_json_key_length: 3
-    ]) {
+    setBeConfigTemporary([variant_max_json_key_length: 3]) {
         test {
             sql """
                 SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
@@ -85,32 +80,16 @@ suite("variant_parse_functions", "p0,nonConcurrent") {
         """
     }
 
-    setBeConfigTemporary([
-            variant_throw_exeception_on_invalid_json: true,
-            variant_enable_duplicate_json_path_check: false
-    ]) {
-        test {
-            sql """
-                SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                    parse_to_variant('{"dup":1,"dup":2}')
-            """
-            exception "Parse json document failed at row 0, error:"
-        }
-        order_qt_duplicate_key_error_to_null """
+    test {
+        sql """
             SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                try_parse_to_variant('{"dup":1,"dup":2}') IS NULL
+                parse_to_variant('{"dup":1,"dup":2}')
         """
+        exception "Parse json document failed at row 0, error:"
     }
-
-    setBeConfigTemporary([
-            variant_throw_exeception_on_invalid_json: true,
-            variant_enable_duplicate_json_path_check: true
-    ]) {
-        order_qt_duplicate_key_first_wins """
-            SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
-                CAST(parse_to_variant('{"dup":1,"dup":2}') AS STRING),
-                CAST(try_parse_to_variant('{"dup":1,"dup":2}') AS STRING)
-        """
-    }
+    order_qt_duplicate_key_error_to_null """
+        SELECT /*+SET_VAR(enable_fold_constant_by_be=false)*/
+            try_parse_to_variant('{"dup":1,"dup":2}') IS NULL
+    """
 
 }

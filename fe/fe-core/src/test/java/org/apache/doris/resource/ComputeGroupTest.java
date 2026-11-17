@@ -19,6 +19,7 @@ package org.apache.doris.resource;
 
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
@@ -100,6 +101,7 @@ public class ComputeGroupTest {
         mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(internalCatalog);
 
         Mockito.when(env.getAuth()).thenReturn(auth);
+        Mockito.when(env.getAuthenticationIntegrationMgr()).thenReturn(new AuthenticationIntegrationMgr());
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);
         Mockito.when(env.getCurrentCatalog()).thenReturn(internalCatalog);
         Mockito.when(env.getInternalCatalog()).thenReturn(internalCatalog);

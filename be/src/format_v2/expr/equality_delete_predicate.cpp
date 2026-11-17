@@ -124,7 +124,7 @@ Status EqualityDeletePredicate::open(RuntimeState* state, VExprContext* context,
     for (auto& child : _children) {
         RETURN_IF_ERROR(child->open(state, context, scope));
     }
-    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+    if (scope == FunctionContext::FunctionStateScope::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }
     _open_finished = true;

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorColumn;
@@ -32,11 +33,13 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
+import org.apache.doris.datasource.plugin.ConnectorWritePlanContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalConnectorTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExternalRowLevelDeleteSink;
 import org.apache.doris.nereids.types.IntegerType;
@@ -82,7 +85,9 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
+        attachWritePlanContext(sink, table);
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
         Mockito.doReturn(false).when(sink).isRewrite();
 
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
@@ -107,7 +112,9 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
+        attachWritePlanContext(sink, table);
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
+        Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
 
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
@@ -118,7 +125,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
 
     @Test
     public void rowLevelDmlGateRejectsConnectorDeclaringOnlyInsertWithDistinctMessage() {
-        // Declares INSERT (would pass the INSERT gate above) but neither DELETE nor MERGE: the row-level DML
+        // Declares INSERT (would pass the INSERT gate above) but not DELETE: the row-level DML
         // helper must reject it, and with a message DISTINCT from the INSERT gate's, so logs/callers can tell
         // "this connector can't do row-level DML at all" apart from "this connector can't write at all".
         PlanTranslatorContext context = new PlanTranslatorContext();
@@ -134,7 +141,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> translator.visitPhysicalExternalRowLevelDeleteSink(sink, context));
-        Assertions.assertTrue(ex.getMessage().contains("does not support row-level DML operations"),
+        Assertions.assertTrue(ex.getMessage().contains("does not support DELETE row-level DML"),
                 "got: " + ex.getMessage());
         Assertions.assertFalse(ex.getMessage().contains("does not support INSERT operations"),
                 "the row-level DML rejection must be a message DISTINCT from the INSERT gate's, got: "
@@ -190,8 +197,10 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
+        attachWritePlanContext(sink, table);
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
         Mockito.doReturn("uuid-u0/schema-1").when(sink).getBoundWriteMetadataIdentity();
+        Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
         Mockito.doReturn(false).when(sink).isRewrite();
 
         new PhysicalPlanTranslator(context, null).visitPhysicalConnectorTableSink(sink, context);
@@ -240,9 +249,11 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
+        attachWritePlanContext(sink, table);
         Mockito.doReturn(writeColumns).when(sink).getCols();
         Mockito.doReturn(ImmutableList.of(A, B, C)).when(sink).getBoundTargetSchema();
         Mockito.doReturn(ImmutableList.of(aOutput, bOutput, cOutput)).when(sink).getOutput();
+        Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
         Mockito.doReturn(false).when(sink).isRewrite();
 
         new PhysicalPlanTranslator(context, null).visitPhysicalConnectorTableSink(sink, context);
@@ -265,6 +276,21 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         SlotRef slotRef = new SlotRef(descriptor);
         context.addExprIdSlotRefPair(output.getExprId(), slotRef);
         return slotRef;
+    }
+
+    private static void attachWritePlanContext(PhysicalConnectorTableSink<Plan> sink,
+            PluginDrivenExternalTable table) {
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        Connector connector = catalog.getConnector();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = metadata.getTableHandle(
+                session, table.getRemoteDbName(), table.getRemoteName()).orElseThrow(AssertionError::new);
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
+        ConnectorWritePlanContext writePlanContext = new ConnectorWritePlanContext(
+                session, metadata, handle, provider, null, false, false, false,
+                table.requiresFullSchemaWriteOrder(), Config.max_be_exec_version);
+        Mockito.doReturn(writePlanContext).when(sink).getWritePlanContext();
     }
 
     /** A plugin-driven table whose connector declares exactly the given write operations. */

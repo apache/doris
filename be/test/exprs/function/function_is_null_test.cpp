@@ -21,6 +21,7 @@
 #include "exprs/function/is_null.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/storage_engine.h"
 

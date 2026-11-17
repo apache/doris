@@ -77,11 +77,14 @@ public class MysqlPacketGoldenTest extends TestWithFeService {
     private static final String DB_NAME = "protocol_golden_db";
     private static final String TABLE_NAME = "golden_tbl";
 
-    private static final int MODERN_CLIENT = MysqlCapability.DEFAULT_CAPABILITY.getFlags();
+    // A client echoing the advertised set, which asks for CLIENT_MULTI_STATEMENTS: what Connector/J
+    // with allowMultiQueries sends, since it masks the flags it asks for with the advertised ones.
+    private static final int MULTI_STATEMENT_CLIENT = MysqlCapability.DEFAULT_CAPABILITY.getFlags();
+    // The same client without CLIENT_MULTI_STATEMENTS (Connector/J without allowMultiQueries).
+    private static final int MODERN_CLIENT =
+            MULTI_STATEMENT_CLIENT & ~MysqlCapability.Flag.CLIENT_MULTI_STATEMENTS.getFlagBit();
     private static final int LEGACY_EOF_CLIENT =
             MODERN_CLIENT & ~MysqlCapability.Flag.CLIENT_DEPRECATE_EOF.getFlagBit();
-    private static final int MULTI_STATEMENT_CLIENT =
-            MODERN_CLIENT | MysqlCapability.Flag.CLIENT_MULTI_STATEMENTS.getFlagBit();
 
     @Override
     protected void runBeforeAll() throws Exception {

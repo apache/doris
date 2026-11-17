@@ -179,13 +179,13 @@ bool _has_inverted_index_v1_or_partial_update(TOlapTableSink sink) {
     return false;
 }
 
-bool _has_row_binlog(const TOlapTableSink& sink) {
+bool _has_changelog(const TOlapTableSink& sink) {
     OlapTableSchemaParam schema;
     if (!schema.init(sink.schema).ok()) {
         return false;
     }
     for (const auto* index_schema : schema.indexes()) {
-        if (index_schema->row_binlog_id > 0) {
+        if (index_schema->changelog_index_id > 0) {
             return true;
         }
     }

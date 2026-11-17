@@ -34,8 +34,8 @@
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "util/once.h"
 
 namespace doris::segment_v2 {

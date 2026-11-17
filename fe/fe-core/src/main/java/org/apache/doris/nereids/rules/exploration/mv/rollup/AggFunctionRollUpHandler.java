@@ -23,6 +23,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RollUpTrait;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.Combinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
 
 import com.google.common.collect.ImmutableList;
 
@@ -73,12 +78,23 @@ public abstract class AggFunctionRollUpHandler {
     }
 
     /**
-     * Extract the target expression in actualFunction by targetClazz
-     * Such as actualFunction def is avg_merge(avg_union(c1)), target Clazz is Combinator
-     * after extracting, the return argument is avg_union(c1)
+     * Unwrap direct MERGE/UNION state chains for the same aggregate function.
+     * STATE and COMBINE consume values, so keep their complete argument expressions for comparison.
+     * For example, sum_combine(avg_finalize(avg_state(v))) must retain SUM and its finalized value.
      */
-    protected static <T> T extractLastExpression(Expression actualFunction, Class<T> targetClazz) {
-        List<Expression> expressions = actualFunction.collectToList(targetClazz::isInstance);
-        return targetClazz.cast(expressions.get(expressions.size() - 1));
+    protected static Combinator extractRollupCombinator(Combinator current) {
+        while (current instanceof MergeCombinator || current instanceof UnionCombinator) {
+            Expression argument = current.getArguments().get(0);
+            if (!(argument instanceof StateCombinator || argument instanceof CombineCombinator
+                    || argument instanceof UnionCombinator)) {
+                break;
+            }
+            Combinator next = (Combinator) argument;
+            if (!current.getNestedFunction().getName().equals(next.getNestedFunction().getName())) {
+                break;
+            }
+            current = next;
+        }
+        return current;
     }
 }

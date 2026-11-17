@@ -57,8 +57,8 @@
 #include "format/table/deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/column_mapper.h"
-#include "format_v2/expr/cast.h"
 #include "format_v2/expr/delete_predicate.h"
+#include "format_v2/expr/evolution_cast.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
@@ -71,9 +71,14 @@ namespace doris {
 class Block;
 struct DeleteFileDesc;
 class RuntimeState;
+class ShardedKVCache;
 } // namespace doris
 
 namespace doris::format {
+
+namespace parquet {
+class ParquetProfileCache;
+}
 
 using DeleteRows = std::vector<int64_t>;
 
@@ -148,6 +153,7 @@ struct TableReadOptions {
     std::shared_ptr<io::IOContext> io_ctx;
     RuntimeState* runtime_state;
     RuntimeProfile* scanner_profile;
+    parquet::ParquetProfileCache* parquet_profile_cache = nullptr;
     // File formats without complete self-describing metadata, such as CSV, Text, and JSON, need
     // the FE-planned physical file slots to build their file-local schema and deserialize values.
     const std::vector<SlotDescriptor*>* file_slot_descs = nullptr;
@@ -225,6 +231,7 @@ public:
                     _current_file_description->is_immutable);
         return _current_task->data_file->is_immutable;
     }
+    bool TEST_conjuncts_empty() const { return _conjuncts.empty(); }
 #endif
 
     // Prepare for reading a new split/task.
@@ -269,8 +276,7 @@ public:
     virtual Status get_block(Block* block, bool* eos) {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.exec_timer);
-        DORIS_CHECK(block->columns() == _projected_columns.size());
-        block->clear_column_data(_projected_columns.size());
+        block->clear_column_data();
 
         while (true) {
             if (*eos) {
@@ -340,12 +346,7 @@ public:
 #ifndef NDEBUG
             RETURN_IF_ERROR(_check_file_block_columns("after file reader get_block", current_rows));
 #endif
-            DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
             RETURN_IF_ERROR(finalize_chunk(block, current_rows));
-#ifndef NDEBUG
-            RETURN_IF_ERROR(
-                    _check_table_block_columns("after finalize_chunk", block, current_rows));
-#endif
             if (current_eof) {
                 _current_reader_reached_eof = !stopped_during_read;
                 RETURN_IF_ERROR(close_current_reader());
@@ -555,7 +556,12 @@ protected:
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
     void _finalize_reader_condition_cache();
-    bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
+    // The condition cache key covers the file identity plus the table-level predicate/session
+    // digest only. A table format whose file-column binding can change without changing that digest
+    // (Iceberg's positional fallback resolves an ID-less file by physical ordinals) must override
+    // this to false: a stale all-false granule would silently drop matching rows, because the
+    // cached verdict was produced by a different physical binding.
+    virtual bool _should_enable_condition_cache(const FileScanRequest& file_request) const;
 
     Status _evaluate_constant_filters(bool* can_filter_all) {
         DORIS_CHECK(can_filter_all != nullptr);
@@ -802,9 +808,12 @@ protected:
         }
     }
 
-    // Finalize file-local block to table/global schema block.
-    Status finalize_chunk(Block* block, const size_t rows) {
+    // Materialize the projected schema. Subclasses may then transform its columns and rows
+    // into their output schema; the active reader remains alive until this hook returns.
+    virtual Status finalize_chunk(Block* block, const size_t rows) {
         SCOPED_TIMER(_profile.finalize_timer);
+        DORIS_CHECK(block->columns() == _projected_columns.size());
+        DORIS_CHECK(block->columns() == _data_reader.column_mapper->mappings().size());
         size_t idx = 0;
         const auto& mappings = _data_reader.column_mapper->mappings();
         for (const auto& mapping : mappings) {
@@ -818,6 +827,10 @@ protected:
         // Enforce CHAR/VARCHAR length declared by the table schema after all file-to-table
         // materialization has finished.
         RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+#ifndef NDEBUG
+        // Validate the materialized schema before a subclass transforms rows or output columns.
+        RETURN_IF_ERROR(_check_table_block_columns("after table materialization", block, rows));
+#endif
         return Status::OK();
     }
 
@@ -1052,11 +1065,11 @@ protected:
         DORIS_CHECK(block != nullptr);
         DORIS_CHECK(pushed_down != nullptr);
         *pushed_down = false;
-        block->clear_column_data(_projected_columns.size());
         _aggregate_pushdown_tried = true;
         if (_row_ids.has_value() || !_supports_aggregate_pushdown(_push_down_agg_type)) {
             return Status::OK();
         }
+        block->clear_column_data(_projected_columns.size());
 
         FileAggregateRequest file_request;
         RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
@@ -1328,8 +1341,8 @@ protected:
     }
 
     Status _cast_column_to_type(ColumnPtr* column, const DataTypePtr& file_type,
-                                const DataTypePtr& table_type,
-                                const std::string& column_name) const {
+                                const DataTypePtr& table_type, const std::string& column_name,
+                                bool truncate_datetimev2_precision = false) const {
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(column->get() != nullptr);
         DORIS_CHECK(file_type != nullptr);
@@ -1357,7 +1370,7 @@ protected:
         Block cast_block;
         cast_block.insert({*column, input_type, column_name});
         auto slot_ref = VSlotRef::create_shared(0, 0, -1, input_type, column_name);
-        auto cast_expr = Cast::create_shared(cast_type);
+        auto cast_expr = EvolutionCast::create_shared(cast_type, truncate_datetimev2_precision);
         cast_expr->add_child(std::move(slot_ref));
         auto cast_ctx = VExprContext::create_shared(std::move(cast_expr));
         RowDescriptor row_desc;
@@ -1411,7 +1424,8 @@ protected:
         // _align_column_nullability() reject an actual NULL before removing the wrapper.
         ColumnPtr result_column = source.column;
         RETURN_IF_ERROR(_cast_column_to_type(&result_column, slot->data_type(), mapping.table_type,
-                                             mapping.file_column_name));
+                                             mapping.file_column_name,
+                                             mapping.truncate_datetimev2_precision));
         RETURN_IF_ERROR(_align_column_nullability(&result_column, mapping.table_type));
         *column = _detach_column(std::move(result_column));
         *handled = true;
@@ -1424,6 +1438,12 @@ protected:
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(mapping.file_type != nullptr);
         DORIS_CHECK(mapping.table_type != nullptr);
+        if (mapping.table_type->is_null_literal()) {
+            // ARRAY/MAP retain a physical child stream to recover offsets. UNKNOWN values must
+            // still be NULL, rather than cast from that stream (for example STRING to UInt8).
+            return _materialize_default_or_missing_column(mapping, nullptr, rows, column,
+                                                          nullable_parent_null_map);
+        }
         *column = file_column;
         if (!mapping.is_trivial) {
             if (!mapping.child_mappings.empty()) {
@@ -1431,7 +1451,8 @@ protected:
                                                                     nullable_parent_null_map));
             } else {
                 RETURN_IF_ERROR(_cast_column_to_type(column, mapping.file_type, mapping.table_type,
-                                                     mapping.file_column_name));
+                                                     mapping.file_column_name,
+                                                     mapping.truncate_datetimev2_precision));
             }
         }
         RETURN_IF_ERROR(
@@ -2008,6 +2029,15 @@ protected:
         const ColumnMapping* value_mapping = nullptr;
         for (const auto& child_mapping : mapping.child_mappings) {
             if (!child_mapping.file_local_id.has_value()) {
+                if (child_mapping.table_type->is_null_literal()) {
+                    // Iceberg map keys are required, so only the value can be UNKNOWN. Its
+                    // mapping deliberately has no file ID even though the parent has offsets.
+                    DORIS_CHECK(
+                            assert_cast<const DataTypeMap&>(*remove_nullable(mapping.table_type))
+                                    .get_value_type()
+                                    ->is_null_literal());
+                    value_mapping = &child_mapping;
+                }
                 continue;
             }
             if (*child_mapping.file_local_id == 0) {
@@ -2226,11 +2256,12 @@ protected:
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;
-    DeletionVector* _deletion_vector = nullptr;
+    std::shared_ptr<DeletionVector> _deletion_vector;
     TFileScanRangeParams* _scan_params;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;
     RuntimeProfile* _scanner_profile;
+    parquet::ParquetProfileCache* _parquet_profile_cache = nullptr;
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;

@@ -37,6 +37,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -92,7 +93,7 @@ public:
     };
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
             return Status::OK();
         }
 
@@ -184,7 +185,7 @@ private:
 
         size_t offset = 0;
         auto* state = reinterpret_cast<LocaleDayMonthNameState*>(
-                context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
         const char* const* names_ptr = nullptr;
         if constexpr (std::is_same_v<Transform, DayNameImpl<Transform::OpArgType>>) {
             names_ptr = state->day_names;

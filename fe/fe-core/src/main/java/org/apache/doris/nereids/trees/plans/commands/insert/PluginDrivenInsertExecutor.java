@@ -108,6 +108,24 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
         return connectorTx;
     }
 
+    /**
+     * An external-table INSERT OVERWRITE must run its transaction even when the optimizer proves the source
+     * empty: the overwrite is still meaningful - it clears an unpartitioned table and, with
+     * {@code iceberg_partition_overwrite_mode = static}, the whole table. The generic empty-insert shortcut
+     * would skip beginTransaction/finalizeSink/commit and silently leave the old rows in place. A partitioned
+     * overwrite with an empty source stays a no-op, which the connector's own empty-source branch implements.
+     */
+    @Override
+    public boolean requiresTransaction() {
+        if (super.requiresTransaction()) {
+            return true;
+        }
+        return insertCtx.filter(BaseExternalTableInsertCommandContext.class::isInstance)
+                .map(BaseExternalTableInsertCommandContext.class::cast)
+                .map(BaseExternalTableInsertCommandContext::isOverwrite)
+                .orElse(false);
+    }
+
     @Override
     protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
         // Bind the connector transaction onto the SINK's session BEFORE super.finalizeSink ->

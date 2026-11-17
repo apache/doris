@@ -41,6 +41,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,6 +52,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -91,7 +93,8 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     private final String peerIdentity;
     private final FlightSqlChannel channel = new FlightSqlChannel();
-    private final Map<String, String> preparedQuerys = new HashMap<>();
+    // Only used by the commands of the session, under the command lock; teardown does not touch it.
+    private final Map<String, PreparedQuery> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> endpointsLocations = Lists.newArrayList();
     // How many of endpointsLocations were registered before the statement being executed
@@ -195,7 +198,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     /**
      * The short circuit produces no Arrow result at either end. PointQueryExecutor is not a
-     * Coordinator, and Coordinator/NereidsCoordinator are the only places that register a
+     * Coordinator, and Coordinator is the only place that register a
      * FlightSqlEndpointsLocation, so GetFlightInfo found none and failed the query with
      * "no FlightSqlEndpointsLocations"; the backend side cannot be pointed at either, since the
      * lookup rpc serializes with VMysqlResultWriter into PTabletKeyLookupResponse.row_batch and
@@ -372,11 +375,11 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         return channel;
     }
 
-    public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
+    public void addPreparedQuery(String preparedStatementId, PreparedQuery preparedQuery) {
         preparedQuerys.put(preparedStatementId, preparedQuery);
     }
 
-    public String getPreparedQuery(String preparedStatementId) {
+    public PreparedQuery getPreparedQuery(String preparedStatementId) {
         return preparedQuerys.get(preparedStatementId);
     }
 
@@ -557,6 +560,45 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     }
 
     /** The body of a command run by {@link #runCommand}. */
+    /**
+     * A prepared statement of the session: its SQL, the namespace it was prepared in, and the result
+     * schema Prepare advertised for it -- null when that schema could not be told without running the
+     * statement, whose executions are then not checked against one.
+     */
+    public static final class PreparedQuery {
+        private final String sql;
+        private final Schema schema;
+        private String catalog;
+        private String database;
+
+        public PreparedQuery(String sql, Schema schema, String catalog, String database) {
+            this.sql = sql;
+            this.schema = schema;
+            this.catalog = catalog;
+            this.database = database;
+        }
+
+        public String getSql() {
+            return sql;
+        }
+
+        public Schema getSchema() {
+            return schema;
+        }
+
+        // Unqualified names in the SQL resolve against the session's namespace, so the schema holds
+        // only where it was told.
+        public boolean isPreparedIn(String catalog, String database) {
+            return Objects.equals(this.catalog, catalog) && Objects.equals(this.database, database);
+        }
+
+        // A USE or SWITCH of the statement itself moves its namespace with it.
+        public void rebind(String catalog, String database) {
+            this.catalog = catalog;
+            this.database = database;
+        }
+    }
+
     @FunctionalInterface
     public interface SessionAction<E extends Exception> {
         void run() throws E;

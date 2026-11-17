@@ -18,7 +18,6 @@
 package org.apache.doris.cloud.alter;
 
 import org.apache.doris.alter.SchemaChangeHandler;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
@@ -26,8 +25,10 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.RowTtlConfig;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
@@ -428,19 +429,33 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
     }
 
     @Override
-    public void updatePartitionProperties(Database db, String tableName, String partitionName,
-            long storagePolicyId, int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
+    protected void updatePartitionProperties(Database db, OlapTable table, Partition partition,
+            long storagePolicyId, int isInMemory, TabletBinlogConfig binlogConfig, String compactionPolicy,
             Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad,
             int disableAutoCompaction, int verticalCompactionNumColumnsPerGroup) throws UserException {
         Preconditions.checkNotNull(binlogConfig);
         UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
         param.binlogConfig = binlogConfig;
         param.type = UpdatePartitionMetaParam.TabletMetaType.BINLOG_CONFIG;
-        updateCloudPartitionMeta(db, tableName, partitionName, param);
+        updateCloudPartitionMeta(table, partition, param);
+    }
+
+    @Override
+    protected void updatePartitionProperties(Database db, OlapTable table, Partition partition,
+            long storagePolicyId, int isInMemory, TabletBinlogConfig binlogConfig, String compactionPolicy,
+            Map<String, Long> timeSeriesCompactionConfig, int skipWriteIndexOnLoad,
+            int disableAutoCompaction, int verticalCompactionNumColumnsPerGroup, RowTtlConfig rowTtlConfig)
+            throws UserException {
+        Preconditions.checkNotNull(rowTtlConfig);
+        UpdatePartitionMetaParam param = new UpdatePartitionMetaParam();
+        param.rowTtlConfig = rowTtlConfig;
+        param.type = UpdatePartitionMetaParam.TabletMetaType.ROW_TTL;
+        updateCloudPartitionMeta(table, partition, param);
     }
 
     private static class UpdatePartitionMetaParam {
         public enum TabletMetaType {
+            ROW_TTL,
             INMEMORY,
             PERSISTENT,
             TTL_SECONDS,
@@ -475,25 +490,38 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         boolean disableAutoCompaction = false;
         boolean enableMowLightDelete = false;
         int verticalCompactionNumColumnsPerGroup = 5;
-        BinlogConfig binlogConfig;
+        TabletBinlogConfig binlogConfig;
+        RowTtlConfig rowTtlConfig;
     }
 
     public void updateCloudPartitionMeta(Database db,
             String tableName,
             String partitionName,
             UpdatePartitionMetaParam param) throws UserException {
-        List<Long> tabletIds = new ArrayList<>();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        Partition partition;
         olapTable.readLock();
         try {
-            Partition partition = olapTable.getPartition(partitionName);
+            partition = olapTable.getPartition(partitionName);
             if (partition == null) {
                 throw new DdlException(
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
             }
-            boolean includeRowBinlog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY;
+        } finally {
+            olapTable.readUnlock();
+        }
+        updateCloudPartitionMeta(olapTable, partition, param);
+    }
+
+    private void updateCloudPartitionMeta(OlapTable olapTable, Partition partition,
+            UpdatePartitionMetaParam param) throws UserException {
+        List<Long> tabletIds = new ArrayList<>();
+        olapTable.readLock();
+        try {
+            boolean includeChangelog = param.type != UpdatePartitionMetaParam.TabletMetaType.COMPACTION_POLICY
+                    && param.type != UpdatePartitionMetaParam.TabletMetaType.ROW_TTL;
             for (MaterializedIndex index
-                    : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeRowBinlog)) {
+                    : partition.getMaterializedIndices(IndexExtState.VISIBLE, includeChangelog)) {
                 for (Tablet tablet : index.getTablets()) {
                     tabletIds.add(tablet.getId());
                 }
@@ -501,6 +529,11 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
         } finally {
             olapTable.readUnlock();
         }
+        updateCloudTabletMeta(olapTable.getName(), tabletIds, param);
+    }
+
+    private void updateCloudTabletMeta(String tableName, List<Long> tabletIds,
+            UpdatePartitionMetaParam param) throws UserException {
         for (int index = 0; index < tabletIds.size();) {
             int nextIndex = tabletIds.size() - index > Config.cloud_txn_tablet_batch_size
                     ? index + Config.cloud_txn_tablet_batch_size
@@ -511,6 +544,9 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 Cloud.TabletMetaInfoPB.Builder infoBuilder = Cloud.TabletMetaInfoPB.newBuilder();
                 infoBuilder.setTabletId(tabletIds.get(index));
                 switch (param.type) {
+                    case ROW_TTL:
+                        infoBuilder.setRowTtlConfig(param.rowTtlConfig.toPb());
+                        break;
                     case PERSISTENT:
                         infoBuilder.setIsPersistent(param.isPersistent);
                         break;
@@ -592,13 +628,17 @@ public class CloudSchemaChangeHandler extends SchemaChangeHandler {
                 throw new UserException(response.getStatus().getMsg());
             }
 
+            if (param.rowTtlConfig != null && (!response.hasRowTtlConfigVersion()
+                    || response.getRowTtlConfigVersion() != param.rowTtlConfig.getConfigVersion())) {
+                throw new UserException("Meta service did not acknowledge the row TTL configuration version");
+            }
             notifyBackendsToSyncTabletMeta(tableName, updateTabletReq.getTabletMetaInfosList().stream()
                     .map(Cloud.TabletMetaInfoPB::getTabletId)
                     .collect(Collectors.toList()));
         }
     }
 
-    void notifyBackendsToSyncTabletMeta(String tableName, List<Long> tabletIds) {
+    public static void notifyBackendsToSyncTabletMeta(String tableName, List<Long> tabletIds) {
         if (tabletIds.isEmpty()) {
             return;
         }

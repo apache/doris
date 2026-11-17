@@ -18,9 +18,11 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.connector.spi.ConnectorDelegatedCredential;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 
 import java.util.Collections;
@@ -53,6 +55,10 @@ public class ConnectorSessionImpl implements ConnectorSession {
     // reachable) so off-thread scan pumps that reuse this one session still reach it. NONE when there is no
     // live statement context (offline planning, tests) -- then getStatementScope() memoizes nothing.
     private final ConnectorStatementScope statementScope;
+    // The backend execution version the planner pinned for the statement, captured at construction like the
+    // statement scope; Config.be_exec_version when the session is built outside a planned statement.
+    private final int beExecVersion;
+    private final QueryTaskGroups taskGroups;
     // Otherwise-immutable session; this is bound once by the insert executor at write time
     // for connectors using the SPI transaction model (e.g. maxcompute), and read back by the
     // connector's planWrite via getCurrentTransaction(). volatile for cross-thread visibility.
@@ -62,13 +68,14 @@ public class ConnectorSessionImpl implements ConnectorSession {
             long catalogId, String catalogName, Map<String, String> catalogProperties,
             Map<String, String> sessionProperties) {
         this(queryId, user, timeZone, locale, catalogId, catalogName, catalogProperties, sessionProperties,
-                null, null, ConnectorStatementScope.NONE);
+                null, null, ConnectorStatementScope.NONE, Config.be_exec_version);
     }
 
     ConnectorSessionImpl(String queryId, String user, String timeZone, String locale,
             long catalogId, String catalogName, Map<String, String> catalogProperties,
             Map<String, String> sessionProperties, String sessionId,
-            ConnectorDelegatedCredential delegatedCredential, ConnectorStatementScope statementScope) {
+            ConnectorDelegatedCredential delegatedCredential, ConnectorStatementScope statementScope,
+            int beExecVersion) {
         this.queryId = queryId != null ? queryId : "";
         this.user = user != null ? user : "";
         this.timeZone = timeZone != null ? timeZone : "UTC";
@@ -82,6 +89,16 @@ public class ConnectorSessionImpl implements ConnectorSession {
         this.sessionId = sessionId;
         this.delegatedCredential = delegatedCredential;
         this.statementScope = statementScope != null ? statementScope : ConnectorStatementScope.NONE;
+        this.beExecVersion = beExecVersion;
+        // Capture the handle now. Looking it up from a cleared scope on a worker could resurrect a
+        // finished query. Offline sessions use the SPI's direct scheduler and own no background work.
+        this.taskGroups = this.statementScope == ConnectorStatementScope.NONE ? null
+                : this.statementScope.computeIfAbsent(QueryTaskGroups.SCOPE_KEY, QueryTaskGroups::new);
+    }
+
+    @Override
+    public ConnectorTaskScheduler getTaskScheduler(ConnectorTaskScheduler.Stage stage) {
+        return taskGroups == null ? ConnectorTaskScheduler.DIRECT : taskGroups.get(stage);
     }
 
     @Override
@@ -163,6 +180,13 @@ public class ConnectorSessionImpl implements ConnectorSession {
     @Override
     public Map<String, String> getSessionProperties() {
         return sessionProperties;
+    }
+
+    @Override
+    public int getBeExecVersion() {
+        // The statement's pinned version, which the write handle reports and the backends receive too, so
+        // optimizer-time choices match planWrite and the dispatched plan.
+        return beExecVersion;
     }
 
     @Override

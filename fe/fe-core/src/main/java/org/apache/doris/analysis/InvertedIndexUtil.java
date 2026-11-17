@@ -354,11 +354,20 @@ public class InvertedIndexUtil {
     }
 
     /**
-     * Canonicalize analyzer and normalizer names in index properties. Legacy metadata may contain
-     * case-distinct policy names, so a resolved custom policy must keep its exact stored name.
+     * Resolve policy names and retain positions for custom normalizers that may split terms.
+     * Preserve exact custom policy spellings when legacy names differ only by case.
      */
     private static void normalizeInvertedIndexProperties(Map<String, String> properties) {
         resolvePolicyNames(properties);
+        String normalizer = properties.get(INVERTED_INDEX_NORMALIZER_NAME_KEY);
+        if (normalizer != null && !normalizer.isEmpty()
+                && !properties.containsKey(INVERTED_INDEX_SUPPORT_PHRASE_KEY)) {
+            boolean builtin = Env.getCurrentEnv().getIndexPolicyMgr()
+                    .getTopLevelBuiltin(normalizer, IndexPolicy.BUILTIN_NORMALIZERS) != null;
+            if (!builtin) {
+                properties.put(INVERTED_INDEX_SUPPORT_PHRASE_KEY, "true");
+            }
+        }
         AnalyzerKeyNormalizer.normalizeInvertedIndexProperties(
                 properties,
                 INVERTED_INDEX_PARSER_KEY,

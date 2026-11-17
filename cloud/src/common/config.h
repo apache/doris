@@ -326,6 +326,8 @@ CONF_String(priority_networks, "");
 
 CONF_Bool(enable_cluster_name_check, "false");
 
+CONF_Bool(enable_gcs_batch_delete_object, "true");
+
 // Default HTTP scheme used by S3Client when the endpoint has no scheme.
 CONF_String(s3_client_http_scheme, "https");
 CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {

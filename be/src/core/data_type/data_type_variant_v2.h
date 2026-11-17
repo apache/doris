@@ -29,7 +29,8 @@ class DataTypeVariantV2 final : public IDataType {
 public:
     DataTypeVariantV2() = default;
     explicit DataTypeVariantV2(int32_t max_subcolumns_count);
-    DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode);
+    DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode,
+                      bool serialized_as_v2 = true);
 
     static constexpr PrimitiveType PType = TYPE_VARIANT;
     PrimitiveType get_primitive_type() const override { return TYPE_VARIANT; }
@@ -57,6 +58,7 @@ protected:
 private:
     int32_t _max_subcolumns_count = 0;
     bool _enable_doc_mode = false;
+    bool _serialized_as_v2 = true;
     std::string _name = "Variant";
 };
 

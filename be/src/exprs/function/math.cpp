@@ -701,9 +701,8 @@ private:
     }
 
     ColumnPtr vector_vector(ColumnPtr column_left, ColumnPtr column_right) const {
-        const auto* column_left_ptr = assert_cast<const column_type*>(column_left->get_ptr().get());
-        const auto* column_right_ptr =
-                assert_cast<const column_type*>(column_right->get_ptr().get());
+        const auto* column_left_ptr = assert_cast<const column_type*>(column_left.get());
+        const auto* column_right_ptr = assert_cast<const column_type*>(column_right.get());
 
         auto column_result = column_type::create(column_left->size());
 

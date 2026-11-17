@@ -49,10 +49,15 @@ c_ip4	int	Yes	true	\N
 
 -- !desc_variant --
 id	int	No	true	\N	
-c_var	text	Yes	true	\N	
+c_var	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	true	\N	
 
 -- !select_variant --
 1	{"a":1,"b":"two"}
 2	{"nested":{"deep":3}}
+3	\N
+
+-- !variant_subcolumn --
+1	1
+2	\N
 3	\N
 

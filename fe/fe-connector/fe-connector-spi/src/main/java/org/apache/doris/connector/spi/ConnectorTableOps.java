@@ -28,7 +28,7 @@ package org.apache.doris.connector.spi;
  * <li>{@link ConnectorTableMetadataOps} &mdash; resolving a table by name and reading what it looks like. The
  *     one domain no connector can skip.</li>
  * <li>{@link ConnectorViewOps} &mdash; views.</li>
- * <li>{@link ConnectorTableDdlOps} &mdash; create / drop / rename / truncate.</li>
+ * <li>{@link ConnectorTableDdlOps} &mdash; create / drop / rename / truncate / set properties.</li>
  * <li>{@link ConnectorColumnEvolutionOps} &mdash; column schema evolution, flat and nested.</li>
  * <li>{@link ConnectorSnapshotRefOps} &mdash; branches, tags and partition-spec evolution.</li>
  * <li>{@link ConnectorPartitionListingOps} &mdash; enumerating partitions.</li>

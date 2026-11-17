@@ -24,6 +24,7 @@
 #include <string>
 
 #include "common/exception.h"
+#include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
 #include "format/jni/jni_data_bridge.h"
 #include "jni.h"
@@ -49,7 +50,7 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
     if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
         SCOPED_TIMER(context->get_udf_execute_timer());
         std::shared_ptr<JniContext> jni_ctx = std::make_shared<JniContext>();
-        context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
+        context->set_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL, jni_ctx);
 
         {
             std::string local_location;
@@ -87,7 +88,7 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     auto* jni_ctx = reinterpret_cast<JniContext*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
+            context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
     SCOPED_TIMER(context->get_udf_execute_timer());
     std::unique_ptr<long[]> input_table;
     RETURN_IF_ERROR(JniDataBridge::to_java_table(&block, num_rows, arguments, input_table));
@@ -120,7 +121,7 @@ Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
     auto close_func = [context]() {
         auto* jni_ctx = reinterpret_cast<JniContext*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
         // JNIContext own some resource and its release method depend on JavaFunctionCall
         // has to release the resource before JavaFunctionCall is deconstructed.
         if (jni_ctx) {

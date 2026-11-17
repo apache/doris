@@ -172,6 +172,13 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena&) const override {
+        DCHECK_LT(row, column.size());
+        const auto& col = assert_cast<const ColumnBitmap&>(column);
+        this->data(place).value = col.get_data()[row];
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena&) const override {
@@ -183,6 +190,8 @@ public:
             this->data(place).value |= data[i];
         }
     }
+
+    bool needs_deserialize_and_merge_scratch() const override { return false; }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena&,

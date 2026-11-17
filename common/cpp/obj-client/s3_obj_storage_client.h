@@ -67,6 +67,7 @@
 #include <gen_cpp/Status_types.h>
 #include <glog/logging.h>
 
+#include <functional>
 #include <memory>
 #include <ranges>
 
@@ -89,9 +90,14 @@ ObjStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg);
 
 class S3ObjStorageClient final : public ObjStorageClient {
 public:
+    using SignedUrlGenerator = std::function<std::string(const ObjStoragePath&, int64_t)>;
+
     S3ObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                       ObjStorageEndpointInfo config = {})
-            : _config(std::move(config)), _client(std::move(client)) {}
+                       ObjStorageEndpointInfo config = {},
+                       SignedUrlGenerator signed_url_generator = {})
+            : _config(std::move(config)),
+              _client(std::move(client)),
+              _signed_url_generator(std::move(signed_url_generator)) {}
     ~S3ObjStorageClient() override = default;
     ObjStorageUploadResult create_multipart_upload(const ObjStoragePath& opts) override;
     ObjStorageResponse put_object(const ObjStoragePath& opts, std::string_view stream) override;
@@ -125,6 +131,7 @@ protected:
 private:
     ObjStorageEndpointInfo _config;
     std::shared_ptr<Aws::S3::S3Client> _client;
+    SignedUrlGenerator _signed_url_generator;
 };
 
 } // namespace doris

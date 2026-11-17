@@ -55,6 +55,7 @@ add_executable(meta_reader_test meta_reader_test.cpp)
 
 add_executable(meta_service_test
    meta_service_test.cpp
+   meta_service_large_bitmap_test.cpp
    meta_service_helper_test.cpp
    meta_service_job_test.cpp
    meta_service_http_test.cpp
@@ -80,6 +81,8 @@ add_executable(metric_test metric_test.cpp)
 add_executable(log_test log_test.cpp)
 
 add_executable(resource_test resource_test.cpp)
+
+add_executable(obj_credential_test obj_credential_test.cpp)
 
 add_executable(rpc_kv_bvar_test rpc_kv_bvar_test.cpp)
 
@@ -175,6 +178,8 @@ target_link_libraries(metric_test ${TEST_LINK_LIBS})
 target_link_libraries(log_test ${TEST_LINK_LIBS})
 
 target_link_libraries(resource_test ${TEST_LINK_LIBS})
+
+target_link_libraries(obj_credential_test ${TEST_LINK_LIBS})
 
 target_link_libraries(rpc_kv_bvar_test ${TEST_LINK_LIBS})
 

@@ -30,6 +30,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -40,7 +41,9 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AnalysisException;
@@ -49,6 +52,8 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TPaloScanRange;
@@ -398,6 +403,89 @@ public class OlapScanNodeTest {
             DebugPointUtil.removeDebugPoint(OlapScanNode.MISSING_RF_BUCKET_METADATA_DEBUG_POINT);
             Config.enable_debug_points = previousEnableDebugPoints;
         }
+    }
+
+    @Test
+    public void testScanKeyBucketPruneEligibilityAndFullBucketOrdinals() throws Exception {
+        ConnectContext context = Mockito.mock(ConnectContext.class, Mockito.RETURNS_DEEP_STUBS);
+        SessionVariable session = new SessionVariable();
+        Mockito.when(context.getSessionVariable()).thenReturn(session);
+        try (MockedStatic<ConnectContext> contexts = Mockito.mockStatic(ConnectContext.class)) {
+            contexts.when(ConnectContext::get).thenReturn(context);
+            OlapScanNode scanNode = newBucketPruneScanNode(10L, 11L);
+            OlapTable table = scanNode.getOlapTable();
+            Column key = new Column("address", Type.VARCHAR, true, null, false, null, "");
+            Mockito.when(table.getBaseIndexId()).thenReturn(1L);
+            Mockito.when(table.getPartitionInfo()).thenReturn(new SinglePartitionInfo());
+            Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(key));
+            Mockito.when(table.getKeyColumnsByIndexId(1L)).thenReturn(Lists.newArrayList(key));
+            Mockito.when(table.getDefaultDistributionInfo())
+                    .thenReturn(new HashDistributionInfo(128, Lists.newArrayList(key)));
+            scanNode.setSelectedIndexInfo(1L, true, "");
+            getBucketInfo(scanNode).put(10L, ((long) 128 << Integer.SIZE) | 113L);
+            getBucketInfo(scanNode).put(11L, ((long) 128 << Integer.SIZE) | 67L);
+
+            TOlapScanNode node = new TOlapScanNode();
+            scanNode.setScanKeyBucketPruneParameters(node);
+            Assertions.assertTrue(node.isEnableScanKeyBucketPrune());
+            Assertions.assertEquals(128, scanNode.scanRangeLocations.get(0)
+                    .getScanRange().getPaloScanRange().getBucketNum());
+            Assertions.assertEquals(113, scanNode.scanRangeLocations.get(0)
+                    .getScanRange().getPaloScanRange().getBucketSeq());
+
+            session.enableScanKeyBucketPrune = false;
+            assertScanKeyBucketPruneDisabled(scanNode);
+            session.enableScanKeyBucketPrune = true;
+            key.setIsAllowNull(true);
+            assertScanKeyBucketPruneDisabled(scanNode);
+            key.setIsAllowNull(false);
+            scanNode.setSelectedIndexInfo(2L, true, "");
+            assertScanKeyBucketPruneDisabled(scanNode);
+            scanNode.setSelectedIndexInfo(1L, true, "");
+            Mockito.when(table.getKeyColumnsByIndexId(1L)).thenReturn(Lists.newArrayList(key, key));
+            assertScanKeyBucketPruneDisabled(scanNode);
+            Mockito.when(table.getKeyColumnsByIndexId(1L)).thenReturn(Lists.newArrayList(key));
+            Column other = new Column("chain", Type.INT);
+            Mockito.when(table.getDefaultDistributionInfo())
+                    .thenReturn(new HashDistributionInfo(128, Lists.newArrayList(other)));
+            assertScanKeyBucketPruneDisabled(scanNode);
+            Mockito.when(table.getDefaultDistributionInfo())
+                    .thenReturn(new HashDistributionInfo(128, Lists.newArrayList(key, other)));
+            assertScanKeyBucketPruneDisabled(scanNode);
+            Mockito.when(table.getDefaultDistributionInfo())
+                    .thenReturn(new HashDistributionInfo(128, Lists.newArrayList(key)));
+            Mockito.when(table.getPartitionInfo()).thenReturn(new RangePartitionInfo(Lists.newArrayList(key)));
+            assertScanKeyBucketPruneDisabled(scanNode);
+        }
+    }
+
+    @Test
+    public void testScanKeyBucketPruneRequiresAllTabletMetadata() throws Exception {
+        ConnectContext context = Mockito.mock(ConnectContext.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(context.getSessionVariable()).thenReturn(new SessionVariable());
+        try (MockedStatic<ConnectContext> contexts = Mockito.mockStatic(ConnectContext.class)) {
+            contexts.when(ConnectContext::get).thenReturn(context);
+            OlapScanNode scanNode = newBucketPruneScanNode(10L, 11L);
+            OlapTable table = scanNode.getOlapTable();
+            Column key = new Column("address", Type.VARCHAR, true, null, false, null, "");
+            Mockito.when(table.getBaseIndexId()).thenReturn(1L);
+            Mockito.when(table.getPartitionInfo()).thenReturn(new SinglePartitionInfo());
+            Mockito.when(table.getBaseSchema()).thenReturn(Lists.newArrayList(key));
+            Mockito.when(table.getKeyColumnsByIndexId(1L)).thenReturn(Lists.newArrayList(key));
+            Mockito.when(table.getDefaultDistributionInfo())
+                    .thenReturn(new HashDistributionInfo(128, Lists.newArrayList(key)));
+            scanNode.setSelectedIndexInfo(1L, true, "");
+            getBucketInfo(scanNode).put(10L, ((long) 128 << Integer.SIZE) | 113L);
+            assertScanKeyBucketPruneDisabled(scanNode);
+            Assertions.assertFalse(scanNode.scanRangeLocations.get(0)
+                    .getScanRange().getPaloScanRange().isSetBucketNum());
+        }
+    }
+
+    private void assertScanKeyBucketPruneDisabled(OlapScanNode scanNode) {
+        TOlapScanNode node = new TOlapScanNode();
+        scanNode.setScanKeyBucketPruneParameters(node);
+        Assertions.assertFalse(node.isSetEnableScanKeyBucketPrune());
     }
 
     private OlapScanNode newBucketPruneScanNode(long... tabletIds) {

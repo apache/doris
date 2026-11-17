@@ -109,7 +109,8 @@ public class DateTimeChecker extends FormatChecker {
         // Find the separator between date and time parts (' ' or 'T')
         int timeSeparatorIndex = -1;
         for (int i = 0; i < str.length(); i++) {
-            if (str.charAt(i) == ' ' || str.charAt(i) == 'T') {
+            // A date ends within the first ten characters; later 'T' belongs to a zone name.
+            if (str.charAt(i) == ' ' || (str.charAt(i) == 'T' && i <= 10)) {
                 timeSeparatorIndex = i;
                 break;
             }
@@ -160,6 +161,18 @@ public class DateTimeChecker extends FormatChecker {
     }
 
     private FormatChecker timeZone() {
+        return or(namedTimeZone(), offsetTimeZone());
+    }
+
+    private FormatChecker namedTimeZone() {
+        return and(
+                atLeast(1, Character::isLetter),
+                atLeast(0, c -> Character.isLetterOrDigit(c) || c == '/' || c == '_'
+                        || c == '-' || c == '+')
+        );
+    }
+
+    private FormatChecker offsetTimeZone() {
         // Z or +08:00 or UTC-01:00
         return and(
             // timezone: Europe/London, America/New_York
@@ -167,7 +180,7 @@ public class DateTimeChecker extends FormatChecker {
             option(
                 and(
                     chars(c -> c == '+' || c == '-'),
-                    digit(1, 2),
+                    digit(1, 4),
                     option(
                         and(
                             ch(':'),

@@ -70,10 +70,9 @@ services:
       - doris--fluss--network
 
   # The object store the lake lives in. Part of this environment rather than
-  # borrowed from another component's: the fluss servers, the tiering job and
-  # Doris all have to name one endpoint, and an environment that only works when
-  # something else was started first is a failure mode nobody reads a compose
-  # file to discover.
+  # borrowed from another component's: the fluss servers and tiering job reach
+  # it by its compose-network name, while Doris reaches its published host port
+  # through the endpoint configured by the regression suites.
   doris--fluss-minio:
     # The release the other object-store environments in this directory use, and
     # the one whose server image still carries mc -- which is what creates the

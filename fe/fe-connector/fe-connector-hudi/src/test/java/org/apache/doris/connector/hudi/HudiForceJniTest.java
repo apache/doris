@@ -41,15 +41,24 @@ public class HudiForceJniTest {
     @Test
     public void lazyMorScanAdvertisesNativeParquetBeforeRangesArrive() {
         HudiScanPlanProvider provider = new HudiScanPlanProvider(Collections.emptyMap(), null);
-        HudiTableHandle table = new HudiTableHandle.Builder("db", "t", "s3://bucket/t", "MERGE_ON_READ")
-                .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat").build();
-        for (boolean forceJni : Arrays.asList(false, true)) {
-            Map<String, String> properties = provider.getScanNodeProperties(
-                    sessionWithProps(Collections.singletonMap("force_jni_scanner", Boolean.toString(forceJni))),
-                    table, Collections.emptyList(), Optional.empty());
-            TFileScanRangeParams params = new TFileScanRangeParams();
-            provider.populateScanLevelParams(params, properties);
-            Assertions.assertEquals(!forceJni, params.isContainsNativeParquet());
+        // Only a Parquet table can hold a log-free native Parquet slice; ORC and HFile MOR tables must not
+        // advertise the contract (branch-4.x #68441).
+        for (String inputFormat : Arrays.asList("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+                "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat",
+                "org.apache.hudi.hadoop.realtime.HoodieOrcRealtimeInputFormat",
+                "org.apache.hudi.hadoop.realtime.HoodieHFileRealtimeInputFormat")) {
+            HudiTableHandle table = new HudiTableHandle.Builder("db", "t", "s3://bucket/t", "MERGE_ON_READ")
+                    .inputFormat(inputFormat).build();
+            boolean parquet = inputFormat.contains("Parquet");
+            for (boolean forceJni : Arrays.asList(false, true)) {
+                Map<String, String> properties = provider.getScanNodeProperties(
+                        sessionWithProps(Collections.singletonMap("force_jni_scanner", Boolean.toString(forceJni))),
+                        table, Collections.emptyList(), Optional.empty());
+                TFileScanRangeParams params = new TFileScanRangeParams();
+                provider.populateScanLevelParams(params, properties);
+                Assertions.assertEquals(!forceJni && parquet, params.isContainsNativeParquet(),
+                        inputFormat + ", force_jni_scanner=" + forceJni);
+            }
         }
     }
 

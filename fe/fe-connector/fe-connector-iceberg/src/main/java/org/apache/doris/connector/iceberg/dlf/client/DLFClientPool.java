@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg.dlf.client;
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.iceberg.hive.HiveClientPool;
@@ -39,7 +40,12 @@ public class DLFClientPool extends HiveClientPool {
     @Override
     protected IMetaStoreClient newClient() {
         try {
-            return RetryingMetaStoreClient.getProxy(hiveConf, tbl -> null, ProxyMetaStoreClient.class.getName());
+            // The DLF Hive 3 artifact retains the HiveConf constructor, while Hive 3's default
+            // retrying-client factory looks up a Configuration constructor by exact signature.
+            return RetryingMetaStoreClient.getProxy(hiveConf,
+                    new Class<?>[] {HiveConf.class, HiveMetaHookLoader.class, Boolean.class},
+                    new Object[] {hiveConf, (HiveMetaHookLoader) tbl -> null, true},
+                    ProxyMetaStoreClient.class.getName());
         } catch (Exception e) {
             throw new RuntimeMetaException(e, "Failed to connect to DLF Metastore");
         }

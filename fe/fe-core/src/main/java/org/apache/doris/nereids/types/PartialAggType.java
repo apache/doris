@@ -19,12 +19,14 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /** PartialAggType */
 public class PartialAggType extends DataType {
@@ -80,5 +82,10 @@ public class PartialAggType extends DataType {
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), intermediateTypes);
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.empty();
     }
 }

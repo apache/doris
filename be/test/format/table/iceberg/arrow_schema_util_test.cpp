@@ -18,22 +18,25 @@
 #include "format/table/iceberg/arrow_schema_util.h"
 
 #include <arrow/api.h>
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/io/api.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/schema.h>
 
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_string.h"
+#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
@@ -54,6 +57,30 @@ public:
     virtual ~ArrowSchemaUtilTest() = default;
 };
 
+TEST(ArrowSchemaUtilTest, TimestampKindsPreserveUnitAndTimezone) {
+    const char* names[] = {"timestamp", "timestamptz", "timestamp_ns", "timestamptz_ns"};
+    const arrow::TimeUnit::type units[] = {arrow::TimeUnit::MICRO, arrow::TimeUnit::MICRO,
+                                           arrow::TimeUnit::NANO, arrow::TimeUnit::NANO};
+    const char* zones[] = {"", "Asia/Shanghai", "", "Asia/Shanghai"};
+    for (int i = 0; i < 4; ++i) {
+        SCOPED_TRACE(names[i]);
+        const auto json = fmt::format(R"({{"type":"struct","fields":[
+            {{"id":1,"name":"ts","required":false,"type":"{0}"}},
+            {{"id":2,"name":"nested","required":false,"type":{{"type":"list",
+                "element-id":3,"element-required":false,"element":"{0}"}}}}]}})",
+                                      names[i]);
+        auto schema = SchemaParser::from_json(json);
+        IcebergArrowSchemaConvertor converter(*schema, "Asia/Shanghai", json);
+        std::shared_ptr<arrow::Schema> arrow_schema;
+        ASSERT_TRUE(converter.get_arrow_schema(&arrow_schema).ok());
+        const auto expected = arrow::timestamp(units[i], zones[i]);
+        EXPECT_TRUE(arrow_schema->field(0)->type()->Equals(expected));
+        auto list_type = std::static_pointer_cast<arrow::ListType>(arrow_schema->field(1)->type());
+        EXPECT_TRUE(list_type->value_type()->Equals(expected));
+        EXPECT_EQ(schema->columns()[0].field_type()->to_string(), names[i]);
+    }
+}
+
 TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
     auto* env = ExecEnv::GetInstance();
     auto* previous_pool = env->_arrow_memory_pool;
@@ -65,11 +92,12 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
             "element-required":false,"element":"uuid"}},
         {"id":4,"name":"f","required":true,"type":"fixed[16]"}]})";
     auto schema = SchemaParser::from_json(schema_json);
-    auto string_type = std::make_shared<DataTypeString>();
-    auto nullable_string = make_nullable(string_type);
-    auto array_type = std::make_shared<DataTypeArray>(nullable_string);
+    // The external UUID and fixed[16] bindings both carry raw bytes, including nested UUIDs.
+    auto binary_type = std::make_shared<DataTypeVarbinary>(16);
+    auto nullable_binary = make_nullable(binary_type);
+    auto array_type = std::make_shared<DataTypeArray>(nullable_binary);
     auto contexts =
-            MockSlotRef::create_mock_contexts(DataTypes {nullable_string, array_type, string_type});
+            MockSlotRef::create_mock_contexts(DataTypes {nullable_binary, array_type, binary_type});
     const auto path = "./uuid_parquet_writer_" + UniqueId::gen_uid().to_string() + ".parquet";
     const auto fs = io::global_local_filesystem();
     Defer cleanup([&] { static_cast<void>(fs->delete_file(path)); });
@@ -82,8 +110,9 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
                                  std::vector<std::string> {"u", "a", "f"}, false, options,
                                  &schema_json, *schema);
     ASSERT_TRUE(writer.open().ok());
-    auto values = ColumnString::create();
-    values->insert_data("00112233-4455-6677-8899-aabbccddeeff", 36);
+    auto values = ColumnVarbinary::create();
+    const char uuid_bytes[] = "\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff";
+    values->insert_data(uuid_bytes, 16);
     values->insert_default();
     auto nulls = ColumnUInt8::create();
     nulls->insert_value(0);
@@ -93,14 +122,15 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
     offsets->insert_value(2);
     offsets->insert_value(2);
     auto a = ColumnArray::create(u->clone_resized(2), std::move(offsets));
-    auto fixed = ColumnString::create();
+    auto fixed = ColumnVarbinary::create();
     fixed->insert_data("abcdefghijklmnop", 16);
     fixed->insert_data("ABCDEFGHIJKLMNOP", 16);
     Block block;
-    block.insert({std::move(u), nullable_string, "u"});
+    block.insert({std::move(u), nullable_binary, "u"});
     block.insert({std::move(a), array_type, "a"});
-    block.insert({std::move(fixed), string_type, "f"});
-    ASSERT_TRUE(writer.write(block).ok());
+    block.insert({std::move(fixed), binary_type, "f"});
+    auto write_status = writer.write(block);
+    ASSERT_TRUE(write_status.ok()) << write_status;
     ASSERT_TRUE(writer.close().ok());
     auto reader = ::parquet::ParquetFileReader::OpenFile(path, false);
     const auto metadata = reader->metadata();
@@ -132,7 +162,7 @@ TEST(ArrowSchemaUtilTest, test_simple_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(2, fields.size());
     EXPECT_EQ("field1", fields[0]->name());
@@ -190,7 +220,7 @@ TEST(ArrowSchemaUtilTest, test_stuct_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
+    st = IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("st_col", fields[0]->name());
@@ -242,7 +272,7 @@ TEST(ArrowSchemaUtilTest, test_map_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
+    st = IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("map_col", fields[0]->name());
@@ -289,7 +319,7 @@ TEST(ArrowSchemaUtilTest, test_list_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
+    st = IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("list_col", fields[0]->name());
@@ -313,7 +343,7 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     Schema schema(1, std::move(nested_fields));
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    Status st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    Status st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
     ASSERT_TRUE(st.ok()) << st;
     ASSERT_EQ(4, fields.size());
 
@@ -328,6 +358,101 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     auto uuid_type = std::static_pointer_cast<arrow::FixedSizeBinaryType>(fields[3]->type());
     EXPECT_EQ(16, uuid_type->byte_width());
     EXPECT_EQ("uuid", fields[3]->metadata()->Get("originalType").ValueUnsafe());
+}
+
+TEST(ArrowSchemaUtilTest, test_variant_field) {
+    std::vector<NestedField> nested_fields;
+    nested_fields.emplace_back(true, 21, "payload", std::make_unique<VariantType>(), std::nullopt);
+    Schema schema(1, std::move(nested_fields));
+
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    Status st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(1, fields.size());
+    EXPECT_EQ("21", fields[0]->metadata()->Get(pfid).ValueUnsafe());
+    ASSERT_EQ(arrow::Type::EXTENSION, fields[0]->type()->id());
+
+    const auto& extension = static_cast<const arrow::ExtensionType&>(*fields[0]->type());
+    EXPECT_EQ("arrow.parquet.variant", extension.extension_name());
+    ASSERT_EQ(arrow::Type::STRUCT, extension.storage_type()->id());
+    ASSERT_EQ(2, extension.storage_type()->num_fields());
+    EXPECT_EQ("metadata", extension.storage_type()->field(0)->name());
+    EXPECT_EQ(arrow::Type::BINARY, extension.storage_type()->field(0)->type()->id());
+    EXPECT_FALSE(extension.storage_type()->field(0)->nullable());
+    EXPECT_FALSE(extension.storage_type()->field(0)->HasMetadata());
+    EXPECT_EQ("value", extension.storage_type()->field(1)->name());
+    EXPECT_EQ(arrow::Type::BINARY, extension.storage_type()->field(1)->type()->id());
+    EXPECT_FALSE(extension.storage_type()->field(1)->nullable());
+    EXPECT_FALSE(extension.storage_type()->field(1)->HasMetadata());
+}
+
+TEST(ArrowSchemaUtilTest, test_nested_variant_fields) {
+    const std::string schema_json = R"({
+        "type": "struct",
+        "fields": [
+            {
+                "id": 10,
+                "name": "info",
+                "required": false,
+                "type": {
+                    "type": "struct",
+                    "fields": [
+                        {"id": 11, "name": "payload", "required": false, "type": "variant"}
+                    ]
+                }
+            },
+            {
+                "id": 20,
+                "name": "events",
+                "required": false,
+                "type": {
+                    "type": "list",
+                    "element-id": 21,
+                    "element": "variant",
+                    "element-required": false
+                }
+            },
+            {
+                "id": 30,
+                "name": "attrs",
+                "required": false,
+                "type": {
+                    "type": "map",
+                    "key-id": 31,
+                    "key": "string",
+                    "value-id": 32,
+                    "value": "variant",
+                    "value-required": false
+                }
+            }
+        ]
+    })";
+    std::unique_ptr<Schema> schema = SchemaParser::from_json(schema_json);
+
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    Status status = IcebergArrowSchemaConvertor(*schema, "UTC").convert_fields(fields);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(3, fields.size());
+
+    const auto& info = assert_cast<const arrow::StructType&>(*fields[0]->type());
+    ASSERT_EQ(arrow::Type::EXTENSION, info.field(0)->type()->id());
+    EXPECT_EQ("11", info.field(0)->metadata()->Get(pfid).ValueUnsafe());
+
+    const auto& events = assert_cast<const arrow::ListType&>(*fields[1]->type());
+    ASSERT_EQ(arrow::Type::EXTENSION, events.value_type()->id());
+    EXPECT_EQ("21", events.value_field()->metadata()->Get(pfid).ValueUnsafe());
+
+    const auto& attrs = assert_cast<const arrow::MapType&>(*fields[2]->type());
+    ASSERT_EQ(arrow::Type::EXTENSION, attrs.item_type()->id());
+    EXPECT_EQ("32", attrs.item_field()->metadata()->Get(pfid).ValueUnsafe());
+
+    for (const auto& variant_type :
+         {info.field(0)->type(), events.value_type(), attrs.item_type()}) {
+        const auto& extension = static_cast<const arrow::ExtensionType&>(*variant_type);
+        EXPECT_EQ("arrow.parquet.variant", extension.extension_name());
+        EXPECT_EQ("struct<metadata: binary not null, value: binary not null>",
+                  extension.storage_type()->ToString());
+    }
 }
 
 TEST(ArrowSchemaUtilTest, test_parquet_filed_id) {
@@ -368,7 +493,7 @@ TEST(ArrowSchemaUtilTest, test_parquet_filed_id) {
     Schema schema(1, std::move(nested_fields));
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    st = IcebergArrowSchemaConvertor(schema, "utc").convert_fields(fields);
     auto arrow_schema = arrow::schema(fields);
 
     // create arrow table

@@ -52,16 +52,15 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
              CastToIntMayOverflow<FromDataType, ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = check_and_get_column<typename FromDataType::ColumnType>(
-                block.get_by_position(arguments[0]).column.get());
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        const auto* col_from =
+                check_and_get_column<typename FromDataType::ColumnType>(source_column.column.get());
         if (!col_from) {
-            return Status::InternalError(
-                    fmt::format("Column type mismatch: expected {}, got {}",
-                                type_to_string(FromDataType::PType),
-                                block.get_by_position(arguments[0]).column->get_name()));
+            return Status::InternalError(fmt::format("Column type mismatch: expected {}, got {}",
+                                                     type_to_string(FromDataType::PType),
+                                                     source_column.column->get_name()));
         }
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
@@ -72,6 +71,11 @@ public:
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
         for (size_t i = 0; i < input_rows_count; ++i) {
+            // The source value of a row marked as null by the input null map is a hidden
+            // payload and has no SQL semantics, so it must not be checked.
+            if (parent_null_map && parent_null_map[i]) {
+                continue;
+            }
             if constexpr (IsDataTypeInt<FromDataType>) {
                 // although always nullable output, but only set null when overflow in non-strict mode.
                 // in strict mode, just raise error on overflow.
@@ -107,7 +111,7 @@ public:
                                                          type_to_string(ToDataType::PType)));
             }
         }
-        block.get_by_position(result).column =
+        target_column.column =
                 ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
 
         return Status::OK();
@@ -124,11 +128,11 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
              !CastToIntMayOverflow<FromDataType, ToDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        return static_cast_no_overflow<FromDataType, ToDataType>(context, block, arguments, result,
-                                                                 input_rows_count);
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        return static_cast_no_overflow<FromDataType, ToDataType>(
+                state, source_column, target_column, input_rows_count, parent_null_map);
     }
 };
 
@@ -137,12 +141,12 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
     requires(IsDataTypeInt<ToDataType> && IsDataTypeDecimal<FromDataType>)
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
         using ToFieldType = typename ToDataType::FieldType;
 
-        const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
+        const ColumnWithTypeAndName& named_from = source_column;
         const auto* col_from =
                 check_and_get_column<typename FromDataType::ColumnType>(named_from.column.get());
         if (!col_from) {
@@ -178,6 +182,10 @@ public:
         params.is_strict = (CastMode == CastModeType::StrictMode);
         size_t size = vec_from.size();
         for (size_t i = 0; i < size; i++) {
+            // Skip hidden payload of rows marked as null by the input null map.
+            if (parent_null_map && parent_null_map[i]) {
+                continue;
+            }
             if (!CastToInt::from_decimal<typename FromDataType::FieldType,
                                          typename ToDataType::FieldType>(
                         vec_from_data[i], from_precision, from_scale, vec_to_data[i], params)) {
@@ -190,10 +198,10 @@ public:
         }
 
         if (overflow_and_nullable) {
-            block.get_by_position(result).column =
+            target_column.column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
-            block.get_by_position(result).column = std::move(col_to);
+            target_column.column = std::move(col_to);
         }
         return Status::OK();
     }
@@ -217,11 +225,11 @@ template <CastModeType CastMode, typename FromDataType, typename ToDataType>
                               DataTypeTimeStampNs>)&&int_allow_cast_from_datetime<ToDataType>))
 class CastToImpl<CastMode, FromDataType, ToDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        return static_cast_no_overflow<FromDataType, ToDataType>(context, block, arguments, result,
-                                                                 input_rows_count);
+    Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        return static_cast_no_overflow<FromDataType, ToDataType>(
+                state, source_column, target_column, input_rows_count, parent_null_map);
     }
 };
 } // namespace doris

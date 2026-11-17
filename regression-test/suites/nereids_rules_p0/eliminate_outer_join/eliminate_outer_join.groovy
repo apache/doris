@@ -144,8 +144,10 @@ suite("eliminate_outer_join") {
         explain shape plan select t2.id, sum(t1.score) from t t1 right outer join t t2 on t1.id = t2.id group by t2.id;
     """
 
+    // Keep the bucket-shuffle choice stable across backend counts and fuzzy pipeline parallelism.
     qt_full_outer_multiple_tables """
-        explain shape plan select * from t t1 full outer join t t2 on t1.id = t2.id full join t t3 on t1.id = t3.id where t3.name is null;
+        explain shape plan select /*+ SET_VAR(bucket_shuffle_downgrade_ratio=0) */ *
+        from t t1 full outer join t t2 on t1.id = t2.id full join t t3 on t1.id = t3.id where t3.name is null;
     """
 
     qt_left_outer_with_subquery """

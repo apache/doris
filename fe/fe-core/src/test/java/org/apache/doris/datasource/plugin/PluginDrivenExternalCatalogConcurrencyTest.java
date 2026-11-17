@@ -20,6 +20,8 @@ package org.apache.doris.datasource.plugin;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.connector.ConnectorFactory;
+import org.apache.doris.connector.ConnectorPluginManager;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
@@ -27,6 +29,7 @@ import org.apache.doris.connector.cache.MetaCacheBudgetManager;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 import org.apache.doris.connector.cache.ScopePath;
+import org.apache.doris.connector.hive.HiveConnectorProvider;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -48,6 +51,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -65,11 +69,15 @@ import java.util.function.Supplier;
  */
 public class PluginDrivenExternalCatalogConcurrencyTest {
 
+    private final Map<Connector, CountDownLatch> closeSignals = new ConcurrentHashMap<>();
     private MockedStatic<Env> mockedEnv;
     private ExternalMetaCacheMgr cacheMgr;
 
     @BeforeEach
     public void setUp() {
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.registerProvider(new HiveConnectorProvider());
+        ConnectorFactory.initPluginManager(manager);
         Env env = Mockito.mock(Env.class);
         cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
         AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
@@ -84,6 +92,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
     @AfterEach
     public void tearDown() {
         mockedEnv.close();
+        ConnectorFactory.initPluginManager(new ConnectorPluginManager());
     }
 
     @Test
@@ -123,6 +132,39 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         Assertions.assertTrue(exception.getMessage().contains("dfs.ha.namenodes.ns1"), exception.getMessage());
     }
 
+    @Test
+    public void testAlterPreservesLegacyEmptyNameservices() throws Exception {
+        for (String nameservices : new String[] {",", " ", ""}) {
+            Map<String, String> properties = hiveCatalogProperties();
+            properties.put("dfs.nameservices", nameservices);
+            PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                    1L, "test-catalog", null, properties, "", null);
+
+            Assertions.assertTrue(catalog.validatePropertiesBeforeUpdate(properties,
+                    Collections.singletonMap("test_connection", "false")));
+            Assertions.assertEquals(nameservices, catalog.getProperties().get("dfs.nameservices"));
+        }
+    }
+
+    @Test
+    public void testDdlRejectsSubmittedEmptyNameservices() {
+        for (String nameservices : new String[] {",", " ", ""}) {
+            Map<String, String> properties = hiveCatalogProperties();
+            PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(
+                    1L, "test-catalog", null, properties, "", null);
+            DdlException alterException = Assertions.assertThrows(DdlException.class,
+                    () -> catalog.validatePropertiesBeforeUpdate(properties,
+                            Collections.singletonMap("dfs.nameservices", nameservices)));
+            Assertions.assertTrue(alterException.getMessage().contains("dfs.nameservices"));
+
+            properties.put("dfs.nameservices", nameservices);
+            PluginDrivenExternalCatalog createCatalog = new PluginDrivenExternalCatalog(
+                    2L, "create-catalog", null, properties, "", null);
+            DdlException createException = Assertions.assertThrows(DdlException.class, createCatalog::checkProperties);
+            Assertions.assertTrue(createException.getMessage().contains("dfs.nameservices"));
+        }
+    }
+
     private static Map<String, String> hiveCatalogProperties() {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "hms");
@@ -137,8 +179,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
 
         catalog.notifyPropertiesUpdated(Collections.singletonMap("endpoint", "new-source"));
 
-        Mockito.verify(cacheMgr).invalidateCatalog(1L);
-        Mockito.verify(cacheMgr, Mockito.never()).removeCatalog(Mockito.anyLong());
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
     }
 
     @Test
@@ -146,12 +187,11 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         TestablePluginCatalog catalog = new TestablePluginCatalog(
                 mockConnector("old", new ConcurrentLinkedQueue<>()));
 
-        Runnable cleanup = catalog.modifyCatalogPropsWithDeferredAccessControllerCleanup(
+        Runnable cleanup = catalog.modifyCatalogPropsWithDeferredResourceCleanup(
                 Collections.singletonMap("endpoint", "new-source"));
         cleanup.run();
 
-        Mockito.verify(cacheMgr).invalidateCatalog(1L);
-        Mockito.verify(cacheMgr, Mockito.never()).removeCatalog(Mockito.anyLong());
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
     }
 
     @Test
@@ -162,7 +202,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         catalog.notifyPropertiesUpdated(Collections.singletonMap(
                 ExternalCatalog.SCHEMA_CACHE_TTL_SECOND, "10"));
 
-        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
         Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(Mockito.anyLong());
     }
 
@@ -174,22 +214,20 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         catalog.notifyPropertiesUpdated(Collections.singletonMap(
                 MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY, "1KB"));
 
-        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
         Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(Mockito.anyLong());
     }
 
     @Test
-    public void testPluginEntryWeightPropertyReliesOnConnectorRebuild() throws Exception {
+    public void testPluginEntryWeightPropertyRetiresCatalogRuntime() throws Exception {
         TestablePluginCatalog catalog = new TestablePluginCatalog(
                 mockConnector("old", new ConcurrentLinkedQueue<>()));
 
         catalog.notifyPropertiesUpdated(Collections.singletonMap(
                 "meta.cache.iceberg.table.max-weight", "1KB"));
 
-        Mockito.verify(cacheMgr).isEngineRegistered("iceberg");
         Mockito.verify(cacheMgr, Mockito.never()).removeCatalogByEngine(Mockito.anyLong(), Mockito.anyString());
-        Mockito.verify(cacheMgr).invalidateCatalog(1L);
-        Mockito.verify(cacheMgr, Mockito.never()).removeCatalog(Mockito.anyLong());
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
     }
 
     @Test
@@ -226,10 +264,10 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
                         "core budget retirement must be fenced against makeSureInitialized");
                 oldCore.close();
                 return null;
-            }).when(cacheMgr).removeCatalog(1L);
+            }).when(cacheMgr).removeCatalog(1L, "test-catalog");
 
             try {
-                catalog.modifyCatalogPropsWithDeferredAccessControllerCleanup(
+                catalog.modifyCatalogPropsWithDeferredResourceCleanup(
                         Collections.singletonMap("meta.cache.max-weight", "2KB")).run();
                 Assertions.assertNotNull(replacement.get());
                 Assertions.assertEquals(0L, manager.getGlobalUsedWeight());
@@ -243,17 +281,15 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
     }
 
     @Test
-    public void testCoreEntryWeightPropertyRebuildsRegisteredEngineCache() throws Exception {
-        Mockito.when(cacheMgr.isEngineRegistered("default")).thenReturn(true);
+    public void testCoreEntryWeightPropertyRebuildsCatalogRuntime() throws Exception {
         TestablePluginCatalog catalog = new TestablePluginCatalog(
                 mockConnector("old", new ConcurrentLinkedQueue<>()));
 
         catalog.notifyPropertiesUpdated(Collections.singletonMap(
                 "meta.cache.default.schema.max-weight", "1KB"));
 
-        Mockito.verify(cacheMgr, Mockito.times(1)).removeCatalogByEngine(1L, "default");
-        Mockito.verify(cacheMgr).invalidateCatalog(1L);
-        Mockito.verify(cacheMgr, Mockito.never()).removeCatalog(Mockito.anyLong());
+        Mockito.verify(cacheMgr, Mockito.never()).removeCatalogByEngine(1L, "default");
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
     }
 
     /**
@@ -273,6 +309,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
 
         catalog.notifyPropertiesUpdated(Collections.singletonMap("key", "value"));
 
+        awaitClosed(oldConnector);
         Assertions.assertEquals(1, closeOrder.size(), "Old connector should be closed exactly once");
         Assertions.assertEquals("old", closeOrder.poll(), "Should close the OLD connector, not the new one");
         // After notifyPropertiesUpdated, connector is null until lazy re-init
@@ -301,6 +338,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         catalog.notifyPropertiesUpdated(Collections.singletonMap("k", "v"));
 
         // Old connector is closed, new connector is NOT yet created (lazy init)
+        awaitClosed(oldConnector);
         Mockito.verify(oldConnector, Mockito.times(1)).close();
         Mockito.verify(newConnector, Mockito.never()).close();
         Assertions.assertNull(catalog.getConnectorDirect(),
@@ -318,6 +356,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         TestablePluginCatalog catalog = new TestablePluginCatalog(connector);
 
         catalog.onClose();
+        awaitClosed(connector);
 
         Assertions.assertEquals(1, closeOrder.size());
         Assertions.assertEquals("active", closeOrder.poll());
@@ -338,7 +377,8 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
 
         catalog.notifyPropertiesUpdated(Collections.singletonMap("k", "v"));
 
-        // Fallback path goes through super.notifyPropertiesUpdated → onClose → closes old
+        // Resource close is independent of lazy creation of the replacement.
+        awaitClosed(oldConnector);
         Assertions.assertEquals(1, closeOrder.size());
         Assertions.assertEquals("old", closeOrder.poll());
     }
@@ -459,11 +499,18 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         ConnectorMetadata meta = Mockito.mock(ConnectorMetadata.class);
         Mockito.when(c.getMetadata(Mockito.any())).thenReturn(meta);
         Mockito.when(meta.listDatabaseNames(Mockito.any())).thenReturn(Collections.emptyList());
+        CountDownLatch closed = new CountDownLatch(1);
+        closeSignals.put(c, closed);
         Mockito.doAnswer(inv -> {
             closeOrder.add(label);
+            closed.countDown();
             return null;
         }).when(c).close();
         return c;
+    }
+
+    private void awaitClosed(Connector connector) throws InterruptedException {
+        Assertions.assertTrue(closeSignals.get(connector).await(10L, TimeUnit.SECONDS));
     }
 
     private Connector mockCountingConnector(AtomicInteger createCounter,

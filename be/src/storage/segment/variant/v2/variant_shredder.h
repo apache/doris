@@ -49,12 +49,12 @@ struct VariantShredderOptions {
     // Zero retains all dynamic paths, matching variant_max_subcolumns_count semantics.
     size_t max_subcolumns_count = 0;
     bool typed_paths_to_sparse = false;
+    bool escape_dots_in_keys = false;
     uint32_t sparse_bucket_count = 1;
     size_t max_sparse_column_statistics_size =
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
     uint32_t doc_bucket_count = 1;
     size_t doc_materialization_min_rows = 0;
-    bool check_duplicate_json_path = false;
 };
 
 struct VariantShreddedColumns {

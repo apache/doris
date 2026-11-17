@@ -29,8 +29,7 @@ suite("test_stream_info_schema") {
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW"
+        "changelog.enable" = "true"
         ); 
     """
 
@@ -44,9 +43,8 @@ suite("test_stream_info_schema") {
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "enable_unique_key_merge_on_write" = "true",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW",
-        "binlog.need_historical_value" = "true"
+        "changelog.enable" = "true",
+        "changelog.need_historical_value" = "true"
         );
     """
 

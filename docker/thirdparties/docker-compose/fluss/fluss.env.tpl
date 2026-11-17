@@ -42,7 +42,7 @@ FLUSS_FLINK_IMAGE=apache/fluss-quickstart-flink:1.20-1.0.0
 # Address the fluss servers advertise to clients. Doris FE/BE run on the host,
 # so the servers must hand out the host address plus the published ports, not
 # their in-container hostnames.
-FLUSS_HOST_IP=${IP_HOST}
+FLUSS_HOST_IP="${FLUSS_HOST_IP:-${IP_HOST}}"
 
 # remote.data.dir holds remote log segments and kv snapshots. Doris BE reads
 # those files directly (primary-key table reads), so the directory is bind
@@ -81,13 +81,13 @@ FLUSS_PAIMON_WAREHOUSE=s3://fluss-lake/wh
 # edit. Unused while the warehouse is in the object store.
 FLUSS_PAIMON_WAREHOUSE_DIR=${FLUSS_COMPOSE_DIR}/data/paimon
 
-# How everything reaches the object store. One address for all of them -- the
-# containers and Doris on the host -- for the same reason the fluss servers
-# advertise the host address: the endpoint is recorded in the lake table's
-# properties, and a container-only hostname there would be a location the host
-# cannot resolve. The credentials are the minio root user, which the container
-# below is started with.
-FLUSS_LAKE_S3_ENDPOINT=http://${IP_HOST}:19125
+# How the Fluss containers reach the object store. Keep this traffic on the
+# compose network instead of hairpinning through the host's published port: the
+# latter is not supported consistently by every Docker networking setup. Doris
+# runs on the host and uses the published port through the explicit
+# fluss.lake.paimon.s3.endpoint catalog property in the regression suites; that
+# catalog value overrides the endpoint copied into the lake table properties.
+FLUSS_LAKE_S3_ENDPOINT=http://${CONTAINER_UID}fluss-minio:9000
 FLUSS_LAKE_S3_ACCESS_KEY=minioadmin
 FLUSS_LAKE_S3_SECRET_KEY=minioadmin
 

@@ -30,7 +30,10 @@
 #include "core/string_view.h"
 
 namespace doris {
-// Binary IO does not enable hash computation; inherit IColumn's unsupported methods.
+// An exchange that partitions rows by a VARBINARY value, such as a shuffle join on ARRAY<VARBINARY>
+// keys or an Iceberg write routed by identity(binary_col), hashes the value's bytes with the
+// CRC32 / CRC32C methods, exactly as ColumnString does: X'616263' and 'abc' get the same hash.
+// The value hashes (SipHash, xxHash) are inherited from IColumn and stay unsupported.
 class ColumnVarbinary final : public COWHelper<IColumn, ColumnVarbinary> {
 private:
     using Self = ColumnVarbinary;
@@ -122,6 +125,19 @@ public:
                          HybridSorter& sorter, IColumn::Permutation& res) const override;
 
     size_t get_max_row_byte_size() const override;
+
+    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
+                                const uint8_t* __restrict null_data) const override;
+
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
+                               const uint8_t* __restrict null_data) const override;
+
+    void update_crc32c_batch(uint32_t* __restrict hashes,
+                             const uint8_t* __restrict null_map) const override;
+
+    void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
+                              const uint8_t* __restrict null_map) const override;
 
     void deserialize(StringRef* keys, const size_t num_rows) override;
 

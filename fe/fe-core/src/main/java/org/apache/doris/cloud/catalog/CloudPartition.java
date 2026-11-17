@@ -160,10 +160,16 @@ public class CloudPartition extends Partition {
             return getCachedVisibleVersion();
         }
 
-        return getVisibleVersionFromMs(false);
+        return getVisibleVersionFromMs(shouldWaitForPendingTxns());
     }
 
-    private long getVisibleVersionFromMs(boolean waitForPendingTxns) {
+    private static boolean shouldWaitForPendingTxns() {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx == null ? VariableMgr.getDefaultSessionVariable().cloudGetVersionWaitForPendingTxn
+                : ctx.getSessionVariable().cloudGetVersionWaitForPendingTxn;
+    }
+
+    public long getVisibleVersionFromMs(boolean waitForPendingTxns) {
         long cacheEpoch = versionCacheEpoch.get();
         if (LOG.isDebugEnabled()) {
             LOG.debug("getVisibleVersionFromMs use CloudPartition {}, waitForPendingTxns: {}",
@@ -192,8 +198,7 @@ public class CloudPartition extends Partition {
                     LOG.debug("get version from meta service, version: {}, tso: {}, partition: {}",
                             version, tso, super.getId());
                 }
-                setCachedVisibleVersion(version, mTime, tso);
-                refreshedVersionCacheEpoch.accumulateAndGet(cacheEpoch, Math::max);
+                cacheVisibleVersion(version, mTime, tso, cacheEpoch, isVersionCacheable(resp, 0, 1));
                 return version;
             } else {
                 assert resp.getStatus().getCode() == MetaServiceCode.VERSION_NOT_FOUND;
@@ -203,12 +208,35 @@ public class CloudPartition extends Partition {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get version from meta service, version: {}, partition: {}", version, super.getId());
             }
-            setCachedVisibleVersion(version, mTime);
-            refreshedVersionCacheEpoch.accumulateAndGet(cacheEpoch, Math::max);
+            cacheVisibleVersion(version, mTime, -1, cacheEpoch, isVersionCacheable(resp, 0, 1));
             return version;
         } catch (RpcException e) {
             throw new RuntimeException("get version from meta service failed");
         }
+    }
+
+    private void cacheVisibleVersion(long version, long updateTimeMs, long tso, long cacheEpoch, boolean cacheable) {
+        if (!cacheable) {
+            // Invalidate before touching the timestamp, even when the cache was valid before this read.
+            invalidateCachedVisibleVersion();
+        }
+        setCachedVisibleVersion(version, updateTimeMs, tso);
+        if (cacheable) {
+            // A response must not acknowledge an invalidation that happened after its request started.
+            refreshedVersionCacheEpoch.accumulateAndGet(cacheEpoch, Math::max);
+        }
+    }
+
+    private static boolean isVersionCacheable(Cloud.GetVersionResponse response, int index, int size) {
+        if (response.getHasPendingTxnsCount() == 0) {
+            // Older MS does not report pending state. Preserve its existing cache behavior.
+            if (index == 0 && LOG.isDebugEnabled()) {
+                LOG.debug("MS version response has no pending transaction state; using legacy cache behavior"
+                        + " for {} partitions", size);
+            }
+            return true;
+        }
+        return response.getHasPendingTxnsCount() == size && !response.getHasPendingTxns(index);
     }
 
     // Select the non-empty partitions and return the ids.
@@ -261,6 +289,10 @@ public class CloudPartition extends Partition {
     // Get visible version from the specified partitions;
     //
     // Return the visible version in order of the specified partition ids
+    public static List<Long> getSnapshotVisibleVersionFromMs(List<CloudPartition> partitions) throws RpcException {
+        return getSnapshotVisibleVersionFromMs(partitions, shouldWaitForPendingTxns());
+    }
+
     public static List<Long> getSnapshotVisibleVersionFromMs(
             List<CloudPartition> partitions, boolean waitForPendingTxns) throws RpcException {
         return getSnapshotVisibleVersionFromMs(
@@ -278,6 +310,7 @@ public class CloudPartition extends Partition {
         List<Long> partitionIds = new ArrayList<>();
         List<Long> versionUpdateTimesMs = new ArrayList<>();
         List<Long> commitTsos = new ArrayList<>();
+        List<Boolean> cacheableVersions = new ArrayList<>();
         List<Long> cacheEpochs = new ArrayList<>();
         for (CloudPartition partition : partitions) {
             dbIds.add(partition.getDbId());
@@ -287,7 +320,8 @@ public class CloudPartition extends Partition {
         }
 
         List<Long> versions = getSnapshotVisibleVersion(
-                dbIds, tableIds, partitionIds, versionUpdateTimesMs, commitTsos, waitForPendingTxns, maxAttempts);
+                dbIds, tableIds, partitionIds, versionUpdateTimesMs, commitTsos, cacheableVersions,
+                waitForPendingTxns, maxAttempts);
 
         // Cache visible version, see hasData() for details.
         int size = versions.size();
@@ -303,12 +337,12 @@ public class CloudPartition extends Partition {
                     // For compatibility, the existing partitions may not have mtime
                     long mTime = versions.size() == versionUpdateTimesMs.size() ? versionUpdateTimesMs.get(i) : 0;
                     long tso = hasCommitTsos ? commitTsos.get(i) : -1;
-                    partitions.get(i).setCachedVisibleVersion(versions.get(i), mTime, tso);
+                    partitions.get(i).cacheVisibleVersion(version, mTime, tso,
+                            cacheEpochs.get(i), cacheableVersions.get(i));
                 } else { // No data has been written to this partition
-                    partitions.get(i).setCachedVisibleVersion(Partition.PARTITION_INIT_VERSION,
-                            System.currentTimeMillis());
+                    partitions.get(i).cacheVisibleVersion(Partition.PARTITION_INIT_VERSION,
+                            System.currentTimeMillis(), -1, cacheEpochs.get(i), cacheableVersions.get(i));
                 }
-                partitions.get(i).refreshedVersionCacheEpoch.accumulateAndGet(cacheEpochs.get(i), Math::max);
             }
         } finally {
             for (int i = tables.size() - 1; i >= 0; i--) {
@@ -353,7 +387,7 @@ public class CloudPartition extends Partition {
                 ? VariableMgr.getDefaultSessionVariable().cloudPartitionVersionCacheTtlMs
                 : ctx.getSessionVariable().cloudPartitionVersionCacheTtlMs;
         if (cloudPartitionVersionCacheTtlMs <= 0) { // No cached versions will be used
-            return getSnapshotVisibleVersionFromMs(partitions, false);
+            return getSnapshotVisibleVersionFromMs(partitions);
         }
 
         // partitionId -> cachedVersion
@@ -384,8 +418,7 @@ public class CloudPartition extends Partition {
 
         List<Long> versions = null;
         if (!expiredPartitions.isEmpty()) { // Not all partition versions are from cache
-            versions = getSnapshotVisibleVersionFromMs(
-                    expiredPartitions, /*waitForPendingTxns=*/false); // Get the rest versions from meta-service
+            versions = getSnapshotVisibleVersionFromMs(expiredPartitions); // Get the rest versions from meta-service
         }
         int verMsIdx = 0;
         for (Pair<Long, Long> v : allVersions) { // ATTN: keep the assigning order!!!
@@ -405,7 +438,8 @@ public class CloudPartition extends Partition {
     //
     // Return the visible version in order of the specified partition ids
     private static List<Long> getSnapshotVisibleVersion(List<Long> dbIds, List<Long> tableIds, List<Long> partitionIds,
-            List<Long> versionUpdateTimesMs, List<Long> commitTsos, boolean waitForPendingTxns, int maxAttempts)
+            List<Long> versionUpdateTimesMs, List<Long> commitTsos, List<Boolean> cacheableVersions,
+            boolean waitForPendingTxns, int maxAttempts)
             throws RpcException {
         assert dbIds.size() == partitionIds.size() :
                 "partition ids size: " + partitionIds.size() + " should equals to db ids size: " + dbIds.size();
@@ -449,11 +483,15 @@ public class CloudPartition extends Partition {
             commitTsos.addAll(resp.getCommitTsosList());
         }
 
-        ArrayList<Long> news = new ArrayList<>();
-        for (Long v : versions) { // -1 means version NOT FOUND ==> no data has been written
-            news.add(v == -1 ?  Partition.PARTITION_INIT_VERSION : v);
+        int size = versions.size();
+        List<Long> normalizedVersions = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            cacheableVersions.add(isVersionCacheable(resp, i, size));
+            long version = versions.get(i);
+            // -1 means version NOT FOUND.
+            normalizedVersions.add(version == -1 ? Partition.PARTITION_INIT_VERSION : version);
         }
-        return news;
+        return normalizedVersions;
     }
 
     @Override

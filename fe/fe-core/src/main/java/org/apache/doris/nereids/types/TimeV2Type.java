@@ -20,18 +20,22 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.types.coercion.AdjustableScaleTimeType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 
+import java.util.Optional;
+
 /**
  * Time v2 type in Nereids.
  */
-public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTimeType {
+public class TimeV2Type extends PrimitiveType implements RangeScalable, AdjustableScaleTimeType {
 
     public static final int MAX_SCALE = 6;
     public static final TimeV2Type SYSTEM_DEFAULT = new TimeV2Type(0);
@@ -150,5 +154,15 @@ public class TimeV2Type extends PrimitiveType implements RangeScalable, ScaleTim
     @Override
     public String toSql() {
         return super.toSql() + "(" + scale + ")";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new TimeV2Literal(this, "00:00:00"));
+    }
+
+    @Override
+    public TimeV2Type withScale(int scale) {
+        return of(scale);
     }
 }

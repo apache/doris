@@ -176,8 +176,14 @@ Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
                 std::shared_ptr<VHivePartitionWriter> writer;
                 if (_partitions_to_writers.size() + 1 >
                     config::table_sink_partition_write_max_partition_nums_per_writer) {
-                    return Status::InternalError(
-                            "Too many open partitions {}",
+                    return Status::InvalidArgument(
+                            "Too many open partitions for Hive writer: open partitions={}, "
+                            "attempted partitions={}, limit={}. This is a per-writer limit "
+                            "controlled by BE configuration "
+                            "'table_sink_partition_write_max_partition_nums_per_writer'. "
+                            "Split the write into multiple statements or increase this "
+                            "configuration.",
+                            _partitions_to_writers.size(), _partitions_to_writers.size() + 1,
                             config::table_sink_partition_write_max_partition_nums_per_writer);
                 }
                 RETURN_IF_ERROR(create_and_open_writer(partition_name, i, nullptr, 0, writer));

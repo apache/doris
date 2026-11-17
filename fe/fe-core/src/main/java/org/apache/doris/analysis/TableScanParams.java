@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -74,6 +76,9 @@ public class TableScanParams {
     public void validateOlapTableStream() {
         if (!VALID_OLAP_TABLE_STREAM_PARAM_TYPES.contains(paramType)) {
             throw new IllegalArgumentException("Invalid param type for olap table stream : " + paramType);
+        }
+        if (!mapParams.isEmpty() || !listParams.isEmpty()) {
+            throw new AnalysisException(paramType + " does not accept parameters");
         }
     }
 

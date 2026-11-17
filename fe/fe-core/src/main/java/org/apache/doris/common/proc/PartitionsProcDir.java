@@ -114,7 +114,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
             .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables").add("CommittedVersion")
-            .add("RowCount").add("BinlogSize").add("InvertedIndexStorageFormat")
+            .add("RowCount").add("ChangelogSize").add("InvertedIndexStorageFormat")
             .build();
 
     private Database db;
@@ -422,7 +422,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                 for (int start = 0; start < partitions.size(); start += batchSize) {
                     int end = Math.min(start + batchSize, partitions.size());
                     List<CloudPartition> batch = partitions.subList(start, end);
-                    partitionVersions.addAll(CloudPartition.getSnapshotVisibleVersionFromMs(batch, false));
+                    partitionVersions.addAll(CloudPartition.getSnapshotVisibleVersionFromMs(batch, true));
                 }
             } catch (RpcException e) {
                 LOG.warn("get partition versions failed for table: {}", olapTable, e);
@@ -631,12 +631,12 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(partition.getRowCount());
                 trow.addToColumnValue(new TCell().setLongVal(partition.getRowCount()));
 
-                long binlogSize = partition.getBinlogDataSize();
-                Pair<Double, String> binlogSizePair = DebugUtil.getByteUint(binlogSize);
-                String readableBinlogSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(binlogSizePair.first) + " "
-                        + binlogSizePair.second;
-                partitionInfo.add(readableBinlogSize);
-                trow.addToColumnValue(new TCell().setStringVal(readableBinlogSize));
+                long changelogSize = partition.getChangelogDataSize();
+                Pair<Double, String> changelogSizePair = DebugUtil.getByteUint(changelogSize);
+                String readableChangelogSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(changelogSizePair.first) + " "
+                        + changelogSizePair.second;
+                partitionInfo.add(readableChangelogSize);
+                trow.addToColumnValue(new TCell().setStringVal(readableChangelogSize));
 
                 String invertedIndexStorageFormat =
                         olapTable.getInvertedIndexFileStorageFormatForPartition(partitionId).name();

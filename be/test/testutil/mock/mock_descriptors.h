@@ -45,13 +45,11 @@ public:
             auto* slot = pool->add(new SlotDescriptor());
             slot->_type = type;
             slots.push_back(slot);
-            _num_slots++;
         }
         auto* tuple_desc = pool->add(new MockTupleDescriptor());
         tuple_desc->Slots = slots;
         tuple_desc_map.push_back(tuple_desc);
         _tuple_desc_map.push_back(tuple_desc);
-        _num_materialized_slots = static_cast<int>(types.size());
     }
     const std::vector<TupleDescriptor*>& tuple_descriptors() const override {
         return tuple_desc_map;

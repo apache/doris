@@ -33,8 +33,11 @@ namespace doris {
 DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count)
         : DataTypeVariantV2(max_subcolumns_count, false) {}
 
-DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode)
-        : _max_subcolumns_count(max_subcolumns_count), _enable_doc_mode(enable_doc_mode) {
+DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode,
+                                     bool serialized_as_v2)
+        : _max_subcolumns_count(max_subcolumns_count),
+          _enable_doc_mode(enable_doc_mode),
+          _serialized_as_v2(serialized_as_v2) {
     _name = fmt::format("Variant(max subcolumns count = {}, enable doc mode = {})",
                         max_subcolumns_count, enable_doc_mode);
 }
@@ -48,10 +51,10 @@ MutableColumnPtr DataTypeVariantV2::create_column() const {
 }
 
 bool DataTypeVariantV2::equals(const IDataType& rhs) const {
-    const auto* rhs_type = typeid_cast<const DataTypeVariantV2*>(&rhs);
-    return rhs_type != nullptr &&
-           _max_subcolumns_count == rhs_type->variant_max_subcolumns_count() &&
-           _enable_doc_mode == rhs_type->enable_doc_mode();
+    // The max subcolumns count and doc mode only guide how storage shreds a Variant column.
+    // Execution compares, hashes and serializes Variant values canonically without them, so two
+    // Variant types with different properties are the same execution type (e.g. hash join keys).
+    return typeid_cast<const DataTypeVariantV2*>(&rhs) != nullptr;
 }
 
 int64_t DataTypeVariantV2::get_uncompressed_serialized_bytes(const IColumn& column,
@@ -65,6 +68,13 @@ char* DataTypeVariantV2::serialize(const IColumn& column, char* buf, int be_exec
 
 const char* DataTypeVariantV2::deserialize(const char* buf, MutableColumnPtr* column,
                                            int be_exec_version) const {
+    // V1 starts with a subcolumn count, not the V2 const/row header. Reject the legacy
+    // marker before reading these bytes as V2 lengths during a mixed-version transfer.
+    if (!_serialized_as_v2) {
+        throw Exception(Status::NotSupported(
+                "Unsupported VARIANT block format: Variant V1 cannot be decoded as Variant V2; "
+                "use compatible backend versions for Variant block transfer"));
+    }
     return DataTypeVariantV2SerDe::deserialize(buf, column, be_exec_version);
 }
 

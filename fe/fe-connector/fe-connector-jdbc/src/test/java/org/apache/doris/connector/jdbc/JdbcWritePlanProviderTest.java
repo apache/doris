@@ -192,6 +192,39 @@ class JdbcWritePlanProviderTest {
     }
 
     @Test
+    void zonedWritesUseServerCastsForDriversWithoutJdbc42Binds() {
+        for (JdbcDbType dialect : new JdbcDbType[] {JdbcDbType.PRESTO, JdbcDbType.ORACLE}) {
+            FakeJdbcClient client = new FakeJdbcClient(dialect, Arrays.asList(field("id"), field("event_time")));
+            JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, DEFAULTS);
+            ConnectorWriteHandle handle = writeHandle(new JdbcTableHandle("db", "tbl"),
+                    Arrays.asList("id", "event_time"));
+            handle.getColumns().set(1,
+                    new ConnectorColumn("event_time", ConnectorType.of("TIMESTAMPTZ", 6, 0), null, true, null));
+            String sql = provider.planWrite(session(1L, Collections.emptyMap()), handle)
+                    .getDataSink().getJdbcTableSink().getInsertSql();
+            Assertions.assertTrue(sql.endsWith(dialect == JdbcDbType.PRESTO
+                    ? "VALUES (?, CAST(? AS TIMESTAMP WITH TIME ZONE))"
+                    : "VALUES (?, TO_TIMESTAMP_TZ(?, 'YYYY-MM-DD HH24:MI:SS.FF6 TZH:TZM'))"), sql);
+        }
+    }
+
+    @Test
+    void prestoSqlZonedWritesKeepMicroseconds() {
+        FakeJdbcClient client = new FakeJdbcClient(JdbcDbType.PRESTO, Collections.singletonList(field("event_time")));
+        JdbcCatalogProperties props = JdbcCatalogProperties.of(
+                Map.of("jdbc_url", "jdbc:presto://localhost:8080/memory/default",
+                        "driver_class", "io.prestosql.jdbc.PrestoDriver"));
+        JdbcWritePlanProvider provider = new JdbcWritePlanProvider(client, props);
+        ConnectorWriteHandle handle = writeHandle(new JdbcTableHandle("db", "tbl"),
+                Collections.singletonList("event_time"));
+        handle.getColumns().set(0,
+                new ConnectorColumn("event_time", ConnectorType.of("TIMESTAMPTZ", 6, 0), null, true, null));
+        String sql = provider.planWrite(session(1L, Collections.emptyMap()), handle)
+                .getDataSink().getJdbcTableSink().getInsertSql();
+        Assertions.assertTrue(sql.endsWith("VALUES (CAST(? AS TIMESTAMP(6) WITH TIME ZONE))"), sql);
+    }
+
+    @Test
     void planWriteBuildsJdbcTableSinkWithByteParityFields() {
         Map<String, String> props = new HashMap<>();
         props.put("jdbc_url", "jdbc:mysql://h:3306/test_db");

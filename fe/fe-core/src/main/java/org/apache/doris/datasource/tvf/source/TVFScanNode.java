@@ -114,7 +114,7 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected boolean isFileStreamType() {
+    public boolean isFileStreamType() {
         return tableValuedFunction.getTFileType() == TFileType.FILE_STREAM;
     }
 

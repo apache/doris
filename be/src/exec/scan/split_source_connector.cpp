@@ -26,7 +26,8 @@ namespace doris {
 
 using apache::thrift::transport::TTransportException;
 
-Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range) {
+Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range,
+                                           const std::atomic_bool* /*scanner_stop*/) {
     std::lock_guard<std::mutex> l(_range_lock);
     *has_next = false;
     if (_scan_index < _scan_ranges.size()) {
@@ -43,31 +44,47 @@ Status LocalSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range
     return Status::OK();
 }
 
-Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range) {
+Status RemoteSplitSourceConnector::get_next(bool* has_next, TFileRangeDesc* range,
+                                            const std::atomic_bool* scanner_stop) {
     std::lock_guard<std::mutex> l(_range_lock);
     *has_next = false;
     if (_scan_index == _scan_ranges.size() && !_last_batch) {
         SCOPED_TIMER(_get_split_timer);
-        Status coord_status;
-        // No need to set timeout because on FE side, there is a max fetch time
-        FrontendServiceConnection coord(_state->exec_env()->frontend_client_cache(),
-                                        _state->get_query_ctx()->coord_addr, &coord_status);
-        RETURN_IF_ERROR(coord_status);
         TFetchSplitBatchRequest request;
         request.__set_split_source_id(_split_source_id);
         request.__set_max_num_splits(config::remote_split_source_batch_size);
         TFetchSplitBatchResult result;
-        try {
-            coord->fetchSplitBatch(result, request);
-            if (result.__isset.status && result.status.status_code != TStatusCode::OK) {
-                return Status::IOError<false>("Failed to get batch of split source: {}",
-                                              result.status.error_msgs.empty()
-                                                      ? "unknown error"
-                                                      : result.status.error_msgs[0]);
+        do {
+            RETURN_IF_CANCELLED(_state);
+            // A local LIMIT stops this scanner without cancelling the query. Do not keep a scan
+            // worker in the retry loop while another branch of the same query remains active.
+            if (scanner_stop->load(std::memory_order_acquire)) {
+                return Status::OK();
             }
-        } catch (std::exception& e) {
-            return Status::IOError<false>("Failed to get batch of split source: {}", e.what());
-        }
+            Status coord_status;
+            // Each FE call is bounded by the split-fetch wait interval. Release the client between
+            // retries so a slow listing does not reserve a connection for the whole query.
+            FrontendServiceConnection coord(_state->exec_env()->frontend_client_cache(),
+                                            _state->get_query_ctx()->coord_addr, &coord_status);
+            RETURN_IF_ERROR(coord_status);
+            try {
+                coord->fetchSplitBatch(result, request);
+                if (result.__isset.status && result.status.status_code == TStatusCode::INCOMPLETE) {
+                    // One Hive partition may have supplied the first range while another is still
+                    // listing files. FE's bounded wait is not EOF or a query failure in that case.
+                    continue;
+                }
+                if (result.__isset.status && result.status.status_code != TStatusCode::OK) {
+                    return Status::IOError<false>("Failed to get batch of split source: {}",
+                                                  result.status.error_msgs.empty()
+                                                          ? "unknown error"
+                                                          : result.status.error_msgs[0]);
+                }
+            } catch (std::exception& e) {
+                return Status::IOError<false>("Failed to get batch of split source: {}", e.what());
+            }
+            break;
+        } while (true);
         _last_batch = result.splits.empty();
         _merge_ranges<TScanRangeLocations>(_scan_ranges, result.splits);
         _scan_index = 0;

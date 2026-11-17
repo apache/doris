@@ -59,12 +59,6 @@ const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
 namespace doris::variant_util {
 
-// Convert a restricted glob pattern into a regex (for tests/internal use).
-Status glob_to_regex(const std::string& glob_pattern, std::string* regex_pattern);
-
-// Match a glob pattern against a path using RE2.
-bool glob_match_re2(const std::string& glob_pattern, const std::string& candidate_path);
-
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
 
@@ -148,31 +142,35 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
 // create engine-side ColumnMap<String, String> for variant sparse/doc storage payloads.
 MutableColumnPtr create_variant_binary_column();
 
-DataTypePtr get_variant_binary_column_type();
-
 // create TabletColumn Map<String, String> for sparse storage
 TabletColumn create_sparse_column(const TabletColumn& variant);
 
 // Create one bucket sparse column: name = variant.name_lower_case() + "." + SPARSE_COLUMN_PATH + ".b{index}"
 TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_index);
 
+// Physical doc bucket stored as MAP<STRING, STRING>.
 TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_index);
+
+// Decoded doc bucket used in compaction blocks, nullable with a SQL NULL default for old segments.
+TabletColumn create_doc_value_compaction_column(const TabletColumn& variant, int bucket_index);
 
 // Compute bucket id for given path string using SipHash64(path) % bucket_num.
 uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num);
 
 void get_field_info(const Field& field, FieldInfo* info);
 
-// inherit index from parent column
+// inherit index from parent column. escape_dots is the owning tablet schema's
+// variant_escape_dots_in_keys; it also escapes '%' in the index suffix.
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, FieldType column_type,
-                   const std::string& suffix_path, bool is_array_nested_type = false);
+                   const std::string& suffix_path, bool is_array_nested_type, bool escape_dots);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& sub_column_indexes, const TabletColumn& column);
+                   TabletIndexes& sub_column_indexes, const TabletColumn& column, bool escape_dots);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
+                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb,
+                   bool escape_dots);
 
 Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                     TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,

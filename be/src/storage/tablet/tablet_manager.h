@@ -18,7 +18,6 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <gen_cpp/BackendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -45,10 +44,14 @@ namespace doris {
 
 class DataDir;
 class CumulativeCompactionPolicy;
+class ActiveTabletCollector;
 class MemTracker;
 class TCreateTabletReq;
 class TTablet;
 class TTabletInfo;
+class TTabletStat;
+class TTabletStatResult;
+class TCheckStorageFormatResult;
 
 // TabletManager provides get, add, delete tablet method for storage engine
 // NOTE: If you want to add a method that needs to hold meta-lock before you can call it,
@@ -140,7 +143,8 @@ public:
     //        Status::Error<INVALID_ARGUMENT>(), if tables is null
     Status report_tablet_info(TTabletInfo* tablet_info);
 
-    void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info);
+    void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
+                                       ActiveTabletCollector* active = nullptr);
 
     Status start_trash_sweep();
 
@@ -207,7 +211,7 @@ private:
 
     TabletSharedPtr _internal_create_tablet_unlocked(const TCreateTabletReq& request,
                                                      const bool is_schema_change,
-                                                     const bool is_colocated_row_binlog,
+                                                     const bool is_colocated_changelog,
                                                      const Tablet* base_tablet,
                                                      const std::vector<DataDir*>& data_dirs,
                                                      RuntimeProfile* profile);
@@ -272,8 +276,7 @@ private:
     std::mutex _gc_tablets_lock;
 
     std::mutex _tablet_stat_cache_mutex;
-    std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache =
-            std::make_shared<std::vector<TTabletStat>>();
+    std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache;
 
     tablet_map_t& _get_tablet_map(TTabletId tablet_id);
 

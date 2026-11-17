@@ -32,9 +32,13 @@ TEST(function_binary_test, in_and_not_in_are_not_supported) {
         const DataTypes arguments {type, type};
         auto context = FunctionContext::create_context(
                 &state, make_nullable(std::make_shared<DataTypeUInt8>()), arguments);
-        EXPECT_EQ(FunctionIn<false>().open(context.get(), FunctionContext::FRAGMENT_LOCAL).code(),
+        EXPECT_EQ(FunctionIn<false>()
+                          .open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                          .code(),
                   ErrorCode::NOT_IMPLEMENTED_ERROR);
-        EXPECT_EQ(FunctionIn<true>().open(context.get(), FunctionContext::FRAGMENT_LOCAL).code(),
+        EXPECT_EQ(FunctionIn<true>()
+                          .open(context.get(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                          .code(),
                   ErrorCode::NOT_IMPLEMENTED_ERROR);
     }
 }

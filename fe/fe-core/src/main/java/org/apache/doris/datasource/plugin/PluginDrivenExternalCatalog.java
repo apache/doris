@@ -29,6 +29,7 @@ import org.apache.doris.catalog.info.DropBranchInfo;
 import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -36,17 +37,20 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.DefaultConnectorValidationContext;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTestResult;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -62,6 +66,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalFunctionRules;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalResourceReclaimer;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.connector.converter.ConnectorBranchTagConverter;
@@ -84,11 +89,14 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
 import com.google.common.base.Preconditions;
+import com.google.common.net.HostAndPort;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.util.ArrayList;
+import java.io.UncheckedIOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -113,13 +121,13 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PluginDrivenExternalCatalog.class);
 
     // Volatile for cross-thread visibility; all mutations happen under synchronized(this)
-    // via makeSureInitialized() → initLocalObjectsImpl(), or resetToUninitialized() → onClose().
+    // via makeSureInitialized() → initLocalObjectsImpl(), or resetToUninitialized() → detachResources().
     private transient volatile Connector connector;
 
     // The engine-owned context shared by the connector (and any sibling it builds via createSiblingConnector).
     // Held so the catalog can close the context's cached engine FileSystem (DefaultConnectorContext.getFileSystem)
     // on teardown -- connectors only borrow that FS and must not close it. Null until the real connector is built
-    // (the lightweight CatalogFactory context is not tracked here; its FS is never built).
+    // The CatalogFactory validation context is retained too, so its caches have the same ownership boundary.
     private transient volatile DefaultConnectorContext connectorContext;
 
     // The displayed engine name, resolved from the provider on first use (see getDisplayEngineName).
@@ -146,6 +154,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         this.connector = connector;
     }
 
+    public PluginDrivenExternalCatalog(long catalogId, String name, String resource,
+            Map<String, String> props, String comment, Connector connector, DefaultConnectorContext context) {
+        this(catalogId, name, resource, props, comment, connector);
+        this.connectorContext = context;
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         // Always (re-)create the connector so it gets the proper engine context,
@@ -162,16 +176,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             // Close the old connector (e.g., the one injected by CatalogFactory during
             // checkWhenCreating) to release its connection pool and classloader reference.
             if (oldConnector != null && oldConnector != newConnector) {
-                try {
-                    oldConnector.close();
-                } catch (IOException e) {
-                    LOG.warn("Failed to close old connector during re-initialization "
-                            + "for catalog {}", name, e);
-                }
-                // ...and close the replaced context's cached engine FileSystem (never the live one).
-                if (oldContext != null && oldContext != connectorContext) {
-                    closeConnectorContextQuietly(oldContext);
-                }
+                DefaultConnectorContext contextToClose = oldContext != connectorContext ? oldContext : null;
+                ExternalResourceReclaimer.getInstance().submit("replaced connector for catalog " + id,
+                        detachedResourceCleanup(() -> { }, oldConnector, contextToClose, name));
             }
         }
         if (connector == null) {
@@ -218,8 +225,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         this.connectorContext = context;
         // The standalone entry point, same as CatalogFactory uses: this is the second door onto a catalog (the
         // lazy build after image deserialization), and both doors must agree on what may become a catalog.
-        return ConnectorFactory.createStandaloneCatalogConnector(
-                catalogType, catalogProperty.getProperties(), context);
+        return context.createCatalogConnector(catalogType, catalogProperty.getProperties());
     }
 
     @Override
@@ -232,7 +238,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage());
         }
-        validateStorageProperties(catalogProperty);
+        validateStorageProperties(catalogProperty, catalogProperty.getProperties());
         // Validate function_rules JSON if present (shared across all connector types).
         String functionRules = catalogProperty.getOrDefault("function_rules", null);
         ExternalFunctionRules.check(functionRules);
@@ -256,8 +262,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage(), e);
         }
-        validateStorageProperties(candidateProperty);
+        validateStorageProperties(candidateProperty, updatedProperties);
         checkDriverUrlsAgainstOperatorGate(candidate, updatedProperties);
+        checkEndpointsAgainstSsrf(candidate, updatedProperties);
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
     }
@@ -266,13 +273,15 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      * Bind Hive catalog storage properties during DDL validation so HDFS configuration errors are
      * reported by CREATE/ALTER instead of being deferred until the first table access.
      */
-    private void validateStorageProperties(CatalogProperty property) throws DdlException {
+    private void validateStorageProperties(CatalogProperty property, Map<String, String> submittedProperties)
+            throws DdlException {
         if (!"hms".equalsIgnoreCase(getType())) {
             return;
         }
-        String nameservices = property.getProperties().get("dfs.nameservices");
+        // Reject newly submitted empty values without blocking unrelated ALTERs of legacy catalogs.
+        String nameservices = submittedProperties.get("dfs.nameservices");
         if (nameservices != null
-                && java.util.Arrays.stream(nameservices.split(","))
+                && Arrays.stream(nameservices.split(","))
                 .map(String::trim).noneMatch(value -> !value.isEmpty())) {
             throw new DdlException("Property dfs.nameservices must contain a nameservice");
         }
@@ -286,7 +295,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     /**
      * Applies the operator's driver-jar gate ({@code jdbc_driver_secure_path} /
      * {@code jdbc_driver_url_white_list}) to every driver_url these properties would make the connector
-     * load into the FE JVM.
+     * load into the FE JVM. The checked keys come from the connector's
+     * {@link ConnectorSecuritySurface#jdbcDriverUrlKeys()}, so the engine hard-codes no catalog type.
      *
      * <p>On CREATE the same gate is applied inside the connector's {@code preCreateValidation} (through
      * {@link org.apache.doris.connector.DefaultConnectorValidationContext#validateAndResolveDriverPath}),
@@ -302,36 +312,36 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     private void checkDriverUrlsAgainstOperatorGate(Map<String, String> candidate,
             Map<String, String> updatedProperties) throws DdlException {
-        DriverUrlKeys keys = driverUrlKeysOf(getType());
-        if (keys == null) {
+        ConnectorSecuritySurface surface = securitySurface(candidate);
+        List<String> urlKeys = surface.jdbcDriverUrlKeys();
+        if (urlKeys.isEmpty()) {
             return;
         }
+        String flavorKey = surface.jdbcDriverUrlFlavorKey();
         // Only an ALTER that touches a driver-url key (or the flavor key that can bring a stored one
         // to life) can repoint the loaded jar; a stored value was gated at its own CREATE/ALTER time.
         // Re-resolving an untouched value here would also re-run getFullDriverUrl's file-existence /
         // cloud-download side effects under CatalogMgr's write lock on every unrelated ALTER, and
         // would let a since-tightened allow-list fail ALTERs that change nothing about the jar.
-        boolean touched = keys.urlKeys.stream().anyMatch(updatedProperties::containsKey)
-                || (keys.flavorKey != null && updatedProperties.containsKey(keys.flavorKey));
+        boolean touched = urlKeys.stream().anyMatch(updatedProperties::containsKey)
+                || (flavorKey != null && updatedProperties.containsKey(flavorKey));
         if (!touched) {
             return;
         }
-        if (keys.flavorKey != null
-                && !"jdbc".equalsIgnoreCase(candidate.getOrDefault(keys.flavorKey, ""))) {
+        if (flavorKey != null
+                && !"jdbc".equalsIgnoreCase(candidate.getOrDefault(flavorKey, ""))) {
             // A driver_url on a REST/HMS/filesystem catalog stays the dead config it always was.
             return;
         }
-        for (String key : keys.urlKeys) {
+        for (String key : urlKeys) {
             String driverUrl = candidate.get(key);
             if (driverUrl == null || driverUrl.trim().isEmpty()) {
                 continue;
             }
             try {
                 // The mandatory rule normally runs inside the connector's property holder; repeated
-                // here so a degraded catalog whose plugin is absent (provider validation silently
-                // no-ops) still cannot be repointed at a traversal / non-bare-name jar, and so the
-                // rule holds even under jdbc_driver_secure_path=* (which getFullDriverUrl accepts
-                // wholesale).
+                // here so the rule holds even under jdbc_driver_secure_path=* (which getFullDriverUrl
+                // accepts wholesale), and because the ALTER path never runs preCreateValidation.
                 JdbcDriverUrlSecurity.check(driverUrl);
                 JdbcResource.getFullDriverUrl(driverUrl);
             } catch (Exception e) {
@@ -343,41 +353,134 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
     }
 
-    /** One row of the driver-jar key table: which properties name the jar, live under which flavor key. */
-    private static final class DriverUrlKeys {
-        /** The properties whose value the connector hands to a class loader, documented aliases included. */
-        final List<String> urlKeys;
-        /** The key whose candidate value must be "jdbc" for the urlKeys to be live; null = always live. */
-        final String flavorKey;
+    /**
+     * The connector's declared security-sensitive property surface, looked up by catalog type WITHOUT
+     * initializing a connector (so neither gate forces a catalog to come to life). A missing provider
+     * cannot validate newly submitted properties: accepting them would bypass the gates when its plugin
+     * is restored, since replay and lazy reconstruction deliberately skip statement-time validation.
+     * Only an available provider may declare {@link ConnectorSecuritySurface#EMPTY}.
+     */
+    private ConnectorSecuritySurface securitySurface(Map<String, String> properties) throws DdlException {
+        return ConnectorFactory.findProvider(getType(), properties)
+                .map(ConnectorProvider::securitySurface)
+                .orElseThrow(() -> new DdlException("No ConnectorProvider found for catalog '" + name
+                        + "', type '" + getType() + "'. Install the connector plugin "
+                        + "before altering catalog properties."));
+    }
 
-        DriverUrlKeys(String flavorKey, String... urlKeys) {
-            this.flavorKey = flavorKey;
-            this.urlKeys = Arrays.asList(urlKeys);
+    /**
+     * Applies the operator's SSRF policy (the third-party {@code SecurityChecker} SDK) to every
+     * user-supplied network endpoint these properties would make the FE connect to, rejecting an intranet
+     * target. It mirrors {@link #checkDriverUrlsAgainstOperatorGate}: the connector declares the endpoint
+     * keys through {@link ConnectorSecuritySurface#ssrfEndpointKeys()}, it runs on CREATE
+     * (through {@code checkWhenCreating}) and on the {@code !isReplay} ALTER path (here and in
+     * {@code validatePropertiesBeforeUpdate}) but never on replay, and it is a no-op unless the operator
+     * installed an SSRF checker.
+     *
+     * <p>The judgment itself is delegated to the SDK — see {@link SecurityChecker#checkEndpointForSsrf}.
+     * This is a point-in-time check of the endpoint supplied at CREATE/ALTER; it does not guard a later
+     * runtime connection (DNS rebinding, lazy metadata access) — that is a deliberate scope limit.
+     *
+     * <p>A connector whose property names a host to connect to declares it in its
+     * {@code securitySurface()} and nowhere else.
+     *
+     * <p>An endpoint must be given literally. A client built on Hadoop's {@code Configuration} expands a
+     * {@code ${...}} placeholder (another property, {@code ${env.X}}, a JVM system property) before it
+     * parses the endpoint, so the probe would judge a different destination than the one the client
+     * connects to.
+     */
+    private void checkEndpointsAgainstSsrf(Map<String, String> candidate, Map<String, String> updatedProperties)
+            throws DdlException {
+        SecurityChecker checker = SecurityChecker.getInstance();
+        if (!checker.isEnabled()) {
+            return;
+        }
+        List<String> endpointKeys = securitySurface(candidate).ssrfEndpointKeys();
+        if (endpointKeys.isEmpty()) {
+            return;
+        }
+        // Checked before the touched guard below: a placeholder value was never probed, and an ALTER that
+        // changes only the property it refers to repoints the catalog without touching an endpoint key.
+        for (String key : endpointKeys) {
+            String rawValue = candidate.get(key);
+            if (rawValue != null && rawValue.contains("${")) {
+                throw new DdlException("Property '" + key + "' of catalog '" + name + "' must give its endpoint"
+                        + " literally while an SSRF checker is configured: a ${...} placeholder is expanded"
+                        + " after this check, so its destination cannot be validated");
+            }
+        }
+        // Only an ALTER that touches an endpoint key can repoint the catalog at a new host; a stored literal
+        // value was gated at its own CREATE/ALTER time. On CREATE the full property map is passed as both
+        // arguments, so every supplied endpoint counts as touched and is checked.
+        boolean touched = endpointKeys.stream().anyMatch(updatedProperties::containsKey);
+        if (!touched) {
+            return;
+        }
+        for (String key : endpointKeys) {
+            String rawValue = candidate.get(key);
+            if (rawValue == null || rawValue.trim().isEmpty()) {
+                continue;
+            }
+            // A value may list several comma-separated endpoints (e.g. HA hive.metastore.uris).
+            for (String endpoint : rawValue.split(",")) {
+                HostAndPort hostAndPort = parseEndpoint(endpoint.trim());
+                if (hostAndPort == null) {
+                    continue;
+                }
+                checker.checkEndpointForSsrf(hostAndPort.getHost(), hostAndPort.getPort());
+            }
         }
     }
 
     /**
-     * The driver-jar properties of the three jdbc-flavored catalog types, spelled out here because the
-     * fe.conf policy is the engine's to apply while the keys belong to the connectors, and widening the
-     * plugin SPI for three constants is not worth a plugin API major bump. The keys are the user-facing
-     * property names (with their documented aliases), which are wire-stable. This single table drives
-     * BOTH halves of the gate — the trigger set (urlKeys plus flavorKey: the changes that can repoint
-     * the loaded jar) and the values that get checked — so the two can never drift apart. Owners:
-     * JdbcCatalogProperties, IcebergJdbcMetaStoreProperties, PaimonJdbcMetaStoreProperties. A new
-     * consumer of a jdbc-flavored driver_url adds its row here and nowhere else (see the "Remote
-     * Artifacts and Dynamic Code Loading" section of AGENTS.md).
+     * Parse one endpoint — {@code scheme://host:port} (e.g. {@code thrift://host:9083}) or a bare
+     * {@code host:port} — into host and port for the SSRF probe. An http or https URL that names no port is
+     * probed at its scheme's default port. Returns null when no concrete host:port can be extracted (nothing to
+     * probe); {@link HostAndPort} handles IPv6 literals in brackets natively.
      */
-    private static DriverUrlKeys driverUrlKeysOf(String catalogType) {
-        if ("jdbc".equalsIgnoreCase(catalogType)) {
-            return new DriverUrlKeys(null, "driver_url", "jdbc.driver_url");
+    static HostAndPort parseEndpoint(String value) {
+        if (value == null || value.isEmpty()) {
+            return null;
         }
-        if ("iceberg".equalsIgnoreCase(catalogType)) {
-            return new DriverUrlKeys("iceberg.catalog.type", "iceberg.jdbc.driver_url");
+        try {
+            if (value.contains("://")) {
+                // Match the HMS client's URI semantics: query, fragment and userinfo do not name
+                // the socket destination. HostAndPort.fromParts also strips IPv6 brackets.
+                URI uri = new URI(value);
+                int port = uri.getPort() >= 0 ? uri.getPort() : defaultWebPort(uri.getScheme());
+                if (uri.getHost() == null || port < 0) {
+                    return null;
+                }
+                return HostAndPort.fromParts(uri.getHost(), port);
+            }
+            String authority = value;
+            int slashIdx = authority.indexOf('/');
+            if (slashIdx >= 0) {
+                authority = authority.substring(0, slashIdx);
+            }
+            HostAndPort hostAndPort = HostAndPort.fromString(authority);
+            if (!hostAndPort.hasPort() || hostAndPort.getHost().isEmpty()) {
+                return null;
+            }
+            return hostAndPort;
+        } catch (URISyntaxException | IllegalArgumentException e) {
+            return null;
         }
-        if ("paimon".equalsIgnoreCase(catalogType)) {
-            return new DriverUrlKeys("paimon.catalog.type", "paimon.jdbc.driver_url", "jdbc.driver_url");
+    }
+
+    /**
+     * The port an http or https client connects to when the URI names none, 80 or 443 (RFC 9110 section 4.2), so a
+     * REST endpoint such as {@code https://host/ns} is probed where it connects; -1 for any other scheme, whose
+     * default, if it has one, is its client's.
+     */
+    private static int defaultWebPort(String scheme) {
+        if ("http".equalsIgnoreCase(scheme)) {
+            return 80;
         }
-        return null;
+        if ("https".equalsIgnoreCase(scheme)) {
+            return 443;
+        }
+        return -1;
     }
 
     private void checkHiveParquetTimeZone(CatalogProperty property) throws DdlException {
@@ -405,6 +508,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             throw new DdlException(e.getMessage(), e);
         }
 
+        // Reject an intranet endpoint before any real connect below, regardless of the test_connection
+        // flag (CREATE path; never reached on replay). On CREATE every property is newly supplied, so the
+        // full map is both the candidate and the touched set.
+        checkEndpointsAgainstSsrf(catalogProperty.getProperties(), catalogProperty.getProperties());
+
         boolean testConnection = Boolean.parseBoolean(
                 catalogProperty.getOrDefault(ExternalCatalog.TEST_CONNECTION,
                         String.valueOf(connector.defaultTestConnection())));
@@ -426,8 +534,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     /**
      * Handles catalog property updates. Delegates to the parent which resets
-     * caches, sets objectCreated=false, and calls onClose() to release the
-     * current connector. The next makeSureInitialized() call will trigger
+     * caches, sets objectCreated=false, and detaches the current connector
+     * for background cleanup. The next makeSureInitialized() call will trigger
      * initLocalObjectsImpl() which creates a new connector with the updated
      * properties and proper engine context (auth, etc.).
      *
@@ -445,14 +553,19 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public void onRefreshCache(boolean invalidCache) {
-        if (!invalidCache) {
-            super.onRefreshCache(false);
-            return;
-        }
+        beginTableLookupRefresh();
         try {
-            invalidateAllConnectorCachesIfPresent();
+            if (!invalidCache) {
+                super.onRefreshCache(false);
+                return;
+            }
+            try {
+                invalidateAllConnectorCachesIfPresent();
+            } finally {
+                super.onRefreshCache(true);
+            }
         } finally {
-            super.onRefreshCache(true);
+            endTableLookupRefresh();
         }
     }
 
@@ -492,23 +605,10 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         ConnectorSession session = buildCrossStatementSession();
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-            List<String> tableNames = metadata.listTableNames(session, dbName);
-            // Deliberately the raw field, NOT hasConnectorCapability(): this already runs inside an initialized
-            // catalog, so re-entering makeSureInitialized() here would be pointless work on a listing path.
-            if (!connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
-                return tableNames;
+            if (connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
+                return metadata.listRelationNames(session, dbName);
             }
-            // Mirror legacy IcebergExternalCatalog.listTableNamesFromRemote: for a view-exposing connector
-            // (iceberg) SHOW TABLES includes both tables AND views, because the connector's listTableNames
-            // subtracts the view names. Re-merge the connector's view names here (the two sets are disjoint
-            // by construction, so a plain addAll cannot introduce duplicates).
-            List<String> viewNames = metadata.listViewNames(session, dbName);
-            if (viewNames.isEmpty()) {
-                return tableNames;
-            }
-            List<String> merged = new ArrayList<>(tableNames);
-            merged.addAll(viewNames);
-            return merged;
+            return metadata.listTableNames(session, dbName);
         } finally {
             session.getStatementScope().closeAll();
         }
@@ -518,7 +618,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         ConnectorSession session = buildConnectorSession();
         return PluginDrivenMetadata.get(session, connector)
-                .getTableHandle(session, dbName, tblName).isPresent();
+                .tableExists(session, dbName, tblName);
     }
 
     @Override
@@ -610,6 +710,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public void registerDatabaseFromEvent(String remoteDbName, String localDbName) {
+        // The database list leaves out what include_database_list and exclude_database_list keep out; an event must
+        // not add it to the list either.
+        if (!isDatabaseListed(remoteDbName)) {
+            return;
+        }
         long dbId = Util.genIdByName(getName(), localDbName);
         try {
             ExternalDatabase<? extends ExternalTable> db =
@@ -662,8 +767,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         // Both views matter: name folding can expose a local conflict that the remote lookup does not see.
-        boolean remoteExists = metadata.getTableHandle(session, db.getRemoteName(),
-                createTableInfo.getTableName()).isPresent();
+        boolean remoteExists = metadata.tableExists(session, db.getRemoteName(),
+                createTableInfo.getTableName());
         boolean localExists = db.getTableNullable(localTableName) != null;
         if (remoteExists || localExists) {
             if (createTableInfo.isIfNotExists()) {
@@ -688,8 +793,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             // The probe and create are not atomic. A successful re-probe turns a lost IF NOT EXISTS race into
             // the same CTAS-short-circuit result as an initially existing table.
             if (createTableInfo.isIfNotExists()
-                    && metadata.getTableHandle(session, db.getRemoteName(),
-                            createTableInfo.getTableName()).isPresent()) {
+                    && metadata.tableExists(session, db.getRemoteName(),
+                            createTableInfo.getTableName())) {
                 LOG.info("create table[{}.{}.{}] lost the race to a concurrent creator; "
                                 + "treating as an IF NOT EXISTS no-op", getName(),
                         createTableInfo.getDbName(), createTableInfo.getTableName());
@@ -711,9 +816,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public void validateCreateTableProperties(CreateTableInfo createTableInfo) throws DdlException {
         try {
+            PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(
+                    createTableInfo.getProperties());
             // Provider preflight is configuration-only and must run before catalog initialization or remote lookup.
             ConnectorFactory.validateCreateTable(getType(), getProperties());
-        } catch (DorisConnectorException e) {
+        } catch (DorisConnectorException | AnalysisException e) {
             throw new DdlException(e.getMessage(), e);
         }
     }
@@ -855,8 +962,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             LOG.info("finished to drop view {}.{}.{}", getName(), dbName, tableName);
             return;
         }
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
-                session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+        // A query handle may refer to cached read metadata after an out-of-band drop. DDL must
+        // first check current existence so IF EXISTS still performs local cleanup in that case.
+        Optional<ConnectorTableHandle> handle = metadata.tableExists(
+                session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
+                ? metadata.getTableHandleForDdl(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
+                : Optional.empty();
         // The table is present in the FE cache but may have been dropped out-of-band on the remote
         // side; preserve the existing IF EXISTS handling for that case.
         if (!handle.isPresent()) {
@@ -963,20 +1074,25 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     .refreshTableInternal(db.get(), table.get(), info.getUpdateTime());
             return;
         }
-        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        beginTableLookupRefresh();
         try {
-            Connector replayConnector = connector;
-            if (isInitialized() && replayConnector != null) {
-                if (db.isPresent()) {
-                    replayConnector.invalidateDb(db.get().getRemoteName());
-                } else {
-                    replayConnector.invalidateAll();
+            ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            try {
+                Connector replayConnector = connector;
+                if (isInitialized() && replayConnector != null) {
+                    if (db.isPresent()) {
+                        replayConnector.invalidateDb(db.get().getRemoteName());
+                    } else {
+                        replayConnector.invalidateAll();
+                    }
                 }
+            } finally {
+                long dbId = Util.genIdByName(getName(), info.getDb());
+                cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
+                        Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
             }
         } finally {
-            long dbId = Util.genIdByName(getName(), info.getDb());
-            cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
-                    Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
+            endTableLookupRefresh();
         }
     }
 
@@ -1388,6 +1504,27 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         afterExternalDdl(externalTable, updateTime);
     }
 
+    /**
+     * Routes {@code ALTER TABLE ... SET ("key" = "value", ...)} with connector-native properties through the
+     * SPI's {@code ConnectorTableOps#setTableProperties}. The whole map goes to the connector in one call, which
+     * commits all of it or none of it, and {@link #afterExternalDdl} runs only after that call returns, so a
+     * rejected update neither writes the refresh editlog nor refreshes the cached table.
+     */
+    @Override
+    public void updateTableProperties(TableIf dorisTable, Map<String, String> properties) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.setTableProperties(session, handle, properties);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
     /** Initializes + checks the table is an {@link ExternalTable}, mirroring the base {@link ExternalCatalog}. */
     private ExternalTable checkExternalTable(TableIf dorisTable) {
         makeSureInitialized();
@@ -1401,7 +1538,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     private ConnectorTableHandle resolveAlterHandle(ExternalTable externalTable, ConnectorSession session,
             ConnectorMetadata metadata) throws DdlException {
-        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandleForDdl(
                 session, externalTable.getRemoteDbName(), externalTable.getRemoteName());
         if (!handle.isPresent()) {
             throw new DdlException("Failed to get table: '" + externalTable.getName()
@@ -1661,41 +1798,70 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
     }
 
-    private void closeConnectorContextQuietly(DefaultConnectorContext context) {
-        if (context == null) {
-            return;
-        }
-        try {
-            context.close();
-        } catch (Throwable e) {
-            LOG.warn("Failed to close connector context filesystem for catalog {}", name, e);
-        }
+    @Override
+    protected Runnable captureConnectorCacheRetirement() {
+        DefaultConnectorContext contextToRetire = connectorContext;
+        return contextToRetire == null ? () -> { } : contextToRetire::retireMetadataCaches;
     }
 
     @Override
-    protected void closeResources() {
-        try {
-            super.closeResources();
-        } catch (Throwable e) {
-            LOG.warn("Failed to close common resources for plugin-driven catalog {}", name, e);
-        }
-
-        // Detach every stage before invoking external code. A throwing connector must not remain reachable
-        // for another close attempt or prevent the connector-context stage from running.
+    protected Runnable detachResources() {
+        Runnable commonCleanup = super.detachResources();
         Connector connectorToClose = connector;
-        connector = null;
-        if (connectorToClose != null) {
-            try {
-                connectorToClose.close();
-            } catch (Throwable e) {
-                LOG.warn("Failed to close connector for catalog {}", name, e);
-            }
-        }
-        // Close the shared context's cached engine FileSystem AFTER the connector(s) release their borrowed
-        // reference to it. No-op when no FS was ever built (e.g. non-hive plugin catalogs never call
-        // getFileSystem()).
         DefaultConnectorContext contextToClose = connectorContext;
+        connector = null;
         connectorContext = null;
-        closeConnectorContextQuietly(contextToClose);
+        // Capture all stages together. A new runtime may be published before this action starts.
+        return detachedResourceCleanup(commonCleanup, connectorToClose, contextToClose, name);
+    }
+
+    private static Runnable detachedResourceCleanup(Runnable commonCleanup, Connector connectorToClose,
+            DefaultConnectorContext contextToClose, String catalogName) {
+        return () -> {
+            Throwable failure = null;
+            try {
+                commonCleanup.run();
+            } catch (Throwable e) {
+                failure = e;
+            }
+            if (connectorToClose != null) {
+                Thread thread = Thread.currentThread();
+                ClassLoader previous = thread.getContextClassLoader();
+                try {
+                    thread.setContextClassLoader(connectorToClose.getClass().getClassLoader());
+                    MetaCacheCleanup.runWithResourceReclaimer((description, child) -> child.run(), () -> {
+                        try {
+                            connectorToClose.close();
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
+                } catch (Throwable e) {
+                    if (failure == null) {
+                        failure = e;
+                    } else if (failure != e) {
+                        failure.addSuppressed(e);
+                    }
+                } finally {
+                    thread.setContextClassLoader(previous);
+                }
+            }
+            // The context owns the shared filesystem; close it after the connector releases its borrow.
+            if (contextToClose != null) {
+                try {
+                    contextToClose.close();
+                } catch (Throwable e) {
+                    if (failure == null) {
+                        failure = e;
+                    } else if (failure != e) {
+                        failure.addSuppressed(e);
+                    }
+                }
+            }
+            if (failure != null) {
+                throw new IllegalStateException("Failed to close detached resources for catalog " + catalogName,
+                        failure);
+            }
+        };
     }
 }

@@ -38,6 +38,7 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.IsolationLevel;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFiles;
 import org.apache.iceberg.ManifestReader;
@@ -60,12 +61,14 @@ import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.Transactions;
 import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.WriteResult;
+import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.logging.log4j.LogManager;
@@ -100,9 +103,12 @@ import java.util.Set;
  *
  * <p><b>Op selection (P6.3-T04).</b> Unlike the legacy class (which split {@code finishInsert} from
  * {@code commit}), the unified {@link ConnectorTransaction} SPI exposes only {@link #commit()} — so the
- * manifest build happens there (mirroring maxcompute): INSERT &rarr; AppendFiles; OVERWRITE dynamic &rarr;
- * ReplacePartitions; OVERWRITE empty/unpartitioned &rarr; OverwriteFiles (clears the table); OVERWRITE static
- * &rarr; OverwriteFiles.overwriteByRowFilter; DELETE &rarr; RowDelta (deletes); UPDATE/MERGE &rarr; RowDelta
+ * manifest build happens there (mirroring maxcompute): INSERT &rarr; AppendFiles; a bare OVERWRITE in
+ * {@code static} mode ({@code iceberg_partition_overwrite_mode}, the default) &rarr;
+ * OverwriteFiles.overwriteByRowFilter(alwaysTrue) (clears the whole table, including data from older
+ * partition specs); a bare OVERWRITE in {@code dynamic} mode &rarr; ReplacePartitions; OVERWRITE ...
+ * PARTITION(col=val) &rarr; OverwriteFiles.overwriteByRowFilter; OVERWRITE empty/unpartitioned &rarr;
+ * OverwriteFiles (clears the table); DELETE &rarr; RowDelta (deletes); UPDATE/MERGE &rarr; RowDelta
  * (rows + deletes). The {@code IcebergWriterHelper} equivalents (DataFile / DeleteFile / Metrics /
  * PartitionData) live in {@link IcebergWriterHelper}.</p>
  *
@@ -124,8 +130,13 @@ import java.util.Set;
 public class IcebergConnectorTransaction implements ConnectorTransaction, RewriteCapableTransaction {
 
     private static final Logger LOG = LogManager.getLogger(IcebergConnectorTransaction.class);
-    private static final String DELETE_ISOLATION_LEVEL = "delete_isolation_level";
-    private static final String DELETE_ISOLATION_LEVEL_DEFAULT = "serializable";
+    private static final String LEGACY_DELETE_ISOLATION_LEVEL = "delete_isolation_level";
+    // Scope of a bare INSERT OVERWRITE (no PARTITION clause). Key + values are byte-identical to the fe-core
+    // SessionVariable constants (the connector cannot import fe-core); the value reaches the commit through
+    // ConnectorSession.getProperty, which reads the session-variable registry by name.
+    private static final String ICEBERG_PARTITION_OVERWRITE_MODE = "iceberg_partition_overwrite_mode";
+    private static final String PARTITION_OVERWRITE_MODE_DYNAMIC = "dynamic";
+    private static final String PARTITION_OVERWRITE_MODE_STATIC = "static";
 
     private final long transactionId;
     private final IcebergCatalogOps catalogOps;
@@ -133,6 +144,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private final IcebergCatalogResourceTracker resourceTracker;
     private final String catalogFlavor;
     private final List<TIcebergCommitData> commitDataList = new ArrayList<>();
+    // The raw data locations the sinks of this write commit their files under, registered by planWrite for
+    // every sink it builds (several for a rewrite_data_files whose groups each plan one). Guarded by this,
+    // like commitDataList.
+    private final Set<String> commitLocations = new HashSet<>();
 
     // The single SDK transaction / table, opened lazily by beginWrite (the write plan binds the target
     // table only when the sink is planned). volatile: addCommitData / commit may run on different threads.
@@ -155,7 +170,12 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     // Op context captured at begin time, consumed by commit() (the volatile transaction write at the end of
     // beginWrite publishes these plain writes to the commit thread).
     private WriteOperation writeOperation = WriteOperation.INSERT;
+    private IsolationLevel rowLevelIsolationLevel;
     private boolean staticPartitionOverwrite;
+    // True when iceberg_partition_overwrite_mode = 'static': a bare INSERT OVERWRITE clears the whole table
+    // (every partition spec) instead of replacing only the partitions the new data lands in. Captured at begin
+    // time from the session variable, whose default is 'static'; an absent variable also means 'static'.
+    private boolean wholeTableOverwrite;
     private Map<String, String> staticPartitionValues = Collections.emptyMap();
     private String branchName;
     private IcebergWriteSchemaContext writeSchemaContext;
@@ -238,6 +258,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         }
         this.writeOperation = ctx.getWriteOperation();
         this.staticPartitionOverwrite = ctx.isStaticPartitionOverwrite();
+        String overwriteMode = session.getProperty(ICEBERG_PARTITION_OVERWRITE_MODE, String.class);
+        this.wholeTableOverwrite = PARTITION_OVERWRITE_MODE_STATIC.equalsIgnoreCase(
+                overwriteMode == null ? PARTITION_OVERWRITE_MODE_STATIC : overwriteMode);
         this.staticPartitionValues = ctx.getStaticPartitionValues();
         this.writeSchemaContext = ctx.getWriteSchemaContext();
         this.zone = IcebergTimeUtils.resolveSessionZone(session);
@@ -259,6 +282,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 this.table = loaded;
                 try {
                     validateBoundWriteGeneration(ctx, loaded);
+                    IcebergSchemaUtils.validateNoUnknownForWrite(loaded.schema());
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
                     }
@@ -267,8 +291,16 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     // BaseTable.newTransaction refreshes metadata. Fence that second load too, closing the
                     // drop/recreate race between the initial generation check and transaction construction.
                     validateBoundWriteGeneration(ctx, loaded);
+                    IcebergSchemaUtils.validateNoUnknownForWrite(loaded.schema());
                     if (writeSchemaContext != null) {
                         writeSchemaContext.validateCurrentSchema(loaded, ctx.isOverwrite());
+                    }
+                    // Reject invalid isolation before a sink can dispatch BE file writes. Read the SDK
+                    // transaction's refreshed metadata and keep that selection for this statement's commit.
+                    IsolationLevel isolationLevel = null;
+                    if (writeOperation == WriteOperation.DELETE || writeOperation == WriteOperation.UPDATE
+                            || writeOperation == WriteOperation.MERGE) {
+                        isolationLevel = resolveIsolationLevel(opened.table(), writeOperation);
                     }
                     synchronized (beginLock) {
                         if (closed) {
@@ -276,9 +308,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                             throw new IllegalStateException(
                                     "Iceberg transaction closed while its write table was loading");
                         }
-                        this.transaction = opened;
+                        this.rowLevelIsolationLevel = isolationLevel;
                         this.tableLease = retained;
                         retained = null;
+                        this.transaction = opened;
                         writeStarted = true;
                     }
                     return null;
@@ -339,6 +372,17 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * {@code io()} differs. Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) keep the legacy path.
      */
     private Transaction openTransaction(Table loaded, boolean requireCurrentPartitionSpec) {
+        return openTransaction(loaded, context, writeSchemaContext, requireCurrentPartitionSpec, null, null);
+    }
+
+    /**
+     * Transaction-opening seam shared by the row-level write path and the whole-file metadata delete: wraps the
+     * table's {@link TableOperations#io()} in the plugin Kerberos {@code doAs} so manifest work fanned onto
+     * Iceberg's shared worker pool still authenticates, and optionally installs the pinned write-schema validator.
+     */
+    static Transaction openTransaction(Table loaded, ConnectorContext context,
+            IcebergWriteSchemaContext writeSchemaContext, boolean requireCurrentPartitionSpec,
+            String boundWriteMetadataIdentity, Long requiredSnapshotId) {
         HadoopAuthenticator auth = context instanceof TcclPinningConnectorContext
                 ? ((TcclPinningConnectorContext) context).getPluginAuthenticator()
                 : null;
@@ -353,9 +397,10 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             FileIO authIo = new IcebergAuthenticatedFileIO(realOps.io(), auth);
             writeOps = new IcebergAuthenticatedTableOperations(realOps, authIo);
         }
-        if (writeSchemaContext != null) {
+        if (writeSchemaContext != null || boundWriteMetadataIdentity != null || requiredSnapshotId != null) {
             writeOps = new ValidatingTableOperations(
-                    writeOps, writeSchemaContext, requireCurrentPartitionSpec, loaded.name());
+                    writeOps, writeSchemaContext, requireCurrentPartitionSpec, loaded.name(),
+                    boundWriteMetadataIdentity, requiredSnapshotId);
         }
         if (writeOps == realOps) {
             return loaded.newTransaction();
@@ -382,14 +427,23 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         private final IcebergWriteSchemaContext writeSchemaContext;
         private final boolean requireCurrentPartitionSpec;
         private final String tableName;
+        // Non-null for a whole-file metadata delete: fences the final CAS (including retry replays) against a
+        // same-name table replacement or a schema/partition rebind that happened after planning.
+        private final String boundWriteMetadataIdentity;
+        // Non-null for a whole-file metadata delete: requires the commit to apply to the exact snapshot the
+        // affected-row preflight inspected, so a concurrent commit aborts instead of changing the removed set.
+        private final Long requiredSnapshotId;
 
         private ValidatingTableOperations(TableOperations delegate,
                 IcebergWriteSchemaContext writeSchemaContext,
-                boolean requireCurrentPartitionSpec, String tableName) {
+                boolean requireCurrentPartitionSpec, String tableName,
+                String boundWriteMetadataIdentity, Long requiredSnapshotId) {
             this.delegate = delegate;
             this.writeSchemaContext = writeSchemaContext;
             this.requireCurrentPartitionSpec = requireCurrentPartitionSpec;
             this.tableName = tableName;
+            this.boundWriteMetadataIdentity = boundWriteMetadataIdentity;
+            this.requiredSnapshotId = requiredSnapshotId;
         }
 
         @Override
@@ -399,7 +453,9 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
         @Override
         public TableMetadata refresh() {
-            return delegate.refresh();
+            TableMetadata refreshed = delegate.refresh();
+            checkRequiredSnapshot(refreshed);
+            return refreshed;
         }
 
         @Override
@@ -417,9 +473,30 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                     new StaticTableOperations(
                             currentMetadata, delegate.io(), delegate.locationProvider()),
                     tableName);
-            writeSchemaContext.validateCurrentSchema(
-                    currentTable, requireCurrentPartitionSpec);
+            if (writeSchemaContext != null) {
+                writeSchemaContext.validateCurrentSchema(
+                        currentTable, requireCurrentPartitionSpec);
+            }
+            if (boundWriteMetadataIdentity != null
+                    && !boundWriteMetadataIdentity.equals(
+                            IcebergWritePlanProvider.writeMetadataIdentity(currentTable))) {
+                throw new DorisConnectorException(
+                        "Iceberg write metadata changed after the write was bound; retry the statement");
+            }
+            checkRequiredSnapshot(currentMetadata);
             delegate.commit(base, metadata);
+        }
+
+        /** Aborts a retry replay that would apply the delete to a snapshot other than the preflighted one. */
+        private void checkRequiredSnapshot(TableMetadata metadata) {
+            if (requiredSnapshotId == null) {
+                return;
+            }
+            Snapshot current = metadata.currentSnapshot();
+            if (current == null || current.snapshotId() != requiredSnapshotId) {
+                throw new ValidationException(
+                        "Table %s changed since the metadata delete preflight; retry the statement", tableName);
+            }
         }
 
         @Override
@@ -564,8 +641,44 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             throw new DorisConnectorException("failed to deserialize Iceberg commit data", e);
         }
         synchronized (this) {
+            checkCommitLocation(data);
             commitDataList.add(data);
         }
+    }
+
+    /**
+     * Registers a raw data location a sink of this write carries ({@code TIcebergTableSink.original_output_path}
+     * or {@code TIcebergDeleteSink.table_location}): BE writes the sink's files under the normalized form of it
+     * and must report them under it. Called by planWrite for every sink it builds.
+     */
+    void addCommitLocation(String location) {
+        if (location == null || location.isEmpty()) {
+            throw new DorisConnectorException("An iceberg sink must carry the raw location it commits files under");
+        }
+        synchronized (this) {
+            commitLocations.add(location);
+        }
+    }
+
+    /**
+     * Rejects a fragment whose file is not recorded under a location a sink of this write carries. BE writes
+     * through the normalized location (s3://b/db/t/data for an oss:// table) and must report the table's own
+     * form (oss://b/db/t/data/x.parquet): Iceberg metadata, other engines and {@link #rollback} resolve the
+     * reported path with the table's file system, so the s3:// form names a file no other engine can open, and
+     * nothing failed when delete files were committed that way. Throwing here makes FE reject the report: the
+     * statement fails and BE deletes the files under the paths it wrote them at.
+     */
+    private void checkCommitLocation(TIcebergCommitData data) {
+        String path = data.getFilePath();
+        if (path != null) {
+            for (String location : commitLocations) {
+                if (path.startsWith(location.endsWith("/") ? location : location + "/")) {
+                    return;
+                }
+            }
+        }
+        throw new DorisConnectorException("Iceberg commit data reports file " + path
+                + " outside the locations its sinks commit files under: " + commitLocations);
     }
 
     /**
@@ -707,6 +820,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             case OVERWRITE:
                 if (staticPartitionOverwrite) {
                     commitStaticPartitionOverwrite(buildDataWriteResults());
+                } else if (wholeTableOverwrite) {
+                    commitWholeTableOverwrite(buildDataWriteResults());
                 } else {
                     commitReplaceTxn(buildDataWriteResults());
                 }
@@ -795,6 +910,31 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             Arrays.stream(result.dataFiles()).forEach(appendFiles::appendFile);
         }
         appendFiles.commit();
+    }
+
+    /**
+     * {@code iceberg_partition_overwrite_mode = static}: a bare {@code INSERT OVERWRITE TABLE t} (no PARTITION
+     * clause) clears the whole table and then adds the new files, whatever partition spec the existing files
+     * were written with. Mirrors Iceberg Spark's default ({@code partitionOverwriteMode=static}), which maps an
+     * always-true overwrite to {@link OverwriteFiles#overwriteByRowFilter} with {@code alwaysTrue}. Unlike
+     * {@link ReplacePartitions} - which only drops files whose own {@code (specId, partition)} tuple matches -
+     * a row filter is spec-agnostic, so data written before a partition-spec evolution is removed as well. With
+     * no written data at all this simply empties the table, matching Spark's static mode.
+     */
+    private void commitWholeTableOverwrite(List<WriteResult> pendingResults) {
+        OverwriteFiles overwriteFiles = transaction.newOverwrite();
+        if (branchName != null) {
+            overwriteFiles = overwriteFiles.toBranch(branchName);
+        }
+        overwriteFiles = overwriteFiles.overwriteByRowFilter(Expressions.alwaysTrue());
+        // Clearing a table must fail if any data or delete landed after the statement's base snapshot.
+        overwriteFiles = validateOverwrite(overwriteFiles, Expressions.alwaysTrue());
+        for (WriteResult result : pendingResults) {
+            Preconditions.checkState(result.referencedDataFiles().length == 0,
+                    "Should have no referenced data files for a whole-table overwrite.");
+            Arrays.stream(result.dataFiles()).forEach(overwriteFiles::addFile);
+        }
+        overwriteFiles.commit();
     }
 
     private void commitReplaceTxn(List<WriteResult> pendingResults) {
@@ -888,6 +1028,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             return Expressions.alwaysTrue();
         }
 
+        Set<Integer> unsafeNanosFields = IcebergPredicateConverter.unsafeNanosFields(transaction.table(), schema);
         List<Expression> predicates = new ArrayList<>();
         Set<String> unmatchedFields = new HashSet<>(staticPartitions.keySet());
         for (PartitionField field : spec.fields()) {
@@ -902,7 +1043,13 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 }
                 Object partitionValue = IcebergPartitionUtils.parsePartitionValueFromString(
                         partitionValueStr, sourceField.type(), zone);
-                predicates.add(identityPartitionPredicate(sourceField.name(), partitionValue));
+                // Dropping an unsafe deletion predicate would widen the overwrite to other partitions.
+                if (partitionValue != null && unsafeNanosFields.contains(sourceField.fieldId())) {
+                    throw new DorisConnectorException(
+                            "Cannot overwrite timestamp_ns partition with historical DATE bounds: "
+                                    + sourceField.name());
+                }
+                predicates.add(identityPartitionPredicate(sourceField, partitionValue));
             }
         }
 
@@ -929,13 +1076,18 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
      * both paths that build this predicate: DELETE/UPDATE/MERGE conflict detection and
      * {@code INSERT OVERWRITE ... PARTITION(d='nan')}.
      */
-    private static Expression identityPartitionPredicate(String sourceColName, Object value) {
+    private static Expression identityPartitionPredicate(Types.NestedField sourceField, Object value) {
+        String sourceColName = sourceField.name();
         if (value == null) {
             return Expressions.isNull(sourceColName);
         }
         if ((value instanceof Double || value instanceof Float)
                 && Double.isNaN(((Number) value).doubleValue())) {
             return Expressions.isNaN(sourceColName);
+        }
+        if (sourceField.type().typeId() == TypeID.TIMESTAMP_NANO) {
+            // Partition values are already nanos; a raw Long would be rebound as microseconds.
+            return Expressions.equal(sourceColName, Expressions.nanos((Long) value));
         }
         return Expressions.equal(sourceColName, value);
     }
@@ -1094,7 +1246,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             List<TIcebergCommitData> commitData, List<String> referencedDataFiles) {
         applyBaseSnapshotValidation(rowDelta);
         applyConflictDetectionFilter(rowDelta, icebergTable, commitData);
-        if (isSerializableIsolationLevel(icebergTable)) {
+        if (rowLevelIsolationLevel == IsolationLevel.SERIALIZABLE) {
             rowDelta.validateNoConflictingDataFiles();
         }
         rowDelta.validateDeletedFiles();
@@ -1134,7 +1286,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         // matrix is a conservative port of legacy convertPredicateToIcebergExpression (IS NULL / BETWEEN /
         // same-column OR / NOT(IS NULL); drops NE / cross-column OR) — different from scan pushdown.
         List<Expression> converted =
-                new IcebergPredicateConverter(icebergTable.schema(), zone, true).convert(expr);
+                IcebergPredicateConverter.forTable(icebergTable, icebergTable.schema(), zone,
+                        IcebergPredicateConverter.Mode.CONFLICT).convert(expr);
         if (converted.isEmpty()) {
             return Optional.empty();
         }
@@ -1174,6 +1327,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         }
 
         Schema schema = icebergTable.schema();
+        Set<Integer> unsafeNanosFields = IcebergPredicateConverter.unsafeNanosFields(icebergTable, schema);
         int currentSpecId = spec.specId();
 
         Expression combined = null;
@@ -1190,7 +1344,8 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 return Optional.empty();
             }
 
-            Expression partitionExpr = buildIdentityPartitionExpression(spec, schema, partitionValues);
+            Expression partitionExpr = buildIdentityPartitionExpression(
+                    spec, schema, partitionValues, unsafeNanosFields);
             if (partitionExpr == null) {
                 return Optional.empty();
             }
@@ -1209,7 +1364,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     }
 
     private Expression buildIdentityPartitionExpression(PartitionSpec spec, Schema schema,
-            List<String> partitionValues) {
+            List<String> partitionValues, Set<Integer> unsafeNanosFields) {
         Expression expression = null;
         List<PartitionField> fields = spec.fields();
         for (int i = 0; i < fields.size(); i++) {
@@ -1223,7 +1378,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 valueStr = null;
             }
             Object value = IcebergPartitionUtils.parsePartitionValueFromString(valueStr, sourceField.type(), zone);
-            Expression predicate = identityPartitionPredicate(sourceField.name(), value);
+            // Conflict detection may widen, but must never miss files with retained DATE metrics.
+            if (value != null && unsafeNanosFields.contains(sourceField.fieldId())) {
+                continue;
+            }
+            Expression predicate = identityPartitionPredicate(sourceField, value);
             expression = expression == null ? predicate : Expressions.and(expression, predicate);
         }
         return expression;
@@ -1242,13 +1401,32 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
         return Collections.emptyList();
     }
 
-    boolean isSerializableIsolationLevel(Table icebergTable) {
-        if (icebergTable == null) {
-            return true;
+    IsolationLevel resolveIsolationLevel(Table icebergTable, WriteOperation operation) {
+        String property;
+        String defaultLevel;
+        switch (operation) {
+            case DELETE:
+                property = TableProperties.DELETE_ISOLATION_LEVEL;
+                defaultLevel = TableProperties.DELETE_ISOLATION_LEVEL_DEFAULT;
+                break;
+            case UPDATE:
+                property = TableProperties.UPDATE_ISOLATION_LEVEL;
+                defaultLevel = TableProperties.UPDATE_ISOLATION_LEVEL_DEFAULT;
+                break;
+            case MERGE:
+                property = TableProperties.MERGE_ISOLATION_LEVEL;
+                defaultLevel = TableProperties.MERGE_ISOLATION_LEVEL_DEFAULT;
+                break;
+            default:
+                throw new IllegalArgumentException(
+                        "Unsupported iceberg row-level write operation: " + operation);
         }
-        String level = icebergTable.properties()
-                .getOrDefault(DELETE_ISOLATION_LEVEL, DELETE_ISOLATION_LEVEL_DEFAULT);
-        return "serializable".equalsIgnoreCase(level);
+        // Standard per-operation settings take precedence; existing legacy-only tables retain their
+        // configured isolation until they migrate. Parse only the selected value, including invalid ones.
+        Map<String, String> properties = icebergTable.properties();
+        String level = properties.getOrDefault(property,
+                properties.getOrDefault(LEGACY_DELETE_ISOLATION_LEVEL, defaultLevel));
+        return IsolationLevel.fromName(level);
     }
 
     // ─────────────────── V3 deletion-vector "rewrite previous delete files" (legacy :786-851) ───────────────────
@@ -1406,11 +1584,51 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     @Override
     public void rollback() {
-        // Insert-mode: nothing to undo on the FE side — an uncommitted SDK transaction simply discards
-        // its pending manifests (legacy IcebergTransaction.rollback no-ops the insert path). The rewrite
-        // path's file-list cleanup is a P6.4 procedure concern, out of scope here.
-        LOG.info("Iceberg transaction {} rollback called; uncommitted manifests will be discarded.",
-                transactionId);
+        List<TIcebergCommitData> pending;
+        synchronized (this) {
+            pending = new ArrayList<>(commitDataList);
+            commitDataList.clear();
+        }
+        Table rollbackTable = table;
+        if (rollbackTable == null || pending.isEmpty()) {
+            LOG.info("Iceberg transaction {} rollback called; no external files were reported.",
+                    transactionId);
+            return;
+        }
+
+        Set<String> paths = new HashSet<>();
+        for (TIcebergCommitData data : pending) {
+            if (data != null && data.isSetFilePath() && data.getFilePath() != null
+                    && !data.getFilePath().isEmpty()) {
+                paths.add(data.getFilePath());
+            }
+        }
+        if (paths.isEmpty()) {
+            LOG.info("Iceberg transaction {} rollback called; no external files were reported.",
+                    transactionId);
+            return;
+        }
+
+        try {
+            context.executeAuthenticated(() -> {
+                for (String path : paths) {
+                    try {
+                        rollbackTable.io().deleteFile(path);
+                    } catch (Exception e) {
+                        // Rollback is best-effort. A missing file is already clean, while an IO failure
+                        // must be logged for orphan-file maintenance rather than masking the query error.
+                        LOG.warn("Failed to delete uncommitted Iceberg file {} for transaction {}: {}",
+                                path, transactionId, e.getMessage());
+                    }
+                }
+                return null;
+            });
+            LOG.info("Iceberg transaction {} rollback attempted to delete {} reported external file(s).",
+                    transactionId, paths.size());
+        } catch (Exception e) {
+            LOG.warn("Failed to clean reported Iceberg files for transaction {}: {}", transactionId,
+                    e.getMessage());
+        }
     }
 
     @Override

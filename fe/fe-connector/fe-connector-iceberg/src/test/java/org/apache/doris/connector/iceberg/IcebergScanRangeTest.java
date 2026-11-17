@@ -43,6 +43,26 @@ import java.util.Optional;
 public class IcebergScanRangeTest {
 
     @Test
+    public void metadataTasksUseTaskIdentityAndNativeRangesKeepFileIdentity() {
+        IcebergScanRange first = new IcebergScanRange.Builder().path("/dummyPath")
+                .serializedSplit("task-a").build();
+        IcebergScanRange second = new IcebergScanRange.Builder().path("/dummyPath")
+                .serializedSplit("task-b").build();
+        IcebergScanRange sameWork = new IcebergScanRange.Builder().path("/dummyPath")
+                .serializedSplit("task-a").build();
+        Assertions.assertEquals(first.getPath(), second.getPath());
+        Assertions.assertEquals(first.getStart(), second.getStart());
+        Assertions.assertEquals(first.getLength(), second.getLength());
+        Assertions.assertNotEquals(first.getSplitIdentity(), second.getSplitIdentity());
+        Assertions.assertEquals(first.getSplitIdentity(), sameWork.getSplitIdentity());
+        IcebergScanRange nativeRange = new IcebergScanRange.Builder().path("s3://bucket/file.parquet").build();
+        Assertions.assertEquals("s3://bucket/file.parquet", nativeRange.getSplitIdentity());
+        IcebergScanRange nativeDeletes = new IcebergScanRange.Builder().path("s3://bucket/delete.parquet")
+                .positionDeleteSysTableSplit(1, TFileFormatType.FORMAT_PARQUET, "s3://bucket/delete.parquet").build();
+        Assertions.assertEquals("s3://bucket/delete.parquet", nativeDeletes.getSplitIdentity());
+    }
+
+    @Test
     public void builderProducesFileScanRangeWithFileFields() {
         IcebergScanRange range = new IcebergScanRange.Builder()
                 .path("s3://bucket/db/t/data/f.parquet")

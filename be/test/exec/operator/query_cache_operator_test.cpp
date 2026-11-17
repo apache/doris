@@ -748,14 +748,9 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache_multi_block_reordered_slots) {
 
     source->_cache_param = cache_param;
     source->_query_cache_runtime = std::make_shared<QueryCacheRuntime>(cache_param, query_cache);
-    // In production this operator is also built without a plan node, so its
-    // _row_descriptor reports zero materialized slots and clear_column_data()
-    // wipes the block every pull -- the schema-carrying reused-block shape is
-    // accidentally unreachable today. Report a real slot count here to pin
-    // the permute-before-merge invariant against the natural cleanups (a real
-    // row descriptor, or removing the redundant per-operator wipe) that would
-    // make that shape live.
-    source->_row_descriptor._num_materialized_slots = 2;
+    // Give the source the real output layout so clear_column_data() preserves
+    // the schema-carrying reused block between pulls.
+    source->_row_descriptor = *row_desc;
     create_local_state();
 
     EXPECT_EQ(source_local_state->_slot_orders, (std::vector<int> {10, 11}));
@@ -849,7 +844,7 @@ TEST_F(QueryCacheOperatorTest, test_incremental_reordered_write_back) {
     }
     // Pin the schema-carrying reused-block shape; see the rationale in
     // test_hit_cache_multi_block_reordered_slots.
-    source->_row_descriptor._num_materialized_slots = 2;
+    source->_row_descriptor = *row_desc;
     create_local_state();
 
     EXPECT_TRUE(source_local_state->_is_incremental);
@@ -941,8 +936,8 @@ TEST_F(QueryCacheOperatorTest, test_failed_final_delta_merge_publishes_nothing) 
     // malformed two-column final block makes the merge fail determinately.
     sink = std::make_unique<CacheSinkOperatorX>();
     source = std::make_unique<CacheSourceOperatorX>();
-    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(
-            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool}));
+    auto* row_desc = new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool};
+    child_op->set_mock_row_desc(std::unique_ptr<MockRowDescriptor>(row_desc));
     EXPECT_TRUE(source->set_child(child_op));
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
@@ -982,7 +977,7 @@ TEST_F(QueryCacheOperatorTest, test_failed_final_delta_merge_publishes_nothing) 
     // descriptor the reused block is wiped every pull and re-cloned from the
     // incoming block, so the malformed final block would merge into a clone
     // of itself and SUCCEED, unbinding this test from the bug it guards.
-    source->_row_descriptor._num_materialized_slots = 1;
+    source->_row_descriptor = *row_desc;
     create_local_state();
     EXPECT_TRUE(source_local_state->_need_insert_cache);
 

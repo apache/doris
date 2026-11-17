@@ -57,7 +57,13 @@ public:
 
     Status init(const size_t runtime_size);
     Status insert(const ColumnPtr& column, size_t start);
-    Status merge(const RuntimeFilterWrapper* wrapper);
+    // `other_exclusively_owned` must be true only when `other` has no other reader and will not
+    // be read again after this call: a transitional BLOOM directory taken from it is then moved
+    // in directly instead of cloned. See `RuntimeFilterMerger::merge_from`.
+    Status merge(const RuntimeFilterWrapper* other, bool other_exclusively_owned = false);
+    // Deep copy of the filter. The result shares no mutable data with this wrapper, so the
+    // merger can keep merging into the copy while this one is already used by consumers.
+    Status clone(std::shared_ptr<RuntimeFilterWrapper>* res) const;
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data);
 

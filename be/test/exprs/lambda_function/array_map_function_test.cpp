@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -690,7 +691,8 @@ static void open_expr(const VExprSPtr& expr, VExprContext* context) {
     RuntimeState state;
     RowDescriptor row_desc;
     ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
-    ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            expr->open(&state, context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 }
 
 static void open_expr_with_batch_size(const VExprSPtr& expr, VExprContext* context,
@@ -701,7 +703,8 @@ static void open_expr_with_batch_size(const VExprSPtr& expr, VExprContext* conte
     state.set_query_options(query_options);
     RowDescriptor row_desc;
     ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
-    ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            expr->open(&state, context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 }
 
 static void open_expr_with_block_budget(const VExprSPtr& expr, VExprContext* context,
@@ -713,7 +716,8 @@ static void open_expr_with_block_budget(const VExprSPtr& expr, VExprContext* con
     state.set_query_options(query_options);
     RowDescriptor row_desc;
     ASSERT_TRUE(expr->prepare(&state, row_desc, context).ok());
-    ASSERT_TRUE(expr->open(&state, context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            expr->open(&state, context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
 }
 
 static const ColumnInt32& get_int_array_values(const ColumnPtr& result) {
@@ -867,12 +871,18 @@ TEST(ArrayEnumerateUniqFunctionTest, MappedAndOriginalNullableArraysUseLogicalRo
     FunctionUtils function_utils(result_type, {nullable_array_int_type, nullable_array_int_type},
                                  false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, result_type, "result"});
     status = function->execute(function_context, block, {0, 1}, 2, 2);
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
@@ -905,12 +915,18 @@ TEST(ArrayEnumerateUniqFunctionTest, EqualHiddenOffsetsReuseInputOffsets) {
     FunctionUtils function_utils(result_type, {nullable_array_int_type, nullable_array_int_type},
                                  false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, result_type, "result"});
     auto status = function->execute(function_context, block, {0, 1}, 2, 2);
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
@@ -950,8 +966,11 @@ TEST(ArrayEnumerateUniqFunctionTest, ValidatesLateMismatchBeforeCompacting) {
 
     FunctionUtils function_utils(result_type, {nullable_array_int_type, array_int_type}, false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, result_type, "result"});
 
     auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
@@ -963,8 +982,11 @@ TEST(ArrayEnumerateUniqFunctionTest, ValidatesLateMismatchBeforeCompacting) {
     thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
     const int64_t execution_peak = tracker->peak_consumption() - baseline;
 
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("must be equal"), std::string::npos) << status;
     EXPECT_LT(execution_peak, max_execution_bytes);
@@ -1002,12 +1024,18 @@ TEST(ArraySortByFunctionTest, MappedAndOriginalNullableArraysUseLogicalRowOffset
     FunctionUtils function_utils(nullable_array_int_type,
                                  {nullable_array_int_type, nullable_array_int_type}, false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, nullable_array_int_type, "result"});
     status = function->execute(function_context, block, {0, 1}, 2, 2);
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
     ASSERT_TRUE(status.ok()) << status.to_string();
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
@@ -1048,16 +1076,22 @@ TEST(ArrayEnumerateUniqFunctionTest, AllNullLaterArgumentSkipsEarlierConstantExp
 
     FunctionUtils function_utils(result_type, {array_int_type, nullable_array_int_type}, false);
     auto* function_context = function_utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(function_context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(
+            function->open(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
+    ASSERT_TRUE(function->open(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
     block.insert({nullptr, result_type, "result"});
     thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
     const int64_t baseline = tracker->consumption();
     auto status = function->execute(function_context, block, {0, 1}, 2, row_count);
     thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
     const int64_t execution_peak = tracker->peak_consumption() - baseline;
-    ASSERT_TRUE(function->close(function_context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(function_context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(function_context, FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                        .ok());
+    ASSERT_TRUE(
+            function->close(function_context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL)
+                    .ok());
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     EXPECT_TRUE(block.get_by_position(2).column->only_null());
@@ -1808,6 +1842,124 @@ TEST(ArrayMapFunctionTest, NestedArraySortComparatorCapturingOuterArgumentReturn
             status.to_string().find("array_sort comparator only supports its own lambda arguments"),
             std::string::npos);
     EXPECT_NE(status.to_string().find("captured column ref 'i'"), std::string::npos);
+}
+
+// Builds array_sort((x, y) -> body, arr).
+static VExprSPtr make_array_sort_call(const DataTypePtr& comparator_type, const VExprSPtr& body,
+                                      ColumnPtr array_column) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto comparator =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(comparator_type, {"x", "y"}));
+    comparator->add_child(body);
+    root->add_child(comparator);
+    root->add_child(
+            std::make_shared<MockColumnExpr>(std::move(array_column), array_int_type, "arr"));
+    return root;
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningIntSorts) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+
+    // This mirrors array_sort((x, y) -> x - y, [1, 0]). The comparator returns -1 or 1 in an INT
+    // column, so the INT result must be read instead of a TINYINT one.
+    auto subtract = std::make_shared<MockSubtractExpr>(int_type);
+    subtract->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    subtract->add_child(VColumnRef::create_shared(make_column_ref_node(1, "y", int_type)));
+    auto root = make_array_sort_call(int_type, subtract, make_int_array_column({{1, 0}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& values = get_int_array_values(result);
+    ASSERT_EQ(values.size(), 2);
+    EXPECT_EQ(values.get_element(0), 0);
+    EXPECT_EQ(values.get_element(1), 1);
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningOutOfRangeReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+
+    // The comparator always returns 2, like array_sort((x, y) -> 2, arr). Only -1, 0 and 1 are
+    // allowed.
+    auto body = std::make_shared<MockColumnExpr>(ColumnInt32::create(1, 2), int_type, "two");
+    auto root = make_array_sort_call(int_type, body, make_int_array_column({{2, 1}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    try {
+        auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+        FAIL() << "array_sort should fail, but it returns " << status.to_string();
+    } catch (const Exception& e) {
+        EXPECT_NE(std::string(e.what()).find(
+                          "array_sort comparator returns 2, but it must return -1, 0 or 1"),
+                  std::string::npos)
+                << e.what();
+    }
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningNullReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+
+    // The comparator always returns NULL, like array_sort((x, y) -> x - y, [2, NULL]).
+    auto null_result = ColumnNullable::create(ColumnInt32::create(1, 0), ColumnUInt8::create(1, 1));
+    auto body = std::make_shared<MockColumnExpr>(std::move(null_result), nullable_int_type,
+                                                 "null_result");
+    auto root = make_array_sort_call(nullable_int_type, body, make_int_array_column({{2, 1}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    try {
+        auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+        FAIL() << "array_sort should fail, but it returns " << status.to_string();
+    } catch (const Exception& e) {
+        EXPECT_NE(std::string(e.what()).find("array_sort comparator returns NULL"),
+                  std::string::npos)
+                << e.what();
+    }
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningBooleanReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto bool_type = std::make_shared<DataTypeUInt8>();
+
+    // An older FE may send array_sort((x, y) -> x < y, arr), whose comparator returns BOOLEAN.
+    auto body =
+            std::make_shared<MockColumnExpr>(ColumnUInt8::create(1, 1), bool_type, "bool_result");
+    auto root = make_array_sort_call(bool_type, body, make_int_array_column({{2, 1}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("array_sort comparator must return -1, 0 or 1"),
+              std::string::npos)
+            << status.to_string();
 }
 
 TEST(ArrayMapFunctionTest,

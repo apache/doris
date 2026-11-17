@@ -19,6 +19,7 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include <algorithm>
 #include <boost/container_hash/hash.hpp>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -134,12 +135,18 @@ Status CloudFullCompaction::pick_rowsets_to_compact() {
         DCHECK(false) << st;
         return st;
     }
-    if (_input_rowsets.size() <= 1) {
+    // An already compacted rowset can expire later without another write. Full compaction
+    // is also the explicit TTL GC operation, including the initial [0-1], [2-y] layout.
+    const bool ttl_gc = _tablet->tablet_schema()->has_ttl_col() &&
+                        std::ranges::any_of(_input_rowsets, [](const auto& rowset) {
+                            return rowset->num_rows() > 0;
+                        });
+    if (_input_rowsets.size() <= 1 && !ttl_gc) {
         return Status::Error<BE_NO_SUITABLE_VERSION>(
                 "insufficent compaction input rowset, #rowsets={}", _input_rowsets.size());
     }
 
-    if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
+    if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1 && !ttl_gc) {
         // the tablet is with rowset: [0-1], [2-y]
         // and [0-1] has no data. in this situation, no need to do full compaction.
         return Status::Error<BE_NO_SUITABLE_VERSION>("no suitable versions for compaction");

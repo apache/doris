@@ -7,14 +7,17 @@ B1	2
 B1	20
 C1	3
 
+-- !select_after_modify_excluded --
+B1	21
+C1	3
+
 -- !select_after_drop_excluded --
-B1	20
+B1	21
 C1	3
 D1	4
 
 -- !select_after_readd_excluded --
-B1	20
+B1	21
 C1	3
 D1	4
 E1	5
-

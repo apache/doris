@@ -29,6 +29,12 @@
 namespace doris::format::hudi {
 
 Status HudiReader::prepare_split(const format::SplitReadOptions& options) {
+    const auto& hudi = options.current_range.table_format_params.hudi_params;
+    // A base file alone cannot represent MOR rows; only the JNI reader merges delta logs.
+    if (!hudi.delta_logs.empty()) {
+        return Status::NotSupported(
+                "Native Hudi reads cannot merge delta logs; use the JNI reader");
+    }
     {
         // Derived schema selection is additive to, not nested around, the common base timers.
         SCOPED_TIMER(_profile.total_timer);
@@ -75,7 +81,7 @@ Status HudiReader::create_file_reader(std::unique_ptr<format::FileReader>* reade
     *reader = std::make_unique<format::parquet::ParquetReader>(
             _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
             _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-            parquet_int96_time_zone());
+            parquet_int96_time_zone(), false, _parquet_profile_cache);
     return Status::OK();
 }
 
@@ -219,6 +225,7 @@ Status HudiHybridReader::_init_child_reader(format::TableReader* reader,
             .io_ctx = _io_ctx,
             .runtime_state = _runtime_state,
             .scanner_profile = _scanner_profile,
+            .parquet_profile_cache = _parquet_profile_cache,
             .push_down_agg_type = _push_down_agg_type,
             .push_down_count_columns = _push_down_count_columns,
             .condition_cache_digest = _condition_cache_digest,

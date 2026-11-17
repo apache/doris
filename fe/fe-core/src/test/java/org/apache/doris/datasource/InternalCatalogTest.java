@@ -20,8 +20,8 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
-import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -48,6 +48,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableProperty;
+import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
@@ -121,6 +122,27 @@ public class InternalCatalogTest {
         Assertions.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, partitionInfo.getReplicaAllocation(newPartitionId));
     }
 
+    @Test
+    public void testAddPartitionRejectsAnObsoleteRetentionSnapshot() throws Exception {
+        OlapTable table = db.getOlapTableOrDdlException(TABLE_NAME);
+        table.setChangelogConfig(new ChangelogConfig(true, 60, false));
+        catalog.afterTabletCreation = () -> {
+            table.writeLock();
+            try {
+                ChangelogConfig extended = new ChangelogConfig(table.getChangelogConfig());
+                extended.setTtlSeconds(3600);
+                extended.setConfigVersion(1);
+                table.setChangelogConfig(extended);
+            } finally {
+                table.writeUnlock();
+            }
+        };
+        DdlException error = Assertions.assertThrows(DdlException.class,
+                () -> catalog.addPartition(db, TABLE_NAME, createAddPartitionOp(), false, 0, true, null));
+        Assertions.assertTrue(error.getMessage().contains("meta has been changed"), error.getMessage());
+        Assertions.assertNull(table.getPartition(NEW_PARTITION_NAME));
+    }
+
     private AddPartitionOp createAddPartitionOp() {
         SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(false, NEW_PARTITION_NAME,
                 PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("20"))), Maps.newHashMap());
@@ -154,7 +176,7 @@ public class InternalCatalogTest {
         MaterializedIndex baseIndex = new MaterializedIndex(INDEX_ID, IndexState.NORMAL);
         LocalTablet tablet = new LocalTablet(TABLET_ID);
         TabletMeta tabletMeta = new TabletMeta(CatalogTestUtil.testDbId1, TABLE_ID, PARTITION_ID, INDEX_ID, 0,
-                TStorageMedium.HDD, false /* isRowBinlog */);
+                TStorageMedium.HDD, false /* isChangelog */);
         baseIndex.addTablet(tablet, tabletMeta);
         tablet.addReplica(new LocalReplica(REPLICA_ID, BACKEND_ID, 0, ReplicaState.NORMAL));
 
@@ -185,6 +207,7 @@ public class InternalCatalogTest {
 
     private static class FailingCommitInternalCatalog extends InternalCatalog {
         private long committedPartitionId;
+        private Runnable afterTabletCreation = () -> { };
 
         @Override
         protected Partition createPartitionWithIndices(long dbId, OlapTable tbl, long partitionId,
@@ -192,7 +215,7 @@ public class InternalCatalogTest {
                 DistributionInfo distributionInfo, DataProperty dataProperty,
                 ReplicaAllocation replicaAlloc, Long versionInfo, Set<String> bfColumns, Set<Long> tabletIdSet,
                 boolean isInMemory, TTabletType tabletType, String storagePolicy,
-                IdGeneratorBuffer idGeneratorBuffer, BinlogConfig binlogConfig, boolean isStorageMediumSpecified)
+                IdGeneratorBuffer idGeneratorBuffer, TabletBinlogConfig binlogConfig, boolean isStorageMediumSpecified)
                 throws DdlException {
             MaterializedIndex baseIndex = new MaterializedIndex(tbl.getBaseIndexId(), IndexState.NORMAL);
             Partition partition = new Partition(partitionId, partitionName, baseIndex, distributionInfo);
@@ -200,6 +223,7 @@ public class InternalCatalogTest {
                 partition.updateVisibleVersion(versionInfo);
                 partition.setNextVersion(versionInfo + 1);
             }
+            afterTabletCreation.run();
             return partition;
         }
 

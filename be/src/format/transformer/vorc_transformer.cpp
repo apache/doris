@@ -47,6 +47,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/pod_array.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -54,7 +55,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
-#include "format/orc/vorc_reader.h"
+#include "format_v2/orc/orc_file_input_stream.h"
 #include "io/fs/file_writer.h"
 #include "orc/Int128.hh"
 #include "orc/MemoryPool.hh"
@@ -243,6 +244,11 @@ Status VOrcTransformer::open() {
         }
     }
 
+    if (orc_serde_utils::has_nanosecond_timestamp(*_schema)) {
+        // ORC and cctz use different ancient local offsets. A UTC wall-clock carrier avoids
+        // shifting nanosecond boundary dates when another session reads the file.
+        _write_options->setTimezoneName("GMT");
+    }
     _output_stream = std::make_unique<VOrcOutputStream>(_file_writer);
     try {
         _write_options->setMemoryPool(ExecEnv::GetInstance()->orc_memory_pool());
@@ -349,6 +355,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         type = orc::createPrimitiveType(orc::DATE);
         break;
     }
+    case TYPE_TIMESTAMP_NS: {
+        type = orc::createPrimitiveType(orc::TIMESTAMP);
+        type->setAttribute("iceberg.timestamp-unit", "NANOS");
+        break;
+    }
     case TYPE_DATETIMEV2: {
         type = orc::createPrimitiveType(orc::TIMESTAMP);
         break;
@@ -424,6 +435,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
         };
         switch (nested_field->field_type()->type_id()) {
         case iceberg::TypeID::UUID:
+            // Native UUID serde already writes network-order bytes; retain its ORC annotation.
+            if (primitive_type == TYPE_UUID) {
+                type->setAttribute(ICEBERG_BINARY_TYPE, "UUID");
+                break;
+            }
             use_iceberg_binary_type("UUID");
             break;
         case iceberg::TypeID::FIXED:
@@ -486,9 +502,9 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
         io::FileReaderSPtr file_reader;
         io::FileReaderOptions reader_options;
         RETURN_IF_ERROR(_fs->open_file(_file_writer->path(), &file_reader, &reader_options));
-        auto input_stream = std::make_unique<ORCFileInputStream>(
-                _file_writer->path().native(), file_reader, nullptr, nullptr, 8L * 1024L * 1024L,
-                1L * 1024L * 1024L);
+        auto input_stream = std::make_unique<format::orc::OrcFileInputStream>(
+                _file_writer->path().native(), file_reader, nullptr, nullptr,
+                format::orc::OrcFileInputStreamOptions {});
         std::unique_ptr<orc::Reader> reader =
                 orc::createReader(std::move(input_stream), orc::ReaderOptions());
         std::unique_ptr<orc::Statistics> file_stats = reader->getStatistics();
@@ -632,6 +648,10 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
         }
     } else if (const auto* ts_stats =
                        dynamic_cast<const orc::TimestampColumnStatistics*>(col_stats)) {
+        if (remove_nullable(data_type)->get_primitive_type() == TYPE_TIMESTAMP_NS) {
+            // Omit bounds rather than publish microseconds as Iceberg nanoseconds.
+            return false;
+        }
         if (ts_stats->hasMinimum() && ts_stats->hasMaximum()) {
             // ORC stores milliseconds plus a sub-millisecond nanos tail. Dropping that tail
             // makes Iceberg's upper bound smaller than real rows and causes false-negative pruning.
@@ -657,32 +677,27 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
                        dynamic_cast<const orc::DecimalColumnStatistics*>(col_stats)) {
         if (decimal_stats->hasMinimum() && decimal_stats->hasMaximum()) {
             has_bounds = true;
-            (*lower_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMinimum());
-            (*upper_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMaximum());
+            const auto scale = static_cast<int32_t>(remove_nullable(data_type)->get_scale());
+            (*lower_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMinimum(), scale);
+            (*upper_bounds)[field_id] = _decimal_to_bytes(decimal_stats->getMaximum(), scale);
         }
     }
 
     return has_bounds;
 }
 
-std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
-    orc::Int128 val = decimal.value;
-    if (val == 0) {
-        char zero = 0;
-        return std::string(&zero, 1);
-    }
+std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal, int32_t scale) {
+    // ORC footer statistics trim trailing zeros: -1.00 becomes value=-1, scale=0.
+    // Iceberg requires the unscaled value at the column's declared scale, which is -100 here.
+    DORIS_CHECK_GE(scale, decimal.scale);
+    bool overflow = false;
+    auto val = orc::scaleUpInt128ByPowerOfTen(decimal.value, scale - decimal.scale, overflow);
+    DORIS_CHECK(!overflow);
 
-    // Convert Int128 -> signed big-endian minimal bytes
-    bool negative = val < 0;
-    auto high = static_cast<uint64_t>(val.getHighBits());
-    auto low = val.getLowBits();
-
-    // If negative, convert to two's complement explicitly
-    if (negative) {
-        // two's complement for 128-bit
-        low = ~low + 1;
-        high = ~high + (low == 0 ? 1 : 0);
-    }
+    // Int128 already exposes two's-complement bits; negating -1 again would encode +1.
+    const bool negative = val < 0;
+    const auto high = static_cast<uint64_t>(val.getHighBits());
+    const auto low = val.getLowBits();
 
     // Serialize to big-endian bytes
     uint8_t buf[16];
@@ -691,9 +706,10 @@ std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
         buf[i + 8] = static_cast<uint8_t>(low >> (56 - i * 8));
     }
 
-    // Strip leading sign-extension bytes (Iceberg minimal encoding)
+    // Strip redundant sign extension, retaining one byte for zero and the sign prefix
+    // when the next byte has the opposite sign: 128 -> 00 80, -129 -> FF 7F.
     int start = 0;
-    uint8_t sign_byte = negative ? 0xFF : 0x00;
+    const uint8_t sign_byte = negative ? 0xFF : 0x00;
     while (start < 15 && buf[start] == sign_byte &&
            ((buf[start + 1] & 0x80) == (sign_byte & 0x80))) {
         ++start;
@@ -736,9 +752,9 @@ Status VOrcTransformer::write(const Block& block) {
             normalized_columns.push_back(std::move(raw_column));
             const auto& write_column = normalized_columns.back();
             RETURN_IF_ERROR(_resize_row_batch(col.type, *write_column, root->fields[i]));
-            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(_state->timezone(), *write_column,
-                                                            nullptr, root->fields[i], 0, sz, arena,
-                                                            options));
+            RETURN_IF_ERROR(_serdes[i]->write_column_to_orc(_write_options->getTimezoneName(),
+                                                            *write_column, nullptr, root->fields[i],
+                                                            0, sz, arena, options));
         }
         root->numElements = sz;
         _writer->add(*row_batch);
@@ -916,6 +932,11 @@ static Status normalize_iceberg_binary_column(const ColumnPtr& column, const Dat
 
     switch (nested_field.field_type()->type_id()) {
     case iceberg::TypeID::UUID:
+        if (type->get_primitive_type() == TYPE_UUID) {
+            // Native UUID SerDe emits network-order bytes; do not reinterpret its in-memory layout.
+            *normalized_column = column;
+            return Status::OK();
+        }
         return normalize_iceberg_uuid_column(column, normalized_column, skipped_rows);
     case iceberg::TypeID::FIXED:
         return normalize_iceberg_fixed_column(column, nested_field, normalized_column,

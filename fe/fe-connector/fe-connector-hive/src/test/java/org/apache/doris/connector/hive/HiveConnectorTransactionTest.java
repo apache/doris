@@ -35,6 +35,9 @@ import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.UploadPartResult;
+import org.apache.doris.filesystem.azure.AzureFileSystem;
+import org.apache.doris.filesystem.azure.AzureObjStorage;
+import org.apache.doris.filesystem.hdfs.DFSFileSystem;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RemoteObject;
@@ -52,14 +55,20 @@ import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TBinaryProtocol;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -185,6 +194,158 @@ public class HiveConnectorTransactionTest {
     }
 
     // ─────────────────────────────── SPI identity ───────────────────────────────
+
+    @Test
+    public void oneLakeOverwritePreservesStagedFilesInRecursiveListings() throws Exception {
+        for (String name : Arrays.asList("table_*", "table_{prod}", "table_%2F")) {
+            for (boolean oldData : Arrays.asList(false, true)) {
+                verifyOneLakeOverwrite(name, oldData, false);
+                verifyOneLakeOverwrite(name, oldData, true);
+            }
+        }
+    }
+
+    private void verifyOneLakeOverwrite(String name, boolean oldData, boolean recursiveDirectories) throws Exception {
+        String target = "abfss://workspace@onelake.dfs.fabric.microsoft.com/lake.lakehouse/Files/" + name;
+        String staging = target + "/.doris_staging";
+        String writePath = staging + "/query";
+        RecordingAzureStorage storage = new RecordingAzureStorage();
+        storage.objects.put(writePath + "/new.parquet", "new");
+        storage.objects.put(staging + "/other-query/keep.parquet", "other query");
+        storage.objects.put(target + "_sibling/keep.parquet", "other table");
+        if (oldData) {
+            storage.objects.put(target + "/old.parquet", "old");
+            storage.objects.put(target + "/nested/old.parquet", "old nested");
+            storage.objects.put(target + "/.doris_staging_backup/old.parquet", "old backup");
+        }
+        try (AzureFileSystem fs = new AzureFileSystem(storage) {
+            @Override
+            public Set<String> listDirectories(Location location) throws IOException {
+                if (recursiveDirectories && HiveWriteUtils.pathsEqual(target, location.uri())) {
+                    // Some providers expose descendant directories as well as descendant files.
+                    return Set.of(staging + "/", writePath, staging + "/other-query");
+                }
+                return super.listDirectories(location);
+            }
+        }) {
+            RecordingHmsClient client = new RecordingHmsClient();
+            client.table = HmsTableInfo.builder().dbName(DB).tableName(TBL).tableType("MANAGED_TABLE")
+                    .location(target).columns(Collections.singletonList(col("c1", "int")))
+                    .partitionKeys(Collections.emptyList()).parameters(Collections.emptyMap()).build();
+            HiveConnectorTransaction txn = new HiveConnectorTransaction(42L, client,
+                    new FakeConnectorContext("test_catalog", CATALOG_ID, Collections.emptyMap()) {
+                        @Override
+                        public FileSystem getFileSystem(ConnectorSession session) {
+                            return fs;
+                        }
+                    });
+            try {
+                // OneLake abfss locations use FILE_HDFS and stage files beneath the target directory.
+                txn.beginWrite(null, DB, TBL, new HiveWriteContext(WriteOperation.OVERWRITE, true,
+                        Collections.emptyMap(), "query", TFileType.FILE_HDFS, writePath));
+                THivePartitionUpdate update = pu("", TUpdateMode.OVERWRITE, writePath,
+                        Collections.singletonList("new.parquet"), 3, 1);
+                update.getLocation().setTargetPath(target);
+                txn.addCommitData(serialize(update));
+                Assertions.assertDoesNotThrow(txn::commit,
+                        "overwrite must retain its source files until Azure copy-then-delete publishes them");
+            } finally {
+                txn.close();
+            }
+        }
+        Assertions.assertEquals("new", storage.objects.get(target + "/new.parquet"));
+        Assertions.assertFalse(storage.objects.containsKey(writePath + "/new.parquet"));
+        Assertions.assertEquals("other query", storage.objects.get(staging + "/other-query/keep.parquet"));
+        Assertions.assertEquals("other table", storage.objects.get(target + "_sibling/keep.parquet"));
+        Assertions.assertFalse(storage.objects.containsKey(target + "/old.parquet"));
+        Assertions.assertFalse(storage.objects.containsKey(target + "/nested/old.parquet"));
+        Assertions.assertFalse(storage.objects.containsKey(target + "/.doris_staging_backup/old.parquet"));
+    }
+
+    /** In-memory object operations; enumeration and rename behavior come from the real AzureFileSystem. */
+    private static final class RecordingAzureStorage extends AzureObjStorage {
+        private final Map<String, String> objects = new ConcurrentHashMap<>();
+
+        RecordingAzureStorage() {
+            super(Map.of("azure.account_name", "test", "azure.account_key", "test-only"));
+        }
+
+        @Override
+        public RemoteObjects listObjects(String prefix, String continuationToken) {
+            List<String> matching = objects.keySet().stream().filter(key -> key.startsWith(prefix))
+                    .filter(key -> continuationToken == null || key.compareTo(continuationToken) > 0)
+                    .sorted().collect(Collectors.toList());
+            List<String> page = matching.subList(0, Math.min(2, matching.size()));
+            List<RemoteObject> entries = page.stream().map(key -> new RemoteObject(
+                    new org.apache.hadoop.fs.Path(key).toUri().getPath().substring(1), "", "", 3, 0))
+                    .collect(Collectors.toList());
+            boolean more = matching.size() > page.size();
+            return new RemoteObjects(entries, more, more ? page.get(page.size() - 1) : null);
+        }
+
+        @Override
+        public RemoteObject headObject(String path) throws IOException {
+            if (!objects.containsKey(path)) {
+                throw new FileNotFoundException(path);
+            }
+            return new RemoteObject(path, "", "", objects.get(path).length(), 0);
+        }
+
+        @Override
+        public void putObject(String path, RequestBody body) throws IOException {
+            objects.put(path, new String(body.content().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public void copyObject(String source, String target) throws IOException {
+            headObject(source);
+            objects.put(target, objects.get(source));
+        }
+
+        @Override
+        public void deleteObject(String path) {
+            objects.remove(path);
+        }
+    }
+
+    @Test
+    public void overwriteWithRelativeStagingTreatsTargetAsLiteralPath(@TempDir Path warehouse) throws Exception {
+        for (String name : Arrays.asList("table_{prod}", "table_*", "table_?", "table_[ab]")) {
+            Path parent = Files.createTempDirectory(warehouse, "case");
+            Path target = Files.createDirectory(parent.resolve(name));
+            Path other = Files.createDirectory(parent.resolve("table_prod"));
+            Files.writeString(other.resolve("unrelated.txt"), "unrelated");
+            Files.writeString(target.resolve("old.txt"), "old");
+            Path staging = Files.createDirectories(target.resolve(".doris_staging/query"));
+            Files.writeString(staging.resolve("new.txt"), "new");
+            String targetPath = target.toString();
+            String writePath = staging.toString();
+            RecordingHmsClient client = new RecordingHmsClient();
+            client.table = HmsTableInfo.builder().dbName(DB).tableName(TBL).tableType("MANAGED_TABLE")
+                    .location(targetPath).columns(Collections.singletonList(col("c1", "int")))
+                    .partitionKeys(Collections.emptyList()).parameters(Collections.emptyMap()).build();
+            try (DFSFileSystem fs = new DFSFileSystem(Collections.emptyMap())) {
+                HiveConnectorTransaction txn = new HiveConnectorTransaction(42L, client,
+                        new FakeConnectorContext("test_catalog", CATALOG_ID, Collections.emptyMap()) {
+                            @Override
+                            public FileSystem getFileSystem(ConnectorSession session) {
+                                return fs;
+                            }
+                        });
+                txn.beginWrite(null, DB, TBL, new HiveWriteContext(WriteOperation.OVERWRITE, true,
+                        Collections.emptyMap(), "query", TFileType.FILE_HDFS, writePath));
+                THivePartitionUpdate update = pu("", TUpdateMode.OVERWRITE, writePath,
+                        Collections.singletonList("new.txt"), 3, 1);
+                update.getLocation().setTargetPath(targetPath);
+                txn.addCommitData(serialize(update));
+                txn.commit();
+                txn.close();
+            }
+            Assertions.assertFalse(Files.exists(target.resolve("old.txt")));
+            Assertions.assertEquals("new", Files.readString(target.resolve("new.txt")));
+            Assertions.assertEquals("unrelated", Files.readString(other.resolve("unrelated.txt")));
+        }
+    }
 
     @Test
     public void testProfileLabelAndTransactionId() {

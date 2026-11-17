@@ -26,7 +26,6 @@ import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
-import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -85,7 +84,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     private PlanBundle normalizePlan(Plan plan) {
         ConnectContext connectContext = newConnectContext();
         JobContext jobContext = newJobContextForRoot(plan, connectContext);
-        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(plan, jobContext);
+        Plan normalizedPlan = new IvmNormalizeUniqKeysMTMV().normalize(plan, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         return new PlanBundle(connectContext, normalizedPlan, rewriteResult);
     }
@@ -97,7 +96,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     private Plan generateMergedDelta(Plan plan, boolean includeExhaustedStreams, String excludedTriggerTables) {
         ConnectContext connectContext = newConnectContext();
         JobContext jobContext = newJobContextForRoot(plan, connectContext);
-        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(plan, jobContext);
+        Plan normalizedPlan = new IvmNormalizeUniqKeysMTMV().normalize(plan, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         MTMV mtmv = buildMtmvFromPlan(normalizedPlan.getOutput());
         if (excludedTriggerTables != null) {
@@ -122,7 +121,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     private Plan generateMergedDeltaWithScope(Plan plan, Map<BaseTableInfo, Set<Long>> scopePartitionIds) {
         ConnectContext connectContext = newConnectContext();
         JobContext jobContext = newJobContextForRoot(plan, connectContext);
-        Plan normalizedPlan = new IvmNormalizeMTMV().rewriteRoot(plan, jobContext);
+        Plan normalizedPlan = new IvmNormalizeUniqKeysMTMV().normalize(plan, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         MTMV mtmv = buildMtmvFromPlan(normalizedPlan.getOutput());
         return new IvmDeltaRewriter().generateIncrRefreshPlan(normalizedPlan, rewriteResult,

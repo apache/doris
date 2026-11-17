@@ -186,7 +186,7 @@ Status CacheSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, b
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
-    block->clear_column_data(_row_descriptor.num_materialized_slots());
+    block->clear_column_data(_row_descriptor.num_slots());
     bool need_clone_empty = block->columns() == 0;
 
     const bool has_cached_block =

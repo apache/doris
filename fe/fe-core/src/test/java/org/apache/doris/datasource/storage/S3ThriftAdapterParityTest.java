@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.storage;
 
 import org.apache.doris.thrift.TCredProviderType;
+import org.apache.doris.thrift.TObjStorageType;
 import org.apache.doris.thrift.TS3StorageParam;
 
 import org.junit.jupiter.api.Assertions;
@@ -131,6 +132,30 @@ public class S3ThriftAdapterParityTest {
                 "s3.region", "us-east-1",
                 "s3.role_arn", "arn:aws:iam::123456789012:role/doris",
                 "AWS_CREDENTIALS_PROVIDER_TYPE", "SYSTEM_PROPERTIES")));
+    }
+
+    @Test
+    public void testFilesystemProviderAliasesUseBackendTypes() {
+        for (String provider : new String[] {"S3", "MINIO", "minio", " OZONE ", "AWS"}) {
+            TS3StorageParam thrift = S3ThriftAdapter.getS3TStorageParam(map(
+                    "provider", provider,
+                    "s3.endpoint", "http://minio.example.com:9000",
+                    "s3.access_key", "myAk",
+                    "s3.secret_key", "mySk"));
+            Assertions.assertEquals(TObjStorageType.AWS, thrift.getProvider());
+            Assertions.assertEquals("myAk", thrift.getAk());
+            Assertions.assertEquals("mySk", thrift.getSk());
+        }
+        for (String provider : new String[] {"GCP", "GCS"}) {
+            Assertions.assertEquals(TObjStorageType.GCP,
+                    S3ThriftAdapter.getS3TStorageParam(map("provider", provider)).getProvider());
+        }
+        for (TObjStorageType provider : new TObjStorageType[] {
+                TObjStorageType.OSS, TObjStorageType.COS, TObjStorageType.OBS,
+                TObjStorageType.BOS, TObjStorageType.TOS, TObjStorageType.AZURE}) {
+            Assertions.assertEquals(provider,
+                    S3ThriftAdapter.getS3TStorageParam(map("provider", provider.name())).getProvider());
+        }
     }
 
     @Test

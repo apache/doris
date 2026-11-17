@@ -33,6 +33,7 @@
 #include <optional>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "io/cache/block_file_cache_ttl_mgr.h"
@@ -42,7 +43,6 @@
 #include "io/cache/file_cache_storage.h"
 #include "io/cache/lru_queue_recorder.h"
 #include "runtime/runtime_profile.h"
-#include "util/threadpool.h"
 
 namespace doris::io {
 using RecycleFileCacheKeys = moodycamel::ConcurrentQueue<FileCacheKey>;
@@ -83,6 +83,7 @@ private:
 class AsyncCacheWriteManager;
 class FSFileCacheStorage;
 class InflightWriteBufferIndex;
+class FileCacheIOAdaptor;
 
 struct FileBlocksProbeResult {
     explicit FileBlocksProbeResult(std::vector<FileBlockSPtr> file_blocks_)
@@ -158,13 +159,11 @@ struct FileBlockCell {
                         .count();
     }
 
-    /// Pointer to file block is always hold by the cache itself.
-    /// Apart from pointer in cache, it can be hold by cache users, when they call
-    /// getorSet(), but cache users always hold it via FileBlocksHolder.
-    bool releasable() const {
-        return (file_block.use_count() == 1 ||
-                (file_block.use_count() == 2 && file_block->_owned_by_cached_reader));
-    }
+    /// Pointer to file block is always hold by the cache itself. Every other strong reference
+    /// means somebody is still using the block. CachedRemoteFileReader keeps only weak references
+    /// in its direct-read map, so however many readers know about a block, they do not keep it
+    /// busy.
+    bool releasable() const { return file_block.use_count() == 1; }
 
     size_t size() const { return file_block->_block_range.size(); }
 
@@ -230,6 +229,12 @@ public:
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
                                 CacheContext& context);
 
+    /// Whether existing DOWNLOADED/DOWNLOADING blocks fully cover `[offset, offset + size)`.
+    /// Handles arbitrary block boundaries, including restored upload blocks. May load metadata,
+    /// but never reserves cache cells, waits for downloads or touches LRU state.
+    bool is_range_downloaded_or_downloading(const UInt128Wrapper& hash, size_t offset, size_t size,
+                                            const CacheContext& context);
+
     /// Probe the block-aligned `[offset, offset + size)` range without creating cache cells or
     /// touching LRU state. The result contains one ordered slot per cache block; each slot is null
     /// on miss or owns an existing block that starts at and covers the slot. A final short slot can
@@ -260,6 +265,16 @@ public:
     Status get_downloaded_blocks_if_fully_covered(const UInt128Wrapper& hash, size_t offset,
                                                   size_t size, const CacheContext& context,
                                                   FileBlocks* blocks, bool* fully_covered);
+
+    FileCacheIOAdaptor& io_adaptor() { return *_io_adaptor; }
+
+    /// Account a completed query disk hit that bypassed get_or_set, using complete block sizes.
+    void record_query_cache_hit(const FileBlocks& blocks);
+
+    /// Diagnostic snapshot of resident DOWNLOADED intervals, clipped to the requested range.
+    /// Handles irregular block boundaries; never loads metadata, reserves space or touches LRU.
+    std::vector<FileBlock::Range> downloaded_ranges(const UInt128Wrapper& hash, size_t offset,
+                                                    size_t size);
 
     /**
      * record blocks read directly by CachedRemoteFileReader
@@ -425,7 +440,8 @@ public:
 private:
     // Shared scan used by both clear modes. It keeps the FileBlock holder lifecycle intact:
     // releasable blocks are removed immediately, while blocks held by readers are only marked
-    // deleting and are later removed by FileBlocksHolder destruction.
+    // deleting and are later removed by FileBlocksHolder destruction or, when the last holder
+    // does not release through FileBlock::release_cache_reference(), by run_background_gc().
     std::string clear_file_cache_impl(bool sync_remove);
 
     LRUQueue& get_queue(FileCacheType type);
@@ -542,7 +558,20 @@ private:
 
     void clear_need_update_lru_blocks();
 
+    // Marks a cell that cannot be erased yet as deleting and remembers it in _deleting_blocks, so
+    // that the block is still reclaimed when its last reference is dropped without going through
+    // FileBlock::release_cache_reference(). This is the only place that sets a block deleting.
+    template <class T>
+        requires IsXLock<T>
+    void mark_cell_deleting(FileBlockCell& cell, T& cache_lock);
+
+    // Removes up to batch_limit blocks that were marked deleting and are not referenced any
+    // more. Returns how many of them were removed.
+    size_t recycle_deleting_blocks(size_t batch_limit);
+
     // info
+    // A congested cache path must not alter routing on other cache disks.
+    std::unique_ptr<FileCacheIOAdaptor> _io_adaptor;
     std::string _cache_base_path;
     size_t _capacity = 0;
     size_t _max_file_block_size = 0;
@@ -585,6 +614,18 @@ private:
 
     // keys for async remove
     RecycleFileCacheKeys _recycle_keys;
+
+    // Blocks that were busy when something asked to delete them. They keep sitting in _files
+    // until their last reference goes away. Only FileBlocksHolder and FileBlocksProbeResult
+    // release through FileBlock::release_cache_reference(), which is the one path that notices
+    // is_deleting and removes the block; every other reference holder just drops its shared_ptr
+    // and would strand the block here forever. run_background_gc() rechecks these candidates and
+    // removes the ones that became releasable.
+    //
+    // Invariant: holds exactly the keys of the cells in _files whose block is deleting. A key is
+    // added by mark_cell_deleting() and erased by remove() together with its cell, so a block
+    // created later at the same offset is never taken for the one that was marked.
+    std::unordered_set<AccessKeyAndOffset, KeyAndOffsetHash> _deleting_blocks;
 
     std::unique_ptr<LRUQueueRecorder> _lru_recorder;
     std::unique_ptr<CacheLRUDumper> _lru_dumper;
@@ -653,6 +694,8 @@ private:
     std::shared_ptr<bvar::LatencyRecorder> _storage_async_remove_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _evict_in_advance_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _recycle_keys_length_recorder;
+    std::shared_ptr<bvar::Status<size_t>> _deleting_block_count_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _recycle_deleting_blocks_metrics;
     std::shared_ptr<bvar::LatencyRecorder> _update_lru_blocks_latency_us;
     std::shared_ptr<bvar::LatencyRecorder> _need_update_lru_blocks_length_recorder;
     std::shared_ptr<bvar::Adder<size_t>> _need_update_lru_blocks_produce_metrics;

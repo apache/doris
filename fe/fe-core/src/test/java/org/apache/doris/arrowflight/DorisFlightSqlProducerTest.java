@@ -34,6 +34,8 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import org.apache.arrow.flight.ActionType;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.CloseSessionRequest;
@@ -55,7 +57,11 @@ import org.apache.arrow.flight.SetSessionOptionsResult;
 import org.apache.arrow.flight.SetSessionOptionsResult.ErrorValue;
 import org.apache.arrow.flight.sql.FlightSqlUtils;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
+import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementResult;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandStatementQuery;
+import org.apache.arrow.vector.ipc.ReadChannel;
+import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,6 +69,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.nio.channels.Channels;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -173,15 +181,17 @@ public class DorisFlightSqlProducerTest {
      * Regression test for the FE direct-memory leak in {@code createPreparedStatement}
      * (issue apache/doris#65305, fixed by PR #65311).
      *
-     * <p>Before the fix, each prepare allocated a {@link org.apache.arrow.vector.VectorSchemaRoot}
+     * <p>Before that fix, each prepare allocated a {@link org.apache.arrow.vector.VectorSchemaRoot}
      * via {@code FlightSqlChannel.createOneOneSchemaRoot("ResultMeta", ...)} and read only its
      * {@code Schema}, never closing the root, leaking one off-heap {@code VarCharVector} buffer per
      * prepare. Because Arrow Flight has no parameter binding, every client query triggers a fresh
      * prepare, so the leak grows monotonically until {@code MaxDirectMemorySize} is exhausted.
      *
-     * <p>This test drives {@code createPreparedStatement} against a real {@link FlightSqlChannel} many
-     * times and asserts the channel's Arrow allocator holds zero bytes afterwards. It goes red if the
-     * try-with-resources that closes the temporary roots is removed.
+     * <p>Prepare now advertises the analyzed result schema; that {@code ResultMeta} placeholder is left
+     * for a statement whose schema only running it can tell, such as a request that sets a variable
+     * before its query. This test drives {@code createPreparedStatement} for such statements against a
+     * real {@link FlightSqlChannel} many times and asserts that each one gets the placeholder and the
+     * channel's Arrow allocator holds zero bytes afterwards.
      */
     @Test
     public void createPreparedStatementDoesNotLeakChannelAllocator() throws Exception {
@@ -224,7 +234,17 @@ public class DorisFlightSqlProducerTest {
                 StreamListener<Result> listener = new StreamListener<Result>() {
                     @Override
                     public void onNext(Result val) {
-                        // discard the placeholder prepared-statement result
+                        try {
+                            ByteString dataset = Any.parseFrom(val.getBody())
+                                    .unpack(ActionCreatePreparedStatementResult.class).getDatasetSchema();
+                            Schema schema = MessageSerializer.deserializeSchema(new ReadChannel(
+                                    Channels.newChannel(new ByteArrayInputStream(dataset.toByteArray()))));
+                            if (!"ResultMeta".equals(schema.getFields().get(0).getName())) {
+                                errors.incrementAndGet();
+                            }
+                        } catch (Exception e) {
+                            errors.incrementAndGet();
+                        }
                     }
 
                     @Override
@@ -239,14 +259,15 @@ public class DorisFlightSqlProducerTest {
                     }
                 };
                 ActionCreatePreparedStatementRequest request = ActionCreatePreparedStatementRequest.newBuilder()
-                        .setQuery("select * from t where id = " + i).build();
+                        .setQuery("set @id = " + i + "; select * from t where id = @id").build();
                 producer.createPreparedStatement(request, callContext, listener);
                 Assertions.assertTrue(finished.await(30, TimeUnit.SECONDS), "createPreparedStatement #" + i + " did not finish in time");
             }
 
-            // Guard against a false pass: if a prepare failed before reaching the allocation, no buffer
+            // Guard against a false pass: if a prepare failed before reaching the placeholder, no buffer
             // would be leaked and the memory assertion below could not detect a regression.
-            Assertions.assertEquals(0, errors.get(), "no createPreparedStatement call should fail");
+            Assertions.assertEquals(0, errors.get(),
+                    "every createPreparedStatement call should answer with the placeholder schema");
             // Every temporary VectorSchemaRoot must have been closed, so the channel's Arrow allocator
             // is back to zero. Reverting the fix leaves `rounds` ResultMeta buffers allocated here.
             Assertions.assertEquals(0L, channel.getAllocatedMemory(), "createPreparedStatement leaked off-heap memory in the channel allocator");

@@ -203,6 +203,39 @@ public class MysqlProtoTest {
     }
 
     @Test
+    public void testNegotiateSetsClientMultiStatementsWhenTheClientAsksForIt() throws Exception {
+        // The client echoes the advertised capabilities, which carry CLIENT_MULTI_STATEMENTS: what
+        // Connector/J 8 and 9 with allowMultiQueries send, since they mask the flags they ask for
+        // with the advertised ones.
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = createContext();
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        Assertions.assertTrue(MysqlProto.negotiate(context));
+        Assertions.assertTrue(context.getCapability().isClientMultiStatements());
+        Mockito.verify(channel).setClientMultiStatements();
+    }
+
+    @Test
+    public void testNegotiateLeavesClientMultiStatementsWhenTheClientDoesNotAskForIt() throws Exception {
+        mockChannel("user", true);
+        ByteBuffer handshake = channel.fetchOnePacket();
+        int clientFlags = MysqlCapability.DEFAULT_CAPABILITY.getFlags()
+                & ~MysqlCapability.Flag.CLIENT_MULTI_STATEMENTS.getFlagBit();
+        handshake.putInt(0, Integer.reverseBytes(clientFlags));
+        mockPassword(true);
+        mockAccess();
+        ConnectContext context = createContext();
+        context.setEnv(env);
+        context.setThreadLocalInfo();
+        Assertions.assertTrue(MysqlProto.negotiate(context));
+        Assertions.assertFalse(context.getCapability().isClientMultiStatements());
+        Mockito.verify(channel, Mockito.never()).setClientMultiStatements();
+    }
+
+    @Test
     public void testNegotiateUsesClientServerCapabilityIntersection() throws Exception {
         mockChannel("user", true);
         ByteBuffer handshake = channel.fetchOnePacket();

@@ -22,6 +22,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+
 #include "core/allocator_fwd.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
@@ -558,6 +560,24 @@ template <size_t size>
 struct ItemWithSize {
     char v[size] {};
 };
+
+TEST(PODArrayTest, AllocationSizeIncludesPaddingAndRounding) {
+    auto check_allocation = []<typename T>() {
+        for (size_t rows : {0, 1, 15, 16, 17, 31, 32, 33, 4095, 4096, 4097, 65535, 65536}) {
+            PaddedPODArray<T> array(rows);
+            EXPECT_EQ(PaddedPODArray<T>::allocated_bytes_for_elements(rows),
+                      array.allocated_bytes())
+                    << "rows=" << rows << ", element_size=" << sizeof(T);
+        }
+    };
+    check_allocation.operator()<uint8_t>();
+    check_allocation.operator()<uint16_t>();
+    check_allocation.operator()<uint32_t>();
+    check_allocation.operator()<uint64_t>();
+    check_allocation.operator()<ItemWithSize<16>>();
+    check_allocation.operator()<ItemWithSize<24>>();
+    check_allocation.operator()<ItemWithSize<32>>();
+}
 
 TEST(PODArrayTest, PODInsertElementSizeNotMultipleOfLeftPadding) {
     using ItemWith24Size = ItemWithSize<24>;

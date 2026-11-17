@@ -37,7 +37,6 @@ import org.apache.doris.analysis.LambdaFunctionExpr;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SearchPredicate;
-import org.apache.doris.analysis.ShortCircuitFunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TryCastExpr;
@@ -93,6 +92,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NotNullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.CombineCombinator;
+import org.apache.doris.nereids.trees.expressions.functions.combinator.FinalizeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
@@ -100,6 +100,7 @@ import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionComb
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortedMerge;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGet;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DictGetMany;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -112,6 +113,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
+import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
@@ -233,7 +235,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             return null;
         }
         OlapTable olapTbl = (OlapTable) tupleDesc.getTable();
-        return olapTbl.getInvertedIndex(column, slotDesc.getSubColLables());
+        return olapTbl.getInvertedIndexByStoragePath(column, slotDesc.getSubColLables(), null);
     }
 
     @Override
@@ -485,6 +487,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
+    public Expr visitNtile(Ntile ntile, PlanTranslatorContext context) {
+        // The rewrite rules that fold the bucket and run checkLegalityAfterRewrite on window expressions can be
+        // disabled, so check again before the bucket reaches the backend, which uses it as a divisor.
+        ntile.checkLegalityAfterRewrite();
+        return visitWindowFunction(ntile, context);
+    }
+
+    @Override
     public Expr visitWindowFunction(WindowFunction function, PlanTranslatorContext context) {
         // translate argument types from DataType to Type
         List<Expr> catalogArguments = function.getArguments()
@@ -581,6 +591,50 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         LambdaFunctionCallExpr functionCallExpr = new LambdaFunctionCallExpr(catalogFunction,
                 new FunctionParams(false, arguments), arrayMap.nullable());
         return functionCallExpr;
+    }
+
+    @Override
+    public Expr visitArraySortedMerge(ArraySortedMerge arraySortedMerge, PlanTranslatorContext context) {
+        Lambda lambda = (Lambda) arraySortedMerge.child(0);
+        List<Expr> arguments = new ArrayList<>(lambda.getLambdaArguments().size() + 2);
+        arguments.add(null);
+        int columnId = 0;
+        for (ArrayItemReference arrayItemReference : lambda.getLambdaArguments()) {
+            String argName = arrayItemReference.getName();
+            Expr expr = arrayItemReference.getArrayExpression().accept(this, context);
+            arguments.add(expr);
+
+            ColumnRefExpr column = new ColumnRefExpr(true);
+            column.setName(argName);
+            column.setColumnId(columnId);
+            column.setType(((ArrayType) expr.getType()).getItemType());
+            context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
+            columnId += 1;
+        }
+        // The ascending flag is a regular function child; the BE reads it after the two arrays.
+        arguments.add(arraySortedMerge.child(1).accept(this, context));
+
+        List<Type> argTypes = arraySortedMerge.getArguments().stream()
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .collect(Collectors.toList());
+        lambda.getLambdaArguments().stream()
+                .map(ArrayItemReference::getArrayExpression)
+                .map(Expression::getDataType)
+                .map(DataType::toCatalogDataType)
+                .forEach(argTypes::add);
+        NullableMode nullableMode = arraySortedMerge.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+        org.apache.doris.catalog.Function catalogFunction = new Function(
+                new FunctionName(arraySortedMerge.getName()), argTypes,
+                ArrayType.create(lambda.getRetType().toCatalogDataType(), true),
+                true, true, nullableMode);
+
+        Expr lambdaBody = visitLambda(lambda, context);
+        arguments.set(0, lambdaBody);
+        return new LambdaFunctionCallExpr(catalogFunction,
+                new FunctionParams(false, arguments), arraySortedMerge.nullable());
     }
 
     @Override
@@ -751,9 +805,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         // create catalog FunctionCallExpr without analyze again
         FunctionParams functionParams = new FunctionParams(false, arguments);
-        return function instanceof RequiresShortCircuitEvaluation
-                ? new ShortCircuitFunctionCallExpr(catalogFunction, functionParams, function.nullable())
-                : new FunctionCallExpr(catalogFunction, functionParams, function.nullable());
+        FunctionCallExpr functionCallExpr = new FunctionCallExpr(
+                catalogFunction, functionParams, function.nullable());
+        functionCallExpr.setShortCircuitEvaluation(function instanceof RequiresShortCircuitEvaluation);
+        return functionCallExpr;
     }
 
     @Override
@@ -829,6 +884,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     public Expr visitIsNull(IsNull isNull, PlanTranslatorContext context) {
         IsNullPredicate isNullPredicate = new IsNullPredicate(isNull.child().accept(this, context), false);
         return isNullPredicate;
+    }
+
+    @Override
+    public Expr visitFinalizeCombinator(FinalizeCombinator combinator, PlanTranslatorContext context) {
+        FunctionCallExpr functionCallExpr = (FunctionCallExpr) visitScalarFunction(combinator, context);
+        functionCallExpr.getFn().setBinaryType(Function.BinaryType.AGG_STATE);
+        return functionCallExpr;
     }
 
     @Override

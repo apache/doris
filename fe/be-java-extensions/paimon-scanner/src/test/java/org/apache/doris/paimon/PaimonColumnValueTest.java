@@ -29,6 +29,7 @@ import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
+import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.DataType;
@@ -39,6 +40,7 @@ import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VariantType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -95,6 +97,19 @@ public class PaimonColumnValueTest {
         Assertions.assertEquals(10, values.get(0).getInt());
         Assertions.assertEquals("x", values.get(1).getString());
         Assertions.assertEquals(100L, values.get(2).getLong());
+    }
+
+    @Test
+    public void testGetVariantEncodedBytes() {
+        GenericVariant variant = GenericVariant.fromJson("{\"a\":[1,null]}");
+        PaimonColumnValue columnValue = new PaimonColumnValue(
+                GenericRow.of(variant), 0, ColumnType.parseType("v", "variant"), new VariantType(), "UTC");
+
+        Assertions.assertArrayEquals(variant.metadata(), columnValue.getVariantMetadata());
+        Assertions.assertArrayEquals(variant.value(), columnValue.getVariantValue());
+        Assertions.assertEquals(
+                ColumnType.Type.VARIANT,
+                PaimonTypeUtils.fromPaimonType("v", new VariantType()).getType());
     }
 
     @Test
@@ -214,6 +229,54 @@ public class PaimonColumnValueTest {
     }
 
     @Test
+    public void testNanosecondPrecisionInNestedOutputLeaves() {
+        for (int precision : new int[] {7, 8}) {
+            TimestampType timestampType = new TimestampType(precision);
+            RowType current = RowType.of(new DataType[] {
+                    new ArrayType(timestampType), new MapType(new IntType(), timestampType),
+                    RowType.of(new DataType[] {timestampType}, new String[] {"ts"})},
+                    new String[] {"array", "map", "nested"});
+            ColumnType output = ColumnType.parseType("root", "struct<array:array<timestamp_ns>,"
+                    + "map:map<int,timestamp_ns>,nested:struct<ts:timestamp_ns>>");
+            PaimonJniScanner.resetTimestampPrecision(output, current);
+            LocalDateTime value = LocalDateTime.of(2025, 1, 1, 0, 0, 1, 123456789);
+            Timestamp timestamp = Timestamp.fromLocalDateTime(value);
+            GenericRow row = GenericRow.of(new GenericArray(new Object[] {timestamp}),
+                    new GenericMap(Collections.singletonMap(7, timestamp)), GenericRow.of(timestamp));
+            PaimonColumnValue root = new PaimonColumnValue(GenericRow.of(row), 0, output,
+                    PaimonJniScanner.createSafeTimestampReadType(current), "UTC");
+            List<ColumnValue> fields = new ArrayList<>();
+            root.unpackStruct(Arrays.asList(0, 1, 2), fields);
+            List<ColumnValue> array = new ArrayList<>();
+            fields.get(0).unpackArray(array);
+            List<ColumnValue> keys = new ArrayList<>();
+            List<ColumnValue> values = new ArrayList<>();
+            fields.get(1).unpackMap(keys, values);
+            List<ColumnValue> nested = new ArrayList<>();
+            fields.get(2).unpackStruct(Collections.singletonList(0), nested);
+            LocalDateTime expected = value.withNano(precision == 7 ? 123456700 : 123456780);
+            Assertions.assertEquals(expected, array.get(0).getDateTime());
+            Assertions.assertEquals(7, keys.get(0).getInt());
+            Assertions.assertEquals(expected, values.get(0).getDateTime());
+            Assertions.assertEquals(expected, nested.get(0).getDateTime());
+        }
+    }
+
+    @Test
+    public void testAlignedTimestampReusesOriginalValue() {
+        for (int precision : new int[] {0, 4, 6, 9}) {
+            int nano = precision == 0 ? 0 : 123_400_000;
+            Timestamp timestamp = Timestamp.fromLocalDateTime(
+                    LocalDateTime.of(1969, 12, 31, 23, 59, 59, nano));
+            for (DataType type : new DataType[] {new TimestampType(9), new LocalZonedTimestampType(9)}) {
+                PaimonColumnValue value = new PaimonColumnValue(GenericRow.of(timestamp), 0,
+                        ColumnType.parseType("t", "datetimev2(" + precision + ")"), type, "UTC");
+                Assertions.assertSame(timestamp, value.truncateTimestampPrecision(timestamp));
+            }
+        }
+    }
+
+    @Test
     public void testTimestampConversionsPreserveBoundaryValues() {
         Timestamp timestamp = Timestamp.fromEpochMillis(-1, 999_999);
         ColumnType dorisTimestampType = ColumnType.parseType("t", "datetimev2(9)");
@@ -227,12 +290,43 @@ public class PaimonColumnValueTest {
                 LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999_999_999),
                 timestampValue.getTimeStampTz());
 
+        PaimonColumnValue secondsPrecisionValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromEpochMillis(1_735_689_601_600L)), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new TimestampType(0), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1), secondsPrecisionValue.getDateTime());
+
+        PaimonColumnValue leadingZeroValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromLocalDateTime(
+                        LocalDateTime.of(2025, 1, 1, 0, 0, 1, 1_000))), 0,
+                ColumnType.parseType("t", "datetimev2(4)"), new TimestampType(6), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(2025, 1, 1, 0, 0, 1), leadingZeroValue.getDateTime());
+
+        PaimonColumnValue preEpochValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromLocalDateTime(
+                        LocalDateTime.of(1969, 12, 31, 23, 59, 59, 600_000_000))), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new TimestampType(6), "UTC");
+        Assertions.assertEquals(
+                LocalDateTime.of(1969, 12, 31, 23, 59, 59), preEpochValue.getDateTime());
+
         PaimonColumnValue localZonedValue = new PaimonColumnValue(
                 GenericRow.of(Timestamp.fromInstant(Instant.parse("2024-03-10T10:30:00.123456789Z"))), 0,
                 dorisTimestampType, new LocalZonedTimestampType(9), "America/Los_Angeles");
         Assertions.assertEquals(
                 LocalDateTime.of(2024, 3, 10, 3, 30, 0, 123_456_789),
                 localZonedValue.getDateTime());
+
+        PaimonColumnValue narrowedLocalZonedValue = new PaimonColumnValue(
+                GenericRow.of(Timestamp.fromInstant(Instant.parse("2024-03-10T10:30:00.123456789Z"))), 0,
+                ColumnType.parseType("t", "datetimev2(0)"), new LocalZonedTimestampType(9),
+                "America/Los_Angeles");
+        Assertions.assertEquals(
+                LocalDateTime.of(2024, 3, 10, 3, 30),
+                narrowedLocalZonedValue.getDateTime());
+        Assertions.assertEquals(
+                LocalDateTime.of(2024, 3, 10, 10, 30),
+                narrowedLocalZonedValue.getTimeStampTz());
 
         localZonedValue.setTimeZone("Asia/Shanghai");
         Assertions.assertEquals(
@@ -352,4 +446,31 @@ public class PaimonColumnValueTest {
         result.put(key2, value2);
         return result;
     }
+
+    @Test
+    public void testJniUtcYearBounds() {
+        org.apache.doris.jni.spi.utils.OffHeap.setTesting();
+        org.apache.doris.jni.spi.vec.ColumnType columnType =
+                org.apache.doris.jni.spi.vec.ColumnType.parseType("ts", "timestamptz(6)");
+        for (String text : new String[] {"0000-12-31T23:59:59Z", "+10000-01-01T00:00:00Z"}) {
+            java.time.Instant instant = java.time.Instant.parse(text);
+            PaimonColumnValue value = new PaimonColumnValue(GenericRow.of(Timestamp.fromInstant(instant)),
+                    0, columnType, new LocalZonedTimestampType(6), "America/Los_Angeles");
+            org.apache.doris.jni.spi.vec.VectorColumn column =
+                    org.apache.doris.jni.spi.vec.VectorColumn.createWritableColumn(columnType, 1);
+            try {
+                // Doris accepts year zero; only the UTC instant outside years 0..9999 is invalid.
+                if (text.startsWith("0000")) {
+                    column.appendValue(value);
+                    Assertions.assertEquals(java.time.LocalDateTime.ofInstant(instant, java.time.ZoneOffset.UTC),
+                            column.getTimeStampTzColumn(0, 1)[0]);
+                } else {
+                    Assertions.assertThrows(IllegalArgumentException.class, () -> column.appendValue(value));
+                }
+            } finally {
+                column.close();
+            }
+        }
+    }
+
 }

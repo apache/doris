@@ -29,17 +29,18 @@
 #include "io/fs/packed_file_writer.h"
 #include "io/fs/stream_sink_file_writer.h"
 #include "storage/index/ann/ann_index_files.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
+#include "storage/index/index_fs_directory.h"
 #include "storage/index/index_storage_format_v1.h"
 #include "storage/index/index_storage_format_v2.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/inverted/inverted_index_compound_reader.h"
-#include "storage/index/inverted/inverted_index_desc.h"
-#include "storage/index/inverted/inverted_index_fs_directory.h"
-#include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/snii/query/gram_boolean_query.h"
-#include "storage/index/snii/snii_blob_staging_directory.h"
-#include "storage/index/snii/snii_doris_adapter.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
+#include "storage/index/inverted/clucene/searcher_cache_value.h"
+#include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/snii/query/gram_boolean_query.h"
+#include "storage/index/inverted/snii/snii_blob_staging_directory.h"
+#include "storage/index/inverted/snii/snii_doris_adapter.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
 
@@ -145,6 +146,10 @@ void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
     input->prx_zstd_level = std::clamp(
             is_direct_load ? config::snii_prx_zstd_level_direct_load : config::snii_prx_zstd_level,
             3, 19);
+    // Negative: the index chooses the percentage within its own size budget.
+    input->prx_zstd_budget = config::snii_prx_zstd_min_saving_percent < 0;
+    input->prx_window_limits.zstd_min_saving_percent =
+            static_cast<uint32_t>(std::clamp(config::snii_prx_zstd_min_saving_percent, 0, 100));
     // G16-d: dict block size experiment knob; <= 0 keeps the format default.
     if (config::snii_target_dict_block_bytes > 0) {
         input->target_dict_block_bytes =
@@ -199,6 +204,11 @@ Status IndexFileWriter::_insert_directory_into_map(int64_t index_id,
 }
 
 Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletIndex* index_meta) {
+    // A directory opened now would never reach the sealed file, and the index would be lost.
+    if (_closed) {
+        return ResultError(Status::InternalError("open index {} on closed index file writer {}",
+                                                 index_meta->index_id(), debug_string()));
+    }
     // No index under SNII writes through a CLucene filesystem directory: text
     // postings go through the SPIMI writer, and an ANN index uses self-cleaning
     // per-file staging (see open_ann_directory).
@@ -324,7 +334,7 @@ void IndexFileWriter::_release_snii_blob_directories() {
 }
 
 Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
-                                       std::vector<uint32_t> null_docids,
+                                       doris::snii::writer::TrackedNullDocids null_docids,
                                        doris::snii::writer::SpimiTermBuffer* const term_buffer,
                                        doris::snii::format::IndexConfig index_config,
                                        SniiAddIndexOptions options,
@@ -347,13 +357,12 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.index_suffix = index_meta->get_index_suffix();
     input.config = index_config;
     input.doc_count = doc_count;
-    input.null_docids = std::move(null_docids);
     input.encoded_norms = std::move(options.encoded_norms);
     input.gram_scheme = options.gram_scheme;
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
     snii_resolve_index_write_params(options.is_direct_load, !input.encoded_norms.empty(), &input);
-    RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
+    RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input, std::move(null_docids)));
     ++_snii_index_count;
     return Status::OK();
 }
@@ -540,10 +549,10 @@ Status IndexFileWriter::add_into_searcher_cache() {
         IndexSearcherPtr searcher;
         size_t reader_size = 0;
         auto index_searcher_builder = DORIS_TRY(_construct_index_searcher_builder(dir.get()));
-        RETURN_IF_ERROR(InvertedIndexReader::create_index_searcher(
-                index_searcher_builder.get(), dir.get(), &searcher, reader_size));
-        auto* cache_value = new InvertedIndexSearcherCache::CacheValue(std::move(searcher),
-                                                                       reader_size, UnixMillis());
+        RETURN_IF_ERROR(create_index_searcher(index_searcher_builder.get(), dir.get(), &searcher,
+                                              reader_size));
+        auto* cache_value =
+                new CluceneSearcherCacheValue(std::move(searcher), reader_size, UnixMillis());
         InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value);
     }
     return Status::OK();

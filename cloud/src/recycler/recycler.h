@@ -517,7 +517,7 @@ private:
     // Return 1 if the versioned delete bitmap should be deleted,
     // Return 0 if it can be skipped,
     // negative on error.
-    int should_delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id);
+    int may_have_versioned_delete_bitmap(int64_t partition_id, int64_t tablet_id);
 
     int delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
                                            const std::string& rowset_id);
@@ -713,7 +713,7 @@ private:
     SegmentRecyclerMetricsContext segment_metrics_context_;
 
     // Data tablets in the same partition have the same MoW setting. Cache both true and false so
-    // subsequent rowsets can avoid reading the tablet index and tablet meta. Row-binlog tablets
+    // subsequent rowsets can avoid reading the tablet index and tablet meta. Changelog tablets
     // must not populate this cache because their MoW flag is deliberately false.
     std::mutex partition_mow_cache_mutex;
     std::map<int64_t, bool> partition_mow_cache;

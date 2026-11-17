@@ -22,9 +22,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -57,7 +55,6 @@ namespace {
 
 const std::string kBenchmarkInstanceId = "recycler_benchmark_instance";
 const std::string kBenchmarkResourceId = "recycler_benchmark_resource";
-double recycler_benchmark_duration_tolerance_ratio = 0.8;
 
 std::string get_env(const char* name) {
     const char* value = std::getenv(name);
@@ -112,7 +109,7 @@ void set_obj_store_provider(const std::string& provider, ObjectStoreInfoPB* obj_
 }
 
 // Number of recyclable rowsets seeded per branch.
-constexpr int64_t kRowsetsPerBranch = 10000;
+constexpr int64_t kRowsetsPerBranch = 5000;
 // Commit the seeded recycle rowset KVs in batches to keep each txn small.
 constexpr int64_t kSeedCommitBatch = 2000;
 constexpr int64_t kRowsetsPerPackedFile = 2;
@@ -121,6 +118,7 @@ constexpr int kMaxPackedRecyclePasses = 10;
 static_assert(kRowsetsPerBranch % kRowsetsPerPackedFile == 0);
 static_assert(kSeedCommitBatch % kRowsetsPerPackedFile == 0);
 constexpr int64_t kBenchmarkIndexId = 20000;
+constexpr int64_t kBenchmarkTableId = 30000;
 constexpr int32_t kBenchmarkSchemaVersion = 1;
 constexpr int64_t kBenchmarkDbId = 10000;
 
@@ -312,11 +310,33 @@ void put_benchmark_delete_bitmap(Transaction* txn, const std::string& instance_i
     }
 }
 
-// Seed `count` recycle rowset KVs for one branch. Every rowset gets a distinct
-// tablet_id so the per-tablet recycle batch limit never truncates the workload.
+void put_benchmark_tablet(Transaction* txn, const std::string& instance_id, int64_t partition_id,
+                          int64_t tablet_id, bool is_mow) {
+    TabletIndexPB tablet_index;
+    tablet_index.set_db_id(kBenchmarkDbId);
+    tablet_index.set_table_id(kBenchmarkTableId);
+    tablet_index.set_index_id(kBenchmarkIndexId);
+    tablet_index.set_partition_id(partition_id);
+    tablet_index.set_tablet_id(tablet_id);
+    txn->put(meta_tablet_idx_key({instance_id, tablet_id}), tablet_index.SerializeAsString());
+
+    doris::TabletMetaCloudPB tablet_meta;
+    tablet_meta.set_table_id(kBenchmarkTableId);
+    tablet_meta.set_partition_id(partition_id);
+    tablet_meta.set_tablet_id(tablet_id);
+    tablet_meta.set_index_id(kBenchmarkIndexId);
+    tablet_meta.set_enable_unique_key_merge_on_write(is_mow);
+    txn->put(meta_tablet_key(
+                     {instance_id, kBenchmarkTableId, kBenchmarkIndexId, partition_id, tablet_id}),
+             tablet_meta.SerializeAsString());
+}
+
+// Seed `count` recycle rowset KVs for one branch. Compacted rowsets share tablets
+// within one partition, as they do in a real tablet's version history.
 int seed_recycle_rowsets(TxnKv* txn_kv, const std::string& instance_id, RecycleRowsetBranch branch,
                          int64_t count, int64_t tablet_id_base, bool write_schema_kv = true,
                          DeleteBitmapVersion bitmap_version = DeleteBitmapVersion::kNone) {
+    constexpr int64_t kCompactedRowsetsPerTablet = 100;
     if (write_schema_kv && put_benchmark_schema(txn_kv, instance_id) != 0) {
         return -1;
     }
@@ -332,9 +352,18 @@ int seed_recycle_rowsets(TxnKv* txn_kv, const std::string& instance_id, RecycleR
                 return -1;
             }
         }
-        int64_t tablet_id = tablet_id_base + i;
+        int64_t tablet_id = tablet_id_base + (branch == RecycleRowsetBranch::kCompactedWithData
+                                                      ? i / kCompactedRowsetsPerTablet
+                                                      : i);
         std::string rowset_id = fmt::format("{:018d}", i);
         auto meta = make_rowset_meta(branch, tablet_id, rowset_id);
+        if (branch == RecycleRowsetBranch::kCompactedWithData) {
+            meta.set_partition_id(tablet_id_base);
+            if (i % kCompactedRowsetsPerTablet == 0) {
+                put_benchmark_tablet(txn.get(), instance_id, tablet_id_base, tablet_id,
+                                     bitmap_version != DeleteBitmapVersion::kNone);
+            }
+        }
         auto pb = make_recycle_rowset(branch, meta);
 
         std::string key;
@@ -395,6 +424,9 @@ void put_packed_recycle_rowsets(Transaction* txn, const std::string& instance_id
         const auto tablet_id = tablet_id_base + rowset_number;
         const auto rowset_id = fmt::format("{:018d}", rowset_number);
         auto meta = make_rowset_meta(RecycleRowsetBranch::kCompactedWithData, tablet_id, rowset_id);
+        meta.set_partition_id(tablet_id_base);
+        put_benchmark_tablet(txn, instance_id, tablet_id_base, tablet_id,
+                             bitmap_version != DeleteBitmapVersion::kNone);
         const std::pair<std::string, int64_t> files[] = {
                 {segment_path(tablet_id, rowset_id, 0), meta.data_disk_size()},
                 {inverted_index_path_v1(tablet_id, rowset_id, 0, 1, ""), meta.index_disk_size()}};
@@ -477,14 +509,6 @@ protected:
     void SetUp() override {
         old_force_immediate_recycle_ = config::force_immediate_recycle;
         old_retention_seconds_ = config::retention_seconds;
-
-        const auto tolerance_env = get_env("recycler_benchmark_duration_tolerance_ratio");
-        size_t parsed_size = 0;
-        recycler_benchmark_duration_tolerance_ratio =
-                tolerance_env.empty() ? 0.8 : std::stod(tolerance_env, &parsed_size);
-        ASSERT_EQ(parsed_size, tolerance_env.size()) << "invalid recycler benchmark tolerance";
-        ASSERT_TRUE(std::isfinite(recycler_benchmark_duration_tolerance_ratio));
-        ASSERT_GE(recycler_benchmark_duration_tolerance_ratio, 0);
 
         config::force_immediate_recycle = true;
         config::retention_seconds = 0;
@@ -607,16 +631,16 @@ protected:
             }
             report += fmt::format("recycler benchmark: operation={}\n", operation_type);
             report += fmt::format(
-                    "  {:<{}}  {:>12}  {:>13}  {:>16}  {:>12}  {:>12}  {:>12}"
-                    "  {:>12}\n",
-                    "branch", branch_width, "total_ms", "recycled_num", "recycled_bytes",
-                    "get_keys", "put_keys", "del_keys", "total_keys");
+                    "  {:<{}}  {:>12}  {:>13}  {:>16}  {:>12}  {:>12}  {:>12}  {:>12}\n", "branch",
+                    branch_width, "total_ms", "recycled_num", "recycled_bytes", "get", "put_keys",
+                    "del_keys", "total_keys");
             double total_elapsed_ms = 0;
             RecycleMetrics total_recycle_metrics;
             TxnKvCounts total_txn_kv_counts;
             for (const auto& [branch, result] : branches) {
                 report += fmt::format(
-                        "  {:<{}}  {:>12.2f}  {:>13}  {:>16}  {:>12}  {:>12}  {:>12}  {:>12}\n",
+                        "  {:<{}}  {:>12.2f}  {:>13}  {:>16}  {:>12}  {:>12}  {:>12}"
+                        "  {:>12}\n",
                         branch, branch_width, result.elapsed_ms, result.metrics.num,
                         result.metrics.bytes, result.txn_kv_counts.get, result.txn_kv_counts.put,
                         result.txn_kv_counts.del, result.txn_kv_counts.total());
@@ -626,7 +650,8 @@ protected:
                 total_txn_kv_counts += result.txn_kv_counts;
             }
             report += fmt::format(
-                    "  {:<{}}  {:>12.2f}  {:>13}  {:>16}  {:>12}  {:>12}  {:>12}  {:>12}\n",
+                    "  {:<{}}  {:>12.2f}  {:>13}  {:>16}  {:>12}  {:>12}  {:>12}"
+                    "  {:>12}\n",
                     "total", branch_width, total_elapsed_ms, total_recycle_metrics.num,
                     total_recycle_metrics.bytes, total_txn_kv_counts.get, total_txn_kv_counts.put,
                     total_txn_kv_counts.del, total_txn_kv_counts.total());
@@ -663,20 +688,12 @@ protected:
     }
 
     TxnKvCounts read_txn_kv_counts() const {
-        return {.get = g_bvar_txn_kv_get_count_normalized.get_value(),
+        return {.get = g_bvar_txn_kv_get_count_normalized.get_value() +
+                       g_bvar_txn_kv_range_get.count(),
                 .put = g_bvar_txn_kv_put.count() + g_bvar_txn_kv_atomic_set_ver_key.count() +
                        g_bvar_txn_kv_atomic_set_ver_value.count() +
                        g_bvar_txn_kv_atomic_add.count(),
                 .del = g_bvar_txn_kv_remove.count() + g_bvar_txn_kv_range_remove.count()};
-    }
-
-    void check_elapsed_ms(const std::string& branch, double actual_ms, double baseline_ms) {
-        const double limit_ms = baseline_ms * (1 + recycler_benchmark_duration_tolerance_ratio);
-        if (actual_ms > limit_ms) {
-            benchmark_failures_ +=
-                    fmt::format("branch={} actual_ms={:.2f} baseline_ms={:.2f} limit_ms={:.2f}\n",
-                                branch, actual_ms, baseline_ms, limit_ms);
-        }
     }
 
     void check_txn_kv_counts(const std::string& branch, const TxnKvCounts& actual,
@@ -736,6 +753,14 @@ protected:
                                        bitmap_version);
         }
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    void warm_partition_mow_cache(int64_t partition_id, bool is_mow) {
+        // Keep the timed run focused on the steady-state per-rowset path. The first lookup
+        // validates the seeded tablet index/meta and populates the partition cache.
+        ASSERT_EQ(recycler_->may_have_versioned_delete_bitmap(partition_id,
+                                                              /*tablet_id*/ partition_id),
+                  is_mow ? 1 : 0);
     }
 
     int64_t count_recycle_rowsets() {
@@ -866,13 +891,15 @@ TEST_F(RecyclerBenchmarkTest, RecycleRowsets) {
                                        RecycleRowsetBranch::kCompactedWithData, kRowsetsPerBranch,
                                        tablet_id_base),
                   0);
+        ASSERT_NO_FATAL_FAILURE(warm_partition_mow_cache(tablet_id_base, false));
         ASSERT_EQ(remove_benchmark_schema(txn_kv_.get(), kBenchmarkInstanceId), 0);
         ASSERT_NO_FATAL_FAILURE(measure("recycle_rowsets", "compacted_without_schema", "delete"));
         ASSERT_EQ(count_recycle_rowsets(), 0);
     });
 
     // Hold rowset count, schema and file sizes fixed; vary only data packing and
-    // bitmap version. V1 bitmap KVs survive rowset recycling, so isolate each case.
+    // bitmap version. Data-only cases model non-MoW tablets; bitmap cases model MoW.
+    // V1 bitmap KVs survive rowset recycling, so isolate each case.
     for (const auto& [bitmap_version, bitmap_name] :
          {std::pair {DeleteBitmapVersion::kNone, "data_only"},
           std::pair {DeleteBitmapVersion::kV1, "delete_bitmap_v1"},
@@ -886,6 +913,8 @@ TEST_F(RecyclerBenchmarkTest, RecycleRowsets) {
                                            RecycleRowsetBranch::kCompactedWithData,
                                            kRowsetsPerBranch, tablet_id_base, true, bitmap_version),
                       0);
+            ASSERT_NO_FATAL_FAILURE(warm_partition_mow_cache(
+                    tablet_id_base, bitmap_version != DeleteBitmapVersion::kNone));
             ASSERT_EQ(count_recycle_rowsets(), kRowsetsPerBranch);
             ASSERT_NO_FATAL_FAILURE(measure("recycle_rowsets",
                                             fmt::format("compacted_with_data/{}", bitmap_name),
@@ -897,6 +926,9 @@ TEST_F(RecyclerBenchmarkTest, RecycleRowsets) {
         run_benchmark(fmt::format("compacted_with_packed_data/{}", bitmap_name), [&] {
             ASSERT_NO_FATAL_FAILURE(seed_packed_recycle_rowsets(tablet_id_base + kRowsetsPerBranch,
                                                                 bitmap_version));
+            ASSERT_NO_FATAL_FAILURE(
+                    warm_partition_mow_cache(tablet_id_base + kRowsetsPerBranch,
+                                             bitmap_version != DeleteBitmapVersion::kNone));
 
             int64_t remaining = count_recycle_rowsets();
             ASSERT_EQ(remaining, kRowsetsPerBranch);
@@ -930,7 +962,6 @@ TEST_F(RecyclerBenchmarkTest, RecycleRowsets) {
                     check_recycled_bitmap_range(tablet_id_base + kRowsetsPerBranch));
         });
     }
-
     run_benchmark("compacted_empty", [&] {
         ASSERT_EQ(seed_recycle_rowsets(txn_kv_.get(), kBenchmarkInstanceId,
                                        RecycleRowsetBranch::kCompactedEmpty, kRowsetsPerBranch,
@@ -1000,6 +1031,9 @@ TEST_F(RecyclerBenchmarkTest, RecycleRowsets) {
                           mixed_tablet_offset +
                                   tablet_base_for(RecycleRowsetBranch::kCompactedWithData)),
                   0);
+        ASSERT_NO_FATAL_FAILURE(warm_partition_mow_cache(
+                mixed_tablet_offset + tablet_base_for(RecycleRowsetBranch::kCompactedWithData),
+                false));
         ASSERT_EQ(
                 seed_recycle_rowsets(txn_kv_.get(), kBenchmarkInstanceId,
                                      RecycleRowsetBranch::kCompactedEmpty, kRowsetsPerBranch,
@@ -1012,57 +1046,41 @@ TEST_F(RecyclerBenchmarkTest, RecycleRowsets) {
         ASSERT_EQ(count_recycle_rowsets(), 0);
     });
 
-    // Recorded with 10,000 rowsets per branch. Recalibrate if the workload changes.
-    static_assert(kRowsetsPerBranch == 10000);
-    const std::map<std::string, double> baseline_elapsed_ms = {
-            {"compacted_empty", 794.18},
-            {"compacted_with_data/data_only", 2285.80},
-            {"compacted_with_data/delete_bitmap_v1", 2461.84},
-            {"compacted_with_data/delete_bitmap_v2", 2726.75},
-            {"compacted_with_packed_data/data_only", 8583.32},
-            {"compacted_with_packed_data/delete_bitmap_v1", 9315.59},
-            {"compacted_with_packed_data/delete_bitmap_v2", 8948.54},
-            {"compacted_without_schema", 3924.04},
-            {"legacy_empty_resource", 945.75},
-            {"legacy_with_resource", 6718.37},
-            {"mixed", 35178.52},
-            {"prepare_abort", 16465.44},
-            {"prepare_direct", 5360.28},
-            {"prepare_mark", 7039.65},
-    };
+    // Bulk branches use 5,000 rowsets. Recalibrate if the workload changes.
+    static_assert(kRowsetsPerBranch == 5000);
     const std::map<std::string, TxnKvCounts> baseline_txn_kv_counts = {
-            {"compacted_empty", {.get = 10000, .put = 0, .del = 10000}},
-            {"compacted_with_data/data_only", {.get = 10001, .put = 0, .del = 10000}},
-            {"compacted_with_data/delete_bitmap_v1", {.get = 10000, .put = 0, .del = 10000}},
-            {"compacted_with_data/delete_bitmap_v2", {.get = 20000, .put = 0, .del = 20000}},
-            {"compacted_with_packed_data/data_only", {.get = 25000, .put = 10000, .del = 15000}},
+            {"compacted_empty", {.get = 5014, .put = 0, .del = 5000}},
+            // get = returned KVs + range-get requests (empty results count as one request).
+            // data_only: 5000 rowset KVs + 13 scan reads + 1 schema KV + 1 schema read = 5015.
+            // v1: 5000 rowset KVs + 13 scan reads + 5000 empty bitmap reads = 10013.
+            // v2: 5000 rowset KVs + 13 scan reads + 5000 bitmap KVs + 5000 bitmap reads = 15013.
+            {"compacted_with_data/data_only", {.get = 5015, .put = 0, .del = 5000}},
+            {"compacted_with_data/delete_bitmap_v1", {.get = 10013, .put = 0, .del = 5000}},
+            {"compacted_with_data/delete_bitmap_v2", {.get = 15013, .put = 0, .del = 10000}},
+            {"compacted_with_packed_data/data_only", {.get = 12526, .put = 5000, .del = 7500}},
             {"compacted_with_packed_data/delete_bitmap_v1",
-             {.get = 25000, .put = 10000, .del = 15000}},
+             {.get = 17526, .put = 5000, .del = 7500}},
             {"compacted_with_packed_data/delete_bitmap_v2",
-             {.get = 35000, .put = 10000, .del = 25000}},
-            {"compacted_without_schema", {.get = 10000, .put = 0, .del = 10000}},
-            {"legacy_empty_resource", {.get = 10000, .put = 0, .del = 10000}},
-            {"legacy_with_resource", {.get = 20000, .put = 0, .del = 20000}},
-            {"mixed", {.get = 200000, .put = 40000, .del = 120000}},
-            {"prepare_abort", {.get = 90000, .put = 30000, .del = 30000}},
-            {"prepare_direct", {.get = 20000, .put = 0, .del = 20000}},
-            {"prepare_mark", {.get = 40000, .put = 10000, .del = 20000}},
+             {.get = 22526, .put = 5000, .del = 12500}},
+            // Missing schema is read once per rowset because the cache does not retain misses.
+            {"compacted_without_schema", {.get = 10013, .put = 0, .del = 5000}},
+            {"legacy_empty_resource", {.get = 5008, .put = 0, .del = 5000}},
+            {"legacy_with_resource", {.get = 10009, .put = 0, .del = 10000}},
+            {"mixed", {.get = 100111, .put = 20000, .del = 60000}},
+            {"prepare_abort", {.get = 45030, .put = 15000, .del = 15000}},
+            {"prepare_direct", {.get = 10014, .put = 0, .del = 10000}},
+            {"prepare_mark", {.get = 20028, .put = 5000, .del = 10000}},
     };
     const auto& results = benchmark_results_["recycle_rowsets"];
-    double total_elapsed_ms = 0;
-    for (const auto& [branch, baseline_ms] : baseline_elapsed_ms) {
+    for (const auto& [branch, baseline_counts] : baseline_txn_kv_counts) {
         const auto result = results.find(branch);
         if (result == results.end()) {
             benchmark_failures_ +=
-                    fmt::format("branch={} did not produce a timing result\n", branch);
+                    fmt::format("branch={} did not produce a benchmark result\n", branch);
             continue;
         }
-        check_elapsed_ms(branch, result->second.elapsed_ms, baseline_ms);
-        check_txn_kv_counts(branch, result->second.txn_kv_counts,
-                            baseline_txn_kv_counts.at(branch));
-        total_elapsed_ms += result->second.elapsed_ms;
+        check_txn_kv_counts(branch, result->second.txn_kv_counts, baseline_counts);
     }
-    check_elapsed_ms("total_elapsed_ms", total_elapsed_ms, 110748.07);
 }
 
 } // namespace

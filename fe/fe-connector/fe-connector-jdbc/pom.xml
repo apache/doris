@@ -40,6 +40,13 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- Shared, dependency-free Java 8 JDBC diagnostics, also used by the BE plugin. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>plugin-toolkit</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>

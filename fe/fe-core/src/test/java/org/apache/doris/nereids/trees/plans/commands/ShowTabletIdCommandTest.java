@@ -76,7 +76,7 @@ public class ShowTabletIdCommandTest {
         ShowTabletIdCommand command = new ShowTabletIdCommand(CatalogMocker.TEST_TBL_ID);
         Assertions.assertDoesNotThrow(() -> command.validate(ctx));
         Assertions.assertTrue(command.getMetaData().getColumns().stream()
-                .anyMatch(column -> column.getName().equals("IsRowBinlog")));
+                .anyMatch(column -> column.getName().equals("IsChangelog")));
     }
 
     @Test

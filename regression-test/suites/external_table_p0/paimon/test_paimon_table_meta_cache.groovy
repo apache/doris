@@ -27,10 +27,12 @@ suite("test_paimon_table_meta_cache", "p0,external") {
 
     String catalogWithCache = "test_paimon_table_cache_with_cache"
     String catalogNoCache = "test_paimon_table_cache_no_cache"
+    String catalogWeighted = "test_paimon_table_cache_weighted"
     String testDb = "paimon_cache_test_db"
 
     sql """drop catalog if exists ${catalogWithCache}"""
     sql """drop catalog if exists ${catalogNoCache}"""
+    sql """drop catalog if exists ${catalogWeighted}"""
 
     sql """
         CREATE CATALOG ${catalogWithCache} PROPERTIES (
@@ -80,6 +82,19 @@ suite("test_paimon_table_meta_cache", "p0,external") {
         exception "is wrong"
     }
 
+    // A catalog-level memory bound puts the table handle and snapshot projections under weight.
+    sql """
+        CREATE CATALOG ${catalogWeighted} PROPERTIES (
+            'type' = 'paimon',
+            'warehouse' = 's3://warehouse/wh',
+            's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
+            's3.access_key' = 'admin',
+            's3.secret_key' = 'password',
+            's3.path.style.access' = 'true',
+            'meta.cache.max-weight' = '128MB'
+        );
+    """
+
     try {
         spark_paimon "CREATE DATABASE IF NOT EXISTS paimon.${testDb}"
 
@@ -99,6 +114,7 @@ suite("test_paimon_table_meta_cache", "p0,external") {
 
         spark_paimon "INSERT INTO paimon.${testDb}.test_insert VALUES (2, 'external_insert')"
 
+        // The cached catalog keeps reading the latest snapshot it cached until REFRESH (or its TTL).
         sql """switch ${catalogWithCache}"""
         def result2 = sql """select * from ${testDb}.test_insert order by id"""
         assertEquals(1, result2.size())
@@ -111,6 +127,61 @@ suite("test_paimon_table_meta_cache", "p0,external") {
         sql """refresh table ${testDb}.test_insert"""
         def result3 = sql """select * from ${testDb}.test_insert order by id"""
         assertEquals(2, result3.size())
+
+        // ==================== Test 1b: weight-bounded cache ====================
+        logger.info("========== Test 1b: weight-bounded cache ==========")
+        sql """switch ${catalogWeighted}"""
+        def resultWeighted = sql """select * from ${testDb}.test_insert order by id"""
+        assertEquals(2, resultWeighted.size())
+        // desc/table-only paths admit the base table handle; the scan above admits the snapshot.
+        sql """desc ${testDb}.test_insert"""
+        // With only a catalog limit, every weighted entry is bounded by it, and nothing was rejected.
+        order_qt_paimon_weighted_entries """
+            select entry_name, weight_bounded, max_weight, catalog_max_weight, global_max_weight,
+                   weight_reject_count
+            from internal.information_schema.catalog_meta_cache_statistics
+            where catalog_name = "${catalogWeighted}" and engine_name = "paimon" and weight_bounded = true
+        """
+        def weightStats = sql """
+            select entry_name, estimated_weight, eviction_weight, catalog_estimated_weight,
+                   global_estimated_weight
+            from internal.information_schema.catalog_meta_cache_statistics
+            where catalog_name = "${catalogWeighted}" and engine_name = "paimon"
+              and entry_name in ("paimon-table", "paimon-latest-snapshot")
+        """
+        assertEquals(2, weightStats.size())
+        for (row in weightStats) {
+            // An admitted value is charged to its entry, its catalog and the FE-global total.
+            assertTrue((row[1] as long) > 0L)
+            assertEquals(0L, row[2] as long)
+            assertTrue((row[3] as long) >= (row[1] as long))
+            assertTrue((row[4] as long) >= (row[3] as long))
+        }
+        // A catalog without any memory bound reports -1 for every weight column.
+        order_qt_paimon_unbounded_entries """
+            select entry_name, weight_bounded, max_weight, estimated_weight, eviction_weight,
+                   weight_reject_count, catalog_max_weight, catalog_estimated_weight, global_max_weight,
+                   global_estimated_weight
+            from internal.information_schema.catalog_meta_cache_statistics
+            where catalog_name = "${catalogWithCache}" and engine_name = "paimon"
+        """
+        // Refresh releases the table handle reservation with its projections; the next scan
+        // re-admits both without rejections.
+        sql """refresh table ${testDb}.test_insert"""
+        def resultWeightedRefreshed = sql """select * from ${testDb}.test_insert order by id"""
+        assertEquals(2, resultWeightedRefreshed.size())
+        def weightStatsRefreshed = sql """
+            select entry_name, estimated_weight, weight_reject_count
+            from internal.information_schema.catalog_meta_cache_statistics
+            where catalog_name = "${catalogWeighted}" and engine_name = "paimon"
+              and entry_name in ("paimon-table", "paimon-latest-snapshot")
+        """
+        assertEquals(2, weightStatsRefreshed.size())
+        for (row in weightStatsRefreshed) {
+            assertTrue((row[1] as long) > 0L)
+            assertEquals(0L, row[2] as long)
+        }
+        sql """switch ${catalogWithCache}"""
 
         // ==================== Test 2: Schema Change (ADD COLUMN) ====================
         logger.info("========== Test 2: Schema Change (ADD COLUMN) ==========")
@@ -149,5 +220,6 @@ suite("test_paimon_table_meta_cache", "p0,external") {
         }
         sql """drop catalog if exists ${catalogWithCache}"""
         sql """drop catalog if exists ${catalogNoCache}"""
+        sql """drop catalog if exists ${catalogWeighted}"""
     }
 }

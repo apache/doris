@@ -21,8 +21,10 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTestResult;
 
+import org.apache.iceberg.aws.HttpClientProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -125,7 +127,7 @@ public class IcebergConnectorTestConnectionTest {
                 .usePathStyle("false");
 
         Map<String, String> ioProps = IcebergConnector.buildStorageProbeProperties(
-                IcebergCatalogProperties.TYPE_DLF, oss);
+                IcebergCatalogProperties.TYPE_DLF, oss, new HashMap<>());
 
         Assertions.assertEquals("http://s3.oss-cn-hangzhou-internal.aliyuncs.com", ioProps.get("s3.endpoint"));
         Assertions.assertEquals("bound-ak", ioProps.get("s3.access-key-id"));
@@ -133,6 +135,65 @@ public class IcebergConnectorTestConnectionTest {
         Assertions.assertEquals("bound-token", ioProps.get("s3.session-token"));
         Assertions.assertEquals("cn-hangzhou", ioProps.get("client.region"));
         Assertions.assertEquals("false", ioProps.get("s3.path-style-access"));
+    }
+
+    @Test
+    public void storageProbePropertiesBuildAnS3ClientOnTheShippedSdk() {
+        // WHY: the probe builds its own S3FileIO from this map, outside buildBaseCatalogProperties. iceberg 1.12's
+        // default "apache" client is Apache5HttpClient, absent from the AWS SDK Doris ships, so CREATE CATALOG failed
+        // with NoClassDefFoundError (an Error the probe's catch(Exception) never turns into a test result).
+        // MUTATION: drop the default -> "apache" -> NoClassDefFoundError -> red.
+        Map<String, String> ioProps = IcebergConnector.buildStorageProbeProperties(
+                IcebergCatalogProperties.TYPE_REST,
+                new FakeS3CompatibleStorageProperties("S3").endpoint("http://127.0.0.1:1")
+                        .region("us-east-1").accessKey("ak").secretKey("sk"),
+                new HashMap<>());
+
+        Assertions.assertEquals(HttpClientProperties.CLIENT_TYPE_URLCONNECTION,
+                ioProps.get(HttpClientProperties.CLIENT_TYPE));
+        Assertions.assertDoesNotThrow(
+                () -> new HttpClientProperties(ioProps).applyHttpClientConfigurations(S3Client.builder()));
+    }
+
+    @Test
+    public void storageProbeTreatsABlankCatalogHttpClientTypeAsUnset() {
+        // WHY: the probe copies the catalog's http-client.* keys, so a blank type must not slip through to iceberg-aws,
+        // which would turn it into "apache". MUTATION: copying "" without normalizing -> NoClassDefFoundError -> red.
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put(HttpClientProperties.CLIENT_TYPE, "");
+
+        Map<String, String> ioProps = IcebergConnector.buildStorageProbeProperties(
+                IcebergCatalogProperties.TYPE_REST,
+                new FakeS3CompatibleStorageProperties("S3").endpoint("http://127.0.0.1:1")
+                        .region("us-east-1").accessKey("ak").secretKey("sk"),
+                catalogProperties);
+
+        Assertions.assertEquals(HttpClientProperties.CLIENT_TYPE_URLCONNECTION,
+                ioProps.get(HttpClientProperties.CLIENT_TYPE));
+        Assertions.assertDoesNotThrow(
+                () -> new HttpClientProperties(ioProps).applyHttpClientConfigurations(S3Client.builder()));
+    }
+
+    @Test
+    public void storageProbeUsesTheCatalogHttpClientSettings() {
+        // WHY: the probe must reach storage the way the catalog will (proxy, timeouts), so the catalog's
+        // http-client.* keys win over the default. MUTATION: not copying them -> the probe ignores the proxy -> red.
+        Map<String, String> catalogProperties = new HashMap<>();
+        catalogProperties.put(HttpClientProperties.CLIENT_TYPE, HttpClientProperties.CLIENT_TYPE_URLCONNECTION);
+        catalogProperties.put("http-client.proxy-endpoint", "http://proxy:3128");
+        catalogProperties.put("s3.endpoint", "http://catalog-only-key");
+
+        Map<String, String> ioProps = IcebergConnector.buildStorageProbeProperties(
+                IcebergCatalogProperties.TYPE_REST,
+                new FakeS3CompatibleStorageProperties("S3").endpoint("http://127.0.0.1:1")
+                        .region("us-east-1").accessKey("ak").secretKey("sk"),
+                catalogProperties);
+
+        Assertions.assertEquals("http://proxy:3128", ioProps.get("http-client.proxy-endpoint"));
+        Assertions.assertEquals(HttpClientProperties.CLIENT_TYPE_URLCONNECTION,
+                ioProps.get(HttpClientProperties.CLIENT_TYPE));
+        Assertions.assertEquals("http://127.0.0.1:1", ioProps.get("s3.endpoint"),
+                "only http-client.* keys are copied; the storage binder stays the source of s3.*");
     }
 
     @Test

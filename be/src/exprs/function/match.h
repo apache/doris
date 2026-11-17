@@ -41,13 +41,18 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vmatch_predicate.h"
-#include "storage/index/inverted/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/common/query_info.h"
 #include "storage/index/inverted/inverted_index_reader.h"
-#include "storage/index/inverted/query/query_info.h"
 
 namespace doris {
 class FunctionContext;
 } // namespace doris
+
+namespace doris::segment_v2::inverted_index {
+class TextTokenStream;
+class TokenBatch;
+} // namespace doris::segment_v2::inverted_index
 
 namespace doris {
 
@@ -85,10 +90,14 @@ public:
             const InvertedIndexAnalyzerCtx* analyzer_ctx, const std::string& match_query_str,
             const std::string& field_name) const;
 
+    // The tokens of one value, or of one array row; `stream` and `batch` tokenize them when the
+    // values are analyzed, and are null otherwise.
     std::vector<segment_v2::TermInfo> analyse_data_token(
             const std::string& column_name, const InvertedIndexAnalyzerCtx* analyzer_ctx,
-            const ColumnString* string_col, size_t current_block_row_idx,
-            const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset,
+            segment_v2::inverted_index::TextTokenStream* stream,
+            segment_v2::inverted_index::TokenBatch* batch, const ColumnString* string_col,
+            size_t current_block_row_idx, const ColumnArray::Offsets64* array_offsets,
+            int32_t& current_src_array_offset,
             const ColumnUInt8::Container* array_element_null_map = nullptr) const;
 
     Status check(FunctionContext* context, const std::string& function_name) const;

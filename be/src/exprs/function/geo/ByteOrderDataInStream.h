@@ -32,11 +32,11 @@ public:
 
     ~ByteOrderDataInStream() = default;
 
-    void setOrder(int order) { byteOrder = order; };
+    void setOrder(ByteOrderValues::EndianType order) { byteOrder = order; };
 
     unsigned char readByte() {
         if (size() < 1) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;
+            return static_cast<unsigned char>(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR);
         }
         auto ret = buf[0];
         buf++;
@@ -45,7 +45,7 @@ public:
 
     int32_t readInt() {
         if (size() < 4) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;
+            return static_cast<int32_t>(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR);
         }
         auto ret = ByteOrderValues::getInt(buf, byteOrder);
         buf += 4;
@@ -54,7 +54,7 @@ public:
 
     uint32_t readUnsigned() {
         if (size() < 4) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;
+            return static_cast<uint32_t>(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR);
         }
         auto ret = ByteOrderValues::getUnsigned(buf, byteOrder);
         buf += 4;
@@ -63,7 +63,7 @@ public:
 
     int64_t readLong() {
         if (size() < 8) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;
+            return static_cast<int64_t>(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR);
         }
 
         auto ret = ByteOrderValues::getLong(buf, byteOrder);
@@ -73,7 +73,7 @@ public:
 
     double readDouble() {
         if (size() < 8) {
-            return GEO_PARSE_WKB_SYNTAX_ERROR;
+            return static_cast<double>(GeoParseStatus::GEO_PARSE_WKB_SYNTAX_ERROR);
         }
         auto ret = ByteOrderValues::getDouble(buf, byteOrder);
         buf += 8;
@@ -83,7 +83,7 @@ public:
     size_t size() const { return static_cast<size_t>(end - buf); };
 
 private:
-    int byteOrder;
+    ByteOrderValues::EndianType byteOrder;
     const unsigned char* buf = nullptr;
     const unsigned char* end = nullptr;
 };

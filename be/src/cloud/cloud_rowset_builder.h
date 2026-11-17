@@ -63,8 +63,8 @@ protected:
 class CloudGroupRowsetBuilder final : public CloudRowsetBuilder {
 public:
     CloudGroupRowsetBuilder(CloudStorageEngine& engine, const WriteRequest& group_build_req,
-                            const WriteRequest& sub_data_req,
-                            const WriteRequest& sub_row_binlog_req, RuntimeProfile* profile);
+                            const WriteRequest& sub_data_req, const WriteRequest& sub_changelog_req,
+                            RuntimeProfile* profile);
 
     Status init() override;
 
@@ -73,6 +73,8 @@ public:
     Status submit_calc_delete_bitmap_task() override;
 
     Status wait_calc_delete_bitmap() override;
+
+    Status cancel(const Status& st) override;
 
     void update_tablet_stats() override;
 
@@ -98,11 +100,11 @@ public:
 
     CloudRowsetBuilder* data_builder() { return _data_builder.get(); }
 
-    CloudRowsetBuilder* row_binlog_builder() { return _row_binlog_builder.get(); }
+    CloudRowsetBuilder* changelog_builder() { return _changelog_builder.get(); }
 
 private:
     std::shared_ptr<CloudRowsetBuilder> _data_builder;
-    std::shared_ptr<CloudRowsetBuilder> _row_binlog_builder;
+    std::shared_ptr<CloudRowsetBuilder> _changelog_builder;
 };
 
 } // namespace doris

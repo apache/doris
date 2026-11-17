@@ -21,7 +21,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 
 /**
  * Dropping a base-table partition invalidates the IVM baseline, because the rows disappear through
- * metadata rather than through row binlog entries. The MV partition built from that base partition
+ * metadata rather than through changelog entries. The MV partition built from that base partition
  * is then removed by partition sync, and the requirement left on it is what records that its rows
  * could not be removed incrementally.
  *
@@ -39,6 +39,8 @@ import static java.util.concurrent.TimeUnit.SECONDS
  * the case is fully deterministic.
  */
 suite("test_ivm_partition_drop_live_delta") {
+    // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
+    sql """set enable_materialized_view_rewrite = false;"""
     def tableName = "ivm_part_drop_t"
     def mvName = "ivm_part_drop_mv"
 
@@ -65,7 +67,7 @@ suite("test_ivm_partition_drop_live_delta") {
     def taskQuery = { String taskId ->
         """
             SELECT Status,
-                   CASE WHEN IvmFallbackReason = 'BINLOG_BROKEN' THEN IvmFallbackReason ELSE 'NONE' END
+                   CASE WHEN IvmFallbackReason = 'CHANGELOG_BROKEN' THEN IvmFallbackReason ELSE 'NONE' END
             FROM tasks('type'='mv')
             WHERE TaskId = '${taskId}'
         """
@@ -85,9 +87,8 @@ suite("test_ivm_partition_drop_live_delta") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """ALTER TABLE ${tableName} ADD PARTITION p202601 VALUES [('2026-01-01'), ('2026-02-01'))"""

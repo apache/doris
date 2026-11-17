@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_ivm_repeat_1") {
+    // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
+    sql """set enable_materialized_view_rewrite = false;"""
     sql """drop materialized view if exists test_ivm_repeat_1_mv;"""
     sql """drop table if exists test_ivm_repeat_1_t;"""
 
@@ -30,8 +32,7 @@ suite("test_ivm_repeat_1") {
         DISTRIBUTED BY HASH(id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

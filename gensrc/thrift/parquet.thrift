@@ -304,6 +304,8 @@ struct Statistics {
    7: optional bool is_max_value_exact;
    /** If true, min_value is the actual minimum value for a column */
    8: optional bool is_min_value_exact;
+   /** Optional NaN count for floating types; an absent count does not prove the absence of NaNs. */
+   9: optional i64 nan_count;
 }
 
 /** Empty structs to use as logical type annotations */

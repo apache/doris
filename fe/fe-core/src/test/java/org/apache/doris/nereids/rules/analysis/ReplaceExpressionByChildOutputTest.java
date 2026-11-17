@@ -18,10 +18,13 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -57,6 +60,30 @@ public class ReplaceExpressionByChildOutputTest implements MemoPatternMatchSuppo
                         logicalSort(logicalProject()).when(sort ->
                                 ((Slot) (sort.getOrderKeys().get(0).getExpr())).getExprId().equals(alias.getExprId()))
                 );
+    }
+
+    @Test
+    void testSortProjectDoesNotReplaceConstantSubExpression() {
+        // an unrelated constant output column, `2 AS two` or `1 + 1 AS two`, must not make the rule reuse
+        // its slot for the structurally equal constant nested inside a different order-by sub-expression,
+        // e.g. a function argument that has to fold to a literal (such as NTILE's bucket)
+        SlotReference col1 = new SlotReference("col1", IntegerType.INSTANCE);
+        LogicalOlapScan logicalOlapScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        for (Expression constant : ImmutableList.of(new IntegerLiteral(2),
+                new Add(new IntegerLiteral(1), new IntegerLiteral(1)))) {
+            Alias alias = new Alias(constant, "two");
+            LogicalProject<Plan> logicalProject = new LogicalProject<>(ImmutableList.of(alias), logicalOlapScan);
+            Add orderKeyExpr = new Add(constant, col1);
+            List<OrderKey> orderKeys = ImmutableList.of(new OrderKey(orderKeyExpr, true, true));
+            LogicalSort<LogicalProject<Plan>> logicalSort = new LogicalSort<>(orderKeys, logicalProject);
+
+            PlanChecker.from(MemoTestUtils.createConnectContext(), logicalSort)
+                    .applyBottomUp(new ReplaceExpressionByChildOutput())
+                    .matchesFromRoot(
+                            logicalSort(logicalProject()).when(sort ->
+                                    sort.getOrderKeys().get(0).getExpr().equals(orderKeyExpr))
+                    );
+        }
     }
 
     @Test

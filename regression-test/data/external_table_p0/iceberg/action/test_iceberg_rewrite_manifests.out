@@ -35,6 +35,20 @@
 5	item5	500	2024	3
 6	item6	600	2024	3
 
+-- !manifests_by_spec_before --
+0	1
+1	2
+
+-- !spec_id_rewrite --
+2	1
+
+-- !manifests_by_spec_after --
+0	1
+1	1
+
+-- !single_manifest_spec_rewrite --
+0	0
+
 -- !after_spec_id_rewrite --
 1	item1	100	2024	1	15
 2	item2	200	2024	1	16

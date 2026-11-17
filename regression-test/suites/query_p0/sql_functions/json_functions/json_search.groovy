@@ -153,4 +153,62 @@ suite("test_json_search") {
                    JSON_UNQUOTE(JSON_SEARCH('{ "a\\\\nb": "needle" }', 'one', 'needle'))
                );
     """
+
+    // A key that contains a path separator must be quoted so the returned path replays
+    // through JSON_EXTRACT and finds the same value JSON_SEARCH matched.
+    qt_search_dotted_key """
+        select JSON_SEARCH('{"a.b":"hit","a":{"b":"miss"}}', 'one', 'hit'),
+               JSON_EXTRACT('{"a.b":"hit","a":{"b":"miss"}}',
+                   JSON_UNQUOTE(JSON_SEARCH('{"a.b":"hit","a":{"b":"miss"}}', 'one', 'hit'))),
+               JSON_EXTRACT('{"a.b":"hit","a":{"b":"miss"}}', '\$."a.b"');
+    """
+
+    qt_search_bracket_and_wildcard_key """
+        select JSON_SEARCH('{"a[0]":"hit","a":["miss"]}', 'one', 'hit'),
+               JSON_EXTRACT('{"a[0]":"hit","a":["miss"]}',
+                   JSON_UNQUOTE(JSON_SEARCH('{"a[0]":"hit","a":["miss"]}', 'one', 'hit'))),
+               JSON_SEARCH('{"*a":"hit"}', 'one', 'hit'),
+               JSON_EXTRACT('{"*a":"hit"}',
+                   JSON_UNQUOTE(JSON_SEARCH('{"*a":"hit"}', 'one', 'hit')));
+    """
+
+    // The empty key is emitted as `$.""`, which names exactly that key.
+    qt_search_empty_key """
+        select JSON_SEARCH('{"":"hit","a":"miss"}', 'one', 'hit'),
+               JSON_EXTRACT('{"":"hit","a":"miss"}',
+                   JSON_UNQUOTE(JSON_SEARCH('{"":"hit","a":"miss"}', 'one', 'hit'))),
+               JSON_EXTRACT('{"":{"":"hit"}}', '\$."".""');
+    """
+
+    test {
+        sql """select JSON_EXTRACT('{"":"hit"}', '\$.');"""
+        exception "Invalid Json Path"
+    }
+
+    // A quoted "*" is the literal key `*`, an unquoted * is still the wildcard.
+    qt_search_literal_star_key """
+        select JSON_SEARCH('{"*":"hit","other":"miss"}', 'one', 'hit'),
+               JSON_EXTRACT('{"*":"hit","other":"miss"}',
+                   JSON_UNQUOTE(JSON_SEARCH('{"*":"hit","other":"miss"}', 'one', 'hit'))),
+               JSON_EXTRACT('{"*":"hit","other":"miss"}', '\$.*'),
+               JSON_REMOVE('{"*":"hit","other":"miss"}',
+                   JSON_UNQUOTE(JSON_SEARCH('{"*":"hit","other":"miss"}', 'one', 'hit'))),
+               JSON_KEYS('{"*":{"k":"hit"},"other":{"x":"miss"}}', '\$."*"');
+    """
+
+    test {
+        sql """select JSON_REMOVE('{"*":"hit","other":"miss"}', '\$.*');"""
+        exception "path expressions may not contain the * and ** tokens"
+    }
+
+    // A member path never addresses an array element, so JSON_SET / JSON_INSERT leave an
+    // array unchanged instead of overwriting or appending an element.
+    qt_search_member_path_on_array """
+        select JSON_SET('[1]', JSON_UNQUOTE(JSON_SEARCH('{"a.b":"hit"}', 'one', 'hit')), 2),
+               JSON_INSERT('[1]', JSON_UNQUOTE(JSON_SEARCH('{"a.b":"hit"}', 'one', 'hit')), 2),
+               JSON_SET('[1]', '\$.a', 2),
+               JSON_INSERT('[]', '\$.a', 2),
+               JSON_SET('{"x":1}', JSON_UNQUOTE(JSON_SEARCH('{"a.b":"hit"}', 'one', 'hit')), 2),
+               JSON_SET('[1]', '\$[1]', 2);
+    """
 }

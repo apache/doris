@@ -21,11 +21,13 @@ import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.foundation.util.UUIDUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
@@ -163,8 +165,13 @@ public class DefaultValue {
         return value;
     }
 
-    /** Get a schema-change backfill value using the target type's default precision. */
+    /** Get a schema-change backfill value using the target type's serialization. */
     public String getRawValue(DataType targetType) {
+        if (targetType.isTimeStampTzType() && (isCurrentTimeStamp() || isCurrentTimeStampWithPrecision())) {
+            // Persist an absolute instant so storage readers do not need the ALTER session's timezone.
+            return TimestampTzLiteral.fromJavaDateType(LocalDateTime.now(ZoneOffset.UTC),
+                    (int) getCurrentTimeStampPrecision()).getStringValue();
+        }
         if (targetType.isTimeStampNsType() && isCurrentTimeStamp()) {
             return LocalDateTime.now(TimeUtils.getTimeZone().toZoneId())
                     .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));

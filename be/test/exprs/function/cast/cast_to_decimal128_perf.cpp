@@ -66,7 +66,8 @@ struct FunctionCastToDecimalPerfTest : public FunctionCastTest {
         int64_t duration_ns = 0;
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+            EXPECT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1),
+                           block.rows(), nullptr));
         }
         auto result = block.get_by_position(1).column;
         EXPECT_EQ(result->size(), orig_line_count * 10);
@@ -107,7 +108,8 @@ struct FunctionCastToDecimalPerfTest : public FunctionCastTest {
         int64_t duration_ns = 0;
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+            EXPECT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1),
+                           block.rows(), nullptr));
         }
 
         auto result = block.get_by_position(1).column;
@@ -163,7 +165,8 @@ struct FunctionCastToDecimalPerfTest : public FunctionCastTest {
         int64_t duration_ns = 0;
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            EXPECT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+            EXPECT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1),
+                           block.rows(), nullptr));
         }
 
         auto result = block.get_by_position(1).column;

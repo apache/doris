@@ -73,9 +73,11 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/fs/read_io_trace.h"
 #include "load/stream_load/stream_load_recorder_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
+#include "runtime/workload_management/resource_context.h"
 #include "service/arrow_flight/flight_sql_service.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
@@ -440,6 +442,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    doris::init_be_version_metrics();
+
     // ATTN: Callers that want to override default gflags variables should do so before calling this method
     google::ParseCommandLineFlags(&argc, &argv, true);
     // ATTN: MUST init before LOG
@@ -531,7 +535,9 @@ int main(int argc, char** argv) {
             ++it;
         }
     }
-    if (spill_paths.empty()) {
+    // With spill_storage_type=s3 query spill goes to object storage (validated by
+    // SpillFileManager::init()), so local spill paths are optional.
+    if (doris::config::spill_storage_type != "s3" && spill_paths.empty()) {
         LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
     }
@@ -821,6 +827,7 @@ int main(int argc, char** argv) {
         // If not in memleak check mode, no need to wait all objects de-constructed normally, just exit.
         // It will make sure that graceful shutdown can be done definitely.
         LOG(INFO) << "Doris main exited.";
+        doris::io::ReadIOTrace::shutdown();
         google::FlushLogFiles(google::GLOG_INFO);
         _exit(0); // Do not call exit(0), it will wait for all objects de-constructed normally
         return 0;
@@ -861,6 +868,11 @@ int main(int argc, char** argv) {
     service.reset();
     LOG(INFO) << "Backend Service stopped";
     exec_env->destroy();
+    // Everything above should have released the resource context of every query and load. One
+    // that is still alive is held either by a thread that has not finished or by a reference
+    // that is never released; LeakSanitizer reports the latter after main() returns, but cannot
+    // tell which task it belonged to, so name the task here.
+    doris::ResourceContext::log_live_contexts();
     LOG(INFO) << "All service stopped, doris main exited.";
     return 0;
 }

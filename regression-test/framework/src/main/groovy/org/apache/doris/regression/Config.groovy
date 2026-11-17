@@ -1207,6 +1207,7 @@ class Config {
                 // schema change
                 , "test_alter_muti_modify_column"
                 // partial update
+                , "test_txn_values_partial_update"
                 , "txn_insert", "test_update_schema_change", "test_generated_column_update", "test_nested_type_with_rowstore", "test_partial_update_generated_column", "nereids_partial_update_native_insert_stmt"
                 , "partial_update", "nereids_update_on_current_timestamp", "update_on_current_timestamp", "nereids_delete_mow_partial_update", "delete_mow_partial_update", "test_unique_table_auto_inc"
                 , "test_unique_table_auto_inc_partial_update_correct_insert", "partial_update_seq_col", "nereids_partial_update_native_insert_stmt_complex", "regression_test_variant_delete_and_update"

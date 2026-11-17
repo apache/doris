@@ -34,7 +34,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_define.h"
@@ -53,7 +53,10 @@ namespace doris {
 using namespace ErrorCode;
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
-        : _read_context(nullptr), _rowset(std::move(rowset)), _stats(&_owned_stats) {
+        : _read_context(nullptr),
+          _rowset(std::move(rowset)),
+          _stats(&_owned_stats),
+          _read_options(_owned_stats) {
     _rowset->acquire();
 }
 
@@ -200,15 +203,14 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.variant_compaction_paths = _read_context->variant_compaction_paths;
     _read_options.enable_unique_key_merge_on_write =
             _read_context->enable_unique_key_merge_on_write;
-    _read_options.record_rowids = _read_context->record_rowids;
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
-    _read_options.read_row_binlog = _read_context->read_row_binlog;
-    // Binlog TSO drives the merge tie-break and is therefore part of the exact
+    _read_options.read_changelog = _read_context->read_changelog;
+    // Changelog TSO drives the merge tie-break and is therefore part of the exact
     // read schema shared by the rowset merge.
     if (int32_t tso_ordinal = read_schema->tso_ordinal(); tso_ordinal >= 0) {
-        _read_options.binlog_tso_idx = tso_ordinal;
+        _read_options.changelog_tso_idx = tso_ordinal;
     }
     _read_options.read_orderby_key_columns = _read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
@@ -265,7 +267,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         seg_start = 0;
         seg_end = segment_count;
     }
-    if (_read_context->record_rowids && _read_context->rowid_conversion) {
+    if (_read_context->rowid_conversion != nullptr) {
+        DORIS_CHECK_GE(read_schema->rowid_ordinal(), 0);
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_rows;
         RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows, should_use_cache, _stats));
@@ -339,13 +342,13 @@ Status BetaRowsetReader::_init_iterator() {
         int32_t sequence_loc = _read_context->use_sequence_column_for_merge_order
                                        ? _read_context->read_schema->sequence_ordinal()
                                        : -1;
-        if (_read_options.binlog_tso_idx != -1) {
-            sequence_loc = _read_options.binlog_tso_idx;
+        if (_read_options.changelog_tso_idx != -1) {
+            sequence_loc = _read_options.changelog_tso_idx;
         }
         _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
                                        _read_context->read_orderby_key_reverse,
                                        _read_context->merged_rows, _read_context->read_schema,
-                                       _read_options.binlog_tso_idx != -1);
+                                       _read_options.changelog_tso_idx != -1);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC

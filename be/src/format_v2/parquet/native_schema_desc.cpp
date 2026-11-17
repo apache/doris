@@ -285,8 +285,7 @@ private:
 };
 
 Status validate_variant_layout(const NativeFieldSchema& group_field,
-                               std::optional<int8_t> specification_version,
-                               bool allow_optional_shredded_metadata) {
+                               std::optional<int8_t> specification_version) {
     if (specification_version.has_value() && *specification_version != 1) {
         return Status::NotSupported("Parquet Variant specification version {} is not supported",
                                     *specification_version);
@@ -328,11 +327,11 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
                                   group_field.name);
     }
     const auto metadata_repetition = metadata->parquet_schema.repetition_type;
-    // Paimon makes every field in its shredded carrier optional. Restrict that compatibility to
-    // unannotated overrides; row materialization still rejects null metadata for a non-null value.
+    // Shredded writers may declare metadata optional regardless of the VARIANT annotation.
+    // Row materialization still rejects null metadata for a non-null Variant.
     const bool valid_metadata_repetition =
             metadata_repetition == tparquet::FieldRepetitionType::REQUIRED ||
-            (allow_optional_shredded_metadata && typed_value != nullptr &&
+            (typed_value != nullptr &&
              metadata_repetition == tparquet::FieldRepetitionType::OPTIONAL);
     if (!metadata->children.empty() || metadata->physical_type != tparquet::Type::BYTE_ARRAY ||
         !valid_metadata_repetition) {
@@ -360,10 +359,17 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
     std::function<Status(const NativeFieldSchema&)> validate_typed_value;
     std::function<Status(const NativeFieldSchema&, WrapperContext)> validate_wrapper;
     validate_wrapper = [&](const NativeFieldSchema& wrapper, WrapperContext context) -> Status {
-        if (!wrapper.parquet_schema.__isset.repetition_type ||
-            wrapper.parquet_schema.repetition_type != tparquet::FieldRepetitionType::REQUIRED) {
-            return Status::Corruption("Parquet Variant shredded wrapper {} must be required",
-                                      wrapper.name);
+        const bool valid_wrapper_repetition =
+                wrapper.parquet_schema.__isset.repetition_type &&
+                (wrapper.parquet_schema.repetition_type ==
+                         tparquet::FieldRepetitionType::REQUIRED ||
+                 wrapper.parquet_schema.repetition_type == tparquet::FieldRepetitionType::OPTIONAL);
+        // An optional wrapper is a writer layout choice, not a table-format identifier. A null
+        // object wrapper means an absent key; materialization still rejects null array elements.
+        if (!valid_wrapper_repetition) {
+            return Status::Corruption(
+                    "Parquet Variant shredded wrapper {} must be required or optional",
+                    wrapper.name);
         }
         const NativeFieldSchema* fallback = nullptr;
         const NativeFieldSchema* typed = nullptr;
@@ -399,13 +405,59 @@ Status validate_variant_layout(const NativeFieldSchema& group_field,
                     "Parquet Variant object wrapper {} requires an optional value child",
                     wrapper.name);
         }
+        // Both annotated and unannotated writers use a required fallback-only array carrier.
+        // Even a null element has Variant null bytes; object fields must still represent absence,
+        // and a sibling typed_value needs a nullable fallback to avoid conflicting carriers.
+        const bool allow_required_fallback =
+                context == WrapperContext::ARRAY_ELEMENT && typed == nullptr;
+        const bool valid_fallback_repetition =
+                fallback != nullptr && fallback->parquet_schema.__isset.repetition_type &&
+                (fallback->parquet_schema.repetition_type ==
+                         tparquet::FieldRepetitionType::OPTIONAL ||
+                 (allow_required_fallback && fallback->parquet_schema.repetition_type ==
+                                                     tparquet::FieldRepetitionType::REQUIRED));
         if (fallback != nullptr &&
             (!fallback->children.empty() || fallback->physical_type != tparquet::Type::BYTE_ARRAY ||
-             !fallback->parquet_schema.__isset.repetition_type ||
-             fallback->parquet_schema.repetition_type != tparquet::FieldRepetitionType::OPTIONAL)) {
+             !valid_fallback_repetition)) {
+            // Resolve the Variant-relative path only on failure; valid schemas need no extra
+            // per-node path allocation just to distinguish repeated wrapper names such as element.
+            std::string path;
+            std::function<bool(const NativeFieldSchema&)> find_path =
+                    [&](const NativeFieldSchema& field) {
+                        const auto prefix_size = path.size();
+                        if (!path.empty()) {
+                            path += '.';
+                        }
+                        path += field.name;
+                        if (&field == fallback) {
+                            return true;
+                        }
+                        for (const auto& child : field.children) {
+                            if (find_path(child)) {
+                                return true;
+                            }
+                        }
+                        path.resize(prefix_size);
+                        return false;
+                    };
+            find_path(group_field);
+            const auto* physical = &fallback->parquet_schema;
+            // A repeated primitive is normalized into an array whose child retains the original
+            // SchemaElement. Report that declaration rather than the synthetic array wrapper.
+            if (!physical->__isset.repetition_type && fallback->children.size() == 1 &&
+                fallback->children[0].parquet_schema.repetition_type ==
+                        tparquet::FieldRepetitionType::REPEATED) {
+                physical = &fallback->children[0].parquet_schema;
+            }
             return Status::Corruption(
-                    "Parquet Variant wrapper {} value must be an optional BYTE_ARRAY",
-                    wrapper.name);
+                    "Parquet Variant wrapper {} value must be an {} BYTE_ARRAY; "
+                    "variant_path={}, physical_type={}, repetition={}, children={}",
+                    wrapper.name, allow_required_fallback ? "optional or required" : "optional",
+                    path, physical->__isset.type ? tparquet::to_string(physical->type) : "GROUP",
+                    physical->__isset.repetition_type
+                            ? tparquet::to_string(physical->repetition_type)
+                            : "UNSET",
+                    physical->__isset.num_children ? physical->num_children : 0);
         }
         if (typed != nullptr) {
             if (!typed->parquet_schema.__isset.repetition_type ||
@@ -863,6 +915,11 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         // sub-second values are silently truncated by the target SerDe.
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMEV2, nullable, 0, scale);
     } else if (logicalType.__isset.TIMESTAMP) {
+        if (logicalType.TIMESTAMP.unit.__isset.NANOS && !logicalType.TIMESTAMP.isAdjustedToUTC) {
+            // Materialize nanoseconds before any table cast; DATETIMEV2 would discard the remainder.
+            ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMP_NS, nullable);
+            return ans;
+        }
         if (_enable_mapping_timestamp_tz) {
             if (logicalType.TIMESTAMP.isAdjustedToUTC) {
                 // treat TIMESTAMP with isAdjustedToUTC as TIMESTAMPTZ
@@ -875,15 +932,8 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::convert_to_doris_type(
         ans.first = DataTypeFactory::instance().create_data_type(
                 TYPE_DATETIMEV2, nullable, 0, logicalType.TIMESTAMP.unit.__isset.MILLIS ? 3 : 6);
     } else if (logicalType.__isset.UUID) {
-        // Keep binary UUID carriers consistent with table defaults and other physical formats.
-        // Ordinary Parquet scans still expose the native UUID unless VARBINARY was requested.
-        auto uuid_type = TYPE_UUID;
-        if (_enable_mapping_varbinary) {
-            uuid_type = TYPE_VARBINARY;
-        } else if (_preserve_binary_uuid) {
-            uuid_type = TYPE_STRING;
-        }
-        ans.first = DataTypeFactory::instance().create_data_type(uuid_type, nullable, -1, -1, 16);
+        // UUID annotations describe a logical UUID even when binary mapping is enabled.
+        ans.first = DataTypeFactory::instance().create_data_type(TYPE_UUID, nullable);
     } else if (logicalType.__isset.FLOAT16) {
         ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);
     } else {

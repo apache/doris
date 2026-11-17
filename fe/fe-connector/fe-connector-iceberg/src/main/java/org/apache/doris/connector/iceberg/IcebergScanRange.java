@@ -59,12 +59,18 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final long length;
     private final long fileSize;
     private final String fileFormat;
+    private final IcebergFileEncryption encryption;
     private final int formatVersion;
     private final Integer partitionSpecId;
     private final String partitionDataJson;
+    // FE-only, set when the file's partition tuple has a value that cannot be serialized (a historical partition
+    // field whose source column was dropped), so partitionDataJson is absent: the raw values identify the
+    // partition for getScannedPartitionKey, and a scan that produces row IDs is rejected
+    // (IcebergScanPlanProvider#rejectRowIdScanWithoutPartitionData). Ordinary reads need neither.
+    private final String rawPartitionKey;
     private final Long firstRowId;
     private final Long lastUpdatedSequenceNumber;
-    // Identity partition column (lowercased) -> serialized value, already ordered as the path_partition_keys
+    // Identity partition column (case-preserved) -> serialized value, already ordered as the path_partition_keys
     // list, filtered to keys this file carries. Drives columns-from-path. Never null (empty when unpartitioned).
     private final Map<String, String> partitionValues;
     // Whether this range counts toward the EXPLAIN `partition=N/M` / sql_block_rule partition_num display
@@ -131,9 +137,11 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.length = builder.length;
         this.fileSize = builder.fileSize;
         this.fileFormat = builder.fileFormat;
+        this.encryption = builder.encryption;
         this.formatVersion = builder.formatVersion;
         this.partitionSpecId = builder.partitionSpecId;
         this.partitionDataJson = builder.partitionDataJson;
+        this.rawPartitionKey = builder.rawPartitionKey;
         this.firstRowId = builder.firstRowId;
         this.lastUpdatedSequenceNumber = builder.lastUpdatedSequenceNumber;
         this.partitionValues = builder.partitionValues != null
@@ -154,6 +162,12 @@ public class IcebergScanRange implements ConnectorScanRange {
         this.positionDeleteReferencedDataFilePath = builder.positionDeleteReferencedDataFilePath;
         this.positionDeleteContentOffset = builder.positionDeleteContentOffset;
         this.positionDeleteContentSizeInBytes = builder.positionDeleteContentSizeInBytes;
+    }
+
+    @Override
+    public String getSplitIdentity() {
+        // JNI metadata tasks share a dummy path; native ranges retain their actual file identity.
+        return serializedSplit != null ? serializedSplit : ConnectorScanRange.super.getSplitIdentity();
     }
 
     @Override
@@ -227,17 +241,30 @@ public class IcebergScanRange implements ConnectorScanRange {
      * A distinct-faithful key for the native iceberg partition this file belongs to (FIX-L12), or
      * {@code null} when the file carries no {@code PartitionData} (unpartitioned / current spec
      * unpartitioned). Combines the partition-spec id with the serialized {@code PartitionData}
-     * ({@code partitionDataJson}) so that two files are keyed equal iff they share the same spec and
+     * ({@code partitionDataJson}), or with its raw values when they cannot be serialized
+     * ({@code rawPartitionKey}), so that two files are keyed equal iff they share the same spec and
      * partition tuple — mirroring legacy {@code IcebergScanNode}'s de-dup by
      * {@code (PartitionData) file().partition()}, and disambiguating cross-spec value collisions
      * (e.g. {@code identity(id)=2} vs {@code bucket(id)=2}) that the value-only json would merge.
      * {@code IcebergScanPlanProvider} counts distinct non-null keys for {@code selectedPartitionNum}.
      */
     String getScannedPartitionKey() {
-        if (partitionDataJson == null || !countsAsScannedPartition) {
+        if (!countsAsScannedPartition) {
             return null;
         }
-        return partitionSpecId + "|" + partitionDataJson;
+        if (partitionDataJson != null) {
+            return partitionSpecId + "|" + partitionDataJson;
+        }
+        // The marker keeps a raw tuple apart from a serialized one of the same spec.
+        return rawPartitionKey == null ? null : partitionSpecId + "|raw" + rawPartitionKey;
+    }
+
+    Integer getPartitionSpecId() {
+        return partitionSpecId;
+    }
+
+    boolean isPartitionDataUnavailable() {
+        return rawPartitionKey != null;
     }
 
     /**
@@ -390,6 +417,9 @@ public class IcebergScanRange implements ConnectorScanRange {
             return;
         }
         fileDesc.setFormatVersion(formatVersion);
+        if (encryption != null) {
+            fileDesc.setEncryptionInfo(encryption.toThrift());
+        }
         // original_file_path = the RAW (un-normalized) data-file path; BE matches position-delete entries
         // against it (legacy setOriginalFilePath:304 uses the raw originalPath, not the normalized location).
         // This stays raw even though the range path (getPath) is scheme-normalized for BE to open.
@@ -468,10 +498,12 @@ public class IcebergScanRange implements ConnectorScanRange {
         // Default empty (NOT "jni", which is not a real iceberg file format). Production callers set the real
         // orc/parquet from the data file's format; mirrors PaimonScanRange.Builder.
         private String fileFormat = "";
+        private IcebergFileEncryption encryption;
         // Default 2 (the iceberg metadata default); production callers set the real table format version.
         private int formatVersion = 2;
         private Integer partitionSpecId;
         private String partitionDataJson;
+        private String rawPartitionKey;
         private Long firstRowId;
         private Long lastUpdatedSequenceNumber;
         private Map<String, String> partitionValues;
@@ -548,6 +580,11 @@ public class IcebergScanRange implements ConnectorScanRange {
             return this;
         }
 
+        Builder encryption(IcebergFileEncryption encryption) {
+            this.encryption = encryption;
+            return this;
+        }
+
         public Builder formatVersion(int formatVersion) {
             this.formatVersion = formatVersion;
             return this;
@@ -560,6 +597,11 @@ public class IcebergScanRange implements ConnectorScanRange {
 
         public Builder partitionDataJson(String partitionDataJson) {
             this.partitionDataJson = partitionDataJson;
+            return this;
+        }
+
+        public Builder rawPartitionKey(String rawPartitionKey) {
+            this.rawPartitionKey = rawPartitionKey;
             return this;
         }
 

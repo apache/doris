@@ -153,6 +153,16 @@ public:
         return Data::UsesFixedLengthStateSerialization && Data::IS_ANY;
     }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        // Variable-length single-value states allocate every replacement from Arena. Keeping
+        // those states while a partition is collected would make their memory grow with the
+        // partition even after the input Blocks have been spilled.
+        if constexpr (Data::IS_ANY || !Data::UsesFixedLengthStateSerialization) {
+            return WindowSpillStrategy::UNSUPPORTED;
+        }
+        return WindowSpillStrategy::PARTITION_REDUCE;
+    }
+
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
         this->data(place).change_if_better(*columns[0], row_num, arena);
@@ -230,6 +240,19 @@ public:
         }
     }
 
+    void deserialize_from_column_row(AggregateDataPtr __restrict place, const IColumn& column,
+                                     size_t row, Arena& arena) const override {
+        DCHECK_LT(row, column.size());
+        if constexpr (Data::UsesFixedLengthStateSerialization) {
+            const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+            const auto* data = reinterpret_cast<const Data*>(col.get_data().data());
+            // An empty serialized state need not initialize its value payload.
+            this->data(place).change_if_better(data[row], arena);
+        } else {
+            Base::deserialize_from_column_row(place, column, row, arena);
+        }
+    }
+
     void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                  const IColumn& column, size_t begin, size_t end,
                                                  Arena& arena) const override {
@@ -244,6 +267,10 @@ public:
         } else {
             Base::deserialize_and_merge_from_column_range(place, column, begin, end, arena);
         }
+    }
+
+    bool needs_deserialize_and_merge_scratch() const override {
+        return !Data::UsesFixedLengthStateSerialization;
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,

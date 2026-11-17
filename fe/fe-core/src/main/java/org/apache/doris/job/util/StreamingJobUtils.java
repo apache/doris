@@ -18,6 +18,7 @@
 package org.apache.doris.job.util;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -25,10 +26,12 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
@@ -41,6 +44,8 @@ import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.PostgresResourceValidator;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -261,6 +266,15 @@ public class StreamingJobUtils {
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         ctx.setQueryId(queryId);
         return ctx;
+    }
+
+    public static void checkCdcDriverPrivilege(ConnectContext ctx, String driverUrl) {
+        if ((StringUtils.startsWithIgnoreCase(driverUrl, "http://")
+                || StringUtils.startsWithIgnoreCase(driverUrl, "https://"))
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+            throw new AnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR.formatErrorMsg("ADMIN")
+                    + " HTTP/HTTPS CDC driver URLs require ADMIN privilege. Use a preinstalled JDBC driver instead.");
+        }
     }
 
     public static JdbcClient getJdbcClient(DataSourceType sourceType, Map<String, String> properties) {
@@ -494,12 +508,29 @@ public class StreamingJobUtils {
         }
     }
 
+    public static Type getCdcTransportType(Type sourceType) {
+        // CDC JSON carries Base64 text, which the VARBINARY JSON reader would treat as raw bytes.
+        if (sourceType.isVarbinaryType()) {
+            return ScalarType.createStringType();
+        }
+        // CDC emits unzoned JSON text, unlike JDBC's instant-aware Arrow/JNI carrier.
+        // Keep both the JSON reader and OLAP target on the existing wall-clock contract.
+        if (sourceType.isTimeStampTz()) {
+            return ScalarType.createDatetimeV2Type(((ScalarType) sourceType).getScalarScale());
+        }
+        if (sourceType.isArrayType()) {
+            return new ArrayType(getCdcTransportType(((ArrayType) sourceType).getItemType()));
+        }
+        return sourceType;
+    }
+
     public static List<Column> getColumns(JdbcClient jdbcClient,
             String database,
             String table,
             List<String> primaryKeys) {
         List<Column> columns = jdbcClient.getColumnsFromJdbc(database, table);
         columns.forEach(col -> {
+            col.setType(getCdcTransportType(col.getType()));
             Preconditions.checkArgument(!col.getType().isUnsupported(),
                     "Unsupported column type for source column '%s.%s.%s'",
                     database, table, col.getName());

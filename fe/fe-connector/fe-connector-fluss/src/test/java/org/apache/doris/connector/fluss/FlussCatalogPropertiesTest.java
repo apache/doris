@@ -207,8 +207,7 @@ public class FlussCatalogPropertiesTest {
         // switch and every non-fluss catalog property stay behind. The engine's own keys ("type") and
         // other connectors' keys ("warehouse") are not fluss options and must not be handed over as if
         // they were — the fluss config is not a place to dump whatever the catalog happened to carry.
-        // The two type-mapping switches are in the input for the same reason: they steer Doris's own
-        // schema rendering and fluss has no idea what they mean.
+        // Legacy type-mapping markers are Doris properties and must not reach the Fluss client.
         Map<String, String> expected = new HashMap<>();
         expected.put("bootstrap.servers", "localhost:9123");
         expected.put("client.security.protocol", "sasl");
@@ -233,13 +232,12 @@ public class FlussCatalogPropertiesTest {
     }
 
     @Test
-    public void typeMappingSwitchesDefaultToOffAndUseTheEngineWideNames() {
-        // The names are deliberately the unprefixed, engine-wide ones the hive/paimon/iceberg catalogs
-        // already answer to: a user who knows enable.mapping.varbinary must not have to discover a
-        // fluss-specific spelling, and a misspelling here degrades silently to "switch is off".
-        FlussTypeMapping.Options off = bound().getTypeMappingOptions();
-        Assertions.assertFalse(off.isMapBinaryToVarbinary());
-        Assertions.assertFalse(off.isMapTimestampTz());
+    public void legacyMappingMarkersCannotDisableTypePreservation() {
+        FlussTypeMapping.Options off = bound(
+                "enable.mapping.varbinary", "false",
+                "enable.mapping.timestamp_tz", "false").getTypeMappingOptions();
+        Assertions.assertTrue(off.isMapBinaryToVarbinary());
+        Assertions.assertTrue(off.isMapTimestampTz());
 
         FlussTypeMapping.Options on = bound(
                 "enable.mapping.varbinary", "true",
@@ -247,10 +245,10 @@ public class FlussCatalogPropertiesTest {
         Assertions.assertTrue(on.isMapBinaryToVarbinary());
         Assertions.assertTrue(on.isMapTimestampTz());
 
-        // Anything that is not "true" is off, matching how every other catalog reads these.
+        // Legacy marker values remain accepted without changing the schema.
         FlussTypeMapping.Options garbage =
                 bound(FlussCatalogProperties.ENABLE_MAPPING_VARBINARY, "yes").getTypeMappingOptions();
-        Assertions.assertFalse(garbage.isMapBinaryToVarbinary());
+        Assertions.assertTrue(garbage.isMapBinaryToVarbinary());
     }
 
     @Test

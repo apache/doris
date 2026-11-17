@@ -17,9 +17,14 @@
 
 package org.apache.doris.jni.spi.utils;
 
+import org.apache.doris.jni.spi.DiagnosticException;
+
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 
 /**
  * Turns a Java exception into the text BE reports to the user.
@@ -37,9 +42,14 @@ public class JniUtil {
     public static String throwableToString(Throwable t) {
         StringWriter output = new StringWriter();
         output.write(String.format("%s: %s", t.getClass().getSimpleName(), t.getMessage()));
-        // Follow the chain of exception causes and print them as well.
+        if (t instanceof DiagnosticException) {
+            return output.toString();
+        }
+        // A cause graph may be cyclic; emit each exception only once.
+        Set<Throwable> visited = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+        visited.add(t);
         Throwable cause = t;
-        while ((cause = cause.getCause()) != null) {
+        while ((cause = cause.getCause()) != null && visited.add(cause)) {
             output.write(String.format(" | CAUSED BY: %s: %s",
                     cause.getClass().getSimpleName(), cause.getMessage()));
         }
@@ -48,6 +58,9 @@ public class JniUtil {
 
     /** Full stack trace, for the BE log. */
     public static String throwableToStackTrace(Throwable t) {
+        if (t instanceof DiagnosticException) {
+            return ((DiagnosticException) t).getDiagnosticStackTrace();
+        }
         Writer output = new StringWriter();
         t.printStackTrace(new PrintWriter(output));
         return output.toString();

@@ -90,13 +90,13 @@ void check_range(const std::string& name, const std::vector<RangeRow>& rows,
     ASSERT_NE(function, nullptr);
     FunctionUtils utils(result_type, arg_types, false);
     auto* context = utils.get_fn_ctx();
-    ASSERT_TRUE(function->open(context, FunctionContext::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(function->open(context, FunctionContext::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->open(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
     block.insert({nullptr, result_type, "result"});
     auto status = function->execute(context, block, arguments,
                                     static_cast<uint32_t>(argument_count), rows.size());
-    ASSERT_TRUE(function->close(context, FunctionContext::THREAD_LOCAL).ok());
-    ASSERT_TRUE(function->close(context, FunctionContext::FRAGMENT_LOCAL).ok());
+    ASSERT_TRUE(function->close(context, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+    ASSERT_TRUE(function->close(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
     if (expect_size_error) {
         ASSERT_FALSE(status.ok());
         EXPECT_NE(status.to_string().find("Array size exceeds the limit"), std::string::npos);

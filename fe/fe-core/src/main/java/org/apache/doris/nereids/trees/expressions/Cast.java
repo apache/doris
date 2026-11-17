@@ -34,8 +34,8 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
-import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.TemporalConversionProperties;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -78,6 +78,48 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         this.targetType = Objects.requireNonNull(targetType, "targetType can not be null");
         this.isExplicitType = isExplicitType;
         this.isStrict = isStrict;
+    }
+
+    @Override
+    public boolean isDeterministic() {
+        // TIME has no date. These casts supply the date from the current query's clock.
+        return child().isNullLiteral() || !containsTimeToDateCast(child().getDataType(), targetType);
+    }
+
+    private static boolean containsTimeToDateCast(DataType sourceType, DataType targetType) {
+        if (sourceType.equals(targetType)) {
+            return false;
+        }
+        if (sourceType instanceof ArrayType && targetType instanceof ArrayType) {
+            return containsTimeToDateCast(((ArrayType) sourceType).getItemType(),
+                    ((ArrayType) targetType).getItemType());
+        }
+        if (sourceType instanceof MapType && targetType instanceof MapType) {
+            MapType sourceMap = (MapType) sourceType;
+            MapType targetMap = (MapType) targetType;
+            return containsTimeToDateCast(sourceMap.getKeyType(), targetMap.getKeyType())
+                    || containsTimeToDateCast(sourceMap.getValueType(), targetMap.getValueType());
+        }
+        if (sourceType instanceof StructType && targetType instanceof StructType) {
+            List<StructField> sourceFields = ((StructType) sourceType).getFields();
+            List<StructField> targetFields = ((StructType) targetType).getFields();
+            // foldable() is called before CheckCast rejects incompatible struct shapes.
+            if (sourceFields.size() != targetFields.size()) {
+                return false;
+            }
+            for (int i = 0; i < sourceFields.size(); i++) {
+                if (containsTimeToDateCast(sourceFields.get(i).getDataType(), targetFields.get(i).getDataType())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return sourceType.isTimeType() && targetType.isDateLikeType();
+    }
+
+    @Override
+    public boolean foldable() {
+        return isDeterministic();
     }
 
     public boolean isExplicitType() {
@@ -126,25 +168,7 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         // StringLike to other type is always nullable.
         if (childDataType.isStringLikeType() && !targetType.isStringLikeType()) {
             return true;
-        } else if ((childDataType.isDateLikeType() || childDataType.isTimeType())
-                && targetType instanceof TimeStampNsType) {
-            // Temporal inputs can fail because TIMESTAMP_NS has a narrower signed epoch-nanos range.
-            return true;
-        } else if (childDataType.isDateTimeV2Type() && targetType.isDateTimeV2Type()) {
-            // BE's generic datelike cast creates a nullable result for DATETIMEV2 scale changes:
-            // reducing scale can overflow while rounding at the maximum datetime boundary.
-            // Exact-type casts have already returned above.
-            return true;
-        } else if (childDataType.isTimeStampTzType() && targetType.isDateTimeV2Type()) {
-            // The BE TIMESTAMPTZ -> DATETIMEV2 kernel can fail while converting the instant in the
-            // session time zone, and its non-strict implementation returns a nullable column.
-            return true;
-        } else if ((childDataType.isDateTimeV2Type() || childDataType.isTimeStampNsType())
-                && targetType.isTimeStampTzType()) {
-            // Datetime and timestamp_ns to timestamptz are always nullable
-            return true;
-        } else if (childDataType.isTimeStampTzType() && targetType.isTimeStampTzType()) {
-            // timestamptz to timestamptz is always nullable
+        } else if (TemporalConversionProperties.hasNullableResult(childDataType, targetType)) {
             return true;
         } else if (childDataType.isTimeType()) {
             // time to tinyint, smallint, int and time is always nullable.

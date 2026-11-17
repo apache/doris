@@ -70,16 +70,15 @@
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/function/dictionary_factory.h"
 #include "format/arrow/arrow_row_batch.h"
-#include "format/csv/csv_reader.h"
-#include "format/generic_reader.h"
 #include "format/jni/jni_reader.h"
-#include "format/json/new_json_reader.h"
-#include "format/orc/vorc_reader.h"
-#include "format/parquet/vparquet_reader.h"
-#include "format/text/text_reader.h"
+#include "format_v2/column_data.h"
+#include "format_v2/schema_reader.h"
+#include "format_v2/table/lance_reader.h"
+#include "io/file_factory.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
+#include "load/channel/eos_completion.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/delta_writer/delta_writer.h"
@@ -540,10 +539,11 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
+        std::shared_ptr<EosCompletion> eos_completion;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
             signal::SignalTaskIdKeeper keeper(request->id());
-            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
+            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response, &eos_completion);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
@@ -554,6 +554,17 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
         }
         response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
         response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
+        if (eos_completion && response->status().status_code() == TStatusCode::OK) {
+            // Transfer done before publishing the callback: a completed barrier
+            // can invoke it inline. All request/response access above must end
+            // first, including profiling, timers and SignalTaskIdKeeper.
+            auto* deferred_done = closure_guard.release();
+            eos_completion->add_waiter([response, deferred_done](const Status& status) {
+                status.to_protobuf(response->mutable_status());
+                deferred_done->Run();
+                // The RPC objects (including HTTP's request wrapper) are gone.
+            });
+        }
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
@@ -682,6 +693,11 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
                                  actual_cancel_status.to_string());
         _exec_env->fragment_mgr()->cancel_query(query_id, actual_cancel_status);
+        // LIMIT_REACH/FINISHED can leave valid unread results; only an abort may discard them.
+        if (!actual_cancel_status.ok() && !actual_cancel_status.is<ErrorCode::LIMIT_REACH>() &&
+            !actual_cancel_status.is<ErrorCode::FINISHED>()) {
+            _exec_env->result_mgr()->cancel_arrow_flight_buffers(query_id, actual_cancel_status);
+        }
 
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
@@ -721,6 +737,7 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
+            ctx->on_failure(st);
             return;
         }
         if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
@@ -867,79 +884,54 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =
                 std::make_unique<RuntimeProfile>("FetchTableSchema");
-        std::unique_ptr<GenericReader> reader(nullptr);
         auto io_ctx = std::make_shared<io::IOContext>();
         auto file_cache_statis = std::make_shared<io::FileCacheStatistics>();
         auto file_reader_stats = std::make_shared<io::FileReaderStats>();
         io_ctx->file_cache_stats = file_cache_statis.get();
         io_ctx->file_reader_stats = file_reader_stats.get();
-        constexpr size_t fetch_schema_batch_size = 4064;
-        // file_slots is no use, but the lifetime should be longer than reader
-        std::vector<SlotDescriptor*> file_slots;
-        switch (params.format_type) {
-        case TFileFormatType::FORMAT_CSV_PLAIN:
-        case TFileFormatType::FORMAT_CSV_GZ:
-        case TFileFormatType::FORMAT_CSV_BZ2:
-        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-        case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
-        case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
-        case TFileFormatType::FORMAT_CSV_LZOP:
-        case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                              file_slots, fetch_schema_batch_size, io_ctx.get(),
-                                              io_ctx);
-            break;
-        }
-        case TFileFormatType::FORMAT_TEXT: {
-            reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params, range,
-                                               file_slots, fetch_schema_batch_size, io_ctx.get());
-            break;
-        }
-        case TFileFormatType::FORMAT_PARQUET: {
-            reader = ParquetReader::create_unique(params, range, io_ctx, nullptr);
-            break;
-        }
-        case TFileFormatType::FORMAT_ORC: {
-            reader = OrcReader::create_unique(params, range, fetch_schema_batch_size, "", io_ctx);
-            break;
-        }
-        case TFileFormatType::FORMAT_JSON: {
-            reader = NewJsonReader::create_unique(profile.get(), params, range, file_slots,
-                                                  fetch_schema_batch_size, io_ctx.get(), io_ctx);
-            break;
-        }
-        default:
-            st = Status::InternalError("Not supported file format in fetch table schema: {}",
-                                       params.format_type);
+        // A Lance dataset is a directory opened by its table reader, not a file that
+        // fetch_file_schema() can open, and it lists columns Doris cannot read as UNSUPPORTED.
+        if (params.format_type == TFileFormatType::FORMAT_LANCE) {
+            std::vector<std::string> lance_col_names;
+            std::vector<DataTypePtr> lance_col_types;
+            auto lance_reader = std::make_unique<format::lance::LanceTableReader>();
+            st = lance_reader->fetch_schema(range, params, &lance_col_names, &lance_col_types);
+            if (!st.ok()) {
+                LOG(WARNING) << "fetch Lance table schema failed, errmsg=" << st;
+                st.to_protobuf(result->mutable_status());
+                return;
+            }
+            DORIS_CHECK_EQ(lance_col_names.size(), lance_col_types.size());
+            result->set_column_nums(lance_col_names.size());
+            for (const auto& col_name : lance_col_names) {
+                result->add_column_names(col_name);
+            }
+            for (const auto& col_type : lance_col_types) {
+                DORIS_CHECK(col_type != nullptr);
+                PTypeDesc* type_desc = result->add_column_types();
+                if (col_type->is_null_literal()) {
+                    PTypeNode* node = type_desc->add_types();
+                    node->set_type(TTypeNodeType::SCALAR);
+                    node->mutable_scalar_type()->set_type(TPrimitiveType::NULL_TYPE);
+                } else if (col_type->get_primitive_type() == INVALID_TYPE) {
+                    PTypeNode* node = type_desc->add_types();
+                    node->set_type(TTypeNodeType::SCALAR);
+                    node->mutable_scalar_type()->set_type(TPrimitiveType::UNSUPPORTED);
+                } else {
+                    col_type->to_protobuf(type_desc);
+                }
+            }
             st.to_protobuf(result->mutable_status());
             return;
         }
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to create reader, errmsg=" << st;
-            st.to_protobuf(result->mutable_status());
-            return;
-        }
-        st = reader->init_schema_reader();
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to init reader, errmsg=" << st;
-            st.to_protobuf(result->mutable_status());
-            return;
-        }
-        std::vector<std::string> col_names;
-        std::vector<DataTypePtr> col_types;
-        st = reader->get_parsed_schema(&col_names, &col_types);
-        if (!st.ok()) {
-            LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
-            st.to_protobuf(result->mutable_status());
-            return;
-        }
-        result->set_column_nums(col_names.size());
-        for (size_t idx = 0; idx < col_names.size(); ++idx) {
-            result->add_column_names(col_names[idx]);
-        }
-        for (size_t idx = 0; idx < col_types.size(); ++idx) {
-            PTypeDesc* type_desc = result->add_column_types();
-            col_types[idx]->to_protobuf(type_desc);
+        std::vector<format::ColumnDefinition> schema;
+        st = format::fetch_file_schema(params, range, io_ctx, profile.get(), &schema);
+        if (st.ok()) {
+            result->set_column_nums(schema.size());
+            for (const auto& column : schema) {
+                result->add_column_names(column.name);
+                column.type->to_protobuf(result->add_column_types());
+            }
         }
         st.to_protobuf(result->mutable_status());
     });
@@ -993,11 +985,11 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
 Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
                                             PTabletKeyLookupResponse* response) {
     PointQueryExecutor executor;
-    RETURN_IF_ERROR(executor.init(request, response));
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(executor.init(request, response));
     if (response->has_need_resend_query_context() && response->need_resend_query_context()) {
         return Status::OK();
     }
-    RETURN_IF_ERROR(executor.lookup_up());
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(executor.lookup_up());
     executor.print_profile();
     return Status::OK();
 }
@@ -2044,9 +2036,7 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
                         MonotonicStopWatch watch;
                         watch.start();
                         brpc::ClosureGuard closure_guard(done);
-                        response->mutable_status()->set_status_code(0);
-                        Status st = RowIdStorageReader::read_by_rowids(*request, response);
-                        st.to_protobuf(response->mutable_status());
+                        RowIdStorageReader::read_by_rowids_for_rpc(*request, response);
                         LOG(INFO) << "multiget_data finished, cost(us):"
                                   << watch.elapsed_time() / 1000;
                         return true;

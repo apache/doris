@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.jobs.JobContext;
-import org.apache.doris.nereids.rules.analysis.IvmNormalizeMTMV;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -470,7 +469,7 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     private IvmPlanSignature signatureForPlan(Plan root) {
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(root, ctx);
-        new IvmNormalizeMTMV().rewriteRoot(root, jobContext);
+        new IvmNormalizeUniqKeysMTMV().normalize(root, jobContext);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
         return rewriteResult.getPlanSignature();
     }
@@ -502,7 +501,7 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     private LogicalOlapScan buildMowScan(long tableId, String name) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, name, 0, KeysType.UNIQUE_KEYS);
         table.setEnableUniqueKeyMergeOnWrite(true);
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.authentication.RoleMappingMeta;
 import org.apache.doris.blockrule.SqlBlockRule;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.DataSizeDisplayUtil;
@@ -1318,10 +1319,11 @@ public class MetadataGenerator {
         ConnectorSession session = catalog.buildCrossStatementSession();
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
-            Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
-                    session, table.getRemoteDbName(), table.getRemoteName());
+            PluginDrivenExternalTable pluginTable = (PluginDrivenExternalTable) table;
+            PluginDrivenExternalTable.MetadataRead read = pluginTable.observeConnectorMetadata(session, metadata);
+            Optional<ConnectorTableHandle> handle = pluginTable.resolveConnectorTableHandle(session, metadata);
             if (handle.isPresent()) {
-                for (String partition : metadata.listPartitionNames(session, handle.get())) {
+                for (String partition : read.execute(() -> metadata.listPartitionNames(session, handle.get()))) {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(partition));
                     dataBatch.add(trow);
@@ -1779,6 +1781,10 @@ public class MetadataGenerator {
 
                 Map<String, String> propertiesMap = property.getProperties();
                 propertiesMap.forEach((key, value) -> {
+                    if (ChangelogConfig.CONFIG_VERSION.equals(key)) {
+                        // internal persistence property, not a table property
+                        return;
+                    }
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(catalog.getName())); // TABLE_CATALOG
                     trow.addToColumnValue(new TCell().setStringVal(database.getFullName())); // TABLE_SCHEMA
@@ -1979,6 +1985,16 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getEstimatedWeight()));
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getWeightAdmissionRejectedCount()));
                     trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastWeightRejectReason()));
+                    trow.addToColumnValue(new TCell().setBoolVal(entryStats.isWeightBounded())); // WEIGHT_BOUNDED
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getEvictionWeight())); // EVICTION_WEIGHT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getCatalogMaxWeight())); // CATALOG_MAX_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            entryStats.getCatalogEstimatedWeight())); // CATALOG_ESTIMATED_WEIGHT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getGlobalMaxWeight())); // GLOBAL_MAX_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            entryStats.getGlobalEstimatedWeight())); // GLOBAL_ESTIMATED_WEIGHT
                     dataBatch.add(trow);
                 }
             }
@@ -2408,8 +2424,8 @@ public class MetadataGenerator {
     }
 
     private static TFetchSchemaTableDataResult tsoStatusMetadataResult(boolean includeCommittedTso) {
-        if (!Config.enable_feature_binlog) {
-            return errorResult("TSO feature is disabled, please check enable_feature_binlog");
+        if (!Config.enable_feature_changelog) {
+            return errorResult("TSO feature is disabled, please check enable_feature_changelog");
         }
 
         TSOService.TSOStatusSnapshot statusSnapshot = Env.getCurrentEnv().getTSOService().getStatusSnapshot();

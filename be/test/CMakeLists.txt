@@ -88,26 +88,6 @@ endif()
 
 list(REMOVE_ITEM UT_FILES ${CMAKE_CURRENT_SOURCE_DIR}/tools/benchmark_tool.cpp)
 
-# todo: need fix those ut
-list(REMOVE_ITEM UT_FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/agent/heartbeat_server_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/common/config_validator_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/service/http/metrics_action_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/binary_prefix_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/bitshuffle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/column_reader_writer_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/frame_of_reference_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/plain_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/rle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/remote_rowset_gc_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/jsonb_value_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/runtime/large_int_value_test.cpp
-)
-
 message(STATUS "Disable the metrics collection for orc")
 add_compile_definitions(ENABLE_METRICS=0)
 
@@ -164,6 +144,11 @@ endif()
 # DORIS_HOME.
 target_compile_definitions(doris_be_test PRIVATE
     KUROMOJI_SOURCE_DICT_DIR="${BASE_DIR}/dict/kuromoji")
+
+# The unit-test runner sets DORIS_HOME to the build directory, outside the source corpus.
+set_property(SOURCE storage/index/inverted/snii/snii_golden_corpus_test.cpp APPEND PROPERTY
+    COMPILE_DEFINITIONS
+    SNII_GOLDEN_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/storage/index/inverted/snii/testdata/compatibility_corpus")
 
 # -force_load takes a file path rather than a target, so unlike --whole-archive <target> below it
 # propagates no usage requirements. Link ann_index explicitly: it exports the faiss include

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>be-java-extensions</artifactId>
+        <groupId>org.apache.doris</groupId>
+        <version>${revision}</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <artifactId>paimon-common-patch</artifactId>
+    <name>Doris BE paimon common patch</name>
+    <description>
+        Doris's copy of org.apache.paimon.utils.FatalExitExceptionHandler, the handler paimon gives
+        its pool threads, which ends the process when one of them dies (the class header says why).
+        Not a plugin: the paimon plugin declares this artifact, so its jar lands in the plugin
+        directory, and the jar's Doris-Shadows-Classes manifest entry is what makes PluginRuntime
+        search it ahead of paimon-common's copy and of the one paimon-hive-connector bundles.
+
+        A module of its own, not a second jar built by paimon-scanner, because of the Maven build
+        cache: a cache hit restores a module's own jar and nothing else, while copy-dependencies,
+        forced to run on a hit (fe/.mvn/maven-build-cache-config.xml), copies the jars of the
+        modules a plugin depends on. A second jar that paimon-scanner wrote into its own target/lib
+        was missing from every cache-restored build, and the plugin deployed without it. The
+        layout check (tools/be-java-plugins/check_plugin_layout.py) requires a shadowing jar to
+        hold nothing but the classes it names, which is all this module builds.
+    </description>
+
+    <properties>
+        <maven.compiler.source>8</maven.compiler.source>
+        <maven.compiler.target>8</maven.compiler.target>
+    </properties>
+
+    <dependencies>
+        <!-- The artifact this class replaces, provided by the plugin that deploys it. -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-common</artifactId>
+            <scope>provided</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <!-- Merged with the parent's Doris-Jni-Plugin-Api-Version entry, not replacing it. -->
+                        <manifestEntries>
+                            <Doris-Shadows-Classes>org.apache.paimon.utils.FatalExitExceptionHandler</Doris-Shadows-Classes>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

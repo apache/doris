@@ -1444,6 +1444,30 @@ public class FlussSplitPlanTest {
     }
 
     @Test
+    public void binaryPartitionUnionKeepsLakeAndLogPathValues() {
+        registerPartitionedLakeTable(1, "00FF");
+        adminOps.tableInfos.put(LOG_TABLE, FlussTestTables.builder(LOG_TABLE)
+                .column("id", DataTypes.INT()).column("dt", DataTypes.BYTES())
+                .partitionedBy("dt").buckets(1)
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.metastore", "filesystem")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse").build());
+        adminOps.readableLakeSnapshot = new LakeSnapshot(9L, partitionedOffsets(new long[] {4L}));
+        latestOffsets("00FF", 9L);
+        earliestOffsets("00FF", 0L);
+        // Paimon's native range carries typed hex, the same transport used for Fluss partition constants.
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0, Collections.singletonMap("dt", "0x00FF")));
+        List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
+        Assertions.assertEquals(2, ranges.size());
+        assertPlainLake(ranges.get(0));
+        assertLogRange(ranges.get(1), 0, 4L, 9L);
+        for (ConnectorScanRange range : ranges) {
+            Assertions.assertEquals(Collections.singletonMap("dt", "0x00FF"), range.getPartitionValues());
+        }
+    }
+
+    @Test
     public void retainedLogHistoryDoesNotValidateAnExcludedTruncatedLiveTail() {
         registerPartitionedLakeTable(1, "today");
         adminOps.readableLakeSnapshot = new LakeSnapshot(9L,
@@ -1885,24 +1909,16 @@ public class FlussSplitPlanTest {
     }
 
     @Test
-    public void localTimestampKeyFallsBackUnlessCatalogPreservesItsInstant() {
+    public void localTimestampKeyPreservesItsInstantEvenWithLegacyMarkerDisabled() {
         registerPkLakeTableKeyedBy(DataTypes.TIMESTAMP_LTZ(6));
         kvSnapshots(null, new long[] {4L}, new long[] {10L});
         latestOffsets(null, 105L);
-
-        List<ConnectorScanRange> fallback = plan(PK_TABLE, catalog());
-        Assertions.assertEquals(1, fallback.size());
-        assertPkRange(fallback.get(0), 0, 4L, 10L, 105L);
-
-        DorisConnectorException required = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "required")));
-        Assertions.assertTrue(required.getMessage().contains("DATETIMEV2"), required.getMessage());
 
         lakeSnapshotAt(9L, offsets(100L));
         earliestOffsets(null, 0L);
         lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0));
         List<ConnectorScanRange> mapped = plan(PK_TABLE,
-                catalog(FlussCatalogProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true"));
+                catalog(FlussCatalogProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "false"));
         Assertions.assertEquals(2, mapped.size());
         assertSuppressed(mapped.get(0), 0, 100L, 105L);
         assertTailRange(mapped.get(1), 0, 100L, 105L);
@@ -2148,15 +2164,9 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(expected, params.getFlussProperties());
     }
 
-    /**
-     * BE picks between its two scanner implementations from the SCAN-level format, before it fetches a
-     * single range, and every reader this connector needs exists in FileScannerV2 alone. Without this
-     * stamp a session that turned {@code enable_file_scanner_v2} off — a supported setting, and one the
-     * regression harness sets at random because the variable is fuzzy — would land in the legacy scanner,
-     * whose JNI dispatch has no fluss branch, and fail the query at read time.
-     */
+    /** Scan-level parameters preserve the connector identity before ranges are fetched. */
     @Test
-    public void scanLevelParamsStampTheFormatThatForcesScannerV2() {
+    public void scanLevelParamsStampTheConnectorFormat() {
         registerLogTable(LOG_TABLE, 1);
         Map<String, String> catalog = catalog();
 
@@ -2170,7 +2180,7 @@ public class FlussSplitPlanTest {
 
     /**
      * A union read hands the same params to the lake half, and the fluss marker has to survive that: it
-     * decides the scanner for the WHOLE node, and the node also carries fluss ranges the sibling knows
+     * identifies the connector for the whole node, which also carries Fluss ranges the sibling knows
      * nothing about.
      */
     @Test

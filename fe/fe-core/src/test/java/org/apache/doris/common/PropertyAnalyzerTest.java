@@ -22,10 +22,14 @@ import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.SessionVariable;
@@ -39,6 +43,9 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -53,6 +60,349 @@ import java.util.TimeZone;
 
 
 public class PropertyAnalyzerTest {
+    @Test
+    public void testVariantTableValidation() throws AnalysisException {
+        Column variant = Mockito.mock(Column.class);
+        Mockito.when(variant.getType()).thenReturn(Type.VARIANT);
+        Index badIndex = new Index(1, "idx", List.of("v"), IndexType.INVERTED,
+                Map.of("field_pattern", "a.bad%2e"), "");
+        PropertyAnalyzer.validateVariantTable(false, List.of(variant), List.of(badIndex));
+        Mockito.when(variant.getVariantEnableNestedGroup()).thenReturn(true);
+        PropertyAnalyzer.validateVariantTable(false, List.of(variant), List.of(badIndex));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of()));
+        Mockito.when(variant.getVariantEnableNestedGroup()).thenReturn(false);
+        Mockito.when(variant.getChildren()).thenReturn(List.of(new Column("a.bad%2e", Type.INT)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of()));
+        Mockito.when(variant.getChildren()).thenReturn(List.of(new Column("a.good%2E", Type.INT)));
+        PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of(badIndex)));
+        Index goodIndex = new Index(2, "good", List.of("v"), IndexType.INVERTED,
+                Map.of("field_pattern", "a.good%2E*"), "");
+        PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of(goodIndex));
+    }
+
+    @Test
+    public void testRejectVariantEscapeAlterAndExternal() throws AnalysisException {
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(null);
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(Map.of("other", "true"));
+        for (String key : List.of("variant_escape_dots_in_keys", "VARIANT_ESCAPE_DOTS_IN_KEYS")) {
+            for (String value : List.of("true", "false", "invalid")) {
+                Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                        () -> PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(Map.of(key, value)));
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(Map.of(key, value)));
+            }
+        }
+    }
+
+    @Test
+    public void testConsistentVariantSources() throws AnalysisException {
+        String key = PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS;
+        OlapTable escaped = Mockito.mock(OlapTable.class);
+        Mockito.when(escaped.getVariantEscapeDotsInKeys()).thenReturn(true);
+        Mockito.when(escaped.getBaseSchema()).thenReturn(List.of(new Column("v", Type.VARIANT)));
+        OlapTable legacy = Mockito.mock(OlapTable.class);
+        Mockito.when(legacy.getBaseSchema()).thenReturn(List.of(new Column("v", Type.VARIANT)));
+        OlapTable integers = Mockito.mock(OlapTable.class);
+        Mockito.when(integers.getBaseSchema()).thenReturn(List.of(new Column("k", Type.INT)));
+        OlapTable escapedIntegers = Mockito.mock(OlapTable.class);
+        Mockito.when(escapedIntegers.getVariantEscapeDotsInKeys()).thenReturn(true);
+        Mockito.when(escapedIntegers.getBaseSchema()).thenReturn(List.of(new Column("k", Type.INT)));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(escapedIntegers), true));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(escapedIntegers), false));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(integers, escaped), true));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(legacy), true));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "TRUE"), List.of(escaped), true));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "FALSE"), List.of(legacy), true));
+        for (Map<String, String> props : List.of(Map.<String, String>of(), Map.of(key, "true"), Map.of(key, "false"))) {
+            Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                    props, List.of(legacy, escaped), true));
+        }
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "false"), List.of(escaped), true));
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "true"), List.of(legacy), true));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "true"), List.of(integers, Mockito.mock(TableIf.class)), true));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(legacy, escaped), false));
+    }
+
+    @Test
+    public void testInheritVariantEscapeDotsInKeys() throws AnalysisException {
+        String key = PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS;
+        OlapTable escaped = Mockito.mock(OlapTable.class);
+        Mockito.when(escaped.getVariantEscapeDotsInKeys()).thenReturn(true);
+        OlapTable legacy = Mockito.mock(OlapTable.class);
+        TableIf external = Mockito.mock(TableIf.class);
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "TRUE"), List.of(legacy, external), false));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "FALSE"), List.of(escaped), false));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(escaped), false));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(legacy), false));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(external), false));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(null, List.of(), false));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(legacy, external, escaped), false));
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "invalid"), List.of(escaped), false));
+    }
+
+    @Test
+    public void testBinlogTtlRejectsValuesBelowDisabledSentinel() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "-1");
+        Assertions.assertEquals("-1", PropertyAnalyzer.analyzeBinlogConfig(properties)
+                .get(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "-2");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
+    }
+
+    @Test
+    public void testAnalyzeBinlogConfig() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "TRUE");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "60");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES, "1024");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS, "10");
+        properties.put(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "false");
+        Map<String, String> analyzed = PropertyAnalyzer.analyzeBinlogConfig(properties);
+        Assertions.assertEquals(Map.of(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true",
+                PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "60",
+                PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES, "1024",
+                PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS, "10"), analyzed);
+        Assertions.assertEquals(Map.of(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "false"), properties);
+
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "False");
+        Assertions.assertEquals("false", PropertyAnalyzer.analyzeBinlogConfig(properties)
+                .get(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE));
+
+        for (Map.Entry<String, String> invalid : Map.of(
+                PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "Invalid binlog enable value: yes",
+                "binlog.ttl_second", "Unknown binlog property: binlog.ttl_second",
+                "binlog.compaction", "Unknown binlog property: binlog.compaction").entrySet()) {
+            Map<String, String> invalidProperties = new HashMap<>();
+            invalidProperties.put(invalid.getKey(), "yes");
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeBinlogConfig(invalidProperties));
+            Assertions.assertTrue(exception.getMessage().contains(invalid.getValue()), exception.getMessage());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ROW", "row", "STATEMENT_AND_SNAPSHOT", "statement_and_snapshot", "rows"})
+    public void testReplacedBinlogKeysAreRejected(String value) {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT, value);
+        AnalysisException format = Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
+        Assertions.assertTrue(format.getMessage().contains("Property binlog.format is no longer supported, use "
+                + "\"changelog.enable\" = \"true\" to enable changelog, or remove it for CCR binlog"),
+                format.getMessage());
+
+        properties.remove(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT);
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_NEED_HISTORICAL_VALUE, value);
+        AnalysisException historical = Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeBinlogConfig(properties));
+        Assertions.assertTrue(historical.getMessage().contains("Property binlog.need_historical_value is no longer "
+                + "supported, use changelog.need_historical_value instead"), historical.getMessage());
+    }
+
+    @Test
+    public void testAnalyzeChangelogConfig() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "TRUE");
+        properties.put(PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS, "-1");
+        properties.put(PropertyAnalyzer.PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE, "False");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
+        Map<String, String> analyzed = PropertyAnalyzer.analyzeChangelogConfig(properties);
+        Assertions.assertEquals("true", analyzed.get(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE));
+        // The retention is checked against changelog.enable once the effective configuration is known.
+        Assertions.assertEquals("-1", analyzed.get(PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS));
+        Assertions.assertEquals("false", analyzed.get(PropertyAnalyzer.PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE));
+        Assertions.assertEquals(Map.of(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true"), properties);
+
+        for (Map.Entry<String, String> invalid : Map.of(
+                PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE, "Invalid changelog.enable value: yes",
+                PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS, "Invalid changelog.ttl_seconds value: yes",
+                PropertyAnalyzer.PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE,
+                "Invalid changelog.need_historical_value value: yes",
+                "changelog.format", "Unknown changelog property: changelog.format").entrySet()) {
+            Map<String, String> invalidProperties = new HashMap<>();
+            invalidProperties.put(invalid.getKey(), "yes");
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeChangelogConfig(invalidProperties));
+            Assertions.assertTrue(exception.getMessage().contains(invalid.getValue()), exception.getMessage());
+        }
+    }
+
+    @Test
+    public void testLegacyBinlogPropertiesOfPersistedMetadata() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "60");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT, "Row");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_NEED_HISTORICAL_VALUE, "true");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_CONFIG_VERSION, "2");
+        Assertions.assertTrue(PropertyAnalyzer.isLegacyChangelog(properties));
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "false");
+        Assertions.assertFalse(PropertyAnalyzer.isLegacyChangelog(properties));
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
+        properties.put(PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT, "STATEMENT_AND_SNAPSHOT");
+        Assertions.assertFalse(PropertyAnalyzer.isLegacyChangelog(properties));
+
+        PropertyAnalyzer.removeLegacyBinlogProperties(properties);
+        Assertions.assertEquals(Map.of(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true",
+                PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, "60"), properties);
+        Assertions.assertFalse(PropertyAnalyzer.isLegacyChangelog(properties));
+    }
+
+    @Test
+    public void testRowTtlProperties() throws AnalysisException {
+        Map<String, String> properties = new HashMap<>();
+        Assertions.assertFalse(PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.DUP_KEYS));
+        Assertions.assertFalse(PropertyAnalyzer.analyzeEnableRowTtl(null, KeysType.DUP_KEYS));
+
+        properties.put("function_column.enable_row_ttl", "true");
+        properties.put("function_column.ttl_col", "event_time");
+        properties.put("function_column.ttl", "2 hours");
+        properties.put("function_column.ttl_time_zone", "UTC");
+
+        Assertions.assertTrue(PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.DUP_KEYS));
+        Assertions.assertEquals(7_200_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros(properties.get("function_column.ttl")));
+        Assertions.assertEquals("+00:00", PropertyAnalyzer.analyzeRowTtlTimeZone(properties));
+        Assertions.assertEquals("+00:00", properties.get("function_column.ttl_time_zone"));
+        properties.put("function_column.ttl_time_zone", "+08:30");
+        Assertions.assertEquals("+08:30", PropertyAnalyzer.analyzeRowTtlTimeZone(properties));
+        Assertions.assertEquals(30_600, PropertyAnalyzer.parseRowTtlTimeZoneOffsetSeconds("+08:30"));
+        properties.put("function_column.ttl_time_zone", "Z");
+        Assertions.assertEquals("+00:00", PropertyAnalyzer.analyzeRowTtlTimeZone(properties));
+        for (String invalidTimeZone : List.of("Asia/Shanghai", "SYSTEM", "+08", "+0800", " +08:00",
+                "+08:00:01", "-12:01", "+14:01")) {
+            properties.put("function_column.ttl_time_zone", invalidTimeZone);
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeRowTtlTimeZone(properties));
+        }
+        properties.put("function_column.ttl_time_zone", "+00:00");
+        Assertions.assertEquals(604_800_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1 week"));
+        Assertions.assertEquals(1_209_600_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("2 weeks"));
+        Assertions.assertEquals(86_400_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1 day"));
+        Assertions.assertEquals(172_800_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("2 days"));
+        Assertions.assertEquals(86_400_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1d"));
+        Assertions.assertEquals(3_600_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1h"));
+        Assertions.assertEquals(60_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1 minute"));
+        Assertions.assertEquals(120_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("2 minutes"));
+        Assertions.assertEquals(60_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1m"));
+        Assertions.assertEquals(1_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1 second"));
+        Assertions.assertEquals(2_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("2 seconds"));
+        Assertions.assertEquals(1_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("1s"));
+        Assertions.assertEquals(5_000_000L,
+                PropertyAnalyzer.parseRowTtlDurationMicros("5"));
+        Assertions.assertEquals(0L, PropertyAnalyzer.parseRowTtlDurationMicros("0"));
+
+        properties.remove("function_column.ttl");
+        Assertions.assertEquals("function_column.ttl_col and function_column.ttl must be set together",
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.DUP_KEYS))
+                        .getDetailMessage());
+
+        properties.remove("function_column.ttl_col");
+        properties.put("function_column.ttl", "1 day");
+        Assertions.assertEquals("function_column.ttl_col and function_column.ttl must be set together",
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.DUP_KEYS))
+                        .getDetailMessage());
+
+        properties.put("function_column.ttl_col", "event_time");
+        properties.put("function_column.ttl", "-1");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.parseRowTtlDurationMicros(properties.get("function_column.ttl")));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(properties, KeysType.AGG_KEYS));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.parseRowTtlDurationMicros(Long.MAX_VALUE + "week"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.parseRowTtlDurationMicros("abc"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.parseRowTtlDurationMicros("1 month"));
+
+        Map<String, String> rowTtlWithSequenceProperties = new HashMap<>();
+        rowTtlWithSequenceProperties.put("function_column.enable_row_ttl", "true");
+        rowTtlWithSequenceProperties.put("function_column.ttl_col", "event_time");
+        rowTtlWithSequenceProperties.put("function_column.ttl", "1 day");
+        Map<String, String> sequenceProperties = Map.of(
+                "function_column.sequence_col", "event_time",
+                "function_column.sequence_type", "bigint",
+                "sequence_mapping.sequence_time", "event_time");
+        for (Map.Entry<String, String> sequenceProperty : sequenceProperties.entrySet()) {
+            rowTtlWithSequenceProperties.put(sequenceProperty.getKey(), sequenceProperty.getValue());
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.analyzeEnableRowTtl(
+                            rowTtlWithSequenceProperties, KeysType.UNIQUE_KEYS));
+            Assertions.assertEquals(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT,
+                    exception.getDetailMessage());
+            rowTtlWithSequenceProperties.remove(sequenceProperty.getKey());
+        }
+
+        Map<String, String> disabledRowTtlWithSequence = new HashMap<>();
+        disabledRowTtlWithSequence.put("function_column.enable_row_ttl", "false");
+        disabledRowTtlWithSequence.put("function_column.sequence_type", "bigint");
+        Assertions.assertFalse(PropertyAnalyzer.analyzeEnableRowTtl(
+                disabledRowTtlWithSequence, KeysType.UNIQUE_KEYS));
+
+        Map<String, String> directProperties = new HashMap<>();
+        directProperties.put("function_column.enable_row_ttl", "true");
+        Assertions.assertTrue(PropertyAnalyzer.analyzeEnableRowTtl(directProperties, KeysType.UNIQUE_KEYS));
+        Assertions.assertTrue(PropertyAnalyzer.analyzeEnableRowTtl(directProperties, KeysType.DUP_KEYS));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(directProperties, KeysType.AGG_KEYS));
+        directProperties.put("function_column.ttl_time_zone", "+00:00");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(directProperties, KeysType.DUP_KEYS));
+        directProperties.remove("function_column.ttl_time_zone");
+
+        Map<String, String> disabledProperties = new HashMap<>();
+        disabledProperties.put("function_column.ttl_col", "event_time");
+        disabledProperties.put("function_column.ttl", "1 day");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(disabledProperties, KeysType.DUP_KEYS));
+        disabledProperties.put("function_column.enable_row_ttl", "false");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(disabledProperties, KeysType.DUP_KEYS));
+        directProperties.put("function_column.enable_row_ttl", "invalid");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeEnableRowTtl(directProperties, KeysType.DUP_KEYS));
+    }
+
     @Test
     public void testBfColumns() throws AnalysisException {
         List<Column> columns = Lists.newArrayList();
@@ -474,10 +824,18 @@ public class PropertyAnalyzerTest {
 
     @Test
     public void testCheckDefaultVariantMaxSparseColumnStatisticsSize() {
-        SessionVariable sessionVariable = new SessionVariable();
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("0"));
-        sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("1");
+        // The default_variant_* variables can only be set with debug points enabled.
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            SessionVariable sessionVariable = new SessionVariable();
+            UnsupportedOperationException e = Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("0"));
+            Assertions.assertTrue(e.getMessage().contains("it must between 1 and 50000"), e.getMessage());
+            sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("1");
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
     }
 
     @Test
@@ -765,6 +1123,30 @@ public class PropertyAnalyzerTest {
             Assertions.assertEquals(expectedSummer, dpSummer.getCooldownTimeMs(), "Summer target with JVM summer must also work");
         } finally {
             TimeZone.setDefault(originalTimezone);
+        }
+    }
+
+    @Test
+    public void testEscapedVariantPropertyAndStoragePathCodec() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        Assertions.assertFalse(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+        for (String value : new String[] {"true", "TRUE", "false", "FALSE"}) {
+            properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, value);
+            Assertions.assertEquals(Boolean.parseBoolean(value),
+                    PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+            Assertions.assertTrue(properties.isEmpty());
+        }
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "invalid");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+        for (String key : new String[] {"", "a.b", "50%", "a%2Eb", "%25", "ordinary"}) {
+            String encoded = PropertyAnalyzer.encodeVariantPathComponent(key);
+            Assertions.assertEquals(key, PropertyAnalyzer.decodeVariantPathComponent(encoded));
+            PropertyAnalyzer.validateVariantStoragePath("parent." + encoded);
+        }
+        for (String invalid : new String[] {"%", "%2", "%2e", "%20", "a%25%"}) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.validateVariantStoragePath("parent." + invalid));
         }
     }
 }

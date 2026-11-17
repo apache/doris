@@ -614,7 +614,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     // set default value to 0, and match functions only need to set 1/true
     vec_res.resize_fill(input_rows_count);
     auto* state = reinterpret_cast<LikeState*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
+            context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
     const auto pattern_col = block.get_by_position(arguments[1]).column;
     if (const auto* str_patterns = check_and_get_column<ColumnString>(pattern_col.get())) {
         RETURN_IF_ERROR(vector_non_const(*values, *str_patterns, vec_res, state, input_rows_count));
@@ -1013,7 +1013,7 @@ Status FunctionLike::construct_like_const_state(FunctionContext* context, const 
 }
 
 Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::THREAD_LOCAL) {
+    if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
         return Status::OK();
     }
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
@@ -1024,8 +1024,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
     state->scalar_function = like_fn_scalar;
     if (context->is_col_constant(2)) {
         state->has_custom_escape = true;
-        const auto escape_col = context->get_constant_col(2)->column_ptr;
-        const auto& escape = escape_col->get_data_at(0);
+        const auto& escape_col = context->get_constant_col(2)->column();
+        const auto& escape = escape_col.get_data_at(0);
         if (escape.size != 1) {
             return Status::InternalError("Escape character must be a single character, got: {}",
                                          escape.to_string());
@@ -1033,8 +1033,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
         state->escape_char = escape.data[0];
     }
     if (context->is_col_constant(1)) {
-        const auto pattern_col = context->get_constant_col(1)->column_ptr;
-        const auto& pattern = pattern_col->get_data_at(0);
+        const auto& pattern_col = context->get_constant_col(1)->column();
+        const auto& pattern = pattern_col.get_data_at(0);
         RETURN_IF_ERROR(construct_like_const_state(context, pattern, state));
     }
     context->set_function_state(scope, state);
@@ -1044,7 +1044,7 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
 
 Status FunctionRegexpLike::open(FunctionContext* context,
                                 FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::THREAD_LOCAL) {
+    if (scope != FunctionContext::FunctionStateScope::THREAD_LOCAL) {
         return Status::OK();
     }
     std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
@@ -1056,8 +1056,8 @@ Status FunctionRegexpLike::open(FunctionContext* context,
     state->function = regexp_fn;
     state->scalar_function = regexp_fn_scalar;
     if (context->is_col_constant(1)) {
-        const auto pattern_col = context->get_constant_col(1)->column_ptr;
-        const auto& pattern = pattern_col->get_data_at(0);
+        const auto& pattern_col = context->get_constant_col(1)->column();
+        const auto& pattern = pattern_col.get_data_at(0);
 
         std::string pattern_str = pattern.to_string();
         std::string search_string;

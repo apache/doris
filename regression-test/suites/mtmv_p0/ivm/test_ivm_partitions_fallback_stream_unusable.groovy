@@ -61,7 +61,7 @@ suite("test_ivm_partitions_fallback_stream_unusable") {
             SELECT Status,
                    CASE WHEN RefreshMode IN ('COMPLETE', 'PARTIAL', 'NOT_REFRESH')
                         THEN RefreshMode ELSE 'NONE' END AS Mode,
-                   CASE WHEN IvmFallbackReason = 'BINLOG_BROKEN' OR IvmFallbackReason = 'STREAM_UNSUPPORTED'
+                   CASE WHEN IvmFallbackReason = 'CHANGELOG_BROKEN' OR IvmFallbackReason = 'STREAM_UNSUPPORTED'
                         THEN IvmFallbackReason ELSE 'NONE' END AS Fallback
             FROM tasks('type'='mv')
             WHERE TaskId = '${taskId}'
@@ -111,9 +111,8 @@ suite("test_ivm_partitions_fallback_stream_unusable") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """ALTER TABLE ${factTable} ADD PARTITION p202601 VALUES [('2026-01-01'), ('2026-02-01'))"""
@@ -133,9 +132,8 @@ suite("test_ivm_partitions_fallback_stream_unusable") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """ALTER TABLE ${dimTable} ADD PARTITION d202601 VALUES [('2026-01-01'), ('2026-02-01'))"""

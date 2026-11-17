@@ -19,6 +19,7 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
@@ -64,8 +65,7 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
     private void generateFileStatus() throws Exception {
         this.fileStatuses.clear();
         if (this.uri.startsWith("http://") || this.uri.startsWith("https://")) {
-            this.fileStatuses.add(new TBrokerFileStatus(this.uri, false,
-                    HttpUtils.getHttpFileSize(this.uri, getHeaders()), true));
+            this.fileStatuses.add(getHttpFileStatus(this.uri));
         } else if (this.uri.startsWith("hf://")) {
             List<String> fileUrls = HFUtils.expandGlob(this.uri);
             if (LOG.isDebugEnabled()) {
@@ -74,11 +74,20 @@ public class HttpTableValuedFunction extends ExternalFileTableValuedFunction {
                 }
             }
             for (String fileUrl : fileUrls) {
-                this.fileStatuses.add(new TBrokerFileStatus(fileUrl, false,
-                        HttpUtils.getHttpFileSize(fileUrl, getHeaders()), true));
+                this.fileStatuses.add(getHttpFileStatus(fileUrl));
             }
         } else {
             throw new AnalysisException("HttpTableValuedFunction uri is invalid: " + this.uri);
+        }
+    }
+
+    private TBrokerFileStatus getHttpFileStatus(String fileUrl) throws Exception {
+        try {
+            SecurityChecker.getInstance().startSSRFChecking(fileUrl);
+            return new TBrokerFileStatus(fileUrl, false,
+                    HttpUtils.getHttpFileSize(fileUrl, getHeaders()), true);
+        } finally {
+            SecurityChecker.getInstance().stopSSRFChecking();
         }
     }
 

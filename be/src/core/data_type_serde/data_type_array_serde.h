@@ -46,6 +46,9 @@ public:
         nested_serde = std::move(nullable_serde);
     }
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override { return "Array(" + nested_serde->get_name() + ")"; }
 
     Status from_string(StringRef& str, IColumn& column,
@@ -122,7 +125,8 @@ public:
                                const FormatOptions& options) const override;
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;

@@ -156,14 +156,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      */
     static final String SESSION_UNION_READ_MODE = "fluss_union_read_mode";
 
-    /**
-     * The SCAN-LEVEL table format, read by BE's scanner selection before it fetches any range. Every reader
-     * this connector needs lives in {@code FileScannerV2} only, so a scan planned here must use it whatever
-     * {@code enable_file_scanner_v2} says; the legacy scanner's JNI dispatch has no fluss branch and would
-     * fail the query with {@code Not supported create reader for table format}. Same literal as the per-range
-     * marker ({@link FlussScanRange#getTableFormatType}), and the mirror image of the {@code
-     * transactional_hive} stamp, which uses this same channel to force the OPPOSITE choice.
-     */
+    /** Scan-level connector identity, matching every emitted Fluss range. */
     private static final String SCAN_LEVEL_TABLE_FORMAT = FlussScanRange.TABLE_FORMAT;
 
     private final FlussAdminOps adminOps;
@@ -325,7 +318,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                         handle, request.getRequiredPartitions())) {
                     // fluss's own partition name ("20260101$cn"), not the Doris one: this is a fluss API.
                     appendPartitionRanges(ranges, handle, union,
-                            FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
+                            FlussPartitions.toScanPartition(
+                                    partition, handle.getPartitionKeys(), handle.getKeyColumnTypes()),
                             bucketsOf(handle, partition), partition.getPartitionName());
                 }
             }
@@ -354,13 +348,14 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
             List<PartitionInfo> livePartitions = adminOps.listPartitionInfos(handle.toTablePath());
             for (PartitionInfo partition : livePartitions) {
                 livePartitionValues.add(new LinkedHashMap<>(FlussPartitions.toScanPartition(
-                        partition, handle.getPartitionKeys()).getValues()));
+                        partition, handle.getPartitionKeys(), handle.getKeyColumnTypes()).getValues()));
             }
             if (!request.isPartitionsPrunedToEmpty()) {
                 for (PartitionInfo partition : selectedPartitions(
                         handle, request.getRequiredPartitions(), livePartitions)) {
                     states.add(readPartitionState(handle, union,
-                            FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()),
+                            FlussPartitions.toScanPartition(
+                                    partition, handle.getPartitionKeys(), handle.getKeyColumnTypes()),
                             bucketsOf(handle, partition), partition.getPartitionName()));
                 }
             }
@@ -1104,8 +1099,8 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         for (PartitionInfo partition : partitions) {
             // Matched on the DORIS name, which is what the engine pruned over: FlussPartitions renders
             // both this and the metadata listing the engine pruned, so the two cannot disagree.
-            if (required.contains(
-                    FlussPartitions.toScanPartition(partition, handle.getPartitionKeys()).getName())) {
+            if (required.contains(FlussPartitions.toScanPartition(
+                    partition, handle.getPartitionKeys(), handle.getKeyColumnTypes()).getName())) {
                 selected.add(partition);
             }
         }

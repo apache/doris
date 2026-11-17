@@ -19,7 +19,6 @@ package org.apache.doris.connector.jdbc.client;
 
 import org.apache.doris.connector.jdbc.JdbcDbType;
 import org.apache.doris.connector.spi.ConnectorType;
-import org.apache.doris.connector.spi.DorisConnectorException;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -68,7 +67,7 @@ public class JdbcGbaseConnectorClient extends JdbcConnectorClient {
                 }
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to get database name list from GBase", e);
+            throw jdbcException("Failed to get database name list from GBase", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -86,7 +85,7 @@ public class JdbcGbaseConnectorClient extends JdbcConnectorClient {
             rs = meta.getTables(remoteDbName, null, remoteTableName, tableTypes);
             consumer.accept(rs);
         } catch (SQLException e) {
-            throw new DorisConnectorException("Failed to process table", e);
+            throw jdbcException("Failed to process table", e);
         } finally {
             closeResources(rs, conn);
         }
@@ -123,7 +122,7 @@ public class JdbcGbaseConnectorClient extends JdbcConnectorClient {
                 schema.add(new JdbcFieldInfo(rs));
             }
         } catch (SQLException e) {
-            throw new DorisConnectorException(
+            throw jdbcException(
                     "Failed to get JDBC columns info for " + remoteDbName + "." + remoteTableName, e);
         } finally {
             closeResources(rs, conn);

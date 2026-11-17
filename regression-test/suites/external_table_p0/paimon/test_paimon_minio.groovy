@@ -18,6 +18,9 @@
 suite("test_paimon_minio", "p0,external") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        // LTZ output carries the session offset; keep the source fixture's display zone explicit.
+        // Legacy ORC LTZ tables use Paimon's SDK, which truncates sub-microsecond digits.
+        sql "set time_zone = 'Asia/Shanghai'"
         String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String table_name = "ts_scale_orc"
@@ -37,7 +40,7 @@ suite("test_paimon_minio", "p0,external") {
             sql """switch `${catalog_name}`"""
             sql """show databases; """
             sql """use `${catalog_name}`.`flink_paimon`"""
-            // Native ORC rounds the fixture's nanosecond fractions to six decimal places.
+            // NTZ scales 7-9 retain nanoseconds through JNI; LTZ values keep microsecond precision.
             order_qt_no_region1 """select ts1,ts19 from ${table_name} """
             order_qt_no_region2 """select * from ${table_name} """
             // 3.1 new features
@@ -81,5 +84,3 @@ suite("test_paimon_minio", "p0,external") {
         }
     }
 }
-
-

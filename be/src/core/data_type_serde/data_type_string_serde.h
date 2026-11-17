@@ -97,6 +97,9 @@ public:
     DataTypeStringSerDeBase(PrimitiveType type, int nesting_level = 1, int len = -1)
             : DataTypeSerDe(nesting_level), _type(type), _len(len) {}
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override { return "String"; }
 
     Status from_string(StringRef& str, IColumn& column,
@@ -178,14 +181,15 @@ public:
     Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
-                                     JsonbWriter& writer) const override;
+                                     JsonbWriter& writer,
+                                     const FormatOptions& options) const override;
 
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
 
-    Status deserialize_column_from_jsonb_vector(ColumnNullable& column_to,
-                                                const ColumnString& from_column,
-                                                CastParameters& castParms) const override;
+    Status deserialize_column_from_jsonb_vector(
+            ColumnNullable& column_to, const ColumnString& from_column, CastParameters& castParms,
+            const NullMap::value_type* source_null_map = nullptr) const override;
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena& mem_pool,
                                  int32_t col_id, int64_t row_num,

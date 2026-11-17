@@ -16,6 +16,8 @@
 // under the License.
 
 suite("except", "query") {
+    sql "set enable_spill = false"
+    sql "set enable_force_spill = false"
     sql "set parallel_pipeline_task_num=2"
     sql """
         set runtime_filter_type=2;

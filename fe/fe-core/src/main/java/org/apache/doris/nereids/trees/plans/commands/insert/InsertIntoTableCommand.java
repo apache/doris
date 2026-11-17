@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -53,8 +54,6 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.lineage.LineageUtils;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -90,21 +89,21 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.awaitility.Awaitility;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * insert into select command implementation
@@ -190,6 +189,15 @@ public class InsertIntoTableCommand extends Command
 
     public LogicalPlan getLogicalQuery() {
         return logicalQuery.orElse(originLogicalQuery);
+    }
+
+    /** Rewrite the original query before planning, preserving INSERT options and the WITH clause. */
+    public InsertIntoTableCommand rewriteQuery(Function<Plan, Plan> rewrite) {
+        InsertIntoTableCommand command = new InsertIntoTableCommand(
+                (LogicalPlan) originLogicalQuery.rewriteUp(rewrite), labelName, insertCtx,
+                cte, needNormalizePlan, branchName);
+        command.setJobId(jobId);
+        return command;
     }
 
     public Optional<Plan> getParsedPlan() {
@@ -306,6 +314,12 @@ public class InsertIntoTableCommand extends Command
             // Each internal attempt must repin connector metadata; retaining the previous writer schema can
             // plan defaults and partition fields against the table version that triggered the retry.
             ctx.getStatementContext().resetConnectorStatementScope();
+            // A retry rebuilds the logical query from scratch, so the previous attempt's revoked partition-policy
+            // proofs must not block this attempt's collect/preload/lock planning.
+            ctx.getStatementContext().beginPartitionPolicyReplan();
+            ctx.getStatementContext().getInsertTargetTables().remove(qualifiedTargetTableName);
+            ctx.getStatementContext().getTables().remove(qualifiedTargetTableName);
+            ctx.getStatementContext().getOneLevelTables().remove(qualifiedTargetTableName);
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth
@@ -322,6 +336,10 @@ public class InsertIntoTableCommand extends Command
             try {
                 // use originLogicalQuery to build logicalQuery again.
                 buildResult = initPlanOnce(ctx, stmtExecutor, targetTableIf);
+            } catch (InsertTargetSchemaChangedException exception) {
+                LOG.warn("insert plan failed {} times. query id is {}. {}",
+                        retryTimes, DebugUtil.printId(ctx.queryId()), exception.getMessage());
+                continue;
             } catch (Throwable e) {
                 Throwables.throwIfInstanceOf(e, RuntimeException.class);
                 throw new IllegalStateException(e.getMessage(), e);
@@ -347,9 +365,9 @@ public class InsertIntoTableCommand extends Command
 
             List<TableStreamUpdateInfo> infos = StreamConsumptionInfoExtractor.extract(analyzedPlan);
             if (!infos.isEmpty()) {
-                if (!Config.enable_feature_binlog) {
+                if (!Config.enable_feature_changelog) {
                     throw new AnalysisException("Insert plan with Table stream failed."
-                            + " should enable binlog feature in FE config.");
+                            + " should enable changelog feature in FE config.");
                 }
                 // put offset into executor
                 insertExecutor.setStreamUpdateInfos(infos);
@@ -421,20 +439,10 @@ public class InsertIntoTableCommand extends Command
             // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
             // so executeSingleInsert publishes the coordinator at its common execution boundary.
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-            if (needsExternalDmlAuditBarrier(insertExecutor)) {
-                // The resolved executor is the invariant that distinguishes an external write;
-                // logical sink roots are rewritten and are not a stable audit classification.
-                stmtExecutor.setExternalDmlAuditCoordinator(insertExecutor.getCoordinator());
-            }
             return insertExecutor;
         }
         LOG.warn("insert plan failed {} times. query id is {}.", retryTimes, DebugUtil.printId(ctx.queryId()));
         throw new AnalysisException("Insert plan failed. Could not get target table lock.");
-    }
-
-    static boolean needsExternalDmlAuditBarrier(AbstractInsertExecutor insertExecutor) {
-        return insertExecutor instanceof BaseExternalTableInsertExecutor
-                || insertExecutor instanceof RemoteOlapInsertExecutor;
     }
 
     /**
@@ -449,13 +457,15 @@ public class InsertIntoTableCommand extends Command
 
     private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,
             StmtExecutor stmtExecutor, TableIf targetTableIf) throws Throwable {
+        InsertUtils.pinConnectorWriteSchema(
+                ctx.getStatementContext(), targetTableIf, originLogicalQuery, branchName);
+        InsertUtils.checkNormalizedWriteGeneration(ctx.getStatementContext(), targetTableIf, insertCtx);
+        List<Column> normalizedTargetSchema;
         targetTableIf.readLock();
         try {
             Optional<CascadesContext> analyzeContext = Optional.of(
                     CascadesContext.initContext(ctx.getStatementContext(), originLogicalQuery, PhysicalProperties.ANY)
             );
-            InsertUtils.pinConnectorWriteSchema(
-                    ctx.getStatementContext(), targetTableIf, originLogicalQuery, branchName);
             if (!(this instanceof InsertIntoDictionaryCommand)) {
                 // process inline table (default values, empty values)
                 if (needNormalizePlan) {
@@ -470,13 +480,14 @@ public class InsertIntoTableCommand extends Command
             }
             OlapGroupCommitInsertExecutor.analyzeGroupCommit(
                     ctx, targetTableIf, this.logicalQuery.get(), this.insertCtx);
-
-            LogicalPlanAdapter logicalPlanAdapter
-                    = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
-            return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
+            normalizedTargetSchema = targetTableIf.getFullSchema().stream()
+                    .map(Column::new).collect(Collectors.toList());
         } finally {
             targetTableIf.readUnlock();
         }
+        LogicalPlanAdapter logicalPlanAdapter
+                = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
+        return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf, normalizedTargetSchema);
     }
 
     static void checkCloudTableStreamPartitionLimit(List<TableStreamUpdateInfo> infos) {
@@ -625,20 +636,15 @@ public class InsertIntoTableCommand extends Command
                 // commit at the branch (iceberg validates it in beginWrite). The guard above already
                 // rejected @branch for connectors without supportsWriteBranch().
                 branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
+                pluginCtx.setBoundTargetSchema(((PhysicalConnectorTableSink<?>) physicalSink).getBoundTargetSchema());
                 if (pluginCtx.getStaticPartitionSpec().isEmpty()
                         && originLogicalQuery instanceof UnboundConnectorTableSink) {
                     UnboundConnectorTableSink<?> pluginSink =
                             (UnboundConnectorTableSink<?>) originLogicalQuery;
                     if (pluginSink.hasStaticPartition()) {
-                        Map<String, String> staticSpec = Maps.newHashMap();
-                        for (Map.Entry<String, Expression> e
-                                : pluginSink.getStaticPartitionKeyValues().entrySet()) {
-                            if (e.getValue() instanceof Literal) {
-                                staticSpec.put(e.getKey(),
-                                        ((Literal) e.getValue()).getStringValue());
-                            }
-                        }
-                        pluginCtx.setStaticPartitionSpec(staticSpec);
+                        pluginCtx.setStaticPartitionSpecFromExpressions(
+                                pluginSink.getStaticPartitionKeyValues(),
+                                InsertUtils.connectorWriteSchema(targetTableIf, true));
                     }
                 }
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
@@ -673,8 +679,10 @@ public class InsertIntoTableCommand extends Command
 
     private BuildInsertExecutorResult planInsertExecutor(
             ConnectContext ctx, StmtExecutor stmtExecutor,
-            LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf) throws Throwable {
+            LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf,
+            List<Column> normalizedTargetSchema) throws Throwable {
         LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+        List<String> targetQualifier = InsertUtils.getTargetTableQualified(originLogicalQuery, ctx);
 
         boolean supportFastInsertIntoValues = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, ctx);
         // the key logical when use new coordinator:
@@ -691,7 +699,20 @@ public class InsertIntoTableCommand extends Command
         FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(
                 ctx.getStatementContext(), supportFastInsertIntoValues) {
             @Override
-            protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
+            protected void analyze(boolean showPlanProcess) {
+                if (targetTableIf.needReadLockWhenPlan()) {
+                    TableIf lockedTarget = ctx.getStatementContext().getInsertTargetTables().get(targetQualifier);
+                    TableIf currentTarget = getTargetTableIf(ctx, targetQualifier);
+                    if (lockedTarget != targetTableIf || currentTarget.getId() != targetTableIf.getId()
+                            || !normalizedTargetSchema.equals(targetTableIf.getFullSchema())) {
+                        throw new InsertTargetSchemaChangedException(targetQualifier.get(targetQualifier.size() - 1));
+                    }
+                }
+                super.analyze(showPlanProcess);
+            }
+
+            @Override
+            protected void doDistribute(ExplainLevel explainLevel) {
                 // when enter this method, the step 1 already executed
 
                 // step 2
@@ -699,7 +720,7 @@ public class InsertIntoTableCommand extends Command
                         selectInsertExecutorFactory(this, ctx, stmtExecutor, targetTableIf)
                 );
                 // step 3
-                super.doDistribute(canUseNereidsDistributePlanner, explainLevel);
+                super.doDistribute(explainLevel);
             }
         };
 
@@ -756,6 +777,10 @@ public class InsertIntoTableCommand extends Command
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         // An empty Table Stream read still needs to commit its offset update atomically.
         if (!insertExecutor.requiresTransaction()) {
+            // Nothing is committed on this path, so a caller that asks whether the rows are durable is told
+            // they are not -- no row and no offset was written, which is what it needs before treating a
+            // cancellation or a later failure here as too late to take back.
+            // See InsertCommandContext#setCommitted.
             return;
         }
         if (insertExecutorListener != null) {
@@ -916,6 +941,12 @@ public class InsertIntoTableCommand extends Command
                 callback.accept(executor);
             }
             return new BuildInsertExecutorResult(planner, executor, dataSink, physicalSink);
+        }
+    }
+
+    private static class InsertTargetSchemaChangedException extends RuntimeException {
+        InsertTargetSchemaChangedException(String tableName) {
+            super("Table " + tableName + " changed between INSERT normalization and planning");
         }
     }
 

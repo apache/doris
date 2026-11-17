@@ -35,10 +35,7 @@ public interface ComputePrecisionForSum extends ComputePrecision {
                 enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
             }
             // child type decimalV3Type>38, but in 128 mode，need cast child type to decimal128
-            if (decimalV3Type.getPrecision() > DecimalV3Type.MAX_DECIMAL128_PRECISION && !enableDecimal256) {
-                int scale = Math.min(DecimalV3Type.MAX_DECIMAL128_PRECISION, decimalV3Type.getScale());
-                decimalV3Type = DecimalV3Type.createDecimalV3Type(38, scale);
-            }
+            decimalV3Type = DecimalV3Type.narrowToDecimal128IfDisabled(decimalV3Type);
 
             return signature.withArgumentType(0, decimalV3Type)
                     .withReturnType(DecimalV3Type.createDecimalV3Type(

@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -83,6 +85,20 @@ public class TableScanParamsTest {
     public void testValidateOlapTableStreamAcceptsSnapshotAndReset() {
         new TableScanParams(TableScanParams.SNAPSHOT, EMPTY_MAP, EMPTY_LIST).validateOlapTableStream();
         new TableScanParams(TableScanParams.RESET, EMPTY_MAP, EMPTY_LIST).validateOlapTableStream();
+    }
+
+    @Test
+    public void testValidateOlapTableStreamRejectsArguments() {
+        for (String mode : ImmutableList.of(TableScanParams.SNAPSHOT, TableScanParams.RESET)) {
+            AnalysisException mapError = Assertions.assertThrows(AnalysisException.class,
+                    () -> new TableScanParams(mode, ImmutableMap.of("unknown", "x"), EMPTY_LIST)
+                            .validateOlapTableStream());
+            Assertions.assertEquals(mode + " does not accept parameters", mapError.getMessage());
+            AnalysisException listError = Assertions.assertThrows(AnalysisException.class,
+                    () -> new TableScanParams(mode, EMPTY_MAP, ImmutableList.of("x"))
+                            .validateOlapTableStream());
+            Assertions.assertEquals(mode + " does not accept parameters", listError.getMessage());
+        }
     }
 
     @Test

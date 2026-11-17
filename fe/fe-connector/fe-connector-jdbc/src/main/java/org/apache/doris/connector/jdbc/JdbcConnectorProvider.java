@@ -20,6 +20,7 @@ package org.apache.doris.connector.jdbc;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
 import java.util.Map;
 
@@ -47,5 +48,12 @@ public class JdbcConnectorProvider implements ConnectorProvider {
     @Override
     public void validateProperties(Map<String, String> properties) {
         JdbcCatalogProperties.of(properties).checkCreateTimeOnlyRules();
+    }
+
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        // driver_url (documented alias: jdbc.driver_url) is the jar the connector loads into the FE JVM;
+        // the engine's operator gate applies jdbc_driver_secure_path / the mandatory rule on CREATE + ALTER.
+        return ConnectorSecuritySurface.ofJdbcDriverUrls(null, "driver_url", "jdbc.driver_url");
     }
 }

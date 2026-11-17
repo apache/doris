@@ -49,6 +49,20 @@ options { tokenVocab = DorisLexer; }
                 ctx.getParent().getText(), ctx);
     }
 
+    private void validateQuotedTableSuffix(Token tableEnd, TableAliasContext alias) {
+        Token aliasStart = alias.getStart();
+        // A suffix attached to a quoted table name otherwise becomes a base-table scan alias.
+        // Keep separated or explicit dollar-prefixed aliases valid.
+        if (tableEnd.getType() == BACKQUOTED_IDENTIFIER
+                && aliasStart.getType() == IDENTIFIER
+                && aliasStart.getText().startsWith("$")
+                && tableEnd.getStopIndex() + 1 == aliasStart.getStartIndex()) {
+            throw new org.apache.doris.nereids.exceptions.ParseException(
+                    "A '$' suffix cannot be attached outside a quoted table name. "
+                    + "Quote the full table name or separate an alias with AS or whitespace.", alias);
+        }
+    }
+
     private boolean isQueryOrganizationStart() {
         int tokenType = _input.LA(1);
         return tokenType == ORDER || tokenType == LIMIT;
@@ -99,6 +113,10 @@ singleStatement
 
 expressionWithEof
     : expression EOF
+    ;
+
+propertyItemListWithEof
+    : propertyItemList EOF
     ;
 
 statement
@@ -1391,7 +1409,8 @@ userIdentify
     ;
 
 grantUserIdentify
-    : userIdentify (IDENTIFIED BY PASSWORD? pwd=STRING_LITERAL)?
+    : userIdentify (IDENTIFIED (BY PASSWORD? pwd=STRING_LITERAL
+        | WITH AUTHENTICATION INTEGRATION integration=identifier (AS identity=STRING_LITERAL)?))?
     ;
 
 explain
@@ -1716,7 +1735,8 @@ optScanParams
 
 relationPrimary
     : multipartIdentifier optScanParams? materializedViewName? tableSnapshot? specifiedPartition?
-       tabletList? tableAlias sample? relationHint? lateralView*                           #tableName
+       tabletList? tableAlias {validateQuotedTableSuffix($multipartIdentifier.stop, $tableAlias.ctx);}
+       sample? relationHint? lateralView*                                                 #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties=propertyItemList)?

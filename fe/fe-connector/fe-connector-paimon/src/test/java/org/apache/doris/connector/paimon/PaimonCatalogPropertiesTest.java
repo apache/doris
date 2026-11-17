@@ -71,8 +71,8 @@ public class PaimonCatalogPropertiesTest {
         PaimonCatalogProperties p = PaimonCatalogProperties.of(props("warehouse", "/wh"));
 
         Assertions.assertEquals(PaimonCatalogProperties.FILESYSTEM, p.getFlavor());
-        Assertions.assertFalse(p.isEnableMappingVarbinary());
-        Assertions.assertFalse(p.isEnableMappingTimestampTz());
+        Assertions.assertTrue(p.isEnableMappingVarbinary());
+        Assertions.assertTrue(p.isEnableMappingTimestampTz());
     }
 
     /** The flavor drives a switch in four classes, so it is lower-cased once, here. */
@@ -93,8 +93,8 @@ public class PaimonCatalogPropertiesTest {
                 "enable_mapping_varbinary", "true",
                 "enable_mapping_timestamp_tz", "true"));
 
-        Assertions.assertFalse(p.isEnableMappingVarbinary());
-        Assertions.assertFalse(p.isEnableMappingTimestampTz());
+        Assertions.assertTrue(p.isEnableMappingVarbinary());
+        Assertions.assertTrue(p.isEnableMappingTimestampTz());
     }
 
     /**

@@ -58,7 +58,7 @@ import java.util.List;
  * column the same way, so every rule below is the composition of fluss's own
  * {@code FlussDataTypeToPaimonDataType} with the paimon connector's {@code PaimonTypeMapping} —
  * including the ones that look arbitrary in isolation (CHAR over 255 collapsing to STRING, the
- * microsecond clamp, the two mapping switches). Changing a rule here without checking that
+ * microsecond clamp, binary and instant preservation). Changing a rule here without checking that
  * composition makes one table show two schemas.
  *
  * <p><b>Unsupported types degrade, they do not throw.</b> A type Doris cannot represent becomes the
@@ -77,15 +77,12 @@ public final class FlussTypeMapping implements DataTypeVisitor<ConnectorType> {
     /** The type name fe-core's converter turns into {@code Type.UNSUPPORTED}. */
     private static final String UNSUPPORTED = "UNSUPPORTED";
 
-    private final Options options;
-
-    private FlussTypeMapping(Options options) {
-        this.options = options;
+    private FlussTypeMapping() {
     }
 
-    /** Convert one fluss type, top level or nested, under the given catalog mapping switches. */
+    /** Convert one fluss type, top level or nested, independently of legacy catalog markers. */
     public static ConnectorType toConnectorType(DataType dataType, Options options) {
-        return dataType.accept(new FlussTypeMapping(options));
+        return dataType.accept(new FlussTypeMapping());
     }
 
     @Override
@@ -110,22 +107,13 @@ public final class FlussTypeMapping implements DataTypeVisitor<ConnectorType> {
 
     @Override
     public ConnectorType visit(BinaryType binaryType) {
-        if (options.isMapBinaryToVarbinary()) {
-            // Doris has no fixed-length binary; the declared length survives as the VARBINARY bound.
-            return ConnectorType.of("VARBINARY", binaryType.getLength(), 0);
-        }
-        return ConnectorType.of("STRING");
+        // Binary bytes must retain the same type on the log and lake read paths.
+        return ConnectorType.of("VARBINARY", binaryType.getLength(), 0);
     }
 
     @Override
     public ConnectorType visit(BytesType bytesType) {
-        if (options.isMapBinaryToVarbinary()) {
-            // Unbounded in fluss: leave the length unset so fe-core's converter fills in the Doris
-            // VARBINARY maximum, which is what the paimon side (BYTES = VARBINARY(Integer.MAX_VALUE))
-            // resolves to as well.
-            return ConnectorType.of("VARBINARY");
-        }
-        return ConnectorType.of("STRING");
+        return ConnectorType.of("VARBINARY");
     }
 
     @Override
@@ -185,10 +173,8 @@ public final class FlussTypeMapping implements DataTypeVisitor<ConnectorType> {
     @Override
     public ConnectorType visit(LocalZonedTimestampType localZonedTimestampType) {
         int scale = clampScale(localZonedTimestampType.getPrecision());
-        if (options.isMapTimestampTz()) {
-            return ConnectorType.of("TIMESTAMPTZ", scale, 0);
-        }
-        return ConnectorType.of("DATETIMEV2", scale, 0);
+        // LTZ stores an instant; a legacy marker must not reinterpret it as local wall-clock fields.
+        return ConnectorType.of("TIMESTAMPTZ", scale, 0);
     }
 
     @Override
@@ -230,28 +216,19 @@ public final class FlussTypeMapping implements DataTypeVisitor<ConnectorType> {
         return Math.min(precision, MAX_TIMESTAMP_SCALE);
     }
 
-    /**
-     * The catalog-level switches that change a mapping. Both default to off and both carry the same
-     * name and meaning they have on other Doris catalogs (see {@link FlussCatalogProperties}).
-     */
+    /** Legacy options remain accepted, but binary and instant mappings are unconditional. */
     public static final class Options {
-
-        public static final Options DEFAULT = new Options(false, false);
-
-        private final boolean mapBinaryToVarbinary;
-        private final boolean mapTimestampTz;
+        public static final Options DEFAULT = new Options(true, true);
 
         public Options(boolean mapBinaryToVarbinary, boolean mapTimestampTz) {
-            this.mapBinaryToVarbinary = mapBinaryToVarbinary;
-            this.mapTimestampTz = mapTimestampTz;
         }
 
         public boolean isMapBinaryToVarbinary() {
-            return mapBinaryToVarbinary;
+            return true;
         }
 
         public boolean isMapTimestampTz() {
-            return mapTimestampTz;
+            return true;
         }
     }
 }

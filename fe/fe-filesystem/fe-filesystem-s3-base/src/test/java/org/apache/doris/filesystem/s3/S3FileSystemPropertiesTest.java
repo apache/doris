@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 
 import org.junit.jupiter.api.Assertions;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class S3FileSystemPropertiesTest {
@@ -254,6 +256,32 @@ class S3FileSystemPropertiesTest {
         Assertions.assertEquals("sk", hadoopMap.get("fs.s3a.secret.key"));
         Assertions.assertEquals("token", hadoopMap.get("fs.s3a.session.token"));
         Assertions.assertEquals("true", hadoopMap.get("fs.s3a.path.style.access"));
+    }
+
+    @Test
+    void toHadoopConfigurationMap_keysFileSystemCacheByCredentialFingerprint() {
+        S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                "s3.endpoint", "https://s3.us-west-2.amazonaws.com",
+                "s3.access_key", "ak",
+                "s3.secret_key", "sk"));
+        S3FileSystemProperties otherCredentials = S3FileSystemProperties.of(Map.of(
+                "s3.endpoint", "https://s3.us-west-2.amazonaws.com",
+                "s3.access_key", "other-ak",
+                "s3.secret_key", "other-sk"));
+
+        Map<String, String> hadoopKv = properties.toHadoopConfigurationMap();
+
+        // The Hadoop FileSystem cache stays on. Instead of the retired blanket
+        // fs.<scheme>.impl.disable.cache=true, every scheme this storage can be opened with carries
+        // its credential fingerprint, which the Doris-patched FileSystem folds into its cache key.
+        for (String scheme : List.of("s3", "s3a", "s3n")) {
+            Assertions.assertNull(hadoopKv.get("fs." + scheme + ".impl.disable.cache"), scheme);
+            Assertions.assertEquals(properties.fsCacheFingerprint(),
+                    hadoopKv.get(FsCacheKeys.fsCacheKeyProperty(scheme)), scheme);
+        }
+        // Never the shared, scheme-less name: per-scheme names are what keep a merge lossless.
+        Assertions.assertNull(hadoopKv.get(FsCacheKeys.FS_CACHE_KEY_PROPERTY));
+        Assertions.assertNotEquals(properties.fsCacheFingerprint(), otherCredentials.fsCacheFingerprint());
     }
 
     @Test

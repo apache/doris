@@ -45,7 +45,7 @@ suite("test_uuid_array_matrix", "p0") {
          concatenated: "ARRAY_CONCAT(${a},${b})"]
     })
     matrix.run(delegate, 'seed', 'uuid_matrix_array', ['a','num'], { a,n ->
-        [shuffled_members: "ARRAY_SORT(ARRAY_SHUFFLE(${a},${n}))"]
+        [shuffled_members: "ARRAY_SORT(ARRAY_SHUFFLE(${a},1))"]
     })
     matrix.run(delegate, 'aligned', 'uuid_matrix_array', ['a','a2'], { a,b ->
         [sort_by: "ARRAY_SORTBY(${a},${b})", zipped: "ARRAY_ZIP(${a},${b})",

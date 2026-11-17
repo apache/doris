@@ -78,7 +78,20 @@ Status decode_timestamp_tz_orc_values(IColumn& nested_column,
 Status append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& data,
                                                 int64_t timestamp_micros) {
     static constexpr int64_t MICROS_PER_SECOND = 1000000;
+    // 0000-01-01 00:00:00 UTC and 9999-12-31 23:59:59.999999 UTC, the TIMESTAMPTZ range.
+    static constexpr int64_t MIN_TIMESTAMPTZ_MICROS = -62167219200000000LL;
+    static constexpr int64_t MAX_TIMESTAMPTZ_MICROS = 253402300799999999LL;
     static const auto UTC = cctz::utc_time_zone();
+
+    // from_unixtime() narrows the cctz year to uint16_t without a check, so an instant past year
+    // 65535 wraps back into 0000..9999 and would still pass is_valid_date() after packing:
+    // timestamp(us) 2005980768000000000 (65537-01-01) read as 0001-01-01. The Arrow reader passes
+    // any int64 here, so check the range before converting; Parquet values arrive inside it.
+    if (timestamp_micros < MIN_TIMESTAMPTZ_MICROS || timestamp_micros > MAX_TIMESTAMPTZ_MICROS) {
+        return Status::DataQualityError(
+                "Decoded TIMESTAMPTZ is outside the Doris 0000-9999 range: micros={}",
+                timestamp_micros);
+    }
 
     int64_t epoch_seconds = timestamp_micros / MICROS_PER_SECOND;
     int64_t micros_of_second = timestamp_micros % MICROS_PER_SECOND;
@@ -90,10 +103,12 @@ Status append_timestamptz_from_utc_epoch_micros(ColumnTimeStampTz::Container& da
     TimestampTzValue timestamp_tz;
     timestamp_tz.from_unixtime(epoch_seconds, UTC);
     timestamp_tz.set_microsecond(static_cast<uint32_t>(micros_of_second));
+    // The range check does not make every instant inside it a Doris date: cctz counts year 0 as a
+    // leap year and Doris does not (is_leap(0) is false), so 0000-02-29 UTC, timestamp(us)
+    // -62162121600000000, passes the range and packs into an invalid value.
     if (!timestamp_tz.is_valid_date()) {
-        return Status::DataQualityError(
-                "Decoded TIMESTAMPTZ is outside the Doris 0001-9999 range: micros={}",
-                timestamp_micros);
+        return Status::DataQualityError("Decoded TIMESTAMPTZ is not a valid Doris date: micros={}",
+                                        timestamp_micros);
     }
     data.push_back(timestamp_tz);
     return Status::OK();
@@ -397,6 +412,29 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
         }
     }
     return Status::OK();
+}
+
+Status DataTypeTimeStampTzSerDe::write_column_to_paimon_arrow(
+        const std::shared_ptr<const IDataType>& type, const IColumn& column,
+        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const {
+    if (field->type()->id() != arrow::Type::TIMESTAMP) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    // The pinned Paimon schema must agree with the declared precision; do not silently rescale.
+    const auto& timestamp = assert_cast<const arrow::TimestampType&>(*field->type());
+    const arrow::TimeUnit::type expected_unit = type->get_scale() > 3   ? arrow::TimeUnit::MICRO
+                                                : type->get_scale() > 0 ? arrow::TimeUnit::MILLI
+                                                                        : arrow::TimeUnit::SECOND;
+    if (timestamp.unit() != expected_unit) {
+        return Status::InvalidArgument(
+                "Paimon timestamp writer has no binding for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
 }
 
 /**

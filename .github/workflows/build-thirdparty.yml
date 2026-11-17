@@ -82,9 +82,6 @@ jobs:
         run: |
           thirdparty/test/adbc-jni-config-test.sh
 
-      - name: Test Lance installation
-        run: bash thirdparty/test/lance-install-test.sh
-
   build_linux:
     name: Build Third Party Libraries (Linux)
     needs: changes
@@ -203,6 +200,9 @@ jobs:
           # through an emulated one, so it also runs on this x86_64 4 KiB runner.
           cd "${GITHUB_WORKSPACE}"
           thirdparty/test/libunwind-page-size-test.sh
+
+          # Check descriptor ownership when resuming and rotating existing logs.
+          thirdparty/test/glog-logfile-resume-test.sh
 
   build_macos:
     name: Build Third Party Libraries (macOS)

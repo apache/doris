@@ -33,23 +33,22 @@ struct CastToUUID {
 template <CastModeType Mode>
 class CastToImpl<Mode, DataTypeString, DataTypeUUID> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto& column_from =
-                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
-        const auto nested_to_type = remove_nullable(block.get_by_position(result).type);
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        const auto& column_from = assert_cast<const ColumnString&>(*source_column.column);
+        const auto nested_to_type = remove_nullable(target_column.type);
         const auto serde = nested_to_type->get_serde();
 
         if constexpr (Mode == CastModeType::NonStrictMode) {
             auto column_to = create_empty_nullable_column(nested_to_type);
             RETURN_IF_ERROR(serde->from_string_batch(column_from, *column_to, {}));
-            block.get_by_position(result).column = std::move(column_to);
+            target_column.column = std::move(column_to);
         } else {
             auto column_to = nested_to_type->create_column();
-            RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(column_from, *column_to, {}, null_map));
-            block.get_by_position(result).column = std::move(column_to);
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(column_from, *column_to, {},
+                                                                 parent_null_map));
+            target_column.column = std::move(column_to);
         }
         return Status::OK();
     }

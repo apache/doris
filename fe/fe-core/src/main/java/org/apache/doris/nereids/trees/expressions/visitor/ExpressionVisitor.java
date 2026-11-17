@@ -95,6 +95,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -173,6 +174,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitBoundFunction(BoundFunction boundFunction, C context) {
         return visit(boundFunction, context);
+    }
+
+    public R visitShortCircuitIf(ShortCircuitIf shortCircuitIf, C context) {
+        return visitIf(shortCircuitIf, context);
     }
 
     public R visitAggregateExpression(AggregateExpression aggregateExpression, C context) {

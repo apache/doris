@@ -65,6 +65,24 @@ public class PrivInfo implements Writable {
     @SerializedName(value = "userId")
     private String userId;
 
+    @SerializedName(value = "authIntegration")
+    private String authIntegration;
+    @SerializedName(value = "authIdentity")
+    private String authIdentity;
+
+    public String getAuthIntegration() {
+        return authIntegration;
+    }
+
+    public String getAuthIdentity() {
+        return authIdentity;
+    }
+
+    public void setAuthenticationBinding(String integration, String identity) {
+        authIntegration = integration;
+        authIdentity = identity;
+    }
+
     private PrivInfo() {
 
     }

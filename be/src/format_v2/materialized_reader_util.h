@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "common/status.h"
 #include "core/column/column.h"
@@ -33,6 +34,10 @@ struct IOContext;
 
 namespace format {
 struct FileScanRequest;
+struct ColumnDefinition;
+
+// Describe children of already materialized ARRAY/MAP/STRUCT values in their local schema.
+std::vector<ColumnDefinition> materialized_schema_children(const DataTypePtr& type);
 
 // Shared helpers for FileReader implementations that deserialize or build already materialized
 // Doris columns and then hand those columns to TableReader for final mapping.

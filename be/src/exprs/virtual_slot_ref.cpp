@@ -72,7 +72,7 @@ Status VirtualSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescr
     }
 
     _column_name = &slot_desc->col_name();
-    _column_data_type = slot_desc->get_data_type_ptr();
+    _column_data_type = slot_desc->type();
     DCHECK(_column_data_type != nullptr);
     _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {

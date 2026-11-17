@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 class AdbcTypeMapperTest {
 
@@ -50,6 +51,21 @@ class AdbcTypeMapperTest {
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> AdbcTypeMapper.toDorisType(columnName, field));
         return e.getMessage();
+    }
+
+    @Test
+    void nativeVariantKeepsItsLogicalTypeInsideContainers() {
+        Field variant = new Field("v", new FieldType(true, ArrowType.Struct.INSTANCE, null,
+                Map.of("ARROW:extension:name", "arrow.parquet.variant")),
+                List.of(Field.notNullable("metadata", ArrowType.Binary.INSTANCE),
+                        Field.notNullable("value", ArrowType.Binary.INSTANCE)));
+        Assertions.assertEquals(ConnectorType.of("VARIANT_COMPUTE_V2"), AdbcTypeMapper.toDorisType("v", variant));
+        Assertions.assertEquals(ConnectorType.arrayOf(ConnectorType.of("VARIANT_COMPUTE_V2")),
+                AdbcTypeMapper.toDorisType("a", nested("a", ArrowType.List.INSTANCE, List.of(variant))));
+        Field plain = nested("v", ArrowType.Struct.INSTANCE, variant.getChildren());
+        Assertions.assertEquals(ConnectorType.structOf(Arrays.asList("metadata", "value"),
+                List.of(ConnectorType.of("STRING"), ConnectorType.of("STRING"))),
+                AdbcTypeMapper.toDorisType("v", plain));
     }
 
     @Test
