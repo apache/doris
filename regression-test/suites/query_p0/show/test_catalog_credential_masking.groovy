@@ -51,6 +51,19 @@ suite("test_catalog_credential_masking", "p0") {
     sql "DROP USER IF EXISTS '${denied}'@'%'"
     sql "CREATE USER '${reader}'@'%' IDENTIFIED BY '${userPassword}'"
     sql "CREATE USER '${denied}'@'%' IDENTIFIED BY '${userPassword}'"
+    // Both users need a backend to execute catalogs() in cloud mode.
+    if (isCloudMode()) {
+        def groups = sql "SHOW COMPUTE GROUPS"
+        def currentGroup = groups.find { it[1] == "TRUE" }
+        quickTest("available_compute_group", "SELECT ${currentGroup == null ? 0 : 1}", "SELECT 1")
+        String group = currentGroup[0]
+        [reader, denied].each { user ->
+            sql "GRANT USAGE_PRIV ON COMPUTE GROUP ${literal(group)} TO '${user}'@'%'"
+            def grants = sql_return_maparray "SHOW GRANTS FOR '${user}'@'%'"
+            boolean usageOnly = grants[0].ComputeGroupPrivs == "${group}: Cluster_usage_priv"
+            quickTest("${user}_compute_group_usage", "SELECT ${usageOnly ? 1 : 0}", "SELECT 1")
+        }
+    }
     fixtures.each { fixture ->
         sql "DROP CATALOG IF EXISTS ${fixture.name}"
         String properties = fixture.properties.collect { key, value -> "${literal(key)} = ${literal(value)}" }.join(", ")
@@ -59,12 +72,14 @@ suite("test_catalog_credential_masking", "p0") {
     }
 
     def grantRows = sql_return_maparray "SHOW GRANTS FOR '${reader}'@'%'"
-    String grants = grantRows.collectMany { row ->
-        row.findAll { key, value -> key.toUpperCase().endsWith("PRIVS") &&
-            !key.equalsIgnoreCase("WorkloadGroupPrivs") }.values()
-    }.join("\n").toUpperCase()
-    Set privileges = grants.findAll(/[A-Z][A-Z_]*_PRIV/).toSet()
-    boolean selectOnly = privileges == (["SELECT_PRIV"] as Set)
+    def grants = grantRows[0]
+    Set expectedCatalogGrants = fixtures.collect { "${it.name}: Select_priv".toString() }.toSet()
+    List objectGrants = [grants.DatabasePrivs, grants.TablePrivs, grants.ColPrivs].collectMany {
+        it?.split("; ")?.toList() ?: []
+    }
+    boolean selectOnly = grants.GlobalPrivs == null &&
+        grants.CatalogPrivs?.split("; ")?.toList()?.toSet() == expectedCatalogGrants &&
+        fixtures.every { fixture -> !objectGrants.any { it.startsWith("${fixture.name}.") } }
     quickTest("select_only_grants", "SELECT ${selectOnly ? 1 : 0}", "SELECT 1")
     // Every new user inherits USAGE on the default workload group; it grants no catalog access.
     String workloadGrants = grantRows.collectMany { row ->
