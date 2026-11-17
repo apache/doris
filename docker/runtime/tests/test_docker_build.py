@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+"""Exercise release verification and build handoff without network or Docker."""
+
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import tarfile
+import tempfile
+import unittest
+
+RUNTIME = Path(__file__).resolve().parents[1]
+ROOT = RUNTIME.parents[1]
+
+FAKE_DOCKER = """#!/usr/bin/env python3
+import json
+import os
+from pathlib import Path
+import sys
+
+args = sys.argv[1:]
+entry = {"args": args}
+if args[0] == "build" and "DORIS_VERSION=" in " ".join(args):
+    context = Path(args[-1])
+    entry["files"] = sorted(str(p.relative_to(context)) for p in context.rglob("*") if p.is_file())
+with open(os.environ["DOCKER_CALLS"], "a") as log:
+    log.write(json.dumps(entry) + "\\n")
+if args[:2] == ["image", "inspect"]:
+    print('[{"Id": "sha256:fixture"}]')
+"""
+
+FAKE_CURL = """#!/usr/bin/env python3
+import os
+from pathlib import Path
+import sys
+
+args = sys.argv[1:]
+Path(args[args.index("-o") + 1]).write_text(os.environ["CHECKSUM_DOCUMENT"])
+"""
+
+
+class BuildFixture:
+    def setUp(self):
+        (ROOT / "output").mkdir(exist_ok=True)
+        self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "output", prefix="runtime-build-test-")
+        self.work = Path(self.tmp.name)
+        self.bin = self.work / "bin"
+        self.bin.mkdir()
+        for name, content in [
+            ("docker", FAKE_DOCKER),
+            ("curl", FAKE_CURL),
+            ("wget", "#!/usr/bin/env python3\nraise SystemExit('Unexpected unverified downloader')\n"),
+        ]:
+            path = self.bin / name
+            path.write_text(content)
+            path.chmod(0o755)
+        self.calls = self.work / "docker-calls.jsonl"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def read_calls(self):
+        return [json.loads(line) for line in self.calls.read_text().splitlines()]
+
+
+class RuntimeBuildTest(BuildFixture, unittest.TestCase):
+    def archive(self, version="4.1.5", arch="arm64", include_ms=True, include_broker=False):
+        path = self.work / "release.tar.gz"
+        with tarfile.open(path, "w:gz") as archive:
+            roles = ["fe", "be", "ms"] if include_ms else ["fe", "be"]
+            if include_broker:
+                roles.append("extensions/apache_hdfs_broker")
+            for role in roles:
+                data = role.encode()
+                info = tarfile.TarInfo(f"apache-doris-{version}-bin-{arch}/{role}/payload")
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+        return path, hashlib.sha512(path.read_bytes()).hexdigest()
+
+    def build(self, archive, digest, version="4.1.5", **overrides):
+        env = dict(os.environ)
+        env.update(
+            PATH=f"{self.bin}:{env['PATH']}",
+            DOCKER_CALLS=str(self.calls),
+            DORIS_ARCHIVE=str(archive),
+            DORIS_ARCHIVE_SHA512=digest,
+            DORIS_ARCH="arm64",
+            DORIS_BASE_IMAGE="runtime-test:base",
+            DORIS_IMAGE_PREFIX="runtime-test",
+            DORIS_IMAGE_WORK_DIR=str(self.work / "build"),
+        )
+        env.update(overrides)
+        return subprocess.run(
+            ["bash", str(RUNTIME / "docker-build.sh"), "-v", version],
+            cwd=self.work, env=env, text=True, capture_output=True, check=False, timeout=30,
+        )
+
+    def test_verified_archive_builds_every_role_from_the_new_base(self):
+        archive, digest = self.archive()
+        result = self.build(archive, digest.upper())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        builds = [call for call in self.read_calls() if call["args"][0] == "build"]
+        self.assertEqual(len(builds), 4)
+        self.assertIn("--pull", builds[0]["args"])
+        self.assertIn("JAVA_VERSION=17", builds[0]["args"])
+        for role, call in zip(["fe", "be", "ms"], builds[1:]):
+            self.assertIn("BASE_IMAGE=runtime-test:base", call["args"])
+            self.assertNotIn("--pull", call["args"])
+            self.assertIn("--no-cache", call["args"])
+            self.assertIn(f"resource/arm64/apache-doris-4.1.5-bin-arm64/{role}/payload", call["files"])
+            record = self.work / "build" / f"{role}-4.1.5-arm64.image.json"
+            self.assertEqual(json.loads(record.read_text())[0]["Id"], "sha256:fixture")
+        self.assertFalse(list((self.work / "build").glob("staging.*")))
+
+    def test_checksum_mismatch_stops_before_extracting_or_building(self):
+        archive, _ = self.archive()
+        result = self.build(archive, "0" * 128)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SHA512 verification failed", result.stderr)
+        self.assertFalse(self.calls.exists())
+        self.assertFalse(list((self.work / "build").glob("staging.*")))
+
+    def test_legacy_release_uses_java8_and_does_not_require_ms(self):
+        archive, digest = self.archive("2.1.9", "x64-noavx2", include_ms=False)
+        result = self.build(archive, digest, version="2.1.9", DORIS_ARCH="amd64", DORIS_NO_AVX2="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        builds = [call for call in self.read_calls() if call["args"][0] == "build"]
+        self.assertEqual(len(builds), 3)
+        self.assertIn("JAVA_VERSION=8", builds[0]["args"])
+        self.assertIn("linux/amd64", builds[0]["args"])
+        self.assertIn("resource/amd64/apache-doris-2.1.9-bin-x64-noavx2/be/payload", builds[2]["files"])
+
+    def test_checksum_documents_accept_gnu_and_bsd_formats(self):
+        archive, digest = self.archive()
+        for document in [f"{digest}  archive.tar.gz\n", f"SHA512 (archive.tar.gz) = {digest}\n"]:
+            with self.subTest(document=document[:20]):
+                result = self.build(archive, "", CHECKSUM_DOCUMENT=document)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_ambiguous_or_malformed_checksum_document_is_rejected(self):
+        archive, digest = self.archive()
+        for document in ["not a checksum", f"{digest}\n{digest}\n"]:
+            with self.subTest(document=document[:20]):
+                result = self.build(archive, "", CHECKSUM_DOCUMENT=document)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(self.calls.exists())
+
+    def test_invalid_version_is_rejected_before_building(self):
+        archive, digest = self.archive()
+        result = self.build(archive, digest, version="../4.1.5")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.calls.exists())
+
+
+    def check_broker_build(self, version, arch, include_ms, **overrides):
+        archive, digest = self.archive(version, arch, include_ms=include_ms, include_broker=True)
+        result = self.build(archive, digest, version=version, **overrides)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        builds = [call for call in self.read_calls() if call["args"][0] == "build"]
+        self.assertEqual(len(builds), 5 if include_ms else 4)
+        broker = builds[-1]
+        self.assertIn(f"runtime-test.broker:{version}", broker["args"])
+        self.assertIn("BASE_IMAGE=runtime-test:base", broker["args"])
+        self.assertNotIn("--pull", broker["args"])
+        target_arch = "amd64" if arch.startswith("x64") else "arm64"
+        self.assertIn(
+            f"resource/{target_arch}/apache-doris-{version}-bin-{arch}/extensions/apache_hdfs_broker/payload",
+            broker["files"],
+        )
+        record = self.work / "build" / f"broker-{version}-{target_arch}.image.json"
+        self.assertEqual(json.loads(record.read_text())[0]["Id"], "sha256:fixture")
+        self.assertFalse(list((self.work / "build").glob("staging.*")))
+        return broker
+
+    def test_release_with_broker_preserves_its_image_build(self):
+        broker = self.check_broker_build("4.1.5", "arm64", include_ms=True)
+        self.assertIn("JAVA_VERSION=17", broker["args"])
+
+    def test_legacy_release_with_broker_uses_java8_without_ms(self):
+        broker = self.check_broker_build(
+            "2.1.9", "x64-noavx2", include_ms=False, DORIS_ARCH="amd64", DORIS_NO_AVX2="1",
+        )
+        self.assertIn("JAVA_VERSION=8", broker["args"])
+
+
+if __name__ == "__main__":
+    unittest.main()
