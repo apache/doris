@@ -61,15 +61,12 @@ public:
     // Returns true only for the call that makes the merger ready.
     Status merge_from(const RuntimeFilter* other, bool* ready) {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
-        _received_producer_num++;
-        if (_expected_producer_num < _received_producer_num) {
+        *ready = false;
+        if (_expected_producer_num <= _received_producer_num) {
             return Status::InternalError(
                     "runtime filter merger input product more than expected, {}", debug_string());
         }
-        *ready = _received_producer_num == _expected_producer_num;
-        if (_received_producer_num == _expected_producer_num) {
-            _rf_state = State::READY;
-        }
+        Status status;
         if (_wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED) {
             // For example, consider a join whose probe side has two scan targets:
             //   SELECT p.k FROM build_table b JOIN
@@ -81,9 +78,19 @@ public:
             //                         +----> Scan(merged_probe) [merged: {5, 6}]
             // The merger must clone producer 1's wrapper: adopting it would let the
             // later merge change the direct scan's filter from {5} to {5, 6}.
-            return other->_wrapper->clone(&_wrapper);
+            status = other->_wrapper->clone(&_wrapper);
+        } else {
+            status = _wrapper->merge(other->_wrapper.get());
         }
-        return _wrapper->merge(other->_wrapper.get());
+        RETURN_IF_ERROR(status);
+        // A failed copy or merge must not count as an arrival: otherwise later inputs could
+        // publish a filter that does not contain the failed producer's values.
+        ++_received_producer_num;
+        *ready = _received_producer_num == _expected_producer_num;
+        if (*ready) {
+            _rf_state = State::READY;
+        }
+        return Status::OK();
     }
 
     // Only raise the expected producer count. RuntimeFilterMgr may compute the
