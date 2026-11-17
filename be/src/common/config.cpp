@@ -1141,7 +1141,8 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Int32(min_peer_race_s3_thread_num, "0");
-DEFINE_Int32(max_peer_race_s3_thread_num, "32"); // aligned with default max_concurrent_peer_races
+// Effective max threads = max(this value, max_concurrent_peer_races); a smaller value has no effect.
+DEFINE_Int32(max_peer_race_s3_thread_num, "32");
 
 DEFINE_Bool(enable_time_lut, "true");
 
@@ -1340,6 +1341,11 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+
+// Larger values favor remote reads when a query enables the file-cache IO adaptor.
+DEFINE_mDouble(file_cache_io_adaptor_skip_read_factor, "1.0");
+DEFINE_Validator(file_cache_io_adaptor_skip_read_factor,
+                 [](double v) { return std::isfinite(v) && v > 0; });
 
 // async file cache write
 DEFINE_mBool(enable_async_file_cache_write, "false");

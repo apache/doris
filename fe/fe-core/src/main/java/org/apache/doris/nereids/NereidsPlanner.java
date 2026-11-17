@@ -803,15 +803,11 @@ public class NereidsPlanner extends Planner {
         }
 
         boolean notNeedBackend = false;
-        // if the query can compute without backend, we can skip check cluster privileges
+        // EXPLAIN also reaches this probe: checking FE eligibility must not serialize SELECT results.
         if (Config.isCloudMode()
                 && cascadesContext.getConnectContext().supportHandleByFe()
                 && physicalPlan instanceof ComputeResultSet) {
-            Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan).computeResultInFe(
-                    cascadesContext, physicalPlan.getOutput());
-            if (resultSet.isPresent()) {
-                notNeedBackend = true;
-            }
+            notNeedBackend = ((ComputeResultSet) physicalPlan).canComputeResultInFe(physicalPlan.getOutput());
         }
 
         boolean useLoadBackendSelection = physicalPlan.anyMatch(PhysicalOlapTableSink.class::isInstance);

@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <CLucene.h>
-
 #include <atomic>
 #include <fstream>
 #include <memory>
@@ -26,9 +24,7 @@
 #include <string>
 #include <vector>
 
-#include "CLucene/LuceneThreads.h"
-#include "CLucene/_ApiHeader.h"
-#include "CLucene/analysis/AnalysisHeader.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "storage/index/inverted/analysis/analyzer/ik/cfg/Configuration.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
@@ -84,13 +80,14 @@ public:
     ~Dictionary() = default;
 
     // Loads the dictionaries unless they are loaded already; the first successful configuration
-    // wins. Throws CL_ERR_IllegalState when loading fails, and the next call tries again.
+    // wins. Throws INVERTED_INDEX_ANALYZER_ERROR when loading fails, and the next call tries
+    // again.
     static void initial(const Configuration& cfg, bool useExtDict = false);
 
     static Dictionary* getSingleton() {
         Dictionary* dictionary = singleton_.load(std::memory_order_acquire);
         if (dictionary == nullptr) {
-            _CLTHROWA(CL_ERR_IllegalState, "Dictionary not initialized");
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "Dictionary not initialized");
         }
         return dictionary;
     }

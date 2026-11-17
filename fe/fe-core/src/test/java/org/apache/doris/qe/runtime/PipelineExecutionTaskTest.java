@@ -104,7 +104,7 @@ class PipelineExecutionTaskTest {
         Assertions.assertThrows(IllegalStateException.class, executionTask::execute);
 
         Assertions.assertEquals(Set.of(10001L, 10002L),
-                executionTask.getDispatchedBackendIdsForAudit());
+                executionTask.getDispatchedBackendIds());
         Mockito.verify(neverAttempted, Mockito.never()).sendPhaseOneRpc(false);
     }
 

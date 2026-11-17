@@ -4360,6 +4360,8 @@ public class Env {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
         sb.append(olapTable.disableAutoCompaction()).append("\"");
 
+        addVariantEscapeDotsInKeysProperty(olapTable, sb);
+
         if (olapTable.variantEnableFlattenNested()) {
             // enable flatten nested type in variant
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED).append("\" = \"");
@@ -4413,6 +4415,13 @@ public class Env {
 
         if (olapTable.isInAtomicRestore()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
+        }
+    }
+
+    private static void addVariantEscapeDotsInKeysProperty(OlapTable olapTable, StringBuilder sb) {
+        if (olapTable.getVariantEscapeDotsInKeys()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)
+                    .append("\" = \"true\"");
         }
     }
 
@@ -4525,7 +4534,9 @@ public class Env {
                 sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
                     .append(") BUCKETS 1");
                 sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
-                        + specificVersion + "\"\n" + ")");
+                        + specificVersion + "\"");
+                addVariantEscapeDotsInKeysProperty(olapTable, sb);
+                sb.append("\n)");
                 createTableStmt.add(sb + ";");
                 return;
             }
@@ -4879,7 +4890,9 @@ public class Env {
                 sb.append("\nDISTRIBUTED BY HASH(").append(olapTable.getBaseSchema().get(0).getName())
                         .append(") BUCKETS 1");
                 sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
-                        + specificVersion + "\"\n" + ")");
+                        + specificVersion + "\"");
+                addVariantEscapeDotsInKeysProperty(olapTable, sb);
+                sb.append("\n)");
                 createTableStmt.add(sb + ";");
                 return;
             }

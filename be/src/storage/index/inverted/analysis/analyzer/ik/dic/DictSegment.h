@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <CLucene.h>
 #include <parallel_hashmap/phmap.h>
 
 #include <algorithm>
@@ -27,7 +26,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "CLucene/_SharedHeader.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
 #include "storage/index/inverted/analysis/analyzer/ik/dic/Hit.h"
 

@@ -19,12 +19,14 @@
 
 #include <unicode/uchar.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
-#include "CLucene/_ApiHeader.h"
-#include "CLucene/analysis/jieba/Unicode.hpp"
+#include "storage/index/inverted/analysis/common/rune.h"
 
 namespace doris::segment_v2 {
 
@@ -39,9 +41,9 @@ public:
         SURROGATE = 0x00000016,
     };
 
-    using RuneStrLite = cppjieba::RuneStrLite;
-    using RuneStr = cppjieba::RuneStr;
-    using RuneStrArray = cppjieba::RuneStrArray;
+    using RuneStrLite = inverted_index::RuneStrLite;
+    using RuneStr = inverted_index::RuneStr;
+    using RuneStrArray = inverted_index::RuneStrArray;
 
     class TypedRune : public RuneStr {
     public:
