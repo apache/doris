@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -91,11 +92,89 @@ class MemoTest implements MemoPatternMatchSupported {
         MemoValidator.validate(memo);
         Assertions.assertEquals(4, memo.getGroups().size());
         Group rootGroup = memo.getRoot();
-        Group scanGroup = rootGroup.getLogicalExpression().child(0)
-                .getLogicalExpression().child(0).getLogicalExpression().child(0);
-        LogicalProject<GroupPlan> merged = new LogicalProject<>(ImmutableList.of(slot), new GroupPlan(scanGroup));
-        memo.copyIn(merged, rootGroup, false);
+        Group middleGroup = rootGroup.getLogicalExpression().child(0);
+        Group bottomGroup = middleGroup.getLogicalExpression().child(0);
+        Group scanGroup = bottomGroup.getLogicalExpression().child(0);
+        GroupExpression existing = bottomGroup.getLogicalExpression();
+        LogicalProject<?> middleMatch = new LogicalProject<>(middle.getProjects(),
+                new LogicalProject<>(bottom.getProjects(), new GroupPlan(scanGroup)));
+        CopyInResult middleResult = memo.copyIn(MergeProjects.mergeProjects(middleMatch), middleGroup, false);
+        Assertions.assertTrue(middleResult.generateNewExpression);
+        LogicalProject<?> topMatch = new LogicalProject<>(
+                top.getProjects(), middleResult.correspondingExpression.getPlan());
+        LogicalProject<?> merged = (LogicalProject<?>) MergeProjects.mergeProjects(topMatch);
+
+        // The duplicate uses the very same slot and child group, independently of equals/hashCode.
+        Assertions.assertFalse(merged.getGroupExpression().isPresent());
+        Assertions.assertSame(slot, merged.getProjects().get(0));
+        Assertions.assertSame(slot, ((LogicalProject<?>) existing.getPlan()).getProjects().get(0));
+        Assertions.assertSame(scanGroup, ((GroupPlan) merged.child(0)).getGroup());
+        Assertions.assertFalse(merged.isDistinct());
+        Assertions.assertTrue(merged.getAsteriskOutputs().isEmpty());
+        int expressionCount = memo.getGroupExpressionsSize();
+        CopyInResult result = memo.copyIn(merged, rootGroup, false);
+        Assertions.assertFalse(result.generateNewExpression);
+        Assertions.assertSame(existing, result.correspondingExpression);
         MemoValidator.validate(memo);
+
+        for (int i = 0; i < 1000; i++) {
+            CopyInResult repeated = memo.copyIn(merged, rootGroup, false);
+            Assertions.assertFalse(repeated.generateNewExpression);
+            Assertions.assertSame(existing, repeated.correspondingExpression);
+        }
+        Assertions.assertSame(rootGroup, memo.getRoot());
+        Assertions.assertEquals(4, memo.getGroups().size());
+        Assertions.assertEquals(expressionCount, memo.getGroupExpressionsSize());
+        Assertions.assertEquals(2, scanGroup.getParentGroupExpressions().size());
+    }
+
+    @Test
+    void testRejectedDirectMergeDoesNotCreateGroups() {
+        SlotReference slot = (SlotReference) scan.getOutput().get(0);
+        LogicalProject<?> bottom = new LogicalProject<>(ImmutableList.of(slot), scan);
+        Memo memo = MemoTestUtils.createCascadesContext(connectContext,
+                new LogicalProject<>(ImmutableList.of(slot), bottom)).getMemo();
+        Group rootGroup = memo.getRoot();
+        GroupExpression existing = rootGroup.getLogicalExpression().child(0).getLogicalExpression();
+        Group scanGroup = existing.child(0);
+        LogicalProject<?> duplicate = new LogicalProject<>(ImmutableList.of(slot), new GroupPlan(scanGroup));
+
+        for (int i = 0; i < 1000; i++) {
+            CopyInResult result = memo.copyIn(duplicate, rootGroup, false);
+            Assertions.assertFalse(result.generateNewExpression);
+            Assertions.assertSame(existing, result.correspondingExpression);
+        }
+        Assertions.assertSame(rootGroup, memo.getRoot());
+        Assertions.assertEquals(3, memo.getGroups().size());
+        Assertions.assertEquals(3, memo.getGroupExpressionsSize());
+        Assertions.assertEquals(1, scanGroup.getParentGroupExpressions().size());
+        MemoValidator.validate(memo);
+    }
+
+    @Test
+    void testProjectHashCollisionDoesNotDeduplicateDifferentExpressions() {
+        LogicalOlapScan student = new LogicalOlapScan(
+                StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
+        Memo memo = MemoTestUtils.createCascadesContext(connectContext, student).getMemo();
+        LogicalProject<?> first = new LogicalProject<>(ImmutableList.of(
+                student.getOutput().get(0), student.getOutput().get(3)), new GroupPlan(memo.getRoot()));
+        LogicalProject<?> second = new LogicalProject<>(ImmutableList.of(
+                student.getOutput().get(1), student.getOutput().get(2)), new GroupPlan(memo.getRoot()));
+        GroupExpression firstExpression = memo.copyIn(first, null, false).correspondingExpression;
+        GroupExpression secondExpression = memo.copyIn(second, null, false).correspondingExpression;
+
+        // Slot ids are consecutive: {id, id+3} and {id+1, id+2} have the same set hash.
+        Assertions.assertEquals(firstExpression.hashCode(), secondExpression.hashCode());
+        Assertions.assertNotEquals(firstExpression, secondExpression);
+        Assertions.assertNotSame(firstExpression.getOwnerGroup(), secondExpression.getOwnerGroup());
+        CopyInResult firstAgain = memo.copyIn(first, null, false);
+        CopyInResult secondAgain = memo.copyIn(second, null, false);
+        Assertions.assertFalse(firstAgain.generateNewExpression);
+        Assertions.assertFalse(secondAgain.generateNewExpression);
+        Assertions.assertSame(firstExpression, firstAgain.correspondingExpression);
+        Assertions.assertSame(secondExpression, secondAgain.correspondingExpression);
+        Assertions.assertEquals(3, memo.getGroups().size());
+        Assertions.assertEquals(3, memo.getGroupExpressionsSize());
     }
 
     @Test
