@@ -29,12 +29,10 @@ import java.util.stream.Stream;
 /**
  * What a test needs to read a real Lance dataset: the native libraries and a committed dataset.
  *
- * <p>Two native libraries are involved. lance-core's own {@code liblance_jni} loads on the first touch of a
- * dataset or namespace class, and reading a schema goes through Arrow's C Data interface, whose
- * {@code libarrow_cdata_jni} travels in the arrow-c-data jar as an upstream build that needs CXXABI_1.3.9 -
- * which hosts Doris still supports (CentOS 7's libstdc++ stops at CXXABI_1.3.7) do not have. On such a host
- * the tests that read a dataset SKIP, and say so loudly: a skipped run has verified nothing about the native
- * path and must not be read as a pass. The regression suites under
+ * <p>Two native libraries are involved: Lance JNI opens datasets and Arrow C Data JNI imports their
+ * schemas. Linux deployment replaces both upstream libraries for older hosts; Maven tests use the
+ * upstream jars and skip when either library cannot load. A skipped run has verified nothing about
+ * the native path and must not be read as a pass. The regression suites under
  * {@code regression-test/suites/external_table_p0/lance} cover the path on every pipeline.
  *
  * <p>The datasets are the ones the BE Lance reader tests and the regression environment already read, so FE

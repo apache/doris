@@ -73,7 +73,7 @@ final class LanceStorageOptions {
             List<StorageProperties> storageProperties, Map<String, String> vendedOptions) {
         LanceStorageProvider provider = LanceStorageProvider.forDataset(datasetUri);
         Map<String, String> result = new HashMap<>(
-                provider.normalizeDorisStorageOptions(storageProperties));
+                provider.normalizeDorisStorageOptions(datasetUri, storageProperties));
         result.forEach((key, value) -> rejectUntransportable(key, value,
                 "Doris storage configuration"));
         Map<String, String> normalizedVended = new HashMap<>();

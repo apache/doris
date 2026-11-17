@@ -1418,9 +1418,9 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     fi
     unset ICEBERG_CONN_LIB
 
-    # lance-core's own linux-x86-64 JNI library needs GLIBC 2.28; swap in the glibc 2.17 build, inside
-    # the jar the Lance plugin just unzipped (lance-core extracts the library from that jar entry and has
-    # no path override). After the deploy loop, because it clears and refills the plugin's lib/.
+    # Replace Lance's Linux x86_64 JNI with its glibc 2.17 build, and rebuild Arrow C Data JNI with
+    # static C++ runtimes. Both libraries are needed for schema reads on older hosts. Run after the
+    # deploy loop, because it clears and refills the plugin's lib/.
     LANCE_CONN_LIB="${DORIS_OUTPUT}/fe/plugins/connector/lance/lib"
     if [[ -d "${LANCE_CONN_LIB}" ]]; then
         # shellcheck source=/dev/null

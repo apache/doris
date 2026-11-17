@@ -137,13 +137,19 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
 
     // ========= ConnectorStatisticsOps =========
 
-    /** The logical row count of the newest version: the fragments' rows minus their deletions. */
+    /** The logical row count of the handle's version: the fragments' rows minus their deletions. */
     @Override
     public Optional<ConnectorTableStatistics> getTableStatistics(ConnectorSession session,
             ConnectorTableHandle handle) {
         LanceTableHandle lanceHandle = (LanceTableHandle) handle;
         LanceTableMetadata metadata = metadata(session, lanceHandle);
         return Optional.of(new ConnectorTableStatistics(metadata.getRowCount(), -1));
+    }
+
+    @Override
+    public Optional<ConnectorTableStatistics> getTableStatistics(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
+        return getTableStatistics(session, pinned((LanceTableHandle) handle, snapshot));
     }
 
     // ========= ConnectorPushdownOps =========
@@ -164,7 +170,10 @@ final class LanceConnectorMetadata implements ConnectorMetadata {
     public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(ConnectorSession session,
             ConnectorTableHandle handle) {
         LanceTableMetadata metadata = metadata(session, ((LanceTableHandle) handle).unpinned());
-        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(metadata.getVersion()).build());
+        // Every dataset version owns its complete schema. Retain it before the engine's independent
+        // schema-cache loader can observe a newer external commit.
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(metadata.getVersion())
+                .schemaId(metadata.getVersion()).retainSchema(true).build());
     }
 
     /**

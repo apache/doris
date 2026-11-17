@@ -27,8 +27,9 @@ import java.util.List;
  * <p>The input namespace is relative to the optional parent namespace configured on the catalog.
  * An empty relative namespace maps to {@code rootDatabase}. Other namespace components are joined
  * with {@code delimiter}; delimiter occurrences and backslashes inside a component are escaped so
- * the conversion remains reversible. A one-level namespace equal to {@code rootDatabase} receives
- * an additional leading escape to distinguish it from the empty root namespace.
+ * the conversion remains reversible. A namespace whose encoded name equals {@code rootDatabase} receives
+ * an additional delimiter and trailing escape to distinguish it from the empty root namespace.
+ * That suffix cannot occur in a valid encoded namespace, even when the root alias ends in a backslash.
  *
  * <p>This class only converts names. It does not access the remote Lance namespace service. A malformed
  * name is an {@link IllegalArgumentException}: from property validation the engine reports it as a DDL
@@ -60,8 +61,8 @@ final class LanceNamespaceName {
             result.append(escapeNamespaceComponent(relativeNamespace.get(i), delimiter));
         }
         // The local root database represents the empty Lance namespace. Escape
-        // the rare, colliding one-level namespace so the mapping stays reversible.
-        return rootDatabase.contentEquals(result) ? ESCAPE + result.toString() : result.toString();
+        // a colliding namespace with a delimiter and lone trailing escape, which cannot be a component escape.
+        return rootDatabase.contentEquals(result) ? result.toString() + delimiter + ESCAPE : result.toString();
     }
 
     /** Escapes backslashes and delimiters occurring inside one namespace component. */
@@ -81,9 +82,8 @@ final class LanceNamespaceName {
         if (rootDatabase.equals(databaseName)) {
             return Collections.emptyList();
         }
-        if (databaseName.length() > 1 && databaseName.charAt(0) == ESCAPE
-                && rootDatabase.equals(databaseName.substring(1))) {
-            return parseEscapedNamespace(databaseName.substring(1), delimiter);
+        if ((rootDatabase + delimiter + ESCAPE).equals(databaseName)) {
+            return parseEscapedNamespace(rootDatabase, delimiter);
         }
         return parseEscapedNamespace(databaseName, delimiter);
     }

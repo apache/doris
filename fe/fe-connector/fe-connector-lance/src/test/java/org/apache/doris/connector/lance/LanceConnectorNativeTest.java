@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.lance.Dataset;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -105,6 +106,8 @@ class LanceConnectorNativeTest {
     void queryPinsTheNewestVersionAndReadsItsSchema() {
         ConnectorMvccSnapshot pin = metadata.beginQuerySnapshot(session, table).get();
         Assertions.assertEquals(3, pin.getSnapshotId());
+        Assertions.assertEquals(pin.getSnapshotId(), pin.getSchemaId());
+        Assertions.assertTrue(pin.isSchemaRetained());
 
         ConnectorTableSchema schema = metadata.getTableSchema(session, table);
         Assertions.assertEquals(27, schema.getColumns().size());
@@ -121,6 +124,35 @@ class LanceConnectorNativeTest {
 
         Assertions.assertEquals(Arrays.asList(Arrays.asList(0L), Arrays.asList(1L), Arrays.asList(2L)),
                 fragmentsOf(plan(metadata.applySnapshot(session, table, pin)), 3));
+    }
+
+    @Test
+    void implicitSchemaPinSurvivesAnExternalSchemaCommitAndAFreshSession() {
+        ConnectorMvccSnapshot pin = metadata.beginQuerySnapshot(session, table).get();
+        try (Dataset writer = Dataset.open(warehouse.resolve("all_types.lance").toString())) {
+            writer.dropColumns(Collections.singletonList("row_id"));
+        }
+        LanceTestSession later = new LanceTestSession();
+        ConnectorMetadata laterMetadata = connector.getMetadata(later);
+        Assertions.assertEquals(26, laterMetadata.getTableSchema(later, table).getColumns().size());
+        Assertions.assertTrue(pin.isSchemaRetained());
+        Assertions.assertEquals(3, pin.getSchemaId());
+        ConnectorTableSchema retained = laterMetadata.getTableSchema(later, table, pin);
+        Assertions.assertEquals(27, retained.getColumns().size());
+        Assertions.assertEquals("row_id", retained.getColumns().get(0).getName());
+        Assertions.assertEquals(27, laterMetadata.getColumnHandles(later, table, pin).size());
+        Assertions.assertEquals(3, ((LanceTableHandle) laterMetadata.applySnapshot(later, table, pin))
+                .getVersion().getAsLong());
+    }
+
+    @Test
+    void historicalStatisticsPinAnUnpinnedHandleInAFreshSession() {
+        ConnectorMvccSnapshot first = metadata.resolveTimeTravel(session, table,
+                ConnectorTimeTravelSpec.snapshotId("1")).get();
+        LanceTestSession statisticsSession = new LanceTestSession();
+        ConnectorMetadata statistics = connector.getMetadata(statisticsSession);
+        Assertions.assertEquals(4, statistics.getTableStatistics(statisticsSession, table).get().getRowCount());
+        Assertions.assertEquals(1, statistics.getTableStatistics(statisticsSession, table, first).get().getRowCount());
     }
 
     @Test

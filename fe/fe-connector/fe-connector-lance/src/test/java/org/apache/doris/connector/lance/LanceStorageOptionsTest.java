@@ -58,19 +58,44 @@ class LanceStorageOptionsTest {
                 new TreeSet<>(options.keySet()));
     }
 
-    /** Doris allows anonymous access; the credential keys are then absent rather than empty. */
     @Test
-    void anonymousAccessEmitsNoCredentials() {
+    void credentiallessAccessFailsInsteadOfSelectingTheNativeCredentialChain() {
+        IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceStorageOptions.fromDorisStorageProperties(S3_URI,
+                        Collections.singletonList(new FakeS3CompatibleStorageProperties("S3")
+                                .endpoint("https://s3.amazonaws.com").region("us-east-1"))));
+        Assertions.assertTrue(error.getMessage().contains("anonymous and credential-chain access are not supported"));
+    }
+
+    @Test
+    void permanentKeysBlockAmbientSessionTokens() {
         Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(S3_URI,
-                Collections.singletonList(new FakeS3CompatibleStorageProperties("S3")
-                        .endpoint("https://s3.amazonaws.com").region("us-east-1")));
-        Assertions.assertNull(options.get("aws_access_key_id"));
-        Assertions.assertNull(options.get("aws_secret_access_key"));
-        Assertions.assertNull(options.get("aws_session_token"));
-        // allow_http only makes sense for a plain-HTTP endpoint.
-        Assertions.assertNull(options.get("allow_http"));
-        Assertions.assertNull(options.get("aws_virtual_hosted_style_request"));
-        Assertions.assertEquals("https://s3.amazonaws.com", options.get("aws_endpoint"));
+                Collections.singletonList(minio()));
+        Assertions.assertEquals("", options.get("aws_session_token"));
+    }
+
+    @Test
+    void virtualHostedEndpointsContainTheDatasetBucket() {
+        for (String endpoint : Arrays.asList("https://s3.us-east-1.amazonaws.com", "s3.us-east-1.amazonaws.com")) {
+            Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(S3_URI,
+                    Collections.singletonList(minio().endpoint(endpoint).usePathStyle("false")));
+            Assertions.assertEquals("https://warehouse.s3.us-east-1.amazonaws.com", options.get("aws_endpoint"));
+            Assertions.assertEquals("true", options.get("aws_virtual_hosted_style_request"));
+            Assertions.assertNull(options.get("allow_http"));
+        }
+        Map<String, String> custom = LanceStorageOptions.fromDorisStorageProperties(S3_URI,
+                Collections.singletonList(minio().endpoint("http://storage.example:9000/prefix/")
+                        .usePathStyle("false")));
+        Assertions.assertEquals("http://warehouse.storage.example:9000/prefix/", custom.get("aws_endpoint"));
+        Assertions.assertEquals("true", custom.get("allow_http"));
+    }
+
+    @Test
+    void pathStyleEndpointsDefaultToHttpsAndKeepTheirServiceHost() {
+        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(S3_URI,
+                Collections.singletonList(minio().endpoint("s3.us-east-1.amazonaws.com")));
+        Assertions.assertEquals("https://s3.us-east-1.amazonaws.com", options.get("aws_endpoint"));
+        Assertions.assertEquals("false", options.get("aws_virtual_hosted_style_request"));
     }
 
     /** Naming a dialect is a choice; the generic S3 binding is also what a heuristic match lands on. */
@@ -78,9 +103,9 @@ class LanceStorageOptionsTest {
     void concreteDialectWinsOverTheGenericS3Binding() {
         List<StorageProperties> storage = Arrays.asList(
                 new FakeS3CompatibleStorageProperties("S3").endpoint("http://generic:9000").accessKey("g")
-                        .secretKey("g"),
+                        .secretKey("g").usePathStyle("true"),
                 new FakeS3CompatibleStorageProperties("MINIO").endpoint("http://minio:9000").accessKey("m")
-                        .secretKey("m"));
+                        .secretKey("m").usePathStyle("true"));
         Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(S3_URI, storage);
         Assertions.assertEquals("http://minio:9000", options.get("aws_endpoint"));
         Assertions.assertEquals("m", options.get("aws_access_key_id"));

@@ -48,7 +48,7 @@ final class LancePassThroughStorageProvider implements LanceStorageProvider {
 
     @Override
     public Map<String, String> normalizeDorisStorageOptions(
-            List<StorageProperties> storageProperties) {
+            String datasetUri, List<StorageProperties> storageProperties) {
         return Collections.emptyMap();
     }
 

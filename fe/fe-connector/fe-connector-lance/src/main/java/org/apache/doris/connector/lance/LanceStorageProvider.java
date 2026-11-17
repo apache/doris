@@ -53,7 +53,7 @@ interface LanceStorageProvider {
      * <p>Empty when the list holds nothing this provider can read. Providers without a Doris
      * adapter are reachable only through what a namespace vends.
      */
-    Map<String, String> normalizeDorisStorageOptions(List<StorageProperties> storageProperties);
+    Map<String, String> normalizeDorisStorageOptions(String datasetUri, List<StorageProperties> storageProperties);
 
     /**
      * Rewrites the options a namespace vended onto the spelling

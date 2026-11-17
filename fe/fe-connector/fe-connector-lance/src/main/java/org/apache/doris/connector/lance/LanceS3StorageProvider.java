@@ -20,6 +20,8 @@ package org.apache.doris.connector.lance;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -104,24 +106,49 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
 
     @Override
     public Map<String, String> normalizeDorisStorageOptions(
-            List<StorageProperties> storageProperties) {
+            String datasetUri, List<StorageProperties> storageProperties) {
         Map<String, String> result = new HashMap<>();
         S3CompatibleFileSystemProperties properties = selectS3Compatible(storageProperties);
         if (properties == null) {
             return result;
         }
+        if (!properties.hasStaticCredentials()) {
+            throw new IllegalArgumentException("Lance S3 access currently requires static s3.access_key and"
+                    + " s3.secret_key; anonymous and credential-chain access are not supported yet");
+        }
         LanceStorageOptions.putIfNotEmpty(result, ACCESS_KEY_ID, properties.getAccessKey());
         LanceStorageOptions.putIfNotEmpty(result, SECRET_ACCESS_KEY, properties.getSecretKey());
-        LanceStorageOptions.putIfNotEmpty(result, SESSION_TOKEN, properties.getSessionToken());
-        LanceStorageOptions.putIfNotEmpty(result, ENDPOINT, properties.getEndpoint());
+        // Keep the complete static identity: an absent key lets Lance's with_env_s3() import an
+        // unrelated AWS_SESSION_TOKEN from the FE or BE environment. An explicit empty value blocks it.
+        String token = properties.getSessionToken();
+        result.put(SESSION_TOKEN, token == null ? "" : token);
+        LanceStorageOptions.putIfNotEmpty(result, ENDPOINT, endpointForDataset(datasetUri, properties));
         LanceStorageOptions.putIfNotEmpty(result, REGION, properties.getRegion());
-
-        String usePathStyle = properties.getUsePathStyle();
-        if (usePathStyle != null && !usePathStyle.isEmpty()) {
-            result.put(VIRTUAL_HOSTED_STYLE, String.valueOf(!Boolean.parseBoolean(usePathStyle)));
-        }
+        result.put(VIRTUAL_HOSTED_STYLE, String.valueOf(!properties.isUsePathStyle()));
 
         return result;
+    }
+
+    /** object_store expects a bucket-qualified endpoint when virtual-hosted addressing is enabled. */
+    private static String endpointForDataset(String datasetUri, S3CompatibleFileSystemProperties properties) {
+        String endpoint = properties.getEndpoint();
+        if (endpoint == null || endpoint.isEmpty()) {
+            return endpoint;
+        }
+        if (!endpoint.contains("://")) {
+            endpoint = "https://" + endpoint;
+        }
+        if (properties.isUsePathStyle()) {
+            return endpoint;
+        }
+        URI service = URI.create(endpoint);
+        String bucket = URI.create(datasetUri).getAuthority();
+        try {
+            return new URI(service.getScheme(), service.getUserInfo(), bucket + "." + service.getHost(),
+                    service.getPort(), service.getPath(), service.getQuery(), service.getFragment()).toString();
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("Invalid virtual-hosted Lance S3 endpoint: " + endpoint, e);
+        }
     }
 
     /**

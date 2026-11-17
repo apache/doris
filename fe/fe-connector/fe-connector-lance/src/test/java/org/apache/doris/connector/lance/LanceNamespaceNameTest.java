@@ -52,9 +52,23 @@ class LanceNamespaceNameTest {
 
         String rootCollision = LanceNamespaceName.namespaceToDorisDatabaseName(
                 Collections.singletonList("default"), ".", "default");
-        Assertions.assertEquals("\\default", rootCollision);
+        Assertions.assertEquals("default.\\", rootCollision);
         Assertions.assertEquals(Collections.singletonList("default"),
                 LanceNamespaceName.dorisDatabaseNameToNamespace(rootCollision, ".", "default"));
+    }
+
+    @Test
+    void customRootAliasesDoNotConsumeComponentEscapes() {
+        for (String root : Arrays.asList(".analytics", "\\analytics", "a.b", "a\\.b", "default", "trailing\\")) {
+            for (List<String> namespace : Arrays.asList(Collections.singletonList(root),
+                    Arrays.asList("a", "b"), Collections.singletonList("a.b"),
+                    Collections.singletonList("\\analytics"), Collections.singletonList("default"))) {
+                String encoded = LanceNamespaceName.namespaceToDorisDatabaseName(namespace, ".", root);
+                Assertions.assertNotEquals(root, encoded);
+                Assertions.assertEquals(namespace,
+                        LanceNamespaceName.dorisDatabaseNameToNamespace(encoded, ".", root), root + ": " + encoded);
+            }
+        }
     }
 
     @Test
