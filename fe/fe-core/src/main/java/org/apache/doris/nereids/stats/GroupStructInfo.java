@@ -82,6 +82,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
@@ -1779,7 +1780,13 @@ public class GroupStructInfo {
             return olapScanNode((OlapScan) plan, ctx);
         }
         if (plan instanceof Filter) {
-            return conditionsNode(Kind.FILTER, ((Filter) plan).getConjuncts(), ge, ctx);
+            Collection<Expression> conjuncts = ((Filter) plan).getConjuncts();
+            if (ge instanceof PhysicalInput && plan instanceof PhysicalFilter) {
+                conjuncts = ((PhysicalFilter<?>) plan)
+                        .<Set<Expression>>getMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS)
+                        .orElse(((Filter) plan).getConjuncts());
+            }
+            return conditionsNode(Kind.FILTER, conjuncts, ge, ctx);
         }
         if (plan instanceof LogicalCTEConsumer || plan instanceof PhysicalCTEConsumer) {
             // both consumers are leaves which reference their producer by id, and neither has a sub tree

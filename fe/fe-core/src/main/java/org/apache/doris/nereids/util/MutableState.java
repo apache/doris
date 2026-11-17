@@ -29,6 +29,8 @@ public interface MutableState {
     String KEY_PARENT = "parent";
     String KEY_RF_JUMP = "rf-jump";
     String KEY_PUSH_TOPN_TO_AGG = "pushTopnToAgg";
+    /** Immutable filter conjuncts before physical-only pruning predicates were appended. */
+    String KEY_HBO_ORIGINAL_CONJUNCTS = "hbo-original-conjuncts";
     /** hbo fingerprint attached at planning time for explain printing */
     String KEY_HBO_FP = "hbo-fingerprint";
     /**

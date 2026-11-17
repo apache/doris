@@ -67,6 +67,8 @@ public class PhysicalPlanShallowCopier {
         AbstractPhysicalPlan source = (AbstractPhysicalPlan) plan;
         AbstractPhysicalPlan copy = source.copyForProfile(this::copyNode);
         copy.setMutableState(MutableState.KEY_GROUP, source.getGroupIdAsString());
+        source.getMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS)
+                .ifPresent(conjuncts -> copy.setMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS, conjuncts));
         copy.setStatistics(source.getStats() == null ? null : new Statistics(source.getStats()));
         if (source instanceof PhysicalHashAggregate) {
             PhysicalHashAggregate.TopnPushInfo topn = ((PhysicalHashAggregate<?>) source).getTopnPushInfo();

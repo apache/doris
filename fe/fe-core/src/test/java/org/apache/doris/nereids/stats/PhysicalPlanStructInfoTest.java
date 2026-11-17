@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -59,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlanShallowCopier;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import org.junit.jupiter.api.Assertions;
@@ -79,6 +81,29 @@ class PhysicalPlanStructInfoTest {
         Set<Expression> conditions = Set.of(new EqualTo(a.getOutput().get(0), new IntegerLiteral(10)));
         LogicalFilter<?> logical = new LogicalFilter<>(conditions, a);
         equivalent(logical, new PhysicalFilter<>(conditions, logical.getLogicalProperties(), scan(a)));
+    }
+
+    @Test
+    void originalFilterConjunctsSurviveRebuildsAndDetachedCopies() {
+        Expression original = new EqualTo(a.getOutput().get(0), new IntegerLiteral(10)).withInferred(true);
+        Expression pruning = new GreaterThanEqual(a.getOutput().get(0), new IntegerLiteral(0));
+        Set<Expression> hboConjuncts = Set.of(original);
+        PhysicalFilter<?> filter = new PhysicalFilter<>(Set.of(original, pruning),
+                a.getLogicalProperties(), scan(a));
+        filter.setMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS, hboConjuncts);
+        LogicalFilter<?> logical = new LogicalFilter<>(hboConjuncts, a);
+        for (PhysicalFilter<?> rebuilt : List.of(filter,
+                filter.withChildren(List.of(filter.child())),
+                filter.withGroupExpression(Optional.empty()),
+                filter.withPhysicalPropertiesAndStats(filter.getPhysicalProperties(), filter.getStats()),
+                filter.resetLogicalProperties())) {
+            Assertions.assertEquals(Set.of(original, pruning), rebuilt.getConjuncts());
+            PhysicalFilter<?> copy = (PhysicalFilter<?>) PhysicalPlanShallowCopier.copy(rebuilt);
+            Assertions.assertEquals(hboConjuncts, copy
+                    .<Set<Expression>>getMutableState(MutableState.KEY_HBO_ORIGINAL_CONJUNCTS).orElseThrow());
+            Assertions.assertEquals(Set.of(original, pruning), copy.getConjuncts());
+            equivalent(logical, rebuilt);
+        }
     }
 
     @Test

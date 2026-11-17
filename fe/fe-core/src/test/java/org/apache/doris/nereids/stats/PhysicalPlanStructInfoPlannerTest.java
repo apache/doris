@@ -53,6 +53,8 @@ class PhysicalPlanStructInfoPlannerTest extends TestWithFeService {
         executeSql("set enable_hbo_optimization=true");
         createTable("CREATE TABLE a (k INT, v BIGINT) DUPLICATE KEY(k) "
                 + "DISTRIBUTED BY HASH(k) BUCKETS 3 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE strings (k INT, s VARCHAR(32)) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 3 PROPERTIES('replication_num'='1')");
         createTable("CREATE TABLE b (k INT, v BIGINT) DUPLICATE KEY(k) "
                 + "DISTRIBUTED BY HASH(k) BUCKETS 3 PROPERTIES('replication_num'='1')");
     }
@@ -62,6 +64,9 @@ class PhysicalPlanStructInfoPlannerTest extends TestWithFeService {
         int compared = 0;
         for (String sql : List.of(
                 "select * from a where v < 10",
+                "select * from strings where substring(s,1,3)='abc'",
+                "select * from strings where substring(s,1,3)='abc' and s>='aaa'",
+                "select * from strings join b on strings.k=b.k where substring(s,1,3)='abc'",
                 "select * from a join b on a.k=b.k where a.v < 10",
                 "select * from a left join b on a.k=b.k and a.v < b.v",
                 "select v, sum(k) from a group by v",
@@ -86,10 +91,11 @@ class PhysicalPlanStructInfoPlannerTest extends TestWithFeService {
     @Test
     void entryKeyedByDetachedPlanIsAppliedByPinnedReadSide() {
         Assertions.assertTrue(connectContext.getSessionVariable().isEnableHboOptimization());
-        String sql = "select * from a where v < 11";
+        String sql = "select * from strings where substring(s,1,3)='abc'";
         PhysicalPlan original = PlanChecker.from(connectContext).plan(sql).getPhysicalPlan();
         PhysicalFilter<?> filter = original.collectToList(PhysicalFilter.class::isInstance).stream()
                 .map(node -> (PhysicalFilter<?>) node).findFirst().orElseThrow();
+        Assertions.assertEquals(3, filter.getConjuncts().size(), "execution keeps both inferred bounds");
         GroupStructInfo info = GroupStructInfo.fromPhysicalPlan(PhysicalPlanShallowCopier.copy(filter));
         Assertions.assertTrue(info.isValid(), info.getSkipReason());
         GroupStructInfo.LiteralMode mode = GroupStructInfo.LiteralMode.WITH_LITERAL;
