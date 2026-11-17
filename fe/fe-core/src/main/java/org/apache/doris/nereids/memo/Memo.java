@@ -684,9 +684,6 @@ public class Memo {
             GroupExpression existGroupExpr = groupExpressions.get(reinsertGroupExpr);
             if (existGroupExpr != null) {
                 Preconditions.checkState(existGroupExpr.getOwnerGroup() != null);
-                // remove reinsertGroupExpr from its owner group to avoid adding it to existGroupExpr.getOwnerGroup()
-                // existGroupExpr.getOwnerGroup() already has this reinsertGroupExpr.
-                reinsertGroupExpr.setUnused(true);
                 if (existGroupExpr.getOwnerGroup().equals(reinsertGroupExpr.getOwnerGroup())) {
                     // reinsertGroupExpr & existGroupExpr are in same Group, so merge them.
                     if (reinsertGroupExpr.getPlan() instanceof PhysicalPlan) {
