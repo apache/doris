@@ -1038,9 +1038,10 @@ void VNodeChannel::_refresh_back_pressure_version_wait_time(
             tablet_load_infos.begin(), tablet_load_infos.end(),
             [&max_rowset_num_gap](auto& load_info) {
                 int64_t cur_rowset_num = load_info.current_rowset_nums();
-                int64_t high_load_point = load_info.max_config_rowset_nums() *
-                                          (config::load_back_pressure_version_threshold / 100);
-                DCHECK(cur_rowset_num > high_load_point);
+                // Multiply first: 2000 versions at 80% gives a high load point of 1600.
+                int64_t high_load_point = static_cast<int64_t>(load_info.max_config_rowset_nums()) *
+                                          config::load_back_pressure_version_threshold / 100;
+                // The receiver may use a different live threshold; nonpositive gaps need no wait.
                 max_rowset_num_gap = std::max(max_rowset_num_gap, cur_rowset_num - high_load_point);
             });
     // to slow down the high load pressure
