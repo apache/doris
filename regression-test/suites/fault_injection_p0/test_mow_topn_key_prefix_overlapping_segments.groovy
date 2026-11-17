@@ -49,6 +49,9 @@ suite("test_mow_topn_key_prefix_overlapping_segments", "nonConcurrent") {
     // The storage TopN below needs the segment limit pushdown, which the fuzzy session
     // variables may turn off.
     sql "SET enable_segment_limit_pushdown = true"
+    // The fuzzy session variables may also hand the two segments of the rowset to different
+    // parallel scanners, each reading one segment alone, so that no scanner merges them.
+    sql "SET enable_parallel_scan = false"
 
     // Both segments hold k1 = 0..8191: k2 = k1 in the first one, k2 = k1 + 8192 in the second.
     sql "DROP TABLE IF EXISTS test_mow_topn_key_prefix_overlapping_segments"

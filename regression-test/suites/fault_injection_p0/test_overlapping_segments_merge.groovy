@@ -22,9 +22,10 @@
 //   - merge-on-read UNIQUE_KEYS: the newer segment's row wins;
 //   - UNIQUE_KEYS with a sequence map: each column group takes the row with its own largest
 //     sequence value, which is in a different segment for each group.
-// The load may write either of its Blocks first, so the expected AGG_KEYS and UNIQUE_KEYS rows come
-// from the rows in storage order. The queries read with Blocks of 3 rows, so key groups are cut by
-// Block boundaries, and the results must stay the same after a full compaction rewrites the rowset.
+// The expected AGG_KEYS and UNIQUE_KEYS rows come from the rows in storage order, so they do not
+// depend on which Block the load writes first. The queries read with Blocks of 3 rows, so key groups
+// are cut by Block boundaries, and the results must stay the same after a full compaction rewrites
+// the rowset.
 suite("test_overlapping_segments_merge", "nonConcurrent") {
     sql "DROP TABLE IF EXISTS test_overlapping_segments_merge_agg"
     sql "DROP TABLE IF EXISTS test_overlapping_segments_merge_uniq"
@@ -70,25 +71,35 @@ suite("test_overlapping_segments_merge", "nonConcurrent") {
     """
 
     try {
-        // MemTable.need_flush flushes every Block into its own segment. With Blocks of 20 rows,
-        // numbers 0..19 and 20..39 become two segments that both hold keys 0..19
-        // (k = number % 20), in the order the load writes the Blocks.
+        // MemTable.need_flush flushes every write into its own segment. One sink task writes
+        // numbers 0..8191 and 8192..16383 as two Blocks of 8192 rows, and a Block of 8192 rows is
+        // one write on both sinks: the legacy sink, the only one in cloud mode, sends a Block once
+        // it holds 8192 rows (VNodeChannel floors its batch size at 8192), and the sink with the
+        // memtable on it writes every Block. The memtable folds each write into keys 0..19
+        // (k = number % 20), so the two segments both hold every key. A value is k in the rows of
+        // numbers 0..8191 and k + 20 in those of 8192..16383, the same in every row of a key that
+        // one write folds.
         GetDebugPoint().enableDebugPointForAllBEs("MemTable.need_flush")
-        sql "SET batch_size = 20"
+        sql "SET parallel_pipeline_task_num = 1"
+        sql "SET batch_size = 8192"
         sql """
             INSERT INTO test_overlapping_segments_merge_agg
-            SELECT number % 20, 1, number FROM numbers("number" = "40")
+            SELECT number % 20, 1, if(number < 8192, number % 20, number % 20 + 20)
+            FROM numbers("number" = "16384")
         """
         sql """
             INSERT INTO test_overlapping_segments_merge_uniq
-            SELECT number % 20, number FROM numbers("number" = "40")
+            SELECT number % 20, if(number < 8192, number % 20, number % 20 + 20)
+            FROM numbers("number" = "16384")
         """
-        // s1 is larger in the rows of numbers 0..19 and s2 in those of 20..39, so v1 and v2 of
-        // every key come from different rows, whichever segment holds them.
+        // s1 is larger in the rows of numbers 0..8191 and s2 in those of 8192..16383, so v1 and v2
+        // of every key come from different rows, whichever segment holds them.
         sql """
             INSERT INTO test_overlapping_segments_merge_seq_map
-            SELECT number % 20, number, if(number < 20, 2, 1), number, if(number < 20, 1, 2)
-            FROM numbers("number" = "40")
+            SELECT number % 20, if(number < 8192, number % 20, number % 20 + 20),
+                   if(number < 8192, 2, 1), if(number < 8192, number % 20, number % 20 + 20),
+                   if(number < 8192, 1, 2)
+            FROM numbers("number" = "16384")
         """
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("MemTable.need_flush")
