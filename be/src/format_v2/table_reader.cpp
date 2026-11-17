@@ -111,6 +111,8 @@ std::string file_format_to_string(FileFormat format) {
         return "JNI";
     case FileFormat::ARROW:
         return "ARROW";
+    case FileFormat::MONGODB:
+        return "MONGODB";
     case FileFormat::ES_HTTP:
         return "ES_HTTP";
     case FileFormat::WAL:
@@ -1563,8 +1565,8 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         bool decoded_cache_hit = false;
         _deletion_vector = options.cache->get<DeletionVector>(
                 desc.key,
-                [&]() -> DeletionVector* {
-                    auto deletion_vector = std::make_unique<DeletionVector>();
+                [&]() -> std::shared_ptr<DeletionVector> {
+                    auto deletion_vector = std::make_shared<DeletionVector>();
 
                     DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params,
                                                    desc, _io_ctx.get());
@@ -1605,7 +1607,7 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         return nullptr;
                     }
                     COUNTER_UPDATE(_profile.num_delete_rows, deletion_vector->cardinality());
-                    return deletion_vector.release();
+                    return deletion_vector;
                 },
                 &decoded_cache_hit);
         RETURN_IF_ERROR(create_status);

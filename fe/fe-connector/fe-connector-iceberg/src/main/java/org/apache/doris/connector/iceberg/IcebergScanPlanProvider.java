@@ -2319,7 +2319,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 List<NestedField> equalityFields = schemaForPotentialEqualityDeletes(
                         table, exactScan.snapshot(), scanSchema, applicableEqualityDeleteFieldIds);
                 dict = IcebergSchemaUtils.encodeEqualitySchemaEvolutionProp(
-                        table, equalityFields, appendRowLineage,
+                        table, scanSchema, equalityFields, appendRowLineage,
                         enableVarbinary, enableTimestampTz);
             } else if (iceHandle.hasSnapshotPin()) {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(

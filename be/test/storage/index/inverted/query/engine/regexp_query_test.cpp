@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <CLucene.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -26,6 +27,7 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/engine/expand_query/expand_query.h"
@@ -71,7 +73,8 @@ protected:
         CustomAnalyzerConfig::Builder builder;
         builder.with_tokenizer_config(tokenizer, {});
         auto custom_analyzer_config = builder.build();
-        auto custom_analyzer = CustomAnalyzer::build_custom_analyzer(custom_analyzer_config);
+        auto custom_analyzer = std::make_shared<LuceneAnalyzerBridge>(
+                CustomAnalyzer::build_custom_analyzer(custom_analyzer_config));
 
         auto* indexwriter =
                 _CLNEW lucene::index::IndexWriter(dir.c_str(), custom_analyzer.get(), true);

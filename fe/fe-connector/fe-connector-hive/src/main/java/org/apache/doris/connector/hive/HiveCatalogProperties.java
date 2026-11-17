@@ -98,6 +98,12 @@ public final class HiveCatalogProperties {
      */
     public static final String RECURSIVE_DIRECTORIES = "hive.recursive_directories";
 
+    /** Estimated bytes retained by a single directory's unpublished file-list candidate. Zero disables collection. */
+    public static final String FILE_LISTING_CACHE_ENTRY_MAX_BYTES = "hive.file_listing_cache_entry_max_bytes";
+
+    /** Estimated bytes retained by all unpublished file-list candidates in this catalog. */
+    public static final String FILE_LISTING_CACHE_PENDING_MAX_BYTES = "hive.file_listing_cache_pending_max_bytes";
+
     /** Root directory for the staging files an INSERT writes before they are committed. */
     public static final String STAGING_DIR = "hive.staging_dir";
 
@@ -155,6 +161,14 @@ public final class HiveCatalogProperties {
             description = "map hive timestamp to TIMESTAMPTZ")
     private boolean enableMappingTimestampTz;
 
+    @ConnectorProperty(names = {FILE_LISTING_CACHE_ENTRY_MAX_BYTES}, required = false,
+            description = "maximum estimated bytes in one pending directory listing; zero disables collection")
+    private long fileListingCacheEntryMaxBytes = 8L * 1024 * 1024;
+
+    @ConnectorProperty(names = {FILE_LISTING_CACHE_PENDING_MAX_BYTES}, required = false,
+            description = "maximum estimated bytes in all pending directory listings for this catalog")
+    private long fileListingCachePendingMaxBytes = 64L * 1024 * 1024;
+
     private final Map<String, String> raw;
     private Map<String, String> hmsClientProperties;
 
@@ -196,7 +210,7 @@ public final class HiveCatalogProperties {
 
     public HiveCatalogProperties checkCreateTimeOnlyRules(Map<String, String> submittedProperties) {
         CacheSpec.checkWeightProperties(raw, submittedProperties, "hive",
-                "table", "partition_names", "partition", "column_stats", "file", "partition_view");
+                "table", "partition_names", "partition", "column_stats", "file", "file_summary", "partition_view");
         CacheSpec.checkWeightProperties(raw, submittedProperties, "iceberg",
                 "table", "partition", "manifest", "partition_view");
         // Restores the legacy HMSExternalCatalog.checkProperties fail-fast for the two meta-cache TTL
@@ -207,7 +221,19 @@ public final class HiveCatalogProperties {
         // "The parameter ... is wrong, value is ..." message.
         CacheSpec.checkLongProperty(raw.get("file.meta.cache.ttl-second"), 0L, "file.meta.cache.ttl-second");
         CacheSpec.checkLongProperty(raw.get("partition.cache.ttl-second"), 0L, "partition.cache.ttl-second");
+        CacheSpec.checkLongProperty(raw.get(FILE_LISTING_CACHE_ENTRY_MAX_BYTES), 0L,
+                FILE_LISTING_CACHE_ENTRY_MAX_BYTES);
+        CacheSpec.checkLongProperty(raw.get(FILE_LISTING_CACHE_PENDING_MAX_BYTES), 0L,
+                FILE_LISTING_CACHE_PENDING_MAX_BYTES);
         return this;
+    }
+
+    public long getFileListingCacheEntryMaxBytes() {
+        return fileListingCacheEntryMaxBytes;
+    }
+
+    public long getFileListingCachePendingMaxBytes() {
+        return fileListingCachePendingMaxBytes;
     }
 
     /**

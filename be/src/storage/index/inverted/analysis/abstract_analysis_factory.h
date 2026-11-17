@@ -17,14 +17,11 @@
 
 #pragma once
 
+#include <memory>
+
 #include "storage/index/inverted/analysis/setting.h"
 
 namespace doris::segment_v2::inverted_index {
-
-enum class PositionCapability {
-    kUnknown,
-    kAlwaysUnitIncrement,
-};
 
 class AbstractAnalysisFactory {
 public:

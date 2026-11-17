@@ -161,6 +161,7 @@ void add_initial_rowset(const CloudTabletSPtr& tablet, int64_t version) {
 class CloudGroupRowsetBuilderWriterTest : public testing::Test {
 protected:
     void SetUp() override {
+        _saved_sync_rowsets = config::cloud_mow_sync_rowsets_when_load_txn_begin;
         config::cloud_mow_sync_rowsets_when_load_txn_begin = false;
 
         char buffer[MAX_PATH_LEN];
@@ -205,7 +206,7 @@ protected:
         _changelog_tablet.reset();
         _engine.reset();
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_storage_root_path).ok());
-        config::cloud_mow_sync_rowsets_when_load_txn_begin = true;
+        config::cloud_mow_sync_rowsets_when_load_txn_begin = _saved_sync_rowsets;
     }
 
     void create_remote_tablet_dir(int64_t tablet_id) {
@@ -336,6 +337,7 @@ protected:
                   0);
     }
 
+    bool _saved_sync_rowsets = false;
     std::unique_ptr<CloudStorageEngine> _engine;
     CloudTabletSPtr _tablet;
     CloudTabletSPtr _changelog_tablet;

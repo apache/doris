@@ -1808,17 +1808,6 @@ message GetIamResponse {
     optional RamUserPB ram_user = 3;
 }
 
-message AlterIamRequest {
-    optional string account_id = 1;
-    optional string ak = 2;
-    optional string sk = 3;
-    optional string request_ip = 4;
-}
-
-message AlterIamResponse {
-    optional MetaServiceResponseStatus status = 1;
-}
-
 message AlterRamUserRequest {
     optional string instance_id = 1;
     optional RamUserPB ram_user = 2;
@@ -2532,7 +2521,6 @@ service MetaService {
     rpc get_stage(GetStageRequest) returns (GetStageResponse);
     rpc drop_stage(DropStageRequest) returns (DropStageResponse);
     rpc get_iam(GetIamRequest) returns (GetIamResponse);
-    rpc alter_iam(AlterIamRequest) returns (AlterIamResponse);
     rpc alter_ram_user(AlterRamUserRequest) returns (AlterRamUserResponse);
     // copy into
     rpc begin_copy(BeginCopyRequest) returns (BeginCopyResponse);
@@ -2574,7 +2562,6 @@ service MetaService {
 };
 
 service RecyclerService {
-    rpc recycle_instance(RecycleInstanceRequest) returns (RecycleInstanceResponse);
     rpc http(MetaServiceHttpRequest) returns (MetaServiceHttpResponse);
 };
 

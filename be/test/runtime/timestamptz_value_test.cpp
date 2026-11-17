@@ -269,6 +269,74 @@ TEST(TimeStampTzValueTest, from_datetime) {
     }
 }
 
+static void check_timestamptz_parsers(const std::string& input, const cctz::time_zone& zone,
+                                      const TimestampTzValue& expected) {
+    TimestampTzValue parsed;
+    CastParameters params;
+    params.is_strict = true;
+    ASSERT_TRUE(CastToTimestampTz::from_string_strict_mode<DatelikeParseMode::STRICT>(
+            StringRef(input), parsed, params, &zone, 6))
+            << params.status.to_string();
+    EXPECT_EQ(parsed, expected);
+    // Call the fallback directly so the strict parser cannot hide a fallback error.
+    params.is_strict = false;
+    ASSERT_TRUE(CastToTimestampTz::from_string_non_strict_mode_impl(StringRef(input), parsed,
+                                                                    params, &zone, 6))
+            << params.status.to_string();
+    EXPECT_EQ(parsed, expected);
+}
+
+TEST(TimeStampTzValueTest, DstGapPreservesPosition) {
+    // Load named zones as BE startup does.
+    TimezoneUtils::load_timezones_to_cache();
+    struct TestCase {
+        const char* zone;
+        DateV2Value<DateTimeV2ValueType> local;
+        TimestampTzValue expected;
+    };
+    const TestCase cases[] = {
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 1, 59, 59, 999999),
+             .expected = make_timestamptz(2024, 3, 10, 6, 59, 59, 999999)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 2, 0, 0, 0),
+             .expected = make_timestamptz(2024, 3, 10, 7, 0, 0, 0)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 2, 30, 0, 123456),
+             .expected = make_timestamptz(2024, 3, 10, 7, 30, 0, 123456)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 2, 59, 59, 999999),
+             .expected = make_timestamptz(2024, 3, 10, 7, 59, 59, 999999)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 3, 10, 3, 0, 0, 0),
+             .expected = make_timestamptz(2024, 3, 10, 7, 0, 0, 0)},
+            // Lord Howe has a 30-minute gap: 02:15 becomes 02:45.
+            {.zone = "Australia/Lord_Howe",
+             .local = make_datetime(2024, 10, 6, 2, 15, 0, 123456),
+             .expected = make_timestamptz(2024, 10, 5, 15, 45, 0, 123456)},
+            {.zone = "America/New_York",
+             .local = make_datetime(2024, 11, 3, 1, 30, 0, 123456),
+             .expected = make_timestamptz(2024, 11, 3, 5, 30, 0, 123456)},
+    };
+    const auto utc = cctz::utc_time_zone();
+    for (const auto& test_case : cases) {
+        cctz::time_zone zone;
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(test_case.zone, zone));
+        const auto input = test_case.local.to_string(6);
+        SCOPED_TRACE(testing::Message() << input << " " << test_case.zone);
+        TimestampTzValue converted;
+        ASSERT_TRUE(converted.from_datetime(test_case.local, zone, 6, 6));
+        EXPECT_EQ(converted, test_case.expected);
+        converted.convert_local_to_utc(zone, test_case.local);
+        EXPECT_EQ(converted, test_case.expected);
+        // The preferred offset selects an overlap occurrence. It must not clamp a gap.
+        converted.convert_local_to_utc(zone, test_case.local, test_case.expected.utc_offset(zone));
+        EXPECT_EQ(converted, test_case.expected);
+        check_timestamptz_parsers(input, zone, test_case.expected);
+        check_timestamptz_parsers(input + " " + test_case.zone, utc, test_case.expected);
+    }
+}
+
 TEST(TimeStampTzValueTest, to_datetime) {
     cctz::time_zone time_zone = cctz::fixed_time_zone(std::chrono::hours(8));
     TimezoneUtils::load_offsets_to_cache();

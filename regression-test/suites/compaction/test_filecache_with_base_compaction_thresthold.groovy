@@ -267,6 +267,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             file """${getS3Url()}/regression/tpcds/sf1/store_sales.dat.gz"""
 
             time 10000 // limit inflight 10s
+            retryIfHttpError true
             check { res, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
@@ -421,6 +422,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             file """${getS3Url()}/regression/tpcds/sf1/store_sales.dat.gz"""
 
             time 10000 // limit inflight 10s
+            retryIfHttpError true
             check { res, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
@@ -577,6 +579,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             file """${getS3Url()}/regression/tpcds/sf1/store_sales.dat.gz"""
 
             time 10000 // limit inflight 10s
+            retryIfHttpError true
             check { res, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception
@@ -732,6 +735,7 @@ suite("test_filecache_with_base_compaction_thresthold", "docker") {
             file """${getS3Url()}/regression/tpcds/sf1/store_sales.dat.gz"""
 
             time 10000 // limit inflight 10s
+            retryIfHttpError true
             check { res, exception, startTime, endTime ->
                 if (exception != null) {
                     throw exception

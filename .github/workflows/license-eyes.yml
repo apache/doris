@@ -19,9 +19,6 @@
 name: License Check
 on:
   pull_request:
-  push:
-    branches:
-      - master
   workflow_dispatch:
 
 permissions:
@@ -35,9 +32,7 @@ jobs:
     concurrency:
       group: license-check-${{ github.event.pull_request.number || github.run_id }}-${{ github.sha }}
       cancel-in-progress: true
-    if: |
-      (github.event_name == 'pull_request') ||
-      (github.event_name == 'push' && github.ref == 'refs/heads/master')
+    if: github.event_name == 'pull_request'
     steps:
       - name: Verify current PR head
         if: github.event_name == 'pull_request'

@@ -112,7 +112,7 @@ class DateTimeExtractAndTransformTest {
         try {
             DecimalV3Literal gap = (DecimalV3Literal) DateTimeExtractAndTransform.unixTimestamp(
                     new TimeStampNsLiteral("2024-03-10 02:30:00.123456789"));
-            Assertions.assertEquals(new BigDecimal("1710054000.123456789"), gap.getValue());
+            Assertions.assertEquals(new BigDecimal("1710055800.123456789"), gap.getValue());
 
             DecimalV3Literal overlap = (DecimalV3Literal) DateTimeExtractAndTransform.unixTimestamp(
                     new TimeStampNsLiteral("2024-11-03 01:30:00.123456789"));
@@ -289,11 +289,11 @@ class DateTimeExtractAndTransformTest {
 
     @Test
     void testConvertTzDstTransition() {
-        // Spring gap maps skipped local times to the transition instant.
+        // Move gap input forward by the gap length. Keep the fraction.
         Assertions.assertEquals(
-                new DateTimeV2Literal("2021-03-28 01:00:00"),
+                new DateTimeV2Literal("2021-03-28 01:15:00.123456"),
                 DateTimeExtractAndTransform.convertTz(
-                        new DateTimeV2Literal("2021-03-28 02:15:00"),
+                        new DateTimeV2Literal("2021-03-28 02:15:00.123456"),
                         new VarcharLiteral("Europe/Paris"),
                         new VarcharLiteral("UTC")));
         Assertions.assertEquals(
@@ -307,6 +307,12 @@ class DateTimeExtractAndTransformTest {
                 DateTimeExtractAndTransform.convertTz(
                         new DateTimeV2Literal("2021-03-28 03:00:00"),
                         new VarcharLiteral("Europe/Paris"),
+                        new VarcharLiteral("UTC")));
+        Assertions.assertEquals(
+                new TimeStampNsLiteral("2024-10-05 15:45:00.123456789"),
+                DateTimeExtractAndTransform.convertTz(
+                        new TimeStampNsLiteral("2024-10-06 02:15:00.123456789"),
+                        new VarcharLiteral("Australia/Lord_Howe"),
                         new VarcharLiteral("UTC")));
         // Fall overlap uses the pre-transition offset.
         Assertions.assertEquals(
