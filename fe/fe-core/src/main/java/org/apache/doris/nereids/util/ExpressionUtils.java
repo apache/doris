@@ -182,6 +182,14 @@ public class ExpressionUtils {
         return false;
     }
 
+    /** Reject FILE values in SQL keys that require comparison, ordering, or hashing. */
+    public static void checkFileKey(Expression value, String operation) {
+        if (value.getDataType().typeContainsFile()) {
+            throw new AnalysisException(operation + " does not support FILE or a type containing FILE: "
+                    + value.getDataType().toSql());
+        }
+    }
+
     /** Whether evaluating these expressions can produce results unsuitable for reuse across queries. */
     public static boolean containsNonCacheableExpression(Collection<? extends Expression> expressions) {
         return expressions.stream().anyMatch(expression ->

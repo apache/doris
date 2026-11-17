@@ -26,6 +26,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
@@ -48,6 +49,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TS3Resource;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -69,6 +71,7 @@ public class PlanTranslatorContext {
     private final StatementContext statementContext;
     private final ScanContext scanContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
+    private final Map<String, TS3Resource> s3Resources = Maps.newLinkedHashMap();
 
     private DescriptorTable descTable;
 
@@ -171,6 +174,25 @@ public class PlanTranslatorContext {
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
 
+    /**
+     * Constructor for testing purposes with default values.
+     */
+    @VisibleForTesting
+    public PlanTranslatorContext() {
+        this(Config.be_exec_version);
+    }
+
+    @VisibleForTesting
+    PlanTranslatorContext(int beExecVersion) {
+        this.connectContext = null;
+        this.statementContext = new StatementContext();
+        this.statementContext.initializeBeExecVersion(beExecVersion);
+        this.scanContext = ScanContext.builder().beExecVersion(beExecVersion).build();
+        this.translator = null;
+        this.topnFilterContext = new TopnFilterContext();
+        this.descTable = new DescriptorTable();
+    }
+
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
         this(ctx, new DescriptorTable());
@@ -194,23 +216,20 @@ public class PlanTranslatorContext {
         this.descTable = descTable;
     }
 
-    /**
-     * Constructor for testing purposes with default values.
-     */
-    @VisibleForTesting
-    public PlanTranslatorContext() {
-        this(Config.be_exec_version);
+    public void registerS3Resource(String resourceName) {
+        s3Resources.computeIfAbsent(resourceName,
+                name -> S3Resource.checkResource(name, connectContext).toThrift());
     }
 
-    @VisibleForTesting
-    PlanTranslatorContext(int beExecVersion) {
-        this.connectContext = null;
-        this.statementContext = new StatementContext();
-        this.statementContext.initializeBeExecVersion(beExecVersion);
-        this.scanContext = ScanContext.builder().beExecVersion(beExecVersion).build();
-        this.translator = null;
-        this.topnFilterContext = new TopnFilterContext();
-        this.descTable = new DescriptorTable();
+    public TS3Resource getOrRegisterS3Resource(String resourceName) {
+        registerS3Resource(resourceName);
+        return s3Resources.get(resourceName).deepCopy();
+    }
+
+    public Map<String, TS3Resource> getS3Resources() {
+        Map<String, TS3Resource> resources = Maps.newLinkedHashMap();
+        s3Resources.forEach((name, resource) -> resources.put(name, resource.deepCopy()));
+        return resources;
     }
 
     public int getBeExecVersion() {

@@ -68,7 +68,7 @@ public class DataGenScanNode extends ExternalScanNode {
     @Override
     protected void createScanRangeLocations() throws UserException {
         scanRangeLocations = Lists.newArrayList();
-        for (TableValuedFunctionTask task : tvf.getTasks()) {
+        for (TableValuedFunctionTask task : getTasks()) {
             TScanRangeLocations locations = new TScanRangeLocations();
             TScanRangeLocation location = new TScanRangeLocation();
             location.setBackendId(task.getBackend().getId());
@@ -77,6 +77,10 @@ public class DataGenScanNode extends ExternalScanNode {
             locations.setScanRange(task.getExecParams());
             scanRangeLocations.add(locations);
         }
+    }
+
+    protected List<TableValuedFunctionTask> getTasks() throws UserException {
+        return tvf.getTasks();
     }
 
     @Override

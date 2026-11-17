@@ -358,7 +358,8 @@ public class ColumnDefinition {
                 && !type.isJsonType()
                 && !type.isVariantType()
                 && !type.isMapType()
-                && !type.isStructType();
+                && !type.isStructType()
+                && !type.isFileType();
     }
 
     private void checkKeyColumnType(boolean isOlap) {
@@ -386,6 +387,18 @@ public class ColumnDefinition {
                 throw new AnalysisException("Type " + type.toSql() + " can not be used in key column["
                         + getName() + "].");
             }
+        }
+    }
+
+    private void validateDataType() {
+        try {
+            type.validateDataType();
+            if (type.typeContainsFile()) {
+                throw new AnalysisException("FILE and types containing FILE cannot be used as table columns");
+            }
+        } catch (AnalysisException e) {
+            throw new AnalysisException("Invalid type " + type.toCatalogDataType().toSql()
+                    + " for column '" + name + "': " + e.getMessage(), e);
         }
     }
 
@@ -432,7 +445,7 @@ public class ColumnDefinition {
             throw new AnalysisException(
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
-        type.validateDataType();
+        validateDataType();
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
                 && !Config.enable_non_aggregate_table_state_types) {

@@ -437,6 +437,12 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
                 return continueCollectAccessPath(first, context);
             }
             return visit(elementAt, context);
+        } else if (first.getDataType().isFileType()) {
+            // Analysis restricts FILE selectors to constant public field names. Physical FILE
+            // children stay in their canonical positions even when only one path is requested.
+            context.accessPathBuilder.addPrefix(
+                    ((Literal) arguments.get(1)).getStringValue().toLowerCase(Locale.ROOT));
+            return continueCollectAccessPath(first, context);
         } else {
             return visit(elementAt, context);
         }

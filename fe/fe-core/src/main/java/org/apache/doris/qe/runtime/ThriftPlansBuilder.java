@@ -523,6 +523,7 @@ public class ThriftPlansBuilder {
 
             // Only used for AI Functions
             params.setAiResources(collectAiResources(connectContext));
+            params.setS3Resources(coordinatorContext.s3Resources);
 
             return params;
         });
