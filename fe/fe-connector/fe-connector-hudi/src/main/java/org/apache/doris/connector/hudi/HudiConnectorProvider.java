@@ -17,11 +17,13 @@
 
 package org.apache.doris.connector.hudi;
 
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI entry point for the Hudi connector plugin.
@@ -55,6 +57,11 @@ public class HudiConnectorProvider implements ConnectorProvider {
     @Override
     public boolean isStandaloneCatalogType() {
         return false;
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return MetaStoreProviders.sensitivePropertyKeys();
     }
 
     @Override

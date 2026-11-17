@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
@@ -38,6 +39,11 @@ public class PaimonConnectorProvider implements ConnectorProvider {
     @Override
     public String getType() {
         return "paimon";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return MetaStoreProviders.sensitivePropertyKeys();
     }
 
     @Override

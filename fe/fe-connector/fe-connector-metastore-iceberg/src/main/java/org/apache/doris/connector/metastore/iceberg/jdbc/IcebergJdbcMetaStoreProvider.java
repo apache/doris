@@ -18,8 +18,10 @@
 package org.apache.doris.connector.metastore.iceberg.jdbc;
 
 import org.apache.doris.connector.metastore.spi.MetaStoreProvider;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.util.Map;
+import java.util.Set;
 
 /** Selects the iceberg JDBC catalog backend ({@code iceberg.catalog.type == jdbc}). */
 public final class IcebergJdbcMetaStoreProvider implements MetaStoreProvider<IcebergJdbcMetaStoreProperties> {
@@ -38,5 +40,10 @@ public final class IcebergJdbcMetaStoreProvider implements MetaStoreProvider<Ice
     @Override
     public String name() {
         return "JDBC";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(IcebergJdbcMetaStoreProperties.class);
     }
 }

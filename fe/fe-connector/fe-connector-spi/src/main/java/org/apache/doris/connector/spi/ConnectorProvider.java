@@ -141,6 +141,16 @@ public interface ConnectorProvider extends PluginFactory {
     }
 
     /**
+     * All sensitive property aliases this plugin can store in a catalog, including its metastore backends.
+     * The engine registers these at plugin discovery, before catalogs are displayed, so every
+     * catalog display can mask them without creating a connector or binding catalog properties.
+     * Implementations must only inspect property declarations; they must not access external services.
+     */
+    default Set<String> sensitivePropertyKeys() {
+        return Collections.emptySet();
+    }
+
+    /**
      * Whether connectors of this type expose an incremental metadata-change source through
      * {@code Connector#getEventSource()}.
      *

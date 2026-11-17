@@ -319,9 +319,10 @@ Rules for `of(map)`:
   condition *holds*, so the lambda states the failure case — the opposite of
   Guava's `checkArgument`. Reversing it compiles cleanly and inverts the check.
 - **Mark secrets `sensitive = true`** and implement `toString()` as
-  `ConnectorPropertiesUtils.toMaskedString(this)`. That covers logs only; the
-  `SHOW CREATE CATALOG` masking is a separate, hand-maintained list in fe-core
-  (`DatasourcePrintableMap.SENSITIVE_KEY`).
+  `ConnectorPropertiesUtils.toMaskedString(this)`，用于日志脱敏。
+  Catalog 展示还需通过 `ConnectorProvider.sensitivePropertyKeys()` 导出全部敏感别名。
+  使用 metastore 分发器的连接器返回 `MetaStoreProviders.sensitivePropertyKeys()`。
+  该方法在插件加载时汇总各后端的声明，不绑定 Catalog 属性，也不建立外部连接。
 - **Never pass the raw map into anything that can reach user-visible output.**
   It holds the credentials. `ConnectorTableSchema`'s table properties are the
   trap: `SHOW CREATE TABLE` renders them unmasked, and the only thing keeping

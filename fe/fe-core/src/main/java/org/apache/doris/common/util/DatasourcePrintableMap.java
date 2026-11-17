@@ -154,10 +154,10 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
      * Registers additional sensitive property key aliases to be masked when printing property maps.
      *
      * <p>fe-core is decoupled from the filesystem provider implementations at the Maven level, so it
-     * cannot statically reference their typed properties classes the way the static block does for the
-     * legacy {@code *Properties}. Instead, {@code FileSystemPluginManager} aggregates each loaded
-     * provider's {@code sensitivePropertyKeys()} and registers them here at FE startup, before any
-     * SHOW CREATE / error-log printing occurs.
+     * cannot statically reference their typed properties classes. {@code FileSystemPluginManager} and
+     * {@code ConnectorPluginManager} register each loaded provider's {@code sensitivePropertyKeys()} at
+     * startup. Connector providers include their metastore backends, so new sensitive aliases reach all
+     * catalog displays without initializing a connector or accessing its external service.
      */
     public static void registerSensitiveKeys(Collection<String> keys) {
         if (keys == null) {

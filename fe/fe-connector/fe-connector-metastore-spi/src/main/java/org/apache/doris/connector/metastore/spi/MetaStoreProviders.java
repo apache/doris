@@ -20,9 +20,11 @@ package org.apache.doris.connector.metastore.spi;
 import org.apache.doris.connector.metastore.MetaStoreProperties;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -42,8 +44,8 @@ public final class MetaStoreProviders {
     private static List<MetaStoreProvider> load() {
         List<MetaStoreProvider> list = new ArrayList<>();
         // Use the SPI interface's own defining classloader, not the thread-context classloader.
-        // At CREATE CATALOG time this static initializer is first triggered from
-        // PaimonConnectorProvider.validateProperties, which runs on an FE worker thread whose TCCL is
+        // Discovery runs at plugin startup and may also be triggered during catalog validation.
+        // Both calls cross the plugin boundary from an FE thread whose TCCL may still be
         // the FE app loader. fe-core does not depend on fe-connector-metastore-spi, so the providers and
         // their META-INF/services file live only inside the connector plugin's (child) classloader; a
         // 1-arg ServiceLoader.load (TCCL) therefore finds nothing and caches an empty list process-wide.
@@ -102,5 +104,14 @@ public final class MetaStoreProviders {
     /** Names of the registered providers (for diagnostics). */
     public static List<String> registeredNames() {
         return PROVIDERS.stream().map(MetaStoreProvider::name).collect(Collectors.toList());
+    }
+
+    /** All sensitive aliases from this plugin's discovered backends, without binding a catalog. */
+    public static Set<String> sensitivePropertyKeys() {
+        Set<String> keys = new HashSet<>();
+        for (MetaStoreProvider<?> provider : PROVIDERS) {
+            keys.addAll(provider.sensitivePropertyKeys());
+        }
+        return keys;
     }
 }

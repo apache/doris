@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Parity for the iceberg JDBC backend (legacy {@code IcebergJdbcMetaStoreProperties} required props +
@@ -40,6 +41,12 @@ public class IcebergJdbcMetaStorePropertiesTest {
     private static String validateError(Map<String, String> raw) {
         return Assertions.assertThrows(IllegalArgumentException.class,
                 () -> IcebergJdbcMetaStoreProperties.of(raw).validate()).getMessage();
+    }
+
+    @Test
+    public void providerExportsSensitivePasswordWithoutBinding() {
+        Assertions.assertEquals(Set.of("iceberg.jdbc.password"),
+                new IcebergJdbcMetaStoreProvider().sensitivePropertyKeys());
     }
 
     @Test

@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetadata;
@@ -41,6 +42,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Properties;
+import java.util.ServiceConfigurationError;
 import java.util.Set;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
@@ -80,6 +82,73 @@ public class ConnectorPluginManagerTest {
                 return 1L;
             }
         };
+    }
+
+    @Test
+    void discoveredProviderSensitiveKeysAreMaskedBeforeConnectorCreation() {
+        Map<String, String> properties = Map.of(
+                "test.metastore.opaque", "future-value",
+                "test.metastore.opaque.alias", "alias-value",
+                "hive.metastore.client.keytab", "/private/client.keytab",
+                "hadoop.kerberos.keytab", "/private/hadoop.keytab");
+        ConnectorProvider provider = new ConnectorProvider() {
+            @Override
+            public String getType() {
+                return "sensitive-test";
+            }
+
+            @Override
+            public Set<String> sensitivePropertyKeys() {
+                return properties.keySet();
+            }
+
+            @Override
+            public Connector create(Map<String, String> raw, ConnectorContext context) {
+                throw new AssertionError("Masking must not create a connector");
+            }
+        };
+        Assertions.assertTrue(manager.registerDiscovered(provider, true));
+        String shown = new DatasourcePrintableMap<>(properties, "=", true, false, true).toString();
+        properties.forEach((key, value) -> {
+            Assertions.assertTrue(shown.contains("\"" + key + "\" = \"*XXX\""), key);
+            Assertions.assertFalse(shown.contains(value), key);
+        });
+    }
+
+    @Test
+    void failedSensitiveKeyDiscoveryDoesNotPublishOrClaimTheProvider() {
+        for (Throwable failure : Arrays.asList(
+                new IllegalStateException("cannot inspect sensitive declarations"),
+                new NoClassDefFoundError("missing metastore property dependency"),
+                new ServiceConfigurationError("invalid metastore provider declaration"))) {
+            ConnectorPluginManager registry = new ConnectorPluginManager();
+            ConnectorProvider broken = new ConnectorProvider() {
+                @Override
+                public String getType() {
+                    return "broken-sensitive";
+                }
+
+                @Override
+                public Set<String> sensitivePropertyKeys() {
+                    if (failure instanceof RuntimeException) {
+                        throw (RuntimeException) failure;
+                    }
+                    throw (Error) failure;
+                }
+
+                @Override
+                public Connector create(Map<String, String> raw, ConnectorContext context) {
+                    throw new AssertionError("A rejected provider must not create a connector");
+                }
+            };
+            boolean admitted = Assertions.assertDoesNotThrow(() -> registry.registerDiscovered(broken, false));
+            Assertions.assertFalse(admitted);
+            Assertions.assertTrue(registry.getRegisteredTypes().isEmpty());
+            Assertions.assertTrue(registry.registerDiscovered(createProvider("broken-sensitive"), false));
+            IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
+                    () -> new ConnectorPluginManager().registerDiscovered(broken, true));
+            Assertions.assertTrue(error.getMessage().contains("sensitivePropertyKeys() failed"));
+        }
     }
 
     @Test

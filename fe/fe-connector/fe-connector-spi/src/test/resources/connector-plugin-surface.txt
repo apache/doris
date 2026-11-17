@@ -89,6 +89,7 @@ org.apache.doris.connector.spi.ConnectorProvider#isStandaloneCatalogType():boole
 org.apache.doris.connector.spi.ConnectorProvider#name():java.lang.String
 org.apache.doris.connector.spi.ConnectorProvider#providesEventSource():boolean
 org.apache.doris.connector.spi.ConnectorProvider#securitySurface():org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorProvider#sensitivePropertyKeys():java.util.Set
 org.apache.doris.connector.spi.ConnectorProvider#supports(java.lang.String,java.util.Map):boolean
 org.apache.doris.connector.spi.ConnectorProvider#validateCreateTable(java.util.Map):void
 org.apache.doris.connector.spi.ConnectorProvider#validateProperties(java.util.Map):void

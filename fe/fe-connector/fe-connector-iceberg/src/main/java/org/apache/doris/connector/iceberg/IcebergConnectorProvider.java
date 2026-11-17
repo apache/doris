@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
@@ -41,6 +42,11 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     @Override
     public String getType() {
         return "iceberg";
+    }
+
+    @Override
+    public Set<String> sensitivePropertyKeys() {
+        return MetaStoreProviders.sensitivePropertyKeys();
     }
 
     @Override

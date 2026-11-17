@@ -71,7 +71,7 @@ public interface MetaStoreProvider<P extends MetaStoreProperties> extends Plugin
      */
     P bind(Map<String, String> properties, Map<String, String> storageHadoopConfig);
 
-    /** Alias keys of sensitive properties (for masking in logs); empty by default. */
+    /** Sensitive aliases for logs and catalog displays. Must not bind properties or access external services. */
     default Set<String> sensitivePropertyKeys() {
         return Collections.emptySet();
     }

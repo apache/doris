@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorConfFile;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -227,6 +228,14 @@ public class ConnectorPluginManager {
         if (problem == null) {
             problem = createTableEngineNameProblem(engineNames);
         }
+        Set<String> sensitiveKeys = Collections.emptySet();
+        if (problem == null) {
+            try {
+                sensitiveKeys = provider.sensitivePropertyKeys();
+            } catch (RuntimeException | LinkageError | ServiceConfigurationError e) {
+                problem = "sensitivePropertyKeys() failed: " + e;
+            }
+        }
         // Claim last, and only once nothing else can reject: a failed claim must not leave a name taken.
         if (problem == null && !claimedTypes.add(type.toLowerCase())) {
             problem = "type name '" + type + "' is already claimed by another registered connector provider";
@@ -242,6 +251,7 @@ public class ConnectorPluginManager {
         for (String engineName : engineNames) {
             claimedEngineNames.add(engineName.toLowerCase());
         }
+        DatasourcePrintableMap.registerSensitiveKeys(sensitiveKeys);
         providers.add(provider);
         return true;
     }
@@ -547,6 +557,7 @@ public class ConnectorPluginManager {
      * type is exactly what this method exists for (several tests stand in for a real plugin this way).
      */
     public void registerProvider(ConnectorProvider provider) {
+        DatasourcePrintableMap.registerSensitiveKeys(provider.sensitivePropertyKeys());
         providers.add(0, provider);
     }
 
