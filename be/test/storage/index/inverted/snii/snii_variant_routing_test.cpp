@@ -141,8 +141,9 @@ TEST_F(SniiVariantRoutingTest, StringAndNumericSubColumnsRouteAndCoexistInOneCon
     std::vector<const TabletIndex*> parent_indexes {&parent_index};
     TabletIndexes text_indexes;
     TabletIndexes numeric_indexes;
-    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, text_indexes, text_column));
-    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, numeric_indexes, numeric_column));
+    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, text_indexes, text_column, false));
+    ASSERT_TRUE(
+            variant_util::inherit_index(parent_indexes, numeric_indexes, numeric_column, false));
     ASSERT_EQ(1u, text_indexes.size());
     ASSERT_EQ(1u, numeric_indexes.size());
     const TabletIndex* text_index = text_indexes[0].get();

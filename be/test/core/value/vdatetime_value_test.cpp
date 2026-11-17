@@ -25,8 +25,10 @@
 #include "common/exception.h"
 #include "core/data_type_serde/datelike_serde_common.hpp"
 #include "core/types.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -42,6 +44,56 @@ TEST(VDateTimeValueTest, LegacyDefaultsHaveValidTimeTypes) {
     EXPECT_STREQ(buffer, "1970-01-01");
     VecDateTimeValue::DATETIME_DEFAULT_VALUE.to_string(buffer);
     EXPECT_STREQ(buffer, "1970-01-01 00:00:00");
+}
+
+TEST(VDateTimeValueTest, DstGapUnixTimestampPreservesPosition) {
+    cctz::time_zone zone;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &zone));
+    DateV2Value<DateTimeV2ValueType> local;
+    local.unchecked_set_time(2024, 3, 10, 2, 30, 0, 123456);
+    int64_t seconds;
+    local.unix_timestamp(&seconds, zone);
+    EXPECT_EQ(seconds, 1710055800);
+    std::pair<int64_t, int64_t> timestamp;
+    local.unix_timestamp(&timestamp, zone);
+    EXPECT_EQ(timestamp.first, seconds);
+    EXPECT_EQ(timestamp.second, 123456);
+
+    VecDateTimeValue legacy;
+    ASSERT_TRUE(legacy.from_date_int64(20240310023000));
+    legacy.unix_timestamp(&seconds, zone);
+    EXPECT_EQ(seconds, 1710055800);
+}
+
+TEST(VDateTimeValueTest, NamedZoneGapParsersPreservePosition) {
+    TimezoneUtils::load_timezones_to_cache();
+    const auto utc = cctz::utc_time_zone();
+    const StringRef input("2024-03-10 02:30:00.123456 America/New_York");
+    DateV2Value<DateTimeV2ValueType> expected;
+    expected.unchecked_set_time(2024, 3, 10, 7, 30, 0, 123456);
+    DateV2Value<DateTimeV2ValueType> parsed;
+    CastParameters params;
+    params.is_strict = true;
+    ASSERT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+            input, parsed, &utc, 6, params));
+    EXPECT_EQ(parsed, expected);
+    params.is_strict = false;
+    ASSERT_TRUE(
+            CastToDatetimeV2::from_string_non_strict_mode_internal<DataTimeCastEnumType::DATE_TIME>(
+                    input, parsed, &utc, 6, params));
+    EXPECT_EQ(parsed, expected);
+
+    VecDateTimeValue legacy;
+    params.is_strict = true;
+    ASSERT_TRUE((CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                               DatelikeTargetType::DATE_TIME>(
+            input, legacy, &utc, params)));
+    EXPECT_EQ(legacy.to_datetime_int64(), 20240310073000);
+    params.is_strict = false;
+    ASSERT_TRUE(
+            CastToDateOrDatetime::from_string_non_strict_mode_impl<DatelikeTargetType::DATE_TIME>(
+                    input, legacy, &utc, params));
+    EXPECT_EQ(legacy.to_datetime_int64(), 20240310073000);
 }
 
 TEST(VDateTimeValueTest, date_v2_to_uint32_test) {

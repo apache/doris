@@ -561,11 +561,14 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                 continue;
             }
             auto index_info = std::make_shared<TabletIndex>(*index);
-            index_info->set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
+            index_info->set_escaped_escaped_index_suffix_path(
+                    target.path_info_ptr()->get_path(),
+                    (*target_schema)->variant_escape_dots_in_keys());
             indexes_to_add.emplace_back(std::move(index_info));
         }
     } else {
-        inherit_index(source_indexes, indexes_to_add, target);
+        inherit_index(source_indexes, indexes_to_add, target,
+                      (*target_schema)->variant_escape_dots_in_keys());
     }
     auto target_indexes = (*target_schema)
                                   ->inverted_indexs(target.parent_unique_id(),
@@ -1048,7 +1051,8 @@ Status VariantCompactionUtil::get_compaction_nested_columns(
                                               .path_info = full_path});
         inherit_column_attributes(*parent_column, nested_column);
         TabletIndexes sub_column_indexes;
-        inherit_index(parent_indexes, sub_column_indexes, nested_column);
+        inherit_index(parent_indexes, sub_column_indexes, nested_column,
+                      output_schema->variant_escape_dots_in_keys());
         paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
         output_schema->append_column(nested_column);
         VLOG_DEBUG << "append nested column " << path.get_path();
@@ -1113,7 +1117,8 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
                                                   .path_info = column_path});
             inherit_column_attributes(*parent_column, sub_column);
             TabletIndexes sub_column_indexes;
-            inherit_index(parent_indexes, sub_column_indexes, sub_column);
+            inherit_index(parent_indexes, sub_column_indexes, sub_column,
+                          target->variant_escape_dots_in_keys());
             paths_set_info.subcolumn_indexes.emplace(subpath, std::move(sub_column_indexes));
             output_schema->append_column(sub_column);
             VLOG_DEBUG << "append sub column " << subpath << " data type " << data_type->get_name();
@@ -1143,7 +1148,8 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
                                               .path_info = column_path});
         inherit_column_attributes(*parent_column, sub_column);
         TabletIndexes sub_column_indexes;
-        inherit_index(parent_indexes, sub_column_indexes, sub_column);
+        inherit_index(parent_indexes, sub_column_indexes, sub_column,
+                      target->variant_escape_dots_in_keys());
         paths_set_info.sub_path_set.emplace(path.get_path());
         paths_set_info.subcolumn_indexes.emplace(path.get_path(), std::move(sub_column_indexes));
         output_schema->append_column(sub_column);
@@ -1501,14 +1507,16 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
             for (const auto& index : indexes) {
                 auto index_ptr = std::make_shared<TabletIndex>(*index);
                 index_ptr->set_escaped_escaped_index_suffix_path(
-                        sub_column_info->column.path_info_ptr()->get_path());
+                        sub_column_info->column.path_info_ptr()->get_path(),
+                        schema.variant_escape_dots_in_keys());
                 sub_column_info->indexes.emplace_back(std::move(index_ptr));
             }
         }
         // 2. find parent column's index
         else if (const auto parent_index = schema.inverted_indexs(col_unique_id);
                  !parent_index.empty()) {
-            inherit_index(parent_index, sub_column_info->indexes, sub_column_info->column);
+            inherit_index(parent_index, sub_column_info->indexes, sub_column_info->column,
+                          schema.variant_escape_dots_in_keys());
         } else {
             sub_column_info->indexes.clear();
         }
@@ -1624,7 +1632,7 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& subcolumns_indexes, FieldType column_type,
-                   const std::string& suffix_path, bool is_array_nested_type) {
+                   const std::string& suffix_path, bool is_array_nested_type, bool escape_dots) {
     if (parent_indexes.empty()) {
         return false;
     }
@@ -1640,7 +1648,7 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
             return false;
         }
         auto index_ptr = std::make_shared<TabletIndex>(**parent_index);
-        index_ptr->set_escaped_escaped_index_suffix_path(suffix_path);
+        index_ptr->set_escaped_escaped_index_suffix_path(suffix_path, escape_dots);
         // no need parse for bkd index or array index
         index_ptr->remove_parser_and_analyzer();
         subcolumns_indexes.emplace_back(std::move(index_ptr));
@@ -1653,7 +1661,7 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                 continue;
             }
             auto index_ptr = std::make_shared<TabletIndex>(*index);
-            index_ptr->set_escaped_escaped_index_suffix_path(suffix_path);
+            index_ptr->set_escaped_escaped_index_suffix_path(suffix_path, escape_dots);
             subcolumns_indexes.emplace_back(std::move(index_ptr));
         }
         return !subcolumns_indexes.empty();
@@ -1662,7 +1670,8 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
 }
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& subcolumns_indexes, const TabletColumn& column) {
+                   TabletIndexes& subcolumns_indexes, const TabletColumn& column,
+                   bool escape_dots) {
     if (!column.is_extracted_column()) {
         return false;
     }
@@ -1681,14 +1690,15 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
             return false;
         }
         return inherit_index(parent_indexes, subcolumns_indexes, nested->type(),
-                             column.path_info_ptr()->get_path(), true);
+                             column.path_info_ptr()->get_path(), true, escape_dots);
     }
     return inherit_index(parent_indexes, subcolumns_indexes, column.type(),
-                         column.path_info_ptr()->get_path());
+                         column.path_info_ptr()->get_path(), false, escape_dots);
 }
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& subcolumns_indexes, const ColumnMetaPB& column_pb) {
+                   TabletIndexes& subcolumns_indexes, const ColumnMetaPB& column_pb,
+                   bool escape_dots) {
     if (!column_pb.has_column_path_info()) {
         return false;
     }
@@ -1707,10 +1717,10 @@ bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
             return false;
         }
         return inherit_index(parent_indexes, subcolumns_indexes, (FieldType)nested->type(),
-                             column_pb.column_path_info().path(), true);
+                             column_pb.column_path_info().path(), true, escape_dots);
     }
     return inherit_index(parent_indexes, subcolumns_indexes, (FieldType)column_pb.type(),
-                         column_pb.column_path_info().path());
+                         column_pb.column_path_info().path(), false, escape_dots);
 }
 
 } // namespace doris::variant_util

@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DateLiteralUtils;
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -27,11 +28,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
@@ -68,6 +72,7 @@ import java.time.DateTimeException;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -2498,6 +2503,132 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
         }
         return shardCount;
+    }
+
+    public static final String PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS = "variant_escape_dots_in_keys";
+
+    public static boolean analyzeVariantEscapeDotsInKeys(Map<String, String> properties)
+            throws AnalysisException {
+        String value = properties.remove(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS);
+        if (value == null) {
+            return false;
+        }
+        if (!value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
+            throw new AnalysisException("variant_escape_dots_in_keys must be true or false");
+        }
+        return Boolean.parseBoolean(value);
+    }
+
+    /** CTAS inherits any escaped OLAP source; async MVs require matching Variant storage policies. */
+    public static Map<String, String> inheritVariantEscapeDotsInKeys(Map<String, String> properties,
+            Collection<TableIf> sourceTables, boolean requireConsistentSources) throws AnalysisException {
+        Map<String, String> result = properties == null ? Maps.newHashMap() : Maps.newHashMap(properties);
+        boolean explicit = result.containsKey(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS);
+        boolean escaped = explicit && analyzeVariantEscapeDotsInKeys(result);
+        boolean escapedSource = false;
+        boolean legacySource = false;
+        for (TableIf table : sourceTables) {
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable source = (OlapTable) table;
+            if (requireConsistentSources && source.getBaseSchema().stream()
+                    .noneMatch(column -> column.getType().isVariantType())) {
+                continue;
+            }
+            if (source.getVariantEscapeDotsInKeys()) {
+                escapedSource = true;
+            } else {
+                legacySource = true;
+            }
+        }
+        if (requireConsistentSources && ((escapedSource && legacySource)
+                || (explicit && (escaped ? legacySource : escapedSource)))) {
+            throw new AnalysisException("An async MV must use the same value of variant_escape_dots_in_keys "
+                    + "as its OLAP base tables with VARIANT columns");
+        }
+        if (!explicit) {
+            escaped = escapedSource;
+        }
+        if (escaped) {
+            result.put(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
+        }
+        return result;
+    }
+
+    public static void rejectVariantEscapeDotsInKeysAlter(Map<String, String> properties) {
+        try {
+            rejectVariantEscapeDotsInKeys(properties,
+                    "variant_escape_dots_in_keys can only be specified when creating a table");
+        } catch (AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    public static void rejectVariantEscapeDotsInKeysExternal(Map<String, String> properties) throws AnalysisException {
+        rejectVariantEscapeDotsInKeys(properties, "variant_escape_dots_in_keys requires an OLAP table");
+    }
+
+    private static void rejectVariantEscapeDotsInKeys(Map<String, String> properties, String message)
+            throws AnalysisException {
+        if (properties != null && properties.keySet().stream().anyMatch(
+                PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS::equalsIgnoreCase)) {
+            throw new AnalysisException(message);
+        }
+    }
+
+    /** Validate the final catalog columns and indexes before publishing an escaped table schema. */
+    public static void validateVariantTable(boolean escaped, Collection<Column> columns, Collection<Index> indexes)
+            throws AnalysisException {
+        if (!escaped) {
+            return;
+        }
+        for (Column column : columns) {
+            if (!column.getType().isVariantType()) {
+                continue;
+            }
+            if (column.getVariantEnableNestedGroup()) {
+                throw new AnalysisException("Escaped tables do not support NestedGroup; set "
+                        + "variant_enable_nested_group=false or turn off default_variant_enable_nested_group");
+            }
+            if (column.getChildren() != null) {
+                for (Column child : column.getChildren()) {
+                    validateVariantStoragePath(child.getName());
+                }
+            }
+        }
+        for (Index index : indexes) {
+            validateVariantStoragePath(InvertedIndexUtil.getInvertedIndexFieldPattern(index.getProperties()));
+        }
+    }
+
+    public static String encodeVariantPathComponent(String key) {
+        return key.replace("%", "%25").replace(".", "%2E");
+    }
+
+    public static String decodeVariantPathComponent(String key) throws AnalysisException {
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < key.length(); i++) {
+            char ch = key.charAt(i);
+            if (ch != '%') {
+                result.append(ch);
+            } else if (key.startsWith("%25", i)) {
+                result.append('%');
+                i += 2;
+            } else if (key.startsWith("%2E", i)) {
+                result.append('.');
+                i += 2;
+            } else {
+                throw new AnalysisException("Invalid escaped Variant path component: " + key);
+            }
+        }
+        return result.toString();
+    }
+
+    public static void validateVariantStoragePath(String path) throws AnalysisException {
+        for (String component : path.split("\\.", -1)) {
+            decodeVariantPathComponent(component);
+        }
     }
 
     public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {

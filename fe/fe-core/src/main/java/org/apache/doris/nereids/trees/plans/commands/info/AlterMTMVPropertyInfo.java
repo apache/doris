@@ -80,6 +80,7 @@ public class AlterMTMVPropertyInfo extends AlterMTMVInfo {
                         + "' cannot be altered. It is fixed at creation time.");
             }
         }
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(properties);
         for (String key : properties.keySet()) {
             MTMVPropertyUtil.analyzeProperty(key, properties.get(key));
         }

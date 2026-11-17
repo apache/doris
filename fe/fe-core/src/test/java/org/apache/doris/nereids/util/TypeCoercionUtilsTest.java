@@ -1150,6 +1150,49 @@ public class TypeCoercionUtilsTest {
     }
 
     @Test
+    public void testStringArithmeticDefersValueConversionToCast() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            // Analysis must keep a CAST in both modes. CAST evaluation returns NULL or an error.
+            // The same rule applies to STRING, VARCHAR, and CHAR literals on either side.
+            for (boolean strict : new boolean[] {false, true}) {
+                connectContext.getSessionVariable().enableStrictCast = strict;
+                for (Expression string : ImmutableList.of(new StringLiteral("abc"),
+                        new VarcharLiteral("abc"), new CharLiteral("abc", 3))) {
+                    IntegerLiteral one = new IntegerLiteral(1);
+                    Expression left = TypeCoercionUtils.processBinaryArithmetic(new Add(string, one));
+                    Expression right = TypeCoercionUtils.processBinaryArithmetic(new Add(one, string));
+                    Assertions.assertEquals(new Cast(string, DoubleType.INSTANCE), left.child(0));
+                    Assertions.assertEquals(new Cast(string, DoubleType.INSTANCE), right.child(1));
+                    Assertions.assertEquals(DoubleType.INSTANCE, left.getDataType());
+                    Assertions.assertEquals(DoubleType.INSTANCE, right.getDataType());
+                }
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testStringArithmeticKeepsNumericTypeSelection() {
+        // An integer string must still use integer arithmetic. It must not become DOUBLE.
+        Expression integer = TypeCoercionUtils.processBinaryArithmetic(
+                new Add(new StringLiteral("1"), new IntegerLiteral(1)));
+        Assertions.assertEquals(BigIntType.INSTANCE, integer.getDataType());
+
+        // DOUBLE accepts spaces around a number. BigDecimal rejects this input before CAST runs.
+        StringLiteral spaced = new StringLiteral(" 1 ");
+        Expression floating = TypeCoercionUtils.processBinaryArithmetic(new Add(spaced, new IntegerLiteral(1)));
+        Assertions.assertEquals(new Cast(spaced, DoubleType.INSTANCE), floating.child(0));
+        Assertions.assertEquals(DoubleType.INSTANCE, floating.getDataType());
+    }
+
+    @Test
     public void testDecimalArithmetic() {
         Multiply multiply = new Multiply(new DecimalLiteral(new BigDecimal("987654.321")),
                 new DecimalV3Literal(new BigDecimal("123.45")));

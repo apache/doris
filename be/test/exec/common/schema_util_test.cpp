@@ -165,7 +165,8 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     normal_column.set_name("test_col");
     normal_column.set_unique_id(1);
 
-    bool result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, normal_column);
+    bool result =
+            variant_util::inherit_index(parent_indexes, subcolumns_indexes, normal_column, false);
     EXPECT_FALSE(result);
 
     // 2. Test index inheritance for extracted column
@@ -177,7 +178,8 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     PathInData path("parent.path");
     extracted_column.set_path_info(path);
 
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, extracted_column);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, extracted_column,
+                                         false);
     EXPECT_TRUE(result);
     EXPECT_EQ(subcolumns_indexes.size(), 1);
     EXPECT_EQ(subcolumns_indexes[0]->index_id(), 1);
@@ -193,7 +195,8 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     empty_array_column.set_unique_id(3);
     // No subcolumns added, so get_sub_columns() will be empty
 
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, empty_array_column);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, empty_array_column,
+                                         false);
     EXPECT_FALSE(result);
 
     // 4. Test index inheritance for array type with non-empty subcolumns
@@ -212,7 +215,7 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     sub_column.set_unique_id(5);
     array_column.add_sub_column(sub_column);
 
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, array_column);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, array_column, false);
     EXPECT_TRUE(result);
     EXPECT_EQ(subcolumns_indexes.size(), 1);
     EXPECT_EQ(subcolumns_indexes[0]->index_id(), 1);
@@ -231,7 +234,7 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     sub_column1.set_name("sub_col1");
     sub_column1.set_unique_id(6);
     array_column1.add_sub_column(sub_column1);
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, array_column1);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, array_column1, false);
     EXPECT_TRUE(result);
     EXPECT_EQ(subcolumns_indexes.size(), 1);
     EXPECT_EQ(subcolumns_indexes[0]->index_id(), 1);
@@ -242,7 +245,8 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     std::vector<const TabletIndex*> empty_indexes;
     TabletIndexes empty_subcolumns_indexes;
 
-    result = variant_util::inherit_index(empty_indexes, empty_subcolumns_indexes, normal_column);
+    result = variant_util::inherit_index(empty_indexes, empty_subcolumns_indexes, normal_column,
+                                         false);
     EXPECT_FALSE(result);
     EXPECT_EQ(empty_subcolumns_indexes.size(), 0);
 
@@ -254,8 +258,34 @@ TEST_F(SchemaUtilTest, TestInheritIndex) {
     hll_column.set_parent_unique_id(1); // Set parent column id
     PathInData decimal_path("parent.hll");
     hll_column.set_path_info(decimal_path);
-    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, hll_column);
+    result = variant_util::inherit_index(parent_indexes, subcolumns_indexes, hll_column, false);
     EXPECT_FALSE(result);
+}
+
+TEST_F(SchemaUtilTest, EscapedVariantIndexInheritanceUsesStoragePathOnce) {
+    TabletIndexPB pb;
+    pb.set_index_id(1);
+    pb.set_index_name("v_idx");
+    pb.set_index_type(IndexType::INVERTED);
+    TabletIndex parent_index;
+    parent_index.init_from_pb(pb);
+    std::vector<const TabletIndex*> parent_indexes {&parent_index};
+    TabletColumn child;
+    child.set_unique_id(-1);
+    child.set_parent_unique_id(1);
+    child.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    child.set_path_info(PathInData("v.a%2Eb"));
+
+    // The schema-level flag also escapes '%', so stored "a%2Eb" and nested "a.b" differ.
+    TabletIndexes escaped;
+    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, escaped, child, true));
+    ASSERT_EQ(escaped.size(), 1);
+    EXPECT_EQ(escaped[0]->get_index_suffix(), "v%2Ea%252Eb");
+
+    TabletIndexes legacy;
+    ASSERT_TRUE(variant_util::inherit_index(parent_indexes, legacy, child, false));
+    ASSERT_EQ(legacy.size(), 1);
+    EXPECT_EQ(legacy[0]->get_index_suffix(), "v%2Ea%2Eb");
 }
 
 TEST_F(SchemaUtilTest, inherit_column_attributes) {

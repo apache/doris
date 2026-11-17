@@ -378,14 +378,29 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     return Status::OK();
 }
 
+namespace {
+template <typename T>
+Status parse_native_index(std::span<const uint8_t> bytes, ParquetColumnCrypto* crypto,
+                          ParquetMetadataModule module, T* index, bool* parsed) {
+    auto consumed = static_cast<uint32_t>(bytes.size());
+    if (crypto == nullptr) {
+        *parsed = deserialize_thrift_msg(bytes.data(), &consumed, true, index).ok();
+        return Status::OK();
+    }
+    DorisVector<uint8_t> plaintext;
+    RETURN_IF_ERROR(crypto->decrypt_metadata(module, bytes, &plaintext));
+    RETURN_IF_ERROR(deserialize_crypto_metadata(plaintext, &consumed, index));
+    RETURN_IF_ERROR(validate_crypto_metadata_padding(plaintext, consumed));
+    *parsed = true;
+    return Status::OK();
+}
+} // namespace
+
 Status ParquetFileContext::load_native_offset_indexes(
         int row_group_id, const std::unordered_set<int>& leaf_column_ids,
         std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const {
     DORIS_CHECK(offset_indexes != nullptr);
     offset_indexes->clear();
-    if (native_metadata->encryption() != nullptr) {
-        return Status::OK();
-    }
     if (leaf_column_ids.empty()) {
         return Status::OK();
     }
@@ -405,31 +420,47 @@ Status ParquetFileContext::load_native_offset_indexes(
             }
             const auto& column_chunk = native_row_group.columns[leaf_column_id];
             if (!column_chunk.__isset.offset_index_offset ||
-                !column_chunk.__isset.offset_index_length ||
-                column_chunk.offset_index_length <= 0) {
+                !column_chunk.__isset.offset_index_length) {
                 continue;
             }
             const int64_t index_offset = column_chunk.offset_index_offset;
             const int64_t index_length = column_chunk.offset_index_length;
             if (!detail::is_serialized_index_range_safe(native_file->size(), index_offset,
                                                         index_length)) {
-                // OffsetIndex is optional. A malformed range must not allocate from untrusted
-                // footer values or redirect the native reader outside the file.
+                // An absent index is optional; an authenticated descriptor with an impossible
+                // range (for example offset -1) is corrupt and must fail before allocation or I/O.
+                if (native_metadata->encryption() != nullptr) {
+                    return Status::Corruption("File encryption [INVALID_INDEX_RANGE]");
+                }
                 continue;
             }
-            std::vector<uint8_t> serialized_index(static_cast<size_t>(index_length));
+            std::shared_ptr<ParquetColumnCrypto> crypto;
+            if (native_metadata->encryption() != nullptr) {
+                RETURN_IF_ERROR(native_metadata->encryption()->column_crypto(
+                        column_chunk, row_group_id, leaf_column_id, &crypto));
+            }
+            DorisVector<uint8_t> serialized_index(static_cast<size_t>(index_length));
             Slice index_slice(serialized_index.data(), serialized_index.size());
             size_t bytes_read = 0;
-            if (!native_file->read_at(index_offset, index_slice, &bytes_read, native_io_ctx).ok() ||
-                bytes_read != serialized_index.size()) {
+            const auto read_status =
+                    native_file->read_at(index_offset, index_slice, &bytes_read, native_io_ctx);
+            if (!read_status.ok() || bytes_read != serialized_index.size()) {
+                if (crypto != nullptr) {
+                    RETURN_IF_ERROR(read_status);
+                    return Status::Corruption("File encryption [INDEX_READ_FAILED]");
+                }
                 continue;
             }
-            uint32_t thrift_length = static_cast<uint32_t>(serialized_index.size());
             tparquet::OffsetIndex native_index;
-            if (!deserialize_thrift_msg(serialized_index.data(), &thrift_length, true,
-                                        &native_index)
-                         .ok() ||
-                native_index.page_locations.empty()) {
+            bool parsed = false;
+            RETURN_IF_ERROR(parse_native_index(serialized_index, crypto.get(),
+                                               ParquetMetadataModule::OFFSET_INDEX, &native_index,
+                                               &parsed));
+            if (!parsed || native_index.page_locations.empty()) {
+                if (crypto != nullptr) {
+                    // An authenticated empty map cannot describe a non-empty column chunk.
+                    return Status::Corruption("File encryption [INVALID_INDEX]");
+                }
                 continue;
             }
             native::ColumnChunkRange chunk_range;
@@ -440,13 +471,19 @@ Status ParquetFileContext::load_native_offset_indexes(
                         native_index, chunk_range,
                         native_row_group.columns[leaf_column_id].meta_data.data_page_offset,
                         native_row_group.num_rows)) {
-                // OffsetIndex is optional. Reject the complete index instead of letting one bad
-                // location redirect an indexed reader outside its owning column chunk.
+                // Reject an authenticated skip map with an invalid physical rectangle. A location
+                // outside its owning chunk must never determine a page's authenticated ordinal.
+                if (crypto != nullptr) {
+                    return Status::Corruption("File encryption [INVALID_INDEX]");
+                }
                 continue;
             }
             offset_indexes->emplace(leaf_column_id, std::move(native_index));
         }
     } catch (const std::exception&) {
+        if (native_metadata->encryption() != nullptr) {
+            return Status::Corruption("File encryption [INVALID_INDEX]");
+        }
         // OffsetIndex is optional. Selected logical ranges still enforce correctness, while the
         // native reader conservatively falls back to sequential page traversal.
         offset_indexes->clear();
@@ -460,9 +497,6 @@ Status ParquetFileContext::load_native_page_indexes(
         int64_t* parse_time) const {
     DORIS_CHECK(page_indexes != nullptr);
     page_indexes->clear();
-    if (native_metadata->encryption() != nullptr) {
-        return Status::OK();
-    }
     if (leaf_column_ids.empty()) {
         return Status::OK();
     }
@@ -483,6 +517,7 @@ Status ParquetFileContext::load_native_page_indexes(
         NativeParquetPageIndex indexes;
         bool has_column_index = false;
         bool has_offset_index = false;
+        std::shared_ptr<ParquetColumnCrypto> crypto;
     };
     std::vector<SerializedIndexRange> column_index_ranges;
     std::vector<SerializedIndexRange> offset_index_ranges;
@@ -503,38 +538,56 @@ Status ParquetFileContext::load_native_page_indexes(
         }
         if (!valid_index_range(chunk.column_index_offset, chunk.column_index_length) ||
             !valid_index_range(chunk.offset_index_offset, chunk.offset_index_length)) {
+            // The encrypted footer authenticated these locations; invalid ranges are corrupt
+            // descriptors, while genuinely missing indexes above still retain all candidate rows.
+            if (native_metadata->encryption() != nullptr) {
+                return Status::Corruption("File encryption [INVALID_INDEX_RANGE]");
+            }
             continue;
         }
         column_index_ranges.push_back(
                 {leaf_column_id, chunk.column_index_offset, chunk.column_index_length});
         offset_index_ranges.push_back(
                 {leaf_column_id, chunk.offset_index_offset, chunk.offset_index_length});
-        pending_indexes.try_emplace(leaf_column_id);
+        auto& pending = pending_indexes[leaf_column_id];
+        if (native_metadata->encryption() != nullptr) {
+            RETURN_IF_ERROR(native_metadata->encryption()->column_crypto(
+                    chunk, row_group_id, leaf_column_id, &pending.crypto));
+        }
     }
 
     auto read_coalesced_indexes = [&](std::vector<SerializedIndexRange>* ranges,
-                                      bool column_index) {
+                                      bool column_index) -> Status {
         std::sort(ranges->begin(), ranges->end(),
                   [](const auto& lhs, const auto& rhs) { return lhs.offset < rhs.offset; });
         size_t range_begin = 0;
         while (range_begin < ranges->size()) {
+            const int64_t span_offset = (*ranges)[range_begin].offset;
             size_t range_end = range_begin + 1;
             int64_t span_end = (*ranges)[range_begin].offset + (*ranges)[range_begin].length;
             while (range_end < ranges->size() && (*ranges)[range_end].offset <= span_end) {
-                span_end = std::max(span_end,
-                                    (*ranges)[range_end].offset + (*ranges)[range_end].length);
+                const int64_t next_span_end = std::max(
+                        span_end, (*ranges)[range_end].offset + (*ranges)[range_end].length);
+                // A wide row group can have valid adjacent modules totaling more than one read's
+                // budget. Split the I/O block before that limit instead of rejecting the file.
+                if (!detail::is_serialized_index_span_safe(span_offset, next_span_end)) {
+                    break;
+                }
+                span_end = next_span_end;
                 ++range_end;
             }
 
-            const int64_t span_offset = (*ranges)[range_begin].offset;
             if (!detail::is_serialized_index_span_safe(span_offset, span_end)) {
-                // Optional indexes share one allocation per contiguous footer block. Skipping the
-                // whole block prevents many individually small ranges from bypassing the budget.
+                // Optional indexes share one allocation per contiguous footer block. Bound the
+                // whole block so adjacent small descriptors cannot bypass the allocation budget.
+                if (native_metadata->encryption() != nullptr) {
+                    return Status::Corruption("File encryption [INVALID_INDEX_RANGE]");
+                }
                 range_begin = range_end;
                 continue;
             }
             const int64_t span_length = span_end - span_offset;
-            std::vector<uint8_t> serialized(static_cast<size_t>(span_length));
+            DorisVector<uint8_t> serialized(static_cast<size_t>(span_length));
             Slice slice(serialized.data(), serialized.size());
             size_t bytes_read = 0;
             Status read_status;
@@ -555,34 +608,45 @@ Status ParquetFileContext::load_native_page_indexes(
                             serialized.data() + static_cast<size_t>(range.offset - span_offset);
                     int64_t parse_time_sink = 0;
                     SCOPED_RAW_TIMER(parse_time == nullptr ? &parse_time_sink : parse_time);
+                    const auto bytes = std::span(thrift_data, static_cast<size_t>(thrift_length));
                     if (column_index) {
-                        pending->second.has_column_index =
-                                deserialize_thrift_msg(thrift_data, &thrift_length, true,
-                                                       &pending->second.indexes.column_index)
-                                        .ok();
+                        RETURN_IF_ERROR(parse_native_index(bytes, pending->second.crypto.get(),
+                                                           ParquetMetadataModule::COLUMN_INDEX,
+                                                           &pending->second.indexes.column_index,
+                                                           &pending->second.has_column_index));
                     } else {
-                        pending->second.has_offset_index =
-                                deserialize_thrift_msg(thrift_data, &thrift_length, true,
-                                                       &pending->second.indexes.offset_index)
-                                        .ok();
+                        RETURN_IF_ERROR(parse_native_index(bytes, pending->second.crypto.get(),
+                                                           ParquetMetadataModule::OFFSET_INDEX,
+                                                           &pending->second.indexes.offset_index,
+                                                           &pending->second.has_offset_index));
                     }
                 }
             }
+            if (native_metadata->encryption() != nullptr &&
+                (!read_status.ok() || bytes_read != serialized.size())) {
+                RETURN_IF_ERROR(read_status);
+                return Status::Corruption("File encryption [INDEX_READ_FAILED]");
+            }
             range_begin = range_end;
         }
+        return Status::OK();
     };
 
     // Parquet writers place each index kind in a contiguous block. Reading overlapping/adjacent
     // ranges as one span keeps cold small-file planning from paying two remote round trips per
     // projected leaf, while refusing gaps avoids amplifying reads from untrusted footer offsets.
-    read_coalesced_indexes(&column_index_ranges, true);
-    read_coalesced_indexes(&offset_index_ranges, false);
+    RETURN_IF_ERROR(read_coalesced_indexes(&column_index_ranges, true));
+    RETURN_IF_ERROR(read_coalesced_indexes(&offset_index_ranges, false));
 
     for (auto& [leaf_column_id, pending] : pending_indexes) {
         const auto& chunk = row_group.columns[leaf_column_id];
         auto& indexes = pending.indexes;
         if (!pending.has_column_index || !pending.has_offset_index ||
             indexes.column_index.null_pages.size() != indexes.offset_index.page_locations.size()) {
+            if (pending.crypto != nullptr) {
+                // A decoded page bitmap must have one entry for every authenticated page location.
+                return Status::Corruption("File encryption [INVALID_INDEX]");
+            }
             continue;
         }
         native::ColumnChunkRange chunk_range;
@@ -590,6 +654,10 @@ Status ParquetFileContext::load_native_page_indexes(
                 chunk.meta_data, native_file->size(), compat.parquet_816_padding, &chunk_range));
         if (!native::validate_offset_index(indexes.offset_index, chunk_range,
                                            chunk.meta_data.data_page_offset, row_group.num_rows)) {
+            if (pending.crypto != nullptr) {
+                // Invalid physical locations cannot supply authenticated page ordinals to a seek.
+                return Status::Corruption("File encryption [INVALID_INDEX]");
+            }
             continue;
         }
         page_indexes->emplace(leaf_column_id, std::move(indexes));

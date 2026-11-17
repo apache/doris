@@ -299,9 +299,11 @@ TEST(LuceneBackedTextAnalyzerTest, KeepsTheTextStreamContract) {
     const LuceneBackedTextAnalyzer scripted(std::make_shared<ScriptedLuceneAnalyzer>());
     expect_text_stream_contract([&] { return scripted.create_stream(); },
                                 {"a ^b _ c", words(1000), words(256), "x"});
-    const LuceneBackedTextAnalyzer standard(InvertedIndexAnalyzer::create_builtin_analyzer(
-            InvertedIndexParserType::PARSER_STANDARD, "", "", ""));
-    expect_text_stream_contract([&] { return standard.create_stream(); },
+    // The builtin standard parser is CLucene's StandardAnalyzer behind a LuceneBackedTextAnalyzer.
+    const TextAnalyzerPtr standard = InvertedIndexAnalyzer::create_builtin_analyzer(
+            InvertedIndexParserType::PARSER_STANDARD, "", "", "");
+    ASSERT_NE(dynamic_cast<const LuceneBackedTextAnalyzer*>(standard.get()), nullptr);
+    expect_text_stream_contract([&] { return standard->create_stream(); },
                                 {"The Quick brown fox", words(1000), "中文 mixed 文本", "x"});
 }
 
