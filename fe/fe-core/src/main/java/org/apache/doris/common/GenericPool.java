@@ -46,6 +46,11 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     private boolean isNonBlockingIO;
     private final ThriftClientTransportProvider.RpcPurpose rpcPurpose;
 
+    public boolean supportsPrivateFileKeys() {
+        return rpcPurpose == ThriftClientTransportProvider.RpcPurpose.INTERNAL_RPC && !isNonBlockingIO
+                && TRANSPORT_PROVIDER.supportsPrivateFileKeys();
+    }
+
     public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs, boolean isNonBlockingIO) {
         this(className, config, timeoutMs, isNonBlockingIO, ThriftClientTransportProvider.RpcPurpose.INTERNAL_RPC);
     }

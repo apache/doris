@@ -57,6 +57,17 @@ public interface ConnectorStorageContext {
     };
 
     /**
+     * Returns the native file-encryption protocol version verified for this execution environment.
+     * Zero means unavailable. A positive value requires authenticated, encrypted fragment and split
+     * transports and compatible execution backends; a release version or an encryption-enabled build
+     * alone is insufficient. The engine must recheck these conditions before dispatch and lazy batches,
+     * because a backend can restart or be replaced after planning.
+     */
+    default int getNativeFileEncryptionVersion() {
+        return 0;
+    }
+
+    /**
      * Normalizes raw per-table vended cloud-storage credentials (the token map a REST catalog
      * returns, e.g. {@code fs.oss.accessKeyId} / {@code s3.access-key}) into the BE-facing storage
      * property map ({@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} / {@code AWS_TOKEN} /

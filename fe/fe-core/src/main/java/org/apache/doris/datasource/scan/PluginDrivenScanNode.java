@@ -2614,7 +2614,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         // Delegate format-specific Thrift construction to the connector SPI
         scanRange.populateRangeParams(tableFormatFileDesc, rangeDesc);
-        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET) {
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET_PME) {
+            // Some old readers inspect only shared params; a per-range marker alone is insufficient.
+            params.setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+        }
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET
+                || rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET_PME) {
             // Mixed JNI/native scans must retain the Parquet contract after subsequent non-Parquet ranges.
             params.setContainsNativeParquet(true);
         }

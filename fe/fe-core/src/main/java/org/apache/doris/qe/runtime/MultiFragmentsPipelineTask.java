@@ -29,6 +29,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -56,6 +57,7 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
     // immutable parameters
     private final CoordinatorContext coordinatorContext;
     private final Backend backend;
+    private final boolean needsFileEncryption;
     private final BackendServiceProxy backendClientProxy;
 
     // mutable states
@@ -69,7 +71,15 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
             CoordinatorContext coordinatorContext, Backend backend, BackendServiceProxy backendClientProxy,
             ByteString serializeFragments,
             Map<Integer, SingleFragmentPipelineTask> fragmentTasks) {
+        this(coordinatorContext, backend, backendClientProxy, serializeFragments, fragmentTasks, false);
+    }
+
+    public MultiFragmentsPipelineTask(
+            CoordinatorContext coordinatorContext, Backend backend, BackendServiceProxy backendClientProxy,
+            ByteString serializeFragments, Map<Integer, SingleFragmentPipelineTask> fragmentTasks,
+            boolean needsFileEncryption) {
         super(new ChildrenRuntimeTasks<>(fragmentTasks));
+        this.needsFileEncryption = needsFileEncryption;
         this.coordinatorContext = Objects.requireNonNull(coordinatorContext, "coordinatorContext can not be null");
         this.backend = Objects.requireNonNull(backend, "backend can not be null");
         this.backendClientProxy = Objects.requireNonNull(backendClientProxy, "backendClientProxy can not be null");
@@ -165,8 +175,12 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
             boolean twoPhaseExecution) {
         Preconditions.checkNotNull(serializedFragments);
         try {
+            // Serialization can precede a failed heartbeat or backend replacement; recheck at the send boundary.
+            if (needsFileEncryption) {
+                NativeFileEncryptionSupport.require(backend);
+            }
             return proxy.execPlanFragmentsAsync(brpcAddr, serializedFragments, twoPhaseExecution);
-        } catch (RpcException e) {
+        } catch (RpcException | IllegalStateException e) {
             // DO NOT throw exception here, return a complete future with error code,
             // so that the following logic will cancel the fragment.
             return futureWithException(e);
@@ -191,7 +205,10 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
         }
     }
 
-    private Future<PExecPlanFragmentResult> futureWithException(RpcException e) {
+    private Future<PExecPlanFragmentResult> futureWithException(Exception e) {
+        // A lost reader/transport capability is a planning refusal, not a failed RPC. Misclassifying
+        // it would blacklist an otherwise healthy backend and disrupt unrelated plaintext queries.
+        TStatusCode code = e instanceof RpcException ? TStatusCode.THRIFT_RPC_ERROR : TStatusCode.NOT_IMPLEMENTED_ERROR;
         return new Future<PExecPlanFragmentResult>() {
             @Override
             public boolean cancel(boolean mayInterruptIfRunning) {
@@ -212,7 +229,7 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
             public PExecPlanFragmentResult get() {
                 PExecPlanFragmentResult result = PExecPlanFragmentResult.newBuilder().setStatus(
                         Types.PStatus.newBuilder().addErrorMsgs(e.getMessage())
-                                .setStatusCode(TStatusCode.THRIFT_RPC_ERROR.getValue()).build()).build();
+                                .setStatusCode(code.getValue()).build()).build();
                 return result;
             }
 

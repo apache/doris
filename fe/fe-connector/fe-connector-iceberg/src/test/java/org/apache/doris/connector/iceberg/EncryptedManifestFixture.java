@@ -17,9 +17,14 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.connector.spi.ConnectorStorageContext;
+
+import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.LocationProviders;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -71,6 +76,18 @@ final class EncryptedManifestFixture implements TableOperations, AutoCloseable {
                         .withFileSizeInBytes(100).withRecordCount(1).build()).commit();
     }
 
+    void appendEncryptedFiles(int count) {
+        AppendFiles append = new BaseTable(this, "writer").newFastAppend();
+        for (int index = 0; index < count; index++) {
+            String path = metadata.location() + "/data-" + UUID.randomUUID() + ".parquet";
+            append.appendFile(DataFiles.builder(PartitionSpec.unpartitioned()).withPath(path)
+                    .withFileSizeInBytes(1_048_576).withRecordCount(4)
+                    .withEncryptionKeyMetadata(writer.encrypt(raw.newOutputFile(path)).keyMetadata()
+                            .copyWithLength(1_048_576).buffer()).build());
+        }
+        append.commit();
+    }
+
     Table queryTable() {
         // Reparse so a query cannot inherit the writer's already-decrypted manifest-list descriptors.
         TableMetadata snapshot = TableMetadataParser.fromJson(TableMetadataParser.toJson(metadata));
@@ -82,6 +99,47 @@ final class EncryptedManifestFixture implements TableOperations, AutoCloseable {
                 return reader;
             }
         }, "reader");
+    }
+
+    Table importedTable(Table table) {
+        // These descriptor tests import legacy files without rewriting their bytes. The SDK supplies
+        // the V3 metadata and Standard manager; encrypted-manifest authorization is tested separately.
+        TableMetadata upgraded = ((HasTableOperations) table).operations().current().upgradeToFormatVersion(3);
+        return new BaseTable(new StaticTableOperations(upgraded, table.io()) {
+            @Override
+            public EncryptionManager encryption() {
+                return writer;
+            }
+        }, table.name());
+    }
+
+    static ConnectorContext verifiedContext() {
+        return new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "fixture";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 1L;
+            }
+
+            @Override
+            public Map<String, String> getConnectorConfig() {
+                return Map.of("enable_encryption_read", "true");
+            }
+
+            @Override
+            public ConnectorStorageContext getStorageContext() {
+                return new ConnectorStorageContext() {
+                    @Override
+                    public int getNativeFileEncryptionVersion() {
+                        return 1;
+                    }
+                };
+            }
+        };
     }
 
     private StandardEncryptionManager manager(List<EncryptedKey> keys) {

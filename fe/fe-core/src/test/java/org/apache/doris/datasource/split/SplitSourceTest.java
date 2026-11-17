@@ -21,10 +21,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VarAttrDef;
+import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileEncryptionInfo;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -41,6 +43,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.management.ManagementFactory;
@@ -441,6 +444,25 @@ public class SplitSourceTest {
         assignment.finishSchedule();
         Assertions.assertEquals(ranges.subList(1, 2), second.getNextBatch(1));
         Assertions.assertTrue(second.getNextBatch(1).isEmpty());
+    }
+
+    @Test
+    void actualLegacyCallerCannotInheritThePreviousProcessCapability() throws Exception {
+        TFileRangeDesc file = ranges.get(0).getScanRange().getExtScanRange().getFileScanRange().getRanges().get(0);
+        file.setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+        file.setTableFormatParams(new TTableFormatFileDesc().setIcebergParams(new TIcebergFileDesc()
+                .setEncryptionInfo(new TFileEncryptionInfo().setVersion(1)
+                        .setKey(new byte[16]).setAadPrefix(new byte[0]))));
+        assignment.addToQueue(splits.subList(0, 1));
+        assignment.finishSchedule();
+        SplitSource source = new SplitSource(backend, assignment, 1000);
+        try (MockedStatic<NativeFileEncryptionSupport> proof = Mockito.mockStatic(NativeFileEncryptionSupport.class)) {
+            proof.when(() -> NativeFileEncryptionSupport.version(backend)).thenReturn(1);
+            UserException failure = Assertions.assertThrows(UserException.class, () -> source.getNextBatch(10, 0));
+            Assertions.assertTrue(failure.getMessage().contains("READ_UNAVAILABLE"));
+            Assertions.assertSame(failure, Assertions.assertThrows(UserException.class,
+                    () -> source.getNextBatch(10, 1)));
+        }
     }
 
     @Test

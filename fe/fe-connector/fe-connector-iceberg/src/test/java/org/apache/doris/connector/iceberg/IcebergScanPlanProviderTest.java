@@ -53,6 +53,7 @@ import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
@@ -116,6 +117,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -187,10 +189,14 @@ public class IcebergScanPlanProviderTest {
         table.newAppend().appendFile(encrypted)
                 .appendFile(dataFile(table.spec(), "s3://bucket/plain.parquet", 512, null, null))
                 .appendFile(other).commit();
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
-                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
-        List<ConnectorScanRange> ranges = provider.planScan(null,
-                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "file_keys"), List.of()).build());
+        List<ConnectorScanRange> ranges;
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                    IcebergCatalogProperties.of(Map.of("iceberg.catalog.type", "hms")),
+                    opsReturning(fixture.importedTable(table)), EncryptedManifestFixture.verifiedContext());
+            ranges = provider.planScan(null,
+                    ConnectorScanRequest.builder(new IcebergTableHandle("db1", "file_keys"), List.of()).build());
+        }
         int encryptedSplits = 0;
         for (ConnectorScanRange range : ranges) {
             TTableFormatFileDesc desc = new TTableFormatFileDesc();
@@ -271,7 +277,7 @@ public class IcebergScanPlanProviderTest {
                 .withFileSizeInBytes(100).withRecordCount(1)
                 .withEncryptionKeyMetadata(ByteBuffer.wrap(metadata)).build();
         Table withDeletes = tableWithPositionDelete(delete);
-        List<ConnectorScanRange> ranges = planPositionDeletes(withDeletes, Collections.emptyList());
+        List<ConnectorScanRange> ranges = planEncryptedPositionDeletes(withDeletes);
         Assertions.assertFalse(ranges.isEmpty());
         for (ConnectorScanRange range : ranges) {
             TTableFormatFileDesc desc = new TTableFormatFileDesc();
@@ -308,7 +314,7 @@ public class IcebergScanPlanProviderTest {
             if (!equality) {
                 Table withDeletes = tableWithPositionDelete(delete);
                 Assertions.assertThrows(IllegalArgumentException.class,
-                        () -> planPositionDeletes(withDeletes, Collections.emptyList()));
+                        () -> planEncryptedPositionDeletes(withDeletes));
                 IcebergScanPlanProvider countProvider = new IcebergScanPlanProvider(
                         IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(withDeletes));
                 ConnectorSession countSession = new FakeScanSession("UTC",
@@ -3528,6 +3534,17 @@ public class IcebergScanPlanProviderTest {
         return rangeDesc;
     }
 
+    private static List<ConnectorScanRange> planEncryptedPositionDeletes(Table table) {
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                    IcebergCatalogProperties.of(Map.of("iceberg.catalog.type", "hms")),
+                    opsReturning(fixture.importedTable(table)), EncryptedManifestFixture.verifiedContext());
+            return provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                    ConnectorScanRequest.builder(IcebergTableHandle.forSystemTable(
+                            "db1", "t1", "position_deletes", -1L, null, -1L), List.of()).build());
+        }
+    }
+
     private static List<ConnectorScanRange> planPositionDeletes(Table table, List<ConnectorColumnHandle> cols) {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
         return provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
@@ -4159,6 +4176,44 @@ public class IcebergScanPlanProviderTest {
 
         Assertions.assertFalse(provider.canServeMetadataOnlyCount(
                 session, new IcebergTableHandle("db1", "t1"), Optional.empty()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void countCapabilityCannotReuseSdkManifestBytesAfterAccessIsRevoked(boolean encryptedDelete) {
+        Table table = createTable("count_cache_authorization", SCHEMA, PartitionSpec.unpartitioned());
+        DataFiles.Builder data = DataFiles.builder(table.spec()).withPath("s3://bucket/data.parquet")
+                .withFormat("parquet").withFileSizeInBytes(512).withRecordCount(8);
+        if (!encryptedDelete) {
+            data.withEncryptionKeyMetadata(ByteBuffer.wrap(new byte[] {1}));
+        }
+        table.newAppend().appendFile(data.build()).commit();
+        if (encryptedDelete) {
+            table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                    .withPath("s3://bucket/delete.parquet").withFormat("parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1)
+                    .withEncryptionKeyMetadata(ByteBuffer.wrap(new byte[] {1})).build()).commit();
+        }
+        Set<String> manifestPaths = new HashSet<>();
+        table.currentSnapshot().allManifests(table.io()).forEach(manifest -> manifestPaths.add(manifest.path()));
+        AtomicBoolean denied = new AtomicBoolean();
+        FileIO observed = manifestStreamObserver(table.io(), manifestPaths, path -> {
+            if (denied.get()) {
+                throw new SecurityException("fixture manifest access revoked");
+            }
+        });
+        FileIO caching = (FileIO) Proxy.newProxyInstance(FileIO.class.getClassLoader(), new Class<?>[] {FileIO.class},
+                (proxy, method, args) -> method.getName().equals("properties")
+                        ? Map.of(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true") : invoke(method, observed, args));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(tableWithIo(table, caching)));
+        ConnectorSession session = new FakeScanSession("UTC", Map.of("ignore_iceberg_dangling_delete", "true"));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "count_cache_authorization");
+        Assertions.assertFalse(provider.canServeMetadataOnlyCount(session, handle, Optional.empty()));
+        denied.set(true);
+        Assertions.assertThrows(RuntimeException.class,
+                () -> provider.canServeMetadataOnlyCount(session, handle, Optional.empty()),
+                "A warmed byte cache must not retain or authorize a manifest containing file keys");
     }
 
     @ParameterizedTest

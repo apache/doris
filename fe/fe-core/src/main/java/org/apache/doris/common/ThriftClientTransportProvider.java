@@ -26,6 +26,10 @@ public interface ThriftClientTransportProvider {
 
     TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking) throws Exception;
 
+    default boolean supportsPrivateFileKeys() {
+        return false;
+    }
+
     /** Existing custom providers retain their transport policy until they opt into purpose selection. */
     default TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking, RpcPurpose purpose)
             throws Exception {

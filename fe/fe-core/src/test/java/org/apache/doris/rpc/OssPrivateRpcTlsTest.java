@@ -131,6 +131,26 @@ class OssPrivateRpcTlsTest {
     }
 
     @Test
+    void privateKeyCapabilityTracksBothProtocolPolicies() {
+        OssBackendServiceClientChannelProvider channels = new OssBackendServiceClientChannelProvider();
+        OssThriftClientTransportProvider transports = new OssThriftClientTransportProvider();
+        Assertions.assertTrue(channels.supportsPrivateFileKeys());
+        Assertions.assertTrue(transports.supportsPrivateFileKeys());
+        Assertions.assertFalse(new OssBackendServiceClientChannelProvider() {}.supportsPrivateFileKeys());
+        Assertions.assertFalse(new OssThriftClientTransportProvider() {}.supportsPrivateFileKeys());
+        Config.tls_excluded_protocols = "brpc";
+        Assertions.assertFalse(channels.supportsPrivateFileKeys());
+        Assertions.assertTrue(transports.supportsPrivateFileKeys());
+        Config.tls_excluded_protocols = "thrift";
+        Assertions.assertTrue(channels.supportsPrivateFileKeys());
+        Assertions.assertFalse(transports.supportsPrivateFileKeys());
+        Config.tls_excluded_protocols = "";
+        Config.tls_verify_mode = "verify_peer";
+        Assertions.assertFalse(channels.supportsPrivateFileKeys());
+        Assertions.assertFalse(transports.supportsPrivateFileKeys());
+    }
+
+    @Test
     void fragmentChannelRejectsAnotherCa() throws Exception {
         try (Peer peer = peer("untrusted")) {
             Assertions.assertThrows(StatusRuntimeException.class, () -> invoke(peer, "localhost"));
@@ -167,7 +187,9 @@ class OssPrivateRpcTlsTest {
             int port = reservation.getLocalPort();
             ServerStarter starter = new OssFeServerStarterProvider().createThriftServerStarter(reservation);
             try {
+                Assertions.assertFalse(starter.supportsPrivateFileKeys());
                 Assertions.assertDoesNotThrow(starter::start);
+                Assertions.assertTrue(starter.supportsPrivateFileKeys());
                 for (String identity : new String[] {"be", "untrusted", "be", "", "be"}) {
                     SslContextBuilder builder = SslContextBuilder.forClient().sslProvider(SslProvider.JDK)
                             .trustManager(certificates.resolve("ca.pem").toFile());
@@ -194,6 +216,7 @@ class OssPrivateRpcTlsTest {
                 }
             } finally {
                 starter.stop();
+                Assertions.assertFalse(starter.supportsPrivateFileKeys());
             }
         } finally {
             Config.thrift_server_type = previousType;
