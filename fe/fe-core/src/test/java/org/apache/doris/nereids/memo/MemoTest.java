@@ -87,7 +87,7 @@ class MemoTest implements MemoPatternMatchSupported {
         LogicalProject<LogicalProject<LogicalOlapScan>> middle = new LogicalProject<>(
                 ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)), slot), bottom);
         LogicalProject<?> top = new LogicalProject<>(ImmutableList.of(slot), middle);
-        Memo memo = new Memo(connectContext, top);
+        Memo memo = MemoTestUtils.createCascadesContext(connectContext, top).getMemo();
         MemoValidator.validate(memo);
         Assertions.assertEquals(4, memo.getGroups().size());
         Group rootGroup = memo.getRoot();
@@ -107,7 +107,8 @@ class MemoTest implements MemoPatternMatchSupported {
                 for (int i = 0; i < depth; i++) {
                     plan = new LogicalProject<>(ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)), slot), plan);
                 }
-                Memo memo = new Memo(connectContext, new LogicalProject<>(ImmutableList.of(slot), plan));
+                Memo memo = MemoTestUtils.createCascadesContext(connectContext,
+                        new LogicalProject<>(ImmutableList.of(slot), plan)).getMemo();
                 Group rootGroup = memo.getRoot();
                 Group descendant = rootGroup.getLogicalExpression().child(0);
                 for (int i = 0; i < depth; i++) {
@@ -130,7 +131,8 @@ class MemoTest implements MemoPatternMatchSupported {
     void testMergeGroupsWithIndirectPhysicalDependency() {
         SlotReference slot = (SlotReference) scan.getOutput().get(0);
         for (boolean reverse : ImmutableList.of(false, true)) {
-            Memo memo = new Memo(connectContext, new LogicalProject<>(ImmutableList.of(slot), scan));
+            Memo memo = MemoTestUtils.createCascadesContext(connectContext,
+                    new LogicalProject<>(ImmutableList.of(slot), scan)).getMemo();
             Group destination = memo.getRoot();
             Group scanGroup = destination.getLogicalExpression().child(0);
             LogicalProject<?> extraProject = new LogicalProject<>(
@@ -156,7 +158,8 @@ class MemoTest implements MemoPatternMatchSupported {
     @Test
     void testMergeGroupsWithSharedChildAndEnforcer() {
         SlotReference slot = (SlotReference) scan.getOutput().get(0);
-        Memo memo = new Memo(connectContext, new LogicalProject<>(ImmutableList.of(slot), scan));
+        Memo memo = MemoTestUtils.createCascadesContext(connectContext,
+                new LogicalProject<>(ImmutableList.of(slot), scan)).getMemo();
         Group destination = memo.getRoot();
         Group scanGroup = destination.getLogicalExpression().child(0);
         LogicalProject<?> extraProject = new LogicalProject<>(
