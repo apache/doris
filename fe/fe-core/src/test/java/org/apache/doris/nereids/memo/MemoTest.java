@@ -19,14 +19,18 @@ package org.apache.doris.nereids.memo;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.cost.Cost;
+import org.apache.doris.nereids.jobs.cascades.ApplyRuleJob;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -63,8 +67,11 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -149,6 +156,35 @@ class MemoTest implements MemoPatternMatchSupported {
         Assertions.assertEquals(3, memo.getGroupExpressionsSize());
         Assertions.assertEquals(1, scanGroup.getParentGroupExpressions().size());
         MemoValidator.validate(memo);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void testCboProjectMergeAlternativeOrder(boolean reverseAlternatives) {
+        SlotReference slot = (SlotReference) scan.getOutput().get(0);
+        LogicalProject<?> bottom = new LogicalProject<>(ImmutableList.of(slot), scan);
+        LogicalProject<?> middle = new LogicalProject<>(
+                ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)), slot), bottom);
+        CascadesContext cascades = MemoTestUtils.createCascadesContext(connectContext,
+                new LogicalProject<>(ImmutableList.of(slot), middle));
+        Memo memo = cascades.getMemo();
+        Group rootGroup = memo.getRoot();
+        Group middleGroup = rootGroup.getLogicalExpression().child(0);
+        Rule rule = new MergeProjectsCBO().build();
+
+        new ApplyRuleJob(middleGroup.getLogicalExpression(), rule, cascades.getCurrentJobContext()).execute();
+        Assertions.assertEquals(2, middleGroup.getLogicalExpressions().size());
+        if (reverseAlternatives) {
+            // Exploration can encounter either equivalent expression first; both orders must be safe.
+            Collections.reverse(middleGroup.getLogicalExpressions());
+        }
+        MemoValidator.validate(memo);
+
+        new ApplyRuleJob(rootGroup.getLogicalExpression(), rule, cascades.getCurrentJobContext()).execute();
+
+        MemoValidator.validate(memo);
+        Assertions.assertSame(rootGroup, memo.getRoot());
+        Assertions.assertEquals(4, memo.getGroups().size());
     }
 
     @Test
