@@ -57,7 +57,7 @@ import java.util.List;
 class DeltaLakePredicateConverterTest {
     private final ConnectorColumnRef column = new ConnectorColumnRef("mixed", ConnectorType.of("BIGINT"));
     private final DeltaLakePredicateConverter converter = new DeltaLakePredicateConverter(
-            new StructType().add("MiXeD", LongType.LONG), ZoneId.of("Asia/Shanghai"), List.of());
+            new StructType().add("MiXeD", LongType.LONG), ZoneId.of("Asia/Shanghai"), List.of(), List.of());
 
     @Test
     void preservesLogicalColumnNamesAndEveryComparisonIncludingReversedOperands() {
@@ -85,6 +85,19 @@ class DeltaLakePredicateConverterTest {
         Assertions.assertTrue(converter.convert(new ConnectorOr(List.of(known, unknown))).isEmpty());
         Assertions.assertTrue(converter.convert(new ConnectorOr(List.of(known, and))).isEmpty());
         Assertions.assertTrue(converter.convert(new ConnectorNot(new ConnectorOr(List.of(known, known)))).isPresent());
+    }
+
+    @Test
+    void expandsSignedZeroOnlyForDoublePartitionColumns() {
+        DeltaLakePredicateConverter partitioned = new DeltaLakePredicateConverter(new StructType()
+                .add("P", DoubleType.DOUBLE).add("value", DoubleType.DOUBLE), ZoneId.of("UTC"), List.of("P"), List.of());
+        ConnectorLiteral zero = ConnectorLiteral.ofDouble(-0.0);
+        ConnectorColumnRef partition = new ConnectorColumnRef("p", ConnectorType.of("DOUBLE"));
+        ConnectorColumnRef data = new ConnectorColumnRef("value", ConnectorType.of("DOUBLE"));
+        Assertions.assertEquals("OR", partitioned.convert(new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, partition, zero)).orElseThrow().getName());
+        Assertions.assertEquals("=", partitioned.convert(new ConnectorComparison(
+                ConnectorComparison.Operator.EQ, data, zero)).orElseThrow().getName());
     }
 
     @Test
@@ -148,7 +161,7 @@ class DeltaLakePredicateConverterTest {
         StructField field = new StructField("dt", TimestampNTZType.TIMESTAMP_NTZ, true)
                 .withTypeChanges(List.of(new TypeChange(DateType.DATE, TimestampNTZType.TIMESTAMP_NTZ)));
         DeltaLakePredicateConverter widening = new DeltaLakePredicateConverter(
-                new StructType().add(field).add("MiXeD", LongType.LONG), ZoneId.of("UTC"), List.of());
+                new StructType().add(field).add("MiXeD", LongType.LONG), ZoneId.of("UTC"), List.of(), List.of());
         ConnectorExpression date = new ConnectorComparison(ConnectorComparison.Operator.GT,
                 new ConnectorColumnRef("dt", ConnectorType.of("DATETIMEV2", 6, 0)),
                 ConnectorLiteral.ofDatetime(LocalDateTime.of(2024, 2, 29, 0, 0)));
@@ -164,7 +177,7 @@ class DeltaLakePredicateConverterTest {
     void keepsOnlyAffectedDatePartitionPredicatesResidual() {
         DeltaLakePredicateConverter dates = new DeltaLakePredicateConverter(new StructType()
                 .add("Day", DateType.DATE).add("other_day", DateType.DATE).add("label", StringType.STRING),
-                ZoneId.of("UTC"), List.of("Day", "label"));
+                ZoneId.of("UTC"), List.of("Day", "label"), List.of("Day", "label"));
         ConnectorExpression emptyDate = new ConnectorIsNull(new ConnectorColumnRef("day", ConnectorType.of("DATE")),
                 false);
         ConnectorExpression otherDate = new ConnectorComparison(ConnectorComparison.Operator.EQ,

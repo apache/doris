@@ -25,8 +25,10 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
@@ -42,6 +44,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.delta.kernel.types.DateType;
+import io.delta.kernel.types.DoubleType;
 import io.delta.kernel.types.LongType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructType;
@@ -59,6 +62,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 
@@ -240,6 +244,70 @@ class DeltaLakeScanPlanProviderTest {
             TestingConnectorSession session = new TestingConnectorSession("cast");
             Assertions.assertFalse(connector.getMetadata(session).supportsCastPredicatePushdown(session));
         }
+    }
+
+    @Test
+    void usesKernelForDoublePartitionKeysOnly() throws Exception {
+        StructType schema = new StructType().add("id", LongType.LONG).add("p", DoubleType.DOUBLE);
+        Path db = warehouse.resolve("db");
+        DeltaLakeTestTables.commit(db.resolve("native_double"), 0, "a", schema, List.of("id", "p"));
+        DeltaLakeTestTables.commit(db.resolve("double_payload"), 0, "b", schema, List.of("id"));
+        DeltaLakeTestTables.commit(db.resolve("unpartitioned"), 0, "c", schema, List.of());
+        TestingConnectorSession session = new TestingConnectorSession("native-double");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle nativeDouble = metadata.getTableHandle(session, "db", "native_double").orElseThrow();
+            Assertions.assertTrue(metadata.supportsNativePartitionPlanning(session, nativeDouble));
+            Assertions.assertEquals(ConnectorMvccPartitionView.Style.UNPARTITIONED,
+                    metadata.getMvccPartitionView(session, nativeDouble).orElseThrow().getStyle());
+            for (String table : List.of("double_payload", "unpartitioned")) {
+                ConnectorTableHandle other = metadata.getTableHandle(session, "db", table).orElseThrow();
+                Assertions.assertFalse(metadata.supportsNativePartitionPlanning(session, other));
+                Assertions.assertTrue(metadata.getMvccPartitionView(session, other).isEmpty());
+            }
+        }
+    }
+
+    @Test
+    void kernelKeepsBothSignedZerosAndExactDoubleBoundaries() throws Exception {
+        DeltaLakeTestTables.commit(warehouse.resolve("db/table"), 0, "table-id",
+                new StructType().add("id", LongType.LONG).add("p", DoubleType.DOUBLE), List.of("p"));
+        appendFile(0, "low", "-2147483648", 25);
+        appendFile(0, "minus", "-0.0", 25);
+        appendFile(0, "plus", "0.0", 25);
+        appendFile(0, "high", "100.125", 25);
+        appendFile(0, "null", null, 25);
+        TestingConnectorSession session = new TestingConnectorSession("signed-zero");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            ConnectorColumnRef p = new ConnectorColumnRef("p", ConnectorType.of("DOUBLE"));
+            Assertions.assertEquals(5, metadata.listPartitionNames(session, handle).size());
+            for (double sign : List.of(-0.0, 0.0)) {
+                ConnectorLiteral zero = ConnectorLiteral.ofDouble(sign);
+                assertDoubleFiles(provider, session, handle, new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                        p, zero), Set.of("minus", "plus"));
+                assertDoubleFiles(provider, session, handle, new ConnectorComparison(ConnectorComparison.Operator.LT,
+                        p, zero), Set.of("low"));
+                assertDoubleFiles(provider, session, handle, new ConnectorComparison(ConnectorComparison.Operator.LE,
+                        p, zero), Set.of("low", "minus", "plus"));
+                assertDoubleFiles(provider, session, handle, new ConnectorComparison(ConnectorComparison.Operator.LT,
+                        zero, p), Set.of("high"));
+                assertDoubleFiles(provider, session, handle, new ConnectorComparison(ConnectorComparison.Operator.LE,
+                        zero, p), Set.of("minus", "plus", "high"));
+            }
+            assertDoubleFiles(provider, session, handle, new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    p, ConnectorLiteral.ofDouble(-2147483648.0)), Set.of("low"));
+            assertDoubleFiles(provider, session, handle, new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                    p, ConnectorLiteral.ofDouble(-2147483650.0)), Set.of());
+        }
+    }
+
+    private static void assertDoubleFiles(ConnectorScanPlanProvider provider, TestingConnectorSession session,
+            ConnectorTableHandle handle, ConnectorExpression filter, Set<String> expected) {
+        List<ConnectorScanRange> ranges = provider.planScan(session,
+                request(handle).filter(Optional.of(filter)).build());
+        Assertions.assertEquals(expected, ranges.stream().map(range -> range.getPath().orElseThrow())
+                .map(path -> path.substring(path.lastIndexOf('/') + 1)).collect(Collectors.toSet()));
     }
 
     @Test

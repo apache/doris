@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.thrift.THiveTable;
@@ -35,6 +36,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import io.delta.kernel.Snapshot;
+import io.delta.kernel.types.DoubleType;
 import io.delta.kernel.types.StructType;
 
 import java.util.Collections;
@@ -168,6 +170,25 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean listsPartitionsAtSnapshot(ConnectorSession session, ConnectorTableHandle handle) {
         return true;
+    }
+
+    @Override
+    public boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
+        return runtime.execute(() -> {
+            Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime);
+            StructType schema = snapshot.getSchema();
+            return snapshot.getPartitionColumnNames().stream()
+                    .anyMatch(name -> schema.get(name).getDataType() instanceof DoubleType);
+        });
+    }
+
+    @Override
+    public Optional<ConnectorMvccPartitionView> getMvccPartitionView(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        // An eager consumer still needs the real partition names. A Doris LIST key can narrow a
+        // DOUBLE to FLOAT and discard matching files before either Kernel or BE sees the predicate.
+        return supportsNativePartitionPlanning(session, handle)
+                ? Optional.of(ConnectorMvccPartitionView.unpartitioned()) : Optional.empty();
     }
 
     @Override

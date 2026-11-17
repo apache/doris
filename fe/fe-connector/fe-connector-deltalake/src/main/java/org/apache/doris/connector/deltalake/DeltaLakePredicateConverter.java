@@ -64,13 +64,18 @@ import java.util.Optional;
 
 /** File pruning only: every original predicate remains a BE residual. */
 final class DeltaLakePredicateConverter {
+    private static final Literal NEGATIVE_ZERO = Literal.ofDouble(-0.0);
+    private static final Literal POSITIVE_ZERO = Literal.ofDouble(0.0);
     private final StructType schema;
     private final ZoneId zone;
+    private final Collection<String> partitionColumns;
     private final Collection<String> possibleEmptyDatePartitions;
 
-    DeltaLakePredicateConverter(StructType schema, ZoneId zone, Collection<String> possibleEmptyDatePartitions) {
+    DeltaLakePredicateConverter(StructType schema, ZoneId zone, Collection<String> partitionColumns,
+            Collection<String> possibleEmptyDatePartitions) {
         this.schema = schema;
         this.zone = zone;
+        this.partitionColumns = partitionColumns;
         this.possibleEmptyDatePartitions = possibleEmptyDatePartitions;
     }
 
@@ -125,7 +130,12 @@ final class DeltaLakePredicateConverter {
                 if (value == null) {
                     return null;
                 }
-                values.add(value);
+                if (isDoublePartitionZero(field, value)) {
+                    values.add(NEGATIVE_ZERO);
+                    values.add(POSITIVE_ZERO);
+                } else {
+                    values.add(value);
+                }
             }
             Predicate predicate = new In(new Column(field.getName()), values);
             return in.isNegated() ? new Predicate("NOT", predicate) : predicate;
@@ -147,12 +157,31 @@ final class DeltaLakePredicateConverter {
                 // Keep null-safe semantics even beneath NOT; '=' would turn null into UNKNOWN.
                 operator = "IS NOT DISTINCT FROM";
             }
-            if (comparison.getOperator() == ConnectorComparison.Operator.NE) {
+            ConnectorComparison.Operator op = comparison.getOperator();
+            if (isDoublePartitionZero(field, value)) {
+                // Kernel orders -0.0 below +0.0. Doris treats them as one value, including inside NOT.
+                if (op == ConnectorComparison.Operator.EQ || op == ConnectorComparison.Operator.NE
+                        || op == ConnectorComparison.Operator.EQ_FOR_NULL) {
+                    String equality = op == ConnectorComparison.Operator.NE ? "=" : operator;
+                    Predicate either = new Predicate("OR", new Predicate(equality, column, NEGATIVE_ZERO),
+                            new Predicate(equality, column, POSITIVE_ZERO));
+                    return op == ConnectorComparison.Operator.NE ? new Predicate("NOT", either) : either;
+                }
+                // For column < 0 and column >= 0, the boundary is the first zero in Kernel's order.
+                boolean useNegative = op == ConnectorComparison.Operator.LT || op == ConnectorComparison.Operator.GE;
+                value = useNegative != reversed ? NEGATIVE_ZERO : POSITIVE_ZERO;
+            }
+            if (op == ConnectorComparison.Operator.NE) {
                 return new Predicate("NOT", new Predicate("=", column, value));
             }
             return reversed ? new Predicate(operator, value, column) : new Predicate(operator, column, value);
         }
         return null;
+    }
+
+    private boolean isDoublePartitionZero(StructField field, Literal literal) {
+        return literal.getValue() instanceof Double && (double) literal.getValue() == 0.0
+                && partitionColumns.contains(field.getName());
     }
 
     private StructField field(ConnectorExpression expression) {
