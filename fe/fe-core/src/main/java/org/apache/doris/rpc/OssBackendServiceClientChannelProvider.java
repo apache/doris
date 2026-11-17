@@ -31,6 +31,13 @@ import java.util.concurrent.TimeUnit;
 
 public class OssBackendServiceClientChannelProvider implements BackendServiceClientChannelProvider {
     @Override
+    public boolean supportsPrivateFileKeys() {
+        // A subclass can replace channel creation; it must explicitly prove its own transport policy.
+        return getClass() == OssBackendServiceClientChannelProvider.class
+                && PrivateRpcTls.supportsPrivateFileKeys(Protocol.BRPC);
+    }
+
+    @Override
     public ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor) {
         return createChannelForPurpose(address, resolvedIp, executor, true);
     }

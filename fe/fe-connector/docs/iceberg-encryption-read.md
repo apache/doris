@@ -1,9 +1,9 @@
 # Iceberg encrypted-read contract
 
-This is the admission contract for the first stage of native Iceberg encrypted
-reads. Encrypted queries remain unavailable until key transport, native readers,
-delete handling and backend capability negotiation are implemented. Building
-Arrow with Parquet modular encryption alone does not establish those capabilities.
+This contract covers opt-in native Iceberg encrypted reads. Execution requires
+the SDK encryption chain, native Parquet readers, independent delete-file keys
+and authenticated private RPC. Building Arrow with Parquet modular encryption
+alone does not establish those capabilities.
 
 ## Configuration and admission
 
@@ -25,9 +25,9 @@ The initial target matrix is:
 | --- | --- | --- |
 | Catalog | HMS or REST with the SDK standard encryption manager and an operator-configured KMS | Other catalogs are rejected |
 | Table format | Iceberg v3 | Other versions are rejected for encrypted reads |
-| Data and delete files | Native Parquet modular encryption, `AES_GCM_V1` | No encrypted ranges are emitted yet |
+| Data and delete files | Native Parquet modular encryption, `AES_GCM_V1` | Independent data, position-delete and equality-delete keys |
 | Manifest/list files | SDK-managed encryption | No plaintext fallback is allowed |
-| Backend | Native encrypted reader and protected FE/BE key transport | Both remain unavailable, so admission fails |
+| Backend | Native encrypted reader and protected FE/BE key transport | Fresh runtime capability required on every selectable live BE |
 | Writes | Outside this read contract | The read switch grants no write capability |
 
 Table encryption is recognized from `encryption.key-id`, retained v3
@@ -38,11 +38,10 @@ KMS credentials or key material.
 
 The writer's `write.format.default` is not evidence of the format of existing
 files. File format, algorithm, key metadata and AAD must be validated on the
-actual data/delete tasks by the subsequent planning and reader implementations.
-This stage rejects encrypted tables before that work, even with the switch on.
-It does not inspect every plaintext table's manifests just to discover encryption.
-Externally encrypted files with no Iceberg encryption declaration are outside
-this table-level contract; data-task validation must reject them when encountered.
+actual data/delete tasks. Imported files with per-file keys but no table-level
+declaration still pass the full deployment, HMS/v3 and standard-manager check
+when encountered. Unsupported encrypted file formats fail explicitly. Encrypted
+JNI metadata tables are rejected; native `$position_deletes` remains supported.
 
 ## Failure classification
 
@@ -55,28 +54,44 @@ Errors contain a stable `Iceberg encryption [CLASSIFICATION]` prefix:
 | `UNSUPPORTED_TABLE_FORMAT` | The encrypted table is not v3 |
 | `UNSUPPORTED_ENCRYPTION_MANAGER` | Encryption detection observed a custom SDK encryption manager |
 | `BACKEND_CAPABILITY_UNAVAILABLE` | The engine cannot prove encrypted-read support |
+| `UNSUPPORTED_METADATA_TABLE` | The encrypted metadata table would use JNI outside the native key contract |
+| `UNSUPPORTED_FILE_FORMAT` | A keyed task does not use the supported native file format |
 
 The first applicable failure is returned in this order. For a table with an
 encryption declaration, backend admission fails without initializing its KMS
-manager; manager and per-file validation belong to subsequent read implementation.
-A rejected read must
+manager. After admission, the SDK manager and each physical descriptor are
+validated before use. A rejected read must
 not fall back to plaintext, metadata counts, a JNI reader or another catalog.
 Plaintext reads in those catalogs continue to work.
 
 ## Requirements before enabling execution
 
 The scan protocol carries each data/delete file's binary key and AAD independently.
-FE and BE are deployed together for this feature; no heartbeat capability
-negotiation is required. FE must reject encrypted dispatch and lazy split
-responses until the native reader and protected internal key transport are ready.
-BE must also reject encrypted data and deletes before reader, cache or COUNT
-paths. Repeated split fetches must preserve an existing rejection.
+Configure every participating FE and BE for private mutual TLS as described in
+[private RPC TLS](../../../docs/private-rpc-tls.md). Both fragment gRPC/BRPC and
+split Thrift must be protected, with mandatory trusted client certificates,
+operator-managed identities and CA, and the supported static identity policy.
+Public SQL/HTTP protocols have their own authentication settings.
 
-The connector currently reports `BACKEND_CAPABILITY_UNAVAILABLE` before file
-descriptors are created. The [scan wire contract](iceberg-encryption-wire.md)
-defines per-file payloads, diagnostic redaction and the later dispatch guard.
-File keys remain query-scoped, with bounded lifetimes; they must not enter EXPLAIN
-output, profiles or persistent scan caches.
+Only the selected concrete OSS providers prove this contract automatically;
+custom providers default to unavailable and must explicitly implement the
+capability contract. A running FE TLS split listener is required. Backends
+advertise protocol version 1 only with the native dependency and supported
+private transports. FE uses a fresh, process-local heartbeat lease; images,
+failed/missing capabilities and stale heartbeats cannot grant support. Admission
+conservatively requires every currently selectable live backend to be capable.
+
+Initial fragments use `FORMAT_PARQUET_PME` (wire value 22), including shared scan
+parameters. Assigned targets are checked before serialization and again before
+sending. Lazy fetches additionally carry the actual caller's version; a
+restarted old BE cannot inherit a predecessor's cached lease. Missing capability
+rejects encrypted work while ordinary plaintext reads remain compatible. A lost
+capability is a planning refusal and does not blacklist a healthy backend.
+
+The [scan wire contract](iceberg-encryption-wire.md) defines payloads, diagnostic
+redaction and dispatch checks. File keys remain query-scoped, with bounded
+lifetimes; they must not enter EXPLAIN output, profiles or persistent scan caches.
+No deterministic JVM memory zeroization or crash-dump protection is promised.
 
 See the upstream [Iceberg encryption documentation](https://iceberg.apache.org/docs/nightly/encryption/)
 and [table specification](https://iceberg.apache.org/spec/#encryption-keys) for
@@ -171,16 +186,18 @@ without including binary payloads in errors.
 
 The immutable file carrier is reused only across that file's byte-slices; every
 Thrift descriptor receives independent mutable buffers. A null per-file metadata
-field remains plaintext, including in a mixed snapshot. This is key transport
-only: the deployment admission and backend dispatch guards remain closed until
-native decryption, encrypted deletes and pruning are integrated.
+field remains plaintext, including in a mixed snapshot. A plaintext data file
+with encrypted deletes still uses the protected native wire format.
 
-Both metadata COUNT algorithms validate live file metadata while retaining only
-one representative task. A per-file encryption marker causes an immediate
+Declared encrypted tables bypass metadata-only COUNT and emit physical ranges.
+BE also disables aggregate shortcuts for the whole marked scan, including a
+plaintext first file, so file and delete authentication cannot be skipped.
+For undeclared per-file keys, both metadata COUNT probes validate live file
+metadata while retaining only one representative task. Such a marker causes an immediate
 `Iceberg encryption [COUNT_READ_UNAVAILABLE]` rejection, including in a table
 without a table-level encryption declaration. COUNT scheduling has already
 disabled streaming; normal-scan fallback would retain all file tasks and ranges
-before the dispatch guard rejects them. This deterministic rejection must not
+for a table outside the admitted encryption scope. This deterministic rejection must not
 trigger the manifest cache's SDK retry. Plaintext COUNT retains its existing
 collapse and cache-failure fallback behavior.
 
@@ -241,7 +258,8 @@ files: its decoded contents must not bypass the next caller's manifest-key
 validation. An otherwise plaintext manifest containing data, position-delete or
 equality-delete key metadata is declined by the cache as well. Both synchronous
 and future loads isolate unclassified misses, before their contents are known.
-The adapter disables the SDK manifest byte cache for these reads; otherwise a
+The adapter, raw COUNT probes and equality-delete discovery disable the SDK
+manifest byte cache for these reads; otherwise a
 path-only cache hit could reuse previously decrypted bytes with a missing current
 descriptor. Encrypted statement snapshots use the same uncached IO view for SDK
 planning. Failed reads are not cached, so correcting the current descriptor
@@ -265,6 +283,32 @@ cannot reuse a warm result, and concurrent statements retain distinct managers
 through catalog retirement. Manifest reader tests additionally cover concurrent
 data/delete coalescing, isolated observer cancellation, descriptor-key changes,
 plaintext cache hits, bounded private retention and losing reader-registration
-races. These tests do not enable encrypted SQL admission;
-transport, native reader lifetime and end-to-end acceptance remain separate
-requirements.
+races. Native tests exercise independent decryptor state,
+malformed payloads, reader close and cancellation. Unit fixtures alone do not
+establish complete deployment interoperability.
+
+## Opt-in native SQL integration
+
+Run the separate enabled suite against a cluster configured for the supported
+private transports and with `enable_encryption_read=true` in every FE's plugin:
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encryption_native_read_integration
+```
+
+Set `enableIcebergTest=true` and `enableIcebergEncryptionNativeRead=true` in the
+regression configuration. The isolated fixture is described in its
+[README](../../../docker/thirdparties/docker-compose/iceberg/encryption/README.md).
+It covers SDK/Spark historical results, independent data/delete keys, cache,
+batch and pruning toggles, physical COUNT, joins, native position deletes,
+multi-file/row-group scans and same-endpoint warm-cache KMS revocation/restoration.
+Run the default-off admission suites in a separate deployment phase. The mock KMS
+validates protocol/error propagation and does not establish live AWS IAM policy
+acceptance. The read switch remains off by default and grants no encrypted writes.
+
+V3 scan planning remains synchronous in this stage. Changing the external batch
+session setting does not enable V3 streaming. Lazy split caller checks are
+covered independently, including legacy plaintext callers; authenticated Thrift
+RPC tests round-trip independent binary data/delete payloads through cached and
+reopened connections. This does not claim encrypted V3 lazy SQL execution.

@@ -20,6 +20,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -29,6 +30,14 @@ import java.util.UUID;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.ManifestFiles;
+import org.apache.iceberg.ManifestReader;
+import org.apache.iceberg.ManifestWriter;
+import org.apache.iceberg.RewriteManifests;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
@@ -44,6 +53,7 @@ import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
 import org.apache.iceberg.encryption.EncryptionUtil;
 import org.apache.iceberg.encryption.NativeEncryptionKeyMetadata;
+import org.apache.iceberg.encryption.StandardEncryptionManager;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DataWriter;
@@ -57,7 +67,7 @@ public final class NativeDeleteFixture {
     private static final String WAREHOUSE = "s3://iceberg-encryption/native-deletes";
     private static final Schema SCHEMA = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
 
-    public static void reset(HiveCatalog catalog, S3FileIO cleanup) throws Exception {
+    public static void reset(HiveCatalog catalog, S3FileIO cleanup, String wrappingKeyId) throws Exception {
         Namespace namespace = Namespace.of(DB);
         if (!catalog.namespaceExists(namespace)) {
             catalog.createNamespace(namespace, Map.of("location", "file:/tmp/" + DB));
@@ -79,9 +89,42 @@ public final class NativeDeleteFixture {
                 if (version == 3) {
                     // V3 retains older Parquet position deletes after a V2 snapshot is upgraded.
                     table.updateProperties().set(TableProperties.FORMAT_VERSION, "3").commit();
+                    // Hive disallows adding an encryption key to an existing table. Register a V3
+                    // fixture snapshot instead, preserving the legacy Parquet deletes, then let the
+                    // SDK rewrite its manifests and manifest list through the configured test KMS.
+                    TableMetadata upgraded = ((HasTableOperations) table).operations().current();
+                    Map<String, String> properties = new HashMap<>(upgraded.properties());
+                    properties.put(TableProperties.ENCRYPTION_TABLE_KEY, wrappingKeyId);
+                    String seed = location + "/metadata/fixture-seed.metadata.json";
+                    TableMetadataParser.write(upgraded.replaceProperties(properties), table.io().newOutputFile(seed));
+                    catalog.dropTable(identifier, false);
+                    table = catalog.registerTable(identifier, seed);
+                    // A rewrite predicate alone does not activate the SDK data-manifest rewrite.
+                    table.rewriteManifests().clusterBy(file -> 0).rewriteIf(manifest -> true).commit();
+                    encryptRetainedDeleteManifests(table);
                 }
             }
         }
+    }
+
+    private static void encryptRetainedDeleteManifests(Table table) throws Exception {
+        RewriteManifests rewrite = table.rewriteManifests();
+        for (ManifestFile manifest : table.currentSnapshot().deleteManifests(table.io())) {
+            String output = table.location() + "/metadata/delete-rewrite-" + UUID.randomUUID() + ".avro";
+            ManifestWriter<DeleteFile> writer = ManifestFiles.writeDeleteManifest(3,
+                    table.specs().get(manifest.partitionSpecId()),
+                    table.encryption().encrypt(table.io().newOutputFile(output)), null);
+            try (writer; ManifestReader<DeleteFile> reader = ManifestFiles.readDeleteManifest(
+                    manifest, table.io(), table.specs())) {
+                for (DeleteFile file : reader) {
+                    // SDK rewriteManifests skips delete manifests. Preserve their existing sequence
+                    // numbers explicitly: assigning a new data sequence would change delete semantics.
+                    writer.existing(file, manifest.snapshotId(), file.dataSequenceNumber(), file.fileSequenceNumber());
+                }
+            }
+            rewrite.deleteManifest(manifest).addManifest(writer.toManifestFile());
+        }
+        rewrite.commit();
     }
 
     private static String path(Table table, String kind) {
@@ -166,6 +209,22 @@ public final class NativeDeleteFixture {
         for (int version : new int[] {2, 3}) {
             for (int mode = 0; mode < 8; mode++) {
                 Table table = catalog.loadTable(TableIdentifier.of(DB, "native_deletes_" + mode + "_v" + version));
+                if (version == 3) {
+                    TableMetadata metadata = ((HasTableOperations) table).operations().current();
+                    if (!(table.encryption() instanceof StandardEncryptionManager)) {
+                        throw new IllegalStateException("V3 delete fixture has no Standard encryption manager");
+                    }
+                    if (metadata.encryptionKeys().isEmpty()) {
+                        throw new IllegalStateException("V3 delete fixture has no KMS-protected table key chain");
+                    }
+                    if (table.currentSnapshot().keyId() == null) {
+                        throw new IllegalStateException("V3 delete fixture manifest list is not encrypted");
+                    }
+                    if (table.currentSnapshot().allManifests(table.io()).stream()
+                            .anyMatch(manifest -> manifest.keyMetadata() == null)) {
+                        throw new IllegalStateException("V3 delete fixture contains an unencrypted manifest");
+                    }
+                }
                 try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
                     int files = 0;
                     for (FileScanTask task : tasks) {

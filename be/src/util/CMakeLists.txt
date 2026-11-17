@@ -39,7 +39,7 @@ add_library(Util STATIC
 )
 
 if (NOT ENABLE_TLS)
-    # Purpose-aware defaults apply only to the OSS providers; custom modules keep their existing policy.
+    # Custom transport modules retain their policy and must opt into the private key contract.
     target_compile_definitions(Util PRIVATE DORIS_OSS_PRIVATE_RPC_PROVIDERS=1)
 endif()
 

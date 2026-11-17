@@ -24,14 +24,17 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
@@ -43,6 +46,24 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 class PipelineExecutionTaskTest {
+    @Test
+    void encryptionCapabilityIsCheckedAgainBeforeSendingSerializedFragments() throws Exception {
+        Backend backend = new Backend(1, "127.0.0.1", 9050);
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+        MultiFragmentsPipelineTask task = new MultiFragmentsPipelineTask(context, backend, proxy,
+                ByteString.copyFromUtf8("fixture-fragment"), Map.of(), true);
+        try (MockedStatic<NativeFileEncryptionSupport> proof = Mockito.mockStatic(NativeFileEncryptionSupport.class)) {
+            proof.when(() -> NativeFileEncryptionSupport.require(backend))
+                    .thenThrow(new IllegalStateException("File encryption [READ_UNAVAILABLE]"));
+            PExecPlanFragmentResult result = task.sendPhaseOneRpc(false).get();
+            Assertions.assertTrue(result.getStatus().getErrorMsgs(0).contains("READ_UNAVAILABLE"));
+            Assertions.assertEquals(TStatusCode.NOT_IMPLEMENTED_ERROR.getValue(), result.getStatus().getStatusCode());
+            Mockito.verifyNoInteractions(proxy);
+            Assertions.assertNull(Deencapsulation.getField(task, "serializeFragments"));
+        }
+    }
+
     @Test
     void expiredDeadlineCancelsAlreadySubmittedFragments() throws Exception {
         CoordinatorContext coordinatorContext = Mockito.mock(CoordinatorContext.class);

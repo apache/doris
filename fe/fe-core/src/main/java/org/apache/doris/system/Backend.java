@@ -50,6 +50,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -66,6 +67,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class Backend implements Writable {
     private static final Logger LOG = LogManager.getLogger(Backend.class);
+    private static final long PROCESS_START_TIME_MS = ManagementFactory.getRuntimeMXBean().getStartTime();
 
     // Represent a meaningless IP
     public static final String DUMMY_IP = "0.0.0.0";
@@ -152,6 +154,8 @@ public class Backend implements Writable {
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
     private volatile boolean supportsPaimonRustReader;
+    // Images cannot prove the current process or transport. Only a fresh runtime heartbeat can grant a lease.
+    private transient volatile FileEncryptionCapability fileEncryptionCapability;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -266,6 +270,15 @@ public class Backend implements Writable {
 
     public boolean isPaimonRustReaderSupported() {
         return supportsPaimonRustReader;
+    }
+
+    public int getNativeFileEncryptionVersion() {
+        FileEncryptionCapability capability = fileEncryptionCapability;
+        if (capability == null || !isAlive() || capability.heartbeatTimeMs() < PROCESS_START_TIME_MS) {
+            return 0;
+        }
+        long age = Math.abs(System.currentTimeMillis() - capability.heartbeatTimeMs());
+        return age <= 3_000L * Config.heartbeat_interval_second ? capability.version() : 0;
     }
 
     /** Connector-facing capabilities reported by this backend. */
@@ -886,7 +899,14 @@ public class Backend implements Writable {
      * return true if any port changed, or alive state is changed.
      */
     public boolean handleHbResponse(BackendHbResponse hbResponse, boolean isReplay) {
-        boolean isChanged = false;
+        FileEncryptionCapability previousCapability = fileEncryptionCapability;
+        fileEncryptionCapability = hbResponse.getStatus() == HbStatus.OK
+                && hbResponse.getNativeFileEncryptionVersion() > 0
+                ? new FileEncryptionCapability(hbResponse.getNativeFileEncryptionVersion(), hbResponse.getHbTime())
+                : null;
+        // Positive leases must reach followers every round. Missing/failed heartbeats must revoke them
+        // immediately, even while the usual liveness grace still considers the backend alive.
+        boolean isChanged = previousCapability != null || fileEncryptionCapability != null;
         if (hbResponse.getStatus() == HbStatus.OK) {
             // An absent capability also clears support after a downgrade or legacy heartbeat replay.
             if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
@@ -1171,4 +1191,6 @@ public class Backend implements Writable {
         return result;
     }
 
+    private record FileEncryptionCapability(int version, long heartbeatTimeMs) {
+    }
 }

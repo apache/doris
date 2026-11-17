@@ -36,6 +36,11 @@ public class BackendServiceClient {
     public static final Logger LOG = LogManager.getLogger(BackendServiceClient.class);
     private static final BackendServiceClientChannelProvider CHANNEL_PROVIDER =
             BackendServiceClientChannelProviderFactory.create();
+
+    public static boolean supportsPrivateFileKeys() {
+        return CHANNEL_PROVIDER.supportsPrivateFileKeys();
+    }
+
     private final TNetworkAddress address;
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;

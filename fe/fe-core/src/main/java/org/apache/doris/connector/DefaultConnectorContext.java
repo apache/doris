@@ -46,6 +46,7 @@ import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
+import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -253,6 +254,11 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         } catch (Exception e) {
             throw new RuntimeException("JDBC URL security check failed: " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public int getNativeFileEncryptionVersion() {
+        return NativeFileEncryptionSupport.version();
     }
 
     @Override

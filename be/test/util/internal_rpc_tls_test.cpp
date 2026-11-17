@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/util/config.h>
 #include <brpc/channel.h>
 #include <brpc/server.h>
 #include <brpc/stream.h>
@@ -43,6 +44,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/sink/load_stream_stub.h"
 #include "exec/sink/writer/maxcompute/vmc_table_writer.h"
 #include "gen_cpp/FrontendService.h"
@@ -134,9 +136,24 @@ protected:
 
     static void expect_successful_split(FrontendServiceConnection& connection) {
         TFetchSplitBatchResult result;
-        connection->fetchSplitBatch(result, TFetchSplitBatchRequest());
+        TFetchSplitBatchRequest request;
+        request.__set_native_file_encryption_version(1);
+        connection->fetchSplitBatch(result, request);
         EXPECT_TRUE(result.__isset.status);
         EXPECT_EQ(TStatusCode::OK, result.status.status_code);
+        ASSERT_TRUE(result.__isset.splits);
+        ASSERT_EQ(1, result.splits.size());
+        const auto& ranges = result.splits[0].scan_range.ext_scan_range.file_scan_range.ranges;
+        ASSERT_EQ(1, ranges.size());
+        EXPECT_EQ(TFileFormatType::FORMAT_PARQUET_PME, ranges[0].format_type);
+        const auto& iceberg = ranges[0].table_format_params.iceberg_params;
+        EXPECT_EQ(std::string(16, 'd'), iceberg.encryption_info.key);
+        EXPECT_EQ(std::string("\0\xff", 2), iceberg.encryption_info.aad_prefix);
+        ASSERT_EQ(2, iceberg.delete_files.size());
+        EXPECT_EQ(std::string(16, 'p'), iceberg.delete_files[0].encryption_info.key);
+        EXPECT_EQ(std::string(16, 'e'), iceberg.delete_files[1].encryption_info.key);
+        EXPECT_EQ(std::string("\0\xfe", 2), iceberg.delete_files[0].encryption_info.aad_prefix);
+        EXPECT_EQ(std::string("\0\xfd", 2), iceberg.delete_files[1].encryption_info.aad_prefix);
     }
 
     static void configure_test_channel(brpc::ChannelOptions* options, const std::string& mode) {
@@ -241,10 +258,43 @@ public:
 
 class TlsSplitService final : public FrontendServiceNull {
 public:
-    void fetchSplitBatch(TFetchSplitBatchResult& result, const TFetchSplitBatchRequest&) override {
+    void fetchSplitBatch(TFetchSplitBatchResult& result,
+                         const TFetchSplitBatchRequest& request) override {
+        EXPECT_TRUE(request.__isset.native_file_encryption_version);
+        EXPECT_EQ(1, request.native_file_encryption_version);
         TStatus status;
         status.__set_status_code(TStatusCode::OK);
         result.__set_status(status);
+        // Real TLS RPCs must preserve independent binary file payloads on cached and reopened sockets.
+        auto key = [](char value, const std::string& aad) {
+            TFileEncryptionInfo info;
+            info.__set_version(1);
+            info.__set_key(std::string(16, value));
+            info.__set_aad_prefix(aad);
+            return info;
+        };
+        TIcebergDeleteFileDesc position;
+        position.__set_encryption_info(key('p', std::string("\0\xfe", 2)));
+        TIcebergDeleteFileDesc equality;
+        equality.__set_encryption_info(key('e', std::string("\0\xfd", 2)));
+        TIcebergFileDesc iceberg;
+        iceberg.__set_encryption_info(key('d', std::string("\0\xff", 2)));
+        iceberg.__set_delete_files({position, equality});
+        TTableFormatFileDesc table;
+        table.__set_table_format_type("iceberg");
+        table.__set_iceberg_params(iceberg);
+        TFileRangeDesc range;
+        range.__set_format_type(TFileFormatType::FORMAT_PARQUET_PME);
+        range.__set_table_format_params(table);
+        TFileScanRange file_scan;
+        file_scan.__set_ranges({range});
+        TExternalScanRange external;
+        external.__set_file_scan_range(file_scan);
+        TScanRange scan;
+        scan.__set_ext_scan_range(external);
+        TScanRangeLocations location;
+        location.__set_scan_range(scan);
+        result.__set_splits({location});
     }
 };
 
@@ -298,6 +348,54 @@ TEST_F(InternalRpcTlsTest, JavaWriterCallbacksUseLocalPolicyInsteadOfSinkPropert
 
 TEST_F(InternalRpcTlsTest, LazySplitClientAuthenticatesBothPeers) {
     EXPECT_TRUE(exchange("fe"));
+}
+
+TEST_F(InternalRpcTlsTest, NativeFileKeysRequireBothProtectedProtocolsAndAnExplicitReaderFormat) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET_PME);
+    for (int content : {0, 1, 2}) {
+        TFileEncryptionInfo info;
+        info.__set_version(1);
+        info.__set_key(std::string(16, 'k'));
+        info.__set_aad_prefix("");
+        TIcebergFileDesc iceberg;
+        if (content == 0) {
+            iceberg.__set_encryption_info(info);
+        } else {
+            TIcebergDeleteFileDesc file;
+            file.__set_content(content);
+            file.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+            file.__set_encryption_info(info);
+            iceberg.__set_delete_files({file});
+        }
+        TTableFormatFileDesc table;
+        table.__set_table_format_type("iceberg");
+        table.__set_iceberg_params(iceberg);
+        TFileRangeDesc range;
+        range.__set_table_format_params(table);
+        // Protected transports cannot grant reader support when the installed Parquet bundle lacks PME.
+#if defined(PARQUET_REQUIRE_ENCRYPTION) && __has_include(<parquet/encryption/encryption_internal.h>)
+        ASSERT_TRUE(validate_file_scan_support(params, &range).ok());
+#else
+        EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
+#endif
+
+        for (const auto* excluded : {"brpc", "thrift"}) {
+            config::tls_excluded_protocols = excluded;
+            EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
+        }
+        config::tls_excluded_protocols = "http,arrowflight";
+        config::enable_tls = false;
+        EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
+        config::enable_tls = true;
+        config::tls_verify_mode = "verify_peer";
+        EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
+        config::tls_verify_mode = "verify_fail_if_no_peer_cert";
+
+        // A markerless optional key could be silently ignored by a downgraded process.
+        range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+        EXPECT_FALSE(validate_file_scan_support(params, &range).ok());
+    }
 }
 
 TEST_F(InternalRpcTlsTest, LazySplitClientRejectsAnUntrustedServer) {
