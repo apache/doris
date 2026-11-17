@@ -23,9 +23,9 @@ public class Password {
     @SerializedName(value = "pwd")
     private byte[] password;
 
-    // MySQL-compatible dual password: the previous (retained) password, kept
-    // valid for authentication until the next password change without
-    // "RETAIN CURRENT PASSWORD", or an explicit "DISCARD OLD PASSWORD".
+    // MySQL-compatible dual password: the previous (retained) password,
+    // preserved by ordinary password changes; replaced by the next RETAIN,
+    // discarded explicitly, or cleared by an empty password or binding change.
     // Nullable; absent in images written before this feature (GSON tolerant
     // in both directions).
     @SerializedName(value = "pwd2")

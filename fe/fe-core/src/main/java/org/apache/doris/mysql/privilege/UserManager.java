@@ -507,11 +507,10 @@ public class UserManager implements Writable {
      * mutates a Password object authentication may be reading:
      * matchUserPassword compares against one snapshot per generation.
      *
-     * <p>A domain account ({@code u@['example.com']}) is cleared here in its
-     * domain entry only; the resolved-IP entries the DomainResolver derives
-     * from it keep their copy until its next refresh (10 s) rebuilds them, so
-     * the discarded password stays valid for up to that long - the same lag a
-     * plain password change on a domain account has.
+     * <p>For a domain account ({@code u@['example.com']}), the Auth caller
+     * immediately refreshes the resolved-IP entries under the same write lock,
+     * on both execution and replay, so they stop accepting the discarded
+     * password without waiting for the DomainResolver's next periodic pass.
      */
     public void discardOldPassword(UserIdentity userIdentity, boolean errOnNonExist) throws DdlException {
         User user = getUserByUserIdentity(userIdentity);

@@ -63,8 +63,8 @@ import java.util.Map;
 /**
  * MySQL-compatible dual password:
  * ALTER USER ... IDENTIFIED BY ... RETAIN CURRENT PASSWORD keeps the previous
- * password valid (secondary slot) until the next password change without
- * RETAIN, or an explicit ALTER USER ... DISCARD OLD PASSWORD.
+ * password valid as the secondary across ordinary password changes, until
+ * another RETAIN, DISCARD, an empty password or a binding change replaces it.
  */
 public class DualPasswordTest {
 
@@ -739,6 +739,63 @@ public class DualPasswordTest {
         Assertions.assertTrue(canLogin("domuser2", "p2"));
         Assertions.assertTrue(canLogin("domuser2", "p1"));
         Assertions.assertFalse(canLogin("domuser2", "p0"));
+    }
+
+    @Test
+    public void testDomainDiscardRevokesSecondaryBeforeTheResolverTick() throws Exception {
+        UserIdentity admin = createUser("domain_discard_admin");
+        UserIdentity domainIdent = new UserIdentity("domain_discard", "mydomain.example", true);
+        domainIdent.setIsAnalyzed();
+        auth.createUser(new CreateUserCommand(new CreateUserInfo(new UserDesc(domainIdent))).getInfo());
+        auth.setPassword(domainIdent, MysqlPassword.makeScrambledPassword("p1"));
+        auth.refreshUserPrivEntriesByResovledIPs(
+                ImmutableMap.of("mydomain.example", Sets.newHashSet("192.168.1.1")));
+        Assertions.assertTrue(canLogin("domain_discard", "p1"));
+
+        ConnectContext ctx = ctxFor(admin);
+        grantPriv(true);
+        alterUser(ctx, "ALTER USER 'domain_discard'@('mydomain.example')"
+                + " IDENTIFIED BY 'p2' RETAIN CURRENT PASSWORD");
+        Assertions.assertTrue(canLogin("domain_discard", "p2"));
+        Assertions.assertTrue(canLogin("domain_discard", "p1"));
+
+        // No periodic resolver refresh between the rotation, DISCARD and login checks.
+        Mockito.clearInvocations(editLog);
+        alterUser(ctx, "ALTER USER 'domain_discard'@('mydomain.example') DISCARD OLD PASSWORD");
+        Assertions.assertFalse(canLogin("domain_discard", "p1"));
+        Assertions.assertTrue(canLogin("domain_discard", "p2"));
+        Mockito.verify(editLog, Mockito.times(1)).logAlterUser(Mockito.any(AlterUserOperationLog.class));
+        Mockito.verify(editLog, Mockito.never()).logSetPassword(Mockito.any(PrivInfo.class));
+
+        // Repeating DISCARD without a secondary keeps the primary usable.
+        alterUser(ctx, "ALTER USER 'domain_discard'@('mydomain.example') DISCARD OLD PASSWORD");
+        Assertions.assertFalse(canLogin("domain_discard", "p1"));
+        Assertions.assertTrue(canLogin("domain_discard", "p2"));
+    }
+
+    @Test
+    public void testDomainDiscardReplayRevokesSecondaryBeforeTheResolverTick() throws Exception {
+        UserIdentity domainIdent = new UserIdentity("domain_discard_replay", "mydomain.example", true);
+        domainIdent.setIsAnalyzed();
+        auth.createUser(new CreateUserCommand(new CreateUserInfo(new UserDesc(domainIdent))).getInfo());
+        auth.setPassword(domainIdent, MysqlPassword.makeScrambledPassword("p1"));
+        auth.refreshUserPrivEntriesByResovledIPs(
+                ImmutableMap.of("mydomain.example", Sets.newHashSet("192.168.1.1")));
+        auth.replaySetPassword(new PrivInfo(domainIdent, null,
+                MysqlPassword.makeScrambledPassword("p2"), null, null, true));
+        Assertions.assertTrue(canLogin("domain_discard_replay", "p2"));
+        Assertions.assertTrue(canLogin("domain_discard_replay", "p1"));
+
+        AlterUserOperationLog journaled = AlterUserOperationLog.discardOldPassword(domainIdent);
+        AlterUserOperationLog reloaded = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(journaled),
+                AlterUserOperationLog.class);
+        Mockito.clearInvocations(editLog);
+        auth.replayAlterUser(reloaded);
+        // Replay must revoke the resolved entry immediately, without a resolver tick or a new journal.
+        Assertions.assertFalse(canLogin("domain_discard_replay", "p1"));
+        Assertions.assertTrue(canLogin("domain_discard_replay", "p2"));
+        Mockito.verify(editLog, Mockito.never()).logAlterUser(Mockito.any(AlterUserOperationLog.class));
+        Mockito.verify(editLog, Mockito.never()).logSetPassword(Mockito.any(PrivInfo.class));
     }
 
     private String passwordColumnOf(UserIdentity user) {

@@ -1312,6 +1312,9 @@ public class Auth implements Writable {
         writeLock();
         try {
             userManager.discardOldPassword(userIdent, true /* err on non exist */);
+            if (userIdent.isDomain()) {
+                userManager.refreshAuthenticationBinding(userIdent);
+            }
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logAlterUser(AlterUserOperationLog.discardOldPassword(userIdent));
             }
@@ -2255,10 +2258,9 @@ public class Auth implements Writable {
                     break;
                 case DISCARD_OLD_PASSWORD:
                     // MySQL-compatible "ALTER USER ... DISCARD OLD PASSWORD":
-                    // drop the retained secondary password now rather than at
-                    // the next password change (a domain account's resolved-IP
-                    // entries follow at the next resolver refresh, see
-                    // UserManager.discardOldPassword). Journals its own
+                    // drop the retained secondary password and immediately
+                    // refresh a domain account's resolved-IP entries under the
+                    // same Auth write lock. Journals its own
                     // OP_ALTER_USER entry (see discardOldPasswordInternal).
                     discardOldPasswordInternal(userIdent, isReplay);
                     break;
