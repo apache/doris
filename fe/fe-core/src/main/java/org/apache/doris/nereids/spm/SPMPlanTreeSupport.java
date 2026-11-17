@@ -37,6 +37,7 @@ import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.spm.matcher.MatchAttempt;
+import org.apache.doris.nereids.spm.matcher.PlaceholderBindings;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
@@ -112,6 +113,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 
 /**
  * Shared SPM traversal, matching, metadata and replay-contract helpers. The expression transform handles supported
@@ -212,6 +214,57 @@ public final class SPMPlanTreeSupport {
      */
     private static final ExprTransform STRIP_POLICY_IN_EXPRESSION =
             SPMPlanTreeSupport::stripPolicyOfExpression;
+
+    /** Derived contracts for one fixed tree version, confined to a rewrite attempt. */
+    static final class ReplayContracts {
+        private final Plan plan;
+        private boolean topComputed;
+        private long[] top;
+        private Map<String, Integer> caps;
+        private List<String> order;
+        private List<String> sortShape;
+
+        ReplayContracts(Plan plan) {
+            this.plan = plan;
+        }
+
+        long[] topLimit() {
+            if (!topComputed) {
+                top = topLevelLimitOf(plan);
+                topComputed = true;
+            }
+            return top;
+        }
+
+        Map<String, Integer> caps() {
+            if (caps == null) {
+                Map<String, Integer> collected = new HashMap<>();
+                collectRowLimits(plan, collected);
+                caps = Collections.unmodifiableMap(collected);
+            }
+            return caps;
+        }
+
+        List<String> order() {
+            if (order == null) {
+                order = Collections.unmodifiableList(rootOrderContract(plan));
+            }
+            return order;
+        }
+
+        List<String> sortShape() {
+            // L3 matching and CREATE checks own expression identity; frozen aliases can change key spelling.
+            if (sortShape == null) {
+                List<String> shape = new ArrayList<>();
+                for (String entry : order()) {
+                    int colon = entry.indexOf(':');
+                    shape.add(colon < 0 ? entry : entry.substring(0, colon));
+                }
+                sortShape = Collections.unmodifiableList(shape);
+            }
+            return sortShape;
+        }
+    }
 
     private SPMPlanTreeSupport() {
     }
@@ -325,10 +378,12 @@ public final class SPMPlanTreeSupport {
      * Returns: whether every replayed cap is one the caller's tree also has
      */
     public static boolean rowLimitsWithin(Plan replayed, Plan userPlan) {
-        Map<String, Integer> allowed = new HashMap<>();
-        collectRowLimits(userPlan, allowed);
-        Map<String, Integer> used = new HashMap<>();
-        collectRowLimits(replayed, used);
+        return rowLimitsWithin(new ReplayContracts(replayed), new ReplayContracts(userPlan));
+    }
+
+    static boolean rowLimitsWithin(ReplayContracts replayed, ReplayContracts userPlan) {
+        Map<String, Integer> allowed = userPlan.caps();
+        Map<String, Integer> used = replayed.caps();
         return containsEveryCap(allowed, used);
     }
 
@@ -350,13 +405,15 @@ public final class SPMPlanTreeSupport {
      * Returns: whether both trees expose the same cap multiset modulo occurrence ordinals
      */
     public static boolean rowLimitsEquivalentModuloOccurrence(Plan left, Plan right) {
-        if (!Arrays.equals(topLevelLimitOf(left), topLevelLimitOf(right))) {
+        return rowLimitsEquivalentModuloOccurrence(new ReplayContracts(left), new ReplayContracts(right));
+    }
+
+    static boolean rowLimitsEquivalentModuloOccurrence(ReplayContracts left, ReplayContracts right) {
+        if (!Arrays.equals(left.topLimit(), right.topLimit())) {
             return false;
         }
-        Map<String, Integer> leftCaps = new HashMap<>();
-        collectRowLimits(left, leftCaps);
-        Map<String, Integer> rightCaps = new HashMap<>();
-        collectRowLimits(right, rightCaps);
+        Map<String, Integer> leftCaps = left.caps();
+        Map<String, Integer> rightCaps = right.caps();
         return ordinalFreeCaps(leftCaps).equals(ordinalFreeCaps(rightCaps));
     }
 
@@ -385,10 +442,12 @@ public final class SPMPlanTreeSupport {
      * Returns: whether every caller cap exists in the replayed tree
      */
     public static boolean rowLimitsSurviveReplay(Plan replayed, Plan userPlan) {
-        Map<String, Integer> required = new HashMap<>();
-        collectRowLimits(userPlan, required);
-        Map<String, Integer> exposed = new HashMap<>();
-        collectRowLimits(replayed, exposed);
+        return rowLimitsSurviveReplay(new ReplayContracts(replayed), new ReplayContracts(userPlan));
+    }
+
+    static boolean rowLimitsSurviveReplay(ReplayContracts replayed, ReplayContracts userPlan) {
+        Map<String, Integer> required = userPlan.caps();
+        Map<String, Integer> exposed = replayed.caps();
         return containsEveryCap(exposed, required);
     }
 
@@ -431,14 +490,16 @@ public final class SPMPlanTreeSupport {
      *         else stays strictly contained
      */
     static boolean topCapContractPreserved(Plan replayed, Plan userPlan) {
-        long[] top = topLevelLimitOf(userPlan);
-        if (top == null || !Arrays.equals(top, topLevelLimitOf(replayed))) {
+        return topCapContractPreserved(new ReplayContracts(replayed), new ReplayContracts(userPlan));
+    }
+
+    static boolean topCapContractPreserved(ReplayContracts replayed, ReplayContracts userPlan) {
+        long[] top = userPlan.topLimit();
+        if (top == null || !Arrays.equals(top, replayed.topLimit())) {
             return false;
         }
-        Map<String, Integer> userCaps = new HashMap<>();
-        collectRowLimits(userPlan, userCaps);
-        Map<String, Integer> replayCaps = new HashMap<>();
-        collectRowLimits(replayed, replayCaps);
+        Map<String, Integer> userCaps = new HashMap<>(userPlan.caps());
+        Map<String, Integer> replayCaps = new HashMap<>(replayed.caps());
         String prefix = top[0] + ":" + top[1] + ":";
         String userTopKey = singleTopCapKey(userCaps, prefix);
         String replayTopKey = singleTopCapKey(replayCaps, prefix);
@@ -485,12 +546,15 @@ public final class SPMPlanTreeSupport {
      * This key-count check does not require the key multiplicity to be one.
      */
     public static boolean onlyTopCap(Plan plan) {
-        long[] top = topLevelLimitOf(plan);
+        return onlyTopCap(new ReplayContracts(plan));
+    }
+
+    static boolean onlyTopCap(ReplayContracts plan) {
+        long[] top = plan.topLimit();
         if (top == null) {
             return false;
         }
-        Map<String, Integer> caps = new HashMap<>();
-        collectRowLimits(plan, caps);
+        Map<String, Integer> caps = plan.caps();
         return caps.size() == 1
                 && caps.keySet().iterator().next().startsWith(top[0] + ":" + top[1] + ":");
     }
@@ -545,11 +609,15 @@ public final class SPMPlanTreeSupport {
      * DIFFERENT slice (see SPMPlanner.limitContractPreserved).
      */
     static boolean replayCapsJustifiedByCallerTopLimit(Plan replayed, Plan userPlan) {
-        long[] top = topLevelLimitOf(userPlan);
+        return replayCapsJustifiedByCallerTopLimit(new ReplayContracts(replayed), new ReplayContracts(userPlan));
+    }
+
+    static boolean replayCapsJustifiedByCallerTopLimit(ReplayContracts replayed, ReplayContracts userPlan) {
+        long[] top = userPlan.topLimit();
         if (top == null) {
             return false;
         }
-        boolean ordered = !rootOrderContract(userPlan).isEmpty();
+        boolean ordered = !userPlan.order().isEmpty();
         // With a caller ORDER BY the folded cap must not cut a different slice. That is
         // guaranteed when the replay still exposes the caller's own TOP-LEVEL ordering
         // AND the folded caps sit on the BRANCHES of a set operation: the merge of the
@@ -559,10 +627,8 @@ public final class SPMPlanTreeSupport {
         if (ordered && !orderContractPreserved(replayed, userPlan)) {
             return false;
         }
-        Map<String, Integer> allowed = new HashMap<>();
-        collectRowLimits(userPlan, allowed);
-        Map<String, Integer> used = new HashMap<>();
-        collectRowLimits(replayed, used);
+        Map<String, Integer> allowed = userPlan.caps();
+        Map<String, Integer> used = replayed.caps();
         String prefix = top[0] + ":" + top[1] + ":";
         Set<String> topScope = null;
         List<Set<String>> extraScopes = new ArrayList<>();
@@ -570,7 +636,7 @@ public final class SPMPlanTreeSupport {
             // the first set operation below the order/limit wrappers: the class-exact
             // helper cannot be used here (the concrete Union / Intersect / Except class is
             // what the caller-side comparison keys on), so descend on the base interface
-            Plan probe = replayed;
+            Plan probe = replayed.plan;
             while (probe != null && !(probe instanceof LogicalSetOperation)
                     && probe.children().size() == 1) {
                 probe = probe.child(0);
@@ -685,50 +751,51 @@ public final class SPMPlanTreeSupport {
         assignRelationOrdinals(plan, new HashMap<>(), relationOrdinals, cteOrder,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
         collectRowLimits(plan, out, relationOrdinals, cteOrder,
-                Collections.newSetFromMap(new IdentityHashMap<>()));
+                Collections.newSetFromMap(new IdentityHashMap<>()),
+                new RelationInputIndex(relationOrdinals, cteOrder));
     }
 
     private static void collectRowLimits(Plan plan, Map<String, Integer> out,
             IdentityHashMap<Plan, Integer> relationOrdinals,
-            CteOrder cteOrder, Set<Plan> visited) {
+            CteOrder cteOrder, Set<Plan> visited, RelationInputIndex inputIndex) {
         if (plan == null || !visited.add(plan)) {
             return;
         }
         if (plan instanceof LogicalLimit) {
             out.merge(rowLimitKey(((LogicalLimit<?>) plan).getLimit(),
-                    ((LogicalLimit<?>) plan).getOffset(), plan, relationOrdinals, cteOrder),
+                    ((LogicalLimit<?>) plan).getOffset(), plan, inputIndex),
                     1, Integer::sum);
         } else if (plan instanceof LogicalTopN) {
             out.merge(rowLimitKey(((LogicalTopN<?>) plan).getLimit(),
-                    ((LogicalTopN<?>) plan).getOffset(), plan, relationOrdinals, cteOrder),
+                    ((LogicalTopN<?>) plan).getOffset(), plan, inputIndex),
                     1, Integer::sum);
         }
         for (Plan child : plan.children()) {
-            collectRowLimits(child, out, relationOrdinals, cteOrder, visited);
+            collectRowLimits(child, out, relationOrdinals, cteOrder, visited, inputIndex);
         }
         for (Plan extra : plan.extraPlans()) {
-            collectRowLimits(extra, out, relationOrdinals, cteOrder, visited);
+            collectRowLimits(extra, out, relationOrdinals, cteOrder, visited, inputIndex);
         }
         for (Expression expression : plan.getExpressions()) {
-            collectRowLimits(expression, out, relationOrdinals, cteOrder, visited);
+            collectRowLimits(expression, out, relationOrdinals, cteOrder, visited, inputIndex);
         }
     }
 
     /** Recurses one expression tree looking for subquery plans (see walkSubqueryPlans). */
     private static void collectRowLimits(Expression expression, Map<String, Integer> out,
             IdentityHashMap<Plan, Integer> relationOrdinals,
-            CteOrder cteOrder, Set<Plan> visited) {
+            CteOrder cteOrder, Set<Plan> visited, RelationInputIndex inputIndex) {
         if (expression instanceof SubqueryExpr) {
             collectRowLimits(((SubqueryExpr) expression).getQueryPlan(), out,
-                    relationOrdinals, cteOrder, visited);
+                    relationOrdinals, cteOrder, visited, inputIndex);
         }
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                collectRowLimits(replaced, out, relationOrdinals, cteOrder, visited);
+                collectRowLimits(replaced, out, relationOrdinals, cteOrder, visited, inputIndex);
             }
         }
         for (Expression child : expression.children()) {
-            collectRowLimits(child, out, relationOrdinals, cteOrder, visited);
+            collectRowLimits(child, out, relationOrdinals, cteOrder, visited, inputIndex);
         }
     }
 
@@ -913,11 +980,8 @@ public final class SPMPlanTreeSupport {
      * constraints.
      */
     private static String rowLimitKey(long limit, long offset, Plan limitNode,
-            IdentityHashMap<Plan, Integer> relationOrdinals,
-            CteOrder cteOrder) {
-        Set<String> inputs = new TreeSet<>();
-        collectRelationInputs(limitNode, relationOrdinals, cteOrder, inputs,
-                Collections.newSetFromMap(new IdentityHashMap<>()));
+            RelationInputIndex inputIndex) {
+        Set<String> inputs = inputIndex.inputs(limitNode);
         String slice = "-";
         if (limitNode instanceof LogicalTopN) {
             List<OrderKey> orderKeys = ((LogicalTopN<?>) limitNode).getOrderKeys();
@@ -929,6 +993,91 @@ public final class SPMPlanTreeSupport {
             slice = keys.toString();
         }
         return limit + ":" + offset + ":" + slice + ":" + String.join(",", inputs);
+    }
+
+    /** Shares input sets of overlapping cap subtrees within one collection. */
+    private static final class RelationInputIndex {
+        private final IdentityHashMap<Plan, Integer> ordinals;
+        private final CteOrder cteOrder;
+        private final IdentityHashMap<Plan, Set<String>> completed = new IdentityHashMap<>();
+        private final Set<Plan> active = Collections.newSetFromMap(new IdentityHashMap<>());
+        private boolean cyclic;
+
+        RelationInputIndex(IdentityHashMap<Plan, Integer> ordinals, CteOrder cteOrder) {
+            this.ordinals = ordinals;
+            this.cteOrder = cteOrder;
+        }
+
+        Set<String> inputs(Plan plan) {
+            Set<String> result = cyclic ? Set.of() : collect(plan);
+            if (cyclic) {
+                // extraPlans can expose a cycle. Preserve the original identity-set
+                // reachability semantics rather than publishing a partial cached set.
+                result = new TreeSet<>();
+                collectRelationInputs(plan, ordinals, cteOrder, result,
+                        Collections.newSetFromMap(new IdentityHashMap<>()));
+            }
+            return result;
+        }
+
+        private Set<String> collect(Plan plan) {
+            Set<String> cached = completed.get(plan);
+            if (cached != null) {
+                return cached;
+            }
+            Set<String> result = new TreeSet<>();
+            collectInto(plan, plan, result, Collections.newSetFromMap(new IdentityHashMap<>()));
+            Set<String> frozen = Collections.unmodifiableSet(result);
+            completed.put(plan, frozen);
+            return frozen;
+        }
+
+        private void collectInto(Plan plan, Plan root, Set<String> result, Set<Plan> visited) {
+            if (plan == null) {
+                return;
+            }
+            if (plan != root && (plan instanceof LogicalLimit || plan instanceof LogicalTopN)) {
+                result.addAll(collect(plan));
+                return;
+            }
+            if (active.contains(plan)) {
+                cyclic = true;
+                return;
+            }
+            if (!visited.add(plan)) {
+                return;
+            }
+            active.add(plan);
+            String name = relationNameOf(plan, cteOrder);
+            if (name != null) {
+                Integer ordinal = ordinals.get(plan);
+                result.add(ordinal == null ? name : name + "#" + ordinal);
+            }
+            for (Plan child : plan.children()) {
+                collectInto(child, root, result, visited);
+            }
+            for (Plan extra : plan.extraPlans()) {
+                collectInto(extra, root, result, visited);
+            }
+            for (Expression expression : plan.getExpressions()) {
+                collectExpression(expression, root, result, visited);
+            }
+            active.remove(plan);
+        }
+
+        private void collectExpression(Expression expression, Plan root, Set<String> result, Set<Plan> visited) {
+            if (expression instanceof SubqueryExpr) {
+                collectInto(((SubqueryExpr) expression).getQueryPlan(), root, result, visited);
+            }
+            if (expression instanceof UnboundStar) {
+                for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                    collectExpression(replaced, root, result, visited);
+                }
+            }
+            for (Expression child : expression.children()) {
+                collectExpression(child, root, result, visited);
+            }
+        }
     }
 
     /**
@@ -2122,33 +2271,31 @@ public final class SPMPlanTreeSupport {
         if (plan == null) {
             return false;
         }
-        final boolean[] found = {false};
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
-            if (found[0]) {
-                return;
-            }
+        return anyPlan(plan, node -> {
             if (node instanceof LogicalUsingJoin) {
                 // matchCondition lives outside children and getExpressions
                 Optional<Expression> matchCondition =
                         ((LogicalUsingJoin<?, ?>) node).getMatchCondition();
                 if (matchCondition.isPresent()
                         && containsReplayContextExpression(matchCondition.get())) {
-                    found[0] = true;
-                    return;
+                    return true;
                 }
             }
             for (Expression expr : node.getExpressions()) {
-                if (containsReplayContextExpression(expr)) {
-                    found[0] = true;
-                    return;
+                if (containsReplayContextExpression(expr, false)) {
+                    return true;
                 }
             }
+            return false;
         });
-        return found[0];
     }
 
     /** Whether an expression tree contains a replay-time context expression. */
     public static boolean containsReplayContextExpression(Expression expr) {
+        return containsReplayContextExpression(expr, true);
+    }
+
+    private static boolean containsReplayContextExpression(Expression expr, boolean descendSubqueries) {
         if (expr instanceof Variable || expr instanceof UnboundVariable
                 || expr instanceof CurrentUser || expr instanceof SessionUser
                 || expr instanceof Database || expr instanceof ConnectionId
@@ -2216,18 +2363,18 @@ public final class SPMPlanTreeSupport {
             // children of the star, so the recursive walk below never reached them and the
             // statement passed the guard. Scan the payloads explicitly.
             for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
-                if (containsReplayContextExpression(replaced)) {
+                if (containsReplayContextExpression(replaced, descendSubqueries)) {
                     return true;
                 }
             }
         }
-        if (expr instanceof SubqueryExpr) {
+        if (descendSubqueries && expr instanceof SubqueryExpr) {
             if (containsReplayContextExpression(((SubqueryExpr) expr).getQueryPlan())) {
                 return true;
             }
         }
         for (Expression child : expr.children()) {
-            if (containsReplayContextExpression(child)) {
+            if (containsReplayContextExpression(child, descendSubqueries)) {
                 return true;
             }
         }
@@ -2269,33 +2416,32 @@ public final class SPMPlanTreeSupport {
         if (plan == null) {
             return false;
         }
-        final boolean[] found = {false};
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
-            if (found[0]) {
-                return;
-            }
+        return anyPlan(plan, node -> {
             if (node instanceof LogicalUsingJoin) {
                 Optional<Expression> matchCondition =
                         ((LogicalUsingJoin<?, ?>) node).getMatchCondition();
                 if (matchCondition.isPresent() && containsReplayContextInAliasBodies(ctx,
                         matchCondition.get(), expanding)) {
-                    found[0] = true;
-                    return;
+                    return true;
                 }
             }
             for (Expression expr : node.getExpressions()) {
-                if (containsReplayContextInAliasBodies(ctx, expr, expanding)) {
-                    found[0] = true;
-                    return;
+                if (containsReplayContextInAliasBodies(ctx, expr, expanding, false)) {
+                    return true;
                 }
             }
+            return false;
         });
-        return found[0];
     }
 
     /** Whether one expression tree references an alias body with a context expression. */
     private static boolean containsReplayContextInAliasBodies(ConnectContext ctx,
             Expression expr, Set<String> expanding) {
+        return containsReplayContextInAliasBodies(ctx, expr, expanding, true);
+    }
+
+    private static boolean containsReplayContextInAliasBodies(ConnectContext ctx,
+            Expression expr, Set<String> expanding, boolean descendSubqueries) {
         if (expr == null) {
             return false;
         }
@@ -2324,19 +2470,19 @@ public final class SPMPlanTreeSupport {
         }
         if (expr instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
-                if (containsReplayContextInAliasBodies(ctx, replaced, expanding)) {
+                if (containsReplayContextInAliasBodies(ctx, replaced, expanding, descendSubqueries)) {
                     return true;
                 }
             }
         }
-        if (expr instanceof SubqueryExpr) {
+        if (descendSubqueries && expr instanceof SubqueryExpr) {
             if (containsReplayContextInAliasBodies(ctx,
                     ((SubqueryExpr) expr).getQueryPlan(), expanding)) {
                 return true;
             }
         }
         for (Expression child : expr.children()) {
-            if (containsReplayContextInAliasBodies(ctx, child, expanding)) {
+            if (containsReplayContextInAliasBodies(ctx, child, expanding, descendSubqueries)) {
                 return true;
             }
         }
@@ -2547,27 +2693,27 @@ public final class SPMPlanTreeSupport {
      */
     public static boolean check(LogicalPlan bindPlan, LogicalPlan userPlan,
             Map<Long, Expression> placeholderValues) {
+        PlaceholderBindings bindings = PlaceholderBindings.track(placeholderValues);
         MatchAttempt attempt = MatchAttempt.begin();
         if (attempt == null) {
             // a NESTED match (a subquery plan reached from the visitor) rides the
             // enclosing attempt: its choices and the outer tree's share one placeholder
             // map, so only the OUTERMOST driver may retry
-            return checkPlan(bindPlan, userPlan, placeholderValues, false);
+            return checkPlan(bindPlan, userPlan, bindings, false);
         }
         try {
-            Map<Long, Expression> entryState = new HashMap<>(placeholderValues);
+            int entryState = bindings.checkpoint();
             for (int i = 0; i < MatchAttempt.MAX_ATTEMPTS; i++) {
                 attempt.resetPass();
-                if (checkPlan(bindPlan, userPlan, placeholderValues, false)) {
+                if (checkPlan(bindPlan, userPlan, bindings, false)) {
                     return true;
                 }
-                placeholderValues.clear();
-                placeholderValues.putAll(entryState);
+                bindings.rollback(entryState);
                 if (!attempt.advance()) {
                     return false;
                 }
             }
-            placeholderValues.clear();
+            bindings.clear();
             return false;
         } finally {
             attempt.end();
@@ -2583,7 +2729,7 @@ public final class SPMPlanTreeSupport {
      */
     public static boolean checkSubqueryPlan(LogicalPlan bindPlan, LogicalPlan userPlan,
             Map<Long, Expression> placeholderValues) {
-        return checkPlan(bindPlan, userPlan, placeholderValues, true);
+        return checkPlan(bindPlan, userPlan, PlaceholderBindings.track(placeholderValues), true);
     }
 
     /** Node-by-node recursive structural check. */
@@ -2869,13 +3015,16 @@ public final class SPMPlanTreeSupport {
                 int offset = MatchAttempt.offset(remaining.size());
                 for (int i = 0; i < remaining.size(); i++) {
                     int candidate = (offset + i) % remaining.size();
-                    Map<Long, Expression> snapshot = new HashMap<>(placeholderValues);
+                    if (!SPMAstCheckVisitor.mayMatch(bindConjunct, remaining.get(candidate))) {
+                        continue;
+                    }
+                    PlaceholderBindings bindings = (PlaceholderBindings) placeholderValues;
+                    int checkpoint = bindings.checkpoint();
                     if (checkExpression(bindConjunct, remaining.get(candidate), placeholderValues)) {
                         matched = candidate;
                         break;
                     }
-                    placeholderValues.clear();
-                    placeholderValues.putAll(snapshot);
+                    bindings.rollback(checkpoint);
                 }
                 if (matched < 0) {
                     return false;
@@ -5127,26 +5276,26 @@ public final class SPMPlanTreeSupport {
     private static void collectPlaceholderIds(Plan plan, Set<Long> ids) {
         SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
             for (Expression expr : node.getExpressions()) {
-                collectPlaceholderIds(expr, ids);
+                collectPlaceholderIds(expr, ids, false);
             }
             for (Expression expr : outOfBandExpressions(node)) {
-                collectPlaceholderIds(expr, ids);
+                collectPlaceholderIds(expr, ids, true);
             }
         });
     }
 
     /** Recurses one expression tree collecting placeholder ids. */
-    private static void collectPlaceholderIds(Expression expr, Set<Long> ids) {
+    private static void collectPlaceholderIds(Expression expr, Set<Long> ids, boolean descendSubqueries) {
         if (expr instanceof SpmConstVar) {
             ids.add(((SpmConstVar) expr).getId());
         } else if (expr instanceof SpmConstList) {
             ids.add(((SpmConstList) expr).getId());
         }
-        if (expr instanceof SubqueryExpr) {
+        if (descendSubqueries && expr instanceof SubqueryExpr) {
             collectPlaceholderIds(((SubqueryExpr) expr).getQueryPlan(), ids);
         }
         for (Expression child : expr.children()) {
-            collectPlaceholderIds(child, ids);
+            collectPlaceholderIds(child, ids, descendSubqueries);
         }
     }
 
@@ -5209,8 +5358,13 @@ public final class SPMPlanTreeSupport {
         if (bindPlan == planPlan) {
             return; // one parse (bindSql == planSql): symmetric by construction
         }
-        Map<String, List<ScanSelectorOccurrence>> bindSelectors = scanSelectorsByTable(bindPlan);
-        Map<String, List<ScanSelectorOccurrence>> planSelectors = scanSelectorsByTable(planPlan);
+        rejectScanSelectorMismatch(new ParsedPlanFacts(bindPlan), new ParsedPlanFacts(planPlan), bindSql);
+    }
+
+    private static void rejectScanSelectorMismatch(ParsedPlanFacts bindFacts,
+            ParsedPlanFacts planFacts, String bindSql) {
+        Map<String, List<ScanSelectorOccurrence>> bindSelectors = bindFacts.selectors;
+        Map<String, List<ScanSelectorOccurrence>> planSelectors = planFacts.selectors;
         for (Map.Entry<String, List<ScanSelectorOccurrence>> entry : bindSelectors.entrySet()) {
             if (!planSelectors.containsKey(entry.getKey())) {
                 // The plan does not read this table at all (it is a manual plan over its
@@ -5314,7 +5468,7 @@ public final class SPMPlanTreeSupport {
      * Parameter items: the block's output items
      * Returns: the consumed output aliases
      */
-    private static Set<String> havingConsumedOutputAliases(Plan plan,
+    private static Set<String> havingConsumedOutputAliases(ParsedPlanFacts plan,
             List<NamedExpression> items) {
         return havingConsumedOutputAliases(plan, items, false);
     }
@@ -5328,23 +5482,16 @@ public final class SPMPlanTreeSupport {
      * Parameter qualify: true to inspect the LogicalQualify consumer instead of LogicalHaving
      * Returns: the consumed output aliases
      */
-    private static Set<String> havingConsumedOutputAliases(Plan plan,
+    private static Set<String> havingConsumedOutputAliases(ParsedPlanFacts plan,
             List<NamedExpression> items, boolean qualify) {
         Set<String> labels = outputLabelSet(items);
         Set<String> referenced = new HashSet<>();
         if (plan == null || labels.isEmpty()) {
             return referenced;
         }
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            if (qualify ? node instanceof LogicalQualify : node instanceof LogicalHaving) {
-                Collection<Expression> conjuncts = qualify
-                        ? ((LogicalQualify<?>) node).getConjuncts()
-                        : ((LogicalHaving<?>) node).getConjuncts();
-                for (Expression conjunct : conjuncts) {
-                    collectBareSlotNames(conjunct, referenced);
-                }
-            }
-        });
+        for (Expression conjunct : plan.consumers(qualify)) {
+            collectBareSlotNames(conjunct, referenced);
+        }
         referenced.retainAll(labels);
         return referenced;
     }
@@ -5473,8 +5620,8 @@ public final class SPMPlanTreeSupport {
      * supplied output lists. A predicate-count mismatch returns true here; the relational topology check rejects
      * that mismatch separately. This helper supplements the structural checks by detecting changed alias bindings.
      */
-    private static boolean sameResolvedConsumerPredicates(Plan bindPlan,
-            List<NamedExpression> bindItems, Plan planPlan, List<NamedExpression> planItems,
+    private static boolean sameResolvedConsumerPredicates(ParsedPlanFacts bindPlan,
+            List<NamedExpression> bindItems, ParsedPlanFacts planPlan, List<NamedExpression> planItems,
             boolean qualify) {
         List<Expression> bindPredicates = flattenedConsumerConjuncts(bindPlan, qualify);
         List<Expression> planPredicates = flattenedConsumerConjuncts(planPlan, qualify);
@@ -5517,29 +5664,15 @@ public final class SPMPlanTreeSupport {
      * Parameter qualify: true for the LogicalQualify consumer, false for LogicalHaving
      * Returns: the leaf conjuncts, in statement order
      */
-    private static List<Expression> flattenedConsumerConjuncts(Plan plan, boolean qualify) {
-        List<Expression> collected = new ArrayList<>();
-        if (plan == null) {
-            return collected;
-        }
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            if (qualify ? node instanceof LogicalQualify : node instanceof LogicalHaving) {
-                Collection<Expression> conjuncts = qualify
-                        ? ((LogicalQualify<?>) node).getConjuncts()
-                        : ((LogicalHaving<?>) node).getConjuncts();
-                for (Expression conjunct : conjuncts) {
-                    collectFlattenedConjuncts(conjunct, collected);
-                }
-            }
-        });
-        return collected;
+    private static List<Expression> flattenedConsumerConjuncts(ParsedPlanFacts plan, boolean qualify) {
+        return plan.consumers(qualify);
     }
 
     /**
      * Pairs aggregates in traversal order and compares their GROUP BY keys after resolving output aliases.
      * Different aggregate or key counts are left to the relational topology check.
      */
-    private static boolean sameResolvedGroupByKeys(Plan bindPlan, Plan planPlan) {
+    private static boolean sameResolvedGroupByKeys(ParsedPlanFacts bindPlan, ParsedPlanFacts planPlan) {
         List<LogicalAggregate<?>> bindAggregates = collectAggregates(bindPlan);
         List<LogicalAggregate<?>> planAggregates = collectAggregates(planPlan);
         if (bindAggregates.size() != planAggregates.size()) {
@@ -5562,7 +5695,7 @@ public final class SPMPlanTreeSupport {
      * Pairs repeat nodes and their grouping sets in traversal order, comparing each set's expressions through its
      * own output-label map. Different node, set or member counts are left to the relational topology check.
      */
-    private static boolean sameResolvedGroupingSets(Plan bindPlan, Plan planPlan) {
+    private static boolean sameResolvedGroupingSets(ParsedPlanFacts bindPlan, ParsedPlanFacts planPlan) {
         List<LogicalRepeat<?>> bindRepeats = collectRepeats(bindPlan);
         List<LogicalRepeat<?>> planRepeats = collectRepeats(planPlan);
         if (bindRepeats.size() != planRepeats.size()) {
@@ -5591,31 +5724,13 @@ public final class SPMPlanTreeSupport {
     }
 
     /** Every REPEAT of one tree, in traversal order (see sameResolvedGroupingSets). */
-    private static List<LogicalRepeat<?>> collectRepeats(Plan plan) {
-        List<LogicalRepeat<?>> repeats = new ArrayList<>();
-        if (plan == null) {
-            return repeats;
-        }
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            if (node instanceof LogicalRepeat) {
-                repeats.add((LogicalRepeat<?>) node);
-            }
-        });
-        return repeats;
+    private static List<LogicalRepeat<?>> collectRepeats(ParsedPlanFacts plan) {
+        return plan.repeats;
     }
 
     /** Every aggregate of one tree, in traversal order (see sameResolvedGroupByKeys). */
-    private static List<LogicalAggregate<?>> collectAggregates(Plan plan) {
-        List<LogicalAggregate<?>> aggregates = new ArrayList<>();
-        if (plan == null) {
-            return aggregates;
-        }
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            if (node instanceof LogicalAggregate) {
-                aggregates.add((LogicalAggregate<?>) node);
-            }
-        });
-        return aggregates;
+    private static List<LogicalAggregate<?>> collectAggregates(ParsedPlanFacts plan) {
+        return plan.aggregates;
     }
 
     /**
@@ -5822,6 +5937,17 @@ public final class SPMPlanTreeSupport {
         }
     }
 
+    /** Checks both manual-plan contracts using one fact collection per input tree. */
+    public static void rejectManualPlanMismatch(Plan bindPlan, Plan planPlan, String bindSql) {
+        if (bindPlan == planPlan) {
+            return;
+        }
+        ParsedPlanFacts bindFacts = new ParsedPlanFacts(bindPlan);
+        ParsedPlanFacts planFacts = new ParsedPlanFacts(planPlan);
+        rejectScanSelectorMismatch(bindFacts, planFacts, bindSql);
+        rejectManualPlanDivergence(bindFacts, planFacts, bindSql);
+    }
+
     /**
      * Rejects a manual plan whose LOGICAL query diverges from the bind text.
      * The bind text is the MATCHING KEY: any caller matching it gets the
@@ -5875,8 +6001,15 @@ public final class SPMPlanTreeSupport {
         if (bindPlan == planPlan) {
             return; // one parse (bindSql == planSql): symmetric by construction
         }
-        Set<String> bindTables = scanSelectorsByTable(bindPlan).keySet();
-        Set<String> planTables = scanSelectorsByTable(planPlan).keySet();
+        rejectManualPlanDivergence(new ParsedPlanFacts(bindPlan), new ParsedPlanFacts(planPlan), bindSql);
+    }
+
+    private static void rejectManualPlanDivergence(ParsedPlanFacts bindFacts,
+            ParsedPlanFacts planFacts, String bindSql) {
+        Plan bindPlan = bindFacts.plan;
+        Plan planPlan = planFacts.plan;
+        Set<String> bindTables = bindFacts.selectors.keySet();
+        Set<String> planTables = planFacts.selectors.keySet();
         if (!bindTables.containsAll(planTables)) {
             java.util.Set<String> extra = new java.util.LinkedHashSet<>(planTables);
             extra.removeAll(bindTables);
@@ -5939,9 +6072,9 @@ public final class SPMPlanTreeSupport {
         // SELECT k AS y, v AS x FROM t HAVING x > 0 both consume {x} and both spell the same
         // predicate, but the bind filters k and the plan filters v. Compare what each predicate
         // RESOLVES to on its own side (see sameResolvedConsumerPredicates).
-        Set<String> bindHavingAliases = havingConsumedOutputAliases(bindPlan, bindItems);
-        Set<String> planHavingAliases = havingConsumedOutputAliases(planPlan, planItems);
-        if (!sameResolvedConsumerPredicates(bindPlan, bindItems, planPlan, planItems, false)) {
+        Set<String> bindHavingAliases = havingConsumedOutputAliases(bindFacts, bindItems);
+        Set<String> planHavingAliases = havingConsumedOutputAliases(planFacts, planItems);
+        if (!sameResolvedConsumerPredicates(bindFacts, bindItems, planFacts, planItems, false)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "SPM cannot align the plan SQL with the bind SQL: their HAVING predicates"
                             + " resolve to different expressions (consumed aliases: bind "
@@ -5957,12 +6090,12 @@ public final class SPMPlanTreeSupport {
         // AS y FROM t QUALIFY x > y compares k with the window value, the plan
         // k AS y, row_number()... AS x... QUALIFY x > y compares it the other way round and
         // the frozen replay filters every row out.
-        if (!sameResolvedConsumerPredicates(bindPlan, bindItems, planPlan, planItems, true)) {
+        if (!sameResolvedConsumerPredicates(bindFacts, bindItems, planFacts, planItems, true)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "SPM cannot align the plan SQL with the bind SQL: their QUALIFY predicates"
                             + " resolve to different expressions (consumed aliases: bind "
-                            + havingConsumedOutputAliases(bindPlan, bindItems, true) + ", plan "
-                            + havingConsumedOutputAliases(planPlan, planItems, true) + "). A"
+                            + havingConsumedOutputAliases(bindFacts, bindItems, true) + ", plan "
+                            + havingConsumedOutputAliases(planFacts, planItems, true) + "). A"
                             + " QUALIFY name binds the block's OUTPUT column first, so renaming /"
                             + " re-ordering those items silently filters another column: "
                             + bindSql);
@@ -5973,7 +6106,7 @@ public final class SPMPlanTreeSupport {
         // SELECT k AS y, v AS x, count(*) AS n FROM t GROUP BY x groups v. Both texts spell the
         // same key and only the labels differ, so every set-wise check above passes, yet the
         // caller sees ONE group (n = 2) and the frozen replay TWO (n = 1 each).
-        if (!sameResolvedGroupByKeys(bindPlan, planPlan)) {
+        if (!sameResolvedGroupByKeys(bindFacts, planFacts)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "SPM cannot align the plan SQL with the bind SQL: their GROUP BY keys"
                             + " resolve to different expressions. A GROUP BY name that is not a"
@@ -5984,7 +6117,7 @@ public final class SPMPlanTreeSupport {
         // GROUPING SETS is the SAME consumer through REPEAT: every set member that
         // names no base column binds the block's OUTPUT, so an alias permutation keeps the raw
         // sets and both texts while the bind subtotals k and the plan subtotals v.
-        if (!sameResolvedGroupingSets(bindPlan, planPlan)) {
+        if (!sameResolvedGroupingSets(bindFacts, planFacts)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "SPM cannot align the plan SQL with the bind SQL: their GROUPING SETS"
                             + " resolve to different expressions. A GROUPING SETS member that is"
@@ -5992,8 +6125,8 @@ public final class SPMPlanTreeSupport {
                             + " re-ordering those items silently subtotals another expression: "
                             + bindSql);
         }
-        Set<String> bindFilters = filterConjunctTexts(bindPlan);
-        Set<String> planFilters = filterConjunctTexts(planPlan);
+        Set<String> bindFilters = filterConjunctTexts(bindFacts);
+        Set<String> planFilters = filterConjunctTexts(planFacts);
         if (!planFilters.containsAll(bindFilters)) {
             java.util.Set<String> missing = new java.util.LinkedHashSet<>(bindFilters);
             missing.removeAll(planFilters);
@@ -6918,36 +7051,12 @@ public final class SPMPlanTreeSupport {
      * containment test against the bind's single (k1 = 1) conjunct would
      * reject a plan that genuinely carries it.
      */
-    private static Set<String> filterConjunctTexts(Plan plan) {
+    private static Set<String> filterConjunctTexts(ParsedPlanFacts plan) {
         Set<String> conjuncts = new java.util.LinkedHashSet<>();
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
-            Collection<Expression> predicates;
-            if (node instanceof LogicalFilter) {
-                predicates = ((LogicalFilter<?>) node).getConjuncts();
-            } else if (node instanceof LogicalHaving) {
-                predicates = ((LogicalHaving<?>) node).getConjuncts();
-            } else {
-                return;
-            }
-            for (Expression predicate : predicates) {
-                collectConjunctTexts(predicate, conjuncts);
-            }
-        });
-        return conjuncts;
-    }
-
-    /**
-     * One predicate's leaf texts: an AND is split into its children (see
-     * filterConjunctTexts).
-     */
-    private static void collectConjunctTexts(Expression predicate, Set<String> conjuncts) {
-        if (predicate instanceof And) {
-            for (Expression child : ((And) predicate).children()) {
-                collectConjunctTexts(child, conjuncts);
-            }
-            return;
+        for (Expression predicate : plan.filters) {
+            conjuncts.add(boundaryPreservingDeepText(predicate));
         }
-        conjuncts.add(boundaryPreservingDeepText(predicate));
+        return conjuncts;
     }
 
     /**
@@ -7008,30 +7117,16 @@ public final class SPMPlanTreeSupport {
      * Returns: whether the caller's visible ordering survives the replay
      */
     public static boolean orderContractPreserved(Plan replayed, Plan userPlan) {
-        List<String> caller = rootSortShape(userPlan);
+        return orderContractPreserved(new ReplayContracts(replayed), new ReplayContracts(userPlan));
+    }
+
+    static boolean orderContractPreserved(ReplayContracts replayed, ReplayContracts userPlan) {
+        List<String> caller = userPlan.sortShape();
         if (caller.isEmpty()) {
             return true;
         }
-        List<String> replay = rootSortShape(replayed);
+        List<String> replay = replayed.sortShape();
         return replay.size() >= caller.size() && replay.subList(0, caller.size()).equals(caller);
-    }
-
-    /**
-     * The ORDER BY contract entries WITHOUT the order-key expression: the replay
-     * comparison must not reject a legitimate rewrite because the order key is spelled
-     * differently across the user text and the regenerated frozen text (ORDER BY
-     * 1 / ORDER BY v in the caller vs ORDER BY c_1 in the frozen
-     * projection - lesson: order-key expressions are not comparable
-     * across the two trees; the L3 match plus the CREATE-time full contract pin the
-     * expressions themselves).
-     */
-    private static List<String> rootSortShape(Plan plan) {
-        List<String> entries = new ArrayList<>();
-        for (String entry : rootOrderContract(plan)) {
-            int colon = entry.indexOf(':');
-            entries.add(colon < 0 ? entry : entry.substring(0, colon));
-        }
-        return entries;
     }
 
     /**
@@ -7052,32 +7147,66 @@ public final class SPMPlanTreeSupport {
         }
     }
 
-    /**
-     * The scan-selector description of every base-table relation together with the ALIAS
-     * of the occurrence it belongs to, grouped by the relation's LAST name part (the table
-     * name) and kept in STATEMENT (walk) ORDER: the bind and plan texts may qualify their
-     * tables differently, while a self join contributes one entry per occurrence - the
-     * caller compares the lists of one table per occurrence, so a pin stays attached to
-     * the occurrence it belongs to (see scanSelectorsAligned).
-     */
-    private static Map<String, List<ScanSelectorOccurrence>> scanSelectorsByTable(Plan plan) {
-        Map<String, List<ScanSelectorOccurrence>> byTable = new HashMap<>();
-        collectScanSelectors(plan, "", byTable,
-                Collections.newSetFromMap(new IdentityHashMap<>()));
-        return byTable;
+    /** Raw facts for both manual-plan validators, collected in statement order. */
+    private static final class ParsedPlanFacts {
+        private final Plan plan;
+        // Group by the last relation name part; keep alias and traversal order per occurrence.
+        private final Map<String, List<ScanSelectorOccurrence>> selectors = new HashMap<>();
+        private final List<LogicalAggregate<?>> aggregates = new ArrayList<>();
+        private final List<LogicalRepeat<?>> repeats = new ArrayList<>();
+        private final List<Expression> having = new ArrayList<>();
+        private final List<Expression> qualify = new ArrayList<>();
+        private final List<Expression> filters = new ArrayList<>();
+
+        ParsedPlanFacts(Plan plan) {
+            this.plan = plan;
+            collectScanSelectors(plan, "", this,
+                    Collections.newSetFromMap(new IdentityHashMap<>()));
+        }
+
+        private void record(Plan node) {
+            if (node instanceof LogicalAggregate) {
+                aggregates.add((LogicalAggregate<?>) node);
+            }
+            if (node instanceof LogicalRepeat) {
+                repeats.add((LogicalRepeat<?>) node);
+            }
+            if (node instanceof LogicalHaving) {
+                List<Expression> conjuncts = new ArrayList<>();
+                for (Expression expr : ((LogicalHaving<?>) node).getConjuncts()) {
+                    collectFlattenedConjuncts(expr, conjuncts);
+                }
+                having.addAll(conjuncts);
+                filters.addAll(conjuncts);
+            } else if (node instanceof LogicalFilter) {
+                for (Expression expr : ((LogicalFilter<?>) node).getConjuncts()) {
+                    collectFlattenedConjuncts(expr, filters);
+                }
+            }
+            if (node instanceof LogicalQualify) {
+                for (Expression expr : ((LogicalQualify<?>) node).getConjuncts()) {
+                    collectFlattenedConjuncts(expr, qualify);
+                }
+            }
+        }
+
+        List<Expression> consumers(boolean useQualify) {
+            return useQualify ? qualify : having;
+        }
     }
 
     /**
-     * The walk behind scanSelectorsByTable: mirrors walkPlans (children,
+     * Collects manual-plan facts and scan selectors: mirrors walkPlans (children,
      * extraPlans and expression subqueries, each node ONCE) while tracking the alias of
      * the closest enclosing LogicalSubQueryAlias - a plain FROM t a
      * parses as an alias node wrapping the unbound relation.
      */
     private static void collectScanSelectors(Plan node, String alias,
-            Map<String, List<ScanSelectorOccurrence>> byTable, Set<Plan> visited) {
+            ParsedPlanFacts facts, Set<Plan> visited) {
         if (node == null || !visited.add(node)) {
             return;
         }
+        facts.record(node);
         String scopeAlias = alias;
         if (node instanceof LogicalSubQueryAlias) {
             String own = ((LogicalSubQueryAlias<?>) node).getAlias();
@@ -7090,34 +7219,34 @@ public final class SPMPlanTreeSupport {
             List<String> nameParts = relation.getNameParts();
             String table = nameParts == null || nameParts.isEmpty()
                     ? "" : nameParts.get(nameParts.size() - 1);
-            byTable.computeIfAbsent(table, k -> new ArrayList<>())
+            facts.selectors.computeIfAbsent(table, k -> new ArrayList<>())
                     .add(new ScanSelectorOccurrence(scopeAlias, describeScanSelector(relation)));
         }
         for (Plan child : node.children()) {
-            collectScanSelectors(child, scopeAlias, byTable, visited);
+            collectScanSelectors(child, scopeAlias, facts, visited);
         }
         for (Plan extra : node.extraPlans()) {
-            collectScanSelectors(extra, scopeAlias, byTable, visited);
+            collectScanSelectors(extra, scopeAlias, facts, visited);
         }
         for (Expression expression : node.getExpressions()) {
-            collectScanSelectorsFromExpression(expression, scopeAlias, byTable, visited);
+            collectScanSelectorsFromExpression(expression, scopeAlias, facts, visited);
         }
     }
 
     /** Recurses one expression tree looking for subquery plans (mirrors walkPlans). */
     private static void collectScanSelectorsFromExpression(Expression expression, String alias,
-            Map<String, List<ScanSelectorOccurrence>> byTable, Set<Plan> visited) {
+            ParsedPlanFacts facts, Set<Plan> visited) {
         if (expression instanceof SubqueryExpr) {
-            collectScanSelectors(((SubqueryExpr) expression).getQueryPlan(), alias, byTable,
+            collectScanSelectors(((SubqueryExpr) expression).getQueryPlan(), alias, facts,
                     visited);
         }
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                collectScanSelectorsFromExpression(replaced, alias, byTable, visited);
+                collectScanSelectorsFromExpression(replaced, alias, facts, visited);
             }
         }
         for (Expression child : expression.children()) {
-            collectScanSelectorsFromExpression(child, alias, byTable, visited);
+            collectScanSelectorsFromExpression(child, alias, facts, visited);
         }
     }
 
@@ -7223,7 +7352,10 @@ public final class SPMPlanTreeSupport {
      * Type parameter E: the visitor's exception type, propagated to the caller
      */
     public static <E extends Exception> void walkPlans(Plan root, PlanWalker<E> visitor) throws E {
-        walkPlans(root, visitor, Collections.newSetFromMap(new IdentityHashMap<>()));
+        walkPlansWhile(root, node -> {
+            visitor.visit(node);
+            return true;
+        }, Collections.newSetFromMap(new IdentityHashMap<>()));
     }
 
     /**
@@ -7236,42 +7368,62 @@ public final class SPMPlanTreeSupport {
      * deadline). Identity - not equals - is the right key: the walkers only INSPECT the
      * tree, and a shared plan object always appears under the same CTE scope.
      */
-    private static <E extends Exception> void walkPlans(Plan root, PlanWalker<E> visitor,
+    private static <E extends Exception> boolean walkPlansWhile(Plan root, PlanTraversal<E> visitor,
             Set<Plan> visited) throws E {
         if (root == null || !visited.add(root)) {
-            return;
+            return true;
         }
-        visitor.visit(root);
+        if (!visitor.visit(root)) {
+            return false;
+        }
         for (Plan child : root.children()) {
-            walkPlans(child, visitor, visited);
+            if (!walkPlansWhile(child, visitor, visited)) {
+                return false;
+            }
         }
         for (Plan extra : root.extraPlans()) {
-            walkPlans(extra, visitor, visited);
+            if (!walkPlansWhile(extra, visitor, visited)) {
+                return false;
+            }
         }
         for (Expression expression : root.getExpressions()) {
-            walkSubqueryPlans(expression, visitor, visited);
+            if (!walkSubqueryPlansWhile(expression, visitor, visited)) {
+                return false;
+            }
         }
+        return true;
     }
 
-    /** Recurses one expression tree looking for subquery plans (coercions included). */
-    private static <E extends Exception> void walkSubqueryPlans(Expression expression,
-            PlanWalker<E> visitor, Set<Plan> visited) throws E {
-        if (expression instanceof SubqueryExpr) {
-            walkPlans(((SubqueryExpr) expression).getQueryPlan(), visitor, visited);
+    /** Recurses expressions in the same order, propagating a global stop to the plan walk. */
+    private static <E extends Exception> boolean walkSubqueryPlansWhile(Expression expression,
+            PlanTraversal<E> visitor, Set<Plan> visited) throws E {
+        if (expression instanceof SubqueryExpr
+                && !walkPlansWhile(((SubqueryExpr) expression).getQueryPlan(), visitor, visited)) {
+            return false;
         }
         if (expression instanceof UnboundStar) {
-            // SELECT * REPLACE((SELECT... FROM v) AS k): the replacement payloads live in
-            // getReplacedAlias, OUTSIDE children, so a subquery plan behind one stayed
-            // invisible to every walkPlans-based inspection (the view guard froze the
-            // expanded base-table plan, replay then checked base-table privileges instead
-            // of the original view).
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                walkSubqueryPlans(replaced, visitor, visited);
+                if (!walkSubqueryPlansWhile(replaced, visitor, visited)) {
+                    return false;
+                }
             }
         }
         for (Expression child : expression.children()) {
-            walkSubqueryPlans(child, visitor, visited);
+            if (!walkSubqueryPlansWhile(child, visitor, visited)) {
+                return false;
+            }
         }
+        return true;
+    }
+
+    private static boolean anyPlan(Plan root, Predicate<Plan> predicate) {
+        return !SPMPlanTreeSupport.<RuntimeException>walkPlansWhile(root,
+                node -> !predicate.test(node), Collections.newSetFromMap(new IdentityHashMap<>()));
+    }
+
+    /** Returns false to stop the entire inspection. */
+    private interface PlanTraversal<E extends Exception> {
+        boolean visit(Plan plan) throws E;
     }
 
     /** Plan visitor for walkPlans; the exception type is chosen by the caller. */
@@ -7306,7 +7458,7 @@ public final class SPMPlanTreeSupport {
 
     /**
      * walkPlansScoped with the identity set of already-visited nodes (see
-     * walkPlans(Plan, PlanWalker, Set)): the same subquery plan is reachable
+     * walkPlansWhile): the same subquery plan is reachable
      * through a filter's extraPlans AND through its predicate expression, so without
      * the set a nested-subquery chain was walked exponentially often.
      */
@@ -7388,13 +7540,7 @@ public final class SPMPlanTreeSupport {
      * them.
      */
     public static boolean containsFileSink(Plan plan) {
-        final boolean[] found = {false};
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
-            if (node instanceof LogicalFileSink) {
-                found[0] = true;
-            }
-        });
-        return found[0];
+        return anyPlan(plan, node -> node instanceof LogicalFileSink);
     }
 
     private static boolean isViewRelation(ConnectContext ctx, UnboundRelation relation) {
@@ -8265,7 +8411,7 @@ public final class SPMPlanTreeSupport {
         return SelectHintSetVar.runStoredTextParse(() ->
                 org.apache.doris.qe.SqlModeHelper.withSqlMode(sqlMode,
                         () -> new org.apache.doris.nereids.parser.NereidsParser()
-                                .parseSingle(sql)));
+                                .parseSingleCached(sql)));
     }
 
     /**

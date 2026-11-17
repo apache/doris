@@ -50,6 +50,8 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -105,6 +107,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /** Placeholder record list. */
     private final List<PlaceholderExpr> placeholderExprs = new ArrayList<>();
+
+    private final Map<PlaceholderExpr.MatchKey, PlaceholderExpr> placeholderIndex = new HashMap<>();
+    private final Map<Expression, String> parentSignatures = new IdentityHashMap<>();
 
     /**
      * Optional GROUP BY mirror lookup, installed by SPMPlanTreeSupport.TreeTransformer for
@@ -969,11 +974,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         int projectItem = currentProjectItem();
         long rootOrdinal = currentRootOrdinal;
         String occurrencePath = currentOccurrencePath();
-        for (PlaceholderExpr record : placeholderExprs) {
-            if (record.matches(literal, parent, childIndex, blockId, projectItem, rootOrdinal,
-                    occurrencePath)) {
-                return record.getPlaceholderExpr();
-            }
+        PlaceholderExpr.MatchKey key = PlaceholderExpr.matchKey(literal, parent, childIndex,
+                blockId, projectItem, rootOrdinal, occurrencePath, parentSignatures);
+        PlaceholderExpr existing = placeholderIndex.get(key);
+        if (existing != null) {
+            return existing.getPlaceholderExpr();
         }
         long id = nextId++;
         SpmConstVar placeholder = SpmConstVar.of(id,
@@ -981,8 +986,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                         booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
                         booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent),
                         isContainerElementPosition(parent) && !isNullTypeContainerPosition(parent)));
-        placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
-                blockId, projectItem, rootOrdinal, occurrencePath));
+        PlaceholderExpr record = new PlaceholderExpr(literal, placeholder, parent, childIndex,
+                blockId, projectItem, rootOrdinal, occurrencePath);
+        placeholderExprs.add(record);
+        placeholderIndex.put(key, record);
         return placeholder;
     }
 
@@ -1307,17 +1314,19 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             int projectItem = currentProjectItem();
             long rootOrdinal = currentRootOrdinal;
             String occurrencePath = currentOccurrencePath();
-            for (PlaceholderExpr record : placeholderExprs) {
-                if (record.matches(inPredicate, parent, childIndex, blockId, projectItem,
-                        rootOrdinal, occurrencePath)) {
-                    return record.getPlaceholderExpr();
-                }
+            PlaceholderExpr.MatchKey key = PlaceholderExpr.matchKey(inPredicate, parent, childIndex,
+                    blockId, projectItem, rootOrdinal, occurrencePath, parentSignatures);
+            PlaceholderExpr existing = placeholderIndex.get(key);
+            if (existing != null) {
+                return existing.getPlaceholderExpr();
             }
             long id = nextId++;
             SpmConstList list = SpmConstList.of(id, inPredicate.getOptions());
             InPredicate placeholder = new InPredicate(newCompare, ImmutableList.of(list));
-            placeholderExprs.add(new PlaceholderExpr(inPredicate, placeholder, parent, childIndex,
-                    blockId, projectItem, rootOrdinal, occurrencePath));
+            PlaceholderExpr record = new PlaceholderExpr(inPredicate, placeholder, parent, childIndex,
+                    blockId, projectItem, rootOrdinal, occurrencePath);
+            placeholderExprs.add(record);
+            placeholderIndex.put(key, record);
             return placeholder;
         }
 
