@@ -1926,7 +1926,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
         if (sync && can_defer) {
             // Runs once the cache lock is released, before the evicting caller continues, so
             // the space is still freed on the caller's own thread.
-            deferred_scope->add(key);
+            deferred_scope->add(key, _storage_sync_remove_latency_us.get());
         } else if (sync) {
             run_storage_remove(hash, offset, _storage_sync_remove_latency_us.get(),
                                /*wait_for_owner=*/true);
@@ -1941,7 +1941,7 @@ void BlockFileCache::remove(FileBlockSPtr file_block, T& cache_lock, U& block_lo
                 // A full recycle queue must not bring the file I/O back under the cache lock:
                 // remove it on this thread once the lock is released instead.
                 LOG_WARNING("Failed to push recycle key to queue, remove it after the cache lock");
-                deferred_scope->add(key);
+                deferred_scope->add(key, _storage_retry_sync_remove_latency_us.get());
             } else {
                 LOG_WARNING("Failed to push recycle key to queue, do it synchronously");
                 run_storage_remove(hash, offset, _storage_retry_sync_remove_latency_us.get(),
@@ -2121,10 +2121,8 @@ DeferredStorageRemoveScope::~DeferredStorageRemoveScope() {
     // migrate while blocked on a std::mutex or in a syscall), so this scope is still innermost.
     DCHECK(tls_deferred_storage_remove_scope == this);
     tls_deferred_storage_remove_scope = _prev;
-    for (const auto& key : _keys) {
-        _cache->run_storage_remove(key.hash, key.offset,
-                                   _cache->_storage_sync_remove_latency_us.get(),
-                                   /*wait_for_owner=*/true);
+    for (const auto& [key, latency_us] : _removals) {
+        _cache->run_storage_remove(key.hash, key.offset, latency_us, /*wait_for_owner=*/true);
     }
 }
 

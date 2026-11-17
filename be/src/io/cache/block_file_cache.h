@@ -82,12 +82,16 @@ public:
     static DeferredStorageRemoveScope* current();
 
     bool owned_by(const BlockFileCache* cache) const { return _cache == cache; }
-    void add(const FileCacheKey& key) { _keys.push_back(key); }
+    // `latency_us` is the recorder the removal would have used inline, so moving it after the
+    // lock does not move its latency to another metric.
+    void add(const FileCacheKey& key, bvar::LatencyRecorder* latency_us) {
+        _removals.push_back({key, latency_us});
+    }
 
 private:
     const BlockFileCache* _cache;
     DeferredStorageRemoveScope* _prev;
-    std::vector<FileCacheKey> _keys;
+    std::vector<std::pair<FileCacheKey, bvar::LatencyRecorder*>> _removals;
 };
 
 // Note: the cache_lock is scoped, so do not add do...while(0) here.

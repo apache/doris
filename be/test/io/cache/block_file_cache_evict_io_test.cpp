@@ -290,7 +290,8 @@ TEST_F(BlockFileCacheTest, evict_io_load_skips_block_pending_removal) {
 }
 
 // A synchronous removal whose position another thread (a replacement block's downloader, or GC)
-// is already removing waits for that owner, so the file is gone when it returns.
+// is already removing waits for that owner, so the file is gone when it returns. Driven through
+// remove_if_cached, whose lock scope runs the removal after the cache lock is released.
 TEST_F(BlockFileCacheTest, evict_io_sync_remove_waits_for_competing_owner) {
     auto base = evict_io_cache_path("competing_owner");
     fs::remove_all(base);
@@ -300,25 +301,31 @@ TEST_F(BlockFileCacheTest, evict_io_sync_remove_waits_for_competing_owner) {
     ASSERT_TRUE(cache.initialize());
     wait_until_cache_ready(cache);
 
-    FileCacheKey key;
-    key.hash = BlockFileCache::hash("evict_io_competing_owner");
-    key.offset = 0;
-    cache._pending_storage_removes.mark(key);
+    auto key = BlockFileCache::hash("evict_io_competing_owner");
+    insert_block(cache, key, 0, kBlockSize);
+    auto path = block_path(base, key, 0);
+    ASSERT_TRUE(fs::exists(path));
+
+    // Another thread is mid-removal at (key, 0) and has not unlinked the file yet.
+    FileCacheKey other;
+    other.hash = key;
+    other.offset = 0;
+    cache._pending_storage_removes.mark(other);
     FileCacheKey claimed;
-    ASSERT_TRUE(cache._pending_storage_removes.claim(key.hash, key.offset, &claimed));
+    ASSERT_TRUE(cache._pending_storage_removes.claim(key, 0, &claimed));
 
-    // The other owner is mid-removal: the synchronous remover must not return yet.
-    auto sync_remove = std::async(std::launch::async, [&] {
-        cache.run_storage_remove(key.hash, key.offset, nullptr, /*wait_for_owner=*/true);
-    });
+    auto sync_remove = std::async(std::launch::async, [&] { cache.remove_if_cached(key); });
     EXPECT_EQ(sync_remove.wait_for(std::chrono::milliseconds(200)), std::future_status::timeout);
+    EXPECT_TRUE(fs::exists(path));
     // GC does not wait: it leaves a removal someone else is running.
-    cache.run_storage_remove(key.hash, key.offset, nullptr, /*wait_for_owner=*/false);
-    EXPECT_TRUE(cache._pending_storage_removes.contains(key.hash, key.offset));
+    cache.run_storage_remove(key, 0, nullptr, /*wait_for_owner=*/false);
 
-    EXPECT_FALSE(cache._pending_storage_removes.finish(key.hash, key.offset));
+    // The other owner finishes without deleting. remove_if_cached marked the position again while
+    // it ran, so the waiting caller claims it and deletes the file itself before returning.
+    EXPECT_TRUE(cache._pending_storage_removes.finish(key, 0));
     ASSERT_EQ(sync_remove.wait_for(std::chrono::seconds(10)), std::future_status::ready);
-    EXPECT_FALSE(cache._pending_storage_removes.contains(key.hash, key.offset));
+    EXPECT_FALSE(fs::exists(path));
+    EXPECT_FALSE(cache._pending_storage_removes.contains(key, 0));
 }
 
 // A block is evicted and its removal stalls; meanwhile the same position is downloaded again.
