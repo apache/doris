@@ -19,6 +19,7 @@ suite("dotted_key_escape_common_type", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     sql "set default_variant_enable_doc_mode=false"
+    sql "set default_variant_max_subcolumns_count=0"
     sql "set group_commit='off_mode'"
     sql "set enable_sql_cache=false"
     sql "set enable_query_cache=false"

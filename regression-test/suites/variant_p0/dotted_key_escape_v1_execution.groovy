@@ -33,7 +33,7 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
             sql """create table dotted_key_escape_v1_reads(id int, v variant<properties(${layout})>,
                 w variant, padding int default '0') duplicate key(id) distributed by hash(id) buckets 1
                 properties("replication_num"="1","variant_escape_dots_in_keys"="true",
-                           "disable_auto_compaction"="true","light_schema_change"="false")"""
+                           "disable_auto_compaction"="true","light_schema_change"="true")"""
             [json, '{}', '[]', null].eachWithIndex { doc, id ->
                 def value = doc == null ? 'NULL' : "parse_to_variant('${doc}')"
                 sql "insert into dotted_key_escape_v1_reads(id,v,w) values (${id},${value},${value})"
@@ -58,6 +58,12 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
                         .collect { it.VisibleVersion })
                 // Maintenance selects V2 from the persisted schema, independently of FE config.
                 trigger_and_wait_compaction("dotted_key_escape_v1_reads", "full")
+                // Changing a value type forces a physical rewrite even with light schema enabled.
+                sql "alter table dotted_key_escape_v1_reads modify column padding bigint default '0'"
+                waitForSchemaChangeDone {
+                    sql "show alter table column where TableName='dotted_key_escape_v1_reads' order by CreateTime desc limit 1"
+                    time 600
+                }
                 sql "alter table dotted_key_escape_v1_reads add column extra int default '7'"
                 waitForSchemaChangeDone {
                     sql "show alter table column where TableName='dotted_key_escape_v1_reads' order by CreateTime desc limit 1"
@@ -79,9 +85,11 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
             "enable_unique_key_merge_on_write"="true")"""
         sql "insert into dotted_key_escape_v1_rowstore values (1,parse_to_variant('${json}'),9)"
         sql "set enable_short_circuit_query=true"
+        // The 4.2 planner excludes tables containing VARIANT from short-circuit queries.
+        // Keep this fallback explicit; direct/cached point-query BE guards have UT coverage.
         explain {
             sql "select v from dotted_key_escape_v1_rowstore where id=1"
-            contains "SHORT-CIRCUIT"
+            notContains "SHORT-CIRCUIT"
         }
         def before = decode(sql("select id,v from dotted_key_escape_v1_rowstore where id=1"))
         setFeConfigTemporary([enable_variant_v2:false]) {
@@ -92,6 +100,11 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
             sql "select padding from dotted_key_escape_v1_rowstore where id=1"
             sql "set enable_short_circuit_query=false"
             sql "set enable_two_phase_read_opt=true"
+            sql "set topn_lazy_materialization_threshold=1024"
+            explain {
+                sql "select v from dotted_key_escape_v1_rowstore order by padding limit 1"
+                contains "MaterializeNode"
+            }
             test {
                 sql "select v from dotted_key_escape_v1_rowstore order by padding limit 1"
                 exception "Escaped Variant storage requires V2 execution"
@@ -100,12 +113,16 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
         assertEquals(before, decode(sql("select id,v from dotted_key_escape_v1_rowstore where id=1")))
         sql "drop table if exists dotted_key_escape_v1_legacy"
         sql """create table dotted_key_escape_v1_legacy(id int,v variant) duplicate key(id)
-            distributed by hash(id) buckets 1 properties("replication_num"="1")"""
-        sql "insert into dotted_key_escape_v1_legacy values (1,parse_to_variant('${json}'))"
+            distributed by hash(id) buckets 1 properties("replication_num"="1","variant_escape_dots_in_keys"="false")"""
+        def legacyJson = '{"nested":{"key":7},"pct%":4}'
+        sql "insert into dotted_key_escape_v1_legacy values (1,parse_to_variant('${legacyJson}'))"
         def legacy = decode(sql("select id,v from dotted_key_escape_v1_legacy order by id"))
         setFeConfigTemporary([enable_variant_v2:false]) {
             assertEquals(legacy, decode(sql("select id,v from dotted_key_escape_v1_legacy order by id")))
-            sql "insert into dotted_key_escape_v1_legacy values (2,parse_to_variant('${json}'))"
+            // V1's ordinary JSON-string insert preserves the destination Variant settings.
+            sql "insert into dotted_key_escape_v1_legacy values (2,'${legacyJson}')"
+            assertEquals(new groovy.json.JsonSlurper().parseText(legacyJson),
+                    decode(sql("select id,v from dotted_key_escape_v1_legacy where id=2"))[0][1])
             sql "create table if not exists dotted_key_escape_v1_new_legacy like dotted_key_escape_v1_legacy"
         }
     }

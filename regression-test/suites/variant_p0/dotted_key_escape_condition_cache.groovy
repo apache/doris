@@ -41,8 +41,9 @@ suite("dotted_key_escape_condition_cache", "p0,nonConcurrent") {
         sql query
         String token = UUID.randomUUID().toString()
         sql "/* ${token} */ ${query}"
-        String profile = profiles.getProfileBySql(token, ["ConditionCacheLookup", "ConditionCacheHit"])
-        for (String counter : ["ConditionCacheLookup", "ConditionCacheHit"]) {
+        // The OLAP counter records real segment hits; file scans use different names.
+        String profile = profiles.getProfileBySql(token, ["ConditionCacheSegmentHit"])
+        for (String counter : ["ConditionCacheSegmentHit"]) {
             def values = (profile =~ /${counter}: (\d+)/).findAll()
             assertTrue(values.any { (it[1] as long) > 0 }, "Missing ${counter}: ${profile}")
             logger.info("${counter}: ${values.collect { it[1] }} for ${query}")
