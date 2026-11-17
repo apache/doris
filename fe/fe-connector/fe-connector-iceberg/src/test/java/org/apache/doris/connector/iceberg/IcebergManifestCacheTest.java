@@ -47,6 +47,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
@@ -63,9 +64,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -73,6 +76,102 @@ import java.util.concurrent.atomic.AtomicInteger;
  * exercised against genuine iceberg {@link ManifestFile}s (no I/O — InMemoryCatalog serves manifests in-memory).
  */
 public class IcebergManifestCacheTest {
+
+    @ParameterizedTest
+    @CsvSource({"data", "position", "equality"})
+    public void fileKeysNeverEnterTheSharedManifestCache(String kind) {
+        Table table = tableWithTwoDataFiles();
+        // New v3 position deletes must be DVs; retain a v2 Parquet input for this cache boundary test.
+        if (!kind.equals("position")) {
+            table.updateProperties().set("format-version", "3").commit();
+        }
+        ByteBuffer metadata = ByteBuffer.wrap(new byte[] {1, 2, 3});
+        ManifestFile manifest;
+        if (kind.equals("data")) {
+            table.newFastAppend().appendFile(DataFiles.builder(table.spec()).withPath("/data/encoded.parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1).withEncryptionKeyMetadata(metadata).build()).commit();
+            manifest = table.currentSnapshot().dataManifests(table.io()).stream()
+                    .filter(file -> file.snapshotId() == table.currentSnapshot().snapshotId()).findFirst().orElseThrow();
+        } else {
+            FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(table.spec());
+            if (kind.equals("position")) {
+                builder.ofPositionDeletes();
+            } else {
+                builder.ofEqualityDeletes(1);
+            }
+            table.newRowDelta().addDeletes(builder.withPath("/data/encoded-delete.parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1).withEncryptionKeyMetadata(metadata).build()).commit();
+            manifest = table.currentSnapshot().deleteManifests(table.io()).get(0);
+        }
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergManifestCache cache = new IcebergManifestCache(owner, Collections.emptyMap());
+            ManifestCacheValue first = cache.getManifestCacheValue(manifest, table, "first");
+            Assertions.assertEquals(1, first.getDataFiles().size() + first.getDeleteFiles().size());
+            Assertions.assertNull(cache.getCachedManifestValue(manifest, "second"),
+                    "SDK key metadata includes the plaintext file key and must stay within this read");
+            Assertions.assertNotSame(first,
+                    cache.getManifestCacheValueFuture(manifest, table, "second").toCompletableFuture().join());
+            FileIO denied = (FileIO) Proxy.newProxyInstance(FileIO.class.getClassLoader(),
+                    new Class<?>[] {FileIO.class}, (proxy, method, args) -> {
+                        throw new SecurityException("fixture storage access revoked");
+                    });
+            Table unavailable = tableWithIo(table, denied);
+            Assertions.assertThrows(SecurityException.class, () -> cache.getManifestCacheValue(manifest, unavailable),
+                    "a previous successful read must not replace the current caller's storage access");
+            Assertions.assertEquals(0, cache.size());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void simultaneousReadsDoNotShareUnknownFileKeys(boolean future) throws Exception {
+        Table table = tableWithTwoDataFiles();
+        table.newFastAppend().appendFile(DataFiles.builder(table.spec()).withPath("/data/keyed.parquet")
+                .withFileSizeInBytes(100).withRecordCount(1)
+                .withEncryptionKeyMetadata(ByteBuffer.wrap(new byte[] {1, 2, 3})).build()).commit();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        CountDownLatch entered = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        FileIO io = (FileIO) Proxy.newProxyInstance(FileIO.class.getClassLoader(),
+                new Class<?>[] {FileIO.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("newInputFile")) {
+                        entered.countDown();
+                        Assertions.assertTrue(release.await(15, TimeUnit.SECONDS));
+                    }
+                    try {
+                        return method.invoke(table.io(), args);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        Table observed = tableWithIo(table, io);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergManifestCache cache = new IcebergManifestCache(owner, Collections.emptyMap());
+            Callable<ManifestCacheValue> read = () -> future
+                    ? cache.getManifestCacheValueFuture(manifest, observed, "concurrent")
+                            .toCompletableFuture().get(10, TimeUnit.SECONDS)
+                    : cache.getManifestCacheValue(manifest, observed, "concurrent");
+            Future<ManifestCacheValue> first = workers.submit(read);
+            Future<ManifestCacheValue> second = workers.submit(read);
+            try {
+                Assertions.assertTrue(entered.await(10, TimeUnit.SECONDS),
+                        "the plaintext manifest is unclassified until loaded; statement reads must stay independent");
+            } finally {
+                release.countDown();
+            }
+            ManifestCacheValue firstValue = first.get(10, TimeUnit.SECONDS);
+            ManifestCacheValue secondValue = second.get(10, TimeUnit.SECONDS);
+            Assertions.assertNotSame(firstValue, secondValue);
+            Assertions.assertEquals(1, firstValue.getDataFiles().size());
+            Assertions.assertEquals(1, secondValue.getDataFiles().size());
+            Assertions.assertEquals(0, cache.size());
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
 
     @Test
     public void stablePartitionTypesOpenOneStreamAndWarmCacheOpensNone() throws Exception {
