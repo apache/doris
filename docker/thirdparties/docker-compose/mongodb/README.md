@@ -114,3 +114,11 @@ closure and a subsequent successful read. Failpoints target this test's applicat
 name and are disabled in `finally` blocks. The catalog remains available for
 inspection. This is a focused lifecycle check; the release soak and topology/TLS
 matrices remain separate qualification work.
+
+`03-m1-fixtures.js` creates the independent `doris_mongodb_m1` database for
+`test_mongodb_m1`. The suite compares full sorted results with predicate/LIKE/projection
+switches disabled and enabled, and covers dirty scalar/array values, exact int64 and
+Decimal128 literals, UTC date ranges, nested rollback, subtype mismatches, source
+collation, strict errors, residuals, views, time-series scans and statement overrides.
+Its completed Profile check also verifies the selective candidate reduces `MongoRowsRead`
+from ten source documents to one.
