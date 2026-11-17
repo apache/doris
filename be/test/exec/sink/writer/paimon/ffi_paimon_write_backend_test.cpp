@@ -209,7 +209,7 @@ TEST_F(FfiPaimonWriteBackendTest, FailedPrepareAbortsRolledFilesAndReleasesBudge
     ASSERT_TRUE(open().ok());
     auto block = input();
     ASSERT_TRUE(write(block).ok());
-    ASSERT_EQ(file_count(), 1);
+    // Rolled files may still be closing asynchronously when prepare fails.
     DebugPoints::instance()->add("FfiPaimonWriteBackend.prepare.fail");
     std::vector<TPaimonCommitMessage> messages;
     const auto status = _writer->prepare_commit(messages);
@@ -302,7 +302,6 @@ TEST_F(FfiPaimonWriteBackendTest, AbortRemovesProducerOwnedRolledFiles) {
     ASSERT_TRUE(open().ok());
     auto block = input();
     ASSERT_TRUE(write(block).ok());
-    EXPECT_EQ(file_count(), 1);
     ASSERT_TRUE(_writer->abort().ok());
     _writer.reset();
     ASSERT_TRUE(_backend.close().ok());
@@ -391,13 +390,57 @@ TEST_F(FfiPaimonWriteBackendTest, LargeBlockIsSplitBeforeImportingIntoRust) {
     }
     Block block({{std::move(values), std::make_shared<DataTypeString>(), "id"}});
     ASSERT_TRUE(write(block).ok());
-    // The 1-byte file target rolls each imported batch synchronously.
-    EXPECT_EQ(file_count(), 3);
     std::vector<TPaimonCommitMessage> messages;
     ASSERT_TRUE(_writer->prepare_commit(messages).ok());
-    EXPECT_EQ(messages.size(), 1);
+    ASSERT_EQ(messages.size(), 1);
+    // prepare_commit waits for the three asynchronously closed files.
+    EXPECT_EQ(file_count(), 3);
+    ASSERT_GE(messages.front().payload.size(), 16);
+    // One commit message contains all three files for this partition and bucket.
+    EXPECT_EQ(BigEndian::Load32(messages.front().payload.data() + 12), 1);
     ASSERT_TRUE(_writer->abort().ok());
     EXPECT_EQ(file_count(), 0);
+}
+
+TEST_F(FfiPaimonWriteBackendTest, CommitMessageRangesKeepJavaListFraming) {
+    // FE currently selects JNI for partitioned tables. Exercise the backend directly
+    // with distinct partitions to produce more than one range of commit messages.
+    _sink.table_desc.__set_schema_json(R"({
+        "version":3,"id":0,
+        "fields":[{"id":0,"name":"id","type":"INT"},
+                  {"id":1,"name":"p","type":"INT"}],
+        "highestFieldId":1,"partitionKeys":["p"],"primaryKeys":[],
+        "options":{"bucket":"-1","file.format":"parquet", "target-file-size":"1 b"},
+        "timeMillis":0
+    })");
+    _sink.__set_column_names({"id", "p"});
+    ASSERT_TRUE(open().ok());
+    auto values = ColumnInt32::create();
+    auto partitions = ColumnInt32::create();
+    for (int row = 0; row < 513; ++row) {
+        values->insert_value(row);
+        partitions->insert_value(row);
+    }
+    Block block({{std::move(values), std::make_shared<DataTypeInt32>(), "id"},
+                 {std::move(partitions), std::make_shared<DataTypeInt32>(), "p"}});
+    ASSERT_TRUE(write(block).ok());
+    std::vector<TPaimonCommitMessage> messages;
+    ASSERT_TRUE(_writer->prepare_commit(messages).ok());
+    ASSERT_EQ(messages.size(), 2);
+    for (size_t i = 0; i < messages.size(); ++i) {
+        const auto& payload = messages[i].payload;
+        ASSERT_GE(payload.size(), 16);
+        EXPECT_EQ(payload.substr(0, 4), "DPCM");
+        EXPECT_EQ(BigEndian::Load32(payload.data() + 4), 14);
+        EXPECT_EQ(BigEndian::Load32(payload.data() + 8), payload.size() - 12);
+        EXPECT_EQ(BigEndian::Load32(payload.data() + 12), i == 0 ? 512 : 1);
+    }
+    EXPECT_EQ(file_count(), 513);
+    ASSERT_TRUE(_writer->abort().ok());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
 }
 
 TEST_F(FfiPaimonWriteBackendTest, AbortBeforePublicationRemovesPreparedFiles) {
@@ -454,8 +497,7 @@ TEST_F(FfiPaimonWriteBackendTest, ResourceExhaustionReleasesBudgetAndAllowsRetry
     ASSERT_TRUE(open().ok());
     auto block = input();
     ASSERT_TRUE(write(block).ok());
-    ASSERT_EQ(file_count(), 1);
-    // A second batch exceeds the native budget after the first file has rolled.
+    // A second batch exceeds the native budget while the first file may still be closing.
     auto values = ColumnInt32::create();
     for (int row = 0; row < 40000; ++row) {
         values->insert_value(row);
@@ -501,10 +543,10 @@ TEST_F(FfiPaimonWriteBackendTest, CancellationDoesNotSendAnotherBatch) {
     ASSERT_TRUE(open().ok());
     auto block = input();
     ASSERT_TRUE(write(block).ok());
-    ASSERT_EQ(file_count(), 1);
+    ASSERT_EQ(counter("InputRows"), 3);
     _state->cancel(Status::Cancelled("test cancellation"));
     EXPECT_FALSE(write(block).ok());
-    EXPECT_EQ(file_count(), 1);
+    EXPECT_EQ(counter("InputRows"), 3);
     ASSERT_TRUE(_writer->abort().ok());
     EXPECT_EQ(file_count(), 0);
 }

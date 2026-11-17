@@ -2535,7 +2535,6 @@ build_lance_c() {
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
         "PROTOC=${TP_INSTALL_DIR}/bin/protoc"
-        "OPENSSL_DIR=${TP_INSTALL_DIR}"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
         # The presence check must look for the toolchain the minimum actually

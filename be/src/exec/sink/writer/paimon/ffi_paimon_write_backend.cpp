@@ -310,16 +310,20 @@ public:
         _prepared = true;
         size_t offset = 0;
         size_t total = 0;
-        const size_t count = paimon_commit_messages_count(_messages.get());
+        size_t count = 0;
+        RETURN_IF_ERROR(rust_status(paimon_commit_messages_count(_messages.get(), &count),
+                                    "count commit messages"));
         COUNTER_SET(_prepared_messages, static_cast<int64_t>(count));
         while (offset < count) {
             RETURN_IF_CANCELLED(_state);
             size_t chunk = std::min<size_t>(512, count - offset);
-            paimon_bytes encoded {};
+            paimon_result_bytes_array encoded {};
             for (;;) {
-                paimon_error* error = paimon_commit_messages_serialize_java(
-                        _messages.get(), _commit_version, offset, chunk,
-                        MAX_COMMIT_PAYLOAD - DPCM_HEADER_BYTES, &encoded);
+                // The C API exports individual bodies. Reserve four bytes for Java's list count.
+                encoded = paimon_commit_messages_serialize_range(
+                        _messages.get(), offset, chunk,
+                        MAX_COMMIT_PAYLOAD - DPCM_HEADER_BYTES - sizeof(uint32_t));
+                paimon_error* error = encoded.error;
                 if (error != nullptr && error->code == 6 && chunk > 1) {
                     paimon_error_free(error);
                     chunk = std::max<size_t>(1, chunk / 2);
@@ -328,8 +332,13 @@ public:
                 RETURN_IF_ERROR(rust_status(error, "serialize commit messages"));
                 break;
             }
-            Defer release_bytes([&] { paimon_bytes_free(encoded); });
-            const size_t framed_size = encoded.len + DPCM_HEADER_BYTES;
+            Defer release_bytes([&] { paimon_bytes_array_free(encoded.bytes); });
+            DORIS_CHECK(encoded.bytes.len == chunk);
+            size_t encoded_size = sizeof(uint32_t);
+            for (size_t i = 0; i < encoded.bytes.len; ++i) {
+                encoded_size += encoded.bytes.data[i].len;
+            }
+            const size_t framed_size = encoded_size + DPCM_HEADER_BYTES;
             if (framed_size > MAX_COMMIT_TOTAL - total) {
                 return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
                         "Paimon Rust commit payloads exceed 64 MiB");
@@ -338,8 +347,12 @@ public:
             payload.reserve(framed_size);
             payload.append("DPCM", 4);
             append_big_endian(payload, _commit_version);
-            append_big_endian(payload, static_cast<uint32_t>(encoded.len));
-            payload.append(reinterpret_cast<const char*>(encoded.data), encoded.len);
+            append_big_endian(payload, static_cast<uint32_t>(encoded_size));
+            append_big_endian(payload, static_cast<uint32_t>(chunk));
+            for (size_t i = 0; i < encoded.bytes.len; ++i) {
+                const auto& body = encoded.bytes.data[i];
+                payload.append(reinterpret_cast<const char*>(body.data), body.len);
+            }
             TPaimonCommitMessage message;
             message.payload = std::move(payload);
             message.__isset.payload = true;
@@ -373,7 +386,12 @@ public:
         }
         RETURN_IF_ERROR(stop());
         update_metrics();
-        if (_messages && paimon_commit_messages_count(_messages.get()) != 0) {
+        size_t count = 0;
+        if (_messages) {
+            RETURN_IF_ERROR(rust_status(paimon_commit_messages_count(_messages.get(), &count),
+                                        "count commit messages"));
+        }
+        if (count != 0) {
             struct PreparedFiles {
                 ~PreparedFiles() {
                     messages.reset();
