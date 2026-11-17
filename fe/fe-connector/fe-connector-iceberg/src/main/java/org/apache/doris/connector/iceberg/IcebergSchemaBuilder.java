@@ -153,8 +153,7 @@ public final class IcebergSchemaBuilder {
                 return Types.StructType.of(sub);
             }
             case "VARBINARY":
-                // CREATE TABLE only. Always BINARY: VARBINARY(n) holds up to n bytes, FIXED(n) exactly n.
-                // ADD and MODIFY still fail here, so MODIFY keeps resolving VARBINARY against the current column.
+                // not FIXED(n): VARBINARY(n) is a maximum length, FIXED(n) an exact one
                 return ids.allowBinary ? Types.BinaryType.get() : IcebergTypeMapping.toIcebergPrimitive(type);
             default:
                 return IcebergTypeMapping.toIcebergPrimitive(type);
@@ -476,7 +475,7 @@ public final class IcebergSchemaBuilder {
     /** Sequential Iceberg field-id allocator for nested fields (legacy {@code DorisTypeToIcebergType} scheme). */
     private static final class IdAllocator {
         private int next;
-        // Whether VARBINARY may become iceberg BINARY: set by CREATE TABLE, not by MODIFY.
+        // false for ALTER, so MODIFY still resolves VARBINARY against the existing column
         private final boolean allowBinary;
 
         IdAllocator(int start) {

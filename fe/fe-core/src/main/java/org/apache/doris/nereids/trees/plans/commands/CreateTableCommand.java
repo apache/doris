@@ -182,7 +182,7 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         ImmutableList.Builder<ColumnDefinition> columnsOfQuery = ImmutableList.builder();
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
-            // VARBINARY is checked against the target catalog in CreateTableInfo.validate.
+            // no VARBINARY check here: it depends on the target catalog, see CreateTableInfo.validate
             DataType dataType = s.getDataType().conversion();
             if (dataType instanceof VariantType) {
                 dataType = ((VariantType) dataType).withoutPredefinedFields();

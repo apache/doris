@@ -897,8 +897,7 @@ public class IcebergConnector implements Connector {
         // (CREATE TABLE ... ORDER BY (...)). fe-core admits the ORDER BY clause for a plugin-driven CREATE TABLE
         // ONLY under this capability (replacing the legacy engine-name "iceberg" gate); the sort-column validation
         // (existence / type / duplicates) runs connector-side in IcebergConnectorMetadata.createTable.
-        // SUPPORTS_VARBINARY_COLUMN: iceberg has a native BINARY type, so CREATE TABLE may declare VARBINARY
-        // columns (top-level and nested); IcebergSchemaBuilder.buildSchema maps every one to BINARY.
+        // SUPPORTS_VARBINARY_COLUMN: iceberg has a native BINARY type to store VARBINARY in.
         // SUPPORTS_WRITE_ONLY_DEFAULTS: an iceberg write-default applies to new rows only, so it lives in the
         // writer schema (IcebergWriteSchemaContext) and not in the read schema. fe-core resolves DEFAULT(column)
         // against the writer schema pinned for the write target and rejects it in a plain SELECT, instead of

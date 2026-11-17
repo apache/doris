@@ -17,8 +17,7 @@
 
 import groovy.json.JsonSlurper
 
-// CREATE TABLE and CTAS on an Iceberg catalog map every VARBINARY, bounded or not, to Iceberg BINARY at any
-// depth. FIXED(n) holds exactly n bytes, so a shorter value in a VARBINARY(n) column must still be writable.
+// CREATE TABLE and CTAS on an Iceberg catalog map every VARBINARY to Iceberg BINARY.
 suite("test_iceberg_create_binary_column", "p0,external,iceberg,external_docker,external_docker_iceberg") {
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -50,7 +49,7 @@ suite("test_iceberg_create_binary_column", "p0,external,iceberg,external_docker,
     sql """create database ${dbName}"""
     sql """use ${dbName}"""
 
-    // The physical Iceberg type, read from the REST catalog rather than through Doris's own mapping.
+    // read from the REST catalog, so the check does not go through Doris's own type mapping
     def icebergTypes = { String table ->
         def connection = new URL("http://${externalEnvIp}:${restPort}/v1/namespaces/${dbName}/tables/${table}")
                 .openConnection()
@@ -82,19 +81,19 @@ suite("test_iceberg_create_binary_column", "p0,external,iceberg,external_docker,
     assertEquals("binary", types.s.fields.find { it.name == "a" }.type)
     assertEquals("binary", types.arr.element)
     assertEquals("binary", types.m.value)
-    // A bounded VARBINARY reads back unbounded, as any Iceberg BINARY column does.
+    // BINARY has no length, so VARBINARY(16) reads back unbounded
     def desc = sql """DESC binary_columns"""
     assertEquals("varbinary(2147483647)", desc.find { it[0] == "digest" }[1])
     assertEquals("array<varbinary(2147483647)>", desc.find { it[0] == "arr" }[1])
 
-    // Non-UTF-8 bytes, a value shorter than the declared bound and nested values all round-trip.
+    // non-UTF-8 bytes failed on STRING columns, and a short value would fail on FIXED(16)
     sql """INSERT INTO binary_columns VALUES (1, X'FFFEF8', X'0102', named_struct('a', X'FF', 'b', 1),
             [X'FFFE'], map('k', X'F8'))"""
     def rows = sql """SELECT id, hex(payload), hex(digest), hex(struct_element(s, 'a')), hex(arr[1]), hex(m['k'])
             FROM binary_columns ORDER BY id"""
     assertEquals([[1, "FFFEF8", "0102", "FF", "FFFE", "F8"]], rows)
 
-    // BINARY, unlike FIXED, can be truncate-partitioned.
+    // truncate binds to BINARY but not to FIXED
     sql """
         CREATE TABLE binary_partitioned (id INT, b VARBINARY(16))
         PARTITION BY LIST (truncate(2, b)) ()
@@ -102,20 +101,19 @@ suite("test_iceberg_create_binary_column", "p0,external,iceberg,external_docker,
     sql """INSERT INTO binary_partitioned VALUES (1, X'FFFEF8'), (2, X'01')"""
     assertEquals([[1, "FFFEF8"], [2, "01"]], sql("""SELECT id, hex(b) FROM binary_partitioned ORDER BY id"""))
 
-    // CTAS from a table and from a constant.
     sql """CREATE TABLE binary_ctas AS SELECT id, payload, arr FROM binary_columns"""
     assertEquals("binary", icebergTypes("binary_ctas").payload)
     assertEquals([[1, "FFFEF8"]], sql("""SELECT id, hex(payload) FROM binary_ctas ORDER BY id"""))
     sql """CREATE TABLE binary_ctas_const AS SELECT 1 AS id, X'FFFEF8' AS b"""
     assertEquals("binary", icebergTypes("binary_ctas_const").b)
 
-    // ADD COLUMN has no VARBINARY mapping yet.
+    // only CREATE TABLE maps VARBINARY, so ALTER keeps its current behavior
     test {
         sql """ALTER TABLE binary_columns ADD COLUMN extra VARBINARY"""
         exception "Unsupported type for Iceberg: VARBINARY"
     }
 
-    // An internal OLAP table still cannot store VARBINARY, top-level or nested, by DDL or by CTAS.
+    // OLAP tables cannot store VARBINARY
     String internalDb = "iceberg_create_binary_column_internal_db"
     sql """create database if not exists internal.${internalDb}"""
     test {

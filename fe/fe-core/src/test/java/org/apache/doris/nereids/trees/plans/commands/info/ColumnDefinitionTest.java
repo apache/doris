@@ -235,7 +235,7 @@ public class ColumnDefinitionTest {
             Assertions.assertDoesNotThrow(() -> validateExternal(allowed));
             Assertions.assertEquals(type, allowed.getType(), "validation must not rewrite the declared type");
         }
-        // The flag only lifts the sub-type list; a MAP key must still be primitive.
+        // the flag must not skip the other type checks
         ColumnDefinition badKey = new ColumnDefinition("b", MapType.of(ArrayType.of(vb), vb), true);
         badKey.setAllowVarbinary(true);
         Assertions.assertThrows(AnalysisException.class, () -> validateExternal(badKey));

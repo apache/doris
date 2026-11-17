@@ -40,7 +40,6 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** CREATE TABLE / CTAS admit VARBINARY only for a catalog whose connector declares SUPPORTS_VARBINARY_COLUMN. */
 public class CreateTableVarbinaryGateTest extends TestWithFeService {
     private static final String OLD_ERROR = "doris do not support varbinary create table";
 
@@ -51,7 +50,7 @@ public class CreateTableVarbinaryGateTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         createDatabase("db1");
         useDatabase("db1");
-        // A plain subclass, so the test needs neither a live metastore nor Mockito.
+        // a plain subclass needs no metastore and no Mockito
         PluginDrivenExternalCatalog catalog = new PluginDrivenExternalCatalog(990001L, "plugin_ctl", null,
                 new HashMap<>(), "", null) {
             @Override
@@ -75,7 +74,7 @@ public class CreateTableVarbinaryGateTest extends TestWithFeService {
             Assertions.assertDoesNotThrow(() -> validate("create table plugin_ctl.db1.t (id int, " + cols + ")"),
                     cols);
         }
-        // The flag lifts only the sub-type lists: a complex MAP key and nesting depth are still checked.
+        // masking VARBINARY must not skip the other type checks
         Assertions.assertThrows(AnalysisException.class,
                 () -> validate("create table plugin_ctl.db1.t (id int, b map<array<varbinary>, int>)"));
         Assertions.assertThrows(AnalysisException.class, () -> validate("create table plugin_ctl.db1.t (id int, "

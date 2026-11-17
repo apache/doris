@@ -184,8 +184,6 @@ public class IcebergConnectorTest {
 
     @Test
     public void declaresVarbinaryColumnCapability() {
-        // WHY: fe-core admits VARBINARY in CREATE TABLE / CTAS only for a target declaring this capability.
-        // MUTATION: dropping it -> CREATE TABLE with a VARBINARY column on iceberg fails in fe-core again -> red.
         IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Assertions.assertTrue(
                 connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VARBINARY_COLUMN),

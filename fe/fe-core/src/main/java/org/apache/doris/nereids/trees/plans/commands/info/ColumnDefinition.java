@@ -81,7 +81,7 @@ public class ColumnDefinition {
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
     // if add hidden column, must set enableAddHiddenColumn true
     private boolean enableAddHiddenColumn = false;
-    // set only for a CREATE TABLE target whose connector declares SUPPORTS_VARBINARY_COLUMN
+    // OLAP tables cannot store VARBINARY, so only a connector declaring SUPPORTS_VARBINARY_COLUMN sets this
     private boolean allowVarbinary = false;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
@@ -436,7 +436,7 @@ public class ColumnDefinition {
             throw new AnalysisException(
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
-        // Nested VARBINARY is outside every container's sub-type list; validate the rest of the shape without it.
+        // nested VARBINARY is not a supported sub-type, so check the rest of the type without it
         (allowVarbinary ? maskVarBinary(type) : type).validateDataType();
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
@@ -841,7 +841,6 @@ public class ColumnDefinition {
         this.allowVarbinary = allowVarbinary;
     }
 
-    /** {@code type} with every VARBINARY, at any depth, replaced by STRING. */
     private static DataType maskVarBinary(DataType type) {
         return TypeCoercionUtils.replaceSpecifiedType(type, VarBinaryType.class, StringType.INSTANCE);
     }

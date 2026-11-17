@@ -871,11 +871,7 @@ public class CreateTableInfo {
         }
     }
 
-    /**
-     * Whether the target connector declares {@link ConnectorCapability#SUPPORTS_VARBINARY_COLUMN}. Called only when
-     * a column has VARBINARY, because the check forces the catalog to initialize, as the ORDER BY gate does; an
-     * unreachable catalog fails here instead of in createTable, which would initialize it anyway.
-     */
+    // only called when a column has VARBINARY, because it initializes the catalog
     private boolean targetSupportsVarbinaryColumn() {
         CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
         return catalog instanceof PluginDrivenExternalCatalog
