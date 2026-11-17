@@ -9,11 +9,16 @@ The Python commands run offline and produce a review plan. An agent follows
 [REVIEWER_RULES.md](REVIEWER_RULES.md) to inspect the diff, check current PR state
 and send review requests when the task authorizes invitations.
 
+For automatic routing after a `need-reviewers` label event, see
+[the GitHub Action guide](GITHUB_ACTION.md). That mode selects at most two people,
+adds them as assignees, posts a mention comment and updates labels.
+
 ## Files and reading order
 
 | File | Purpose | Consumer |
 |---|---|---|
 | `REVIEWER_RULES.md` | Agent instructions and the complete module candidate table | Read this before choosing or inviting reviewers |
+| `GITHUB_ACTION.md` | Label-triggered assignee workflow, permissions and credentials | Read this for the `need-reviewers` automation mode |
 | `select_reviewers.py` | Deterministic reviewer planning CLI | Execute it; it makes no network requests |
 | `module-reviewers.json` | Ranked candidates, historical counts, activity and example PRs | The selector reads it; inspect specific modules for more evidence |
 | `taxonomy/classify_paths.py` | Path normalization and module classification | Imported by the selector; can also run directly |

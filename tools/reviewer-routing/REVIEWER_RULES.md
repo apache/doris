@@ -6,6 +6,12 @@ complete module table below is derived from 4,645 PRs merged into `master` in
 experience, not appointed ownership. Applicability to other base branches has
 not been validated.
 
+The `need-reviewers` workflow uses the [GitHub Action mode](GITHUB_ACTION.md).
+In that mode, an explicit label also routes draft PRs, the selection budget is
+at most two people independent of existing assignees, and the downstream script
+adds assignees and posts a mention comment instead of requesting formal reviews.
+The qualification, author exclusion and freshness rules still apply.
+
 Start with this file and the PR diff. Use `select_reviewers.py` for a repeatable
 plan. Candidate statistics and representative PRs are in `module-reviewers.json`;
 the script reads that file without requiring it in the agent's context.
