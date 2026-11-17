@@ -308,6 +308,30 @@ public class MysqlResultSenderTest {
     }
 
     @Test
+    public void testCancelledIntermediateStatementSendsOneError() throws IOException {
+        RecordingMysqlChannel channel = newChannel(false);
+        channel.setClientMultiStatements();
+        ConnectContext ctx = newContext(channel);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getPendingCancelReason())
+                .thenReturn(new Status(TStatusCode.CANCELLED, "cancelled after last batch"));
+        MysqlProtocolAdapter adapter = MysqlProtocolAdapter.of(ctx);
+        ctx.getState().setEof();
+        adapter.finishStatement(ctx, executor, 0, 2);
+        Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        // executeQuery stops on ERR, but processOnce still finalizes the command.
+        adapter.finishCommand(ctx, executor);
+        Assertions.assertEquals(1, payloads(channel).size());
+        Assertions.assertEquals(0xff, payloads(channel).get(0)[0] & 0xff);
+        ctx.getState().reset();
+        adapter.beforeStatement(ctx);
+        adapter.finishCommand(ctx, null);
+        Assertions.assertEquals(2, payloads(channel).size());
+        Assertions.assertEquals(0, payloads(channel).get(1)[0] & 0xff);
+        Assertions.assertFalse(ctx.isKilled());
+    }
+
+    @Test
     public void testCancelledLastBatchCannotFinishSuccessfully() throws IOException {
         RecordingMysqlChannel channel = newChannel(false);
         ConnectContext ctx = newContext(channel);

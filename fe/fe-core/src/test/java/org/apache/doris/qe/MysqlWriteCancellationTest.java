@@ -18,20 +18,90 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.ConnectionException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.xnio.StreamConnection;
+import org.xnio.conduits.ConduitStreamSinkChannel;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 public class MysqlWriteCancellationTest {
+    @Test
+    public void testPreparedCancelledPartialWriteCannotResume() throws Exception {
+        StreamConnection connection = Mockito.mock(StreamConnection.class);
+        Mockito.when(connection.getPeerAddress()).thenReturn(new java.net.InetSocketAddress("127.0.0.1", 12345));
+        ConduitStreamSinkChannel sink = Mockito.mock(ConduitStreamSinkChannel.class);
+        Mockito.when(connection.getSinkChannel()).thenReturn(sink);
+        ConnectContext ctx = new ConnectContext(connection);
+        ctx.setCommand(MysqlCommand.COM_STMT_EXECUTE);
+        ctx.setQueryId(new TUniqueId(7, 7));
+        MysqlChannel channel = ctx.getMysqlChannel();
+        AtomicReference<Status> reason = new AtomicReference<>();
+        AtomicInteger bytesWritten = new AtomicInteger();
+        channel.setQueryCancelReason(reason::get);
+        Mockito.when(sink.write(Mockito.any(ByteBuffer.class))).thenAnswer(inv -> {
+            ByteBuffer buffer = inv.getArgument(0);
+            buffer.position(buffer.position() + 8);
+            bytesWritten.addAndGet(8);
+            reason.set(new Status(TStatusCode.CANCELLED, "cancelled partial prepared result"));
+            return 8;
+        }).thenReturn(0).thenAnswer(inv -> {
+            // The client resumes reading before finalizeCommand tries to send an ERR.
+            ByteBuffer buffer = inv.getArgument(0);
+            int length = buffer.remaining();
+            buffer.position(buffer.limit());
+            bytesWritten.addAndGet(length);
+            return length;
+        });
+        Mockito.when(sink.flush()).thenReturn(true);
+        PrepareCommand command = Mockito.mock(PrepareCommand.class);
+        Mockito.when(command.getOriginalStmt()).thenReturn(new OriginStatement("select 1", 0));
+        PreparedStatementContext prepared = new PreparedStatementContext(command, ctx, new StatementContext(), "7");
+        MysqlConnectProcessor processor = new MysqlConnectProcessor(ctx);
+        ByteBuffer execute = ByteBuffer.allocate(9);
+        execute.position(execute.limit());
+        try (MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class,
+                (executor, construction) -> Mockito.doAnswer(inv -> {
+                    try {
+                        channel.sendAndFlush(ByteBuffer.allocate(1024 * 1024));
+                    } catch (ConnectionException failure) {
+                        // Command execution wraps transport exceptions before handleExecute catches Throwable.
+                        throw new NereidsException(failure);
+                    }
+                    return null;
+                }).when(executor).execute());
+                MockedStatic<AuditLogHelper> audit = Mockito.mockStatic(AuditLogHelper.class)) {
+            processor.handleExecute(command, 7, prepared, execute, null);
+            Assertions.assertEquals(8, bytesWritten.get());
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, ctx.getState().getStateType());
+            Assertions.assertTrue(ctx.isKilled());
+            Mockito.verify(connection).close();
+            channel.clearQueryCancelReason();
+            Assertions.assertThrows(ConnectionException.class, processor::finalizeCommand);
+            channel.reset();
+            Assertions.assertThrows(ConnectionException.class,
+                    () -> channel.sendAndFlush(ByteBuffer.wrap(new byte[] {0})));
+            Assertions.assertEquals(8, bytesWritten.get());
+        }
+    }
+
     @Test
     public void testCommandClearsCancellationOnSuccessAndFailure() throws Exception {
         for (boolean fail : new boolean[] {false, true}) {

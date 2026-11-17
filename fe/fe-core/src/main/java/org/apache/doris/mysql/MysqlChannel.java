@@ -101,6 +101,9 @@ public class MysqlChannel implements BytesChannel {
 
     // Installed and cleared by the MySQL command thread; the supplier reads the executor's atomic state.
     private Supplier<Status> queryCancelReason = () -> null;
+    // Command handlers can consume or wrap transport exceptions. An aborted stream must
+    // remain terminal even if the peer becomes writable before the error response is sent.
+    private ConnectionException writeFailure;
 
     public void setQueryCancelReason(Supplier<Status> queryCancelReason) {
         this.queryCancelReason = queryCancelReason;
@@ -444,6 +447,9 @@ public class MysqlChannel implements BytesChannel {
     }
 
     protected void realNetSend(ByteBuffer buffer) throws IOException {
+        if (writeFailure != null) {
+            throw writeFailure;
+        }
         buffer = encryptData(buffer);
         long bufLen = buffer.remaining();
         long start = System.currentTimeMillis();
@@ -453,14 +459,14 @@ public class MysqlChannel implements BytesChannel {
         while (buffer.hasRemaining()) {
             if (sink.write(buffer) == 0 && !awaitWritable(sink, deadline)) {
                 long duration = System.currentTimeMillis() - start;
-                throw new ConnectionException("Write mysql packet failed.[write=" + (bufLen - buffer.remaining())
+                throw abortWrite("Write mysql packet failed.[write=" + (bufLen - buffer.remaining())
                         + ", needToWrite=" + bufLen + "], duration: " + duration + " ms");
             }
         }
         deadline = System.nanoTime() + timeoutNanos;
         while (!sink.flush()) {
             if (!awaitWritable(sink, deadline)) {
-                throw new ConnectionException("Flush mysql packet timed out");
+                throw abortWrite("Flush mysql packet timed out");
             }
         }
         isSend = true;
@@ -469,9 +475,9 @@ public class MysqlChannel implements BytesChannel {
     private boolean awaitWritable(StreamSinkChannel sink, long deadline) throws IOException {
         Status cancelReason = queryCancelReason.get();
         if (cancelReason != null) {
-            // The peer is not consuming results and a packet may already be partially written.
-            // An ERR packet cannot repair that stream. Let the command's connection-error path close it.
-            throw new ConnectionException("Mysql result write cancelled: " + cancelReason.getErrorMsg());
+            // A packet may already be partially written. An ERR cannot repair the stream,
+            // including when a prepared/Command handler consumes this exception.
+            throw abortWrite("Mysql result write cancelled: " + cancelReason.getErrorMsg());
         }
         long remaining = deadline - System.nanoTime();
         if (remaining <= 0) {
@@ -479,6 +485,13 @@ public class MysqlChannel implements BytesChannel {
         }
         sink.awaitWritable(Math.min(remaining, WRITE_CANCEL_CHECK_NANOS), TimeUnit.NANOSECONDS);
         return true;
+    }
+
+    private ConnectionException abortWrite(String message) {
+        writeFailure = new ConnectionException(message);
+        context.setKilled();
+        close();
+        return writeFailure;
     }
 
     protected ByteBuffer encryptData(ByteBuffer dstBuf) throws SSLException {
