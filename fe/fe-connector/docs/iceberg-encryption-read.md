@@ -298,3 +298,9 @@ session setting does not enable V3 streaming. Lazy split caller checks are
 covered independently, including legacy plaintext callers; authenticated Thrift
 RPC tests round-trip independent binary data/delete payloads through cached and
 reopened connections. This does not claim encrypted V3 lazy SQL execution.
+
+## Integration validation
+
+The [validation record](iceberg-encryption-validation.md) describes the executed
+SQL, failure, lifecycle, compatibility and cost checks, including retained failed
+performance protocols and the remaining human acceptance boundaries.
