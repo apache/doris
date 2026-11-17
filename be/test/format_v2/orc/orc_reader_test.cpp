@@ -5121,7 +5121,8 @@ TEST_F(NewOrcReaderTest, PhysicalStripeChildrenBoundSargDirectoryVisits) {
     column.identifier = Field::create_field<TYPE_STRING>("id");
     column.name = "id";
     column.type = make_nullable(std::make_shared<DataTypeInt32>());
-    const auto init_reader = [&](format::TableReader* reader) {
+    const auto init_reader = [&](format::TableReader* reader, RuntimeProfile* profile,
+                                 int32_t cutoff = 1000000, bool with_sarg = true) {
         const auto int_type = std::make_shared<DataTypeInt32>();
         const auto bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
         TFunctionName name;
@@ -5142,78 +5143,98 @@ TEST_F(NewOrcReaderTest, PhysicalStripeChildrenBoundSargDirectoryVisits) {
         auto predicate = VectorizedFnCall::create_shared(node);
         predicate->add_child(VSlotRef::create_shared(0, 0, 0, column.type, "id"));
         predicate->add_child(
-                VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(1000000)));
+                VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(cutoff)));
+        std::vector<VExprContextSPtr> conjuncts;
+        if (with_sarg) {
+            conjuncts.push_back(VExprContext::create_shared(std::move(predicate)));
+        }
         return reader->init({
                 .projected_columns = {column},
-                .conjuncts = {VExprContext::create_shared(std::move(predicate))},
+                .conjuncts = std::move(conjuncts),
                 .format = format::FileFormat::ORC,
                 .scan_params = nullptr,
                 .io_ctx = nullptr,
                 .runtime_state = &state,
-                .scanner_profile = nullptr,
+                .scanner_profile = profile,
         });
     };
     // Exercise both one-stripe children and the inclusive id-end of coalesced children through
     // TableReader's real factory, so dropping either id argument reintroduces full-file visits.
-    for (const int64_t target : {int64_t {1}, cast_set<int64_t>(layout[0].length * 4)}) {
-        format::TableReader source_reader;
-        ASSERT_TRUE(init_reader(&source_reader).ok());
-        format::SplitReadOptions options;
-        options.current_split_format = format::FileFormat::ORC;
-        options.current_range.__set_path(path);
-        options.current_range.__set_file_size(std::filesystem::file_size(path));
-        options.current_range.__set_start_offset(0);
-        options.current_range.__set_size(std::filesystem::file_size(path));
-        options.current_range.__set_modification_time(17);
-        options.current_range.__set_target_split_size(target);
-        ASSERT_TRUE(source_reader.prepare_split(options).ok());
-        FileScanSplit source;
-        source.range = options.current_range;
-        source.is_source_split = true;
-        std::vector<FileScanSplit> children;
-        bool was_split = false;
-        const auto split_status =
-                source_reader.build_physical_splits(source, &children, &was_split);
-        ASSERT_TRUE(split_status.ok()) << split_status;
-        ASSERT_TRUE(was_split);
-        ASSERT_GT(children.size(), 1);
-        if (target == 1) {
-            ASSERT_EQ(children.size(), STRIPES);
-        } else {
-            ASSERT_LT(children.size(), STRIPES);
-        }
-        size_t directory_visits = 0;
-        size_t total_rows = 0;
-        for (const auto& child : children) {
-            format::TableReader reader;
-            ASSERT_TRUE(init_reader(&reader).ok());
-            options.current_range = child.materialize_range();
-            options.file_context = child.file_context;
-            options.format_split_id = child.format_split_id;
-            options.format_split_id_end = child.format_split_id_end;
-            ASSERT_TRUE(reader.prepare_split(options).ok());
-            bool eof = false;
-            ASSERT_TRUE(reader.create_next_reader(&eof).ok());
-            ASSERT_FALSE(eof);
-            const auto* orc_reader =
-                    dynamic_cast<const format::orc::OrcReader*>(reader._data_reader.reader.get());
-            ASSERT_NE(orc_reader, nullptr);
-            directory_visits += orc_reader->_stripe_ownership_visits;
-            while (!eof) {
-                auto block = build_file_block({column});
-                ASSERT_TRUE(reader.get_block(&block, &eof).ok());
-                const auto& ids = assert_cast<const ColumnInt32&>(
-                        assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
-                                .get_nested_column());
-                for (size_t row = 0; row < block.rows(); ++row) {
-                    EXPECT_EQ(ids.get_element(row), ++total_rows);
+    // A child may receive a stronger predicate after planning (for example, a late RF).
+    // Share file statistics, never the parent's predicate applier or selection result.
+    // Planning without a SARG must leave the handle lazy for filters received by children.
+    for (const bool parent_sarg : {false, true}) {
+        for (const int32_t child_cutoff : {1000000, 700}) {
+            for (const int64_t target : {int64_t {1}, cast_set<int64_t>(layout[0].length * 4)}) {
+                SCOPED_TRACE(fmt::format("parent_sarg={}, child_cutoff={}, target={}", parent_sarg,
+                                         child_cutoff, target));
+                RuntimeProfile profile("shared_stripe_statistics");
+                format::TableReader source_reader;
+                ASSERT_TRUE(init_reader(&source_reader, &profile, 1000000, parent_sarg).ok());
+                format::SplitReadOptions options;
+                options.current_split_format = format::FileFormat::ORC;
+                options.current_range.__set_path(path);
+                options.current_range.__set_file_size(std::filesystem::file_size(path));
+                options.current_range.__set_start_offset(0);
+                options.current_range.__set_size(std::filesystem::file_size(path));
+                options.current_range.__set_modification_time(17);
+                options.current_range.__set_target_split_size(target);
+                ASSERT_TRUE(source_reader.prepare_split(options).ok());
+                FileScanSplit source;
+                source.range = options.current_range;
+                source.is_source_split = true;
+                std::vector<FileScanSplit> children;
+                bool was_split = false;
+                const auto split_status =
+                        source_reader.build_physical_splits(source, &children, &was_split);
+                ASSERT_TRUE(split_status.ok()) << split_status;
+                ASSERT_TRUE(was_split);
+                ASSERT_GT(children.size(), 1);
+                if (target == 1) {
+                    ASSERT_EQ(children.size(), STRIPES);
+                } else {
+                    ASSERT_LT(children.size(), STRIPES);
                 }
+                size_t directory_visits = 0;
+                size_t total_rows = 0;
+                for (const auto& child : children) {
+                    format::TableReader reader;
+                    ASSERT_TRUE(init_reader(&reader, &profile, child_cutoff).ok());
+                    options.current_range = child.materialize_range();
+                    options.file_context = child.file_context;
+                    options.format_split_id = child.format_split_id;
+                    options.format_split_id_end = child.format_split_id_end;
+                    ASSERT_TRUE(reader.prepare_split(options).ok());
+                    bool eof = false;
+                    ASSERT_TRUE(reader.create_next_reader(&eof).ok());
+                    ASSERT_FALSE(eof);
+                    const auto* orc_reader = dynamic_cast<const format::orc::OrcReader*>(
+                            reader._data_reader.reader.get());
+                    ASSERT_NE(orc_reader, nullptr);
+                    directory_visits += orc_reader->_stripe_ownership_visits;
+                    while (!eof) {
+                        auto block = build_file_block({column});
+                        ASSERT_TRUE(reader.get_block(&block, &eof).ok());
+                        const auto& ids = assert_cast<const ColumnInt32&>(
+                                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                                        .get_nested_column());
+                        for (size_t row = 0; row < block.rows(); ++row) {
+                            EXPECT_EQ(ids.get_element(row), ++total_rows);
+                        }
+                    }
+                    ASSERT_TRUE(reader.close().ok());
+                }
+                EXPECT_EQ(total_rows,
+                          std::min<size_t>(STRIPES * ROWS_PER_STRIPE, child_cutoff - 1));
+                EXPECT_EQ(directory_visits, STRIPES);
+                ASSERT_TRUE(source_reader.close().ok());
+                ASSERT_NE(profile.get_counter("OrcStripeStatisticsParses"), nullptr);
+                ASSERT_NE(profile.get_counter("OrcStripeStatisticsEvaluations"), nullptr);
+                EXPECT_EQ(profile.get_counter("OrcStripeStatisticsParses")->value(), 1);
+                EXPECT_EQ(profile.get_counter("OrcStripeStatisticsEvaluations")->value(),
+                          STRIPES * (parent_sarg ? 2 : 1));
             }
-            ASSERT_TRUE(reader.close().ok());
         }
-        EXPECT_EQ(total_rows, STRIPES * ROWS_PER_STRIPE);
-        EXPECT_EQ(directory_visits, STRIPES);
-        ASSERT_TRUE(source_reader.close().ok());
     }
 }
 

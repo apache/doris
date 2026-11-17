@@ -1184,6 +1184,10 @@ void OrcReader::_init_profile() {
             _profile, "OrcFileFooterReadCalls", TUnit::UNIT, orc_profile, 1);
     _orc_profile.file_footer_cache_hits = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "OrcFileFooterHitCache", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.stripe_statistics_parses = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcStripeStatisticsParses", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.stripe_statistics_evaluations = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcStripeStatisticsEvaluations", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_call =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReaderCall", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_inclusive_latency_us = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -1236,6 +1240,10 @@ void OrcReader::_collect_profile() const {
     const auto& reader_metrics = _state->reader_metrics;
     const uint64_t read_row_count = orc_read_row_count(reader_metrics);
     if (_profile != nullptr) {
+        COUNTER_UPDATE(_orc_profile.stripe_statistics_parses,
+                       orc_metric_value(reader_metrics.MetadataParseCount));
+        COUNTER_UPDATE(_orc_profile.stripe_statistics_evaluations,
+                       orc_metric_value(reader_metrics.StripeStatisticsEvaluationCount));
         COUNTER_UPDATE(_orc_profile.reader_call, orc_metric_value(reader_metrics.ReaderCall));
         COUNTER_UPDATE(_orc_profile.reader_inclusive_latency_us,
                        orc_metric_value(reader_metrics.ReaderInclusiveLatencyUs));
@@ -1336,6 +1344,9 @@ Status OrcReader::init(RuntimeState* state) {
         options.setReaderMetrics(&_state->reader_metrics);
         if (serialized_file_tail != nullptr) {
             options.setSerializedFileTail(*serialized_file_tail);
+            // The SDK handle shares only lazily parsed immutable statistics. Each child keeps
+            // its own stream, metrics and SARG, including filters received after planning.
+            options.setSharedStripeStatistics(_state->file_context->stripe_statistics);
         } else if (cache_hit) {
             options.setSerializedFileTail(*cache_handle.data<std::string>());
         }
@@ -1392,6 +1403,7 @@ Status OrcReader::init(RuntimeState* state) {
         auto context = std::make_shared<OrcSharedFileContext>();
         context->file_identity = file_identity;
         context->has_stable_identity = has_stable_identity;
+        context->stripe_statistics = reader.getSharedStripeStatistics();
         try {
             if (has_stable_identity) {
                 // Mutable files cannot publish children, so avoid serializing a tail that no other
@@ -2157,7 +2169,11 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
 
     std::vector<int> sarg_needed_stripes;
     try {
-        sarg_needed_stripes = _state->reader->getNeedReadStripes(_state->row_reader_options);
+        // Byte-window parents and exact-id children both evaluate only their owned interval.
+        // Eight one-stripe children must not each re-evaluate all eight file stripes.
+        sarg_needed_stripes = _state->reader->getNeedReadStripes(
+                _state->row_reader_options, split_stripes.front(),
+                split_stripes.back() - split_stripes.front() + 1);
     } catch (const Exception& e) {
         if (is_orc_stop(_io_ctx.get(), e)) {
             return Status::EndOfFile("stop");
@@ -2181,7 +2197,7 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     int64_t filtered_bytes = 0;
     for (const auto stripe_index : split_stripes) {
         bool drop = false;
-        if (stripe_index < sarg_needed_stripes.size() && sarg_needed_stripes[stripe_index] == 0) {
+        if (sarg_needed_stripes[stripe_index - split_stripes.front()] == 0) {
             drop = true;
         }
         if (!drop) {

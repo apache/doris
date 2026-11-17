@@ -46,11 +46,13 @@ struct OrcStripeMetadata {
 };
 
 // ORC readers keep independent row/stripe execution state. Only the immutable serialized tail and
-// stripe layout cross physical children, so concurrent scanners never share an ORC RowReader.
+// stripe layout and lazy immutable stripe statistics cross physical children. Streams and
+// SARG appliers remain reader-local, so concurrent scanners never share an ORC RowReader.
 struct OrcSharedFileContext final : public FileContext {
     std::string file_identity;
     bool has_stable_identity = false;
     std::string serialized_file_tail;
+    std::shared_ptr<::orc::SharedStripeStatistics> stripe_statistics;
     std::vector<OrcStripeMetadata> stripes;
 };
 
@@ -104,6 +106,8 @@ private:
         RuntimeProfile::Counter* dictionary_values_evaluated = nullptr;
         RuntimeProfile::Counter* file_footer_read_calls = nullptr;
         RuntimeProfile::Counter* file_footer_cache_hits = nullptr;
+        RuntimeProfile::Counter* stripe_statistics_parses = nullptr;
+        RuntimeProfile::Counter* stripe_statistics_evaluations = nullptr;
         RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* reader_call = nullptr;                 // ReaderCall
         RuntimeProfile::Counter* reader_inclusive_latency_us = nullptr; // ReaderInclusiveLatencyUs
