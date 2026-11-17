@@ -21,6 +21,8 @@
 #include <faiss/utils/distances.h>
 #include <gen_cpp/Types_types.h>
 
+#include <cstring>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -109,74 +111,69 @@ public:
                                    "Arguments for function {} must be arrays", get_name());
         }
 
-        return std::make_shared<DataTypeFloat32>();
+        return make_nullable(std::make_shared<DataTypeFloat32>());
     }
 
-    // All array distance functions has always not nullable return type.
-    // We want to make sure throw exception if input columns contain NULL.
+    // Handle outer NULLs explicitly so their nested array payload is never inspected.
     bool use_default_implementation_for_nulls() const override { return false; }
 
-    // Validate that neither outer column nor inner array elements contain NULL.
-    // Distance functions always throw on NULL input.
-    static void _validate_no_nulls(const ColumnPtr& col, const char* arg_name,
-                                   const String& func_name) {
-        const IColumn* raw = col.get();
-
-        // Unwrap const
-        if (is_column_const(*raw)) {
-            raw = assert_cast<const ColumnConst*>(raw)->get_data_column_ptr().get();
-        }
-
-        // Check outer nullable
-        if (const auto* nullable_raw = check_and_get_column<ColumnNullable>(raw)) {
-            if (raw->has_null()) {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "{} for function {} cannot be null", arg_name, func_name);
+    static Status _validate_array_elements(const ColumnArrayView<TYPE_FLOAT>& view, size_t num_rows,
+                                           const char* arg_name) {
+        for (size_t row = 0; row < num_rows; ++row) {
+            if (view.is_null_at(row)) {
+                // The nested payload of a NULL data row is not a vector.
+                continue;
             }
-            raw = nullable_raw->get_nested_column_ptr().get();
+            const auto array = view[row];
+            if (array.size() == 0) {
+                continue;
+            }
+            if (std::memchr(array.get_null_map_data(), 1, array.size()) != nullptr) {
+                return Status::InvalidArgument("{} for function {} cannot have null", arg_name,
+                                               name);
+            }
         }
-
-        // Check inner nullable (array elements)
-        const auto& array_col = assert_cast<const ColumnArray&>(*raw);
-        if (is_column_nullable(*array_col.get_data_ptr()) && array_col.get_data_ptr()->has_null()) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "{} for function {} cannot have null", arg_name, func_name);
-        }
+        return Status::OK();
     }
 
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+    Status execute_impl(FunctionContext*, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const auto& col1 = block.get_by_position(arguments[0]).column;
         const auto& col2 = block.get_by_position(arguments[1]).column;
 
-        // Validate no NULLs (distance functions always throw on NULL input)
-        _validate_no_nulls(col1, "First argument", get_name());
-        _validate_no_nulls(col2, "Second argument", get_name());
-
-        // Create views — handles Const/Nullable unwrapping automatically
         auto view1 = ColumnArrayView<TYPE_FLOAT>::create(col1);
         auto view2 = ColumnArrayView<TYPE_FLOAT>::create(col2);
+        RETURN_IF_ERROR(_validate_array_elements(view1, view1.is_const ? 1 : input_rows_count,
+                                                 "First argument"));
+        RETURN_IF_ERROR(_validate_array_elements(view2, view2.is_const ? 1 : input_rows_count,
+                                                 "Second argument"));
 
         auto dst = ColumnType::create(input_rows_count);
         auto& dst_data = dst->get_data();
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
         for (size_t row = 0; row < input_rows_count; ++row) {
+            // Missing vectors have no distance, including NULL/NULL and []/[].
+            if (view1.is_null_at(row) || view2.is_null_at(row) || view1[row].size() == 0 ||
+                view2[row].size() == 0) {
+                null_map->get_data()[row] = 1;
+                dst_data[row] = 0;
+                continue;
+            }
             auto a1 = view1[row];
             auto a2 = view2[row];
-            const float* p1 = a1.get_data();
-            const float* p2 = a2.get_data();
-            auto dim1 = a1.size();
-            auto dim2 = a2.size();
-
+            const auto dim1 = a1.size();
+            const auto dim2 = a2.size();
             if (dim1 != dim2) [[unlikely]] {
                 return Status::InvalidArgument(
                         "function {} have different input element sizes of array: {} and {}",
                         get_name(), dim1, dim2);
             }
-            dst_data[row] = DistanceImpl::distance(p1, p2, dim1);
+            dst_data[row] = DistanceImpl::distance(a1.get_data(), a2.get_data(), dim1);
         }
 
-        block.replace_by_position(result, std::move(dst));
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(dst), std::move(null_map)));
         return Status::OK();
     }
 };

@@ -39,7 +39,7 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
         TestArray vec2 = {Float32(1.0), Float32(2.0), Float32(3.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(1.0)}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // cosine_similarity(Array<Float>, Array<Float>) - orthogonal vectors
@@ -51,7 +51,7 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
         TestArray vec2 = {Float32(0.0), Float32(1.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(0.0)}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // cosine_similarity(Array<Float>, Array<Float>) - opposite vectors
@@ -63,7 +63,7 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
         TestArray vec2 = {Float32(-1.0), Float32(-2.0), Float32(-3.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(-1.0)}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // cosine_similarity(Array<Float>, Array<Float>) - zero vector handling
@@ -78,7 +78,7 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
                             {{vec2, vec1}, Float32(0.0)},
                             {{vec3, vec3}, Float32(0.0)}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // cosine_similarity(Array<Float>, Array<Float>) - empty arrays
@@ -86,9 +86,9 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
         InputTypeSet input_types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_FLOAT,
                                     PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_FLOAT};
 
-        DataSet data_set = {{{empty_arr, empty_arr}, Float32(0.0)}};
+        DataSet data_set = {{{empty_arr, empty_arr}, Null()}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // cosine_similarity(Array<Float>, Array<Float>) - known value test
@@ -105,7 +105,7 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
         float expected = static_cast<float>(34.0 / std::sqrt(14.0 * 83.0));
         DataSet data_set = {{{vec1, vec2}, Float32(expected)}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // cosine_similarity(Array<Float>, Array<Float>) - 2D vectors
@@ -118,7 +118,7 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
         TestArray vec2 = {Float32(4.0), Float32(3.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(0.96)}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // cosine_similarity(Array<Float>, Array<Float>) - single element
@@ -130,7 +130,7 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
         TestArray vec2 = {Float32(10.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(1.0)}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // cosine_similarity(Array<Float>, Array<Float>) - negative values
@@ -142,7 +142,7 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
         TestArray vec2 = {Float32(1.0), Float32(2.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(-1.0)}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // cosine_similarity(Array<Float>, Array<Float>) - mixed values
@@ -154,7 +154,7 @@ TEST(function_cosine_similarity_test, cosine_similarity) {
         TestArray vec2 = {Float32(-1.0), Float32(1.0), Float32(-1.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(-1.0)}};
 
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 }
 
@@ -169,7 +169,7 @@ TEST(function_cosine_distance_test, cosine_distance) {
         TestArray vec1 = {Float32(1.0), Float32(2.0), Float32(3.0)};
         TestArray vec2 = {Float32(1.0), Float32(2.0), Float32(3.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(0.0)}};
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // orthogonal vectors -> distance 1.0
@@ -177,7 +177,7 @@ TEST(function_cosine_distance_test, cosine_distance) {
         TestArray vec1 = {Float32(1.0), Float32(0.0)};
         TestArray vec2 = {Float32(0.0), Float32(1.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(1.0)}};
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // opposite vectors -> distance 2.0
@@ -185,16 +185,15 @@ TEST(function_cosine_distance_test, cosine_distance) {
         TestArray vec1 = {Float32(1.0), Float32(2.0), Float32(3.0)};
         TestArray vec2 = {Float32(-1.0), Float32(-2.0), Float32(-3.0)};
         DataSet data_set = {{{vec1, vec2}, Float32(2.0)}};
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
-    // zero vector and empty array keep the legacy fallback distance of 2.0
+    // Zero vectors retain distance 2.0; missing data arrays produce NULL.
     {
         TestArray zero_vec = {Float32(0.0), Float32(0.0), Float32(0.0)};
         TestArray vec = {Float32(1.0), Float32(2.0), Float32(3.0)};
-        DataSet data_set = {{{zero_vec, vec}, Float32(2.0)},
-                            {{empty_arr, empty_arr}, Float32(2.0)}};
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        DataSet data_set = {{{zero_vec, vec}, Float32(2.0)}, {{empty_arr, empty_arr}, Null()}};
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 
     // known value: 1 - 34 / sqrt(14 * 83). Mirror the production formula exactly.
@@ -203,7 +202,7 @@ TEST(function_cosine_distance_test, cosine_distance) {
         TestArray vec2 = {Float32(3.0), Float32(5.0), Float32(7.0)};
         float expected = 1.0f - static_cast<float>(34.0 / std::sqrt(14.0 * 83.0));
         DataSet data_set = {{{vec1, vec2}, Float32(expected)}};
-        static_cast<void>(check_function<DataTypeFloat32, false>(func_name, input_types, data_set));
+        static_cast<void>(check_function<DataTypeFloat32, true>(func_name, input_types, data_set));
     }
 }
 
@@ -222,12 +221,12 @@ TEST(function_cosine_numerical_stability_test, large_magnitude_no_overflow) {
     {
         DataSet data_set = {{{big1, big2}, Float32(1.0)}};
         static_cast<void>(
-                check_function<DataTypeFloat32, false>("cosine_similarity", input_types, data_set));
+                check_function<DataTypeFloat32, true>("cosine_similarity", input_types, data_set));
     }
     {
         DataSet data_set = {{{big1, big2}, Float32(0.0)}};
         static_cast<void>(
-                check_function<DataTypeFloat32, false>("cosine_distance", input_types, data_set));
+                check_function<DataTypeFloat32, true>("cosine_distance", input_types, data_set));
     }
 }
 

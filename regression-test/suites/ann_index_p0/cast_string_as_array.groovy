@@ -46,30 +46,21 @@ suite("cast_string_as_array") {
     // Success: CAST(string AS array<float>) on RHS
     qt_sql_0 "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast('[1.0,2.0,3.0]' as array<float>)) limit 3;"
 
-    // Success: extra spaces in the string and integer literals should parse fine
-    test {
-        sql "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast(' [1, 2 , 3 ] ' as array<float>)) limit 3;"
-
-        exception "Ann query vector cannot be NULL"
-    }
+    // A string cast that produces NULL now yields NULL distances instead of an ANN error.
+    qt_cast_spaces """select l2_distance_approximate(embedding, cast(' [1, 2 , 3 ] ' as array<float>))
+        from ann_cast_rhs_l2
+        order by l2_distance_approximate(embedding, cast(' [1, 2 , 3 ] ' as array<float>)) limit 3"""
 
     // Success: nested cast(string->string->array<float>) should also work
     qt_sql_1 "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast(cast('[1.0,2.0,3.0]' as string) as array<float>)) limit 3;"
 
-    // Failure: empty array is not allowed for ANN query vector
-    test {
-        sql "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast('[]' as array<float>)) limit 1;"
-        exception "Ann topn query vector cannot be empty"
-    }
-
-    // A special case.
-    // Constant propagation may optimize l2_distance_approximate(embedding, NULL) to NULL before reaching the
-    // runtime of ANN topn. So here we will get null directly...
-    test {
-        sql "select id from ann_cast_rhs_l2 order by l2_distance_approximate(embedding, cast(NULL as array<float>)) limit 1;"
-        exception "Ann query vector cannot be NULL"
-    }
-
+    // Missing query vectors preserve LIMIT and produce NULL distances through scalar TopN.
+    qt_empty_query """select l2_distance_approximate(embedding, cast('[]' as array<float>))
+        from ann_cast_rhs_l2
+        order by l2_distance_approximate(embedding, cast('[]' as array<float>)) limit 1"""
+    qt_null_query """select l2_distance_approximate(embedding, cast(NULL as array<float>))
+        from ann_cast_rhs_l2
+        order by l2_distance_approximate(embedding, cast(NULL as array<float>)) limit 1"""
 
     // Failure: dim mismatch (2 vs table dim=3)
     test {

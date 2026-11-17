@@ -21,6 +21,8 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.types.FloatType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -55,4 +57,17 @@ class ArrayArithmeticTest {
         Assertions.assertThrows(AnalysisException.class,
                 () -> ArrayArithmetic.trimArray(input, new BigIntLiteral(2)));
     }
+
+    @Test
+    void testCosineSimilarityReturnsNullForEmptyLiterals() {
+        ArrayLiteral empty = new ArrayLiteral(ImmutableList.of());
+        ArrayLiteral vector = new ArrayLiteral(ImmutableList.of(new IntegerLiteral(1)));
+        Assertions.assertEquals(new NullLiteral(FloatType.INSTANCE),
+                ArrayArithmetic.cosineSimilarity(empty, empty));
+        Assertions.assertEquals(new NullLiteral(FloatType.INSTANCE),
+                ArrayArithmetic.cosineSimilarity(empty, vector));
+        Assertions.assertEquals(new NullLiteral(FloatType.INSTANCE),
+                ArrayArithmetic.cosineSimilarity(vector, empty));
+    }
+
 }
