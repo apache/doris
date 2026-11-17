@@ -71,7 +71,7 @@ final class DeltaLakePartitionValues {
     }
 
     static Map<String, String> normalize(Snapshot snapshot, Map<String, String> rawValues) {
-        boolean mapped = !"none".equals(snapshot.getTableProperties().getOrDefault("delta.columnMapping.mode", "none"));
+        boolean mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
         return normalize(snapshot.getSchema(), snapshot.getPartitionColumnNames(), mapped, rawValues);
     }
 

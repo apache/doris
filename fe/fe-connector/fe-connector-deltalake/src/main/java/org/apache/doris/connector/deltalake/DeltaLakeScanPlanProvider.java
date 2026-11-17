@@ -30,6 +30,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
+import org.apache.doris.thrift.TDeltaLakeColumnMappingMode;
 import org.apache.doris.thrift.TDeltaLakeFileDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
 
@@ -416,8 +417,9 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             long files = DeltaKernelCompat.fileCount(snapshot).orElse(
                     DeltaLakeStatementScope.fileCount(session, (DeltaLakeTableHandle) handle).value);
             properties.put("deltalake.total_files", files < 0 ? "unknown" : Long.toString(files));
-            if (DeltaLakeSchemaBuilder.hasColumnMapping(snapshot)) {
-                properties.put(SCHEMA_MAPPING, DeltaLakeSchemaBuilder.encodeMapping(snapshot.getSchema()));
+            TDeltaLakeColumnMappingMode mode = DeltaLakeSchemaBuilder.columnMappingMode(snapshot);
+            if (mode != TDeltaLakeColumnMappingMode.NONE) {
+                properties.put(SCHEMA_MAPPING, DeltaLakeSchemaBuilder.encodeMapping(snapshot.getSchema(), mode));
             }
             properties.put(ScanNodePropertyKeys.REQUIRED_CURRENT_BACKEND_SEMANTICS, "Native Delta Lake reads");
             properties.put(ScanNodePropertyKeys.PATH_PARTITION_KEYS,

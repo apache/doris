@@ -17,6 +17,8 @@
 
 #include "format_v2/table/deltalake_reader.h"
 
+#include <algorithm>
+
 #include "format/table/deletion_vector_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/parquet/parquet_reader.h"
@@ -25,6 +27,25 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::format::deltalake {
+
+namespace {
+
+bool has_parquet_field_id(const ColumnDefinition& column) {
+    return column.column_type == ColumnType::DATA_COLUMN &&
+           (column.has_identifier_field_id() ||
+            std::ranges::any_of(column.children, has_parquet_field_id));
+}
+
+void clear_parquet_field_ids(std::vector<ColumnDefinition>& columns) {
+    for (auto& column : columns) {
+        if (column.column_type == ColumnType::DATA_COLUMN) {
+            column.identifier = Field {};
+            clear_parquet_field_ids(column.children);
+        }
+    }
+}
+
+} // namespace
 
 Status DeltaReader::prepare_split(const SplitReadOptions& options) {
     {
@@ -50,6 +71,13 @@ Status DeltaReader::prepare_split(const SplitReadOptions& options) {
 }
 
 TableColumnMappingMode DeltaReader::mapping_mode() const {
+    // Both mapped modes use table IDs internally. NAME obtains file-side IDs by physical name,
+    // while ID uses the ones in the Parquet footer.
+    if (_scan_params != nullptr && _scan_params->__isset.deltalake_column_mapping_mode) {
+        return _scan_params->deltalake_column_mapping_mode == TDeltaLakeColumnMappingMode::NONE
+                       ? TableColumnMappingMode::BY_NAME
+                       : TableColumnMappingMode::BY_FIELD_ID;
+    }
     return can_map_by_history_schema(_scan_params, _split_schema_id)
                    ? TableColumnMappingMode::BY_FIELD_ID
                    : TableColumnMappingMode::BY_NAME;
@@ -76,6 +104,30 @@ Status DeltaReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
 
 Status DeltaReader::annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
     DORIS_CHECK(file_schema != nullptr);
+    if (_scan_params != nullptr && _scan_params->__isset.deltalake_column_mapping_mode) {
+        switch (_scan_params->deltalake_column_mapping_mode) {
+        case TDeltaLakeColumnMappingMode::NONE:
+            return Status::OK();
+        case TDeltaLakeColumnMappingMode::ID:
+            // A file containing ID 3 has no value for ID 7, even if both have the same name.
+            // Spark rejects an entirely untagged footer when the scan requests a field by ID.
+            if (!std::ranges::any_of(*file_schema, has_parquet_field_id) &&
+                std::ranges::any_of(_projected_columns, [](const auto& column) {
+                    return !column.is_partition_key && !column.is_synthesized &&
+                           has_parquet_field_id(column);
+                })) {
+                return Status::DataQualityError("Delta id mapping requires Parquet field IDs in {}",
+                                                _current_file_range_desc.path);
+            }
+            return Status::OK();
+        case TDeltaLakeColumnMappingMode::NAME:
+            // The physical-name dictionary below supplies the IDs used by the mapper. An old
+            // field with a different physical name must not match by its coincidental footer ID.
+            clear_parquet_field_ids(*file_schema);
+            break;
+        }
+    }
+    // Plans from older FEs carried only the physical-name dictionary.
     if (mapping_mode() == TableColumnMappingMode::BY_FIELD_ID) {
         return annotate_file_schema_from_history(_scan_params, _split_schema_id, file_schema);
     }

@@ -19,6 +19,7 @@
 package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.thrift.TDeltaLakeColumnMappingMode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.schema.external.TField;
 import org.apache.doris.thrift.schema.external.TSchema;
@@ -84,13 +85,20 @@ class DeltaLakeSchemaBuilderTest {
                 .add(field("NTZ", TimestampNTZType.TIMESTAMP_NTZ, 2, "col-ntz"));
         TFileScanRangeParams params = new TFileScanRangeParams();
         DeltaLakeSchemaBuilder.applyMapping(params, null);
+        Assertions.assertEquals(TDeltaLakeColumnMappingMode.NONE, params.getDeltalakeColumnMappingMode());
         Assertions.assertFalse(params.isSetCurrentSchemaId());
-        DeltaLakeSchemaBuilder.applyMapping(params, DeltaLakeSchemaBuilder.encodeMapping(schema));
-        Assertions.assertEquals(0, params.getCurrentSchemaId());
-        Assertions.assertEquals(2, params.getHistorySchemaInfoSize());
-        for (TSchema entry : params.getHistorySchemaInfo()) {
-            Assertions.assertTrue(entry.getRootField().getFields().get(0).getFieldPtr().isTimestampIsAdjustedToUtc());
-            Assertions.assertFalse(entry.getRootField().getFields().get(1).getFieldPtr().isTimestampIsAdjustedToUtc());
+        for (TDeltaLakeColumnMappingMode mode : new TDeltaLakeColumnMappingMode[] {
+                TDeltaLakeColumnMappingMode.NAME, TDeltaLakeColumnMappingMode.ID}) {
+            DeltaLakeSchemaBuilder.applyMapping(params, DeltaLakeSchemaBuilder.encodeMapping(schema, mode));
+            Assertions.assertEquals(mode, params.getDeltalakeColumnMappingMode());
+            Assertions.assertEquals(0, params.getCurrentSchemaId());
+            Assertions.assertEquals(2, params.getHistorySchemaInfoSize());
+            for (TSchema entry : params.getHistorySchemaInfo()) {
+                TField ts = entry.getRootField().getFields().get(0).getFieldPtr();
+                TField ntz = entry.getRootField().getFields().get(1).getFieldPtr();
+                Assertions.assertTrue(ts.isTimestampIsAdjustedToUtc());
+                Assertions.assertFalse(ntz.isTimestampIsAdjustedToUtc());
+            }
         }
         Assertions.assertThrows(DorisConnectorException.class, () -> DeltaLakeSchemaBuilder.applyMapping(params, "!"));
     }

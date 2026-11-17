@@ -310,7 +310,7 @@ The Doris suite checks the same rows through both scheduling modes and checks th
 
 #### Reader correctness fixtures
 
-`scripts/deltalake/delta_reader_edges` contains ten small, immutable Delta tables.
+`scripts/deltalake/delta_reader_edges` contains small, immutable Delta tables.
 Their Parquet footers distinguish an old, missing, or matching field ID under the same
 physical name. The partition fixtures cover an empty string and JSON null, a logical
 column named `p,q`, and a Spark 4.0.1 / Delta 4.4.1 table whose partition type changed
@@ -333,6 +333,12 @@ Run `bash run-regression-test.sh --run -d external_table_p0/deltalake -s test_de
 The suite exercises filesystem with `enableDeltaLakeTest` and UC with `enableDeltaLakeUcTest`.
 With both enabled, it checks each result through both catalogs and scheduling modes.
 It compares queries with typed SQL constants so a reader error cannot become a golden output.
+
+`test_deltalake_column_mapping` reads three copies of the retained `id_old_id` Parquet
+file (physical name `physical_x`, field ID 3, value 703). The `id` and `name` table
+schemas associate `physical_x` with ID 7 and `physical_y` with ID 3. The returned
+pair is `(NULL, 703)` in ID mode and `(703, NULL)` in name mode. The third table
+omits the mapping property and reads `(703, NULL)` by its display names.
 
 For the Databricks external-table test, configure the storage owner's Azure Shared Key.
 One Doris catalog corresponds to one UC catalog, and each UC schema appears as a Doris database.

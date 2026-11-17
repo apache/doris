@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.thrift.TColumnType;
+import org.apache.doris.thrift.TDeltaLakeColumnMappingMode;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -86,11 +87,26 @@ final class DeltaLakeSchemaBuilder {
     }
 
     static boolean hasColumnMapping(Snapshot snapshot) {
-        return !"none".equals(snapshot.getTableProperties().getOrDefault("delta.columnMapping.mode", "none"));
+        return columnMappingMode(snapshot) != TDeltaLakeColumnMappingMode.NONE;
     }
 
-    static String encodeMapping(StructType schema) {
+    static TDeltaLakeColumnMappingMode columnMappingMode(Snapshot snapshot) {
+        String mode = snapshot.getTableProperties().getOrDefault("delta.columnMapping.mode", "none");
+        if ("none".equalsIgnoreCase(mode)) {
+            return TDeltaLakeColumnMappingMode.NONE;
+        }
+        if ("name".equalsIgnoreCase(mode)) {
+            return TDeltaLakeColumnMappingMode.NAME;
+        }
+        if ("id".equalsIgnoreCase(mode)) {
+            return TDeltaLakeColumnMappingMode.ID;
+        }
+        throw new DorisConnectorException("Unknown Delta column mapping mode: " + mode);
+    }
+
+    static String encodeMapping(StructType schema, TDeltaLakeColumnMappingMode mode) {
         TFileScanRangeParams carrier = new TFileScanRangeParams();
+        carrier.setDeltalakeColumnMappingMode(mode);
         carrier.setCurrentSchemaId(TABLE_SCHEMA_ID);
         carrier.setHistorySchemaInfo(List.of(mappingSchema(schema, false), mappingSchema(schema, true)));
         try {
@@ -104,6 +120,7 @@ final class DeltaLakeSchemaBuilder {
     static void applyMapping(TFileScanRangeParams params, String encoded) {
         if (encoded == null) {
             // The none mode sends no schema dictionary and uses the reader's BY_NAME path.
+            params.setDeltalakeColumnMappingMode(TDeltaLakeColumnMappingMode.NONE);
             return;
         }
         TFileScanRangeParams carrier = new TFileScanRangeParams();
@@ -112,6 +129,7 @@ final class DeltaLakeSchemaBuilder {
         } catch (TException | IllegalArgumentException e) {
             throw new DorisConnectorException("Cannot deserialize Delta column mapping", e);
         }
+        params.setDeltalakeColumnMappingMode(carrier.getDeltalakeColumnMappingMode());
         params.setCurrentSchemaId(carrier.getCurrentSchemaId());
         params.setHistorySchemaInfo(carrier.getHistorySchemaInfo());
     }

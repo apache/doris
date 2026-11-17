@@ -538,6 +538,7 @@ TEST_F(DeltaReaderTest, DeletionVectorsUseFileGlobalPositionsAcrossByteRanges) {
 
 TEST_F(DeltaReaderTest, MapsPhysicalNameToRenamedLogicalColumn) {
     columns = {table_column(7, "renamed")};
+    scan_params.__set_deltalake_column_mapping_mode(TDeltaLakeColumnMappingMode::NAME);
     scan_params.__set_current_schema_id(42);
     scan_params.__set_history_schema_info({schema(42, {schema_field("id", 7)})});
     deltalake::DeltaReader reader;
@@ -553,7 +554,25 @@ TEST_F(DeltaReaderTest, MapsPhysicalNameToRenamedLogicalColumn) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST_F(DeltaReaderTest, RejectsUntaggedParquetFileInIdMode) {
+    columns = {table_column(7, "id")};
+    scan_params.__set_deltalake_column_mapping_mode(TDeltaLakeColumnMappingMode::ID);
+    scan_params.__set_current_schema_id(42);
+    scan_params.__set_history_schema_info({schema(42, {schema_field("id", 7)})});
+    deltalake::DeltaReader reader;
+    ASSERT_TRUE(init(&reader).ok());
+    ASSERT_TRUE(reader.prepare_split(split(table_params(std::nullopt, 42))).ok());
+    Block block;
+    block.insert({columns[0].type->create_column(), columns[0].type, columns[0].name});
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find(DATA_FILE), std::string::npos) << status;
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST_F(DeltaReaderTest, ReadsSparkFieldIdsAfterRootAndNestedRenames) {
+    scan_params.__set_deltalake_column_mapping_mode(TDeltaLakeColumnMappingMode::ID);
     auto leaf = typed_column(16, "renamed_leaf", std::make_shared<DataTypeInt32>());
     auto inner = typed_column(
             15, "renamed_inner",
@@ -635,7 +654,7 @@ TEST_F(DeltaReaderTest, ReaddedNameDoesNotReadDroppedColumn) {
     ASSERT_TRUE(reader.close().ok());
 }
 
-TEST_F(DeltaReaderTest, AnnotatesNestedPhysicalNames) {
+TEST_F(DeltaReaderTest, ResolvesConflictingNestedFieldIdsByTableMode) {
     auto parent = schema_field("physical_parent", 10);
     schema::external::TStructField children;
     children.__set_fields({schema_field("physical_child", 11)});
@@ -646,16 +665,24 @@ TEST_F(DeltaReaderTest, AnnotatesNestedPhysicalNames) {
     deltalake::DeltaReader reader;
     ASSERT_TRUE(init(&reader).ok());
     reader._split_schema_id = 42;
-    ColumnDefinition child = table_column(0, "physical_child");
-    ColumnDefinition file_column;
-    file_column.name = "physical_parent";
-    file_column.type =
-            std::make_shared<DataTypeStruct>(DataTypes {child.type}, Strings {child.name});
-    file_column.children = {child};
-    std::vector<ColumnDefinition> file_schema {file_column};
-    ASSERT_TRUE(reader.annotate_file_schema(&file_schema).ok());
-    EXPECT_EQ(file_schema[0].identifier.get<TYPE_INT>(), 10);
-    EXPECT_EQ(file_schema[0].children[0].identifier.get<TYPE_INT>(), 11);
+    auto by_name = table_column(3, "physical_child");
+    auto by_id = table_column(11, "old_child");
+    auto file_parent =
+            typed_column(10, "physical_parent",
+                         std::make_shared<DataTypeStruct>(DataTypes {by_name.type, by_id.type},
+                                                          Strings {by_name.name, by_id.name}));
+    file_parent.children = {by_name, by_id};
+    std::vector<ColumnDefinition> name_schema {file_parent};
+    scan_params.__set_deltalake_column_mapping_mode(TDeltaLakeColumnMappingMode::NAME);
+    ASSERT_TRUE(reader.annotate_file_schema(&name_schema).ok());
+    EXPECT_EQ(name_schema[0].children[0].get_identifier_field_id(), 11);
+    EXPECT_FALSE(name_schema[0].children[1].has_identifier_field_id());
+
+    std::vector<ColumnDefinition> id_schema {file_parent};
+    scan_params.__set_deltalake_column_mapping_mode(TDeltaLakeColumnMappingMode::ID);
+    ASSERT_TRUE(reader.annotate_file_schema(&id_schema).ok());
+    EXPECT_EQ(id_schema[0].children[0].get_identifier_field_id(), 3);
+    EXPECT_EQ(id_schema[0].children[1].get_identifier_field_id(), 11);
     ASSERT_TRUE(reader.close().ok());
 }
 

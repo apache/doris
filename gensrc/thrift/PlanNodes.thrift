@@ -497,6 +497,12 @@ struct TDeltaLakeDeletionVectorDesc {
     5: optional binary inline_data
 }
 
+enum TDeltaLakeColumnMappingMode {
+    NONE = 0,
+    NAME = 1,
+    ID = 2
+}
+
 struct TDeltaLakeFileDesc {
     1: optional i64 schema_id
     2: optional TDeltaLakeDeletionVectorDesc deletion_vector
@@ -920,6 +926,8 @@ struct TFileScanRangeParams {
     // Reserved for the scan-level Paimon vector search request in #69493.
     // The per-split physical payload stays in TPaimonFileDesc.vector_payload.
     42: optional TExternalSearchRequest external_search_request
+    // Delta's pinned snapshot selects the column identity for every file in the scan.
+    43: optional TDeltaLakeColumnMappingMode deltalake_column_mapping_mode
 }
 
 struct TFileRangeDesc {
