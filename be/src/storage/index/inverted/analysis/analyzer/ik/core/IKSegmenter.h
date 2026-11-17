@@ -19,6 +19,7 @@
 
 #include <iostream>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 #include "core/arena.h"
@@ -36,13 +37,15 @@ class IKSegmenter {
 public:
     IKSegmenter(std::shared_ptr<Configuration> config);
     bool next(Lexeme& lexeme);
-    void reset(lucene::util::Reader* newInput);
+    void reset(std::string_view text);
     size_t getLastUselessCharNum();
+    // The arena of the current window and the window itself.
+    size_t reserved_bytes() const { return arena_.size() + context_->reserved_bytes(); }
 
 private:
     std::vector<std::unique_ptr<ISegmenter>> loadSegmenters();
     Arena arena_;
-    lucene::util::Reader* input_;
+    inverted_index::TextCursor input_;
     std::shared_ptr<Configuration> config_;
     std::unique_ptr<AnalyzeContext> context_;
     std::vector<std::unique_ptr<ISegmenter>> segmenters_;

@@ -33,6 +33,7 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/query/logical/match_lowering.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/hyperscan_util.h"
 
 namespace doris {
@@ -771,33 +772,31 @@ Status FunctionMatchRegexp::execute_match(
         return 0;
     };
 
-    try {
-        BlockTokenizer tokenizer(analyzer_ctx);
-        for (int i = 0; i < input_rows_count; i++) {
-            for_each_data_element_tokens(
-                    *this, column_name, analyzer_ctx, tokenizer, string_col, i, array_offsets,
-                    array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
-                        for (const auto& input : data_tokens) {
-                            bool is_match = false;
-                            const auto& input_str = input.get_single_term();
-                            if (hs_scan(database, input_str.data(), (uint32_t)input_str.size(), 0,
-                                        scratch, on_match, (void*)&is_match) != HS_SUCCESS) {
-                                LOG(ERROR) << "hyperscan match failed: " << input_str;
-                                return true;
-                            }
-                            if (is_match) {
-                                result[i] = true;
-                                return true;
-                            }
-                        }
-                        return false;
-                    });
-        }
-    }
-    _CLFINALLY({
+    Defer free_hyperscan {[&]() {
         hs_free_scratch(scratch);
         hs_free_database(database);
-    })
+    }};
+    BlockTokenizer tokenizer(analyzer_ctx);
+    for (size_t i = 0; i < input_rows_count; i++) {
+        for_each_data_element_tokens(
+                *this, column_name, analyzer_ctx, tokenizer, string_col, i, array_offsets,
+                array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
+                    for (const auto& input : data_tokens) {
+                        bool is_match = false;
+                        const auto& input_str = input.get_single_term();
+                        if (hs_scan(database, input_str.data(), (uint32_t)input_str.size(), 0,
+                                    scratch, on_match, (void*)&is_match) != HS_SUCCESS) {
+                            LOG(ERROR) << "hyperscan match failed: " << input_str;
+                            return true;
+                        }
+                        if (is_match) {
+                            result[i] = true;
+                            return true;
+                        }
+                    }
+                    return false;
+                });
+    }
 
     return Status::OK();
 }

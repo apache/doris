@@ -24,9 +24,9 @@
 #include <string_view>
 
 #include "CLucene/analysis/AnalysisHeader.h"
-#include "storage/index/inverted/analysis/reader.h"
 #include "storage/index/inverted/analysis/text_analyzer.h"
 #include "storage/index/inverted/analysis/token_batch.h"
+#include "storage/index/inverted/clucene/lucene_reader.h"
 
 namespace doris::segment_v2::inverted_index {
 
@@ -43,7 +43,7 @@ public:
     // Parks the value; reset() starts it.
     void bind(std::string_view text);
     // SDocumentsWriter::invertField() calls reset() once per field, and that is what starts the
-    // parked value, exactly as DorisTokenizer::reset() promotes its pending reader today.
+    // parked value.
     void reset() override;
     lucene::analysis::Token* next(lucene::analysis::Token* token) override;
     // invertField() closes the stream after every field, also when next() threw, and the scalar
@@ -75,7 +75,7 @@ public:
     // The bridge's own stream, rebound to the value. A scalar column takes this path.
     lucene::analysis::TokenStream* reusableTokenStream(const TCHAR* field_name,
                                                        const ReaderPtr& reader) override;
-    // Pure virtual in the base and never reached, as in CustomAnalyzer: these throw.
+    // Pure virtual in the base and never reached: these throw.
     lucene::analysis::TokenStream* tokenStream(const TCHAR* field_name,
                                                lucene::util::Reader* reader) override;
     lucene::analysis::TokenStream* reusableTokenStream(const TCHAR* field_name,

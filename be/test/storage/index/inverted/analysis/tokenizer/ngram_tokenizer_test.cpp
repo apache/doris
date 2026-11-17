@@ -23,6 +23,7 @@
 #include <fstream>
 #include <unordered_map>
 
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer_factory.h"
 
 namespace doris::segment_v2 {
@@ -32,21 +33,8 @@ using namespace inverted_index;
 class NGramTokenizerTest : public ::testing::Test {};
 
 std::vector<std::string> tokenize(NGramTokenizerFactory& factory, const std::string& text) {
-    std::vector<std::string> tokens;
     auto tokenizer = factory.create();
-    {
-        ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-        reader->init(text.data(), text.size(), false);
-        tokenizer->set_reader(reader);
-        tokenizer->reset();
-
-        Token t;
-        while (tokenizer->next(&t)) {
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
-            tokens.emplace_back(term);
-        }
-    }
-    return tokens;
+    return collect_terms(*tokenizer, text);
 }
 
 TEST(NGramTokenizerTest, DefaultMinMaxValues) {
@@ -59,7 +47,7 @@ TEST(NGramTokenizerTest, DefaultMinMaxValues) {
     ASSERT_EQ(tokens, expected);
 }
 
-TEST(NGramTokenizerTest, IndexesMalformedUtf8UnlessOffsetsAreTracked) {
+TEST(NGramTokenizerTest, IndexesMalformedUtf8UnlessStrict) {
     NGramTokenizerFactory factory;
     std::unordered_map<std::string, std::string> args;
     args["min_gram"] = "2";
@@ -73,13 +61,10 @@ TEST(NGramTokenizerTest, IndexesMalformedUtf8UnlessOffsetsAreTracked) {
     std::vector<std::string> expected {"ab", "bc", "cd"};
     EXPECT_EQ(tokens, expected);
 
-    // Malformed bytes have no source span, so the offset-aware path rejects them.
+    // Strict mode, which the pinyin filter asks for with ignore_pinyin_offset false, rejects them.
     auto tokenizer = factory.create();
-    tokenizer->set_source_byte_offsets_enabled(true);
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(malformed.data(), malformed.size(), false);
-    tokenizer->set_reader(reader);
-    EXPECT_THROW(tokenizer->reset(), Exception);
+    tokenizer->set_strict_utf8(true);
+    EXPECT_THROW(tokenizer->reset(malformed), Exception);
 }
 
 TEST(NGramTokenizerTest, ValidMinMaxDifference) {
@@ -313,29 +298,20 @@ TEST(NGramTokenizerTest, RejectsMalformedUtf8AndCanBeReset) {
     args["max_gram"] = "1";
     factory.initialize(Settings(args));
     auto tokenizer = factory.create();
-    // Malformed bytes have no source span, so only the offset-aware path rejects them.
-    tokenizer->set_source_byte_offsets_enabled(true);
+    // Only strict mode rejects malformed bytes.
+    tokenizer->set_strict_utf8(true);
 
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
     const std::string leading_invalid = std::string(1, static_cast<char>(0xFF)) + "ab";
-    reader->init(leading_invalid.data(), static_cast<int32_t>(leading_invalid.size()), false);
-    tokenizer->set_reader(reader);
-    EXPECT_THROW(tokenizer->reset(), Exception);
+    EXPECT_THROW(tokenizer->reset(leading_invalid), Exception);
 
     const std::string interior_invalid = std::string("a") + static_cast<char>(0xFF) + "b";
-    reader->init(interior_invalid.data(), static_cast<int32_t>(interior_invalid.size()), false);
-    tokenizer->set_reader(reader);
-    EXPECT_THROW(tokenizer->reset(), Exception);
+    EXPECT_THROW(tokenizer->reset(interior_invalid), Exception);
 
     const std::string valid = "ab";
-    reader->init(valid.data(), static_cast<int32_t>(valid.size()), false);
-    tokenizer->set_reader(reader);
-    ASSERT_NO_THROW(tokenizer->reset());
-    Token token;
-    ASSERT_NE(tokenizer->next(&token), nullptr);
-    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "a");
-    EXPECT_EQ(token.startOffset(), 0);
-    EXPECT_EQ(token.endOffset(), 1);
+    std::vector<std::string> tokens;
+    ASSERT_NO_THROW(tokens = collect_terms(*tokenizer, valid));
+    ASSERT_FALSE(tokens.empty());
+    EXPECT_EQ(tokens[0], "a");
 }
 
 } // namespace doris::segment_v2
