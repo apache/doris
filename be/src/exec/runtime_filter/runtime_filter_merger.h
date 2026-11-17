@@ -71,6 +71,9 @@ public:
             _rf_state = State::READY;
         }
         if (_wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED) {
+            // For example, producer 1's filter {5} will also serve a local consumer.
+            // If the merger adopted it, merging producer 2's {6} would change that
+            // consumer's filter to {5, 6}; cloning keeps it at {5}.
             return other->_wrapper->clone(&_wrapper);
         }
         return _wrapper->merge(other->_wrapper.get());
