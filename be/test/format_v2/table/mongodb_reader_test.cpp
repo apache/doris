@@ -21,11 +21,21 @@
 #include <gtest/gtest.h>
 #include <mongoc/mongoc.h>
 
+#include <chrono>
+#include <future>
+#include <thread>
+
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_jsonb.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/bson_value_view.h"
 #include "format_v2/column_mapper.h"
 #include "runtime/runtime_state.h"
@@ -39,6 +49,7 @@ struct StreamState {
     int reads = 0;
     bool fail_open = false;
     bool fail_read = false;
+    std::function<void()> before_read;
     std::string kind;
     std::vector<std::string> documents {R"({"id":1,"value":10})", R"({"id":2,"value":20})",
                                         R"({"id":3,"value":30})"};
@@ -59,6 +70,9 @@ public:
     }
     Status next(const bson_t** document, bool* eof) override {
         ++_state->reads;
+        if (_state->before_read) {
+            _state->before_read();
+        }
         if (_cancelled()) {
             return Status::Cancelled("fixture cancelled");
         }
@@ -157,6 +171,18 @@ protected:
         }
         return {columns};
     }
+    void check_owned_containers(const Block& output, const FileScanRequest& projection) {
+        auto value = [&](int id) {
+            return output.get_by_position(projection.local_positions.at(LocalColumnId(id)).value());
+        };
+        const auto json = value(2);
+        EXPECT_NE(json.type->to_string(*json.column, 0).find("9007199254740993"),
+                  std::string::npos);
+        const auto tags = value(3);
+        EXPECT_EQ(tags.type->to_string(*tags.column, 0), "[\"alpha\", null]");
+        const auto nested = value(4);
+        EXPECT_NE(nested.type->to_string(*nested.column, 0).find("first"), std::string::npos);
+    }
     ObjectPool _pool;
     RuntimeState _state;
     RuntimeProfile _profile {"mongo_reader_test"};
@@ -245,6 +271,94 @@ TEST_F(MongoReaderTest, RowConversionErrorRollsBackPreviouslyWrittenColumns) {
         EXPECT_EQ(output.get_by_position(i).column->size(), 0);
     }
     EXPECT_EQ(_responses->closes, 1);
+}
+
+TEST_F(MongoReaderTest, ConcurrentStopDuringReadReleasesCursorOnce) {
+    std::promise<void> entered;
+    auto ready = entered.get_future();
+    _responses->before_read = [&] {
+        entered.set_value();
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!_io->should_stop && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::yield();
+        }
+    };
+    auto scan = reader();
+    auto projection = request({0});
+    ASSERT_TRUE(scan->open(projection).ok());
+    auto output = block(*scan, *projection);
+    size_t rows = 0;
+    bool eof = false;
+    Status status;
+    std::thread worker([&] { status = scan->get_block(&output, &rows, &eof); });
+    const auto started = ready.wait_for(std::chrono::seconds(5));
+    _io->should_stop = true;
+    worker.join();
+    ASSERT_EQ(started, std::future_status::ready);
+    EXPECT_EQ(status.code(), ErrorCode::CANCELLED);
+    EXPECT_EQ(rows, 0);
+    EXPECT_EQ(_responses->closes, 1);
+    ASSERT_TRUE(scan->close().ok());
+    EXPECT_EQ(_responses->closes, 1);
+}
+
+TEST_F(MongoReaderTest, VariableWidthPayloadsSurviveCursorAdvanceAndClose) {
+    auto text = std::make_shared<DataTypeString>();
+    auto strings = std::make_shared<DataTypeArray>(make_nullable(text));
+    auto structure =
+            std::make_shared<DataTypeStruct>(DataTypes {make_nullable(text)}, Strings {"label"});
+    const DataTypes types {text, std::make_shared<DataTypeVarbinary>(),
+                           std::make_shared<DataTypeJsonb>(), strings, structure};
+    const Strings names {"text", "bytes", "json", "tags", "nested"};
+    _slots.clear();
+    for (size_t i = 0; i < types.size(); ++i) {
+        TSlotDescriptor descriptor;
+        descriptor.__set_id(i);
+        descriptor.__set_parent(0);
+        descriptor.__set_slotType(types[i]->to_thrift());
+        descriptor.__set_nullIndicatorBit(0);
+        descriptor.__set_colName(names[i]);
+        descriptor.__set_isMaterialized(true);
+        _slots.push_back(_pool.add(new SlotDescriptor(descriptor)));
+    }
+    _range.table_format_params.mongodb_params.__set_bindings_json(R"({"version":1,"columns":[
+        {"name":"text","path":["text"],"bson_types":[2],"children":[]},
+        {"name":"bytes","path":["bytes"],"bson_types":[5],"subtype":0,"children":[]},
+        {"name":"json","path":["json"],"bson_types":[3],"children":[]},
+        {"name":"tags","path":["tags"],"bson_types":[4],"children":[
+            {"name":"element","path":["element"],"bson_types":[2],"children":[]}]},
+        {"name":"nested","path":["nested"],"bson_types":[3],"children":[
+            {"name":"label","path":["label"],"bson_types":[2],"children":[]}]}]})");
+    const std::string payload(8192, 'x');
+    _responses->documents = {
+            R"({"text":")" + payload + R"(","bytes":{"$binary":{"base64":"YQBi","subType":"00"}},
+                "json":{"n":{"$numberLong":"9007199254740993"}},"tags":["alpha",null],
+                "nested":{"label":"first"}})",
+            R"({"text":"second","bytes":{"$binary":{"base64":"eHl6","subType":"00"}},
+                "json":{"n":2},"tags":[],"nested":{"label":"second"}})"};
+    auto scan = reader();
+    scan->set_batch_size(1);
+    auto projection = request({4, 2, 0, 3, 1});
+    ASSERT_TRUE(scan->open(projection).ok());
+    auto first = block(*scan, *projection);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = scan->get_block(&first, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_EQ(rows, 1);
+    auto second = block(*scan, *projection);
+    ASSERT_TRUE(scan->get_block(&second, &rows, &eof).ok());
+    ASSERT_EQ(rows, 1);
+    // Advance destroys the first BSON buffer; close destroys the last one before assertions.
+    ASSERT_TRUE(scan->close().ok());
+    auto value = [&](const Block& output, int id) {
+        return output.get_by_position(projection->local_positions.at(LocalColumnId(id)).value());
+    };
+    EXPECT_EQ(value(first, 0).column->get_data_at(0).to_string(), payload);
+    EXPECT_EQ(value(first, 1).column->get_data_at(0).to_string(), std::string("a\0b", 3));
+    check_owned_containers(first, *projection);
+    EXPECT_EQ(value(second, 0).column->get_data_at(0).to_string(), "second");
+    EXPECT_EQ(value(second, 1).column->get_data_at(0).to_string(), "xyz");
 }
 TEST_F(MongoReaderTest, NullMismatchPolicyPreservesRowAndOtherFields) {
     _range.table_format_params.mongodb_params.__set_type_mismatch_as_null(true);
