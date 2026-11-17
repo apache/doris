@@ -141,6 +141,49 @@ std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool 
     return op;
 }
 
+static TExpr make_distribution_slot_expr(int slot_id) {
+    TExpr expr;
+    auto& node = expr.nodes.emplace_back();
+    node.node_type = TExprNodeType::SLOT_REF;
+    node.slot_ref.__set_slot_id(slot_id);
+    node.slot_ref.__set_tuple_id(0);
+    return expr;
+}
+
+TEST(AggLegacyShuffleDistributionTest, retain_distribute_key_for_bucket_child) {
+    OperatorContext ctx;
+    ctx.state._query_options.__set_enable_local_exchange_before_agg(true);
+    const auto k1 = make_distribution_slot_expr(1);
+    const auto k2 = make_distribution_slot_expr(2);
+    MockDescriptorTbl descs {{std::make_shared<DataTypeInt64>()}, &ctx.pool};
+
+    TPlanNode child_node;
+    child_node.row_tuples = {0};
+    child_node.agg_node.__set_is_colocate(true);
+    child_node.agg_node.need_finalize = true;
+    child_node.agg_node.grouping_exprs = {k1, k2};
+    child_node.__set_distribute_expr_lists({{k1}});
+    AggSinkOperatorX child(&ctx.pool, 2, 2, child_node, descs);
+    child.update_operator(child_node, false, true);
+    const auto distribution = child.required_data_distribution(&ctx.state);
+    ASSERT_EQ(TLocalPartitionType::BUCKET_HASH_SHUFFLE, distribution.distribution_type);
+    ASSERT_EQ(1, distribution.partition_exprs.size());
+    EXPECT_EQ(1, distribution.partition_exprs[0].nodes[0].slot_ref.slot_id);
+    EXPECT_EQ(2, child_node.agg_node.grouping_exprs.size());
+
+    child.update_operator(child_node, false, false);
+    EXPECT_EQ(2, child.required_data_distribution(&ctx.state).partition_exprs.size());
+    child_node.__isset.distribute_expr_lists = false;
+    child.update_operator(child_node, false, true);
+    EXPECT_EQ(2, child.required_data_distribution(&ctx.state).partition_exprs.size());
+
+    child_node.__set_distribute_expr_lists({{k1}});
+    child.update_operator(child_node, false, true);
+    ctx.state._query_options.__set_enable_local_exchange_before_agg(false);
+    EXPECT_EQ(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+              child.required_data_distribution(&ctx.state).distribution_type);
+}
+
 TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_child_exchange) {
     OperatorContext ctx;
     auto sink_op = std::make_shared<MockAggsinkOperator>();

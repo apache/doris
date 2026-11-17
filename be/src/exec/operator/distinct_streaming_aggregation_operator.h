@@ -107,7 +107,10 @@ public:
                          bool require_bucket_distribution) override {
         _followed_by_shuffled_operator = followed_by_shuffled_operator;
         _require_bucket_distribution = require_bucket_distribution;
-        _partition_exprs = tnode.__isset.distribute_expr_lists && _followed_by_shuffled_operator
+        // A bucket-preserving child must hash by the FE's bucket key even without a
+        // shuffled parent: grouping (k1, k2) would misroute k1-bucketed scan rows.
+        _partition_exprs = tnode.__isset.distribute_expr_lists && (_followed_by_shuffled_operator ||
+                                                                   _require_bucket_distribution)
                                    ? tnode.distribute_expr_lists[0]
                                    : tnode.agg_node.grouping_exprs;
     }

@@ -23,6 +23,7 @@
 
 #include "core/block/block.h"
 #include "exec/exchange/local_exchange_source_operator.h"
+#include "exec/operator/aggregation_sink_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "runtime/workload_management/memory_context.h"
@@ -111,6 +112,43 @@ TEST_F(DistinctStreamingAggOperatorTest, require_hash_shuffle_after_non_hash_loc
 
     const auto distribution = op->required_data_distribution(state.get());
     EXPECT_EQ(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE, distribution.distribution_type);
+}
+
+TEST_F(DistinctStreamingAggOperatorTest, bucket_parent_preserves_distribute_key) {
+    auto slot_expr = [](int slot_id) {
+        TExpr expr;
+        auto& node = expr.nodes.emplace_back();
+        node.node_type = TExprNodeType::SLOT_REF;
+        node.slot_ref.__set_slot_id(slot_id);
+        node.slot_ref.__set_tuple_id(0);
+        return expr;
+    };
+    const auto k1 = slot_expr(1);
+    const auto k2 = slot_expr(2);
+    state->_query_options.__set_enable_local_exchange_before_agg(true);
+    MockDescriptorTbl descs {{std::make_shared<DataTypeInt64>()}, &pool};
+
+    TPlanNode child_node;
+    child_node.row_tuples = {0};
+    child_node.agg_node.__set_is_colocate(true);
+    child_node.agg_node.need_finalize = true;
+    child_node.agg_node.grouping_exprs = {k1, k2};
+    child_node.__set_distribute_expr_lists({{k1}});
+    DistinctStreamingAggOperatorX child(&pool, 2, child_node, descs);
+    child._probe_expr_ctxs = MockSlotRef::create_mock_contexts(
+            {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()});
+    child.update_operator(child_node, false, true);
+    const auto distribution = child.required_data_distribution(state.get());
+    ASSERT_EQ(TLocalPartitionType::BUCKET_HASH_SHUFFLE, distribution.distribution_type);
+    ASSERT_EQ(1, distribution.partition_exprs.size());
+    EXPECT_EQ(1, distribution.partition_exprs[0].nodes[0].slot_ref.slot_id);
+    EXPECT_EQ(2, child_node.agg_node.grouping_exprs.size());
+
+    child.update_operator(child_node, false, false);
+    EXPECT_EQ(2, child.required_data_distribution(state.get()).partition_exprs.size());
+    child_node.__isset.distribute_expr_lists = false;
+    child.update_operator(child_node, false, true);
+    EXPECT_EQ(2, child.required_data_distribution(state.get()).partition_exprs.size());
 }
 
 TEST_F(DistinctStreamingAggOperatorTest, test2) {

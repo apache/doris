@@ -850,7 +850,10 @@ void AggSinkOperatorX::update_operator(const TPlanNode& tnode, bool followed_by_
     _require_bucket_distribution = require_bucket_distribution;
     _partition_exprs =
             tnode.__isset.distribute_expr_lists &&
-                            (_followed_by_shuffled_operator ||
+                            // A bucket-preserving child must hash by the FE's bucket key even
+                            // without a shuffled parent: grouping (k1, k2) would misroute
+                            // rows read from tablets bucketed only by k1.
+                            (_followed_by_shuffled_operator || _require_bucket_distribution ||
                              std::any_of(
                                      tnode.agg_node.aggregate_functions.begin(),
                                      tnode.agg_node.aggregate_functions.end(),
