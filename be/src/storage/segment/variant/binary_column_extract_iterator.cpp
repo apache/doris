@@ -132,6 +132,8 @@ Status BinaryColumnExtractIterator::_fill_variant_v2_path(MutableColumnPtr& dst,
         if (end < previous_end || end > paths->size()) {
             return Status::Corruption("Variant sparse row {} has invalid offset {}", row, end);
         }
+        // Readers binary-search by raw path bytes; a producer that violates the order is a bug.
+        DCHECK(is_variant_sparse_row_sorted(*paths, previous_end, end));
         const size_t lower =
                 find_variant_sparse_path_lower_bound(requested, *paths, previous_end, end);
         if (lower < end && paths->get_data_at(lower) == requested) {
