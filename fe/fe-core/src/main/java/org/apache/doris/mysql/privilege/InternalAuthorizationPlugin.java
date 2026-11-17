@@ -73,7 +73,7 @@ public class InternalAuthorizationPlugin implements AuthorizationPlugin {
     @Override
     public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
             AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
-        UserIdentity currentUser = AccessTranslation.userIdentityOf(subject);
+        UserIdentity currentUser = AccessTranslation.userIdentityOf(subject, context);
         PrivPredicate wanted = AccessTranslation.privPredicateOf(requirement);
         switch (resource.getKind()) {
             case GLOBAL:
@@ -163,7 +163,7 @@ public class InternalAuthorizationPlugin implements AuthorizationPlugin {
     public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
             AccessContext context) {
         List<RowPolicy> policies = Env.getCurrentEnv().getPolicyMgr().getUserPolicies(table.getCatalog(),
-                table.getDatabase(), table.getTable(), AccessTranslation.userIdentityOf(subject));
+                table.getDatabase(), table.getTable(), AccessTranslation.userIdentityOf(subject, context));
         ImmutableList.Builder<RowFilterSpec> specs = ImmutableList.builderWithExpectedSize(policies.size());
         for (RowPolicy policy : policies) {
             try {

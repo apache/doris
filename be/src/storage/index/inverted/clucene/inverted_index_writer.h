@@ -25,7 +25,7 @@
 #include "CLucene/search/Similarity.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
-#include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/clucene/lucene_reader.h"
 #include "storage/olap_common.h"
 #include "storage/segment/common.h"
 #include "storage/types.h"

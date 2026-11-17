@@ -17,13 +17,21 @@
 
 #pragma once
 
-#include <memory>
+#ifdef __APPLE__
+#include <pthread.h>
+#else
+#include <sys/prctl.h>
+#endif
 
-#include "CLucene.h"
-#include "CLucene/util/CLStreams.h"
+namespace doris::cloud {
 
-namespace doris::segment_v2::inverted_index {
+// Like BE's Thread::set_self_name, this must be called from the thread being named.
+inline int set_current_thread_name(const char* name) {
+#ifdef __APPLE__
+    return pthread_setname_np(name);
+#else
+    return prctl(PR_SET_NAME, name);
+#endif
+}
 
-using ReaderPtr = std::shared_ptr<lucene::util::Reader>;
-
-} // namespace doris::segment_v2::inverted_index
+} // namespace doris::cloud

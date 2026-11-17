@@ -94,9 +94,34 @@ and values outside the target range are rejected. No implicit string coercion oc
 ## Execution policy
 
 This implementation emits one split per logical namespace. The native cursor handles
-find/getMore batches. Projection is materialized locally, and every SQL filter,
-LIKE/REGEXP, join, aggregation, sort and LIMIT remains a Doris operation. Range
-splitting, predicate/LIMIT pushdown and shared snapshots are separate work.
+find/getMore batches. Safe source projection includes complete top-level roots required by
+output columns and every residual predicate; whole-document bindings and literal dot/dollar
+roots keep full documents. Whole roots preserve scalar-ancestor errors for nested mappings.
+
+`enable_mongodb_predicate_pushdown`, `enable_mongodb_like_pushdown`, and
+`enable_mongodb_projection_pushdown` default to `true` and support `SET` and `SET_VAR`.
+The predicate switch gates LIKE as well. Every predicate remains a Doris residual, and
+EXPLAIN reports `SUPERSET` or `UNSUPPORTED` without source values or credentials.
+
+Predicate candidates are enabled only with explicit `mongodb.type_mismatch=null`.
+The default `error` policy keeps filters local: filtering on one valid field could otherwise
+hide a conversion failure in another projected field, and validators do not prove historical
+data is clean. `enable_strict_cast=true` also keeps candidates local to preserve SQL
+conversion errors. Standard views keep SQL predicates local and retain their own collation.
+Collections and time-series scans with candidates use simple collation.
+
+Supported candidates include scalar-root integer/boolean/string/Decimal128 comparisons,
+UTC BSON Date ranges (including time-series time fields), positive IN, BETWEEN, scalar IS NOT NULL,
+and safe AND/OR combinations. Numeric comparisons keep their BSON type and exact precision;
+integer mappings without source tags, DOUBLE/NaN, NOT/!=/NOT IN, IS NULL under mismatch-to-NULL,
+functions, CAST/TRY_CAST, and nested/array paths remain local. An OR requires a safe candidate
+for every arm. LIKE sends an escaped required literal substring as a conservative regex;
+wildcard-only, ambiguous escapes, NUL and REGEXP stay local. Doris always evaluates the full
+LIKE pattern, including anchors, wildcards, Unicode and newline rules.
+
+Join, aggregation, sort and LIMIT remain Doris operations. Range splitting, LIMIT pushdown
+and shared snapshots are separate work. Use matching FE/BE versions; the new optional BSON
+filter/projection fields preserve the single-cursor descriptor layout.
 
 `batch_size` and `query_timeout` are session variables. The following session variables
 also support statement-level `SET_VAR` hints; values are case-insensitive:
@@ -164,3 +189,14 @@ in `be/test/format_v2/table/mongodb_reader_test.cpp`. The regression suites
 fixture under `docker/thirdparties/docker-compose/mongodb/`, enabled with
 `enableMongoDBTest`, `externalEnvIp`, `mongodb_port`, `mongodb_user`, and
 `mongodb_password` regression settings.
+
+The M1 suite `test_mongodb_m1` uses `03-m1-fixtures.js` and compares predicate,
+LIKE and projection switches on/off over large integers, decimals, UTC dates,
+missing/null/malformed values, arrays, nested structs, binary subtypes, collations,
+views and time-series data. It also verifies strict error behavior, CAST/OR residuals,
+LIMIT, statement-switch restoration and EXPLAIN. A completed Profile check verifies
+`MongoRowsRead` changes from ten source documents to one for a selective candidate.
+First-release typed mappings support
+DECIMAL precision up to 38 and DATETIME scale 0..6 with no rounding; MAP, VARIANT,
+implicit numeric/string conversions and other unlisted target types are unsupported.
+Use JSON canonical Extended JSON or raw BSON to retain unsupported BSON tags.

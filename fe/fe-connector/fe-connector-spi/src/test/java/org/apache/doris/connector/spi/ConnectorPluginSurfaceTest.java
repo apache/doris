@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // API 32 adds spatial metadata and nested-spatial capability after upstream API 31.
-        Assertions.assertEquals("32.0", version.getProperty("api.version"));
+        // Major 33 adds spatial metadata and nested-spatial capability after upstream major 32.
+        Assertions.assertEquals("33.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

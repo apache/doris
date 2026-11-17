@@ -60,6 +60,7 @@ services:
           && db.getSiblingDB('doris_mongodb_native').pattern_validator.countDocuments() === 1
           && db.getSiblingDB('doris_mongodb_native').dependency_validator.countDocuments() === 1
           && db.getSiblingDB('doris_mongodb_native').nested_pattern_validator.countDocuments() === 1
+          && db.getSiblingDB('doris_mongodb_m1').records.countDocuments() === 10
           && db.getSiblingDB('doris_mongodb_pagination').getCollectionNames().length === 140 ? 0 : 1);
       interval: 5s
       timeout: 5s

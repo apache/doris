@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.DescriptorToThriftConverter;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -141,8 +142,12 @@ public class VariantEscapeTableTest extends TestWithFeService {
                 + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true')"));
         Assertions.assertTrue(explicit.getMessage().contains("Escaped tables do not support NestedGroup"));
-        connectContext.getSessionVariable().defaultVariantEnableNestedGroup = true;
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        boolean originalNestedGroup = connectContext.getSessionVariable().defaultVariantEnableNestedGroup;
         try {
+            // Session defaults are only applied when debug points are enabled.
+            Config.enable_debug_points = true;
+            connectContext.getSessionVariable().defaultVariantEnableNestedGroup = true;
             Exception error = Assertions.assertThrows(Exception.class, () -> createTable(
                     "CREATE TABLE nested_default(k INT, v VARIANT<PROPERTIES('variant_max_subcolumns_count'='1')>) "
                     + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
@@ -150,7 +155,8 @@ public class VariantEscapeTableTest extends TestWithFeService {
             Assertions.assertTrue(error.getMessage().contains("Escaped tables do not support NestedGroup"),
                     error.getMessage());
         } finally {
-            connectContext.getSessionVariable().defaultVariantEnableNestedGroup = false;
+            Config.enable_debug_points = originalEnableDebugPoints;
+            connectContext.getSessionVariable().defaultVariantEnableNestedGroup = originalNestedGroup;
         }
     }
 
