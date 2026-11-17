@@ -5439,8 +5439,10 @@ public class IcebergScanPlanProviderTest {
     public void sdkCancellationStopsDataManifestsAndJoinsReaders(boolean fallback) throws Exception {
         int workersInSdk = ThreadPools.WORKER_THREAD_POOL_SIZE;
         int manifestCount = 2 * workersInSdk + 3;
+        // Keep independent manifests beyond the SDK worker count so cancellation leaves queued readers.
         Table table = createTable("sdk_cancel", SCHEMA, PartitionSpec.unpartitioned(),
-                ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+                ImmutableMap.of("format-version", "2", "write.format.default", "parquet",
+                        TableProperties.MANIFEST_MERGE_ENABLED, "false"));
         Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1,
                 Conversions.toByteBuffer(Types.IntegerType.get(), 1));
         for (int i = 0; i < manifestCount; i++) {
@@ -5519,7 +5521,9 @@ public class IcebergScanPlanProviderTest {
     public void sdkCancellationStopsDeleteManifestsAndJoinsReaders() throws Exception {
         int workersInSdk = ThreadPools.WORKER_THREAD_POOL_SIZE;
         int manifestCount = 2 * workersInSdk + 3;
-        Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        // Keep independent manifests beyond the SDK worker count so cancellation leaves queued readers.
+        Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet",
+                TableProperties.MANIFEST_MERGE_ENABLED, "false"));
         for (int i = 0; i < manifestCount; i++) {
             table.newRowDelta().addDeletes(positionDeleteFile("/d/sdk-delete" + i + ".parquet",
                     FileFormat.PARQUET, null, null)).commit();
