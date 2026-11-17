@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
@@ -701,6 +702,15 @@ public class NereidsPlanner extends Planner {
         // update scan nodes visible version at the end of plan phase for cloud mode.
         try {
             ScanNode.setVisibleVersionForOlapScanNodes(getScanNodes());
+            statementContext.getSqlCacheContext().ifPresent(cache -> {
+                for (ScanNode scan : getScanNodes()) {
+                    if (!(scan instanceof OlapScanNode)) {
+                        continue;
+                    }
+                    OlapScanNode olapScan = (OlapScanNode) scan;
+                    cache.addOlapScan(olapScan.getOlapTable(), olapScan.getSqlCachePartitionVersions());
+                }
+            });
         } catch (UserException ue) {
             throw new NereidsException(ue.getMessage(), ue);
         }
