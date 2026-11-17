@@ -29,8 +29,11 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <csignal>
 #include <cstdlib>
 #include <exception>
+#include <fstream>
+#include <functional>
 #include <future>
 #include <memory>
 #include <string>
@@ -479,6 +482,76 @@ TEST_F(InternalRpcTlsTest, FrontendCacheKeepsDnsIdentityAcrossResolvedConnection
     address.__set_hostname("other.invalid");
     ClientConnection<FrontendServiceClient> wrong_host(&cache, address, 3000, &status, 0);
     EXPECT_FALSE(status.ok());
+}
+
+// Gtest assertion/exception macros inflate the complexity of this acquire/reopen fault matrix.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(InternalRpcTlsTest, ClientCacheReturnsStatusForTlsConstructionFailuresAndRecovers) {
+    // Match the initialized BE/BRPC signal policy when exercising Thrift in isolation.
+    struct sigaction previous_pipe_action {};
+    ASSERT_EQ(sigaction(SIGPIPE, nullptr, &previous_pipe_action), 0);
+    struct sigaction ignored_pipe_action {};
+    ignored_pipe_action.sa_handler = SIG_IGN;
+    sigemptyset(&ignored_pipe_action.sa_mask);
+    ASSERT_EQ(sigaction(SIGPIPE, &ignored_pipe_action, nullptr), 0);
+    Defer restore_pipe_action {[&] { sigaction(SIGPIPE, &previous_pipe_action, nullptr); }};
+    auto processor =
+            std::make_shared<FrontendServiceProcessor>(std::make_shared<TlsSplitService>());
+    ThriftServer server("private-tls-construction-test", processor, 0);
+    ASSERT_TRUE(rpc_tls::configure_thrift_server(&server, "127.0.0.1", 0).ok());
+    ASSERT_TRUE(server.start().ok());
+    Defer shutdown {[&] { server.stop_for_testing(); }};
+    DNSCache dns([](const std::string&, std::string& ip, bool, int* error) {
+        ip = "127.0.0.1";
+        *error = 0;
+        return Status::OK();
+    });
+    auto* previous_dns = std::exchange(ExecEnv::GetInstance()->_dns_cache, &dns);
+    Defer restore_dns {[&] { ExecEnv::GetInstance()->_dns_cache = previous_dns; }};
+    TNetworkAddress address;
+    address.__set_hostname("localhost");
+    address.__set_port(server._server_socket->getPort());
+    std::ofstream(path("malformed.pem")) << "not a PEM identity";
+    auto restore = [&] {
+        config::thrift_connect_timeout_seconds = 3;
+        config::tls_certificate_path = path("be.pem");
+        config::tls_private_key_path = path("be.key");
+    };
+    Defer restore_configuration {restore};
+    const std::vector<std::pair<std::string, std::function<void()>>> faults {
+            {"zero timeout", [] { config::thrift_connect_timeout_seconds = 0; }},
+            {"missing certificate", [] { config::tls_certificate_path = path("missing.pem"); }},
+            {"malformed certificate", [] { config::tls_certificate_path = path("malformed.pem"); }},
+            {"missing key", [] { config::tls_private_key_path = path("missing.key"); }},
+            {"malformed key", [] { config::tls_private_key_path = path("malformed.pem"); }}};
+    for (const auto& [name, fault] : faults) {
+        for (bool reopen_existing : {false, true}) {
+            SCOPED_TRACE(name + (reopen_existing ? " reopen" : " acquire"));
+            restore();
+            ClientCache<FrontendServiceClient> cache;
+            Status status;
+            if (reopen_existing) {
+                FrontendServiceConnection connection(&cache, address, 3000, &status, 0);
+                ASSERT_TRUE(status.ok()) << status;
+                fault();
+                EXPECT_NO_THROW(status = connection.reopen(3000));
+                EXPECT_FALSE(connection.is_alive());
+            } else {
+                fault();
+                EXPECT_NO_THROW({
+                    FrontendServiceConnection connection(&cache, address, 3000, &status, 0);
+                    EXPECT_FALSE(connection.is_alive());
+                });
+            }
+            EXPECT_FALSE(status.ok());
+            EXPECT_EQ(std::string::npos, status.to_string().find(certificates->path().string()));
+            EXPECT_TRUE(cache._client_cache_helper._client_map.empty());
+            restore();
+            FrontendServiceConnection recovered(&cache, address, 3000, &status, 0);
+            ASSERT_TRUE(status.ok()) << status;
+            expect_successful_split(recovered);
+        }
+    }
 }
 
 TEST_F(InternalRpcTlsTest, ExternalFunctionCacheRetainsPlaintextWhilePrivateTlsIsEnabled) {
