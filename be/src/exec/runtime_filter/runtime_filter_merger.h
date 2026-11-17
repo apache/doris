@@ -71,9 +71,16 @@ public:
             _rf_state = State::READY;
         }
         if (_wrapper->get_state() == RuntimeFilterWrapper::State::UNINITED) {
-            // For example, producer 1's filter {5} will also serve a local consumer.
-            // If the merger adopted it, merging producer 2's {6} would change that
-            // consumer's filter to {5, 6}; cloning keeps it at {5}.
+            // For example, consider a join whose probe side has two scan targets:
+            //   SELECT p.k FROM build_table b JOIN
+            //     (SELECT k FROM local_probe UNION ALL SELECT k FROM merged_probe) p ON b.k = p.k;
+            // Depending on the physical plan, the same RF can be routed as follows:
+            //   producer 1 RF {5} -----> Scan(local_probe)  [direct, no merge]
+            //           |-- copy --> merger <-- producer 2 RF {6}
+            //                         |
+            //                         +----> Scan(merged_probe) [merged: {5, 6}]
+            // The merger must clone producer 1's wrapper: adopting it would let the
+            // later merge change the direct scan's filter from {5} to {5, 6}.
             return other->_wrapper->clone(&_wrapper);
         }
         return _wrapper->merge(other->_wrapper.get());
