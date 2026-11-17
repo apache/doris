@@ -44,8 +44,9 @@ the label when a fresh selection is needed.
 
 ## GitHub token and permissions
 
-The workflow uses the automatic `GITHUB_TOKEN`, exposed as `${{ github.token }}`.
-No personal access token is required for the implemented path. The jobs request:
+The workflow uses the same automatic `GITHUB_TOKEN` as `code-review-runner.yml`,
+passed to `gh` through `GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}`. No additional token
+or personal access token is required. The jobs request:
 
 | Job | Permission | Purpose |
 |---|---|---|
@@ -64,13 +65,11 @@ ignore assignment attempts. See the official APIs for
 [comments](https://docs.github.com/en/rest/issues/comments), and
 [labels](https://docs.github.com/en/rest/issues/labels).
 
-The repository/organization must allow this workflow to obtain `issues: write`.
-The checkbox allowing Actions to create or approve pull requests is not needed.
-No status, check-run, branch, pull-request creation or approval permission is used.
-If organization policy forbids these token permissions, an administrator must
-approve a suitable approach before deployment. This implementation trusts
-`github-actions[bot]` checkpoints; changing to another token actor also requires
-updating that identity check.
+The reference runner already declares `statuses: write`, `pull-requests: write`,
+`contents: read` and `issues: write`. This workflow requests a subset: it does not
+publish formal reviews or commit statuses. The checkbox allowing Actions to
+create or approve pull requests is not needed. This implementation trusts
+`github-actions[bot]` checkpoints, matching the existing token's actor.
 
 Apply `need-reviewers` through the GitHub UI, a maintainer's authenticated CLI,
 or an approved GitHub App/PAT. A label added by another workflow's own
@@ -88,36 +87,45 @@ the archive, package manifest and binary SHA256 values before execution. It uses
 Codex timeout. Structured output uses Codex's
 [`--output-schema` option](https://learn.chatgpt.com/docs/non-interactive-mode).
 
-Required repository or organization Secrets:
+Reuse the existing repository or organization Secrets:
 
 | Secret | Required access |
 |---|---|
 | `OSS_AK` | OSS access-key ID, using the existing CI secret name |
 | `OSS_SK` | Matching OSS secret access key |
 
-Their OSS policy needs `GetObject` on the pinned release archive, plus
-`GetObject` and `PutObject` on the dedicated reviewer-assignment auth object.
-This workflow does not list credential pools or write memory/session archives.
-
-Prepare a valid Codex `auth.json` from a **separate login session with its own
-refresh token**. Do not share a refresh token with Code Review Runner or another
-active client. Upload it to the default dedicated object:
+Authentication follows the reference runner's existing numbered credential pool:
 
 ```text
-oss://doris-community-ci/codex/reviewer-assignment/auth.json
+oss://doris-community-ci/codex/auth.json.<number>
 ```
 
-Optionally override the object using repository variable
-`REVIEWER_ASSIGNMENT_CODEX_AUTH_OBJECT`. The endpoint is
-`oss-cn-hongkong.aliyuncs.com`. The auth file must use `auth_mode: chatgpt` and
-contain nonempty access and refresh tokens, matching the existing runner's
-authentication format. No `OPENAI_API_KEY` is used in this implementation.
+No new login, credential object, repository variable or `OPENAI_API_KEY` is
+required. The endpoint remains `oss-cn-hongkong.aliyuncs.com`. With the same OSS
+access used by Code Review Runner, the workflow:
 
-Workflow-level concurrency serializes access to this dedicated session. Refreshed
-auth is synchronized even after an AI failure, and upload is refused if the remote
-object changed since download. GitHub's `queue: max` retains up to 100 pending
-runs instead of replacing the single pending run; more than 100 pending runs are
-subject to GitHub's queue limit. See
+1. Lists the pool and selects only object names ending in a numeric slot.
+2. Randomizes the candidates, skipping future `usage_limited` cooldowns from
+   `<object>.context` and exact `<object>.invalid.<refresh-token-sha256>` markers.
+3. Validates the chosen ChatGPT access/refresh tokens and uses that checked
+   snapshot, without downloading it a second time.
+4. Records its original hash and selected `CODEX_AUTH_OSS_OBJECT` locally.
+5. Writes refreshed credentials back to that same selected pool object, using
+   the reference runner's retry/timeouts and stale-snapshot check.
+
+The existing OSS policy already provides the required pool listing, credential
+and marker reads, package download and credential writeback. Memory and session
+archives are not needed for reviewer selection.
+
+Workflow-level concurrency serializes reviewer-assignment runs. Code Review
+Runner continues to use the same pool independently. As in the reference runner,
+auth sync rereads the selected remote object and skips a stale upload if it
+observes that another run has replaced the snapshot. It does not claim an atomic
+cross-workflow credential lock. Auth sync runs after AI failures as well.
+
+GitHub's `queue: max` retains up to 100 pending runs instead of replacing the
+single pending run; more than 100 pending runs are subject to GitHub's queue
+limit. See
 [the concurrency documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency).
 
 Ubuntu setup installs Bubblewrap and loads its AppArmor user-namespace profile
@@ -126,16 +134,14 @@ model execution. See [OpenAI's sandbox setup](https://learn.chatgpt.com/docs/san
 
 ## Setup and first run
 
-Before enabling the workflow, confirm:
+The existing runner's tokens and login pool can be reused directly. Deployment
+only needs the workflow and its trusted source files on the default branch:
 
-1. Actions may run on the repository with `contents: read`,
-   `pull-requests: read` and `issues: write` for the indicated jobs.
-2. `OSS_AK` and `OSS_SK` are available and have the object permissions above.
-3. The dedicated Codex auth object exists and its session can use the selected
-   model. Set the optional auth-object variable if a different path is used.
-4. The repository has a `need-reviewers` label. The completion label can be
+1. Reuse the existing `GITHUB_TOKEN`, `OSS_AK`, `OSS_SK` and numbered Codex auth
+   objects configured for Code Review Runner.
+2. The repository has a `need-reviewers` label. The completion label can be
    created in advance or by the workflow.
-5. The workflow, helper scripts and `tools/reviewer-routing/` are present on the
+3. The workflow, helper scripts and `tools/reviewer-routing/` are present on the
    default branch. A PR containing this new workflow does not activate it before
    it is merged into the trusted default branch.
 

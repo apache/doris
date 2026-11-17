@@ -25,6 +25,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -357,73 +358,184 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(error.exception.status, 404)
 
 
-class AuthSyncShellTest(unittest.TestCase):
+class AuthPoolShellTest(unittest.TestCase):
+    PREFIX = "oss://doris-community-ci/codex/"
+
     def setUp(self):
+        # Reuse the reference workflow's fake OSS protocol and snapshot-race fixture.
+        from test_review_auth_quarantine import FAKE_OSS
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.auth = self.root / "codex"
-        self.auth.mkdir()
-        self.original = {"auth_mode": "chatgpt", "tokens": {"access_token": "test-access", "refresh_token": "test-refresh"}}
-        self.local = self.auth / "auth.json"
-        self.remote = self.root / "remote.json"
-        self.local.write_text(json.dumps(self.original))
-        self.remote.write_bytes(self.local.read_bytes())
-        (self.root / "reviewer-assignment-auth.sha256").write_text(hashlib.sha256(self.local.read_bytes()).hexdigest())
-        self.log = self.root / "oss.log"
-        binary = self.root / "ossutil"
-        binary.write_text("#!" + sys.executable + "\n" + '''import os,shutil,sys
-from pathlib import Path
-source,target=sys.argv[-2:]
-remote=os.environ['FAKE_REMOTE_AUTH']
-with open(os.environ['FAKE_OSS_LOG'],'a') as log:
-    log.write(('download' if source.startswith('oss://') else 'upload')+'\\n')
-shutil.copyfile(remote if source.startswith('oss://') else source,
-                remote if target.startswith('oss://') else target)
-''')
-        binary.chmod(0o755)
-        self.env = {**os.environ, "PATH": str(self.root) + os.pathsep + os.environ["PATH"],
-                    "RUNNER_TEMP": str(self.root), "CODEX_HOME": str(self.auth),
-                    "FAKE_REMOTE_AUTH": str(self.remote), "FAKE_OSS_LOG": str(self.log),
-                    "OSS_AK": "test-ak", "OSS_SK": "test-sk", "OSS_ENDPOINT": "example",
-                    "AUTH_OBJECT": "oss://example/dedicated/auth.json"}
-        workflow = (assignment.ROOT / ".github/workflows/reviewer-assignment.yml").read_text()
-        step = workflow.split("      - name: Sync refreshed Codex auth\n", 1)[1].split("\n      - name:", 1)[0]
-        body = step.split("        run: |\n", 1)[1]
-        self.script = "\n".join(line[10:] if line.startswith("          ") else line for line in body.splitlines())
+        self.objects = self.root / "objects"
+        self.objects.mkdir()
+        self.runner = self.root / "runner"
+        self.runner.mkdir()
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        binary = self.bin / "ossutil"
+        binary.write_text("#!" + sys.executable + "\n" + FAKE_OSS)
+        binary.chmod(0o700)
+        shuffle = self.bin / "shuf"
+        shuffle.write_text('#!/bin/sh\nexec cat "$@"\n')
+        shuffle.chmod(0o700)
+        if shutil.which("gdate"):
+            (self.bin / "date").symlink_to(shutil.which("gdate"))
+        self.env = {**os.environ, "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
+                    "RUNNER_TEMP": str(self.runner), "FAKE_OSS_ROOT": str(self.root),
+                    "GITHUB_ENV": str(self.runner / "env"), "GITHUB_OUTPUT": str(self.runner / "output"),
+                    "OSS_AK": "test-ak", "OSS_SK": "test-sk", "OSS_ENDPOINT": "example"}
+        self.env.pop("CODEX_AUTH_OSS_OBJECT", None)
+        Path(self.env["GITHUB_ENV"]).touch()
+        Path(self.env["GITHUB_OUTPUT"]).touch()
+        self.log = self.root / "calls.jsonl"
+        self.original = self.put_auth()
 
-    def run_sync(self):
-        return subprocess.run(["bash", "-c", self.script], env=self.env, capture_output=True, text=True)
+    def put_auth(self, slot=2, refresh="test-refresh"):
+        value = {"auth_mode": "chatgpt", "tokens": {"access_token": "test-access", "refresh_token": refresh}}
+        self.object(f"auth.json.{slot}").write_text(json.dumps(value))
+        return value
+
+    def object(self, name):
+        return self.objects / name
+
+    def invalid_marker(self, refresh="test-refresh", slot=2):
+        digest = hashlib.sha256(refresh.encode()).hexdigest()
+        return self.object(f"auth.json.{slot}.invalid.{digest}")
+
+    def step_script(self, name):
+        workflow = (assignment.ROOT / ".github/workflows/reviewer-assignment.yml").read_text()
+        step = workflow.split("      - name: " + name + "\n", 1)[1].split("\n      - name:", 1)[0]
+        body = step.split("        run: |\n", 1)[1]
+        return "\n".join(line[10:] if line.startswith("          ") else line for line in body.splitlines())
+
+    def run_step(self, name):
+        result = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", self.step_script(name)],
+                                env=self.env, capture_output=True, text=True, timeout=15)
+        for line in Path(self.env["GITHUB_ENV"]).read_text().splitlines():
+            key, value = line.split("=", 1)
+            self.env[key] = value
+        return result
+
+    def configure(self):
+        result = self.run_step("Configure Codex auth")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.local = Path(self.env["CODEX_HOME"]) / "auth.json"
+        self.log.write_text("")
+        return result
+
+    def calls(self):
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def test_reuses_existing_numbered_auth_without_additional_configuration(self):
+        self.configure()
+        self.assertEqual(self.env["CODEX_AUTH_OSS_OBJECT"], self.PREFIX + "auth.json.2")
+        self.assertEqual(json.loads(self.local.read_text()), self.original)
+        self.assertIn('inherit = "none"', self.local.with_name("config.toml").read_text())
+        self.assertEqual(self.local.stat().st_mode & 0o777, 0o600)
+
+    def test_shared_invalid_token_marker_skips_that_token(self):
+        self.invalid_marker().write_text("{}")
+        self.put_auth(slot=3, refresh="other-refresh")
+        self.configure()
+        self.assertEqual(self.env["CODEX_AUTH_OSS_OBJECT"], self.PREFIX + "auth.json.3")
+
+    def test_replacement_refresh_token_restores_same_slot(self):
+        self.invalid_marker().write_text("{}")
+        replacement = self.put_auth(refresh="replacement-refresh")
+        self.configure()
+        self.assertEqual(json.loads(self.local.read_text()), replacement)
+        self.assertEqual(self.env["CODEX_AUTH_OSS_OBJECT"], self.PREFIX + "auth.json.2")
+
+    def test_shared_future_cooldown_skips_usage_limited_account(self):
+        self.object("auth.json.2.context").write_text(json.dumps({
+            "version": 1, "state": "usage_limited",
+            "retry_after_epoch": int(dt.datetime.now(dt.timezone.utc).timestamp()) + 3600}))
+        self.put_auth(slot=3, refresh="other-refresh")
+        self.configure()
+        self.assertEqual(self.env["CODEX_AUTH_OSS_OBJECT"], self.PREFIX + "auth.json.3")
+
+    def test_expired_cooldown_does_not_block_account(self):
+        self.object("auth.json.2.context").write_text(json.dumps({
+            "version": 1, "state": "usage_limited",
+            "retry_after_epoch": int(dt.datetime.now(dt.timezone.utc).timestamp()) - 60}))
+        self.configure()
+        self.assertEqual(self.env["CODEX_AUTH_OSS_OBJECT"], self.PREFIX + "auth.json.2")
+
+    def test_invalid_context_does_not_disable_account(self):
+        self.object("auth.json.2.context").write_text('{"version":2,"state":"unknown"}')
+        result = self.configure()
+        self.assertIn("Ignoring unusable Codex auth context", result.stdout)
+        self.assertEqual(self.env["CODEX_AUTH_OSS_OBJECT"], self.PREFIX + "auth.json.2")
+
+    def test_metadata_and_nonnumeric_objects_are_not_auth_candidates(self):
+        self.object("auth.json.2").unlink()
+        self.object("auth.json.backup").write_text(json.dumps(self.original))
+        self.object("auth.json.3.context").write_text(json.dumps(self.original))
+        result = self.run_step("Configure Codex auth")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("No numbered Codex review auth objects", result.stdout)
+        self.assertNotIn("CODEX_AUTH_OSS_OBJECT", self.env)
+
+    def test_all_invalid_accounts_fail_without_selecting_a_token(self):
+        self.invalid_marker().write_text("{}")
+        result = self.run_step("Configure Codex auth")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("No eligible Codex review credentials", result.stdout)
+        self.assertNotIn("CODEX_AUTH_OSS_OBJECT", self.env)
+
+    def test_marker_lookup_failure_does_not_select_unchecked_token(self):
+        self.env["FAKE_OSS_FAIL"] = "ls:" + self.PREFIX + self.invalid_marker().name
+        result = self.run_step("Configure Codex auth")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Failed to check invalid-token marker", result.stdout)
+        self.assertNotIn("CODEX_AUTH_OSS_OBJECT", self.env)
+
+    def test_selected_checked_snapshot_is_not_downloaded_again(self):
+        replacement = copy.deepcopy(self.original)
+        replacement["tokens"]["refresh_token"] = "operator-refresh"
+        self.env["FAKE_OSS_REPLACE_AFTER_DOWNLOAD"] = "auth.json.2"
+        self.env["FAKE_OSS_REPLACEMENT"] = json.dumps(replacement)
+        self.configure()
+        self.assertEqual(json.loads(self.local.read_text()), self.original)
+        self.assertEqual(json.loads(self.object("auth.json.2").read_text()), replacement)
 
     def test_unchanged_auth_does_not_access_oss(self):
-        self.assertEqual(self.run_sync().returncode, 0)
-        self.assertFalse(self.log.exists())
+        self.configure()
+        self.assertEqual(self.run_step("Sync refreshed Codex auth").returncode, 0)
+        self.assertEqual(self.calls(), [])
 
-    def test_refreshed_auth_is_uploaded_after_remote_snapshot_check(self):
+    def test_refreshed_auth_is_saved_to_the_same_selected_object(self):
+        self.configure()
         refreshed = copy.deepcopy(self.original)
         refreshed["tokens"]["refresh_token"] = "replacement-refresh"
         self.local.write_text(json.dumps(refreshed))
-        result = self.run_sync()
+        result = self.run_step("Sync refreshed Codex auth")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(self.remote.read_text()), refreshed)
-        self.assertEqual(self.log.read_text().splitlines(), ["download", "upload"])
+        self.assertEqual(json.loads(self.object("auth.json.2").read_text()), refreshed)
+        self.assertEqual(len(self.calls()), 2)
+        self.assertEqual(self.calls()[-1][-1], self.env["CODEX_AUTH_OSS_OBJECT"])
 
-    def test_concurrent_remote_change_is_never_overwritten(self):
+    def test_concurrent_remote_change_is_preserved_like_reference_runner(self):
+        self.configure()
         local = copy.deepcopy(self.original)
         local["tokens"]["refresh_token"] = "local-refresh"
         self.local.write_text(json.dumps(local))
         remote = copy.deepcopy(self.original)
         remote["tokens"]["refresh_token"] = "operator-refresh"
-        self.remote.write_text(json.dumps(remote))
-        self.assertNotEqual(self.run_sync().returncode, 0)
-        self.assertEqual(json.loads(self.remote.read_text()), remote)
-        self.assertEqual(self.log.read_text().splitlines(), ["download"])
+        self.object("auth.json.2").write_text(json.dumps(remote))
+        result = self.run_step("Sync refreshed Codex auth")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("skipping stale auth sync", result.stdout)
+        self.assertEqual(json.loads(self.object("auth.json.2").read_text()), remote)
+        self.assertEqual(len(self.calls()), 1)
 
     def test_invalid_local_auth_is_not_uploaded(self):
+        self.configure()
         self.local.write_text('{"auth_mode":"chatgpt","tokens":{}}')
-        self.assertNotEqual(self.run_sync().returncode, 0)
-        self.assertFalse(self.log.exists())
-        self.assertEqual(json.loads(self.remote.read_text()), self.original)
+        self.assertNotEqual(self.run_step("Sync refreshed Codex auth").returncode, 0)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(json.loads(self.object("auth.json.2").read_text()), self.original)
 
 
 class WorkflowTest(unittest.TestCase):
@@ -454,12 +566,32 @@ class WorkflowTest(unittest.TestCase):
         self.assertNotIn("secrets.OSS_", assign)
         self.assertIn("needs: select", assign)
 
-    def test_auth_sync_has_dedicated_session_and_optimistic_write_guard(self):
-        self.assertIn("codex/reviewer-assignment/auth.json", self.workflow)
+    def test_auth_reuses_reference_pool_and_optimistic_write_guard(self):
+        self.assertIn("auth_prefix='oss://doris-community-ci/codex/auth.json.'", self.workflow)
+        self.assertIn('"${candidate}.context"', self.workflow)
+        self.assertIn('"${candidate}.invalid.${refresh_token_hash}"', self.workflow)
+        self.assertNotIn("REVIEWER_ASSIGNMENT_CODEX_AUTH_OBJECT", self.workflow)
+        self.assertNotIn("codex/reviewer-assignment/auth.json", self.workflow)
+        self.assertIn('cp -f "$CODEX_HOME/auth.json" "$CODEX_AUTH_OSS_OBJECT"', self.workflow)
         self.assertIn("always() && steps.auth.outcome == 'success'", self.workflow)
         self.assertIn('if [ "$remote_hash" != "$original_hash" ]', self.workflow)
         self.assertIn('if [ "$local_hash" = "$original_hash" ]', self.workflow)
         self.assertIn('inherit = "none"', self.workflow)
+
+    def test_ci_checkout_includes_workflow_sources_used_by_self_tests(self):
+        checkout = self.workflow.split("      - name: Checkout trusted routing tools\n", 1)[1]
+        checkout = checkout.split("\n      - name:", 1)[0]
+        self.assertIn("            .github/scripts", checkout)
+        self.assertIn("            .github/workflows", checkout)
+        self.assertIn("            tools/reviewer-routing", checkout)
+
+    def test_github_token_and_write_permissions_are_a_subset_of_reference(self):
+        self.assertIn("GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}", self.workflow)
+        for permission in ("contents: read", "pull-requests: read", "issues: write"):
+            self.assertIn(permission, self.workflow)
+        for permission in ("contents: read", "pull-requests: write", "issues: write"):
+            self.assertIn(permission, self.runner)
+        self.assertNotIn("secrets.REVIEWER_ASSIGNMENT", self.workflow)
 
     def test_runtime_and_checksums_match_the_existing_runner(self):
         archive = re.search(r"oss://[^\s]+codex-exec-goal-[^\s]+\.tar\.gz", self.workflow)[0]
