@@ -98,13 +98,7 @@ class VExpr {
 public:
     // resize inserted param column to make sure column size equal to block.rows() and return param column index
     // keep return type same with block::columns()
-    static uint32_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size) {
-        // usually elem.column always is const column, so we just clone it.
-        elem.column = elem.column->clone_resized(size);
-        block->insert(std::move(elem));
-        // just inserted. so no need to check underflow.
-        return block->columns() - 1;
-    }
+    static uint32_t insert_param(Block* block, ColumnWithTypeAndName&& elem, size_t size);
 
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);

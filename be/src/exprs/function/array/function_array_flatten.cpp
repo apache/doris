@@ -62,6 +62,12 @@ public:
         auto* src_data_type_array =
                 assert_cast<const DataTypeArray*>(remove_nullable(src_data_type).get());
 
+        // A one-dimensional array keeps both its elements and offsets unchanged.
+        if (src_data_type_array->get_nested_type()->get_primitive_type() != TYPE_ARRAY) {
+            block.replace_by_position(result, nested_src_column_array);
+            return Status::OK();
+        }
+
         auto result_column_offsets = src_column_array_ptr->get_offsets_column().clone();
         auto* offsets = assert_cast<ColumnArray::ColumnOffsets*>(result_column_offsets.get())
                                 ->get_data()

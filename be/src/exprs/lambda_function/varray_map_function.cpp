@@ -111,7 +111,7 @@ public:
         auto outside_null_map = ColumnUInt8::create(
                 arguments[0].column->convert_to_full_column_if_const()->size(), 0);
         // offset column
-        MutableColumnPtr array_column_offset;
+        ColumnPtr array_column_offset;
         size_t nested_array_column_rows = 0;
         //2. get the result column from executed expr, and the needed is nested column of array
         std::vector<ColumnPtr> lambda_datas(arguments.size());
@@ -148,8 +148,7 @@ public:
 
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
-                const auto& off_data = col_array.get_offsets_column();
-                array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
+                array_column_offset = col_array.get_offsets_ptr();
                 args_info.offsets_ptr = &col_array.get_offsets();
             }
             lambda_datas[i] = col_array.get_data_ptr();
@@ -553,8 +552,7 @@ private:
                   source_row);
     }
 
-    static ColumnPtr _create_result_column(ColumnPtr result_col,
-                                           MutableColumnPtr array_column_offset,
+    static ColumnPtr _create_result_column(ColumnPtr result_col, ColumnPtr array_column_offset,
                                            MutableColumnPtr outside_null_map,
                                            const DataTypePtr& res_type,
                                            const DataTypePtr& result_type) {
