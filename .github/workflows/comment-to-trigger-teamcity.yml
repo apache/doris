@@ -113,12 +113,17 @@ jobs:
         case "$TARGET_BRANCH" in
           master|branch-4.2|branch-4.1)
             if [[ "$COMMENT_BODY" == *'run '* ]]; then
-              permission=$(curl --fail --silent --show-error \
+              role=$(curl --fail --silent --show-error \
                 -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                "https://api.github.com/repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission" | jq -r .permission)
-              [[ "$permission" == write || "$permission" == maintain || "$permission" == admin ]] || {
-                echo 'Repository write access is required to trigger current TeamCity'; exit 1;
-              }
+                "https://api.github.com/repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission" | \
+                jq -er 'if .permission == "read" and .role_name == "triage" then "triage" else .permission end')
+              case "$role" in
+                write|maintain|admin) echo "can_approve_pipeline_scripts=true" >> "$GITHUB_OUTPUT" ;;
+                triage)
+                  [[ "$COMMENT_BODY" == 'run buildall' ]] || { echo 'Triage access allows run buildall only'; exit 1; }
+                  ;;
+                *) echo 'Repository triage or write access is required to trigger TeamCity'; exit 1 ;;
+              esac
             fi
             ;;
           *) echo "No TeamCity PR pipeline configured for $TARGET_BRANCH"; exit 1;;
@@ -218,6 +223,7 @@ jobs:
       env:
         PULL_REQUEST_NUM: ${{ steps.parse.outputs.PULL_REQUEST_NUM }}
         COMMENT_TRIGGER_TYPE: ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }}
+        CAN_APPROVE_PIPELINE_SCRIPTS: ${{ steps.parse.outputs.can_approve_pipeline_scripts }}
       run: |
         # This check is intentionally written inline (not sourced from any repository file)
         # so it cannot be bypassed by modifying files in a PR.
@@ -242,8 +248,8 @@ jobs:
           fi
         done < all_files
 
-        if ${changed_sensitive} && [[ "${COMMENT_TRIGGER_TYPE}" != "buildall" ]]; then
-          msg="⚠️ **Security Notice**: This PR modifies pipeline scripts that are executed by TeamCity with credentials access (ak/sk, tokens, etc.).\n\nTo prevent injection attacks, single test triggers (\`run p0\`, \`run feut\`, etc.) are blocked when pipeline scripts are modified.\n\nPlease review the pipeline script changes carefully. If they are safe, a committer can use \`run buildall\` to explicitly acknowledge and trigger the pipeline."
+        if ${changed_sensitive} && [[ "${COMMENT_TRIGGER_TYPE}" != "buildall" || "${CAN_APPROVE_PIPELINE_SCRIPTS}" != "true" ]]; then
+          msg="This PR changes pipeline scripts that run with TeamCity credentials. A repository member with write access must review the changes and comment \`run buildall\` to trigger CI."
           create_an_issue_comment "${PULL_REQUEST_NUM}" "${msg}"
           exit 1
         fi

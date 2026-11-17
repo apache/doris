@@ -195,7 +195,7 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         commands = re.search(r'reg="\^run \(([^)]+)\)', workflow).group(1).split('|')
         self.assertEqual(set(commands), set(mappings) | {'buildall'})
 
-    def parse_comment(self, command, branch='master', permission='write', check=True, user_id='27881198'):
+    def parse_comment(self, command, branch='master', permission='write', check=True, user_id='27881198', role=None):
         workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
         block = workflow.split('    - name: "Parse PR comment"\n', 1)[1].split('    - name:', 1)[0]
         script = textwrap.dedent(block.split('      run: |\n', 1)[1])
@@ -207,7 +207,7 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
                                 env={**self.env, 'COMMENT_BODY': command, 'COMMENT_USER_ID': user_id,
                                      'GITHUB_TOKEN': 'test-github-token', 'GITHUB_OUTPUT': str(output),
                                      'GITHUB_ENV': str(self.root / 'workflow-env'),
-                                     'MOCK_GITHUB_RESPONSE': json.dumps({'head': {'sha': HEAD}, 'base': {'ref': branch}, 'permission': permission})})
+                                     'MOCK_GITHUB_RESPONSE': json.dumps({'head': {'sha': HEAD}, 'base': {'ref': branch}, 'permission': permission, 'role_name': role})})
         if check:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result, output.read_text()
@@ -253,6 +253,36 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         for branch, permission in [('branch-4.0', 'write'), ('master', 'read')]:
             result, _ = self.parse_comment('run feut', branch=branch, permission=permission, check=False)
             self.assertNotEqual(result.returncode, 0)
+
+    def test_triage_buildall(self):
+        _, output = self.parse_comment('run buildall', permission='read', role='triage')
+        self.assertIn('COMMENT_TRIGGER_TYPE=buildall', output)
+        self.assertNotIn('can_approve_pipeline_scripts=true', output)
+        for command, role in [('run feut', 'triage'), ('run buildall 2', 'triage'),
+                              ('run buildall', 'read'), ('run buildall', None)]:
+            with self.subTest(command=command, role=role):
+                result, _ = self.parse_comment(command, permission='read', role=role, check=False)
+                self.assertNotEqual(result.returncode, 0)
+        _, output = self.parse_comment('run buildall', permission='write', role='custom')
+        self.assertIn('can_approve_pipeline_scripts=true', output)
+
+    def test_sensitive_scripts_require_write_access_and_buildall(self):
+        workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+        step = workflow.split('    - name: "Check for sensitive pipeline script changes"', 1)[1].split('    - name:', 1)[0]
+        self.assertIn('CAN_APPROVE_PIPELINE_SCRIPTS: ${{ steps.parse.outputs.can_approve_pipeline_scripts }}', step)
+        script = textwrap.dedent(step.split('      run: |\n', 1)[1])
+        script = script.replace('source regression-test/pipeline/common/github-utils.sh', 'create_an_issue_comment(){ :; }')
+        for path, approval, command, allowed in [
+                ('be/src/example.cpp', '', 'buildall', True),
+                ('regression-test/pipeline/p0/run.sh', '', 'buildall', False),
+                ('regression-test/pipeline/p0/run.sh', 'true', 'buildall', True),
+                ('regression-test/pipeline/p0/run.sh', 'true', 'p0', False)]:
+            with self.subTest(path=path, approval=approval, command=command):
+                (self.root / 'all_files').write_text(path + '\n')
+                result = subprocess.run(['bash', '-e', '-c', script], cwd=self.root, capture_output=True,
+                                        env={**self.env, 'CAN_APPROVE_PIPELINE_SCRIPTS': approval,
+                                             'COMMENT_TRIGGER_TYPE': command})
+                self.assertEqual(result.returncode, 0 if allowed else 1, result.stderr)
 
     def test_credentials_are_not_traced(self):
         result = self.run_shell('''curl(){ printf '%s\\n' "$@" > "$FIXTURE_ROOT/curl-args"; }
