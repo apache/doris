@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 
 /**
  * Catalog-local hierarchy shared by independent physical metadata caches.
@@ -94,13 +95,23 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             Duration refreshAfterWrite, Executor refreshExecutor,
             MetaCacheSizeEstimator<K, V> sizeEstimator,
             MetaCacheBudgetManager.EntryBudget entryBudget) {
+        return createCacheWithMetaRemovalListener(name, cacheSpec, removalListener, discardListener,
+                refreshAfterWrite, refreshExecutor, sizeEstimator, entryBudget, value -> true);
+    }
+
+    <K, V> ScopedMetaCache<K, V> createCacheWithMetaRemovalListener(
+            String name, CacheSpec cacheSpec, MetaCacheRemovalListener<K, V> removalListener,
+            BiConsumer<K, V> discardListener,
+            Duration refreshAfterWrite, Executor refreshExecutor,
+            MetaCacheSizeEstimator<K, V> sizeEstimator,
+            MetaCacheBudgetManager.EntryBudget entryBudget, Predicate<V> retentionPredicate) {
         RemovalListener<K, V> caffeineListener = removalListener == null ? null
                 : (key, value, cause) -> removalListener.onRemoval(
                         key, value, MetaCacheRemovalReason.valueOf(cause.name()));
         return createCacheWithRemovalListener(
                 name, cacheSpec, null, caffeineListener, discardListener,
                 refreshAfterWrite, refreshExecutor, NO_OP, NO_OP, NO_OP,
-                sizeEstimator, entryBudget);
+                sizeEstimator, entryBudget, retentionPredicate);
     }
 
     <K, V> ScopedMetaCache<K, V> createCache(
@@ -159,6 +170,17 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             Runnable afterRefreshRegistration,
             MetaCacheSizeEstimator<K, V> sizeEstimator,
             MetaCacheBudgetManager.EntryBudget entryBudget) {
+        return createCacheWithRemovalListener(name, cacheSpec, ticker, removalListener, discardListener,
+                refreshAfterWrite, refreshExecutor, afterLoadElection, afterBulkStage,
+                afterRefreshRegistration, sizeEstimator, entryBudget, value -> true);
+    }
+
+    private <K, V> ScopedMetaCache<K, V> createCacheWithRemovalListener(
+            String name, CacheSpec cacheSpec, Ticker ticker, RemovalListener<K, V> removalListener,
+            BiConsumer<K, V> discardListener, Duration refreshAfterWrite, Executor refreshExecutor,
+            Runnable afterLoadElection, Runnable afterBulkStage, Runnable afterRefreshRegistration,
+            MetaCacheSizeEstimator<K, V> sizeEstimator,
+            MetaCacheBudgetManager.EntryBudget entryBudget, Predicate<V> retentionPredicate) {
         checkOpen();
         ScopedMetaCache<K, V> cache = new ScopedMetaCache<>(
                 this,
@@ -173,7 +195,8 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
                 afterBulkStage,
                 afterRefreshRegistration,
                 sizeEstimator,
-                entryBudget);
+                entryBudget,
+                retentionPredicate);
         caches.add(cache);
         if (closed.get()) {
             caches.remove(cache);

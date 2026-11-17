@@ -217,3 +217,40 @@ The fixture is a read-only protocol test service, not a production REST catalog.
 bash run-regression-test.sh --run -d external_table_p0/iceberg \
     -s test_iceberg_encrypted_rest_metadata
 ```
+
+## Encrypted metadata cache ownership
+
+An encrypted table's SDK encryption manager can cache unwrapped keys. Such a
+table owner is therefore never retained by the cross-query table cache, under
+either count or weight limits. Concurrent cache misses have separate load scopes
+until classification, and each encrypted statement keeps its own owner alive
+through a table lease. Catalog invalidation or close retires cache ownership;
+active statements release their owners when their final leases close. A later
+statement reloads the table and performs its own SDK/KMS authorization.
+
+Decoded manifests are also statement-owned when either the table or manifest
+is encrypted. This includes an encrypted manifest containing only plaintext data
+files: its decoded contents must not bypass the next caller's manifest-key
+validation. An otherwise plaintext manifest containing data, position-delete or
+equality-delete key metadata is declined by the cache as well. Both synchronous
+and future loads isolate unclassified misses, before their contents are known.
+The adapter disables the SDK manifest byte cache for these reads; otherwise a
+path-only cache hit could reuse previously decrypted bytes with a missing current
+descriptor. Encrypted statement snapshots use the same uncached IO view for SDK
+planning. Failed reads are not cached, so correcting the current descriptor
+permits a fresh attempt.
+
+Completed plaintext entries continue to use the configured caches. Concurrent
+cold table and manifest misses may perform independent loads before a plaintext
+value has been published; warm cache hits are unchanged. Key-bearing table metadata is
+not weighed or serialized just to admit it to a shared cache. This bounds ownership;
+it does not promise deterministic zeroization of SDK or JVM memory.
+
+`MetaCacheRetentionTest` covers count and weight limits, load scopes, synchronous
+and future loads, direct/bulk publication, replacement and refresh cleanup.
+`IcebergEncryptedCacheTest` uses real SDK encrypted manifests to verify that KMS
+revocation after a successful statement is observed, invalid current descriptors
+cannot reuse a warm result, and concurrent statements retain distinct managers
+through catalog retirement. These tests do not enable encrypted SQL admission;
+transport, native reader lifetime and end-to-end acceptance remain separate
+requirements.
