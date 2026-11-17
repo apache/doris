@@ -75,19 +75,25 @@ void insert_block(BlockFileCache& cache, const UInt128Wrapper& hash, size_t offs
     }
 }
 
-// Whether `mutex` is held by any thread. try_lock from the owning thread is undefined, so the
-// probe runs on its own thread.
-bool is_locked_elsewhere(std::mutex& mutex) {
-    bool locked = false;
+// Whether `mutex` stays held for a whole 200 ms window, as it is when the thread calling this
+// is parked in a sync point while holding it. The cache's monitor and GC threads take the same
+// mutex too, but only briefly, so one failed try_lock would not prove the caller holds it.
+// try_lock from the owning thread is undefined, so the probe runs on its own thread.
+bool is_held_throughout(std::mutex& mutex) {
+    bool acquired = false;
     std::thread probe([&] {
-        if (mutex.try_lock()) {
-            mutex.unlock();
-        } else {
-            locked = true;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (mutex.try_lock()) {
+                mutex.unlock();
+                acquired = true;
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     });
     probe.join();
-    return locked;
+    return !acquired;
 }
 
 // Evicts one block and checks that its storage removal runs, with the cache lock not held.
@@ -120,7 +126,7 @@ void run_eviction_lock_probe() {
                     return;
                 }
                 ++removes;
-                if (is_locked_elsewhere(cache._mutex)) {
+                if (is_held_throughout(cache._mutex)) {
                     ++removes_under_lock;
                 }
             },
@@ -143,12 +149,12 @@ TEST_F(BlockFileCacheTest, evict_io_storage_remove_runs_after_cache_lock_release
     run_eviction_lock_probe();
 }
 
-// Negative control for is_locked_elsewhere(), which the lock checks in these tests rely on.
+// Negative control for is_held_throughout(), which the lock checks in these tests rely on.
 TEST(BlockFileCacheEvictIoProbeTest, lock_probe_detects_held_lock) {
     std::mutex mutex;
-    EXPECT_FALSE(is_locked_elsewhere(mutex));
+    EXPECT_FALSE(is_held_throughout(mutex));
     std::lock_guard lock(mutex);
-    EXPECT_TRUE(is_locked_elsewhere(mutex));
+    EXPECT_TRUE(is_held_throughout(mutex));
 }
 
 TEST_F(BlockFileCacheTest, evict_io_remove_if_cached_removes_after_unlock) {
@@ -171,7 +177,7 @@ TEST_F(BlockFileCacheTest, evict_io_remove_if_cached_removes_after_unlock) {
     sp->set_call_back(
             "BlockFileCache::run_storage_remove",
             [&](auto&&) {
-                if (is_locked_elsewhere(cache._mutex)) {
+                if (is_held_throughout(cache._mutex)) {
                     ++removes_under_lock;
                 }
             },
@@ -246,7 +252,7 @@ TEST_F(BlockFileCacheTest, evict_io_lookup_proceeds_while_remove_stalls) {
     });
     ASSERT_EQ(lookup.wait_for(std::chrono::seconds(10)), std::future_status::ready);
     EXPECT_TRUE(lookup.get());
-    EXPECT_FALSE(is_locked_elsewhere(cache._mutex));
+    EXPECT_FALSE(is_held_throughout(cache._mutex));
 }
 
 // A block evicted while its removal is still pending is not brought back by loading the hash's
@@ -281,6 +287,38 @@ TEST_F(BlockFileCacheTest, evict_io_load_skips_block_pending_removal) {
               nullptr);
     EXPECT_NE(cache.add_cell(key, context, 0, kBlockSize, FileBlock::State::EMPTY, cache_lock),
               nullptr);
+}
+
+// A synchronous removal whose position another thread (a replacement block's downloader, or GC)
+// is already removing waits for that owner, so the file is gone when it returns.
+TEST_F(BlockFileCacheTest, evict_io_sync_remove_waits_for_competing_owner) {
+    auto base = evict_io_cache_path("competing_owner");
+    fs::remove_all(base);
+    fs::create_directories(base);
+    Defer cleanup {[&] { fs::remove_all(base); }};
+    BlockFileCache cache(base, normal_only_settings(10 * kBlockSize, kBlockSize));
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    FileCacheKey key;
+    key.hash = BlockFileCache::hash("evict_io_competing_owner");
+    key.offset = 0;
+    cache._pending_storage_removes.mark(key);
+    FileCacheKey claimed;
+    ASSERT_TRUE(cache._pending_storage_removes.claim(key.hash, key.offset, &claimed));
+
+    // The other owner is mid-removal: the synchronous remover must not return yet.
+    auto sync_remove = std::async(std::launch::async, [&] {
+        cache.run_storage_remove(key.hash, key.offset, nullptr, /*wait_for_owner=*/true);
+    });
+    EXPECT_EQ(sync_remove.wait_for(std::chrono::milliseconds(200)), std::future_status::timeout);
+    // GC does not wait: it leaves a removal someone else is running.
+    cache.run_storage_remove(key.hash, key.offset, nullptr, /*wait_for_owner=*/false);
+    EXPECT_TRUE(cache._pending_storage_removes.contains(key.hash, key.offset));
+
+    EXPECT_FALSE(cache._pending_storage_removes.finish(key.hash, key.offset));
+    ASSERT_EQ(sync_remove.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_FALSE(cache._pending_storage_removes.contains(key.hash, key.offset));
 }
 
 // A block is evicted and its removal stalls; meanwhile the same position is downloaded again.
@@ -380,7 +418,7 @@ TEST_F(BlockFileCacheTest, evict_io_queued_remove_drained_by_new_download) {
     // The queued item no longer owns the position.
     FileCacheKey queued;
     ASSERT_TRUE(cache._recycle_keys.try_dequeue(queued));
-    cache.run_storage_remove(queued.hash, queued.offset, nullptr);
+    cache.run_storage_remove(queued.hash, queued.offset, nullptr, /*wait_for_owner=*/false);
     auto path = block_path(base, key, 0);
     ASSERT_TRUE(fs::exists(path));
     std::ifstream in(path);
@@ -458,7 +496,7 @@ TEST_F(BlockFileCacheTest, evict_io_concurrent_reserve_evict_reinsert) {
     // Drain whatever the background GC has not reached yet.
     FileCacheKey queued;
     while (cache._recycle_keys.try_dequeue(queued)) {
-        cache.run_storage_remove(queued.hash, queued.offset, nullptr);
+        cache.run_storage_remove(queued.hash, queued.offset, nullptr, /*wait_for_owner=*/false);
     }
     EXPECT_EQ(cache._pending_storage_removes.size(), 0U);
 

@@ -507,11 +507,14 @@ private:
         requires IsXLock<T> && IsXLock<U>
     void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock, bool sync = true);
 
-    // Runs the pending storage removal at (hash, offset) if this thread can claim it. Called after
-    // the cache lock is released; remove() calls it under the lock only when no lock scope of this
-    // cache is open on the thread.
+    // Runs the pending storage removal at (hash, offset). Called after the cache lock is released;
+    // remove() calls it under the lock only when no lock scope of this cache is open on the thread.
+    // A synchronous removal (eviction for a reservation, remove_if_cached) passes wait_for_owner, so
+    // the file is gone when it returns even if another thread (a replacement block's downloader, or
+    // GC) claimed the removal first: it waits for that owner instead of returning while the unlink
+    // is still pending. GC passes false and skips a removal someone else is already running.
     void run_storage_remove(const UInt128Wrapper& hash, size_t offset,
-                            bvar::LatencyRecorder* latency_us) const;
+                            bvar::LatencyRecorder* latency_us, bool wait_for_owner) const;
 
     // Called by the downloader of a new block before it writes: runs or waits out any pending
     // removal of an evicted block stored at the same position.
