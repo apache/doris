@@ -83,6 +83,8 @@ suite("eliminate_empty_anti_join") {
         left anti join checked c on l.k = c.v"""
         exception "Expected EQ 1"
     }
+    // Check the CTE guard structure without cost-dependent runtime filter annotations.
+    sql "set runtime_filter_mode=OFF"
     // Join distribution is cost-driven; the CTE producer/check must remain in every implementation.
     def explainCteGuardPlan = { tag, query ->
         delegate.quickRunTest(tag, query, false, { row ->
