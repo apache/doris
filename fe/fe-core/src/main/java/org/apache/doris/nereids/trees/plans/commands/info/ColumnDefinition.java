@@ -39,9 +39,11 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
@@ -79,6 +81,8 @@ public class ColumnDefinition {
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
     // if add hidden column, must set enableAddHiddenColumn true
     private boolean enableAddHiddenColumn = false;
+    // set only for a CREATE TABLE target whose connector declares SUPPORTS_VARBINARY_COLUMN
+    private boolean allowVarbinary = false;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment) {
@@ -432,7 +436,8 @@ public class ColumnDefinition {
             throw new AnalysisException(
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
-        type.validateDataType();
+        // Nested VARBINARY is outside every container's sub-type list; validate the rest of the shape without it.
+        (allowVarbinary ? maskVarBinary(type) : type).validateDataType();
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
                 && !Config.enable_non_aggregate_table_state_types) {
@@ -830,6 +835,15 @@ public class ColumnDefinition {
 
     public void setEnableAddHiddenColumn(boolean enableAddHiddenColumn) {
         this.enableAddHiddenColumn = enableAddHiddenColumn;
+    }
+
+    public void setAllowVarbinary(boolean allowVarbinary) {
+        this.allowVarbinary = allowVarbinary;
+    }
+
+    /** {@code type} with every VARBINARY, at any depth, replaced by STRING. */
+    private static DataType maskVarBinary(DataType type) {
+        return TypeCoercionUtils.replaceSpecifiedType(type, VarBinaryType.class, StringType.INSTANCE);
     }
 
     private void validateGeneratedColumnInfo() {

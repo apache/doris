@@ -281,6 +281,18 @@ public enum ConnectorCapability {
      */
     SUPPORTS_SORT_ORDER,
     /**
+     * Indicates the connector accepts {@code VARBINARY} columns in {@code CREATE TABLE}, both top-level and
+     * nested inside {@code ARRAY}, {@code MAP} values and {@code STRUCT} fields.
+     *
+     * <p>fe-core rejects VARBINARY in CREATE TABLE for every other target, because OLAP tables cannot store
+     * it. The declaring connector owns the type mapping and must reject any VARBINARY it cannot round-trip
+     * (iceberg maps both VARBINARY and VARBINARY(n) to BINARY, since its FIXED(n) holds exactly n bytes).</p>
+     *
+     * <p><b>Scope: catalog-wide only.</b> Like {@link #SUPPORTS_SORT_ORDER} it gates the statement that CREATES
+     * the table, so there is no table to refine it against.</p>
+     */
+    SUPPORTS_VARBINARY_COLUMN,
+    /**
      * Indicates the connector supports {@code ALTER TABLE} column schema-change DDL, including
      * dotted nested paths (e.g. {@code ADD/DROP/RENAME/MODIFY COLUMN s.b}, {@code arr.element},
      * {@code m.value}) and {@code MODIFY COLUMN ... COMMENT}.

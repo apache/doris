@@ -182,12 +182,10 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         ImmutableList.Builder<ColumnDefinition> columnsOfQuery = ImmutableList.builder();
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
+            // VARBINARY is checked against the target catalog in CreateTableInfo.validate.
             DataType dataType = s.getDataType().conversion();
             if (dataType instanceof VariantType) {
                 dataType = ((VariantType) dataType).withoutPredefinedFields();
-            }
-            if (dataType.isVarBinaryType()) {
-                throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
             }
             if (i == 0 && dataType.isStringType()) {
                 // first column of olap table can not be string type.

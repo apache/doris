@@ -183,6 +183,16 @@ public class IcebergConnectorTest {
     }
 
     @Test
+    public void declaresVarbinaryColumnCapability() {
+        // WHY: fe-core admits VARBINARY in CREATE TABLE / CTAS only for a target declaring this capability.
+        // MUTATION: dropping it -> CREATE TABLE with a VARBINARY column on iceberg fails in fe-core again -> red.
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(
+                connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VARBINARY_COLUMN),
+                "iceberg must declare SUPPORTS_VARBINARY_COLUMN so CREATE TABLE can map VARBINARY to BINARY");
+    }
+
+    @Test
     public void declaresColumnAutoAnalyzeAndTopNLazyMaterializeCapabilities() {
         // WHY: legacy IcebergExternalTable is in StatisticsUtil.supportAutoAnalyze's whitelist and is forced to
         // FULL analyze, and IcebergExternalTable.class is in MaterializeProbeVisitor's lazy-top-N supported set.

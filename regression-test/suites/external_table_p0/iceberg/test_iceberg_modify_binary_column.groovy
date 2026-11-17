@@ -52,8 +52,8 @@ suite("test_iceberg_modify_binary_column", "p0,external,iceberg,external_docker,
     sql """create database ${dbName}"""
     sql """use ${dbName}"""
 
-    // Neither Doris (no Iceberg type for VARBINARY) nor Spark SQL (no FIXED type) can declare these columns, so
-    // the table is created through the REST catalog.
+    // Doris maps every VARBINARY to BINARY and Spark SQL has no FIXED type, so neither can declare the FIXED
+    // columns; the table is created through the REST catalog.
     def request = [name: tableName, schema: [type: "struct", "schema-id": 0, fields: [
             [id: 1, name: "id", required: false, type: "int"],
             [id: 2, name: "payload", required: false, type: "binary"],
