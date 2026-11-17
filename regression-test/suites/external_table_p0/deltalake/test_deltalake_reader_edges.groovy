@@ -1,0 +1,108 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
+    def config = context.config.otherConfigs
+    def catalogs = []
+    if ("true".equalsIgnoreCase(config.get("enableDeltaLakeTest"))) {
+        String catalog = "test_deltalake_reader_edges_fs"
+        String warehouse = config.get("deltalakeWarehouse")
+        String storage = ""
+        if (warehouse.startsWith("s3")) {
+            storage = """, 's3.endpoint'='http://${config.get('externalEnvIp')}:${config.get('deltalakeMinioPort')}',
+                's3.region'='us-east-1', 's3.access_key'='admin', 's3.secret_key'='password', 'use_path_style'='true'"""
+        }
+        sql "drop catalog if exists ${catalog}"
+        sql """create catalog ${catalog} properties (
+            'type'='deltalake', 'deltalake.catalog.type'='filesystem', 'warehouse'='${warehouse}'${storage})"""
+        catalogs.add(catalog)
+    }
+    if ("true".equalsIgnoreCase(config.get("enableDeltaLakeUcTest"))) {
+        String catalog = "test_deltalake_reader_edges_uc"
+        sql "drop catalog if exists ${catalog}"
+        sql """create catalog ${catalog} properties (
+            'type'='deltalake', 'deltalake.catalog.type'='uc',
+            'deltalake.uc.uri'='${config.get('deltalakeUcUri')}', 'deltalake.uc.catalog'='doris_delta')"""
+        catalogs.add(catalog)
+    }
+    if (catalogs.isEmpty()) {
+        return
+    }
+
+    sql "set time_zone='UTC'"
+    sql "set enable_sql_cache=false"
+    sql "set num_files_in_batch_mode=1"
+    for (String catalog : catalogs) {
+        String db = "${catalog}.delta_reader_edges"
+        for (boolean batch : [false, true]) {
+            sql "set enable_external_table_batch_mode=${batch}"
+            def checkCase = { String label, Closure check ->
+                String tag = "${catalog}_${batch}_${label}"
+                lazyCheck {
+                    try {
+                        check(tag)
+                    } catch (Exception e) {
+                        logger.warn("Delta reader check ${tag} failed: ${e.message}")
+                        throw e
+                    }
+                }
+            }
+            def compare = { String label, String query, String expected ->
+                checkCase(label) { tag -> quickTest(tag, expected, query) }
+            }
+
+            // ID mapping must distinguish two same-named Parquet fields with different IDs.
+            compare("matching_id", "select logical_x from ${db}.id_correct", "select 701")
+            compare("wrong_id", "select logical_x from ${db}.id_old_id", "select cast(null as bigint)")
+            compare("name_mapping", "select logical_x from ${db}.name_untagged", "select 705")
+            checkCase("missing_id") { tag ->
+                // For a file without field IDs the protocol permits NULL or refusal to read the file.
+                try {
+                    quickTest(tag, "select cast(null as bigint)",
+                            "select logical_x from ${db}.id_untagged")
+                } catch (java.sql.SQLException e) {
+                    boolean mentionsIds = (e.message =~ /(?i)(?:field|column)[ _-]?ids?/).find()
+                    boolean missing = (e.message =~ /(?i)missing|absent|without|no |not |lack|requir|doesn't/).find()
+                    if (!(mentionsIds && missing)) {
+                        throw e
+                    }
+                }
+            }
+
+            String bothIds = "select 1 as id union all select 2 order by id"
+            compare("widen_partition", "select id, p from ${db}.date_widen order by id",
+                    """select 1 as id, cast('2024-02-29 00:00:00' as datetimev2(6))
+                       union all select 2, cast('2024-03-01 12:34:56' as datetimev2(6)) order by id""")
+            compare("widen_id_only", "select id from ${db}.date_widen order by id", bothIds)
+
+            // In partitionValues, the empty string encodes a null partition for every type.
+            compare("string_values", "select id, p from ${db}.empty_string order by id",
+                    """select 1 as id, cast(null as string) union all select 2, null
+                       union all select 3, 'known' order by id""")
+            compare("string_is_null", "select id from ${db}.empty_string where p is null order by id", bothIds)
+            String dates = "select 1 as id, cast(null as date) union all select 2, date '2024-02-29' order by id"
+            compare("json_null_date", "select id, p from ${db}.date_control order by id", dates)
+            compare("empty_date", "select id, p from ${db}.empty_date order by id", dates)
+
+            // Both logs point to identical Parquet bytes and carry the same physical partition value.
+            compare("plain_name", "select id, p from ${db}.plain order by id", "select 41, 'west'")
+            compare("plain_filter", "select id from ${db}.plain where p='west' order by id", "select 41")
+            compare("comma_name", "select id, `p,q` from ${db}.comma order by id", "select 41, 'west'")
+            compare("comma_filter", "select id from ${db}.comma where `p,q`='west' order by id", "select 41")
+        }
+    }
+}

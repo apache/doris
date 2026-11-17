@@ -23,6 +23,7 @@ case "${DELTALAKE_REGENERATE_FIXTURES:-0}" in
 esac
 mc alias set delta http://minio:9000 admin password
 mc mb --ignore-existing delta/delta
+mc mirror --overwrite /reader-edges/ delta/delta/warehouse/delta_reader_edges/
 if [ -f /delta-state/GOLDEN_READY ] && [ "${DELTALAKE_REGENERATE_FIXTURES:-0}" = 0 ]; then
     echo "Reusing retained Delta golden fixtures; skipping upload"
     exit 0

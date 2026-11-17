@@ -1,0 +1,3 @@
+{"protocol": {"minReaderVersion": 2, "minWriterVersion": 5}}
+{"metaData": {"id": "c1e19e5e-f1b5-427e-91f5-6739971614df", "format": {"provider": "parquet", "options": {}}, "schemaString": "{\"type\": \"struct\", \"fields\": [{\"name\": \"logical_x\", \"type\": \"long\", \"nullable\": true, \"metadata\": {\"delta.columnMapping.id\": 7, \"delta.columnMapping.physicalName\": \"physical_x\"}}]}", "configuration": {"delta.columnMapping.mode": "id", "delta.columnMapping.maxColumnId": "7"}, "partitionColumns": [], "createdTime": 1794553426418}}
+{"add": {"path": "part.parquet", "partitionValues": {}, "size": 608, "modificationTime": 1794553426418, "dataChange": true, "stats": "{\"numRecords\": 1}"}}

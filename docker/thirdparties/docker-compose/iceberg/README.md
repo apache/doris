@@ -308,6 +308,32 @@ The fixture keeps the latest ratified commit in `_staged_commits`, holds the num
 copy and its optional CRC aside, and reads the result through a fresh Spark Delta log.
 The Doris suite checks the same rows through both scheduling modes and checks that INSERT fails.
 
+#### Reader correctness fixtures
+
+`scripts/deltalake/delta_reader_edges` contains ten small, immutable Delta tables.
+Their Parquet footers distinguish an old, missing, or matching field ID under the same
+physical name. The partition fixtures cover an empty string and JSON null, a logical
+column named `p,q`, and a Spark 4.0.1 / Delta 4.4.1 table whose partition type changed
+from DATE to TIMESTAMP_NTZ between writes. The comma and plain-name controls contain
+identical Parquet bytes. For the empty string, the expected value follows the
+[Delta partition serialization rule](https://github.com/delta-io/delta/blob/v4.4.1/PROTOCOL.md#partition-value-serialization).
+Spark 4.0.1 with Delta 4.4.1 preserves the empty STRING on this fixture and converts
+the empty DATE to null.
+
+The Delta storage initializer copies these fixtures to `warehouse/delta_reader_edges`
+in MinIO, including when it reuses the existing Spark fixtures. To expose the same
+files through local read-only UC, run this from the shared checkout with
+`UC_TEST_SERVER` set as above:
+
+```bash
+python3 docker/thirdparties/docker-compose/iceberg/scripts/deltalake/register-reader-edges.py
+```
+
+Run `bash run-regression-test.sh --run -d external_table_p0/deltalake -s test_deltalake_reader_edges`.
+The suite exercises filesystem with `enableDeltaLakeTest` and UC with `enableDeltaLakeUcTest`.
+With both enabled, it checks each result through both catalogs and scheduling modes.
+It compares queries with typed SQL constants so a reader error cannot become a golden output.
+
 For the Databricks external-table test, configure the storage owner's Azure Shared Key.
 One Doris catalog corresponds to one UC catalog, and each UC schema appears as a Doris database.
 

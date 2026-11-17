@@ -139,6 +139,7 @@ services:
         condition: service_healthy
     volumes:
       - ./cache/deltalake/golden:/golden:ro
+      - ./scripts/deltalake/delta_reader_edges:/reader-edges:ro
       - ./cache/deltalake/spark:/delta-state
       - ./scripts/deltalake/init-storage.sh:/fixtures/init-storage.sh:ro
     entrypoint: [/bin/sh, /fixtures/init-storage.sh]
