@@ -18,30 +18,11 @@
 package org.apache.doris.nereids.spm;
 
 /**
- * BaselineScope - baseline storage scope enum (design doc 6.13.1).
+ * Storage scope of a baseline. GLOBAL rows are persisted in the shared internal table. SESSION rows belong to a
+ * connection and can be copied into the execution context of a forwarded request.
  *
- * - GLOBAL: persisted baseline (Phase 2 writes it to the __internal_schema.spm_baselines
- *   internal table); survives FE restarts.
- * - SESSION: session-local baseline kept in FE memory; cleared when the session ends or
- *   the FE restarts. Used for temporary testing and validation.
- *
- * Syntax: CREATE [GLOBAL | SESSION] BASELINE PLAN 'bindSql' WITH 'planSql'.
- * GLOBAL is the default when neither keyword is given.
- *
- * The scope of an existing baseline is uniquely determined by its id (see
- * ofId(long)), because the two scopes allocate from disjoint id ranges:
- *
- *   GLOBAL: [1, SESSION_ID_BASE) - the shared BaselineManager generator
- *       allocates from 1 and the persistence-layer watermark only ever pushes it
- *       further up.
- *   SESSION: [SESSION_ID_BASE, 2^63) - each FE process allocates session
- *       ids from a counter that starts at 2^62.
- *
- * Therefore a session id can never collide with any GLOBAL id observed anywhere in the
- * cluster, while two FE processes may hand out the same numeric session ids - a session
- * baseline never leaves its FE/connection, so those values are never observed together.
- * Address resolution (SHOW / ALTER / DROP / EXPLAIN) must rely on ofId and must never
- * infer the scope from which store happens to contain the id.
+ * GLOBAL ids are allocated below SESSION_ID_BASE, and SESSION ids at or above that threshold. Session counters are
+ * local to each FE, so the same numeric SESSION id can exist in different connection stores.
  */
 public enum BaselineScope {
     /** Global baseline (persisted; the default). */
@@ -49,11 +30,7 @@ public enum BaselineScope {
     /** Session-local baseline (in-memory only). */
     SESSION("SESSION");
 
-    /**
-     * First id of the SESSION id range (2^62). "The bottom half" [0, 2^62) is reserved
-     * for the GLOBAL generator, so the two scopes can never hand out the same id; session
-     * ids stay in [2^62, 2^63) and are therefore never negative.
-     */
+    /** First SESSION id, separating the positive GLOBAL and SESSION allocation ranges. */
     public static final long SESSION_ID_BASE = 1L << 62;
 
     private final String name;
@@ -68,13 +45,8 @@ public enum BaselineScope {
     }
 
     /**
-     * Returns the scope a baseline id belongs to. This is the single authoritative
-     * judgement; callers must never infer the scope from the store that happens to
-     * contain the id (existence-based guessing routes a session-id lookup into the
-     * shared store and a global-id lookup into the connection-local store).
-     *
-     * @param id the baseline id
-     * @return SESSION when the id is in [2^62, 2^63), GLOBAL for [1, 2^62)
+     * Routes an id by the SESSION_ID_BASE threshold. Values below the threshold map to GLOBAL; this method does
+     * not validate whether an id was allocated.
      */
     public static BaselineScope ofId(long id) {
         return id >= SESSION_ID_BASE ? SESSION : GLOBAL;
@@ -83,8 +55,8 @@ public enum BaselineScope {
     /**
      * Parses from a string (case-insensitive).
      *
-     * @param name the scope name; null / unknown falls back to GLOBAL
-     * @return the matching scope
+     * Parameter name: the scope name; null / unknown falls back to GLOBAL
+     * Returns: the matching scope
      */
     public static BaselineScope fromString(String name) {
         if (name != null) {

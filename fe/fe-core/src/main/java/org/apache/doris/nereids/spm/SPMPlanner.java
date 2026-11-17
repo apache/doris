@@ -50,36 +50,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * SPMPlanner - the controller of the whole-query SPM bind and rewrite.
+ * Creates baseline metadata and attempts query replay. Creation parameterizes supported literal positions in bind
+ * and plan trees with one builder, optimizes the plan, and stores either decompiled frozen SQL or the original SQL
+ * for fallback planning.
  *
- * SPM works on the WHOLE parsed (still unbound) SELECT plan tree
- *
- * 1. Build (CREATE BASELINE PLAN / auto capture): parse bindSql, replace EVERY literal
- *    of the whole tree (filters, having, projections, aggregate group-by/output and
- *    every subquery inside an expression, recursively) with a placeholder through one
- *    shared SPMPlaceholderBuilder, and do the same for planSql so both trees share the
- *    same placeholder ids. The baseline keeps the parameterized bind tree (used for the
- *    Level 3 structural match) and the parameterized plan tree (used to produce the
- *    rewritten query).
- * 2. Rewrite (user query, called from StmtExecutor / EXPLAIN): compute the value-free
- *    full-query digest / hash, find candidate baselines (Level 1 hash + Level 2 digest),
- *    structurally compare the candidate's parameterized bind tree with the user's tree
- *    over the whole tree (Level 3, extracting the user values for every placeholder id),
- *    and on a match replay the baseline's FROZEN planSql (M3): the frozen text - the
- *    decompiled optimal plan carrying placeholder ids, join distribution hints and the
- *    pushed-down structure - is re-parsed and the extracted values are substituted by
- *    placeholder id, so the rewrite reproduces the frozen optimal structure.
- *    Baselines without a frozen placeholder text fall back to substituting the candidate's
- *    parameterized plan tree. The substituted tree (still unbound, no placeholders left)
- *    is returned and planned normally by the caller.
- *
- * A query without any query-block WHERE - e.g. one whose SELECT-list scalar subquery
- * carries its own WHERE - is handled naturally: the subquery's literals are part of the
- * whole tree and take part in parameterization, matching, value extraction and rewrite,
- * so no special case or rejection is needed.
- *
- * A failed rewrite, a timeout or a no-match returns null (the caller executes the
- * original query normally; SPM degrades transparently).
+ * Replay uses a structural hash, exact canonical digest and tree comparison to select candidates and collect
+ * replacements. It tries frozen SQL first, then the parameterized fallback tree when available. Output labels, row
+ * limits, ordering and metadata are checked before the caller plans the returned unbound tree. No usable match
+ * returns null so the caller can plan the original query.
  */
 public class SPMPlanner {
 
@@ -98,7 +76,7 @@ public class SPMPlanner {
     /**
      * Returns the id of the baseline used by the last successful rewrite.
      *
-     * @return the baseline id, or -1 when the last rewrite did not hit a baseline
+     * Returns: the baseline id, or -1 when the last rewrite did not hit a baseline
      */
     public long getUsedBaselineId() {
         return usedBaselineId;
@@ -109,28 +87,20 @@ public class SPMPlanner {
         return usedBaseline;
     }
 
-    // ==================== query rewrite (called from StmtExecutor / EXPLAIN) ====================
+    // query rewrite (called from StmtExecutor / EXPLAIN).
 
     /**
-     * Rewrites a user query (parsed, still unbound) via SPM.
-     *
-     * Runs the three-level match against every candidate baseline and, on a hit,
-     * substitutes the user's actual literal values into the candidate's parameterized
-     * plan tree and returns the resulting (unbound) plan. The caller (StmtExecutor)
-     * plans the returned tree normally, so the rewritten query goes through the regular
-     * analyze / optimize pipeline.
-     *
-     * @param userPlan the parsed (unbound) plan of the user query
-     * @param deadline rewrite deadline (epoch millis) for the spm_rewrite_timeout_ms budget
-     * @return the rewritten unbound plan, or null when no baseline matched / timed out /
-     *         the substituted plan is unusable
+     * Finds SESSION candidates before GLOBAL candidates and attempts replay using extracted marker values. Returns
+     * a usable unbound plan with caller labels, limits and SET_VAR hints, or null if no candidate can be used. The
+     * epoch-millisecond deadline is checked before matching each candidate; it is not a hard interruption of
+     * parsing, matching or substitution.
      */
     public LogicalPlan tryRewritePlan(LogicalPlan userPlan, long deadline) {
         if (System.currentTimeMillis() > deadline) {
             LOG.info("SPM tryRewritePlan: timeout before matching, degrade to the original plan");
             return null;
         }
-        // SELECT ... INTO OUTFILE writes to a destination that lives OUTSIDE the plan
+        // SELECT... INTO OUTFILE writes to a destination that lives OUTSIDE the plan
         // expressions: the generic match cannot see a different path / format and the
         // rewritten tree keeps the CAPTURED sink fields, so a replay would export to the
         // baseline's destination. SPM refuses to rewrite such statements (the original
@@ -155,10 +125,10 @@ public class SPMPlanner {
         // session's ORIGINAL settings - a SET_VAR(time_zone='+08:00') caller matching an
         // identical baseline evaluated from_unixtime(epoch_col) in its own zone and
         // changed result values. The caller's SET_VAR hints are re-attached to the
-        // replayed tree at the return sites (see SPMPlanTreeSupport#carrySetVarHints);
+        // replayed tree at the return sites (see SPMPlanTreeSupport.carrySetVarHints);
         // the hint writes a STATEMENT-scoped session variable, so its block does not
         // matter.
-        // Level 1/2 use the FULL-QUERY value-free digest (Plan.toSpmDigest() renders every
+        // Level 1/2 use the FULL-QUERY value-free digest (Plan.toSpmDigest renders every
         // literal as "?", so the digest is value-independent). The digest is computed on a
         // namespace-qualified COPY: "FROM t" is keyed as the CURRENT catalog/db's t, so a
         // baseline captured under db1 can never match the same text executed under db2
@@ -178,7 +148,7 @@ public class SPMPlanner {
             candidates.addAll(sessionStore.findCandidateBaselines(queryDigest, queryHash));
         }
         candidates.addAll(
-                BaselineManager.getInstance().findCandidateBaselines(queryDigest, queryHash));
+                BaselineManager.getInstance().findCandidateBaselines(queryDigest, queryHash, deadline));
         if (candidates.isEmpty()) {
             return null;
         }
@@ -220,9 +190,9 @@ public class SPMPlanner {
                         + " plan so view authorization is preserved");
                 return null;
             }
-            // Schema-identity guard (see BaselinePlan#schemaFingerprint): the bind key is
-            // built from the STILL-UNBOUND query, so `SELECT * FROM t WHERE k = 1` keeps
-            // the same digest and Level-3 tree after `ALTER TABLE t ADD COLUMN extra`
+            // Schema-identity guard (see BaselinePlan.schemaFingerprint): the bind key is
+            // built from the STILL-UNBOUND query, so SELECT * FROM t WHERE k = 1 keeps
+            // the same digest and Level-3 tree after ALTER TABLE t ADD COLUMN extra
             // (or a DROP + CREATE of t), while the frozen plan still emits the
             // creator-time output columns - the matched replay would silently return the
             // old column set. A baseline whose referenced-table fingerprint no longer
@@ -254,11 +224,11 @@ public class SPMPlanner {
             // even when the budget has been consumed. Previously this path re-checked the
             // deadline here and returned null on expiry, silently throwing the completed
             // match away (rewrite degraded to the original plan).
-            // M3: replay the FROZEN optimal plan. A baseline whose frozen planSql carries
+            // Replay the frozen plan SQL. A baseline whose frozen planSql carries
             // placeholder calls (decompiled from the SPM-optimized physical plan, structure
             // + join distribution hints preserved) is re-parsed and the user values are
             // substituted by placeholder id - the rewrite reproduces the frozen optimal
-            // structure exactly (SR-aligned). Baselines without a frozen placeholder text
+            // structure for normal re-planning. Baselines without frozen SQL
             // (in-memory engine, decompile-fallback planSql, legacy "?" frozen text) fall
             // back to substituting the parameterized plan tree.
             LogicalPlan rewritten = rewriteFromFrozenTree(candidate, placeholderValues);
@@ -291,9 +261,9 @@ public class SPMPlanner {
                 // the baseline's planSqlDigest) the cap contract cannot prove anything the text
                 // identity does not already prove, so the replay is kept; any other caller - a
                 // value variant, whose digest matches but whose placement could genuinely differ -
-                // still has to satisfy it (see SPMRound40SafetyTest).
+                // still has to satisfy it (see the corresponding regression test).
                 // The digest alone is VALUE-FREE (every literal is masked), so it cannot carry
-                // this exception on its own (round-91 review): a caller raising only the outer
+                // this exception on its own: a caller raising only the outer
                 // LIMIT from 1 to 3 has the SAME digest, yet its query legitimately needs the
                 // optimizer-generated input caps rebuilt - skipping the cap contract there
                 // replayed one pair where the caller returns three. The exception therefore also
@@ -357,7 +327,7 @@ public class SPMPlanner {
             LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(fallbackAligned, matchPlan);
             // The cap/order identity compared below is NAME-SPELLING sensitive (the table
             // qualifiers AND the CTE aliases are part of the key, see
-            // SPMPlanTreeSupport#collectRowLimits) and the two sides spell the same query
+            // SPMPlanTreeSupport.collectRowLimits) and the two sides spell the same query
             // differently: the caller's tree was NAMESPACE-QUALIFIED for matching, while
             // the stored parameterized tree keeps the names as written (unqualified, and
             // with the ORIGINAL CTE aliases - the decompiled frozen text of other baselines
@@ -404,11 +374,11 @@ public class SPMPlanner {
      * the captured limit / offset, in which case the plan's own placement already IS the
      * caller's contract.
      *
-     * @param replayed the replayed tree AFTER the merge (its top-level limit is the one
+     * Parameter replayed: the replayed tree AFTER the merge (its top-level limit is the one
      *                 the caller would observe)
-     * @param userPlan the caller's own tree (top-level limit source)
-     * @param bindTree the stored parameterized bind tree (captured limit values)
-     * @return whether the replay may be used for this caller
+     * Parameter userPlan: the caller's own tree (top-level limit source)
+     * Parameter bindTree: the stored parameterized bind tree (captured limit values)
+     * Returns: whether the replay may be used for this caller
      */
     private static boolean limitContractPreserved(LogicalPlan replayed, LogicalPlan userPlan,
             LogicalPlan bindTree) {
@@ -447,17 +417,17 @@ public class SPMPlanner {
             // legitimately exposes caps the RAW caller tree has no node for. Rejecting
             // those skipped the original query's own baseline: tpcds q28/q77 re-ran
             // their own query and got NO hit although caller and replay limits are
-            // identical. Three guards keep the reviewer's cases rejected:
-            //  - the top-level LIMIT must be UNCHANGED from the BIND tree's own: a
+            // identical. Three guards keep the cases rejected:
+            //  the top-level LIMIT must be UNCHANGED from the BIND tree's own: a
             //    variant that changed the limit transfers the value POSITIONALLY and
             //    the captured inner caps would truncate its different slice - unless the
             //    replay carries NO cap besides the (merged) top one, where nothing can
             //    truncate a different slice at all (tpcds q76's LIMIT 101 variant);
-            //  - every replay cap must be one the caller's own tree has, or a
+            //  every replay cap must be one the caller's own tree has, or a
             //    same-valued pushdown of the caller's own top-level cap, with the
             //    caller asking for NO order contract (an equal-valued inner cap below
             //    an ordering-dependent slice truncates a DIFFERENT slice);
-            //  - every caller cap must still survive in the replay.
+            //  every caller cap must still survive in the replay.
             boolean topUnchangedFromBind = Arrays.equals(userLimit,
                     SPMPlanTreeSupport.topLevelLimitOf(bindTree));
             if ((topUnchangedFromBind || SPMPlanTreeSupport.onlyTopCap(replayed))
@@ -482,25 +452,14 @@ public class SPMPlanner {
     }
 
     /**
-     * M3: replays a baseline from its frozen planSql text.
-     *
-     * When the baseline's planSql carries placeholder calls (the decompiled frozen
-     * optimal plan), the text is re-parsed into an unbound logical plan - preserving the
-     * frozen structure (join order / subquery nesting / pushed-down filters) and the join
-     * distribution hints ([BROADCAST] / [SHUFFLE]) - and the user values are substituted
-     * by placeholder id (SPMFrozenTreeReplacer). The caller plans the returned tree
-     * normally, so the optimizer starts from the frozen optimal structure instead of the
-     * user's raw SQL structure (aligned with SR's PlaceholderReplacer flow).
-     *
-     * @param candidate         the matched baseline
-     * @param placeholderValues placeholder id -> user value (extracted by the Level 3
-     *                          structural check on the bind tree)
-     * @return the substituted unbound plan, or null when the baseline has no frozen
-     *         placeholder text / re-parsing fails / a placeholder has no user value
+     * Parses frozen SQL under the default SQL mode and substitutes matched expressions by marker id. Persisted
+     * provenance takes precedence over legacy marker-based classification. Returns null for raw fallback rows,
+     * unavailable context, parse failures or unresolved markers. Successful SQL replay remains subject to ordinary
+     * planning; it does not force the same physical plan on every execution.
      */
     private LogicalPlan rewriteFromFrozenTree(BaselinePlan candidate,
             Map<Long, Expression> placeholderValues) {
-        // Persisted provenance first (see BaselinePlan#planFrozen): a row explicitly
+        // Persisted provenance first (see BaselinePlan.planFrozen): a row explicitly
         // marked as NOT decompiled (raw user fallback text) must never be replayed as
         // frozen SQL just because its text contains a call shaped like a placeholder -
         // a real db._spm_const_var(1) UDF would otherwise be replaced by the user's
@@ -576,11 +535,11 @@ public class SPMPlanner {
             // [SHUFFLE] join distribution) - that is what the frozen replay exists for - but
             // NOT the CREATOR's SET_VAR payload: a SET_VAR writes a STATEMENT-scoped session
             // variable, and the caller's own hints are re-attached from the CALLER's tree by
-            // carrySetVarHints at the return sites (round-76 #4). An INDEX-pinned baseline
+            // carrySetVarHints at the return sites. An INDEX-pinned baseline
             // used to replay the captured time_zone='+08:00' inside a nested scalar subquery
             // and change from_unixtime for a caller that carried no hint at all; the peel
             // reaches expression-owned subquery plans too (see
-            // SPMPlanTreeSupport#stripSelectHints).
+            // SPMPlanTreeSupport.stripSelectHints).
             LogicalPlan replayable = SPMPlanTreeSupport.stripSelectHints(rewritten);
             return replayable == null ? rewritten : replayable;
         } catch (Throwable t) {
@@ -608,15 +567,8 @@ public class SPMPlanner {
     }
 
     /**
-     * Removes EVERY root LogicalSelectHint (its SET_VAR payload) from the FALLBACK
-     * parameterized plan tree. The primary frozen-text path re-parses planSql including
-     * its hints deliberately; the in-memory fallback must not re-apply the BASELINE's
-     * captured SET_VAR on top of a user query that came with different session
-     * variables (a time_zone='+08:00' baseline would override the user's -08:00
-     * from_unixtime and return wrong values - the user's own SET_VAR was already applied
-     * during parsing). Nested query blocks (subqueries / CTE bodies) are stripped too:
-     * an inner hint survives a root-only peel and a plan-side SET_VAR inside a scalar
-     * subquery would then be applied during ordinary replay analysis.
+     * Strips captured SELECT hint wrappers from the parameterized fallback tree, including nested blocks. The
+     * caller attaches the current query SET_VAR hints to the replay result.
      */
     private static LogicalPlan stripSelectHints(LogicalPlan plan) {
         return SPMPlanTreeSupport.stripSelectHints(plan);
@@ -625,7 +577,7 @@ public class SPMPlanner {
     /**
      * Post-planning metadata revalidation of a replayed baseline (the replay-side half
      * of the frozen-metadata binding, see
-     * SPMPlanTreeSupport#schemaFingerprintForCreate): the pre-match fingerprint guard
+     * SPMPlanTreeSupport.schemaFingerprintForCreate): the pre-match fingerprint guard
      * runs BEFORE the query planner takes its metadata locks, so an ALTER TABLE
      * committing in between would let the frozen SQL be planned against a DIFFERENT
      * schema than the one it was validated against (and than the one its output slots
@@ -635,9 +587,9 @@ public class SPMPlanner {
      * surfaces as a rewrite failure; the caller's enable_spm_fallback policy decides
      * whether to re-plan the original query (enabled) or surface the error (disabled).
      *
-     * @param ctx         the replaying session
-     * @param baselineId  the baseline the rewritten tree came from (-1 = none)
-     * @param plannedPlan the replayed plan after planning
+     * Parameter ctx: the replaying session
+     * Parameter baselineId: the baseline the rewritten tree came from (-1 = none)
+     * Parameter plannedPlan: the replayed plan after planning
      */
     public static void verifyReplayMetadata(ConnectContext ctx, long baselineId,
             Plan plannedPlan) {
@@ -677,7 +629,7 @@ public class SPMPlanner {
         String current = SPMPlanTreeSupport.schemaFingerprintForReplay(
                 ctx, baseline.getParameterizedBindPlan(), plannedPlan, baseline.getPlanSql());
         // tolerance: a row persisted before the nullability section existed carries
-        // section-less entries (see SPMPlanTreeSupport#legacyEntryOf); a row written
+        // section-less entries (see SPMPlanTreeSupport.legacyEntryOf); a row written
         // since must match exactly, so a nullability change between the pre-match
         // validation and this post-plan check still fails closed
         if (!SPMPlanTreeSupport.schemaFingerprintEquivalent(stored, current)) {
@@ -689,7 +641,7 @@ public class SPMPlanner {
         }
     }
 
-    // ==================== baseline creation ====================
+    // baseline creation.
 
     /**
      * Builds a baseline from SQL texts (in-memory engine, no optimization).
@@ -700,10 +652,10 @@ public class SPMPlanner {
      * SPMPlaceholderBuilder and stores the parameterized trees together with the
      * value-free digest / hash of the bind tree.
      *
-     * @param bindSql the binding SQL (SELECT)
-     * @param planSql the plan SQL (SELECT, may contain SET_VAR hints)
-     * @return the constructed BaselinePlan (not yet stored)
-     * @throws UserException when a SQL cannot be parsed as a SELECT
+     * Parameter bindSql: the binding SQL (SELECT)
+     * Parameter planSql: the plan SQL (SELECT, may contain SET_VAR hints)
+     * Returns: the constructed BaselinePlan (not yet stored)
+     * Throws UserException: when a SQL cannot be parsed as a SELECT
      */
     private BaselinePlan buildBaselineFromSqlTexts(String bindSql, String planSql)
             throws UserException {
@@ -723,22 +675,9 @@ public class SPMPlanner {
     }
 
     /**
-     * Builds a baseline from two already parsed (unbound) plan trees.
-     *
-     * Planner-test entry (reachable only through the test-side accessor).
-     * Parameterizes both whole trees with ONE shared
-     * SPMPlaceholderBuilder so placeholder ids stay globally unique and aligned across
-     * the two trees (a literal that appears in both bind and plan trees reuses the same
-     * id), then assembles the baseline. Stores the parameterized bind tree (Level 3
-     * matching) and plan tree (rewrite source).
-     *
-     * @param bindPlan the parsed (unbound) bind plan
-     * @param planPlan the parsed (unbound) plan plan (may be the same object as
-     *                 bindPlan when bindSql == planSql)
-     * @param bindSql  the original binding SQL text (shown by SHOW)
-     * @param planSql  the frozen plan SQL text
-     * @param cost     the CBO estimated cost (0 when unknown)
-     * @return the constructed BaselinePlan (not yet stored)
+     * Test-accessible construction path for parsed bind and plan trees. Validates supported correspondence,
+     * parameterizes both trees, and assembles a raw-SQL fallback baseline without physical-plan optimization.
+     * Marker ids are shared only for matching occurrence identities.
      */
     private BaselinePlan assembleBaselineFromPlans(LogicalPlan bindPlan, LogicalPlan planPlan,
             String bindSql, String planSql, double cost) {
@@ -759,7 +698,7 @@ public class SPMPlanner {
             throw new RuntimeException(e.getMessage(), e);
         }
         // key(...) folds a named secret into a constant during optimization and the parsed
-        // form of `KEY db.key` is a bound EncryptKeyRef (not an UnboundFunction): reject on
+        // form of KEY db.key is a bound EncryptKeyRef (not an UnboundFunction): reject on
         // BOTH inputs before parameterizing / assembling anything.
         SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan, planPlan);
         Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan,
@@ -779,7 +718,7 @@ public class SPMPlanner {
 
     /**
      * The parser-relevant sql_mode bits of the CREATING session (see
-     * BaselinePlan#getCreatorSqlMode): re-parsing the stored bindSql under the default
+     * BaselinePlan.getCreatorSqlMode): re-parsing the stored bindSql under the default
      * mode can change its meaning (PIPES_AS_CONCAT: a || b is concat(a, b), not
      * a boolean Or).
      */
@@ -789,12 +728,12 @@ public class SPMPlanner {
 
     /**
      * Rejects statements whose frozen SQL would persist the CREATOR's session state: a
-     * session / user variable or current_user() / session_user() / database() /
-     * connection_id() survives parameterization, the creator-context optimization then
+     * session / user variable or current_user / session_user / database /
+     * connection_id survives parameterization, the creator-context optimization then
      * resolves it to a LITERAL, and the frozen planSql persists that value - while
      * matching still compares the original unbound bind tree, so a global baseline would
      * serve every other user the creator's identity / variables. Clock functions are the
-     * same class of value: FE constant folding evaluates now() / current_timestamp() from
+     * same class of value: FE constant folding evaluates now / current_timestamp from
      * the CREATE statement's start time (see DateTimeAcquire), so a baseline for
      * SELECT now() AS ts FROM t returned the CREATE timestamp on every later
      * matching query.
@@ -813,12 +752,12 @@ public class SPMPlanner {
                     + " the frozen SQL would persist the creator's value: "
                     + bindSql);
         }
-        // The CALL alone is not enough (round-85): the guard above walks the PARSED trees, but
+        // The CALL alone is not enough: the guard above walks the PARSED trees, but
         // an ALIAS UDF's registry-owned body only enters the plan when analysis INLINES it -
-        // `CREATE ALIAS FUNCTION f() WITH PARAMETER() AS current_user()` then had that
+        // CREATE ALIAS FUNCTION f() WITH PARAMETER() AS current_user() then had that
         // CurrentUser folded into a literal by the creator-context optimization (no
         // NeedSessionVarGuard on CurrentUser) and frozen into the planSql, while matching still
-        // compared the caller's own `f()` text: a GLOBAL baseline answered every other user with
+        // compared the caller's own f() text: a GLOBAL baseline answered every other user with
         // the creating identity. The resolved bodies are inspected TRANSITIVELY (and in the
         // same resolved scope the call will use) before anything is parameterized.
         ConnectContext currentCtx = ConnectContext.get();
@@ -835,32 +774,10 @@ public class SPMPlanner {
     }
 
     /**
-     * Builds a baseline from SQL texts with a SPM-mode optimized planSql (used by
-     * CREATE BASELINE PLAN and auto capture).
-     *
-     * 1. Parse bindSql (its value-free digest / hash become the matching key; a
-     *    single parse when bindSql == planSql).
-     * 2. Parameterize bindSql and planSql over their WHOLE plan trees with ONE shared
-     *    SPMPlaceholderBuilder (placeholder ids are globally unique and aligned between
-     *    the two trees - a literal that appears in both trees reuses the same id).
-     * 3. Optimize the PARAMETERIZED plan tree in SPM mode (SPMOptimizer, state-sensitive
-     *    rules disabled): the placeholders (SpmConstVar / SpmConstList) travel through
-     *    the optimizer and survive into the physical plan, so the decompiled frozen
-     *    planSql keeps the same placeholder ids. This is what makes the frozen planSql
-     *    replayable at rewrite time (values substituted by id), aligned with the SR
-     *    model.
-     * 4. Decompile the physical plan back to the frozen planSql text (SPMPlan2SQLBuilder,
-     *    placeholder ids preserved). When the physical plan cannot be decompiled (e.g. a
-     *    recursive CTE whose plan carries PhysicalRecursiveUnion / anchor / producer, or
-     *    any other future unsupported operator), the user-supplied planSql text is kept
-     *    as-is instead of failing the whole CREATE (Doris-specific improvement: SR fails
-     *    the CREATE in that case).
-     *
-     * @param ctx     the connect context (catalog + session variables)
-     * @param bindSql the binding SQL (SELECT)
-     * @param planSql the plan SQL (SELECT, may contain SET_VAR hints)
-     * @return the constructed BaselinePlan (not yet stored)
-     * @throws UserException when the SQLs cannot be parsed / planned
+     * Builds a GLOBAL baseline candidate from bind and plan SQL. Parses both texts in the creator mode, validates
+     * supported correspondence, parameterizes supported literals and optimizes the plan. Stores frozen SQL when
+     * decompilation and replay checks allow it; otherwise retains the original plan SQL and fallback tree. The
+     * caller stores the returned candidate.
      */
     public BaselinePlan buildBaselineFromSql(ConnectContext ctx, String bindSql, String planSql)
             throws UserException {
@@ -875,19 +792,19 @@ public class SPMPlanner {
      * Builds a baseline from SQL texts with a SPM-mode optimized planSql, with an explicit
      * storage scope for the mutable-constraint / temporary-table guards.
      *
-     * @param ctx        the connect context (catalog + session variables)
-     * @param bindSql    the binding SQL (SELECT)
-     * @param planSql    the plan SQL (SELECT, may contain SET_VAR hints)
-     * @param globalScope whether the baseline is stored in the shared GLOBAL store
-     * @return the constructed BaselinePlan (not yet stored)
-     * @throws UserException when the SQLs cannot be parsed / planned
+     * Parameter ctx: the connect context (catalog + session variables)
+     * Parameter bindSql: the binding SQL (SELECT)
+     * Parameter planSql: the plan SQL (SELECT, may contain SET_VAR hints)
+     * Parameter globalScope: whether the baseline is stored in the shared GLOBAL store
+     * Returns: the constructed BaselinePlan (not yet stored)
+     * Throws UserException: when the SQLs cannot be parsed / planned
      */
     public BaselinePlan buildBaselineFromSql(ConnectContext ctx, String bindSql, String planSql,
             boolean globalScope) throws UserException {
         // Capture the parser-relevant mode of the creating session BEFORE anything is
         // parsed (the hint application below happens during optimization and must never
         // decide what the persisted creatorSqlMode is): the parsers build expressions
-        // (including `a || b`) while this mode is in force, and the persisted value must
+        // (including a || b) while this mode is in force, and the persisted value must
         // describe exactly that parse. A statement that changes sql_mode through a
         // /*+ SET_VAR(sql_mode=...) */ hint is parsed with the AMBIENT mode; reading the
         // live session after parsing would persist the hint's mode, and after a
@@ -898,7 +815,7 @@ public class SPMPlanner {
         // Each parse runs INSIDE a window that pins the captured mode: a SET_VAR(sql_mode=...)
         // hint inside the bind text is applied to the creating session while that text is
         // processed, so the SECOND parse (the plan text, parsed separately) would otherwise
-        // read the ALREADY-SWITCHED session mode - `s1 || s2` built under OR in the bind
+        // read the ALREADY-SWITCHED session mode - s1 || s2 built under OR in the bind
         // text would then mean CONCAT in the plan text, and the frozen tree would carry an
         // operator the persisted creatorSqlMode cannot express (every later re-parse of the
         // stored bindSql under that mode would disagree with it). The window holds whatever
@@ -910,7 +827,7 @@ public class SPMPlanner {
                 ? bindPlan
                 : parseSelectIsolated(creatorMode, planSql,
                         "SPM planSql must be a SELECT statement: " + planSql);
-        // The destination of SELECT ... INTO OUTFILE lives outside the plan expressions:
+        // The destination of SELECT... INTO OUTFILE lives outside the plan expressions:
         // the match cannot compare it and the rewritten tree keeps the captured sink, so
         // replay would export to the baseline's destination. Reject instead of freezing.
         if (SPMPlanTreeSupport.containsFileSink(bindPlan)
@@ -929,7 +846,7 @@ public class SPMPlanner {
         // output column / flips the sort silently changes a matching caller's result.
         SPMPlanTreeSupport.rejectManualPlanDivergence(bindPlan, planPlan, bindSql);
         // key(...) folds a named secret into a constant during optimization, and the parsed
-        // form of `KEY db.key` is an EncryptKeyRef (NOT an UnboundFunction): reject on BOTH
+        // form of KEY db.key is an EncryptKeyRef (NOT an UnboundFunction): reject on BOTH
         // parsed inputs BEFORE optimizing / storing anything.
         SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan, planPlan);
         // Parameterize both whole trees with ONE shared builder (placeholder ids aligned
@@ -939,11 +856,9 @@ public class SPMPlanner {
         Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan,
                 parameterizeBuilder);
         LogicalPlan parameterizedPlan = trees.second;
-        // View guard: freeze no planSql from a tree that references a view. The frozen
-        // text is replayed ahead of authorization, so replaying a view's expansion would
-        // authorize the base tables instead of the view; keeping the user planSql lets
-        // the rewrite fall back to the parameterized tree, which re-resolves (and
-        // authorizes) the view during its own analysis.
+        // Keep original plan SQL when either input references a view rather than storing its base-table
+        // expansion. The rewrite entry currently skips view queries before replay so their ordinary planning
+        // retains view resolution and authorization.
         boolean referencesView = SPMPlanTreeSupport.referencesView(ctx, bindPlan)
                 || SPMPlanTreeSupport.referencesView(ctx, planPlan);
         // An inline VALUES cell / * REPLACE payload lives OUTSIDE the placeholder machinery
@@ -958,7 +873,7 @@ public class SPMPlanner {
         boolean foldedSessionSensitivePayload =
                 SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(bindPlan)
                         || SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(planPlan);
-        // An explicit `FROM t INDEX mv` pin is a SEMANTIC choice (on an aggregate-key
+        // An explicit FROM t INDEX mv pin is a SEMANTIC choice (on an aggregate-key
         // table a coarser rollup returns aggregated rows where the base table returns one
         // per record), and the decompiled text cannot carry it: the physical scan only
         // knows the SELECTED index id - which every optimizer-side rollup / MV choice sets
@@ -1019,7 +934,7 @@ public class SPMPlanner {
         // ORDER BY over columns a lower scope dropped). The builder prevents the known
         // forms at the source - the ORDER BY hoist re-exports every key it moves above
         // its scope (hoistableOrderBy / reExportedLabels; the step that made tpcds q78
-        // legal: its hoisted "ORDER BY c_14 ..." now re-exports c_4 AS c_14 through the
+        // legal: its hoisted "ORDER BY c_14..." now re-exports c_4 AS c_14 through the
         // wrapper below) - but a future shape may still slip through, and EVERY replay
         // of such a text fails as a planning error ("SPM rewritten plan failed"), which
         // is worse than the documented fallback; downgrade HERE so the baseline stays
@@ -1031,7 +946,7 @@ public class SPMPlanner {
         if (globalScope) {
             // A GLOBAL baseline must never be frozen over a temporary table: the physical
             // relation's catalog object carries the CREATOR session's internal name
-            // (<sessionId>_#TEMP#_<name>). The bind key for "FROM t" is only
+            // (<sessionId>_#TEMP._<name>). The bind key for "FROM t" is only
             // catalog.db.t, so a second session running the same text matched the same
             // digest, and the frozen SQL (emitting the internal name) resolved the
             // creator's still-live temporary table instead of the second session's t.
@@ -1039,7 +954,7 @@ public class SPMPlanner {
         }
         // Explicit provenance of the stored planSql, persisted so a reload never has to
         // GUESS whether the text is SPM's decompiled frozen rendering or the user's raw
-        // fallback (see BaselinePlan#planFrozen / #planSqlMode).
+        // fallback (see BaselinePlan.planFrozen / #planSqlMode).
         //
         // The provenance is the DECOMPILER's success over the PARAMETERIZED tree - NOT
         // the mere presence of a placeholder call: a literal-free optimized join (e.g. a
@@ -1065,13 +980,13 @@ public class SPMPlanner {
         // the plan-side identity a follower precomputes to attribute a persisted row to
         // THIS statement - two baselines may share the bind digest with different plan
         // texts (see BaselineManager.ForwardedDdlExpectation). Computed from the RAW
-        // parse input, exactly like SPMPlanner#canonicalPlanDigest over the submitted
+        // parse input, exactly like SPMPlanner.canonicalPlanDigest over the submitted
         // text.
         baseline.setPlanSqlDigest(SPMPlanTreeSupport.canonicalSpmDigest(
                 SPMPlanTreeSupport.namespaceQualified(planPlan,
                         captureCatalogName(ctx), captureDatabaseName(ctx)).toSpmDigest()));
         // Schema identity of the referenced tables, validated again before every replay
-        // (see SPMPlanTreeSupport#schemaFingerprintForCreate): the PLAN side comes from
+        // (see SPMPlanTreeSupport.schemaFingerprintForCreate): the PLAN side comes from
         // the OPTIMIZED plan's own relations - the under-lock metadata snapshot the
         // frozen output slots were built from - and the BIND side keeps the bind-tree
         // resolution; the union also covers tables only the stored plan uses. The
@@ -1087,13 +1002,8 @@ public class SPMPlanner {
     }
 
     /**
-     * Rejects statements that reference a temporary table. Only the GLOBAL create /
-     * capture path calls this: the frozen SQL (or the decompiled text) would carry the
-     * creator session's internal sessionId_#TEMP#_name, which Database.getTableNullable
-     * accepts unchanged - the replay would read the creator's temporary table from a
-     * DIFFERENT session. A SESSION-scope baseline may legitimately target the session's
-     * own temporary table: it never leaves the connection, and the decompiler refuses
-     * the internal name anyway (raw-text fallback resolves per session).
+     * Rejects a temporary relation in the optimized GLOBAL plan. SESSION baselines can use the owning session
+     * temporary table through raw SQL fallback, whose names are resolved in the executing context.
      */
     private static void rejectTemporaryRelations(SPMOptimizer.OptimizeResult optimizeResult,
             String bindSql) throws AnalysisException {
@@ -1128,13 +1038,10 @@ public class SPMPlanner {
     }
 
     /**
-     * Downgrades a decompiled frozen text that cannot be re-planned back to the user
-     * planSql (planFrozen=false), the same degradation the decompiler's own refusals
-     * use: a replay re-plans the frozen text on EVERY hit, so a text that fails
-     * analysis would surface as "SPM rewritten plan failed" for the matching caller
-     * instead of a working baseline. The validation is one nested SPM plan of the
-     * text; the nested planner applies the same SPM rule mask the capture used, so
-     * the analysis / binding that a replay hits first behaves identically.
+     * Probes decompiled SQL by substituting payloads collected from the writer plan and running nested SPM
+     * optimization. A planning or parsing failure returns the original user SQL as a fallback. If unresolved
+     * marker calls remain, the current implementation retains the frozen text without running the optimization
+     * probe.
      */
     private static DecompiledPlan validateFrozenTextReplannable(ConnectContext ctx,
             DecompiledPlan frozen, String planSql, Plan writePlan) {
@@ -1145,8 +1052,8 @@ public class SPMPlanner {
             // before re-planning: the replay substitutes the caller's values by id, so
             // re-planning the raw marker calls can only fail ("Can not found function
             // '_spm_const_var'") and the downgrade would mask every scalar-subquery
-            // baseline. List placeholders (IN lists) need the caller's whole predicate,
-            // which the capture does not keep - such a text is accepted unvalidated.
+            // baseline. List markers keep their option payloads and are supplied as
+            // SpmConstList replacements to the same probe.
             Map<Long, Expression> placeholderValues = collectPlaceholderValues(writePlan);
             SPMFrozenTreeReplacer replacer = new SPMFrozenTreeReplacer();
             LogicalPlan substituted = SPMPlanTreeSupport.transform(parsed,
@@ -1164,8 +1071,8 @@ public class SPMPlanner {
     }
 
     /**
-     * Placeholder id -> original literal, collected from the writer plan's SpmConstVar
-     * payloads (the value child every placeholder keeps for readability).
+     * Collects scalar payload expressions and list marker nodes by id from the writer plan for the CREATE-time
+     * replay probe.
      */
     private static Map<Long, Expression> collectPlaceholderValues(Plan plan) {
         Map<Long, Expression> values = new HashMap<>();
@@ -1204,16 +1111,16 @@ public class SPMPlanner {
 
     /**
      * Decompiles the optimized physical plan into the frozen planSql. The user-supplied
-     * planSql text is kept when the decompiler does not support the plan (recursive CTE,
-     * future operators, ...), when the plan references a view (the frozen text is
+     * planSql text is kept when the decompiler does not support the plan shape, when the plan references a view
+     * (the frozen text is
      * replayed ahead of authorization, and replaying a view's base-table expansion would
      * authorize those base tables instead of the view), when an inline VALUES cell /
-     * * REPLACE payload folds a session-zone dependent call the CALLER's session must
+     * REPLACE payload folds a session-zone dependent call the CALLER's session must
      * evaluate for itself (see
-     * SPMPlanTreeSupport#containsFoldedSessionSensitivePayload), or when the statement
+     * SPMPlanTreeSupport.containsFoldedSessionSensitivePayload), or when the statement
      * pins a materialized view / rollup with an explicit INDEX clause (the decompiled
      * text cannot carry the pin, and dropping it would read the base table instead of the
-     * pinned - possibly coarser - index; see SPMPlanTreeSupport#pinsExplicitIndex).
+     * pinned - possibly coarser - index; see SPMPlanTreeSupport.pinsExplicitIndex).
      */
     private static DecompiledPlan decompileFrozenPlan(boolean referencesView,
             boolean foldedSessionSensitivePayload, boolean pinsExplicitIndex,
@@ -1241,7 +1148,7 @@ public class SPMPlanner {
             return new DecompiledPlan(planSql, false);
         }
         if (parameterizedOrdinal) {
-            // `SELECT 1 AS c, count(*) ... GROUP BY 1`: the ordinal is a POSITIONAL
+            // SELECT 1 AS c, count(*)... GROUP BY 1: the ordinal is a POSITIONAL
             // reference to the (parameterized) SELECT item, and the capture optimizer
             // renders that group key as a CHILD COLUMN - the frozen replay would group by
             // k while the user's own query groups by the constant (same value-dependent
@@ -1266,18 +1173,9 @@ public class SPMPlanner {
     }
 
     /**
-     * Parameterizes both whole trees with ONE shared SPMPlaceholderBuilder so that
-     * placeholder ids are globally unique and stay aligned across the two trees (a
-     * literal that appears in both trees reuses the same id). When the caller parsed the
-     * two SQLs into the SAME plan object (bindSql == planSql), the second transform is
-     * skipped and the shared parameterized tree serves both roles.
-     *
-     * Id alignment follows (value + parent structure + child position), so a literal of
-     * the plan tree reuses the id of the identical bind-tree slot; the values extracted
-     * from the bind tree can then never be substituted into a different literal slot of
-     * the plan tree. Plan-only literals get fresh ids and are rejected by the
-     * placeholder-residue safety net at rewrite time. This keeps the CREATE-time id
-     * mapping identical to the post-restart rebuild (rebuildParameterizedTrees).
+     * Parameterizes bind and plan trees with one builder. Each tree resets traversal scopes so corresponding
+     * occurrences can reuse ids. Identical plan objects share one result. A separate plan tree whose marker ids
+     * are not supplied by the bind tree is rejected during creation.
      */
     private static Pair<LogicalPlan, LogicalPlan> parameterizeWholeTrees(
             LogicalPlan bindPlan, LogicalPlan planPlan, SPMPlaceholderBuilder builder) {
@@ -1339,15 +1237,15 @@ public class SPMPlanner {
         // relations are keyed by the CREATION catalog/db: the same text under a different
         // namespace must not match (see SPMPlanTreeSupport.namespaceQualified; CTE-alias
         // references are exempt because they bind inside the query itself).
-        // Consistency with the placeholder parameterization: toSpmDigest() renders every
+        // Consistency with the placeholder parameterization: toSpmDigest renders every
         // Expression-leaf Literal as "?" through the generic digest machinery, while
-        // SPMPlaceholderBuilder walks the same whole tree - both normalize exactly the
-        // literals SPM can parameterize. The digest is only a cheap Level 1/2
+        // SPMPlaceholderBuilder visits supported expression positions. The structural
+        // matcher checks positions that parameterization leaves concrete. The digest is only a cheap Level 1/2
         // pre-filter; Level 3 (the placeholder-tree structural match) is authoritative,
         // so even a future divergence between the two mechanisms (e.g. a node whose
         // toDigest leaks a literal value) can only cause a missed rewrite (safe), never
         // a wrong rewrite.
-        // The digest is canonicalized (see SPMPlanTreeSupport#canonicalSpmDigest): the
+        // The digest is canonicalized (see SPMPlanTreeSupport.canonicalSpmDigest): the
         // top-level LIMIT / OFFSET values are adopted from the user query at rewrite time
         // and must not split the matching key (an OFFSET query has to reach the
         // structural match that merges its offset).
@@ -1363,41 +1261,18 @@ public class SPMPlanner {
     }
 
     /**
-     * The canonical (namespace-qualified, value-free) bind digest a CREATE of bindSql
-     * persists (see assembleBaseline), computed WITHOUT the optimize / decompile halves.
-     * The follower's forwarded-CREATE confirmation uses it as the statement's stable
-     * identity (see BaselineManager.ForwardedDdlExpectation#created(String, String,
-     * String, String)): an IDEMPOTENT duplicate CREATE is answered by the master with the
-     * EXISTING row, whose query id belongs to the FIRST statement and whose raw plan /
-     * bind texts are the frozen ones - possibly with different whitespace - while the
-     * canonical digest is equal by construction. The forwarded request carries the
-     * statement's catalog / database and session variables to the master
-     * (MasterOpExecutor sets db / defaultCatalog, ProtocolAdapter the variables), so the
-     * digest computed here over the SAME text under the SAME parse mode equals the stored
-     * one.
-     *
-     * @param ctx     the forwarding statement's context (may be null in tests)
-     * @param bindSql the forwarded CREATE's bind SQL
-     * @return the digest, or "" when the text cannot be parsed / hashed here (the caller
-     *         then falls back to the raw identity checks)
+     * Computes the namespace-qualified canonical structural digest used for the bind key without optimization or
+     * decompilation. Returns an empty string when computation fails, allowing forwarded confirmation to use other
+     * available identity fields.
      */
     public static String canonicalBindDigest(ConnectContext ctx, String bindSql) {
         return canonicalSqlDigest(ctx, bindSql, "bind");
     }
 
     /**
-     * The CANONICAL DIGEST of a forwarded CREATE's SUBMITTED PLAN SQL (same computation
-     * as SPMPlanner#canonicalBindDigest, over the plan text). The two sides are separate
-     * identities: two baselines may share the bind digest while carrying different plan
-     * texts (one baseline per plan), so a confirmation that only compared the bind
-     * digest could accept the OTHER plan's row for this statement - and the persisted
-     * plan text cannot be compared directly because the master stores the DECOMPILED
-     * rendering.
-     *
-     * @param ctx     the forwarding statement's context (may be null in tests)
-     * @param planSql the forwarded CREATE's plan SQL
-     * @return the digest, or "" when the text cannot be parsed / hashed here (the caller
-     *         then confirms on the bind digest alone)
+     * Computes the canonical structural digest of submitted plan SQL, independently of its later decompiled
+     * rendering. Returns an empty string when computation fails; forwarded confirmation decides whether other
+     * available identity fields suffice.
      */
     public static String canonicalPlanDigest(ConnectContext ctx, String planSql) {
         return canonicalSqlDigest(ctx, planSql, "plan");
@@ -1405,16 +1280,16 @@ public class SPMPlanner {
 
     /**
      * The CURRENT bind-side schema fingerprint of a forwarded CREATE's bind SQL (see
-     * SPMPlanTreeSupport#schemaFingerprint): computed on the forwarding FE at forward
+     * SPMPlanTreeSupport.schemaFingerprint): computed on the forwarding FE at forward
      * time, so the confirmation of the created row can reject a matching-but-STALE one -
      * after a schema change the repeated CREATE retires the old row (identical bind /
      * plan digests) and writes the replacement under the new fingerprint, and the
      * retiring DELETE may still be invisible when the follower reads the snapshot (see
      * BaselineManager.ForwardedDdlExpectation).
      *
-     * @param ctx     the forwarding statement's context (may be null in tests)
-     * @param bindSql the forwarded CREATE's bind SQL
-     * @return the fingerprint (possibly empty, never null); "" when the text cannot be
+     * Parameter ctx: the forwarding statement's context (may be null in tests)
+     * Parameter bindSql: the forwarded CREATE's bind SQL
+     * Returns: the fingerprint (possibly empty, never null); "" when the text cannot be
      *         parsed here (the confirmation then falls back to the digest identity)
      */
     public static String canonicalSchemaFingerprint(ConnectContext ctx, String bindSql) {
@@ -1432,22 +1307,9 @@ public class SPMPlanner {
     }
 
     /**
-     * The three canonical identities of a forwarded CREATE - the bind digest, the plan
-     * digest and the bind-side schema fingerprint - computed under ONE originating parse
-     * mode (see the caller, CreateBaselinePlanCommand#afterForwardToMaster). Parsing a
-     * hinted bind SQL applies its SET_VAR(sql_mode=...) to this FE's LIVE session; the
-     * parser's own mode window restores only that parse, so computing the plan digest in a
-     * SEPARATE call afterwards parsed the remaining CREATE text under the HINTED mode -
-     * while the master parsed BOTH CREATE texts under the pre-hint one. On a duplicate
-     * CREATE the answered row carries the FIRST statement's query id and a different
-     * frozen plan text, so a mismatched plan digest made a successful master response fail
-     * follower confirmation (the reviewer's C4 finding).
-     *
-     * @param ctx     the forwarding statement's context (may be null in tests)
-     * @param bindSql the forwarded CREATE's bind SQL
-     * @param planSql the forwarded CREATE's plan SQL
-     * @return {bind digest, plan digest, schema fingerprint}, each "" when its text cannot
-     *         be parsed here (the confirmation then falls back to the raw identity checks)
+     * Computes bind digest, submitted plan digest and bind-side schema fingerprint under one originating parse
+     * mode. Each failed identity computation returns an empty string. This keeps a SQL-mode hint in one input from
+     * changing how the next input is parsed.
      */
     public static String[] canonicalForwardedCreateIdentities(ConnectContext ctx,
             String bindSql, String planSql) {
@@ -1463,14 +1325,14 @@ public class SPMPlanner {
      * plan-rewritable query (a command / DDL, unparsable text, or a statement batch).
      *
      * The forwarding FE uses the key to carry only the SESSION baselines the forwarded
-     * statement could actually match (see SPMForwardedSession#serializeForStatement):
+     * statement could actually match (see SPMForwardedSession.serializeForStatement):
      * the master REBUILDS every carried row before it even classifies the statement
      * (each bind and plan text is re-parsed), so the unfiltered payload let a large
      * session store add that many parses to EVERY forwarded statement - outside
      * spm_rewrite_timeout_ms, which only bounds the planner side.
      *
      * An EXPLAIN of a query gets a key too: the rewrite classifies the very plan the
-     * ExplainCommand wraps (ExplainCommand#run hands getLogicalPlan() to
+     * ExplainCommand wraps (ExplainCommand.run hands getLogicalPlan to
      * tryRewritePlan), so leaving the command unwrapped made every EXPLAIN carry the
      * WHOLE session store while the query itself carried one row - the very cost this
      * key exists to remove. EXPLAIN ANALYZE / an EXPLAIN of a command stay null: no
@@ -1483,14 +1345,14 @@ public class SPMPlanner {
      *
      * The parse mode is the one the statement's TEXT was written for: the mode captured
      * before its own SET_VAR(sql_mode=...) hint overwrote the session's (see
-     * StatementContext#getSpmOriginSqlMode). Reading the session mode instead computed
+     * StatementContext.getSpmOriginSqlMode). Reading the session mode instead computed
      * the key under a mode the statement's text was never parsed with - a query whose
      * hint turned PIPES_AS_CONCAT on produced a different digest here than the rewrite
      * had matched, so the forwarded statement carried the wrong (or no) session rows.
      *
-     * @param ctx the forwarding statement's context (may be null in tests)
-     * @param sql the statement text
-     * @return the digest plus its structural hash, or null when no baseline can apply
+     * Parameter ctx: the forwarding statement's context (may be null in tests)
+     * Parameter sql: the statement text
+     * Returns: the digest plus its structural hash, or null when no baseline can apply
      */
     public static Pair<String, Long> queryMatchKey(ConnectContext ctx, String sql) {
         try {
@@ -1510,12 +1372,12 @@ public class SPMPlanner {
     /**
      * The parser mode the statement's TEXT is parsed under: the value captured before the
      * statement's own SET_VAR(sql_mode=...) hint wrote the session's (see
-     * StatementContext#recordSpmOriginSqlMode), or the session's current mode - which such
+     * StatementContext.recordSpmOriginSqlMode), or the session's current mode - which such
      * a hint never changed - when no hint was captured / there is no context (tests, the
      * CREATE-time paths).
      *
-     * @param ctx the statement's context, may be null
-     * @return the mode the statement text must be (re)parsed with
+     * Parameter ctx: the statement's context, may be null
+     * Returns: the mode the statement text must be (re)parsed with
      */
     public static long originSqlMode(ConnectContext ctx) {
         if (ctx == null) {
@@ -1553,9 +1415,9 @@ public class SPMPlanner {
 
     /**
      * Parses one statement text into the plan the REWRITE would classify: a plain SELECT,
-     * or the QUERY an EXPLAIN wraps (the very plan ExplainCommand#run hands to
+     * or the QUERY an EXPLAIN wraps (the very plan ExplainCommand.run hands to
      * tryRewritePlan). A DDL command, an EXPLAIN of a command (EXPLAIN ANALYZE /
-     * EXPLAIN INSERT ...) and a statement batch are rejected exactly like before.
+     * EXPLAIN INSERT...) and a statement batch are rejected exactly like before.
      */
     private static LogicalPlan parseQueryOrExplainedQuery(String sql, String errorMessage)
             throws UserException {
@@ -1617,21 +1479,10 @@ public class SPMPlanner {
     }
 
     /**
-     * Rebuilds the transient parameterized trees of a persisted baseline after an FE
-     * restart / during the periodic refresh (the trees are not stored in the internal
-     * table). Both texts are parsed and parameterized with ONE shared builder in the SAME
-     * order the CREATE path uses (bind first, then plan), so the placeholder ids of the
-     * two trees stay aligned even when bindSql and planSql differ - a value extracted from
-     * the bind tree can never be substituted into an id that belongs to a different
-     * literal of the plan text. Parsing plus whole-tree parameterization is pure AST work
-     * and needs no catalog / session, so it can run during the startup load.
-     *
-     * @param bindSql the stored bindSql (a parse failure skips the row)
-     * @param planSql the stored planSql, or null when the baseline replays a frozen
-     *                (placeholder-carrying) text and needs no plan tree
-     * @return (parameterized bind tree, parameterized plan tree); first is null when the
-     *         bindSql cannot be parsed, second is null when planSql is null / cannot be
-     *         parsed (the caller keeps the row either way)
+     * Rebuilds stored trees using the creator mode for bind SQL and the default mode for plan SQL. The overload
+     * with explicit plan mode handles user-authored fallback SQL. A failed bind parse returns two null trees. A
+     * null plan SQL or identical SQL text returns the bind tree in both positions; a separate failed plan rebuild
+     * returns a null second tree.
      */
     public static Pair<LogicalPlan, LogicalPlan> rebuildParameterizedTrees(
             String bindSql, String planSql, long creatorSqlMode) {
@@ -1639,23 +1490,10 @@ public class SPMPlanner {
     }
 
     /**
-     * Rebuilds the transient parameterized trees with an explicit mode for the plan text
-     * (see BaselinePlan#getPlanSqlMode()): the planSql is SPM's decompiled
-     * rendering when the freeze succeeded (MODE_DEFAULT) or the user's raw fallback text
-     * (the CREATOR's mode) when the physical plan could not be decompiled - re-parsing
-     * that fallback under the default mode would turn a PIPES_AS_CONCAT clause into a
-     * boolean Or, so the bind tree still matches while the replayed plan computes
-     * different projection semantics.
-     *
-     * @param bindSql        the stored bindSql (a parse failure skips the row)
-     * @param planSql        the stored planSql, or null when the baseline replays a
-     *                       frozen (placeholder-carrying) text and needs no plan tree
-     * @param creatorSqlMode the parser mode of the creating session (bind text)
-     * @param planSqlMode    the parser mode of the stored planSql (fallback text);
-     *                       MODE_DEFAULT / 0 when unknown
-     * @return (parameterized bind tree, parameterized plan tree); first is null when the
-     *         bindSql cannot be parsed, second is null when planSql is null / cannot be
-     *         parsed (the caller keeps the row either way)
+     * Rebuilds transient trees with explicit parser modes and one shared marker builder. Bind SQL is rebuilt
+     * first. Null plan SQL or text identical to bind SQL reuses that tree; otherwise the plan text is parsed and
+     * parameterized with reset traversal scopes. Bind parse failure returns two nulls; a separate plan rebuild
+     * failure retains the bind tree and returns null for the plan tree.
      */
     public static Pair<LogicalPlan, LogicalPlan> rebuildParameterizedTrees(
             String bindSql, String planSql, long creatorSqlMode, long planSqlMode) {
@@ -1716,10 +1554,10 @@ public class SPMPlanner {
      * checks the tree for REAL placeholder calls: a raw substring test would misclassify
      * an ordinary fallback text whose literal / identifier merely contains one of the
      * names - the replay would return the CAPTURED literals and the reload would discard
-     * the parameterized fallback tree (see the caller in BaselineManager#parsePersistedRow).
+     * the parameterized fallback tree (see the caller in BaselineManager.parsePersistedRow).
      *
-     * @param planSql the stored planSql
-     * @return true when the text re-parses into a tree carrying placeholder calls
+     * Parameter planSql: the stored planSql
+     * Returns: true when the text re-parses into a tree carrying placeholder calls
      */
     public static boolean isFrozenPlanSql(String planSql) {
         return isFrozenPlanSql(planSql, null);
@@ -1728,15 +1566,15 @@ public class SPMPlanner {
     /**
      * Whether a STORED planSql is a FROZEN (placeholder-carrying) text, honouring the
      * PERSISTED provenance when the row carries it (see
-     * BaselinePlan#getPlanFrozen()): an explicit flag removes every
+     * BaselinePlan.getPlanFrozen): an explicit flag removes every
      * classification guess, so a raw-fallback text that merely CONTAINS a placeholder
      * name (e.g. a real db._spm_const_var(1) UDF call) keeps its parameterized
      * fallback tree instead of being replayed as frozen SQL. Pre-column rows fall back
      * to the parse-based classifier.
      *
-     * @param planSql          the stored planSql
-     * @param persistedFrozen  the persisted provenance, or null when absent
-     * @return true when the text is the SPM decompiled placeholder rendering
+     * Parameter planSql: the stored planSql
+     * Parameter persistedFrozen: the persisted provenance, or null when absent
+     * Returns: true when the text is the SPM decompiled placeholder rendering
      */
     public static boolean isFrozenPlanSql(String planSql, Boolean persistedFrozen) {
         if (persistedFrozen != null) {
@@ -1757,11 +1595,8 @@ public class SPMPlanner {
     }
 
     /**
-     * Parses a STORED SQL text (frozen planSql, persisted bindSql / planSql). SPM renders
-     * its own semantic string literals for the DEFAULT sql_mode (backslash escapes
-     * active), so a stored text must be read with that mode: under NO_BACKSLASH_ESCAPES the
-     * doubled backslashes would decode to a different value. The mode is PINNED instead of
-     * inherited - the text is SPM's, not the user's (user SQL is parsed unchanged).
+     * Parses stored SQL under the default parser mode. Used for decompiled SQL and legacy classification;
+     * user-authored texts can use the explicit-mode overload.
      */
     private static LogicalPlan parseStoredSelect(String sql) {
         return parseStoredSelect(sql, SqlModeHelper.MODE_DEFAULT);
@@ -1771,7 +1606,7 @@ public class SPMPlanner {
      * Parses a STORED SQL text with an explicit parser mode (see
      * parseStoredSelect(String)): SPM-authored texts are pinned to
      * MODE_DEFAULT, a user-authored bindSql keeps the mode it was created with. The parse
-     * is ISOLATED from the live session (see SPMPlanTreeSupport#parseStoredSqlIsolated):
+     * is ISOLATED from the live session (see SPMPlanTreeSupport.parseStoredSqlIsolated):
      * a stored SET_VAR payload must never be applied to the CALLER's session by the parse
      * itself - the new by-hash cache-miss reader reconstructs these texts on the query
      * thread after its internal query restored the caller's ConnectContext.

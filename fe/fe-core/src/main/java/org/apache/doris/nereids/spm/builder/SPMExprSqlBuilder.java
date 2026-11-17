@@ -91,39 +91,25 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Expression printer of the decompiler.
+ * Renders supported expressions using the ExprId reference mapping of a SQLRelation. Marker payloads are omitted
+ * in favor of id-only calls. Composite expressions recurse through the visitor; a generic toSql fallback rejects
+ * registered slots that require remapping.
  *
- * When SPMPlan2SQLBuilder decompiles a physical plan into SQL, it must print the
- * expressions in the plan (SlotReference, predicates, function calls, etc.) as SQL text.
- * This class extends ExpressionVisitor, walks the expression tree recursively, and
- * replaces each SlotReference with the normalized reference name registered in
- * SQLRelation.getColumnNames() (e.g. c_5), so planSql column references never leak
- * internal ExprIds and never become ambiguous across subqueries.
- *
- * Design principles (design doc 6.2):
- *
- * - Explicitly print the common expression types (arithmetic, comparison, logic,
- *   functions, IN, BETWEEN, CASE WHEN, ...) recursively so the column mapping reaches
- *   the leaf SlotReferences.
- * - For types not explicitly covered, fall back to expr.toSql() (no column mapping;
- *   a known simplification that later milestones can complete).
- *
- * Note: in Doris the negative forms such as IS NOT NULL, NOT IN and NOT BETWEEN are
- * represented as Not(...) wrappers (not as boolean flags on the node), so each visit
- * method only outputs the positive form and visitNot handles negation uniformly.
+ * Subquery expressions have only a compact diagnostic digest rendering here, not executable subquery SQL. The
+ * physical-plan decompiler rejects residual subquery expressions before invoking this printer.
  */
 public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     /**
-     * The INTERNAL pseudo function names {@link #visitSubqueryExpr} emits for a subquery: the
+     * The INTERNAL pseudo function names visitSubqueryExpr emits for a subquery: the
      * structural DIGEST form, never SQL.
      *
-     * <p>They are reserved by SPM. A frozen SQL must never be readable as - or shadowed by - a user
-     * function of one of these names: {@code INSUBQUERY(x)[...]} is an ordinary unreserved call, so
+     * They are reserved by SPM. A frozen SQL must never be readable as - or shadowed by - a user
+     * function of one of these names: INSUBQUERY(x)[...] is an ordinary unreserved call, so
      * a compatible user alias UDF made a frozen text validate and every replay evaluated that UDF
-     * (and its array access) instead of the original {@code IN (SELECT ...)}. Subqueries are
+     * (and its array access) instead of the original IN (SELECT...). Subqueries are
      * therefore refused before decompilation and a plan calling a function of these names is not
-     * freezable either (see SPMPlan2SQLBuilder#rejectSubqueryExpressions /
+     * freezable either (see SPMPlan2SQLBuilder.rejectSubqueryExpressions /
      * #rejectReservedInternalFunctionNames).
      */
     public static final java.util.Set<String> INTERNAL_PSEUDO_FUNCTION_NAMES =
@@ -132,9 +118,9 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     /**
      * Prints a single expression.
      *
-     * @param expr     the expression to print
-     * @param relation the SQLRelation carrying the columnNames mapping
-     * @return the SQL text
+     * Parameter expr: the expression to print
+     * Parameter relation: the SQLRelation carrying the columnNames mapping
+     * Returns: the SQL text
      */
     public String print(Expression expr, SQLRelation relation) {
         return expr.accept(this, relation);
@@ -143,10 +129,10 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     /**
      * Renders one function's argument list.
      *
-     * @param aggregate whether the arguments belong to an AGGREGATE call
-     * @param arguments the arguments to render
-     * @param context   the relation of the enclosing scope
-     * @return the comma separated argument text
+     * Parameter aggregate: whether the arguments belong to an AGGREGATE call
+     * Parameter arguments: the arguments to render
+     * Parameter context: the relation of the enclosing scope
+     * Returns: the comma separated argument text
      */
     private String renderArguments(boolean aggregate, List<Expression> arguments,
             SQLRelation context) {
@@ -156,22 +142,9 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     }
 
     /**
-     * Renders ONE aggregate argument, preserving the LOWERING's accumulator widening only
-     * when THIS argument IS that widening cast.
-     *
-     * The accumulator guarantee belongs to the argument's ROOT: the AVG lowering writes
-     * {@code sum(CAST((k + 1) AS LARGEINT))}, and the root cast IS the LARGEINT accumulator
-     * AVG computes in. A cast nested DEEPER inside the same argument
-     * ({@code sum(CAST(k AS LARGEINT) + ph)}) is an ordinary operand coercion of that
-     * arithmetic: keeping it pins the CAPTURED operand type, so substituting a fractional
-     * literal re-analyzes against a LARGEINT operand, derives DECIMAL(38,0) and truncates the
-     * value (k = 1 with {@code + 0.25} yielded 1 instead of 1.25 - round-76 #6). The frame-wide
-     * depth test that kept both shapes is exactly what this root test replaces.
-     *
-     * @param argument  one argument of the call
-     * @param context   the relation of the enclosing scope
-     * @param aggregate whether the argument belongs to an AGGREGATE call
-     * @return the rendered argument
+     * Renders one function argument. At an aggregate argument root, preserves a recognized LARGEINT accumulator
+     * widening; other casts follow visitCast. This root-only rule avoids retaining ordinary nested coercions that
+     * would pin a captured operand type.
      */
     private String renderArgument(Expression argument, SQLRelation context, boolean aggregate) {
         if (aggregate && argument instanceof Cast && preservesLoweredAccumulator((Cast) argument)) {
@@ -187,9 +160,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         // SPM placeholder: render as the id-only function call "_spm_const_var(id)" /
         // "_spm_const_list(id)" (the value does not participate in the digest / planSql
         // serialization). The id-only form keeps the digest value-independent AND makes
-        // the frozen planSql re-parseable at rewrite time (aligned with SR: the frozen
-        // text carries the placeholder id, the actual values are substituted by id when
-        // the baseline is replayed).
+        // the frozen planSql parseable at replay: the text carries the id and the
+        // replay substitutes the matched expression under that id.
         if (expr instanceof org.apache.doris.nereids.spm.placeholder.SpmConstVar) {
             org.apache.doris.nereids.spm.placeholder.SpmConstVar ph =
                     (org.apache.doris.nereids.spm.placeholder.SpmConstVar) expr;
@@ -203,8 +175,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // "IN (1, 2, 3)" matches a user "IN (10, 20)" regardless of list length.
             return "_spm_const_list(" + list.getId() + ")";
         }
-        // Default fallback: use toSql() of the expression itself (no column mapping).
-        // toSql() bypasses the ExprId -> column mapping, so a composite shape whose
+        // Default fallback: use toSql of the expression itself (no column mapping).
+        // toSql bypasses the ExprId -> column mapping, so a composite shape whose
         // children need remapping (e.g. ~left.a above a join that renamed the colliding
         // a to c_N / qualified it) would freeze a stale, unresolvable column and - with
         // the default enable_spm_fallback = false - fail the rewritten query. Reject
@@ -215,25 +187,25 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     }
 
     /**
-     * Safety net of the generic toSql() fallback: rejects the expression when any slot
-     * below it is registered under a reference that toSql() would NOT reproduce (the
-     * collision-renaming / quoting / qualification case), because toSql() would then emit
+     * Safety net of the generic toSql fallback: rejects the expression when any slot
+     * below it is registered under a reference that toSql would NOT reproduce (the
+     * collision-renaming / quoting / qualification case), because toSql would then emit
      * a stale or differently-shaped name. Only a byte-identical registered reference is
      * renderable through the fallback. Public for tests.
      *
-     * @param expr    the expression about to fall back to toSql()
-     * @param context the relation carrying the ExprId -> column-reference mapping
-     * @throws UnsupportedOperationException when a child slot needs remapping
+     * Parameter expr: the expression about to fall back to toSql
+     * Parameter context: the relation carrying the ExprId -> column-reference mapping
+     * Throws UnsupportedOperationException: when a child slot needs remapping
      */
     public static void ensureNoRemappedSlots(Expression expr, SQLRelation context) {
         if (expr instanceof SlotReference) {
             SlotReference slot = (SlotReference) expr;
             String mapped = context.getColumnNames().get(slot.getExprId());
-            // toSql() prints the BARE slot name, so a registered reference is only safe
+            // toSql prints the BARE slot name, so a registered reference is only safe
             // when it is byte-identical to that rendering. A special-character column
-            // maps to a QUOTED reference (`a-b`) and a disambiguated one to a QUALIFIED
+            // maps to a QUOTED reference (a-b) and a disambiguated one to a QUALIFIED
             // reference (l.x): both still "name" the column, but freezing their unquoted /
-            // unqualified toSql() text produces SQL that no longer resolves after reload
+            // unqualified toSql text produces SQL that no longer resolves after reload
             // ("a-b MATCH 'foo'" parses as a subtraction; a bare x may be ambiguous).
             // Reject the generic fallback for those shapes - CREATE keeps the user planSql
             // and the rewrite degrades to the parameterized-tree path.
@@ -248,7 +220,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         }
     }
 
-    // ==================== column references ====================
+    // column references.
 
     @Override
     public String visitSlotReference(SlotReference slotReference, SQLRelation context) {
@@ -279,7 +251,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         return slotReference.toSql();
     }
 
-    // ==================== binary operations (arithmetic / comparison / logic) ====================
+    // binary operations (arithmetic / comparison / logic).
 
     @Override
     public String visitComparisonPredicate(ComparisonPredicate comparisonPredicate, SQLRelation context) {
@@ -296,7 +268,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     }
 
     /**
-     * BitNot (~x): the generic fallback would print the expression through toSql() and
+     * BitNot (~x): the generic fallback would print the expression through toSql and
      * bypass the column mapping; above a join whose colliding column was renamed, that
      * freezes the stale slot text. Render the child recursively instead so the mapped
      * column reference stays mapped.
@@ -344,7 +316,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         return isFalse.child().accept(this, context) + " IS FALSE";
     }
 
-    // ==================== predicates ====================
+    // predicates.
 
     @Override
     public String visitInPredicate(InPredicate inPredicate, SQLRelation context) {
@@ -355,7 +327,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         // A literal-only IN option list may be stored in a set-backed collection whose
         // iteration order is NOT stable across runs / FE restarts (observed: TPCDS q75's
         // "d_year IN (2001, 2002)" decompiled as (2001, 2002) one run and (2002, 2001)
-        // the next, flipping the frozen planSql and failing the .out comparison). IN
+        // the next, flipping the frozen planSql and failing the.out comparison). IN
         // semantics are order-independent, so a literal-only list is emitted in sorted
         // order to keep the decompiled planSql deterministic.
         boolean allLiterals = inPredicate.getOptions().stream()
@@ -389,7 +361,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         return rendered;
     }
 
-    // ==================== function calls ====================
+    // function calls.
 
     @Override
     public String visitBoundFunction(BoundFunction boundFunction, SQLRelation context) {
@@ -413,22 +385,9 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     }
 
     /**
-     * Name of a bound function call for the frozen SQL. A user-defined function keeps its
-     * database qualifier (Java / Python UDF, UDAF and UDTF nodes retain dbName): a frozen
-     * db1.f(k) must not resolve to db2.f(k) when the replayed SQL runs under another
-     * default database. A GLOBAL UDF has no qualifier, and its registered name is not
-     * necessarily a plain identifier (my-fn): emitting it bare produced frozen text the
-     * parser reads as a subtraction, and a persisted frozen row has no parameterized-tree
-     * fallback - the baseline could never replay.
-     *
-     * A user function NAMED like the SPM placeholder marker is refused here
-     * #15): its rendered call would be indistinguishable from a genuine
-     * _spm_const_var(id) / _spm_const_list(id) marker, so the replay could either
-     * substitute the real call with a user literal or reject the frozen baseline as an
-     * unresolved marker. Refusing the decompile keeps the ORIGINAL planSql (provenance
-     * planFrozen=false) as the baseline's replayable fallback.
-     *
-     * Package-visible for tests.
+     * Renders a function name, quoting and qualifying UDF names by their recorded database. UDF names that collide
+     * with scalar or list markers are rejected so the caller can retain raw plan SQL. Builtins use their function
+     * name directly.
      */
     public static String functionName(Function function) {
         if (function instanceof Udf) {
@@ -442,8 +401,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             String dbName = ((Udf) function).getDbName();
             if (dbName != null && !dbName.isEmpty()) {
                 // Quote each component: a legal database name like my-db is NOT a
-                // parser identifier, and `my-db`.f(k) is what re-parses after a reload
-                // - the unquoted my-db.f(k) made the persisted frozen SQL unparseable.
+                // parser identifier. Quoting the database component preserves the call
+                // when the stored SQL is parsed again.
                 return SPMPlan2SQLBuilder.quoteIdentifier(dbName) + "."
                         + SPMPlan2SQLBuilder.quoteIdentifier(name);
             }
@@ -458,7 +417,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         // UnboundFunction (a raw parsed function call, e.g. substr(ca_zip, 1, 5) in a
         // WHERE clause before analysis). Render the children recursively so placeholder
         // values inside the arguments stay normalized (_spm_const_var(id)); the
-        // default toSql() fallback would render them with their embedded values and make
+        // default toSql fallback would render them with their embedded values and make
         // the digest value-dependent.
         String args = unboundFunction.children().stream()
                 .map(a -> a.accept(this, context))
@@ -494,7 +453,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     public String visitWindow(WindowExpression windowExpression, SQLRelation context) {
         // Hand-render the OVER clause so every slot reference (partition keys, order
         // keys, function arguments) goes through the column mapping - Doris's own
-        // toSql() prints raw slot names such as "GROUPING_PREFIX_s_county" or a local
+        // toSql prints raw slot names such as "GROUPING_PREFIX_s_county" or a local
         // buffer name that is not referenceable in the decompiled SQL.
         Expression fn = windowExpression.getFunction();
         String fnSql;
@@ -531,13 +490,13 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
                     .collect(Collectors.joining(", ")));
         }
         // an explicit frame is only valid together with an ORDER BY clause; without one
-        // the SQL default frame (RANGE UNBOUNDED PRECEDING .. CURRENT ROW) is identical.
+        // the SQL default frame (RANGE UNBOUNDED PRECEDING.. CURRENT ROW) is identical.
         //
-        // LAG() / LEAD() are the exception: their SQL text must NOT carry a frame
-        // (WindowFunctionChecker#visitLag / #visitLead REJECT an explicit one and then
+        // LAG / LEAD are the exception: their SQL text must NOT carry a frame
+        // (WindowFunctionChecker.visitLag / #visitLead REJECT an explicit one and then
         // install an INTERNAL rows frame on the window expression), so every captured
         // plan carries a frame that the user never wrote. Emitting it froze SQL whose
-        // own re-analysis throws "WindowFrame for LAG() must be null" - the baseline
+        // own re-analysis throws "WindowFrame for LAG must be null" - the baseline
         // could never be replayed. The user-level absence of a frame is the faithful
         // rendering.
         if (!isFrameForbiddenWindowFunction(fn)
@@ -560,7 +519,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         return "lag".equalsIgnoreCase(name) || "lead".equalsIgnoreCase(name);
     }
 
-    // ==================== other common types ====================
+    // other common types.
 
     /**
      * Renders a GROUP_CONCAT / MULTI_DISTINCT_GROUP_CONCAT into the dedicated
@@ -571,19 +530,19 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * checkLegalityBeforeTypeCoercion), with an optional trailing ORDER BY. That covers
      * every SQL-reachable shape:
      *
-     * - GROUP_CONCAT(DISTINCT v ORDER BY k): the physical plan carries the execution
+     * GROUP_CONCAT(DISTINCT v ORDER BY k): the physical plan carries the execution
      *   shape MultiDistinctGroupConcat(v, ORDER BY k) (GroupConcat.mustUseMultiDistinctAgg
      *   converts it). The DISTINCT form re-analyzes to exactly that node, so it is
      *   rendered - previously it returned null and forced the whole decompile to fall
      *   back to the user-supplied plan text;
-     * - MULTI_DISTINCT_GROUP_CONCAT(v[, sep]): the function NAME carries the dedup
-     *   contract while its isDistinct() flag is false, so the DISTINCT keyword must be
+     * MULTI_DISTINCT_GROUP_CONCAT(v[, sep]): the function NAME carries the dedup
+     *   contract while its isDistinct flag is false, so the DISTINCT keyword must be
      *   re-emitted - GROUP_CONCAT(v) would keep the duplicates ("1,1,2" instead of
      *   "1,2").
      *
-     * @param fn      the aggregate function (GroupConcat or MultiDistinctGroupConcat)
-     * @param context the relation carrying the column mapping
-     * @return the SQL text, or null when the shape has no faithful rendering
+     * Parameter fn: the aggregate function (GroupConcat or MultiDistinctGroupConcat)
+     * Parameter context: the relation carrying the column mapping
+     * Returns: the SQL text, or null when the shape has no faithful rendering
      */
     public String renderGroupConcat(AggregateFunction fn, SQLRelation context) {
         List<Expression> children = fn.children();
@@ -605,8 +564,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         if (values.isEmpty() || (values.size() > 1 && !separatorArgument)) {
             return null;
         }
-        // MultiDistinctGroupConcat is the execution shape of GROUP_CONCAT(DISTINCT ...):
-        // its constructor keeps isDistinct() = false, but the dedup contract must survive
+        // MultiDistinctGroupConcat is the execution shape of GROUP_CONCAT(DISTINCT...):
+        // its constructor keeps isDistinct = false, but the dedup contract must survive
         // the freeze
         boolean distinct = fn.isDistinct() || fn instanceof MultiDistinctGroupConcat;
         StringBuilder sb = new StringBuilder("GROUP_CONCAT(");
@@ -637,7 +596,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     public String visitCast(Cast cast, SQLRelation context) {
         if (!cast.isExplicitType() && !preservesTypeConstructorFallback(cast)) {
             // analyzer / optimizer inserted coercion CAST (type alignment, DECIMAL scale
-            // adjustment for division, placeholder typing, ...) - an execution
+            // adjustment for division, placeholder typing,...) - an execution
             // detail that would otherwise pin the result type/scale in the frozen planSql.
             // Strip it so the replayed SQL analyzes the user-level expression and derives the
             // same types/coercions as the original query (e.g. DECIMAL division keeps its full
@@ -654,25 +613,25 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * Whether an ANALYZER-inserted cast is part of the frozen plan's SEMANTICS rather than an
      * execution detail that may be stripped.
      *
-     * The AVG lowering (AVG_DISTINCT_TO_SUM_DIV_COUNT) rewrites `avg(DISTINCT k)` into
-     * `sum(DISTINCT CAST(k AS LARGEINT)) / count(...)`, and that widening IS the LARGEINT
+     * The AVG lowering (AVG_DISTINCT_TO_SUM_DIV_COUNT) rewrites avg(DISTINCT k) into
+     * sum(DISTINCT CAST(k AS LARGEINT)) / count(...), and that widening IS the LARGEINT
      * accumulator AVG computes in. Stripping it made the frozen SQL re-analyze
-     * `SUM(DISTINCT k)` with a BIGINT accumulator, so two distinct values 5e18 and 6e18 - which
+     * SUM(DISTINCT k) with a BIGINT accumulator, so two distinct values 5e18 and 6e18 - which
      * the original AVG averages to 5.5e18 - overflowed the frozen replay's sum, even for the
      * identical SQL (the CREATE probe only RE-PLANS the text, it never executes it).
      *
      * The accumulator guarantee only exists at the ROOT of an aggregate's argument
      * (see renderArgument): an operand of ordinary arithmetic
-     * (`k + 9223372036854775808`) carries the same shape, but there it is plain type
+     * (k + 9223372036854775808) carries the same shape, but there it is plain type
      * coercion - keeping it pins the CAPTURED operand type and makes a literal of another type
-     * replay under the wrong coercion (the `+ 0.25` variant truncated to an integer).
+     * replay under the wrong coercion (the + 0.25 variant truncated to an integer).
      *
      * Only an integral WIDENING over a REAL value qualifies: a cast over a substituted
      * placeholder / literal is exactly the type pinning the stripping exists to avoid, and a
      * narrowing or same-width cast carries no accumulator guarantee.
      *
-     * @param cast the analyzer-inserted cast
-     * @return true when the cast must survive into the frozen SQL
+     * Parameter cast: the analyzer-inserted cast
+     * Returns: true when the cast must survive into the frozen SQL
      */
     private boolean preservesLoweredAccumulator(Cast cast) {
         Expression child = cast.child();
@@ -685,10 +644,10 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // execution detail the strip exists for, so it is NOT kept - it would only pin
             // coercions the re-analyzed user expression derives by itself.
             //
-            // The child must read at least one REAL column: `AVG(DISTINCT k + 1)` lowers to
+            // The child must read at least one REAL column: AVG(DISTINCT k + 1) lowers to
             // sum(CAST((k + ph) AS LARGEINT)), and skipping the cast just because a placeholder
             // sits inside the arithmetic froze SUM over BIGINT again. A child built ONLY from
-            // placeholders (`ph1 + ph2` widened to INT) stays stripped - there the cast pins
+            // placeholders (ph1 + ph2 widened to INT) stays stripped - there the cast pins
             // the CAPTURED literals' width on the caller's values.
             return childType.isIntegralType() && targetType instanceof LargeIntType
                     && targetType.width() > childType.width()
@@ -703,20 +662,20 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     /**
      * Whether the cast IS the parser's TYPE-CONSTRUCTOR fallback.
      *
-     * `DATE 'x'` / `TIMESTAMP 'x'` folds to a typed literal when x PARSES, and to
-     * `CAST(x AS DATE|DATETIME)` when it does not (LogicalPlanBuilder#visitTypeConstructor).
-     * That cast carries the user's TYPE - `SELECT DATE 'not-a-date'` executes as a typed DATE
-     * NULL - so stripping it froze `Project(ph1 AS d)` and the replay returned the raw STRING
+     * DATE 'x' / TIMESTAMP 'x' folds to a typed literal when x PARSES, and to
+     * CAST(x AS DATE|DATETIME) when it does not (LogicalPlanBuilder.visitTypeConstructor).
+     * That cast carries the user's TYPE - SELECT DATE 'not-a-date' executes as a typed DATE
+     * NULL - so stripping it froze Project(ph1 AS d) and the replay returned the raw STRING
      * 'not-a-date' (the CREATE probe only re-plans the text, so it accepted that projection).
      *
      * The detector is the fallback's own cause: the literal does NOT parse as the target type.
-     * An ordinary implicit coercion of a VALID literal (`d = '2020-01-01'` also becomes
-     * `CAST('2020-01-01' AS DATE)`) still parses, so it is still stripped and re-derived by the
+     * An ordinary implicit coercion of a VALID literal (d = '2020-01-01' also becomes
+     * CAST('2020-01-01' AS DATE)) still parses, so it is still stripped and re-derived by the
      * replay's own analysis exactly as before - which keeps the frozen text of the ordinary
      * date-filter shape unchanged.
      *
-     * @param cast the parser-inserted cast
-     * @return true when the cast must survive into the frozen SQL
+     * Parameter cast: the parser-inserted cast
+     * Returns: true when the cast must survive into the frozen SQL
      */
     private static boolean preservesTypeConstructorFallback(Cast cast) {
         String text = constantText(cast.child());
@@ -731,12 +690,9 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     }
 
     /**
-     * The STRING value behind a constant subtree: the literal itself before parameterization,
-     * or the placeholder's payload afterwards (the frozen text substitutes the payload's
-     * VALUE by placeholder id, so the payload is what a replay would receive).
-     *
-     * @param expr the expression to unwrap
-     * @return the string value, or null when the subtree is not a constant string
+     * Returns the string value of a string literal, unwrapping a scalar marker payload when present. Returns null
+     * for other expressions. Used to recognize capture-time date and time constructor fallbacks; a replay can
+     * supply a different payload value.
      */
     private static String constantText(Expression expr) {
         if (expr instanceof org.apache.doris.nereids.spm.placeholder.SpmConstVar) {
@@ -753,9 +709,9 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * Whether the text is a LEGAL value of the target date / time type, i.e. whether the
      * parser would have folded the constructor instead of emitting the fallback cast.
      *
-     * @param target the cast's target type
-     * @param text   the literal text
-     * @return whether the text parses as that type (true for any other type)
+     * Parameter target: the cast's target type
+     * Parameter text: the literal text
+     * Returns: whether the text parses as that type (true for any other type)
      */
     private static boolean parsesAs(DataType target, String text) {
         try {
@@ -783,8 +739,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitTryCast(TryCast tryCast, SQLRelation context) {
-        // toSql() renders a grammar-parseable type name (e.g. STRUCT<name:type>);
-        // toString() emits a diagnostic form (STRUCT<StructField[...]>) that cannot be
+        // toSql renders a grammar-parseable type name (e.g. STRUCT<name:type>);
+        // toString emits a diagnostic form (STRUCT<StructField[...]>) that cannot be
         // re-parsed by the frozen SQL after a reload.
         return "TRY_CAST(" + tryCast.child().accept(this, context) + " AS "
                 + tryCast.getDataType().toSql() + ")";
@@ -803,7 +759,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitCaseWhen(CaseWhen caseWhen, SQLRelation context) {
-        // CASE WHEN ... THEN ... ELSE ... END
+        // CASE WHEN... THEN... ELSE... END
         StringBuilder sb = new StringBuilder("CASE");
         for (WhenClause whenClause : caseWhen.getWhenClauses()) {
             sb.append(" WHEN ").append(whenClause.getOperand().accept(this, context))
@@ -820,8 +776,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
     public String visitLiteral(Literal literal, SQLRelation context) {
         if (literal instanceof StringLikeLiteral) {
             // Generator arguments (LATERAL VIEW / UNNEST) are intentionally NOT
-            // parameterized and reach this method as concrete literals. Their toSql()
-            // (StringLikeLiteral.toString()) only wraps the SEMANTIC value in quotes, so
+            // parameterized and reach this method as concrete literals. Their toSql
+            // (StringLikeLiteral.toString) only wraps the SEMANTIC value in quotes, so
             // a delimiter such as a'b froze invalid split(t.s, 'a'b'): the stored
             // baseline then had no parseable fallback tree and stopped applying after a
             // reload. Render through the default-mode-safe quote helper (stored text is
@@ -837,7 +793,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         // function's creation variables differ from the caller's); MergeGuardExpr keeps
         // the wrapper around the body. The guard only sets session variables while its
         // child is computed, so for SQL text the CHILD must go through this mapped
-        // visitor: the guard's own computeToSql()/toSql() emits child().toSql(), which
+        // visitor: the guard's own computeToSql/toSql emits child.toSql, which
         // bypasses the ExprId -> column mapping and could freeze an ambiguous
         // unqualified name (e.g. id over a join whose both inputs carry that name).
         return guard.child().accept(this, context);
@@ -885,14 +841,13 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         return op.toSql();
     }
 
-    // ==================== subqueries ====================
+    // subqueries.
 
     @Override
     public String visitSubqueryExpr(SubqueryExpr subqueryExpr, SQLRelation context) {
-        // Value-independent stable rendering of a subquery: its type (with the compare
-        // expression for IN subqueries) plus its filter/having predicates, whose
-        // placeholders are rendered as _spm_const_var(id) so the digest stays
-        // value-independent for constants inside subqueries too.
+        // Compact digest rendering of subquery kind, IN compare expression and
+        // filter/having predicates. It omits other plan structure and negation; the
+        // full-query plan digest and tree matcher provide the matching contract.
         StringBuilder sb = new StringBuilder();
         if (subqueryExpr instanceof InSubquery) {
             InSubquery in = (InSubquery) subqueryExpr;

@@ -18,16 +18,13 @@
 package org.apache.doris.nereids.spm;
 
 /**
- * BaselineSource - baseline source enum.
- *
- * Corresponds to design doc section 6.1: distinguishes manually created baselines
- * (USER) from auto-captured ones (CAPTURE, Phase 2), used for SHOW filtering, audit
- * tracing and candidate baseline ordering.
+ * Origin recorded for a baseline. Candidate priority uses execution time and estimated cost, independently of this
+ * source metadata.
  */
 public enum BaselineSource {
     /** Manually created by the user via CREATE BASELINE PLAN. */
     USER("USER"),
-    /** Auto-captured (Phase 2, created by scanning audit_log). */
+    /** Source value for captured baselines. */
     CAPTURE("CAPTURE");
 
     private final String name;
@@ -44,8 +41,8 @@ public enum BaselineSource {
     /**
      * Parses from a string.
      *
-     * @param name the source name (case-insensitive)
-     * @return the matching enum, or USER by default when unknown
+     * Parameter name: the source name (case-insensitive)
+     * Returns: the matching enum, or USER by default when unknown
      */
     public static BaselineSource fromString(String name) {
         if (name != null) {

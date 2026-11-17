@@ -26,82 +26,38 @@ import org.apache.commons.codec.digest.DigestUtils;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
-/**
- * SPMUtils - common utility methods for SPM.
- *
- * Computes the structural digest and the structural hash. The digest is value-independent:
- * placeholders are rendered uniformly as _spm_const_var(id) / _spm_const_list(id),
- * so WHERE a = 100 and WHERE a = 42 produce the same digest (matching queries with
- * the same structure against one baseline); an IN-list placeholder is also independent
- * of the list length, so "IN (1, 2, 3)" matches "IN (10, 20)".
- */
+/** Expression rendering, digest hashing and timestamp helpers for SPM. */
 public final class SPMUtils {
 
     private SPMUtils() {
     }
 
     /**
-     * The clock of every SPM STORED instant, in epoch MICROSECONDS.
-     *
-     * Every instant column of the three internal tables is TIMESTAMPTZ(6)
-     * (see InternalSchema#SPM_TIMESTAMP_SCALE), and the durable ordering of two status flips
-     * relies on the stored instants DIFFERING: two flips landing inside one millisecond still
-     * order correctly (and the flip bump then advances a single microsecond). A SESSION
-     * baseline carries the same unit, because SHOW renders it with the same formatter.
-     *
-     * Wall-clock DURATIONS (fence ages, window bounds) stay in MILLISECONDS - they measure
-     * elapsed time, not a stored value.
-     *
-     * @return the current epoch microseconds
+     * Returns the current wall-clock time in epoch microseconds, the unit used for stored SPM timestamps. This
+     * clock alone does not guarantee distinct or increasing values. Fence ages and other elapsed-time bounds use
+     * milliseconds.
      */
     public static long nowMicros() {
         return ChronoUnit.MICROS.between(Instant.EPOCH, Instant.now());
     }
 
     /**
-     * Computes the structural digest of a parameterized expression.
-     *
-     * Used for Level 2 exact digest matching. Column references are printed by their
-     * real names (with an empty SQLRelation a SlotReference falls back to toSql()), and
-     * placeholder values are normalized to "?".
-     *
-     * @param parameterized the already parameterized expression (contains SpmConstVar /
-     *                      SpmConstList)
-     * @return the structural digest text
+     * Renders a parameterized expression using SPMExprSqlBuilder. Scalar and list markers are printed with their
+     * ids and without their captured payloads. Ordinary literals retain their rendered values. This is an
+     * expression helper; whole-query matching builds its canonical digest from the plan.
      */
     public static String digest(Expression parameterized) {
         return new SPMExprSqlBuilder().print(parameterized, new SQLRelation());
     }
 
-    /**
-     * Computes the 64-bit structural hash (used for the Level 1 in-memory index,
-     * design doc 6.1). Collisions are safe: Level 2 exact digest matching runs after
-     * the hash filter.
-     *
-     * @param parameterized the already parameterized expression
-     * @return a 64-bit structural hash
-     */
+    /** Hashes the rendered expression digest using hashOf. */
     public static long hash(Expression parameterized) {
         return hashOf(digest(parameterized));
     }
 
     /**
-     * Computes the 64-bit structural hash of a digest text (the full-query SPM digest
-     * produced by Plan.toSpmDigest(), design doc 6.1).
-     *
-     * The key is derived with the same MD5 primitive the audit log uses
-     * (DigestUtils.md5Hex), keeping the hash style consistent with the audit-log
-     * sql_hash while remaining a VALUE-FREE structural key (the digest renders every
-     * literal as "?" / _spm_const_var(id)). Staying value-free is required: this value
-     * is the Level 1 bucket key (BaselineManager.hashIndex), and queries that differ
-     * only in constants must land in the same bucket so the Level 2 exact digest match
-     * is reached. ConnectContext.getSqlHash() cannot be used here - it hashes the
-     * statement TEXT (the CREATE statement at creation time, the user statement with
-     * literal values at rewrite time), so keying by it would break value-insensitive
-     * matching.
-     *
-     * @param digestText the digest text to hash
-     * @return a 64-bit structural hash
+     * Returns the first 64 bits of the MD5 digest of the supplied text. Candidate lookup compares the complete
+     * structural digest after the hash filter, so a hash collision does not establish a match.
      */
     public static long hashOf(String digestText) {
         String md5 = DigestUtils.md5Hex(digestText);

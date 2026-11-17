@@ -1339,6 +1339,50 @@ public class BaselineManagerConcurrencyTest {
                 "every distinct id must be present exactly once: " + snapshot.keySet());
     }
 
+    @Test
+    public void testSnapshotPaginationSeparatesRowsWithDifferentMetadata() throws Exception {
+        Map<Long, List<BaselinePlan>> table = new java.util.LinkedHashMap<>();
+        for (long id = 1; id <= 1999; id++) {
+            table.put(id, List.of(withId(baseline("d" + id, "select k from t" + id), id)));
+        }
+        BaselinePlan higherCost = flipRow(2000L, BaselineStatus.ENABLED, 100_000L);
+        BaselinePlan lowerCost = higherCost.copyPersistedScalars();
+        higherCost.setCost(2.0);
+        lowerCost.setCost(1.0);
+        table.put(2000L, List.of(higherCost, lowerCost));
+
+        Map<Long, BaselinePlan> snapshot = BaselineManagerTestAccess.readStableSnapshot(
+                tieReorderingReader(table, 2000),
+                () -> new BaselineManager.SnapshotFence(7L, 2001L, 14007L));
+        Assertions.assertEquals(1.0, snapshot.get(2000L).getCost(),
+                "metadata differences must break page-order ties and survive duplicate collapse");
+        Assertions.assertEquals(2000, snapshot.size());
+    }
+
+    @Test
+    public void testDurableWinnerDoesNotDependOnMetadataRowOrder() {
+        List<java.util.function.Consumer<BaselinePlan>> changes = List.of(
+                row -> row.setBindSqlHash(42L),
+                row -> row.setQueryId("other-query"),
+                row -> row.setCost(12.0),
+                row -> row.setQueryTimeMs(15L),
+                row -> row.setSource(org.apache.doris.nereids.spm.BaselineSource.CAPTURE),
+                row -> row.setCreateTime(42L),
+                row -> row.setCreatorSqlMode(2L),
+                row -> row.setPlanSqlMode(2L),
+                row -> row.setPlanFrozen(true),
+                row -> row.setSchemaFingerprint("other-schema"),
+                row -> row.setPlanSqlDigest("other-plan"));
+        for (java.util.function.Consumer<BaselinePlan> change : changes) {
+            BaselinePlan first = flipRow(7L, BaselineStatus.ENABLED, 100_000L);
+            BaselinePlan second = first.copyPersistedScalars();
+            change.accept(second);
+            Assertions.assertSame(BaselineManagerTestAccess.pickDurableWinner(first, second),
+                    BaselineManagerTestAccess.pickDurableWinner(second, first),
+                    "equal timestamps and status must still choose the same metadata row");
+        }
+    }
+
     /**
      * A page reader emulating an engine that HONORS the ORDER BY the manager requested but
      * is FREE to order rows that remain tied under it differently in every execution (SQL
@@ -1401,16 +1445,13 @@ public class BaselineManagerConcurrencyTest {
 
     /** The position of one tie-break column in the snapshot row (SNAPSHOT_COLUMNS order). */
     private static int snapshotColumnIndex(String name) {
-        switch (name) {
-            case "id":
-                return 0;
-            case "status":
-                return 9;
-            case "update_time":
-                return 11;
-            default:
-                throw new AssertionError("unexpected snapshot order column: " + name);
-        }
+        List<String> columns = List.of("id", "bind_sql", "bind_sql_digest", "bind_sql_hash",
+                "plan_sql", "query_id", "cost", "query_time_ms", "source", "status", "create_time",
+                "update_time", "sql_mode", "plan_sql_mode", "plan_frozen", "schema_fingerprint",
+                "plan_sql_digest");
+        int index = columns.indexOf(name);
+        Assertions.assertTrue(index >= 0, "unexpected snapshot order column: " + name);
+        return index;
     }
 
     /**

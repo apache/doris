@@ -25,18 +25,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * BaselineRefreshDaemon - periodic baseline cache refresh on EVERY FE (M3, design doc 6.6).
- *
- * Baselines are persisted in the shared __internal_schema.spm_baselines internal table, but
- * every FE keeps its own in-memory index (BaselineManager), and creation can happen on any
- * FE: user DDL runs on the FE that receives it and auto capture runs on the Leader FE.
- * Without a refresh a baseline created on FE A would never become visible on FE B, so
- * whether a user query hits a baseline would depend on which FE serves the client.
- *
- * This daemon therefore runs on all FEs (no isMaster check) and periodically applies an
- * incremental diff of the internal table to the local cache. It is read-only: it never
- * writes the internal table. The interval is spm_baseline_refresh_interval_seconds
- * (default 60s); a `SET GLOBAL` change is picked up within one old-interval delay.
+ * Periodically refreshes GLOBAL baseline state from the shared internal table on each non-checkpoint FE. The
+ * interval follows the default session variable and is clamped to at least one second. The manager also performs
+ * leadership-gated repairs and mutation settlement during refresh. SESSION stores are not refreshed here.
  */
 public class BaselineRefreshDaemon extends MasterDaemon {
 
@@ -55,7 +46,7 @@ public class BaselineRefreshDaemon extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        // Re-read the interval every cycle so `SET GLOBAL` takes effect within one old
+        // Re-read the interval every cycle so SET GLOBAL takes effect within one old
         // interval. Clamp to >= 1s so a misconfiguration cannot spin the thread.
         long intervalMs = Math.max(1L,
                 VariableMgr.getDefaultSessionVariable().getSpmBaselineRefreshIntervalSeconds())

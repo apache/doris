@@ -30,13 +30,13 @@ import java.util.Objects;
  * SPMPlaceholderBuilder creates a placeholder during parameterization it records one
  * entry containing:
  *
- * - originalExpr: the original literal (or IN predicate)
- * - placeholderExpr: the placeholder expression it was replaced with (a SpmConstVar, or
+ * originalExpr: the original literal (or IN predicate)
+ * placeholderExpr: the placeholder expression it was replaced with (a SpmConstVar, or
  *   an InPredicate containing a SpmConstList)
- * - parentExpr: the parent expression structure (used for the "value + parent
+ * parentExpr: the parent expression structure (used for the "value + parent
  *   structure + child position" double check during cross-AST matching)
- * - childIndex: the position of the literal inside its direct parent (siblings with the
- *   same value must never share one id, see matches())
+ * childIndex: the position of the literal inside its direct parent (siblings with the
+ *   same value must never share one id, see matches)
  */
 public class PlaceholderExpr {
 
@@ -52,13 +52,15 @@ public class PlaceholderExpr {
     /** Position of the literal inside its direct parent; -1 for a parent-less root. */
     private final int childIndex;
 
-    /** Query-block identity of the literal (see SPMPlaceholderBuilder#startNewTree):
-     *  two literals in different query blocks never share one placeholder id. */
+    /**
+     * Query-block identity of the literal (see SPMPlaceholderBuilder.startNewTree):
+     *  two literals in different query blocks never share one placeholder id.
+     */
     private final long blockId;
 
     /**
      * POSITION of the SELECT-list item the literal was found in, or -1 when it is not
-     * below a projection item (filters, join conditions, ...). Value + parent structure
+     * below a projection item (filters, join conditions,...). Value + parent structure
      * + child position do not distinguish SELECT 1 AS x, 1 AS y: both literals
      * sit at child 0 of an Alias whose parent signature omits the alias name, so they
      * used to share one placeholder id and a variant with different values per column
@@ -68,12 +70,12 @@ public class PlaceholderExpr {
 
     /**
      * The ordinal of the expression ROOT the literal belongs to, counted per query block in
-     * the walk order of one tree (see SPMPlaceholderBuilder#beginExpressionRoot): two equal
+     * the walk order of one tree (see SPMPlaceholderBuilder.beginExpressionRoot): two equal
      * literals in DIFFERENT expression roots of the same block (e.g. the ON clauses of two
      * joins, or two conjuncts of one filter) are independent slots even when value, parent
      * structure and child position coincide - sharing one id would make a query that varies
      * them separately (1/1 -> 2/3) fail recordPlaceholderValue and never match the saved
-     * baseline (the reviewer's round-58 finding).
+     * baseline.
      */
     private final long rootOrdinal;
 
@@ -89,18 +91,18 @@ public class PlaceholderExpr {
     /**
      * Constructs a PlaceholderExpr.
      *
-     * @param originalExpr    the original literal
-     * @param placeholderExpr the placeholder expression
-     * @param parentExpr      the parent expression structure (may be null when there is
+     * Parameter originalExpr: the original literal
+     * Parameter placeholderExpr: the placeholder expression
+     * Parameter parentExpr: the parent expression structure (may be null when there is
      *                        no parent node)
-     * @param childIndex      the position of the literal inside its direct parent
+     * Parameter childIndex: the position of the literal inside its direct parent
      *                        (the child index); -1 when there is no parent node
-     * @param blockId         the query block of the literal
-     * @param projectItem     the SELECT-list item position of the literal; -1 outside a
+     * Parameter blockId: the query block of the literal
+     * Parameter projectItem: the SELECT-list item position of the literal; -1 outside a
      *                        projection
-     * @param rootOrdinal     the ordinal of the expression root the literal belongs to
+     * Parameter rootOrdinal: the ordinal of the expression root the literal belongs to
      *                        (-1 when the caller carries no root scope)
-     * @param occurrencePath  the child-position path from that root down to the literal
+     * Parameter occurrencePath: the child-position path from that root down to the literal
      *                        ("" when the caller carries no path)
      */
     public PlaceholderExpr(Expression originalExpr, Expression placeholderExpr, Expression parentExpr,
@@ -167,27 +169,10 @@ public class PlaceholderExpr {
     }
 
     /**
-     * Returns whether this record matches the given "value + parent structure + child
-     * position" (corresponds to PlaceholderExpr.equals(expr, parent, index) in a
-     * position aware dedup).
-     *
-     * The parent structure is compared by canonical SQL text (not by object equals):
-     * the parent may contain a SubqueryExpr whose structural equality depends on its
-     * inner plan (relation ids etc.), which is not stable across independently parsed
-     * trees. Two semantically identical parents of the bind tree and the (separately
-     * parsed) plan tree therefore normalize to the same text and reuse the same
-     * placeholder id, keeping the ids of the two trees aligned.
-     *
-     * The child position must match as well: two literals under the SAME parent (e.g.
-     * the two operands of "1 + 1", or "WHEN 0 THEN 0") have equal parent structures but
-     * are different positions, and a similar query may carry different values there.
-     * Sharing one id would make every occurrence of that id resolve to the same user
-     * value, so such a similar query could never match (over-conservative dedup).
-     *
-     * @param expr       the original literal to match
-     * @param parent     the parent expression to match
-     * @param childIndex the position of the literal inside its direct parent
-     * @return whether it matches
+     * Matches the original expression, query block, default projection and occurrence scopes, child position and
+     * parent signature. Parent signatures compare expression classes and recursively rendered leaves, with
+     * subquery plans represented by a fixed marker. They do not use canonical SQL for the whole parent. Two
+     * parentless expressions match after the expression and scope checks, without a child-index comparison.
      */
     public boolean matches(Expression expr, Expression parent, int childIndex, long blockId) {
         return matches(expr, parent, childIndex, blockId, -1, -1, "");
@@ -243,27 +228,9 @@ public class PlaceholderExpr {
     }
 
     /**
-     * Structural signature of a parent expression, used for the parent-structure check
-     * of the dedup. Deliberately NOT based on toSql() of the whole parent: a
-     * subquery's SQL text embeds its plan node ids (e.g. "LogicalProject[90]"), which
-     * differ between independently parsed trees, and object equality of a subquery
-     * depends on inner plan ids as well. The signature therefore walks the expression
-     * tree class by class and normalizes any SubqueryExpr to a fixed marker, so
-     * semantically identical parents of the bind tree and the (separately parsed) plan
-     * tree produce the same signature and reuse the same placeholder id.
-     *
-     * Only a leaf (a slot, a literal, ...) is rendered by toSql() - a slot's
-     * SQL is its (stable) column name, not an id - and it is prefixed by its class name
-     * so two different leaf kinds that print the same text (e.g. an IntegerLiteral
-     * "1" vs a DoubleLiteral "1.0" would not, but two leaf classes with equal SQL could)
-     * are never treated as the same parent. A parent is in practice never a leaf (a
-     * literal's parent always has children), so this branch is defensive.
-     *
-     * Residual signature collisions only ever cause an OVER-conservative dedup (two
-     * distinct literal slots with the same child position sharing one placeholder id),
-     * never a wrong rewrite: the Level 3 check requires every occurrence of one id to
-     * resolve to the same user value (SPMAstCheckVisitor#recordPlaceholderValue), so a
-     * user query with differing values is simply not matched.
+     * Builds a parent signature from expression class names and child signatures. Leaves include their SQL text; a
+     * subquery expression uses a fixed marker so separately parsed plan ids do not affect correspondence. Alias
+     * names and other non-child metadata are not encoded here.
      */
     private static String parentSignature(Expression expr) {
         if (expr instanceof SubqueryExpr) {

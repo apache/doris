@@ -56,46 +56,33 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * SPMPlaceholderBuilder
+ * Parameterizes supported literal positions with scalar or IN-list markers. One builder retains marker records and
+ * allocates ids across bind and plan trees. Reuse requires the same value, parent signature, child position, query
+ * block, projection item, expression-root ordinal and occurrence path. GROUP BY mirrors can deliberately reuse a
+ * transformed expression to preserve analyzer equality.
  *
- * Replaces the literal constants in a query with
- * SPM placeholder functions so that one baseline can match structurally identical
- * queries. Core replacement rules:
- *
- * - Literal -> SpmConstVar (scalar placeholder with an auto-increment id)
- * - "IN (constant list)" -> InPredicate(expr, [SpmConstList(id, ...)]) (list placeholder)
- *
- * The auto-increment id guarantees that placeholders in the same position of bindSql and
- * planSql share the same id (in path A auto-capture both come from the same already
- * parameterized tree, so the ids naturally match).
- *
- * Placeholder deduplication follows: a literal
- * reuses an existing placeholder id only when the literal value (Step 1), its parent
- * expression structure (Step 2, PlaceholderExpr.matches) AND its position inside that
- * parent (child index) are equal. This is important for matching correctness: with
- * value-only dedup, "a = 1 AND b = 1" would assign one id to both literals and a user
- * query "a = 5 AND b = 7" could never match; without the child index, the two operands
- * of "1 + 1" would share one id and a similar query "2 + 1" could never match either.
+ * Syntax-bearing literals such as LIKE escape arguments are kept concrete. Some NULL payloads are retyped for
+ * capture analysis so their markers survive Boolean consumers; replay still substitutes the matched query
+ * expression.
  */
 public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Expression>
         implements SPMPlanTreeSupport.ExprTransform {
 
     /**
-     * The ARRAY scalar functions that declare {@code retArgType(0)}: each one's result IS its
+     * The ARRAY scalar functions that declare retArgType(0): each one's result IS its
      * first argument's array type, so an all-NULL input makes the whole result an all-NULL array.
      *
-     * <p>They are exactly the wrappers a projected all-NULL container can sit UNDER while the
+     * They are exactly the wrappers a projected all-NULL container can sit UNDER while the
      * enclosing call is still consumed as a Boolean operand, e.g.
-     * {@code k > 0 OR element_at(array_reverse_sort(array(NULL)), 1)}: the wrapper hands
-     * {@code array(NULL)}'s NullType element type to {@code element_at}, so the marker has to be
-     * repaired at the WRAPPER's argument position. Matching only {@code array_sort} /
-     * {@code array_distinct} left every other member of the family unrecognized (round-87
-     * review).
+     * k > 0 OR element_at(array_reverse_sort(array(NULL)), 1): the wrapper hands
+     * array(NULL)'s NullType element type to element_at, so the marker has to be
+     * repaired at the WRAPPER's argument position. Matching only array_sort /
+     * array_distinct left every other member of the family unrecognized.
      *
-     * <p>Matched by NAME because the capture runs on the PARSE tree, where the call is still an
-     * unbound {@link Function} and no signature is resolved yet; a BOUND node is classified from
-     * its {@code retArgType(0)} signature instead (see followsFirstArgument), so a function added
-     * to the family is recognized without touching this list. {@code array_concat} is NOT here:
+     * Matched by NAME because the capture runs on the PARSE tree, where the call is still an
+     * unbound Function and no signature is resolved yet; a BOUND node is classified from
+     * its retArgType(0) signature instead (see followsFirstArgument), so a function added
+     * to the family is recognized without touching this list. array_concat is NOT here:
      * it derives its element type from EVERY part and is handled separately
      * (isArrayConcatCall).
      */
@@ -107,8 +94,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             "array_shuffle", "array_slice", "array_sort", "array_sortby", "array_union",
             "reverse", "trim_array");
 
-    /** The MAP counterpart of {@link #TYPE_PRESERVING_ARRAY_CALLS} (same {@code retArgType(0)}
-     * declaration: {@code map_filter} returns its first argument's map type). */
+    /**
+     * The MAP counterpart of TYPE_PRESERVING_ARRAY_CALLS (same retArgType(0)
+     * declaration: map_filter returns its first argument's map type).
+     */
     private static final Set<String> TYPE_PRESERVING_MAP_CALLS = Set.of("map_filter");
 
     /** Auto-increment placeholder id counter (starts at 1). */
@@ -151,7 +140,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private long currentBlockId = 0;
 
     /**
-     * Enclosing query-block ids (see enterQueryBlock()): a nested block's id is
+     * Enclosing query-block ids (see enterQueryBlock): a nested block's id is
      * restored on exit, so SIBLING derived tables / CTE bodies get distinct ids while the
      * enclosing block numbering resumes - the same discipline the subquery-expression
      * blocks already followed.
@@ -162,17 +151,17 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * Projection ITEM positions of the SELECT-list slots currently being visited (see
      * enterProjectionItem(int)): SELECT 1 AS x, 1 AS y must give its two
      * literals different placeholder ids although value, parent structure and child
-     * position coincide (see PlaceholderExpr#matches).
+     * position coincide (see PlaceholderExpr.matches).
      */
     private final Deque<Integer> projectItemStack = new ArrayDeque<>();
 
     /**
      * Ordinal of the expression ROOT currently being transformed, counted per query block in
      * walk order (see beginExpressionRoot): two equal literals in DIFFERENT roots of one
-     * block (the ON clauses of two joins, two conjuncts of one filter, ...) used to share one
+     * block (the ON clauses of two joins, two conjuncts of one filter,...) used to share one
      * placeholder id although they are independent slots - a query that varies them
      * separately (1/1 -> 2/3) was then rejected by recordPlaceholderValue and the saved
-     * baseline could never be used (the reviewer's round-58 finding). The counting restarts
+     * baseline could never be used. The counting restarts
      * per tree run AND per block, so the bind and plan trees of one baseline traverse the
      * same structure in the same order and corresponding roots keep corresponding ordinals.
      */
@@ -196,23 +185,24 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /**
      * Whether a bare integer GROUP BY / ORDER BY ordinal references a SELECT item that carries a
-     * placeholder (see SPMPlanTreeSupport#visitLogicalAggregate). The ordinal itself stays
+     * placeholder (see SPMPlanTreeSupport.visitLogicalAggregate). The ordinal itself stays
      * CONCRETE, but the analyzer resolves it to that item's (parameterized) expression, and
      * the frozen rendering of a placeholder group key is NOT faithful: the capture optimizer
-     * rewrote `GROUP BY &lt;placeholder&gt;` into a child column, so a frozen replay of
-     * `SELECT 1 AS c, count(*) ... GROUP BY 1` grouped by `k` while the user's own query
+     * rewrote GROUP BY a placeholder into a child column, so a frozen replay of
+     * SELECT 1 AS c, count(*)... GROUP BY 1 grouped by k while the user's own query
      * grouped by the constant. The CREATE keeps the user planSql then and replays the
      * parameterized tree, whose analysis resolves the ordinal in the caller's own query.
      */
     private boolean parameterizedOrdinalTarget;
 
-    /** The enclosing block's root-ordinal counter, restored by exitQueryBlock(). */
+    /** The enclosing block's root-ordinal counter, restored by exitQueryBlock. */
     private final Deque<Long> rootOrdinalStack = new ArrayDeque<>();
 
-    /** The enclosing root's ordinal, restored by exitQueryBlock() (see enterQueryBlock). */
+    /** The enclosing root's ordinal, restored by exitQueryBlock (see enterQueryBlock). */
     private final Deque<Long> currentRootOrdinalStack = new ArrayDeque<>();
 
     /** Installs / clears the GROUP BY mirror lookup window (null = disabled). */
+    @Override
     public void setGroupByMirrorLookup(java.util.function.Function<String, Expression> lookup) {
         this.groupByMirrorLookup = lookup;
     }
@@ -229,22 +219,14 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Parameterizes a list of expressions with this single shared builder (entry point).
-     *
-     * Every expression is parameterized in order with the same builder, so placeholder
-     * ids stay globally unique and position-aligned across all query blocks (the topmost
-     * block's literals get the lowest ids, then derived tables / CTE bodies / nested
-     * blocks, in DFS order). This is what keeps the bind expressions of a multi-block
-     * baseline matched against the user query block by block.
-     *
-     * @param exprs the raw expressions to parameterize (one per query block)
-     * @return the parameterized expressions (containing SpmConstVar / SpmConstList)
+     * Parameterizes an ordered list of expression roots in one traversal run. Each list position has a distinct
+     * root ordinal, so equal literals in different entries remain independent. Nested subqueries receive their own
+     * block scopes. Repeating the corresponding list with the same builder can reuse the recorded ids.
      */
     public List<Expression> parameterizeExpressions(List<Expression> exprs) {
         List<Expression> parameterized = new ArrayList<>(exprs.size());
+        startNewTree();
         for (Expression expr : exprs) {
-            // each element is one query block of the same tree: its own block scope
-            startNewTree();
             beginExpressionRoot();
             parameterized.add(expr.accept(this, null));
         }
@@ -274,7 +256,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * The whole-tree parameterization transform: the builder IS an
      * SPMPlanTreeSupport.ExprTransform, so the plan walk can hand it the query
      * BLOCK and projection ITEM scopes of the expressions it visits (see
-     * SPMPlanTreeSupport.ExprTransform#enterQueryBlock()). Passing a bare lambda
+     * SPMPlanTreeSupport.ExprTransform.enterQueryBlock). Passing a bare lambda
      * instead would lose those scopes and merge independent literals into one placeholder
      * id.
      */
@@ -300,6 +282,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             } finally {
                 childIndexStack.pop();
             }
+        }
+
+        @Override
+        public void setGroupByMirrorLookup(java.util.function.Function<String, Expression> lookup) {
+            SPMPlaceholderBuilder.this.setGroupByMirrorLookup(lookup);
         }
 
         @Override
@@ -330,9 +317,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /**
      * Enters a nested query block (see
-     * org.apache.doris.nereids.spm.SPMPlanTreeSupport.ExprTransform#enterQueryBlock()):
+     * org.apache.doris.nereids.spm.SPMPlanTreeSupport.ExprTransform.enterQueryBlock):
      * the block gets its own monotonic id, the enclosing one is restored by
-     * exitQueryBlock().
+     * exitQueryBlock.
      */
     @Override
     public void enterQueryBlock() {
@@ -401,7 +388,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * root literal). Two equal literals can sit under structurally EQUAL parents at
      * different places of one root ("a = 1 AND a = 1": the parents are the two And
      * children), and only the path tells those independent slots apart - see
-     * PlaceholderExpr#occurrencePath.
+     * PlaceholderExpr.occurrencePath.
      */
     private String currentOccurrencePath() {
         if (childIndexStack.isEmpty()) {
@@ -424,28 +411,27 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return sb.toString();
     }
 
-    // ==================== literal -> scalar placeholder ====================
+    // literal -> scalar placeholder.
 
     /**
      * Whether the expression's TYPE is NullType.
      *
      * The type is derived structurally because this builder walks the UNBOUND plan, where
-     * {@code getDataType()} throws. A node produces NullType when EVERY value it can yield is
+     * getDataType throws. A node produces NullType when EVERY value it can yield is
      * NULL - a NULL literal, a CASE whose every result does, an IF whose two value arguments do,
      * a COALESCE / IFNULL / NVL / NULLIF / GREATEST / LEAST all of whose arguments do. Collected as
      * a Boolean operand (directly, or through a projected slot) such an expression is REPLACED by
      * the analyzer with a typed constant NULL, which deletes the placeholders inside it.
      *
-     * The test is RECURSIVE on purpose (round-78 #5): a conditional nested in the RESULT of
-     * another conditional (`k &gt; 0 OR (CASE WHEN k = 0 THEN ifnull(NULL, NULL) ELSE NULL END)`)
+     * The test is RECURSIVE on purpose: a conditional nested in the RESULT of
+     * another conditional (k > 0 OR (CASE WHEN k = 0 THEN ifnull(NULL, NULL) ELSE NULL END))
      * yields NullType although its result is not a NULL LITERAL, so a literal-only test left its
      * inner markers NullType and the consumer erased them - a TRUE variant then replayed as NULL.
-     * The same recursion covers the custom-signature producers: {@code GreatestLeast#customSignature}
-     * returns the arguments' common type, i.e. NullType for {@code greatest(NULL, NULL)} (round-78
-     * #1, LEAST shares the path).
+     * The same recursion covers the custom-signature producers: GreatestLeast.customSignature
+     * returns the arguments' common type, i.e. NullType for greatest(NULL, NULL), LEAST shares the path).
      *
-     * @param expr the expression to classify
-     * @return whether every value the expression can yield is NULL
+     * Parameter expr: the expression to classify
+     * Returns: whether every value the expression can yield is NULL
      */
     private static boolean producesNullType(Expression expr) {
         if (expr == null) {
@@ -484,21 +470,21 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return true;
         }
         if (isElementAtCall(expr)) {
-            // `element_at(array(NULL), 1)` takes its type from the ARRAY's element type and
-            // `element_at(map('x', NULL), 'x')` from the MAP's VALUE type (CreateMap derives
+            // element_at(array(NULL), 1) takes its type from the ARRAY's element type and
+            // element_at(map('x', NULL), 'x') from the MAP's VALUE type (CreateMap derives
             // MAP<STRING, NULL_TYPE>), so an all-NULL container makes the WHOLE call NullType: a
             // Boolean consumer replaced the two markers of
-            // `k > 0 OR element_at(array(NULL), 1)` with a typed constant and the
-            // `element_at(array(TRUE), 1)` variant had nothing to substitute (round-79 #3), and
-            // the MAP spelling lost the value marker the same way (round-80 #1).
+            // k > 0 OR element_at(array(NULL), 1) with a typed constant and the
+            // element_at(array(TRUE), 1) variant had nothing to substitute, and
+            // the MAP spelling lost the value marker the same way.
             return !children.isEmpty() && isAllNullContainer(children.get(0));
         }
         if (isArrayReducerCall(expr)) {
-            // The SAME producer classification, for the array REDUCERS (round-81 P1):
-            // ARRAY_MIN / ARRAY_MAX return `FollowToAnyDataType(0)`, i.e. the INPUT array's
+            // The SAME producer classification, for the array REDUCERS:
+            // ARRAY_MIN / ARRAY_MAX return FollowToAnyDataType(0), i.e. the INPUT array's
             // element type, so an all-NULL input makes the whole call NullType - binding then
-            // replaced `k > 0 OR array_min(array(NULL))` with `k > ph OR NULL` and the
-            // `array_min(array(TRUE))` caller got NULL instead of TRUE. Keeping the family in
+            // replaced k > 0 OR array_min(array(NULL)) with k > ph OR NULL and the
+            // array_min(array(TRUE)) caller got NULL instead of TRUE. Keeping the family in
             // ONE classifier is what lets the marker be retyped before the Boolean consumer
             // drops it - the same defect the bare element_at trigger had, so it is carried here
             // instead of in a per-function inline.
@@ -508,17 +494,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * The ARGUMENT whose value type becomes the ELEMENT type of this call's array result, or -1
-     * when the call is not such a producer (see isAllNullArray).
-     *
-     * <p>{@code array_repeat(x, n)} is the family's reference member: its signature is
-     * {@code ARRAY<FollowToAnyDataType(0)> (AnyDataType(0), BIGINT)}, so an all-NULL first argument
-     * makes the call {@code ARRAY<NULL_TYPE>}. The resolved signature decides; the unbound parse
-     * tree falls back to the family's NAME list, exactly like the type-preserving wrapper
-     * classifier.
-     *
-     * @param expr the expression to classify
-     * @return the element-type argument index, or -1
+     * Finds an array return signature whose element type follows an argument type and returns that argument index.
+     * A bound function with no such signature returns -1. An unbound array_repeat call falls back to index zero.
      */
     private static int elementTypeArgumentIndex(Expression expr) {
         if (expr instanceof BoundFunction) {
@@ -537,8 +514,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return isArrayRepeatCall(expr) ? 0 : -1;
     }
 
-    /** Whether the expression is the unbound `array_repeat(...)` call (see
-     * elementTypeArgumentIndex). */
+    /**
+     * Whether the expression is the unbound array_repeat(...) call (see
+     * elementTypeArgumentIndex).
+     */
     private static boolean isArrayRepeatCall(Expression expr) {
         return expr instanceof Function
                 && "array_repeat".equalsIgnoreCase(((Function) expr).getName());
@@ -546,43 +525,35 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /**
      * Whether the expression is a container whose ELEMENT type is NullType (see producesNullType):
-     * an all-NULL array or an all-NULL-valued map. Both overloads of `element_at` return the
+     * an all-NULL array or an all-NULL-valued map. Both overloads of element_at return the
      * container's element / value type, so either one makes the call a NullType producer.
      *
-     * @param expr the expression to classify
-     * @return whether it is an all-NULL array or map value
+     * Parameter expr: the expression to classify
+     * Returns: whether it is an all-NULL array or map value
      */
     private static boolean isAllNullContainer(Expression expr) {
         return isAllNullArray(expr) || isAllNullMap(expr);
     }
 
     /**
-     * Whether the expression builds a MAP whose every VALUE produces NullType (see
-     * producesNullType).
-     *
-     * The children of a map constructor alternate KEY, VALUE, so only the odd positions feed the
-     * map's value type - and with it what `element_at` returns. Both spellings are accepted: the
-     * parsed `map(...)` call and the bound {@code CreateMap}, which is a {@link Function} named
-     * {@code map}. A MAP LITERAL ({@code MapLiteral}) is a leaf without children and is therefore
-     * not covered - its entries are never parameterized either.
-     *
-     * @param expr the expression to classify
-     * @return whether it is an all-NULL-valued map value
+     * Recognizes all-NULL map values in MapLiteral payloads, map constructor value positions and supported
+     * type-preserving wrappers. An empty map literal is treated as having a NULL value type. Keys do not
+     * contribute to this classification.
      */
     private static boolean isAllNullMap(Expression expr) {
         if (expr == null) {
             return false;
         }
         if (expr instanceof MapLiteral) {
-            // A map LITERAL is a LEAF: its entries live in getValue(), not in children()
-            // (round-84 #1). visitLiteral parameterizes the whole literal as ONE marker, and
-            // without this branch `element_at({'x': NULL}, 'x')` stayed a NullType producer
+            // A map LITERAL is a LEAF: its entries live in getValue, not in children
+            // instead. visitLiteral parameterizes the whole literal as ONE marker, and
+            // without this branch element_at({'x': NULL}, 'x') stayed a NullType producer
             // candidate, the Boolean consumer replaced the whole call and the marker with it,
-            // and the `{'x': TRUE}` variant had no id left to substitute.
+            // and the {'x': TRUE} variant had no id left to substitute.
             Map<Literal, Literal> entries = ((MapLiteral) expr).getValue();
             if (entries.isEmpty()) {
                 // the same argument as for the empty ARRAY literal: without an entry there is no
-                // value type to inherit, so the empty map is NullType-valued as well (round-85)
+                // value type to inherit, so the empty map is NullType-valued as well
                 return true;
             }
             for (Literal value : entries.values()) {
@@ -593,11 +564,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return true;
         }
         if (isTypePreservingMapCall(expr)) {
-            // A TYPE-PRESERVING MAP WRAPPER (`map_filter`) forwards its INPUT's MAP value type,
-            // so its result is MAP<..., NULL_TYPE> exactly when the input is (round-91 review):
-            // `element_at(map_filter(map('x', NULL), (m_k, m_v) -> TRUE), 'x')` stayed a NullType
-            // producer, `visitOr` replaced the whole ElementAt operand with a Boolean NULL and
-            // erased its markers, and the `map('x', TRUE)` variant then replayed NULL instead of
+            // A TYPE-PRESERVING MAP WRAPPER (map_filter) forwards its INPUT's MAP value type,
+            // so its result is MAP<..., NULL_TYPE> exactly when the input is:
+            // element_at(map_filter(map('x', NULL), (m_k, m_v) -> TRUE), 'x') stayed a NullType
+            // producer, visitOr replaced the whole ElementAt operand with a Boolean NULL and
+            // erased its markers, and the map('x', TRUE) variant then replayed NULL instead of
             // TRUE. Recursing through the wrapper keeps the family in ONE classifier.
             List<Expression> args = expr.children();
             return !args.isEmpty() && isAllNullMap(args.get(0));
@@ -618,35 +589,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Whether the expression is an all-NULL array (see producesNullType).
-     *
-     * An array LITERAL whose every element produces NullType has type ARRAY&lt;NULL_TYPE&gt;, so a
-     * consumer that reads an ELEMENT (`element_at`) is NullType as well. Both spellings are
-     * accepted: the parsed {@link ArrayLiteral} and the unbound `array(...)` call, which is only
-     * a {@link Function} named {@code array} before binding.
-     *
-     * An ARRAY_CONCAT WRAPPER is an all-NULL array exactly when every concatenated part is one
-     * (round-80): the function derives its element type from its inputs, so concatenating only
-     * all-NULL arrays keeps ARRAY&lt;NULL_TYPE&gt; - and the wrapper was NOT recognized, so
-     * `k > 0 OR element_at(array_concat(array(NULL), array(NULL)), 1)` kept an ARRAY&lt;NULL_TYPE&gt;
-     * marker, a Boolean consumer erased the element_at call and its markers, and the
-     * `array(TRUE), array(TRUE)` variant had nothing left to substitute (the frozen replay then
-     * returned NULL for a row the caller returns TRUE for).
-     *
-     * A TYPE-PRESERVING ARRAY TRANSFORMATION ({@code array_sort} / {@code array_distinct}) wraps
-     * the same way (round-81): both declare {@code retArgType(0)}, so the result is
-     * ARRAY&lt;NULL_TYPE&gt; exactly when their INPUT array is - and the unrecognized wrapper left
-     * the element_at call NullType, which made the Boolean consumer drop it together with its
-     * markers (`k > 0 OR element_at(array_sort(array(NULL)), 1)` then replayed NULL for k = -1
-     * although the {@code array_sort(array(TRUE))} caller returns TRUE).
-     *
-     * MAP_VALUES converts the MAP-VALUE type into an array of it (round-83 #3):
-     * `map_values(map('x', NULL))` is ARRAY&lt;NULL_TYPE&gt;, so the same repair applies to
-     * `element_at(map_values(map('x', NULL)), 1)` - the wrapper was unrecognized, the value marker
-     * stayed NullType and `visitOr` erased the whole call.
-     *
-     * @param expr the expression to classify
-     * @return whether it is an all-NULL array value
+     * Recognizes supported array expressions whose element type is NullType. A bare NULL qualifies in an array
+     * position, as do empty arrays and arrays whose elements produce NullType. Array-from-element calls follow the
+     * designated element argument; array_concat requires every part to qualify; map_values follows the map's value
+     * type. Recognized type-preserving array calls follow their first argument.
      */
     private static boolean isAllNullArray(Expression expr) {
         if (expr == null) {
@@ -658,11 +604,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         int elementIndex = elementTypeArgumentIndex(expr);
         if (elementIndex >= 0) {
-            // An ARRAY-FROM-ELEMENT producer (`array_repeat(NULL, 1)` declares
-            // ARRAY<FollowToAnyDataType(0)>, round-92 review): the result is ARRAY<NULL_TYPE>
+            // An ARRAY-FROM-ELEMENT producer (array_repeat(NULL, 1) declares
+            // ARRAY of the type of its first argument: the result has a NULL element type
             // exactly when the ELEMENT argument produces NullType, so the whole call is a
             // NullType producer and the Boolean consumer erased the element_at operand with its
-            // markers - the `array_repeat(TRUE, 1)` variant then replayed NULL.
+            // markers - the array_repeat(TRUE, 1) variant then replayed NULL.
             List<Expression> args = expr.children();
             return elementIndex < args.size() && producesNullType(args.get(elementIndex));
         }
@@ -685,22 +631,22 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         if (isTypePreservingArrayCall(expr)) {
             // only the FIRST child is the array whose element type the result inherits: the
-            // comparator of `array_sort(array, lambda)` contributes no type of its own
+            // comparator of array_sort(array, lambda) contributes no type of its own
             List<Expression> parts = expr.children();
             return !parts.isEmpty() && isAllNullArray(parts.get(0));
         }
         if (!isArrayConstructor(expr)) {
             return false;
         }
-        // a bracket array LITERAL is a LEAF: its elements live in getValue(), not in children()
+        // a bracket array LITERAL is a LEAF: its elements live in getValue, not in children
         List<? extends Expression> elements = expr instanceof ArrayLiteral
                 ? ((ArrayLiteral) expr).getValue() : expr.children();
         if (elements.isEmpty()) {
             // An EMPTY array literal carries no element to take a type from, so its element type
-            // is NullType as well (round-85): without this branch `element_at([], 1)` was NOT
+            // is NullType as well: without this branch element_at([], 1) was NOT
             // classified as a NullType producer, the Boolean context never reached the container
             // marker, and the payload kept ARRAY<NULL_TYPE> - the consumer then replaced the
-            // whole operand together with its markers and the `element_at([TRUE], 1)` caller had
+            // whole operand together with its markers and the element_at([TRUE], 1) caller had
             // nothing to substitute.
             return true;
         }
@@ -713,13 +659,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Whether the expression is an {@code array_concat} call (see isAllNullArray).
+     * Whether the expression is an array_concat call (see isAllNullArray).
      *
-     * Matched by NAME through {@link Function}, which covers both the unbound `array_concat(...)`
-     * call and the bound {@code ArrayConcat} node (its function name is {@code array_concat}).
+     * Matched by NAME through Function, which covers both the unbound array_concat(...)
+     * call and the bound ArrayConcat node (its function name is array_concat).
      *
-     * @param expr the expression to classify
-     * @return whether it is an array_concat call
+     * Parameter expr: the expression to classify
+     * Returns: whether it is an array_concat call
      */
     private static boolean isArrayConcatCall(Expression expr) {
         return expr instanceof Function
@@ -730,8 +676,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * Whether the expression is a type-preserving ARRAY transformation (see isAllNullArray,
      * and TYPE_PRESERVING_ARRAY_CALLS for the family).
      *
-     * @param expr the expression to classify
-     * @return whether the result's element type follows the first argument
+     * Parameter expr: the expression to classify
+     * Returns: whether the result's element type follows the first argument
      */
     private static boolean isTypePreservingArrayCall(Expression expr) {
         return isTypePreservingContainerCall(expr, TYPE_PRESERVING_ARRAY_CALLS, true);
@@ -741,21 +687,17 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * Whether the expression is a type-preserving MAP transformation (see
      * isNullTypeContainerPosition).
      *
-     * @param expr the expression to classify
-     * @return whether the result's type follows the first argument's MAP
+     * Parameter expr: the expression to classify
+     * Returns: whether the result's type follows the first argument's MAP
      */
     private static boolean isTypePreservingMapCall(Expression expr) {
         return isTypePreservingContainerCall(expr, TYPE_PRESERVING_MAP_CALLS, false);
     }
 
     /**
-     * One shared classifier for both families: the resolved {@code retArgType(0)} signature wins
-     * when the node carries one, the name list covers the unbound parse tree.
-     *
-     * @param expr  the expression to classify
-     * @param names the name list of the family (see TYPE_PRESERVING_ARRAY_CALLS)
-     * @param array whether the family is the ARRAY one
-     * @return whether the call's result type follows its first argument
+     * Recognizes a container transformation by a bound signature that follows its first container argument, or by
+     * membership in the supplied function-name set. The name fallback also applies when no matching bound
+     * signature is found.
      */
     private static boolean isTypePreservingContainerCall(Expression expr, Set<String> names,
             boolean array) {
@@ -769,15 +711,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * The SIGNATURE form of {@link #isTypePreservingContainerCall}, for a BOUND function: a
-     * {@code retArgType(0)} declaration whose first argument is a container of the requested
-     * kind. The first-argument check keeps a scalar {@code retArgType(0)} function (e.g.
-     * {@code any_value}) out of the family: its result follows a SCALAR, so an all-NULL array
+     * The SIGNATURE form of isTypePreservingContainerCall, for a BOUND function: a
+     * retArgType(0) declaration whose first argument is a container of the requested
+     * kind. The first-argument check keeps a scalar retArgType(0) function (e.g.
+     * any_value) out of the family: its result follows a SCALAR, so an all-NULL array
      * literal in that position is not a container whose type has to survive.
      *
-     * @param expr  the expression to classify
-     * @param array whether the requested container kind is ARRAY (otherwise MAP)
-     * @return whether a signature makes the result follow a container first argument
+     * Parameter expr: the expression to classify
+     * Parameter array: whether the requested container kind is ARRAY (otherwise MAP)
+     * Returns: whether a signature makes the result follow a container first argument
      */
     private static boolean followsFirstArgument(Expression expr, boolean array) {
         if (!(expr instanceof BoundFunction)) {
@@ -801,11 +743,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     /**
      * Whether the expression builds an ARRAY value (see producesNullType).
      *
-     * Both spellings are accepted: the parsed {@link ArrayLiteral} and the unbound `array(...)`
-     * call, which is only a {@link Function} named {@code array} before binding.
+     * Both spellings are accepted: the parsed ArrayLiteral and the unbound array(...)
+     * call, which is only a Function named array before binding.
      *
-     * @param expr the expression to classify
-     * @return whether it is an array constructor
+     * Parameter expr: the expression to classify
+     * Returns: whether it is an array constructor
      */
     private static boolean isArrayConstructor(Expression expr) {
         if (expr instanceof ArrayLiteral) {
@@ -816,13 +758,13 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Whether the expression is an {@code element_at} call (see producesNullType).
+     * Whether the expression is an element_at call (see producesNullType).
      *
-     * Matched by NAME through {@link Function} for the unbound plan, and by the analyzed
-     * {@link ElementAt} node for a bound one.
+     * Matched by NAME through Function for the unbound plan, and by the analyzed
+     * ElementAt node for a bound one.
      *
-     * @param expr the expression to classify
-     * @return whether it is an element_at call
+     * Parameter expr: the expression to classify
+     * Returns: whether it is an element_at call
      */
     private static boolean isElementAtCall(Expression expr) {
         if (expr instanceof ElementAt) {
@@ -833,16 +775,16 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Whether the expression is an {@code array_min} / {@code array_max} call (see
+     * Whether the expression is an array_min / array_max call (see
      * producesNullType).
      *
-     * Both declare {@code ret(FollowToAnyDataType(0))}, i.e. the result IS the input array's
+     * Both declare ret(FollowToAnyDataType(0)), i.e. the result IS the input array's
      * element type, so an all-NULL input makes the call a NullType producer exactly like
-     * {@code element_at}. Matched by NAME through {@link Function}, which covers the unbound
-     * calls and the bound {@code ArrayMin} / {@code ArrayMax} nodes.
+     * element_at. Matched by NAME through Function, which covers the unbound
+     * calls and the bound ArrayMin / ArrayMax nodes.
      *
-     * @param expr the expression to classify
-     * @return whether it is an array reducer
+     * Parameter expr: the expression to classify
+     * Returns: whether it is an array reducer
      */
     private static boolean isArrayReducerCall(Expression expr) {
         if (!(expr instanceof Function)) {
@@ -855,26 +797,26 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     /**
      * Whether the expression builds a MAP value (see isAllNullMap).
      *
-     * Matched by NAME through {@link Function}, which covers both the unbound `map(...)` call and
-     * the bound {@code CreateMap} (its function name is {@code map}).
+     * Matched by NAME through Function, which covers both the unbound map(...) call and
+     * the bound CreateMap (its function name is map).
      *
-     * @param expr the expression to classify
-     * @return whether it is a map constructor
+     * Parameter expr: the expression to classify
+     * Returns: whether it is a map constructor
      */
     private static boolean isMapConstructor(Expression expr) {
         return expr instanceof Function && "map".equalsIgnoreCase(((Function) expr).getName());
     }
 
     /**
-     * Whether the expression is a {@code map_values} call (see isAllNullArray).
+     * Whether the expression is a map_values call (see isAllNullArray).
      *
-     * {@code MapValues} declares {@code ArrayType.of(FollowToAnyDataType(0))}, i.e. the result is
+     * MapValues declares ArrayType.of(FollowToAnyDataType(0)), i.e. the result is
      * an ARRAY of the input MAP's VALUE type, so an all-NULL-valued map makes the whole call an
-     * all-NULL array. Matched by NAME through {@link Function}, which covers the unbound call and
-     * the bound {@code MapValues} node.
+     * all-NULL array. Matched by NAME through Function, which covers the unbound call and
+     * the bound MapValues node.
      *
-     * @param expr the expression to classify
-     * @return whether it is a map_values call
+     * Parameter expr: the expression to classify
+     * Returns: whether it is a map_values call
      */
     private static boolean isMapValuesCall(Expression expr) {
         return expr instanceof Function
@@ -882,14 +824,14 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Whether the expression is a {@code GREATEST} / {@code LEAST} call (see producesNullType).
+     * Whether the expression is a GREATEST / LEAST call (see producesNullType).
      *
-     * {@code GreatestLeast.customSignature} returns the arguments' common type, so an all-NULL
-     * call is NullType and a Boolean consumer replaces it outright (round-78 #1). LEAST shares the
+     * GreatestLeast.customSignature returns the arguments' common type, so an all-NULL
+     * call is NullType and a Boolean consumer replaces it outright. LEAST shares the
      * class, so both names are accepted.
      *
-     * @param expr the expression to classify
-     * @return whether it is a GREATEST / LEAST call
+     * Parameter expr: the expression to classify
+     * Returns: whether it is a GREATEST / LEAST call
      */
     private static boolean isGreatestLeastConditional(Expression expr) {
         if (!(expr instanceof Function)) {
@@ -899,31 +841,23 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return "greatest".equalsIgnoreCase(name) || "least".equalsIgnoreCase(name);
     }
 
-    /**
-     * Whether the expression is an {@code IF} / {@code COALESCE} CALL. Matched by NAME through
-     * the {@link Function} interface because the parameterized plan is the UNBOUND one, where
-     * `IF(...)` is still an {@link UnboundFunction} (only the analyzed {@link If} node exists
-     * after binding).
-     *
-     * @param expr the expression to classify
-     * @return whether it is an IF call
-     */
+    /** Recognizes a Function named IF, case-insensitively, in bound or unbound form. */
     private static boolean isIfConditional(Expression expr) {
         return expr instanceof Function && "if".equalsIgnoreCase(((Function) expr).getName());
     }
 
     /**
-     * Whether the expression is an {@code IFNULL} / {@code NVL} call (both parse to the same
-     * {@link Function} named {@code ifnull}; {@code nvl} is accepted as the spelling as well).
+     * Whether the expression is an IFNULL / NVL call (both parse to the same
+     * Function named ifnull; nvl is accepted as the spelling as well).
      *
      * It belongs to the all-NULL conditional family even though it has no condition argument:
-     * {@code ifnull(NULL, NULL)} has NullType, so a Boolean consumer replaces the WHOLE call
-     * with a typed constant NULL exactly like an all-NULL CASE - `k > 0 OR ifnull(NULL, NULL)`
-     * lost both markers and the matching `ifnull(NULL, TRUE)` variant had nothing to
-     * substitute (round-76 #1).
+     * ifnull(NULL, NULL) has NullType, so a Boolean consumer replaces the WHOLE call
+     * with a typed constant NULL exactly like an all-NULL CASE - k > 0 OR ifnull(NULL, NULL)
+     * lost both markers and the matching ifnull(NULL, TRUE) variant had nothing to
+     * substitute.
      *
-     * @param expr the expression to classify
-     * @return whether it is an IFNULL / NVL call
+     * Parameter expr: the expression to classify
+     * Returns: whether it is an IFNULL / NVL call
      */
     private static boolean isIfNullConditional(Expression expr) {
         if (!(expr instanceof Function)) {
@@ -934,17 +868,17 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Whether the expression is a {@code NULLIF} call.
+     * Whether the expression is a NULLIF call.
      *
-     * NULLIF is a THIRD all-NULL producer, on its own signature path: {@code NullIf.customSignature}
-     * returns the COMMON type of its two arguments, so {@code nullif(NULL, NULL)} has NullType and a
+     * NULLIF is a THIRD all-NULL producer, on its own signature path: NullIf.customSignature
+     * returns the COMMON type of its two arguments, so nullif(NULL, NULL) has NullType and a
      * Boolean consumer ("k > 0 OR nullif(NULL, NULL)") replaces the whole call with a typed constant
-     * NULL - the markers of both arguments disappear and the matching {@code nullif(TRUE, NULL)}
-     * variant has no marker left to substitute with TRUE (round-77 #3). It is not covered by the
+     * NULL - the markers of both arguments disappear and the matching nullif(TRUE, NULL)
+     * variant has no marker left to substitute with TRUE. It is not covered by the
      * IFNULL / NVL branch above: a different function with its own signature rule.
      *
-     * @param expr the expression to classify
-     * @return whether it is a NULLIF call
+     * Parameter expr: the expression to classify
+     * Returns: whether it is a NULLIF call
      */
     private static boolean isNullIfConditional(Expression expr) {
         return expr instanceof Function
@@ -952,10 +886,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * Whether the expression is a {@code COALESCE} call (see isIfConditional).
+     * Whether the expression is a COALESCE call (see isIfConditional).
      *
-     * @param expr the expression to classify
-     * @return whether it is a COALESCE call
+     * Parameter expr: the expression to classify
+     * Returns: whether it is a COALESCE call
      */
     private static boolean isCoalesceConditional(Expression expr) {
         return expr instanceof Function
@@ -968,22 +902,22 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * COALESCE argument.
      *
      * Only RESULTS may be typed BOOLEAN: the WHEN / condition operands compare against real
-     * columns, and a BOOLEAN-typed NULL there (`k = CAST(NULL AS BOOLEAN)`) is a type error in
+     * columns, and a BOOLEAN-typed NULL there (k = CAST(NULL AS BOOLEAN)) is a type error in
      * the replayed plan.
      *
-     * @param parent the literal's parent expression
-     * @return whether the literal sits in a result position
+     * Parameter parent: the literal's parent expression
+     * Returns: whether the literal sits in a result position
      */
     private boolean isConditionalResultPosition(Expression parent) {
         return isConditionalResultPosition(parent, currentChildIndex());
     }
 
     /**
-     * The position-aware form of {@link #isConditionalResultPosition(Expression)}.
+     * The position-aware form of isConditionalResultPosition(Expression).
      *
-     * @param parent     the conditional
-     * @param childIndex the position of the child inside it
-     * @return whether that position holds a result
+     * Parameter parent: the conditional
+     * Parameter childIndex: the position of the child inside it
+     * Returns: whether that position holds a result
      */
     private static boolean isConditionalResultPosition(Expression parent, int childIndex) {
         if (parent instanceof WhenClause) {
@@ -1054,28 +988,28 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /**
      * Whether the literal sits in the CONTAINER position of a call that takes its RESULT type from
-     * it (see markerPayload): {@code element_at}'s first argument, or the array argument of the
-     * {@code array_min} / {@code array_max} reducers (their signature is
-     * {@code FollowToAnyDataType(0)}).
+     * it (see markerPayload): element_at's first argument, or the array argument of the
+     * array_min / array_max reducers (their signature is
+     * FollowToAnyDataType(0)).
      *
      * The container itself is not a value position: its marker has to stay an ARRAY / MAP, so the
      * Boolean retyping of a bare NULL cannot apply to it - the container needs its own repair.
      *
-     * @param parent the literal's parent expression
-     * @return whether the literal is such a container
+     * Parameter parent: the literal's parent expression
+     * Returns: whether the literal is such a container
      */
     private boolean isNullTypeContainerPosition(Expression parent) {
         if ((isElementAtCall(parent) || isArrayReducerCall(parent)) && currentChildIndex() == 0) {
             return true;
         }
         // A TYPE-PRESERVING WRAPPER forwards its INPUT's element type to the enclosing call
-        // (round-85): `element_at(array_sort([NULL]), 1)` reads the result THROUGH array_sort's
-        // `retArgType(0)`, so the wrapper's array argument sits in the SAME container position.
-        // The unrecognized chain left the ARRAY<NULL_TYPE> literal untouched, `element_at` stayed
+        // : element_at(array_sort([NULL]), 1) reads the result THROUGH array_sort's
+        // retArgType(0), so the wrapper's array argument sits in the SAME container position.
+        // The unrecognized chain left the ARRAY<NULL_TYPE> literal untouched, element_at stayed
         // NullType, and the Boolean consumer replaced the whole operand together with its
-        // markers - the `element_at(array_sort([TRUE]), 1)` caller then had no id to substitute.
-        // The SAME chain exists for every other `retArgType(0)` member
-        // (`array_reverse_sort`, `array_slice`, `array_union`, ...: see
+        // markers - the element_at(array_sort([TRUE]), 1) caller then had no id to substitute.
+        // The SAME chain exists for every other retArgType(0) member
+        // (array_reverse_sort, array_slice, array_union,...: see
         // TYPE_PRESERVING_ARRAY_CALLS), so the classifier covers the family instead of two names.
         // ARRAY_CONCAT derives its element type from EVERY part, so each part is such a position,
         // and MAP_VALUES turns its map's VALUE type into the result's element type (position 0).
@@ -1089,54 +1023,35 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     }
 
     /**
-     * The literal the placeholder keeps as its PAYLOAD (readability only - the replay
-     * substitutes the whole placeholder by id).
-     *
-     * A captured NULL is special: a NULL literal's type is NullType, and the analyzer
-     * COERCES a NullType operand of AND / OR / NOT to a typed BOOLEAN null literal
-     * (ExpressionAnalyzer.visitOr / visitAnd / visitNot). That rewrite REPLACES the whole
-     * operand, i.e. it deleted the placeholder: the frozen SQL of
-     * `k > 0 OR NULL` contained `k > _spm_const_var(1, 0) OR NULL` and the second id was
-     * gone, so a matching `k > 0 OR TRUE` (same literal-masked digest, id 2 extracted as
-     * TRUE) had no marker left to substitute and the replay returned NULL instead of TRUE.
-     * Typing the payload BOOLEAN keeps the marker where the analyzer expects a boolean
-     * operand: it is not a NullType operand any more, the value substituted at replay
-     * still lands in the same slot, and matching is unaffected (a placeholder accepts any
-     * user literal, see SPMAstCheckVisitor).
-     *
-     * @param literal the captured literal
-     * @param parent  the literal's parent expression (null at an expression root)
-     * @param projectionItem whether the literal is a projection item's expression
-     * @param booleanConditionalResult whether the literal is a RESULT of a conditional that is
-     *                                 consumed as a Boolean operand
-     * @param booleanElementContainer whether the literal is the CONTAINER of an `element_at` /
-     *                                array reducer that is consumed as a Boolean operand
-     * @param containerElement whether the literal is an ELEMENT of a container constructor whose
-     *                         ELEMENT type decides whether the chain is NullType
-     * @return the payload the placeholder keeps
+     * Chooses the literal payload used while analyzing a scalar placeholder. The payload controls the marker's
+     * capture-time type even though replay replaces the marker by id. A NULL used as a Boolean operand,
+     * conditional result or selected output can otherwise be coerced into a new Boolean NULL expression,
+     * discarding the marker. Relevant scalar NULLs are therefore typed Boolean. All-NULL container payloads
+     * receive corresponding element or value typing so the marker survives the same coercion. The replacement
+     * still uses the caller's actual value and type.
      */
     private static Literal markerPayload(Literal literal, Expression parent,
             boolean projectionItem, boolean booleanConditionalResult,
             boolean booleanElementContainer, boolean containerElement) {
         if (containerElement && literal.isNullLiteral()) {
-            // `array(NULL)` builds its container from the ELEMENTS, so an all-NULL element list is
+            // array(NULL) builds its container from the ELEMENTS, so an all-NULL element list is
             // exactly what makes the constructor NullType. The NULL marker is a CHILD of the
             // constructor (not the container the container-position repair retypes above), so
             // typing IT BOOLEAN makes the constructor ARRAY<BOOLEAN> and removes the NullType from
-            // the chain - `k > 0 OR element_at(array_reverse_sort(array(NULL)), 1)` kept the whole
+            // the chain - k > 0 OR element_at(array_reverse_sort(array(NULL)), 1) kept the whole
             // operand as a typed constant NULL otherwise, together with every marker inside it
-            // (round-88 review). A NULL value stays NULL through any coercion, so only the marker's
+            // . A NULL value stays NULL through any coercion, so only the marker's
             // TYPE changes.
             return NullLiteral.BOOLEAN_INSTANCE;
         }
         if (projectionItem && (literal instanceof ArrayLiteral || literal instanceof MapLiteral)
                 && isAllNullContainer(literal)) {
-            // A DERIVED OUTPUT carrying an all-NULL container (round-86): the container is one
+            // A DERIVED OUTPUT carrying an all-NULL container: the container is one
             // leaf marker whose type is ARRAY<NULL_TYPE> / MAP<..., NULL_TYPE>, and the upper
-            // block that consumes it (`k > 0 OR element_at(a, 1)` over `SELECT [NULL] AS a`) is a
+            // block that consumes it (k > 0 OR element_at(a, 1) over SELECT [NULL] AS a) is a
             // DIFFERENT query block - the Boolean context never reaches this projection, so the
             // payload was left NullType, the consumer erased the outer call together with its
-            // markers, and the `[TRUE]` variant replayed NULL. Retyping the payload to a BOOLEAN
+            // markers, and the [TRUE] variant replayed NULL. Retyping the payload to a BOOLEAN
             // element / value type removes the NullType from the tree while keeping the shape; a
             // non-container projection keeps its own typing below.
             Literal derivedPayload = booleanContainerPayload(literal, parent);
@@ -1145,12 +1060,12 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
         }
         if (booleanElementContainer) {
-            // A bracket ARRAY literal keeps its elements as LITERALS (ArrayLiteral#getValue), so
+            // A bracket ARRAY literal keeps its elements as LITERALS (ArrayLiteral.getValue), so
             // the ELEMENT markers the function spelling gets (see isContainerElementPosition)
             // cannot exist here: the whole literal is ONE marker, its type is the literal's own
-            // ARRAY<NULL_TYPE> and `element_at` on it is still NullType - the Boolean consumer
-            // replaced the whole call and the marker with it, so the `element_at([TRUE], 1)`
-            // variant had no id left to substitute (round-80 #4). Retyping the marker's payload
+            // ARRAY<NULL_TYPE> and element_at on it is still NullType - the Boolean consumer
+            // replaced the whole call and the marker with it, so the element_at([TRUE], 1)
+            // variant had no id left to substitute. Retyping the marker's payload
             // to ARRAY<BOOLEAN> removes the NullType from the tree while staying an array value;
             // the frozen text carries the id only, so the replay still substitutes the caller's
             // own value and keeps its own (correct) type.
@@ -1164,7 +1079,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (literal.isNullLiteral() && (booleanOperand || booleanConditionalResult)) {
             return NullLiteral.BOOLEAN_INSTANCE;
         }
-        // A projected NULL (`SELECT NULL AS n` / a bare `SELECT NULL`) exposes a NullType
+        // A projected NULL (SELECT NULL AS n / a bare SELECT NULL) exposes a NullType
         // SLOT, and a consumer that binds it as a BOOLEAN operand (an enclosing OR / AND /
         // WHERE, even in another query block) has the analyzer replace that operand with a
         // typed constant NULL - dropping the slot, and with it this marker. A TRUE variant of
@@ -1185,8 +1100,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * or the VALUE half of a MAP constructor's key/value pairs - a map's keys feed its KEY type
      * and keep their own typing.
      *
-     * @param parent the literal's parent expression
-     * @return whether the literal is such an element
+     * Parameter parent: the literal's parent expression
+     * Returns: whether the literal is such an element
      */
     private boolean isContainerElementPosition(Expression parent) {
         if (containerElementDepth == 0) {
@@ -1208,22 +1123,22 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     /**
      * The non-NullType payload of a NullType-producing CONTAINER marker (see markerPayload).
      *
-     * An all-NULL bracket array literal is repaired to ARRAY&lt;BOOLEAN&gt; of the same shape: its
+     * An all-NULL bracket array literal is repaired to a Boolean array of the same shape: its
      * elements are all NULL, and a NULL value is NULL whatever its type, so only the marker's TYPE
      * changes.
      *
      * A BARE NULL container is repaired the same way when the call can only be the ARRAY overload
-     * (round-83 #2): {@code element_at(NULL, 1)} resolves through ElementAt's dedicated
+     * : element_at(NULL, 1) resolves through ElementAt's dedicated
      * NullType-input signature (which returns NullType), so the Boolean consumer replaced the whole
-     * call and BOTH markers with it - the {@code element_at([TRUE], 1)} variant then had no id to
+     * call and BOTH markers with it - the element_at([TRUE], 1) variant then had no id to
      * substitute and the replay returned NULL for k = -1. The INDEX argument decides the overload:
      * a STRING index is the MAP lookup, whose container must stay a map, so only a non-string index
-     * is retyped. A one-element ARRAY&lt;BOOLEAN&gt; of NULLs keeps the ARRAY overload and removes the
+     * is retyped. A one-element Boolean array of NULLs keeps the ARRAY overload and removes the
      * NullType from the tree.
      *
-     * @param literal the captured container literal
-     * @param parent  the call the literal is a container of
-     * @return the retyped payload, or null when the literal is not repairable here
+     * Parameter literal: the captured container literal
+     * Parameter parent: the call the literal is a container of
+     * Returns: the retyped payload, or null when the literal is not repairable here
      */
     private static Literal booleanContainerPayload(Literal literal, Expression parent) {
         if (literal.isNullLiteral()) {
@@ -1232,20 +1147,20 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                         ArrayType.of(BooleanType.INSTANCE));
             }
             if (containerIsMap(parent)) {
-                // A bare NULL container under the MAP overload / under `map_values` (round-85):
-                // `element_at(NULL, 'x')` resolved through ElementAt's NullType-input signature
+                // A bare NULL container under the MAP overload / under map_values:
+                // element_at(NULL, 'x') resolved through ElementAt's NullType-input signature
                 // and stayed NullType, so the Boolean consumer erased the call and BOTH markers -
-                // the `element_at({'x': TRUE}, 'x')` caller (same scalar-literal digest) had
+                // the element_at({'x': TRUE}, 'x') caller (same scalar-literal digest) had
                 // nothing left to substitute. A NULL typed MAP<key, BOOLEAN> keeps the MAP
                 // overload and removes the NullType from the tree; the KEY type is the written
-                // index's own type (STRING for `'x'`), and a NULL value stays NULL whatever its
+                // index's own type (STRING for 'x'), and a NULL value stays NULL whatever its
                 // type.
                 return new NullLiteral(MapType.of(mapKeyTypeOf(parent), BooleanType.INSTANCE));
             }
             return null;
         }
         if (literal instanceof MapLiteral) {
-            // A whole-map LITERAL container (round-84 #1): the MAP overload of element_at reads
+            // A whole-map LITERAL container: the MAP overload of element_at reads
             // the map's VALUE type, so an all-NULL-valued literal has to be retyped to
             // MAP<key, BOOLEAN> for the same reason the array literal is - the keys keep their
             // own type (a BOOLEAN key would change the map's key type).
@@ -1263,9 +1178,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
             items.add(NullLiteral.BOOLEAN_INSTANCE);
         }
-        // An EMPTY array literal is ARRAY<NULL_TYPE> as well (round-85): `element_at([], 1)` is
+        // An EMPTY array literal is ARRAY<NULL_TYPE> as well: element_at([], 1) is
         // a NullType producer, so the Boolean consumer replaced the call and its markers and the
-        // `element_at([TRUE], 1)` caller had nothing to substitute. Retyping the EMPTY container
+        // element_at([TRUE], 1) caller had nothing to substitute. Retyping the EMPTY container
         // to ARRAY<BOOLEAN> keeps the shape (no element is added) and removes the NullType.
         return new ArrayLiteral(items, ArrayType.of(BooleanType.INSTANCE));
     }
@@ -1276,8 +1191,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * Only the VALUES are retyped: a NULL value is NULL whatever its type, so the marker's TYPE is
      * all that changes, and the keys keep the type the user wrote.
      *
-     * @param literal the captured container literal
-     * @return the retyped payload, or null when the literal is not an all-NULL-valued map
+     * Parameter literal: the captured container literal
+     * Returns: the retyped payload, or null when the literal is not an all-NULL-valued map
      */
     private static Literal booleanMapPayload(MapLiteral literal) {
         Map<Literal, Literal> entries = literal.getValue();
@@ -1290,9 +1205,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             keyType = org.apache.doris.nereids.types.StringType.INSTANCE;
         }
         if (entries.isEmpty()) {
-            // an EMPTY map literal is MAP<..., NULL_TYPE> much like the empty array (round-85):
+            // an EMPTY map literal is MAP<..., NULL_TYPE> much like the empty array:
             // retyping the VALUE type of the (still empty) container removes the NullType from
-            // `element_at({}, 'x')` without adding any entry
+            // element_at({}, 'x') without adding any entry
             return new MapLiteral(new java.util.LinkedHashMap<>(),
                     MapType.of(keyType, BooleanType.INSTANCE));
         }
@@ -1314,8 +1229,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * an index that is not a literal at all cannot be classified and keeps the historical
      * behaviour (the container marker stays a bare NULL).
      *
-     * @param parent the call
-     * @return whether the call can only be the ARRAY overload
+     * Parameter parent: the call
+     * Returns: whether the call can only be the ARRAY overload
      */
     private static boolean containerIsArray(Expression parent) {
         if (isArrayReducerCall(parent) || isTypePreservingArrayCall(parent)
@@ -1337,12 +1252,12 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /**
      * Whether one container-taking call resolves to the MAP signature (see
-     * booleanContainerPayload): {@code map_values} always reads a map, and an {@code element_at}
+     * booleanContainerPayload): map_values always reads a map, and an element_at
      * whose INDEX is a STRING selects the MAP overload. A non-literal index cannot be
      * classified and is not repaired.
      *
-     * @param parent the call
-     * @return whether the call can only be the MAP overload
+     * Parameter parent: the call
+     * Returns: whether the call can only be the MAP overload
      */
     private static boolean containerIsMap(Expression parent) {
         if (isMapValuesCall(parent)) {
@@ -1366,12 +1281,12 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return org.apache.doris.nereids.types.StringType.INSTANCE;
     }
 
-    // ==================== IN (constant list) -> list placeholder ====================
+    // IN (constant list) -> list placeholder.
 
     @Override
     public Expression visitInPredicate(InPredicate inPredicate, Expression parent) {
         // Rewrite the compareExpr first (its parent is the InPredicate, position 0 in
-        // InPredicate.children(); the options take positions 1..n below)
+        // InPredicate.children; the options take positions 1..n below)
         Expression newCompare;
         childIndexStack.push(0);
         try {
@@ -1410,7 +1325,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // its OWN position. Visiting every option with the same (stale outer) child index
         // merged repeated values - "a IN (1, b, 1)" gave the two 1 positions one
         // placeholder id, and a structurally matching "a IN (2, b, 3)" was then rejected
-        // by the one-id-one-value rule. Positions mirror InPredicate.children().
+        // by the one-id-one-value rule. Positions mirror InPredicate.children.
         List<Expression> newOptions = new ArrayList<>(inPredicate.getOptions().size());
         for (int i = 0; i < inPredicate.getOptions().size(); i++) {
             Expression option = inPredicate.getOptions().get(i);
@@ -1426,7 +1341,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return new InPredicate(newCompare, newOptions);
     }
 
-    // ==================== subquery (constants inside subqueries are parameterized too) ====================
+    // subquery (constants inside subqueries are parameterized too).
 
     @Override
     public Expression visitSubqueryExpr(SubqueryExpr subqueryExpr, Expression parent) {
@@ -1434,8 +1349,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // sync with the user side during matching)
         Expression newCompare = subqueryExpr instanceof InSubquery
                 ? ((InSubquery) subqueryExpr).getCompareExpr().accept(this, subqueryExpr) : null;
-        // parameterize EVERY literal of the subquery's own plan tree (filters, having,
-        // projections, aggregate ... and nested subqueries recursively). The
+        // Parameterize supported literal positions in the subquery plan (filters, having,
+        // projections, aggregate... and nested subqueries recursively). The
         // expressions of the subquery plan are NEW roots: push the root sentinel so a
         // bare-literal root records -1 instead of a stale outer child index. The plan
         // is also a NEW query block (see enterQueryBlock), restored afterwards so
@@ -1467,19 +1382,19 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return rebuilt;
     }
 
-    // ==================== default: rebuild children bottom-up (parent-aware) ====================
+    // default: rebuild children bottom-up (parent-aware).
 
     @Override
     public Expression visit(Expression expr, Expression parent) {
         // A GROUP BY mirror window (see setGroupByMirrorLookup) makes a nested copy of an
         // already parameterized group-by expression reuse THAT expression (its placeholder
         // ids): the analyzer only accepts
-        // "GROUP BY substr(x, 1, 20) ... ORDER BY / HAVING substr(x, 1, 20)" when the two
+        // "GROUP BY substr(x, 1, 20)... ORDER BY / HAVING substr(x, 1, 20)" when the two
         // copies are literally equal, and two independently parameterized copies never are
         // (each occurrence is its own expression root, see visitLiteral).
         if (groupByMirrorLookup != null) {
             // the KEY is the SCOPE-AWARE identity, not the rendered text (see
-            // SPMPlanTreeSupport#expressionIdentity): db1.f(x) and db2.f(x) render identically
+            // SPMPlanTreeSupport.expressionIdentity): db1.f(x) and db2.f(x) render identically
             // and would otherwise share one mirror entry
             Expression mirror = groupByMirrorLookup.apply(
                     SPMPlanTreeSupport.expressionIdentity(expr));
@@ -1496,24 +1411,24 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // A CONDITIONAL (CASE / IF / COALESCE) that IS a Boolean operand (OR / AND / NOT)
         // contributes BOOLEAN-typed markers: an all-NULL conditional has NullType, and the
         // analyzer then replaces the WHOLE operand with a typed constant NULL - deleting every
-        // placeholder inside it (`k > 0 OR CASE WHEN k = 0 THEN NULL ELSE NULL END` lost both
+        // placeholder inside it (k > 0 OR CASE WHEN k = 0 THEN NULL ELSE NULL END lost both
         // ids and a TRUE variant had nothing to substitute).
         //
-        // A PROJECTED conditional (the expression of a SELECT item, `... AS n`) reaches its
+        // A PROJECTED conditional (the expression of a SELECT item,... AS n) reaches its
         // Boolean consumer through a DERIVED / CTE OUTPUT SLOT, i.e. across the
-        // producer/consumer query-block boundary: `SELECT k > 0 OR n FROM
-        // (SELECT k, CASE WHEN k = 0 THEN NULL ELSE NULL END AS n FROM t) s`. The conditional
+        // producer/consumer query-block boundary: SELECT k > 0 OR n FROM
+        // (SELECT k, CASE WHEN k = 0 THEN NULL ELSE NULL END AS n FROM t) s. The conditional
         // has no direct Boolean parent here, so the guard above left its markers NullType,
         // the derived slot n stayed NullType, and the CONSUMER's ExpressionAnalyzer.visitOr
         // replaced that entire slot with a typed constant NULL while the frozen plan was
-        // optimized - the frozen projection became `k > _spm_const_var(A) OR NULL` and the
+        // optimized - the frozen projection became k > _spm_const_var(A) OR NULL and the
         // matching ELSE TRUE variant returned NULL instead of TRUE. Typing the conditional's
         // NULL markers BOOLEAN makes the projected column BOOLEAN, so the slot (and the
         // markers inside it) survive any later binding; a NULL value stays NULL through any
         // coercion. Same rule the projected NULL literal already follows (see markerPayload).
         //
         // The CASE-only repair left the SAME defect for every other all-NULL conditional: a
-        // projected `IF(k = 0, NULL, NULL)` consumed by OR is replaced the same way, so the
+        // projected IF(k = 0, NULL, NULL) consumed by OR is replaced the same way, so the
         // family is recognised structurally (see producesNullType) instead of by
         // node class.
         boolean projectedConditional = producesNullType(expr)
@@ -1527,12 +1442,12 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
         // A CONTAINER CONSTRUCTOR in a recognized container position builds its container from
         // its ELEMENTS, so an all-NULL element list is exactly what makes the container NullType.
-        // `array(NULL)` is such a constructor: the NULL marker is a CHILD of the constructor, not
-        // the container itself, so the container-position repair that retypes `[NULL]` (whose
-        // marker IS the container) never reached it. `k > 0 OR element_at(array_reverse_sort(
-        // array(NULL)), 1)` therefore froze as `k > _spm_const_var(A) OR NULL`: the chain was
+        // array(NULL) is such a constructor: the NULL marker is a CHILD of the constructor, not
+        // the container itself, so the container-position repair that retypes [NULL] (whose
+        // marker IS the container) never reached it. k > 0 OR element_at(array_reverse_sort(
+        // array(NULL)), 1) therefore froze as k > _spm_const_var(A) OR NULL: the chain was
         // NullType, the Boolean consumer replaced the whole call and every marker inside it,
-        // and the `array(TRUE)` variant had no id left to substitute (round-88 review).
+        // and the array(TRUE) variant had no id left to substitute.
         // Keeping the element markers BOOLEAN makes the constructor ARRAY<BOOLEAN>, which removes
         // the NullType from the chain without changing any value (a NULL is NULL whatever its
         // type).

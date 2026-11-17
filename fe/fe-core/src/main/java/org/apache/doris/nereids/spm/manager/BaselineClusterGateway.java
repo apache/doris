@@ -19,15 +19,7 @@ package org.apache.doris.nereids.spm.manager;
 
 import org.apache.doris.qe.ConnectContext;
 
-/**
- * The cluster-level collaboration of {@link BaselineManager}: the leadership fence of
- * every durable write and the journal synchronization a follower performs after a
- * forwarded GLOBAL DDL.
- *
- * Substituted implementations default to LEADER and a no-op sync (a store-level test
- * double drives its own protocol); the live implementation consults
- * {@code Env#getCurrentEnv} and the master before reporting.
- */
+/** Cluster operations used by baseline management, separated from persistence for testing. */
 public interface BaselineClusterGateway {
 
     /**
@@ -39,10 +31,8 @@ public interface BaselineClusterGateway {
     }
 
     /**
-     * Synchronizes this FE's metadata with the master (the same strong-consistency
-     * mechanism a forwarded DDL and {@code syncJournalIfNeeded} use), so a local read
-     * performed afterwards includes the forwarded GLOBAL DDL the master already
-     * completed. A failure surfaces as a retryable error.
+     * Synchronizes the local FE journal with the master when implemented by the live gateway. Internal-table row
+     * visibility is confirmed separately by baseline persistence reads. The default implementation is a no-op.
      */
     default void syncJournalWithMaster(ConnectContext ctx) {
     }

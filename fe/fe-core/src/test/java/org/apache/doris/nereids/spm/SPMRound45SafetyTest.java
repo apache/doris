@@ -244,10 +244,8 @@ public class SPMRound45SafetyTest {
     }
 
     /**
-     * reserve_time has only SECOND precision: the pending-create lookup must select the
-     * NEWEST identity (highest baseline_id) FIRST, with the tombstone / marker priority applied
-     * within that identity - N's same-second tombstone used to sort before N+1's
-     * reservation, so a retry read the key as resolved and skipped N+1's pending fence.
+     * The highest baseline id wins before timestamp and lifecycle tie-breakers. At equal
+     * id and timestamp, tombstones win, then resolved records, then unconfirmed markers.
      */
     @Test
     public void testPendingLookupOrdersTheNewestIdentityFirst() {
@@ -256,7 +254,7 @@ public class SPMRound45SafetyTest {
         Assertions.assertTrue(orderBy.startsWith(
                         "ORDER BY `baseline_id` DESC, `reserve_time` DESC,"),
                 "the NEWEST identity must win first: " + orderBy);
-        Assertions.assertTrue(orderBy.contains("`dropped` DESC, `unconfirmed` DESC"),
-                "within one identity the tombstone / marker priority stays: " + orderBy);
+        Assertions.assertTrue(orderBy.contains("`dropped` DESC, `unconfirmed` ASC"),
+                "tombstones and resolved records must precede unconfirmed markers: " + orderBy);
     }
 }

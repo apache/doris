@@ -18,23 +18,10 @@
 package org.apache.doris.nereids.spm.matcher;
 
 /**
- * Bounded backtracking over the UNORDERED pairing choices of one Level 3 match.
- *
- * Compound predicates / conjunct multisets are compared by searching a pairing
- * between the bind-side operands (placeholders) and the user-side operands (literals).
- * A pairing that succeeds locally can still break a LATER use of the same placeholder
- * id: capture SELECT (a = 1 OR a = 2) AS c FROM t WHERE a = 1 and match
- * SELECT (a = 3 OR a = 4) AS c FROM t WHERE a = 4 - the projection is visited
- * first and greedy pairing binds the shared id to 3, then the filter needs 4. The
- * transactional rollback inside a single pairing cannot repair a choice made in an
- * EARLIER node.
- *
- * The driver therefore re-runs the whole check a bounded number of times; each
- * unordered choice point records how many options it had, and the retry advances a
- * mixed-radix odometer over those choices, changing the pairing order at the recorded
- * sites. The search is deliberately bounded (both in attempts and in recorded choice
- * points) - a match is a hot-path optimization, and the fallback of a missed pairing is
- * always a missed rewrite, never a wrong one.
+ * Tracks bounded retries of unordered expression pairing during a structural match. The driver reruns the check
+ * with different rotation offsets for up to eight recorded nontrivial choices, using a mixed-radix counter. Nested
+ * checks share the enclosing thread-local attempt. Exhausting the bounded search can miss a usable baseline; the
+ * caller then keeps the original query.
  */
 public final class MatchAttempt {
     /** Upper bound of whole-check passes (the first pass plus the retries). */
@@ -106,7 +93,7 @@ public final class MatchAttempt {
     /**
      * Advances to the next combination of the recorded choices.
      *
-     * @return false when every recorded combination was already tried
+     * Returns: false when every recorded combination was already tried
      */
     public boolean advance() {
         for (int i = Math.min(cursor, MAX_CHOICE_POINTS) - 1; i >= 0; i--) {

@@ -33,26 +33,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * SPMPlaceholderReplacer - placeholder replacer (M2).
- *
- * The core logic of SPMPlanner.replacePlan() in design doc section 6.5. Replaces the
- * placeholders (SpmConstVar / SpmConstList) in planSql with the actual values extracted
- * from the user query:
- *
- * - SpmConstVar -> the user's actual literal
- * - InPredicate(expr, [SpmConstList]) -> the user's actual IN list
- *
- * M2 scope is expression-level replacement (plan-level integration is completed in M3).
+ * Substitutes matched expressions into scalar and IN-list markers, including supported subquery plans. Scalar
+ * replacements are keyed by marker id. A list replacement contributes the user IN options while retaining the
+ * plan-side compare expression.
  */
 public class SPMPlaceholderReplacer extends ExpressionVisitor<Expression, Map<Long, Expression>> {
 
     /**
-     * Replacement entry point.
-     *
-     * @param expr              the planSql-side expression containing placeholders
-     * @param placeholderValues placeholder id -> user actual value (extracted by
-     *                          SPMAstCheckVisitor)
-     * @return the replaced expression (with no placeholders)
+     * Applies available marker replacements. Missing mappings and unsupported child rebuilds can leave original
+     * expressions in the result; this method does not guarantee that every marker is removed.
      */
     public Expression replace(Expression expr, Map<Long, Expression> placeholderValues) {
         return expr.accept(this, placeholderValues);
@@ -60,7 +49,7 @@ public class SPMPlaceholderReplacer extends ExpressionVisitor<Expression, Map<Lo
 
     @Override
     public Expression visit(Expression expr, Map<Long, Expression> placeholderValues) {
-        // ===== scalar placeholder -> user actual value =====
+        // scalar placeholder -> user actual value.
         if (expr instanceof SpmConstVar) {
             SpmConstVar placeholder = (SpmConstVar) expr;
             Expression userValue = placeholderValues.get(placeholder.getId());
@@ -90,7 +79,7 @@ public class SPMPlaceholderReplacer extends ExpressionVisitor<Expression, Map<Lo
         }
     }
 
-    // ==================== subquery substitution ====================
+    // subquery substitution.
 
     @Override
     public Expression visitSubqueryExpr(SubqueryExpr subqueryExpr, Map<Long, Expression> placeholderValues) {
@@ -112,7 +101,7 @@ public class SPMPlaceholderReplacer extends ExpressionVisitor<Expression, Map<Lo
         return rebuilt;
     }
 
-    // ==================== IN predicate special handling ====================
+    // IN predicate special handling.
 
     @Override
     public Expression visitInPredicate(InPredicate inPredicate, Map<Long, Expression> placeholderValues) {

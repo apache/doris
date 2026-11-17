@@ -17,16 +17,11 @@
 
 package org.apache.doris.nereids.spm;
 
-/**
- * BaselineStatus - baseline status enum.
- *
- * Phase 1 uses the simple binary status ENABLED / DISABLED. Phase 3 will extend it to
- * ACCEPTED / FIXED / VERIFYING / REJECTED (the evolution model).
- */
+/** Whether a baseline participates in rewrite matching. */
 public enum BaselineStatus {
     /** Participates in query rewrite matching. */
     ENABLED("ENABLED", true),
-    /** Does not participate in matching (manually disabled). */
+    /** Excluded from rewrite matching. */
     DISABLED("DISABLED", false);
 
     private final String name;
@@ -50,8 +45,8 @@ public enum BaselineStatus {
     /**
      * Parses from a string.
      *
-     * @param name the status name (case-insensitive)
-     * @return the matching enum, or ENABLED by default when unknown
+     * Parameter name: the status name (case-insensitive)
+     * Returns: the matching enum, or ENABLED by default when unknown
      */
     public static BaselineStatus fromString(String name) {
         if (name != null) {

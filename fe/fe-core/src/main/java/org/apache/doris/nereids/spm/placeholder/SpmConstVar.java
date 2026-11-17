@@ -31,29 +31,16 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * SpmConstVar - SPM scalar placeholder function expression.
- *
- * The scalar placeholder function is rendered as _spm_const_var(id, value). During
- * parameterization,
- * SPMPlaceholderBuilder replaces each Literal in the query with SpmConstVar(id, original
- * value). During query rewrite the actual value is extracted from the user query by id
- * and substituted back into the placeholder in planSql.
- *
- * This class is an internal AST node (not a user-callable built-in function): the value
- * is kept as the only child to preserve the original literal used when the baseline was
- * created (only for readability, not part of the semantics).
+ * Scalar marker identified by a builder-assigned id. Its child preserves the captured expression and supplies its
+ * data type during planning. Matching records a replacement under the id; replay replaces the marker with that
+ * expression. AST SQL rendering includes the payload, while frozen SQL rendering emits only the id.
  */
 public class SpmConstVar extends Expression implements UnaryExpression, AlwaysNullable {
 
-    /** Auto-increment placeholder id. */
+    /** Marker id, normally allocated by SPMPlaceholderBuilder. */
     private final long id;
 
-    /**
-     * Constructs a SpmConstVar.
-     *
-     * @param id    placeholder id
-     * @param value the original literal (kept as the child)
-     */
+    /** Constructs a scalar marker with the supplied id and captured payload expression. */
     public SpmConstVar(long id, Expression value) {
         super(value);
         this.id = id;
@@ -70,19 +57,15 @@ public class SpmConstVar extends Expression implements UnaryExpression, AlwaysNu
         return id;
     }
 
-    /** Returns the original placeholder value (the only child). */
+    /** Returns the current captured payload expression. */
     public Expression getValue() {
         return child();
     }
 
     /**
-     * Rebuilds the placeholder with new children. Generic expression walkers (e.g.
-     * OrToIn rebuilding every non-leaf predicate node) invoke withChildren
-     * unconditionally, and the base Expression implementation throws; a placeholder
-     * therefore has to implement the contract like any other expression. The value
-     * child is only a readability payload: an unchanged child returns the same node
-     * (identity preserved), a changed one keeps the placeholder id and updates the
-     * payload.
+     * Requires exactly one payload child. Returns this node when that child is equal to the current payload;
+     * otherwise rebuilds the marker with the same id and the new payload. The payload supplies capture-time type
+     * information.
      */
     @Override
     public Expression withChildren(List<Expression> children) {
@@ -94,37 +77,19 @@ public class SpmConstVar extends Expression implements UnaryExpression, AlwaysNu
         return new SpmConstVar(id, children.get(0));
     }
 
-    /**
-     * The placeholder keeps its original literal as the child, so its data type is the
-     * child's type. A placeholder lives in plan trees during parameterization / matching /
-     * substitution; plan nodes eagerly compute their output (Alias.toSlot etc.) and the
-     * analyzer derives expression types, so the placeholder must expose a real type
-     * instead of falling back to the unbound default.
-     */
+    /** Uses the payload type so capture-time analysis can type expressions containing the marker. */
     @Override
     public DataType getDataType() {
         return child().getDataType();
     }
 
-    /**
-     * A placeholder must never be treated as a foldable expression: while it keeps its
-     * original literal as the child, the placeholder is a marker whose value is replaced
-     * by the user query at rewrite time. Folding (or constant-folding) it during the
-     * baseline CREATE optimization would bake the captured constant into the frozen
-     * plan and break the later value substitution.
-     */
+    /** Prevents constant folding from erasing the marker before replay substitution. */
     @Override
     public boolean foldable() {
         return false;
     }
 
-    /**
-     * A placeholder must never be treated as a constant even though its child is a
-     * literal: constant-collecting / constant-moving rules (FE and BE constant folding,
-     * predicate normalization, partition pruning, ...) would treat it as a plain
-     * constant and fold / move / evaluate it, losing the placeholder marker before the
-     * physical plan is decompiled.
-     */
+    /** Keeps the marker out of rewrites that treat constant expressions as replaceable values. */
     @Override
     public boolean isConstant() {
         return false;
