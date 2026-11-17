@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Verifies the ServiceLoader-based discovery on the paimon classpath: all 4 paimon providers register, and
@@ -147,10 +148,17 @@ public class MetaStoreProvidersDispatchTest {
 
     @Test
     public void providersExposeTheirSensitiveKeys() {
-        // The HMS provider surfaces its sensitive=true keytab keys (for masking when wired in P2-T03);
+        // The paimon connector declares the union on its security surface, so every backend's secrets are
+        // masked whatever paimon.catalog.type a catalog picks. A keytab is a path, not a secret, and
         // FileSystem has no sensitive fields -> empty (pins the default).
-        Assertions.assertTrue(new PaimonHmsMetaStoreProvider().sensitivePropertyKeys()
+        Set<String> keys = MetaStoreProviders.sensitivePropertyKeys();
+        for (String key : new String[] {"paimon.jdbc.password", "jdbc.password", "paimon.rest.dlf.access-key-id",
+                "paimon.rest.dlf.access-key-secret", "dlf.secret_key", "dlf.catalog.securityToken"}) {
+            Assertions.assertTrue(keys.contains(key), key + " missing from " + keys);
+        }
+        Assertions.assertFalse(new PaimonHmsMetaStoreProvider().sensitivePropertyKeys()
                 .contains("hive.metastore.client.keytab"));
+        Assertions.assertFalse(keys.contains("hadoop.kerberos.keytab"), keys.toString());
         Assertions.assertTrue(new PaimonFileSystemMetaStoreProvider().sensitivePropertyKeys().isEmpty());
     }
 }

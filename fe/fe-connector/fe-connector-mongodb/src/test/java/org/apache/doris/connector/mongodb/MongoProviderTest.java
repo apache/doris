@@ -27,6 +27,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 
 class MongoProviderTest {
     @Test
@@ -34,6 +35,9 @@ class MongoProviderTest {
         ConnectorProvider provider = ServiceLoader.load(ConnectorProvider.class).stream()
                 .map(ServiceLoader.Provider::get).filter(p -> "mongodb".equals(p.getType())).findFirst().orElseThrow();
         Assertions.assertEquals(List.of("mongodb.uri"), provider.securitySurface().ssrfEndpointKeys());
+        Assertions.assertEquals(Set.of("mongodb.uri", "mongodb.password"),
+                Set.copyOf(provider.securitySurface().sensitiveKeys()));
+        Assertions.assertTrue(provider.securitySurface().sensitiveKeyPrefixes().isEmpty());
         Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(Map.of()));
         Assertions.assertTrue(MongoConnectorMetadata.TABLE_NAMESPACE.startsWith(provider.getType() + "."));
     }
