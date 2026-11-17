@@ -383,6 +383,44 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         });
     }
 
+    /** Fuses freeze guards while retaining session, subquery, reserved-name error precedence. */
+    private static void rejectUnsupportedExpressions(Plan plan) {
+        Expression[] unsupported = new Expression[2];
+        org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            for (Expression expr : node.getExpressions()) {
+                inspectFreezeExpression(expr, expr, unsupported);
+            }
+        });
+        if (unsupported[0] != null) {
+            throw new UnsupportedOperationException("SPM cannot freeze an expression"
+                    + " carrying a subquery (its SQL has no subquery rendering): " + unsupported[0]);
+        }
+        if (unsupported[1] != null) {
+            throw new UnsupportedOperationException("SPM cannot freeze an expression"
+                    + " that calls the reserved internal name of a subquery marker: " + unsupported[1]);
+        }
+    }
+
+    private static void inspectFreezeExpression(Expression expression, Expression root,
+            Expression[] unsupported) {
+        if (expression instanceof org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr) {
+            throw new UnsupportedOperationException("SPM cannot freeze an expression"
+                    + " carrying a session-variable guard: " + root);
+        }
+        if (unsupported[0] == null
+                && expression instanceof org.apache.doris.nereids.trees.expressions.SubqueryExpr) {
+            unsupported[0] = root;
+        }
+        if (unsupported[1] == null && expression instanceof Function
+                && SPMExprSqlBuilder.INTERNAL_PSEUDO_FUNCTION_NAMES.contains(
+                        ((Function) expression).getName().toLowerCase(java.util.Locale.ROOT))) {
+            unsupported[1] = root;
+        }
+        for (Expression child : expression.children()) {
+            inspectFreezeExpression(child, root, unsupported);
+        }
+    }
+
     private static boolean containsSubqueryExpression(
             org.apache.doris.nereids.trees.expressions.Expression expr) {
         if (expr instanceof org.apache.doris.nereids.trees.expressions.SubqueryExpr) {
@@ -908,13 +946,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // variables and could change its type, scale or value while the same bind SQL
         // still matches. Reject freezing instead (CREATE keeps the user planSql /
         // falls back to the parameterized-plan-tree path).
-        rejectSessionVarGuardedExpressions(plan);
         // A residual SUBQUERY has no SQL rendering here (SPMExprSqlBuilder emits the digest
         // pseudo form, which a user function of the same name could legally satisfy), and SPM's
         // pseudo names are reserved - both are refusals, so the baseline stays on the
         // parameterized-plan-tree path (see rejectSubqueryExpressions).
-        rejectSubqueryExpressions(plan);
-        rejectReservedInternalFunctionNames(plan);
+        rejectUnsupportedExpressions(plan);
         // reset the per-decompile alias / generated-name sequences: t_N and c_N only
         // need to be unique WITHIN the one produced SQL, so numbering restarts here and
         // the decompiled text stays compact across calls

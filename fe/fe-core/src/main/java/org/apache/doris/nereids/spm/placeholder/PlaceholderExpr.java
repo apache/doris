@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -225,6 +226,57 @@ public class PlaceholderExpr {
         }
         return this.childIndex == childIndex
                 && parentSignature(parentExpr).equals(parentSignature(parent));
+    }
+
+    /** Occurrence index key; compare parent signatures only after the cheaper identity fields match. */
+    record MatchKey(Expression expression, Expression parent, int childIndex,
+            long blockId, int projectItem, long rootOrdinal, String occurrencePath,
+            Map<Expression, String> parentSignatures) {
+        @Override
+        public boolean equals(Object other) {
+            if (this == other) {
+                return true;
+            }
+            if (!(other instanceof MatchKey)) {
+                return false;
+            }
+            MatchKey key = (MatchKey) other;
+            if (blockId != key.blockId || projectItem != key.projectItem || rootOrdinal != key.rootOrdinal
+                    || childIndex != key.childIndex || !occurrencePath.equals(key.occurrencePath)
+                    || !expression.equals(key.expression)) {
+                return false;
+            }
+            if (parent == key.parent) {
+                return true;
+            }
+            return parent != null && key.parent != null
+                    && signature().equals(key.signature());
+        }
+
+        private String signature() {
+            return parentSignatures.computeIfAbsent(parent, PlaceholderExpr::parentSignature);
+        }
+
+        @Override
+        public int hashCode() {
+            int hash = expression.hashCode();
+            hash = 31 * hash + childIndex;
+            hash = 31 * hash + Long.hashCode(blockId);
+            hash = 31 * hash + projectItem;
+            hash = 31 * hash + Long.hashCode(rootOrdinal);
+            hash = 31 * hash + occurrencePath.hashCode();
+            // Parent shape participates in equality but not hashing. Different occurrences
+            // already separate independent positions without constructing signature strings.
+            return 31 * hash + (parent == null ? 0 : 1);
+        }
+    }
+
+    static MatchKey matchKey(Expression expression, Expression parent, int childIndex,
+            long blockId, int projectItem, long rootOrdinal, String occurrencePath,
+            Map<Expression, String> parentSignatures) {
+        return new MatchKey(expression, parent, parent == null ? 0 : childIndex,
+                blockId, projectItem, rootOrdinal, occurrencePath == null ? "" : occurrencePath,
+                parentSignatures);
     }
 
     /**

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.trees.expressions.BinaryOperator;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -38,7 +39,6 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -63,7 +63,7 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
 
         public CheckContext(Expression userExpr, Map<Long, Expression> placeholderValues) {
             this.userExpr = userExpr;
-            this.placeholderValues = placeholderValues;
+            this.placeholderValues = PlaceholderBindings.track(placeholderValues);
         }
     }
 
@@ -78,6 +78,38 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
     public boolean checkExpression(Expression bindExpr, Expression userExpr,
             Map<Long, Expression> placeholderValues) {
         return bindExpr.accept(this, new CheckContext(userExpr, placeholderValues));
+    }
+
+    /** Cheap necessary conditions only; keeps the existing unordered search order intact. */
+    public static boolean mayMatch(Expression bind, Expression user) {
+        if (bind instanceof SpmConstVar) {
+            return true;
+        }
+        if (bind instanceof InPredicate ? !(user instanceof InPredicate) : bind.getClass() != user.getClass()) {
+            return false;
+        }
+        if (bind instanceof UnboundFunction) {
+            UnboundFunction left = (UnboundFunction) bind;
+            UnboundFunction right = (UnboundFunction) user;
+            if (!left.getName().equalsIgnoreCase(right.getName())
+                    || left.isDistinct() != right.isDistinct()
+                    || !Objects.equals(left.getDbName(), right.getDbName())) {
+                return false;
+            }
+        }
+        if (bind instanceof SlotReference || bind instanceof UnboundSlot) {
+            return sameSlotName(bind, user);
+        }
+        if ((bind instanceof BinaryOperator && !(bind instanceof CompoundPredicate)
+                || bind instanceof InPredicate) && !bind.children().isEmpty() && !user.children().isEmpty()) {
+            Expression first = bind.child(0);
+            if (first instanceof SlotReference || first instanceof UnboundSlot) {
+                Expression other = user.child(0);
+                return first.getClass() == other.getClass()
+                        && sameSlotName(first, other);
+            }
+        }
+        return true;
     }
 
     @Override
@@ -183,14 +215,17 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
                 int offset = MatchAttempt.offset(remaining.size());
                 for (int i = 0; i < remaining.size(); i++) {
                     int candidate = (offset + i) % remaining.size();
-                    Map<Long, Expression> snapshot = new HashMap<>(context.placeholderValues);
+                    if (!mayMatch(bindChild, remaining.get(candidate))) {
+                        continue;
+                    }
+                    PlaceholderBindings bindings = (PlaceholderBindings) context.placeholderValues;
+                    int checkpoint = bindings.checkpoint();
                     if (checkExpression(bindChild, remaining.get(candidate),
                             context.placeholderValues)) {
                         matched = candidate;
                         break;
                     }
-                    context.placeholderValues.clear();
-                    context.placeholderValues.putAll(snapshot);
+                    bindings.rollback(checkpoint);
                 }
                 if (matched < 0) {
                     return false;
@@ -202,7 +237,7 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
 
         // Column references are compared by name (a = 100 must not match b = 42)
         if (bindExpr instanceof SlotReference || bindExpr instanceof UnboundSlot) {
-            return Objects.equals(slotName(bindExpr), slotName(userExpr));
+            return sameSlotName(bindExpr, userExpr);
         }
 
         // An unparameterized bind literal, such as a LIKE escape character or a star replacement value, must
@@ -225,6 +260,18 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
             }
         }
         return true;
+    }
+
+    private static boolean sameSlotName(Expression left, Expression right) {
+        if (left.getClass() == UnboundSlot.class && right.getClass() == UnboundSlot.class) {
+            List<String> leftParts = ((UnboundSlot) left).getNameParts();
+            List<String> rightParts = ((UnboundSlot) right).getNameParts();
+            if (leftParts.size() == 1 && rightParts.size() == 1) {
+                // Escaping one component is injective; avoid rendering it for each tentative pairing.
+                return leftParts.get(0).equals(rightParts.get(0));
+            }
+        }
+        return Objects.equals(slotName(left), slotName(right));
     }
 
     /**
