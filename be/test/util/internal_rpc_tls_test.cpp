@@ -32,6 +32,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <future>
@@ -318,6 +319,79 @@ TEST_F(InternalRpcTlsTest, BrpcListenerRejectsPlaintextAndMissingOrUntrustedClie
         }
     }
     EXPECT_EQ(service.calls.load(), 1);
+}
+
+// Gtest assertion/exception macros inflate the complexity of this cache failure/recovery matrix.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(InternalRpcTlsTest, BrpcCacheReturnsNullForTlsConfigurationFailuresAndRecovers) {
+    TlsEchoService service;
+    brpc::Server server;
+    ASSERT_EQ(server.AddService(&service, brpc::SERVER_DOESNT_OWN_SERVICE), 0);
+    brpc::ServerOptions server_options;
+    ASSERT_TRUE(rpc_tls::configure_server(&server_options).ok());
+    ASSERT_EQ(server.Start("127.0.0.1:0", &server_options), 0);
+    Defer shutdown {[&] {
+        server.Stop(0);
+        server.Join();
+    }};
+    const std::string endpoint = butil::endpoint2str(server.listen_address()).c_str();
+    auto restore = [&] {
+        for (const std::string name : {"be.pem", "be.key", "ca.pem"}) {
+            std::filesystem::copy_file(path(name), path("brpc-client-" + name),
+                                       std::filesystem::copy_options::overwrite_existing);
+        }
+        config::tls_certificate_path = path("brpc-client-be.pem");
+        config::tls_private_key_path = path("brpc-client-be.key");
+        config::tls_ca_certificate_path = path("brpc-client-ca.pem");
+        config::tls_verify_mode = "verify_fail_if_no_peer_cert";
+    };
+    Defer restore_configuration {restore};
+    auto probe = [](const std::shared_ptr<PBackendService_Stub>& stub) {
+        ASSERT_NE(nullptr, stub);
+        brpc::Controller controller;
+        controller.set_timeout_ms(3000);
+        controller.set_max_retry(0);
+        PExecPlanFragmentRequest request;
+        PExecPlanFragmentResult response;
+        stub->exec_plan_fragment(&controller, &request, &response, nullptr);
+        ASSERT_FALSE(controller.Failed()) << controller.ErrorText();
+        EXPECT_EQ(0, response.status().status_code());
+    };
+    const std::vector<std::pair<std::string, std::function<void()>>> faults {
+            {"missing certificate",
+             [] { EXPECT_TRUE(std::filesystem::remove(path("brpc-client-be.pem"))); }},
+            {"missing key",
+             [] { EXPECT_TRUE(std::filesystem::remove(path("brpc-client-be.key"))); }},
+            {"missing CA",
+             [] { EXPECT_TRUE(std::filesystem::remove(path("brpc-client-ca.pem"))); }},
+            {"unsupported verification", [] { config::tls_verify_mode = "verify_none"; }}};
+    for (const auto& [name, fault] : faults) {
+        SCOPED_TRACE(name);
+        restore();
+        BrpcClientCache<PBackendService_Stub> cache;
+        auto healthy = cache.get_client(endpoint);
+        probe(healthy);
+        fault();
+        // Static identity files need not remain readable for an already authenticated connection.
+        EXPECT_EQ(healthy, cache.get_client(endpoint));
+        probe(healthy);
+        EXPECT_EQ(1, cache.erase(endpoint));
+        healthy.reset();
+        std::shared_ptr<PBackendService_Stub> failed;
+        EXPECT_NO_THROW(failed = cache.get_client(endpoint));
+        EXPECT_EQ(nullptr, failed);
+        EXPECT_EQ(0, cache.size());
+        BrpcClientCache<PBackendService_Stub> fresh;
+        EXPECT_NO_THROW(failed = fresh.get_client(endpoint));
+        EXPECT_EQ(nullptr, failed);
+        EXPECT_EQ(0, fresh.size());
+        EXPECT_NO_THROW(failed = fresh.get_new_client_no_cache(endpoint));
+        EXPECT_EQ(nullptr, failed);
+        EXPECT_EQ(0, fresh.size());
+        restore();
+        probe(cache.get_client(endpoint));
+        probe(fresh.get_client(endpoint));
+    }
 }
 
 TEST_F(InternalRpcTlsTest, ProviderThriftListenerProtectsRealHeartbeatRpc) {

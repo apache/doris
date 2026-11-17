@@ -263,7 +263,10 @@ public:
                                          : client::RpcPurpose::INTERNAL_RPC;
         Status status = client::configure_brpc_channel_options(&options, purpose);
         if (!status.ok()) {
-            throw status;
+            // Worker callers handle nullptr, just as for Init() failures; a thrown Status bypasses
+            // that error path. Provider diagnostics may contain identity input, so keep this generic.
+            LOG(WARNING) << "Failed to configure brpc channel transport";
+            return nullptr;
         }
         if (protocol != "") {
             options.protocol = protocol;
