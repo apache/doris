@@ -26,6 +26,7 @@
 #include <azure/core/diagnostics/logger.hpp>
 #include <azure/core/http/curl_transport.hpp>
 #include <azure/core/io/body_stream.hpp>
+#include <azure/identity/client_secret_credential.hpp>
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_batch.hpp>
 #include <azure/storage/blobs/blob_sas_builder.hpp>
@@ -40,6 +41,7 @@
 #include <iterator>
 #include <mutex>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "cpp/obj-storage/client_bvar.h"
@@ -115,9 +117,9 @@ std::string build_azure_tls_debug_suffix(std::string_view error_message,
 static ObjStorageResponse make_azure_std_exception_response(const std::exception& e,
                                                             const ObjStoragePath& opts,
                                                             std::string_view tls_debug_context) {
-    auto msg = fmt::format("Azure request failed because {}, path msg {}{}", e.what(),
-                           wrap_object_storage_path_msg(opts),
-                           build_azure_tls_debug_suffix(e.what(), tls_debug_context));
+    auto msg =
+            fmt::format("Azure request failed, path msg {}{}", wrap_object_storage_path_msg(opts),
+                        build_azure_tls_debug_suffix(e.what(), tls_debug_context));
     LOG(WARNING) << msg;
     return {.status = ObjStorageStatus {ObjStorageStatus::INTERNAL_ERROR, std::move(msg)},
             .http_code = 0,
@@ -131,12 +133,11 @@ ObjStorageResponse do_azure_client_call(Func f, const ObjStoragePath& opts,
         f();
     } catch (Azure::Core::RequestFailedException& e) {
         doris::record_object_request_failed(static_cast<int>(e.StatusCode));
-        auto msg = fmt::format(
-                "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
-                wrap_object_storage_path_msg(opts),
-                build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
-                                             tls_debug_context));
+        auto msg =
+                fmt::format("Azure request failed, http code {}, path msg {}{}",
+                            static_cast<int>(e.StatusCode), wrap_object_storage_path_msg(opts),
+                            build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
+                                                         tls_debug_context));
         LOG(WARNING) << msg;
         return {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
                                                             std::move(msg)),
@@ -193,9 +194,8 @@ struct AzureBatchDeleter {
                 }
                 doris::record_object_request_failed(static_cast<int>(e.StatusCode));
                 auto msg = fmt::format(
-                        "Azure request failed because {}, error msg {}, http code {}, path msg "
-                        "{}{}",
-                        e.what(), e.Message, static_cast<int>(e.StatusCode),
+                        "Azure request failed, http code {}, path msg {}{}",
+                        static_cast<int>(e.StatusCode),
                         wrap_object_storage_path_msg(with_object_key(_opts, deferred.key)),
                         build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
                                                      _tls_debug_context));
@@ -283,34 +283,80 @@ void initialize_azure_sdk(int log_level) {
 }
 
 ObjStorageClientBuildResult AzureObjStorageClient::create(const AzureObjStorageConfig& config) {
-    const auto& connection = config.connection;
-    BlobClientOptions options;
-    if (connection.max_retries) {
-        options.Retry.MaxRetries = *connection.max_retries;
+    try {
+        if (auto error = config.validate()) {
+            return {.error = std::move(*error)};
+        }
+        const auto& connection = config.connection;
+        BlobClientOptions options;
+        if (connection.max_retries) {
+            options.Retry.MaxRetries = *connection.max_retries;
+        }
+        if (config.retry_too_many_requests) {
+            options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
+        }
+        options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
+        // Legacy Azure clients ignore the S3 connection timeout. In particular, the Thrift
+        // default of 1000ms must not replace the Azure SDK's five-minute connection timeout.
+        if (connection.ca_cert_file) {
+            Azure::Core::Http::CurlTransportOptions curl;
+            curl.CAInfo = *connection.ca_cert_file;
+            options.Transport.Transport =
+                    std::make_shared<Azure::Core::Http::CurlTransport>(std::move(curl));
+        }
+        TEST_SYNC_POINT_CALLBACK("AzureObjStorageClient::client_options", &options);
+        ObjStorageEndpointInfo endpoint {.endpoint = connection.endpoint,
+                                         .tls_debug_context = build_azure_tls_debug_context(
+                                                 connection.ca_cert_file.value_or(""))};
+        // The same service client feeds read, write and batch-delete container clients.
+        // Only SharedKey retains a signing credential for generate_presigned_url().
+        auto result = std::visit(
+                [&]<class C>(const C& credential) -> ObjStorageClientBuildResult {
+                    if constexpr (std::is_same_v<C, AzureSharedKeyConfig>) {
+                        auto key = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(
+                                config.auth.account_name, credential.account_key);
+                        BlobServiceClient service(connection.endpoint, key, std::move(options));
+                        return {.client = std::make_shared<AzureObjStorageClient>(
+                                        std::move(service), std::move(key), std::move(endpoint))};
+                    } else if constexpr (std::is_same_v<C, AzureSasConfig>) {
+                        std::string_view token = credential.token;
+                        if (token.front() == '?') {
+                            token.remove_prefix(1);
+                        }
+                        // Endpoint validation forbids an existing query or fragment. The SDK
+                        // preserves this SAS query in all derived container/blob URLs.
+                        BlobServiceClient service(connection.endpoint + "?" + std::string(token),
+                                                  std::move(options));
+                        return {.client = std::make_shared<AzureObjStorageClient>(
+                                        std::move(service), nullptr, std::move(endpoint))};
+                    } else if constexpr (std::is_same_v<C, AzureClientSecretConfig>) {
+                        Azure::Identity::ClientSecretCredentialOptions identity_options;
+                        if (!credential.authority_host.empty()) {
+                            identity_options.AuthorityHost = credential.authority_host;
+                        }
+                        // OAuth token requests use the blob transport's CA configuration. The
+                        // SDK owns token caching and refresh; blob retry policies stay separate.
+                        identity_options.Transport = options.Transport;
+                        auto identity = std::make_shared<Azure::Identity::ClientSecretCredential>(
+                                credential.tenant_id, credential.client_id,
+                                credential.client_secret, identity_options);
+                        BlobServiceClient service(connection.endpoint, std::move(identity),
+                                                  std::move(options));
+                        return {.client = std::make_shared<AzureObjStorageClient>(
+                                        std::move(service), nullptr, std::move(endpoint))};
+                    }
+                },
+                config.auth.credential);
+        // Constructing the SDK client can cross a short-lived SAS deadline. Keep this
+        // check with the Azure provider, including for callers that bypass the factory.
+        if (auto error = config.validate()) {
+            return {.error = std::move(*error)};
+        }
+        return result;
+    } catch (const std::exception&) {
+        // SDK errors can contain a signed URL or the OAuth request body.
+        return {.error = "failed to construct Azure client"};
     }
-    if (config.retry_too_many_requests) {
-        options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
-    }
-    options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-    // Legacy Azure clients ignore the S3 connection timeout. In particular, the Thrift
-    // default of 1000ms must not replace the Azure SDK's five-minute connection timeout.
-    if (connection.ca_cert_file) {
-        Azure::Core::Http::CurlTransportOptions curl;
-        curl.CAInfo = *connection.ca_cert_file;
-        options.Transport.Transport =
-                std::make_shared<Azure::Core::Http::CurlTransport>(std::move(curl));
-    }
-    TEST_SYNC_POINT_CALLBACK("AzureObjStorageClient::client_options", &options);
-    auto key = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(
-            config.auth.account_name, config.auth.account_key);
-    BlobServiceClient service(connection.endpoint, key, std::move(options));
-    ObjStorageEndpointInfo endpoint {.endpoint = connection.endpoint,
-                                     .tls_debug_context = build_azure_tls_debug_context(
-                                             connection.ca_cert_file.value_or(""))};
-    // Legacy Azure clients ignore request_timeout, including an explicit zero. Keep the SDK's
-    // default operation context instead of converting this setting into a deadline.
-    return {.client = std::make_shared<AzureObjStorageClient>(std::move(service), std::move(key),
-                                                              std::move(endpoint))};
 }
 
 ObjStorageUploadResult AzureObjStorageClient::create_multipart_upload(const ObjStoragePath&) {
@@ -354,10 +400,9 @@ ObjStorageUploadResult AzureObjStorageClient::upload_part(const ObjStoragePath& 
         record_object_request_failed(static_cast<int>(e.StatusCode));
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
-        auto msg = fmt::format(
-                "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
-                wrap_object_storage_path_msg(opts), tls_debug_suffix);
+        auto msg = fmt::format("Azure request failed, http code {}, path msg {}{}",
+                               static_cast<int>(e.StatusCode), wrap_object_storage_path_msg(opts),
+                               tls_debug_suffix);
         LOG(WARNING) << msg;
         // clang-format off
         return {
@@ -416,10 +461,9 @@ ObjStorageHeadResult AzureObjStorageClient::head_object(const ObjStoragePath& op
         record_object_request_failed(static_cast<int>(e.StatusCode));
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
-        auto msg = fmt::format(
-                "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
-                wrap_object_storage_path_msg(opts), tls_debug_suffix);
+        auto msg = fmt::format("Azure request failed, http code {}, path msg {}{}",
+                               static_cast<int>(e.StatusCode), wrap_object_storage_path_msg(opts),
+                               tls_debug_suffix);
         LOG(WARNING) << msg << ", request_id=" << e.RequestId;
         return ObjStorageHeadResult {
                 .resp = {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
@@ -507,23 +551,18 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
         record_object_request_failed(static_cast<int>(e.StatusCode));
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
-        LOG(WARNING) << fmt::format("Azure request failed because {}, url: {}, prefix: {}{}",
-                                    e.what(), container.GetUrl(), request.Prefix.Value(),
-                                    tls_debug_suffix);
+        LOG(WARNING) << fmt::format("Azure list failed, http code {}, path msg {}{}",
+                                    static_cast<int>(e.StatusCode),
+                                    wrap_object_storage_path_msg(opts), tls_debug_suffix);
         return {
-                .resp = {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
-                                                                     e.Message + tls_debug_suffix),
+                .resp = {.status = obj_storage_status_from_http_code(
+                                 static_cast<int>(e.StatusCode),
+                                 "Azure list request failed" + tls_debug_suffix),
                          .http_code = static_cast<int>(e.StatusCode),
                          .request_id = std::move(e.RequestId)},
         };
     } catch (std::exception& e) {
-        LOG(WARNING) << fmt::format("Azure request failed because {}, url: {}, prefix: {}",
-                                    e.what(), container.GetUrl(), request.Prefix.Value());
-        return {
-                .resp = {.status = {ObjStorageStatus::INTERNAL_ERROR, e.what()},
-                         .http_code = 0,
-                         .request_id = ""},
-        };
+        return {.resp = make_azure_std_exception_response(e, opts, _config.tls_debug_context)};
     }
 }
 
@@ -575,10 +614,9 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
         record_object_request_failed(static_cast<int>(e.StatusCode));
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
                 fmt::format("{} {}", e.what(), e.Message), _config.tls_debug_context);
-        auto msg = fmt::format(
-                "Azure request failed because {}, error msg {}, http code {}, path msg {}{}",
-                e.what(), e.Message, static_cast<int>(e.StatusCode),
-                wrap_object_storage_path_msg(opts), tls_debug_suffix);
+        auto msg = fmt::format("Azure request failed, http code {}, path msg {}{}",
+                               static_cast<int>(e.StatusCode), wrap_object_storage_path_msg(opts),
+                               tls_debug_suffix);
         LOG(WARNING) << msg;
         return {
                 .status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
@@ -587,7 +625,7 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
                 .request_id = std::move(e.RequestId),
         };
     } catch (std::exception& e) {
-        auto msg = fmt::format("Azure request failed because {}, path msg {}{}", e.what(),
+        auto msg = fmt::format("Azure request failed, path msg {}{}",
                                wrap_object_storage_path_msg(opts),
                                build_azure_tls_debug_suffix(e.what(), _config.tls_debug_context));
         LOG(WARNING) << msg;

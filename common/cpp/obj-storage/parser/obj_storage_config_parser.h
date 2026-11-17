@@ -29,6 +29,7 @@
 namespace doris {
 
 class TS3StorageParam;
+class TAzureClientConfig;
 
 using ObjStorageProperties = std::map<std::string, std::string>;
 
@@ -72,6 +73,11 @@ public:
     static ObjStorageConfigParseResult<ObjStorageResourceConfig> from_storage_param(
             const TS3StorageParam& param, AwsCredentialImplementation implementation,
             EmptyCredentialsBehavior aws_empty_credentials);
+
+    // Standalone Azure parameter conversion. The caller supplies an endpoint and container;
+    // location resolution and host-specific defaults remain outside the shared parser.
+    static ObjStorageConfigParseResult<ObjStorageResourceConfig> from_azure_client_config(
+            const TAzureClientConfig& config);
 
     // Credentials must already be decrypted by the host's metadata boundary.
     static ObjStorageConfigParseResult<ObjStorageResourceConfig> from_vault(

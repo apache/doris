@@ -42,6 +42,7 @@
 #include <azure/core/context.hpp>
 #include <azure/core/http/transport.hpp>
 #include <azure/core/io/body_stream.hpp>
+#include <azure/core/url.hpp>
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
@@ -92,7 +93,7 @@ using namespace Azure::Storage::Blobs;
 TEST(AzureObjStorageClientOfflineTest, SignsSameKeyForDifferentContainers) {
     AzureObjStorageConfig config;
     config.connection.endpoint = "https://account.blob.core.windows.net";
-    config.auth = {.account_name = "account", .account_key = "dGVzdA=="};
+    config.auth = {.account_name = "account", .credential = AzureSharedKeyConfig {"dGVzdA=="}};
     auto built = AzureObjStorageClient::create(config);
     ASSERT_TRUE(built.client);
     for (std::string container : {"first", "second"}) {
@@ -103,6 +104,49 @@ TEST(AzureObjStorageClientOfflineTest, SignsSameKeyForDifferentContainers) {
         EXPECT_TRUE(built.client->generate_public_presigned_url(target, 60)
                             .starts_with(config.connection.endpoint + "/" + container + "/a%20b?"));
     }
+}
+
+TEST(AzureObjStorageClientOfflineTest, SasReachesDerivedBlobUrlsWithoutPresigning) {
+    for (const std::string& token :
+         {"sig=private-token&se=2099-01-01", "?sig=private-token&se=2099-01-01",
+          "sig=private-token&se=2099-01-01T00%3A00%3A00%2B00%3A00"}) {
+        AzureObjStorageConfig config;
+        config.connection.endpoint = "https://account.blob.core.windows.net";
+        config.auth = {.account_name = "account",
+                       .credential = AzureSasConfig {token, std::nullopt}};
+        const auto expected_query = Azure::Core::Url(config.connection.endpoint + "?" +
+                                                     token.substr(token.front() == '?' ? 1 : 0))
+                                            .GetQueryParameters();
+        auto built = AzureObjStorageClient::create(config);
+        ASSERT_TRUE(built.client) << built.error;
+        auto client = std::static_pointer_cast<AzureObjStorageClient>(built.client);
+        for (const std::string& container : {"first", "second"}) {
+            const auto url = client->_service.GetBlobContainerClient(container)
+                                     .GetBlockBlobClient("a b")
+                                     .GetUrl();
+            EXPECT_TRUE(url.starts_with(config.connection.endpoint + "/" + container + "/a%20b?"));
+            // The SDK reorders query parameters; their full encoded values must survive.
+            EXPECT_EQ(Azure::Core::Url(url).GetQueryParameters(), expected_query);
+            EXPECT_TRUE(client->generate_presigned_url({.bucket = container, .key = "a b"}, 60)
+                                .empty());
+        }
+    }
+}
+
+TEST(AzureObjStorageClientOfflineTest, ClientSecretDoesNotBecomeSharedKey) {
+    AzureObjStorageConfig config;
+    config.connection.endpoint = "https://account.blob.core.windows.net";
+    config.auth = {.account_name = "account",
+                   .credential = AzureClientSecretConfig {.tenant_id = "tenant",
+                                                          .client_id = "client",
+                                                          .client_secret = "private-secret",
+                                                          .authority_host = ""}};
+    auto built = AzureObjStorageClient::create(config);
+    ASSERT_TRUE(built.client) << built.error;
+    auto client = std::static_pointer_cast<AzureObjStorageClient>(built.client);
+    EXPECT_EQ(client->_credential, nullptr);
+    EXPECT_EQ(client->_service.GetUrl(), config.connection.endpoint);
+    EXPECT_TRUE(client->generate_presigned_url({.bucket = "container", .key = "key"}, 60).empty());
 }
 
 namespace {
@@ -145,7 +189,7 @@ TEST(AzureObjStorageClientOfflineTest, RequestTimeoutPreservesDefaultOperationCo
         AzureObjStorageConfig config;
         config.connection.endpoint = "https://account.blob.core.windows.net";
         config.connection.request_timeout = timeout;
-        config.auth = {.account_name = "account", .account_key = "dGVzdA=="};
+        config.auth = {.account_name = "account", .credential = AzureSharedKeyConfig {"dGVzdA=="}};
         auto built = AzureObjStorageClient::create(config);
         ASSERT_TRUE(built.client);
         auto client = std::static_pointer_cast<AzureObjStorageClient>(built.client);
@@ -234,7 +278,7 @@ protected:
         container = std::getenv("AZURE_CONTAINER_NAME");
         AzureObjStorageConfig config;
         config.connection.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName);
-        config.auth = {std::move(accountName), std::move(accountKey)};
+        config.auth = {std::move(accountName), AzureSharedKeyConfig {std::move(accountKey)}};
         auto client_result = ObjStorageClientFactory::instance().create(config);
         ASSERT_NE(client_result.client, nullptr) << client_result.error;
         AzureObjStorageClientTest::obj_storage_client = std::move(client_result.client);
