@@ -1220,9 +1220,9 @@ TEST(ParquetEncryptionTest, EncryptedIndexRangesRejectInvalidOffsetsBeforeIo) {
         auto metadata = context.native_metadata->to_thrift();
         metadata.row_groups[0].columns[0].__set_offset_index_offset(-1);
         auto crypto = context.native_metadata->encryption();
-        context.native_metadata_owner =
+        auto invalid_metadata =
                 std::make_unique<NativeParquetMetadata>(std::move(metadata), 0, crypto);
-        context.native_metadata = context.native_metadata_owner.get();
+        context.native_metadata = invalid_metadata.get();
         const auto reads = file->read_count();
         std::unordered_map<int, NativeParquetPageIndex> pages;
         std::unordered_map<int, tparquet::OffsetIndex> offsets;

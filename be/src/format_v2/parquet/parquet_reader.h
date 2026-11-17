@@ -71,6 +71,7 @@ public:
     Status open(std::shared_ptr<format::FileScanRequest> request) override;
 
     bool supports_scan_request_refresh() const override { return true; }
+    bool uses_predicate_snapshot_digest() const override { return true; }
 
     Status queue_scan_request(std::shared_ptr<format::FileScanRequest> request) override;
 

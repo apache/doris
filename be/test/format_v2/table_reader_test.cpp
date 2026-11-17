@@ -62,6 +62,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/expr/cast.h"
+#include "format_v2/predicate_snapshot.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
@@ -426,6 +427,35 @@ VExprSPtr runtime_filter_wrapper_expr(VExprSPtr impl) {
     node.__set_num_children(1);
     return RuntimeFilterExpr::create_shared(node, std::move(impl), 0, false, /*filter_id=*/1);
 }
+
+class RecordingDigestPredicate final : public VExpr {
+public:
+    RecordingDigestPredicate(size_t* calls, uint64_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _calls(calls), _value(value) {
+        set_node_type(TExprNodeType::FUNCTION_CALL);
+    }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t count,
+                               ColumnPtr& result_column) const override {
+        result_column = ColumnUInt8::create(count, 1);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _name; }
+    uint64_t get_digest(uint64_t seed) const override {
+        ++*_calls;
+        return _value == 0 ? 0 : seed ^ _value;
+    }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        *cloned_expr = std::make_shared<RecordingDigestPredicate>(_calls, _value);
+        return Status::OK();
+    }
+
+private:
+    size_t* _calls;
+    uint64_t _value;
+    const std::string _name = "RecordingDigestPredicate";
+};
 
 class NonDeterministicPartitionPredicate final : public VExpr {
 public:
@@ -1483,6 +1513,7 @@ struct FakeFileReaderState {
     bool stop_during_read = false;
     bool not_found_during_init = false;
     bool physical_split_error = false;
+    bool uses_predicate_snapshot_digest = false;
     int physical_split_count = -1;
     std::vector<int64_t> physical_split_sizes;
     std::vector<int64_t> physical_split_ids;
@@ -1544,6 +1575,9 @@ public:
     }
 
     bool supports_scan_request_refresh() const override { return true; }
+    bool uses_predicate_snapshot_digest() const override {
+        return _state->uses_predicate_snapshot_digest;
+    }
 
     Status queue_scan_request(std::shared_ptr<FileScanRequest> request) override {
         _state->pending_request = std::move(request);
@@ -2162,6 +2196,91 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
+}
+
+TEST(TableReaderTest, PredicateSnapshotDigestIsLazyAndSharedAcrossSplitsAndRefresh) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    std::vector<ColumnDefinition> file_schema {
+            make_file_column(0, "id", std::make_shared<DataTypeInt32>())};
+    std::vector<ColumnDefinition> projected_columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+    set_name_identifiers(&projected_columns);
+    size_t first_calls = 0;
+    const auto recording_conjunct = [&] {
+        auto root = std::make_shared<RecordingDigestPredicate>(&first_calls, 17);
+        root->add_child(table_int32_greater_than_expr(0, 0, 0));
+        return prepared_conjunct(&state, std::move(root));
+    };
+    auto snapshot =
+            std::make_shared<PredicateSnapshot>(VExprContextSPtrs {VExprContext::create_shared(
+                    std::make_shared<RecordingDigestPredicate>(&first_calls, 17))});
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {recording_conjunct()},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .predicate_snapshot = snapshot,
+                            })
+                        .ok());
+    // Nonconsuming readers must not hash even the first payload. Changing the executable clones
+    // at each split must not invalidate the scanner's unchanged semantic snapshot.
+    for (auto format : {FileFormat::CSV, FileFormat::ORC, FileFormat::PARQUET}) {
+        fake_state->uses_predicate_snapshot_digest = format == FileFormat::PARQUET;
+        for (int split = 0; split < 3; ++split) {
+            SplitReadOptions options;
+            options.current_range.__set_path("fake-table-reader-input");
+            options.current_split_format = format;
+            options.conjuncts = VExprContextSPtrs {recording_conjunct()};
+            options.predicate_snapshot = snapshot;
+            ASSERT_TRUE(reader.prepare_split(options).ok());
+            Block block = build_table_block(projected_columns);
+            bool eos = false;
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            EXPECT_EQ(first_calls, format == FileFormat::PARQUET ? 1 : 0);
+        }
+    }
+    const auto first_digest = fake_state->last_request->predicate_snapshot_digest;
+    ASSERT_TRUE(first_digest.has_value());
+    size_t refreshed_calls = 0;
+    auto refreshed_snapshot =
+            std::make_shared<PredicateSnapshot>(VExprContextSPtrs {VExprContext::create_shared(
+                    std::make_shared<RecordingDigestPredicate>(&refreshed_calls, 19))});
+    SplitReadOptions options;
+    options.current_range.__set_path("fake-table-reader-input");
+    ASSERT_TRUE(reader.prepare_split(options).ok());
+    ASSERT_TRUE(reader.refresh_conjuncts(
+                              {prepared_conjunct(&state, table_int32_greater_than_expr(0, 0, 1))},
+                              std::nullopt, true, refreshed_snapshot)
+                        .ok());
+    EXPECT_EQ(refreshed_calls, 0);
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_EQ(refreshed_calls, 1);
+    EXPECT_NE(fake_state->last_request->predicate_snapshot_digest, first_digest);
+    ASSERT_TRUE(reader.refresh_conjuncts(
+                              {prepared_conjunct(&state, table_int32_greater_than_expr(0, 0, 1))},
+                              std::nullopt, true, refreshed_snapshot)
+                        .ok());
+    EXPECT_EQ(refreshed_calls, 1);
+    EXPECT_EQ(first_calls, 1);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, PredicateSnapshotMemoizesUndigestibleResult) {
+    size_t calls = 0;
+    PredicateSnapshot snapshot(
+            {VExprContext::create_shared(std::make_shared<RecordingDigestPredicate>(&calls, 0))});
+    EXPECT_EQ(calls, 0);
+    for (int split = 0; split < 10; ++split) {
+        EXPECT_FALSE(snapshot.digest().has_value());
+    }
+    EXPECT_EQ(calls, 1);
 }
 
 TEST(TableReaderTest, SinglePhysicalSplitReusesPlanningReader) {
@@ -4639,6 +4758,141 @@ TEST(TableReaderTest, ConditionCacheRefinedChildrenPublishOneSourceRangeEntry) {
     ASSERT_NE(handle.get_filter_result(), nullptr);
     EXPECT_EQ(*handle.get_filter_result(), std::vector<bool>({true, true}));
     EXPECT_EQ(handle.get_base_granule(), 0);
+}
+
+TEST(TableReaderTest, ConditionCacheRefinedChildrenAssembleFragmentsOnceInAnyOrder) {
+    constexpr int CHILDREN = 128;
+    constexpr int64_t FILE_SIZE = CHILDREN * 100;
+    constexpr uint64_t DIGEST = 23;
+    for (int order = 0; order < 3; ++order) {
+        ScopedConditionCacheForTest cache;
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        std::vector<ColumnDefinition> file_schema {
+                make_file_column(0, "id", std::make_shared<DataTypeInt32>())};
+        std::vector<ColumnDefinition> projected_columns {
+                make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+        set_name_identifiers(&projected_columns);
+        auto predicate = prepared_conjunct(&state, table_int32_greater_than_expr(0, 0, 0));
+        auto context = std::make_shared<ConditionCacheSplitContext>(CHILDREN);
+        segment_v2::ConditionCache::ExternalCacheKey key(
+                "fragment-input", 17, FILE_SIZE, DIGEST, 0, FILE_SIZE,
+                segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+        std::vector<const std::vector<bool>*> buffers;
+        for (int completed = 0; completed < CHILDREN; ++completed) {
+            // Growing prefixes, growing suffixes, and alternating extremes all need linear
+            // assembly. Two neighboring children overlap in their boundary granule.
+            int child = order == 0 ? completed : CHILDREN - completed - 1;
+            if (order == 2) {
+                child = completed % 2 == 0 ? completed / 2 : CHILDREN - 1 - completed / 2;
+            }
+            auto fake = std::make_shared<FakeFileReaderState>();
+            fake->total_rows = 2 * ConditionCacheContext::GRANULE_SIZE;
+            fake->condition_cache_base_granule = 10 + 2 * child;
+            fake->condition_cache_num_granules = 3;
+            FakeTableReader reader(file_schema, fake);
+            ASSERT_TRUE(reader.init({
+                                            .projected_columns = projected_columns,
+                                            .conjuncts = {predicate},
+                                            .format = FileFormat::PARQUET,
+                                            .scan_params = nullptr,
+                                            .io_ctx = nullptr,
+                                            .runtime_state = &state,
+                                            .scanner_profile = nullptr,
+                                            .condition_cache_digest = DIGEST,
+                                    })
+                                .ok());
+            SplitReadOptions options;
+            options.current_range.__set_path("fragment-input");
+            options.current_range.__set_file_size(FILE_SIZE);
+            options.current_range.__set_modification_time(17);
+            options.current_range.__set_start_offset(100 * child);
+            options.current_range.__set_size(100);
+            options.condition_cache_digest = DIGEST;
+            options.condition_cache_source_range = std::pair<int64_t, int64_t>(0, FILE_SIZE);
+            options.condition_cache_split_context = context;
+            ASSERT_TRUE(reader.prepare_split(options).ok());
+            Block block = build_table_block(projected_columns);
+            bool eos = false;
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            buffers.push_back(fake->condition_cache_ctx->filter_result.get());
+            segment_v2::ConditionCacheHandle handle;
+            EXPECT_EQ(cache.get()->lookup(key, &handle), completed == CHILDREN - 1);
+            if (completed != CHILDREN - 1) {
+                ASSERT_EQ(context->fragments.size(), completed + 1);
+                // No completed bitmap is copied or rewritten while the source is incomplete.
+                for (size_t index = 0; index < buffers.size(); ++index) {
+                    EXPECT_EQ(context->fragments[index]->filter_result.get(), buffers[index]);
+                    EXPECT_EQ(*context->fragments[index]->filter_result,
+                              std::vector<bool>({true, false, false}));
+                }
+            }
+            ASSERT_TRUE(reader.close().ok());
+        }
+        EXPECT_TRUE(context->fragments.empty());
+        segment_v2::ConditionCacheHandle handle;
+        ASSERT_TRUE(cache.get()->lookup(key, &handle));
+        EXPECT_EQ(handle.get_base_granule(), 10);
+        const auto& result = *handle.get_filter_result();
+        ASSERT_EQ(result.size(), 2 * CHILDREN + 1);
+        for (size_t index = 0; index < result.size(); ++index) {
+            EXPECT_EQ(result[index], index < 2 * CHILDREN && index % 2 == 0);
+        }
+    }
+}
+
+TEST(TableReaderTest, ConditionCacheRefinedChildrenRejectMismatchedOrIncompleteFragments) {
+    for (int failure = 0; failure < 3; ++failure) {
+        ScopedConditionCacheForTest cache;
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        std::vector<ColumnDefinition> schema {
+                make_file_column(0, "id", std::make_shared<DataTypeInt32>())};
+        std::vector<ColumnDefinition> columns {
+                make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+        set_name_identifiers(&columns);
+        auto context = std::make_shared<ConditionCacheSplitContext>(2);
+        for (int child = 0; child < 2; ++child) {
+            auto fake = std::make_shared<FakeFileReaderState>();
+            fake->total_rows = ConditionCacheContext::GRANULE_SIZE;
+            fake->condition_cache_base_granule = child;
+            fake->condition_cache_num_granules = 1;
+            fake->eof_with_first_batch = !(child == 1 && failure == 1);
+            fake->stop_during_read = child == 1 && failure == 2;
+            fake->io_ctx = std::make_shared<io::IOContext>();
+            FakeTableReader reader(schema, fake);
+            ASSERT_TRUE(
+                    reader.init({
+                                        .projected_columns = columns,
+                                        .conjuncts = {prepared_conjunct(
+                                                &state, table_int32_greater_than_expr(0, 0, 0))},
+                                        .format = FileFormat::PARQUET,
+                                        .scan_params = nullptr,
+                                        .io_ctx = fake->io_ctx,
+                                        .runtime_state = &state,
+                                        .scanner_profile = nullptr,
+                                        .condition_cache_digest = 23,
+                                })
+                            .ok());
+            SplitReadOptions options;
+            options.current_range.__set_path("incomplete-fragment-input");
+            options.condition_cache_digest = child == 1 && failure == 0 ? 29 : 23;
+            options.condition_cache_source_range = std::pair<int64_t, int64_t>(0, 200);
+            options.condition_cache_split_context = context;
+            ASSERT_TRUE(reader.prepare_split(options).ok());
+            Block block = build_table_block(columns);
+            bool eos = false;
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            ASSERT_TRUE(reader.close().ok());
+        }
+        EXPECT_EQ(context->remaining_children, 0);
+        EXPECT_FALSE(context->valid);
+        for (uint64_t digest : {23, 29}) {
+            segment_v2::ConditionCache::ExternalCacheKey key(
+                    "incomplete-fragment-input", 0, -1, digest, 0, 200,
+                    segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
+            segment_v2::ConditionCacheHandle handle;
+            EXPECT_FALSE(cache.get()->lookup(key, &handle));
+        }
+    }
 }
 
 TEST(TableReaderTest, ConditionCacheSerialEntryIsReusedByRefinedChild) {

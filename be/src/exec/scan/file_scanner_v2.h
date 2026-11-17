@@ -208,7 +208,7 @@ private:
     Status _build_projected_columns(const format::TableReader& table_reader);
     Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
     static format::ColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
-    Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
+    Status _build_table_conjuncts(VExprContextSPtrs* conjuncts);
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
     void _reset_adaptive_batch_size_state();
@@ -241,6 +241,8 @@ private:
     bool _first_scan_range = false;
     bool _has_prepared_split = false;
     int _table_reader_rf_num = 0;
+    int _predicate_snapshot_rf_num = -1;
+    std::shared_ptr<const format::PredicateSnapshot> _predicate_snapshot;
     TFileRangeDesc _current_range;
     FileScanSplit _current_split;
 

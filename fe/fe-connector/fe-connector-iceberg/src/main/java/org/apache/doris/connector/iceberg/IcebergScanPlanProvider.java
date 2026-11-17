@@ -974,7 +974,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
                 IcebergScanRange range = buildRangeForTask(
                         task, table, scanSchema, formatVersion, partitioned, orderedPartitionKeys, zone,
-                        uriNormalizer, plan.targetSplitSize, coarseSplitSize, rewriteScope, rewritableDeleteSupply,
+                        uriNormalizer, plan.targetSplitSize, plan.coarseSplitSize, rewriteScope, rewritableDeleteSupply,
                         scratch);
                 if (range != null) {
                     ranges.add(range);
@@ -3121,10 +3121,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final class SplitPlan implements Closeable {
         private final CloseableIterable<FileScanTask> tasks;
         private final long targetSplitSize;
+        private final long coarseSplitSize;
 
-        SplitPlan(CloseableIterable<FileScanTask> tasks, long targetSplitSize) {
+        SplitPlan(CloseableIterable<FileScanTask> tasks, long targetSplitSize, long coarseSplitSize) {
             this.tasks = tasks;
             this.targetSplitSize = targetSplitSize;
+            this.coarseSplitSize = coarseSplitSize;
         }
 
         @Override
@@ -3164,7 +3166,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (fileSplitSize > 0) {
             // This remains the fallback granularity and weight denominator for ineligible files.
             // Eligible files select the dedicated coarse target for both splitting and weighting.
-            return new SplitPlan(splitFileTasks(scan.planFiles(), fileSplitSize, coarseSplitSize), fileSplitSize);
+            return new SplitPlan(splitFileTasks(scan.planFiles(), fileSplitSize, coarseSplitSize),
+                    fileSplitSize, coarseSplitSize);
         }
         List<FileScanTask> fileScanTasks = new ArrayList<>();
         try (CloseableIterable<FileScanTask> planned = scan.planFiles()) {
@@ -3176,9 +3179,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     + e.getMessage(), e);
         }
         long targetSplitSize = determineTargetFileSplitSize(fileScanTasks, session);
+        // Apply the non-batch count bound after choosing the dedicated target. Otherwise a
+        // 2 GiB file with max_file_split_num=1 would still produce four 512 MiB FE ranges.
+        long boundedCoarseSize = coarseSplitSize > 0
+                ? determineTargetFileSplitSize(fileScanTasks, session, coarseSplitSize) : coarseSplitSize;
         return new SplitPlan(
-                splitFileTasks(CloseableIterable.withNoopClose(fileScanTasks), targetSplitSize, coarseSplitSize),
-                targetSplitSize);
+                splitFileTasks(CloseableIterable.withNoopClose(fileScanTasks), targetSplitSize, boundedCoarseSize),
+                targetSplitSize, boundedCoarseSize);
     }
 
     /**
@@ -3232,9 +3239,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         long targetSplitSize = determineTargetFileSplitSize(tasks, session);
+        long boundedCoarseSize = coarseSplitSize > 0
+                ? determineTargetFileSplitSize(tasks, session, coarseSplitSize) : coarseSplitSize;
         return new SplitPlan(
-                splitFileTasks(CloseableIterable.withNoopClose(tasks), targetSplitSize, coarseSplitSize),
-                targetSplitSize);
+                splitFileTasks(CloseableIterable.withNoopClose(tasks), targetSplitSize, boundedCoarseSize),
+                targetSplitSize, boundedCoarseSize);
     }
 
     /**
@@ -3606,6 +3615,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private long determineTargetFileSplitSize(List<? extends ContentScanTask<?>> tasks,
             ConnectorSession session) {
+        return determineTargetFileSplitSize(tasks, session, -1);
+    }
+
+    private long determineTargetFileSplitSize(List<? extends ContentScanTask<?>> tasks,
+            ConnectorSession session, long coarseSplitSize) {
         long maxInitialSplitSize = sessionLong(session, MAX_INITIAL_FILE_SPLIT_SIZE,
                 DEFAULT_MAX_INITIAL_FILE_SPLIT_SIZE);
         long maxSplitSize = sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
@@ -3620,7 +3634,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 exceedInitialThreshold = true;
             }
         }
-        long result = exceedInitialThreshold ? maxSplitSize : maxInitialSplitSize;
+        long result = coarseSplitSize > 0 ? coarseSplitSize
+                : exceedInitialThreshold ? maxSplitSize : maxInitialSplitSize;
         if (maxFileSplitNum > 0 && total > 0) {
             long minSplitSizeForMaxNum = (total + maxFileSplitNum - 1) / maxFileSplitNum;
             result = Math.max(result, minSplitSizeForMaxNum);

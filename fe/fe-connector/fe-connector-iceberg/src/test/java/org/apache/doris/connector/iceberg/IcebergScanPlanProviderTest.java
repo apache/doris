@@ -212,6 +212,26 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void coarseSizeRetainsMaxFileSplitNumInSdkAndManifestPlans() {
+        long mb = 1024L * 1024L;
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/big.parquet",
+                2048 * mb, null, null)).commit();
+        ConnectorSession session = new FakeScanSession("UTC", Map.of("max_file_split_num", "1"));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList()).coarseSplitSize(512 * mb).build();
+        for (IcebergScanPlanProvider provider : Arrays.asList(
+                new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table)),
+                manifestProvider(manifestCacheProps(), table, new IcebergManifestCache()))) {
+            List<ConnectorScanRange> ranges = provider.planScan(session, request);
+            Assertions.assertEquals(1, ranges.size());
+            Assertions.assertEquals(0, ranges.get(0).getStart());
+            Assertions.assertEquals(2048 * mb, ranges.get(0).getLength());
+            Assertions.assertEquals(2048 * mb, ranges.get(0).getTargetSplitSize());
+        }
+    }
+
+    @Test
     public void scanReuseNamespaceUsesConnectorType() {
         String prefix = new IcebergConnectorProvider().getType() + ".";
         Assertions.assertTrue(IcebergScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));

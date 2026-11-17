@@ -53,6 +53,7 @@
 #include "format_v2/json/json_reader.h"
 #include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
+#include "format_v2/predicate_snapshot.h"
 #include "format_v2/table/schema_history_util.h" // get_field_ptr
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
@@ -81,19 +82,6 @@ std::optional<std::string> TableReader::_get_int96_timezone_override(
 }
 
 namespace {
-
-std::optional<uint64_t> build_predicate_snapshot_digest(const VExprContextSPtrs& conjuncts) {
-    // Adaptive state must remain independent of the optional Condition Cache seed. A zero result
-    // means an expression cannot provide a stable semantic digest, so sharing is disabled.
-    uint64_t digest = 0xcbf29ce484222325ULL;
-    for (const auto& conjunct : conjuncts) {
-        digest = conjunct->get_digest(digest);
-        if (digest == 0) {
-            return std::nullopt;
-        }
-    }
-    return digest;
-}
 
 void extend_format_split_id_range(PhysicalFileSplit* destination, const PhysicalFileSplit& source) {
     DORIS_CHECK(destination != nullptr);
@@ -1084,7 +1072,9 @@ Status TableReader::init(TableReadOptions&& options) {
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
     _conjuncts = std::move(options.conjuncts);
-    _predicate_snapshot_digest = build_predicate_snapshot_digest(_conjuncts);
+    _predicate_snapshot = options.predicate_snapshot != nullptr
+                                  ? options.predicate_snapshot
+                                  : std::make_shared<PredicateSnapshot>(_conjuncts);
     return Status::OK();
 }
 
@@ -1175,13 +1165,23 @@ bool same_physical_scan_layout(const FileScanRequest& lhs, const FileScanRequest
 
 } // namespace
 
-Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
-                                      std::optional<uint64_t> condition_cache_digest,
-                                      bool all_runtime_filters_applied) {
+std::optional<uint64_t> TableReader::_current_predicate_snapshot_digest() const {
+    // CSV, ORC and JNI never consume adaptive predicate keys. In particular, preparing 10,000
+    // CSV files must not hash the same multi-MiB Bloom filter 10,000 times.
+    return _data_reader.reader->uses_predicate_snapshot_digest() ? _predicate_snapshot->digest()
+                                                                 : std::nullopt;
+}
+
+Status TableReader::refresh_conjuncts(
+        VExprContextSPtrs conjuncts, std::optional<uint64_t> condition_cache_digest,
+        bool all_runtime_filters_applied,
+        std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot) {
     SCOPED_TIMER(_profile.total_timer);
     SCOPED_TIMER(_profile.refresh_conjuncts_timer);
     _conjuncts = std::move(conjuncts);
-    _predicate_snapshot_digest = build_predicate_snapshot_digest(_conjuncts);
+    _predicate_snapshot = predicate_snapshot != nullptr
+                                  ? std::move(predicate_snapshot)
+                                  : std::make_shared<PredicateSnapshot>(_conjuncts);
     // A prepared footer result belongs to the prior immutable predicate snapshot. Discard it
     // before a refresh can make the planning reader resume ordinary row production.
     _metadata_aggregate_result.reset();
@@ -1220,7 +1220,7 @@ Status TableReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
             _file_scan_request == nullptr ? nullptr
                                           : &_file_scan_request->non_predicate_positions));
     refreshed_request->row_ids = _row_ids;
-    refreshed_request->predicate_snapshot_digest = _predicate_snapshot_digest;
+    refreshed_request->predicate_snapshot_digest = _current_predicate_snapshot_digest();
     // A refresh does not prove that every future runtime filter has arrived. Keep carrier values
     // available whenever the split started with pending filters.
     if (_push_down_agg_type == TPushAggOp::type::COUNT && _push_down_count_columns.has_value() &&
@@ -1384,8 +1384,7 @@ void TableReader::_finalize_reader_condition_cache() {
         const bool cache_hit = _condition_cache_ctx != nullptr && _condition_cache_ctx->is_hit;
         const bool complete_miss = _condition_cache_initialized &&
                                    !_condition_cache_split_invalid && _current_reader_reached_eof;
-        std::shared_ptr<std::vector<bool>> published_filter;
-        int64_t published_base_granule = 0;
+        std::vector<std::shared_ptr<ConditionCacheContext>> completed_fragments;
         {
             std::scoped_lock lock(_condition_cache_split_context->lock);
             auto& split_context = *_condition_cache_split_context;
@@ -1407,54 +1406,46 @@ void TableReader::_finalize_reader_condition_cache() {
                 split_context.valid = false;
             } else if (_condition_cache_ctx != nullptr && _condition_cache != nullptr) {
                 DORIS_CHECK(_condition_cache_ctx->num_granules <= _condition_cache->size());
-                const int64_t local_base = _condition_cache_ctx->base_granule;
-                const size_t local_size = _condition_cache_ctx->num_granules;
-                if (split_context.merged_filter_result.empty()) {
-                    split_context.base_granule = local_base;
-                    split_context.merged_filter_result.assign(local_size, false);
-                } else {
-                    const int64_t merged_end =
-                            split_context.base_granule +
-                            cast_set<int64_t>(split_context.merged_filter_result.size());
-                    const int64_t local_end = local_base + cast_set<int64_t>(local_size);
-                    const int64_t combined_base = std::min(split_context.base_granule, local_base);
-                    const int64_t combined_end = std::max(merged_end, local_end);
-                    if (combined_base != split_context.base_granule || combined_end != merged_end) {
-                        std::vector<bool> combined(cast_set<size_t>(combined_end - combined_base),
-                                                   false);
-                        for (size_t index = 0; index < split_context.merged_filter_result.size();
-                             ++index) {
-                            combined[cast_set<size_t>(split_context.base_granule - combined_base) +
-                                     index] = split_context.merged_filter_result[index];
-                        }
-                        split_context.base_granule = combined_base;
-                        split_context.merged_filter_result = std::move(combined);
-                    }
-                }
-                for (size_t index = 0; index < local_size; ++index) {
-                    const auto merged_index =
-                            cast_set<size_t>(local_base - split_context.base_granule) + index;
-                    split_context.merged_filter_result[merged_index] =
-                            split_context.merged_filter_result[merged_index] ||
-                            (*_condition_cache)[index];
-                }
+                // A child owns its MISS bitmap through EOF. Transfer that owner in O(1) instead
+                // of reallocating/copying the source prefix for every consecutive row group.
+                split_context.fragments.push_back(std::move(_condition_cache_ctx));
             }
 
             DORIS_CHECK(split_context.remaining_children > 0);
             --split_context.remaining_children;
             if (split_context.remaining_children == 0 && split_context.valid &&
-                !split_context.cache_hit_seen && !split_context.merged_filter_result.empty()) {
+                !split_context.cache_hit_seen && !split_context.fragments.empty()) {
                 // A source-level entry is visible only after every physical child reaches EOF;
                 // publishing an earlier partial MISS would let a sibling HIT skip valid rows.
-                published_base_granule = split_context.base_granule;
-                published_filter = std::make_shared<std::vector<bool>>(
-                        std::move(split_context.merged_filter_result));
+                completed_fragments = std::move(split_context.fragments);
             }
         }
-        if (published_filter != nullptr) {
-            if (auto* cache = segment_v2::ConditionCache::instance(); cache != nullptr) {
-                cache->insert(_condition_cache_key, std::move(published_filter),
-                              published_base_granule);
+        if (!completed_fragments.empty()) {
+            // Only the final child owns these immutable fragments now. Allocate the full span
+            // once and OR every child bit once, outside the coordinator lock. Adjacent row groups
+            // may share a granule, so concatenation alone would lose surviving rows.
+            int64_t base_granule = completed_fragments.front()->base_granule;
+            int64_t end_granule = base_granule;
+            for (const auto& fragment : completed_fragments) {
+                base_granule = std::min(base_granule, fragment->base_granule);
+                end_granule =
+                        std::max(end_granule, fragment->base_granule +
+                                                      cast_set<int64_t>(fragment->num_granules));
+            }
+            auto published_filter = std::make_shared<std::vector<bool>>(
+                    cast_set<size_t>(end_granule - base_granule), false);
+            for (const auto& fragment : completed_fragments) {
+                const auto offset = cast_set<size_t>(fragment->base_granule - base_granule);
+                for (size_t index = 0; index < fragment->num_granules; ++index) {
+                    (*published_filter)[offset + index] = (*published_filter)[offset + index] ||
+                                                          (*fragment->filter_result)[index];
+                }
+            }
+            // Zero authoritative granules must not create an empty source-level cache entry.
+            if (!published_filter->empty()) {
+                if (auto* cache = segment_v2::ConditionCache::instance(); cache != nullptr) {
+                    cache->insert(_condition_cache_key, std::move(published_filter), base_granule);
+                }
             }
         }
         _condition_cache = nullptr;
@@ -1642,7 +1633,9 @@ Status TableReader::prepare_split(const SplitReadOptions& options) {
     }
     if (options.conjuncts.has_value()) {
         _conjuncts = *options.conjuncts;
-        _predicate_snapshot_digest = build_predicate_snapshot_digest(_conjuncts);
+        _predicate_snapshot = options.predicate_snapshot != nullptr
+                                      ? options.predicate_snapshot
+                                      : std::make_shared<PredicateSnapshot>(_conjuncts);
     }
     // Update to current split format to handle ORC/PARQUET files in one table.
     _format = options.current_split_format;

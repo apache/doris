@@ -375,6 +375,7 @@ Status FlussUnionLakeReader::init(format::TableReadOptions&& options) {
             // and it would do so without ever producing a block to suppress them from.
             .push_down_agg_type = TPushAggOp::type::NONE,
             .condition_cache_digest = _condition_cache_digest,
+            .predicate_snapshot = _predicate_snapshot,
     }));
     if (_batch_size > 0) {
         _lake_reader->set_batch_size(_batch_size);
@@ -482,18 +483,21 @@ Status FlussUnionLakeReader::prepare_split(const format::SplitReadOptions& optio
     return _prepare_suppression(options);
 }
 
-Status FlussUnionLakeReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
-                                               std::optional<uint64_t> condition_cache_digest,
-                                               bool all_runtime_filters_applied) {
+Status FlussUnionLakeReader::refresh_conjuncts(
+        VExprContextSPtrs conjuncts, std::optional<uint64_t> condition_cache_digest,
+        bool all_runtime_filters_applied,
+        std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot) {
     RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(
-            std::move(conjuncts), condition_cache_digest, all_runtime_filters_applied));
+            std::move(conjuncts), condition_cache_digest, all_runtime_filters_applied,
+            predicate_snapshot));
     if (_lake_reader == nullptr) {
         return Status::OK();
     }
     VExprContextSPtrs child_conjuncts;
     RETURN_IF_ERROR(_clone_conjuncts(&child_conjuncts));
     return _lake_reader->refresh_conjuncts(std::move(child_conjuncts), condition_cache_digest,
-                                           all_runtime_filters_applied);
+                                           all_runtime_filters_applied,
+                                           std::move(predicate_snapshot));
 }
 
 Status FlussUnionLakeReader::_prepare_suppression(const format::SplitReadOptions& options) {

@@ -57,6 +57,7 @@
 #include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/expr/cast.h"
 #include "format_v2/file_scan_context.h"
+#include "format_v2/predicate_snapshot.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
 #include "storage/id_manager.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -182,7 +183,8 @@ public:
 class ErrorContextTableReader final : public format::TableReader {
 public:
     Status prepare_split(const format::SplitReadOptions&) override { return prepare_status; }
-    Status refresh_conjuncts(VExprContextSPtrs, std::optional<uint64_t>, bool) override {
+    Status refresh_conjuncts(VExprContextSPtrs, std::optional<uint64_t>, bool,
+                             std::shared_ptr<const format::PredicateSnapshot>) override {
         return refresh_status;
     }
     Status get_block(Block*, bool* eof) override {
@@ -231,11 +233,29 @@ TEST(FileScannerV2Test, ReaderErrorsRetainCurrentPathAndOrcContext) {
 TEST(FileScannerV2Test, RefreshErrorsRetainCurrentPath) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     RuntimeProfile profile("refresh_error_context");
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    thrift_descriptors.tupleDescriptors.push_back(tuple);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan;
+    plan.__set_node_id(0);
+    plan.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+    plan.__set_limit(-1);
+    plan.__set_row_tuples({0});
+    TFileScanNode scan;
+    scan.__set_tuple_id(0);
+    plan.__set_file_scan_node(scan);
+    FileScanOperatorX parent(&pool, plan, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
     TFileScanRangeParams params;
     auto reader = std::make_unique<ErrorContextTableReader>();
     reader->refresh_status = Status::InvalidArgument("injected refresh failure");
     FileScannerV2 scanner(&state, &profile, std::move(reader));
     scanner._params = &params;
+    scanner._local_state = &local_state;
     scanner._has_prepared_split = true;
     scanner._applied_rf_num = 1;
     scanner._current_range.__set_path("s3://test-bucket/refresh.parquet");
@@ -491,6 +511,33 @@ TEST(FileScannerV2Test, ConditionCacheDigestIncludesRuntimeFilterPayload) {
     EXPECT_EQ(digest(seed,
                      runtime_filter_context(std::make_shared<UndigestibleRuntimePredicate>(), 4)),
               0);
+}
+
+TEST(FileScannerV2Test, PredicateSnapshotSurvivesSplitsAndChangesOnLateRuntimeFilters) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("predicate_snapshot");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._is_load = false;
+    scanner._slot_id_to_global_index.emplace(1, format::GlobalIndex(0));
+    scanner._conjuncts = {int_in_runtime_filter({7, 9}, 1)};
+    scanner._applied_rf_num = 1;
+    VExprContextSPtrs conjuncts;
+    ASSERT_TRUE(scanner._build_table_conjuncts(&conjuncts).ok());
+    const auto first = scanner._predicate_snapshot;
+    ASSERT_NE(first, nullptr);
+    const auto digest = first->digest();
+    ASSERT_TRUE(digest.has_value());
+    for (int split = 0; split < 10; ++split) {
+        ASSERT_TRUE(scanner._build_table_conjuncts(&conjuncts).ok());
+        EXPECT_EQ(scanner._predicate_snapshot, first);
+        EXPECT_EQ(scanner._predicate_snapshot->digest(), digest);
+    }
+    scanner._conjuncts.push_back(int_minmax_runtime_filter(10, 2));
+    scanner._applied_rf_num = 2;
+    ASSERT_TRUE(scanner._build_table_conjuncts(&conjuncts).ok());
+    EXPECT_NE(scanner._predicate_snapshot, first);
+    EXPECT_NE(scanner._predicate_snapshot->digest(), digest);
+    EXPECT_EQ(first->digest(), digest);
 }
 
 TEST(FileScannerV2Test, RemoteSplitSourceStopsLocallyWithoutQueryCancellation) {

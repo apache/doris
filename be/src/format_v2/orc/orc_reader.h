@@ -83,6 +83,10 @@ public:
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
     Status get_aggregate_result(const format::FileAggregateRequest& request,
                                 format::FileAggregateResult* result) override;
+    Status get_metadata_aggregate_result(const format::FileAggregateRequest& request,
+                                         format::FileAggregateResult* result) override {
+        return get_aggregate_result(request, result);
+    }
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
     int64_t get_total_rows() const override;
     Status close() override;

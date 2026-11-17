@@ -4071,6 +4071,13 @@ public class PaimonScanPlanProviderTest {
             Assertions.assertEquals(fileLength * 2, coarse.get(0).getTargetSplitSize());
             Assertions.assertTrue(coarse.get(0).supportsBeSplitRefinement());
 
+            ConnectorSession cappedSession = sessionWithProps(Map.of("max_file_split_num", "1"));
+            List<ConnectorScanRange> capped = provider.planScan(cappedSession,
+                    ConnectorScanRequest.builder(handle, noColumns).coarseSplitSize(splitSize).build());
+            Assertions.assertEquals(1, capped.size(), "the count bound must survive coarse target selection");
+            Assertions.assertEquals(0, capped.get(0).getStart());
+            Assertions.assertEquals(fileLength, capped.get(0).getLength());
+
             // Contrast: with the default (large) split size the small file stays a SINGLE native range.
             List<ConnectorScanRange> whole = provider.planScan(sessionWithProps(Collections.emptyMap()),
                     ConnectorScanRequest.builder(handle, noColumns)

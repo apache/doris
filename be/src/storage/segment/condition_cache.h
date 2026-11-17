@@ -65,8 +65,9 @@ struct ConditionCacheSplitContext {
     bool valid = true;
     bool cache_hit_seen = false;
     std::optional<std::string> encoded_key;
-    int64_t base_granule = 0;
-    std::vector<bool> merged_filter_result;
+    // Keep completed child bitmaps without copying their growing prefix. The last child takes
+    // ownership and assembles their union once, after releasing lock.
+    std::vector<std::shared_ptr<ConditionCacheContext>> fragments;
 };
 
 namespace segment_v2 {

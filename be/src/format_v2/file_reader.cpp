@@ -19,7 +19,9 @@
 
 #include <sstream>
 
+#include "exprs/vexpr_context.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/predicate_snapshot.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/runtime_state.h"
@@ -42,6 +44,22 @@ std::string join_debug_strings(const std::vector<T>& values, Formatter formatter
 }
 
 } // namespace
+
+std::optional<uint64_t> PredicateSnapshot::digest() const {
+    std::call_once(_digest_once, [this] {
+        // Independent of the optional Condition Cache seed; zero disables adaptive sharing for
+        // predicates whose full semantics cannot be represented. Cache that outcome as well.
+        uint64_t digest = 0xcbf29ce484222325ULL;
+        for (const auto& conjunct : _conjuncts) {
+            digest = conjunct->get_digest(digest);
+            if (digest == 0) {
+                return;
+            }
+        }
+        _digest = digest;
+    });
+    return _digest;
+}
 
 std::string FileScanRequest::debug_string() const {
     std::ostringstream out;

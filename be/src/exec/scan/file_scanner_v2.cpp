@@ -59,6 +59,7 @@
 #include "format_v2/jni/jdbc_reader.h"
 #include "format_v2/jni/max_compute_jni_reader.h"
 #include "format_v2/jni/trino_connector_jni_reader.h"
+#include "format_v2/predicate_snapshot.h"
 #include "format_v2/table/adbc_reader.h"
 #include "format_v2/table/es_reader.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
@@ -90,9 +91,6 @@ const std::string FileScannerV2::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScannerV2::FileReadTimeProfile = "FileReadTime";
 
 namespace {
-
-constexpr int kIcebergPositionDeleteContent = 1;
-constexpr int kIcebergDeletionVectorContent = 3;
 
 std::string table_format_name(const TFileRangeDesc& range);
 
@@ -444,9 +442,9 @@ Status FileScannerV2::_get_block_wrapped(RuntimeState* state, Block* block, bool
             if (_table_reader_rf_num != _applied_rf_num) {
                 VExprContextSPtrs refreshed_conjuncts;
                 RETURN_IF_ERROR(_build_table_conjuncts(&refreshed_conjuncts));
-                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(std::move(refreshed_conjuncts),
-                                                                 _current_condition_cache_digest(),
-                                                                 _applied_rf_num == _total_rf_num));
+                RETURN_IF_ERROR(_table_reader->refresh_conjuncts(
+                        std::move(refreshed_conjuncts), _current_condition_cache_digest(),
+                        _applied_rf_num == _total_rf_num, _predicate_snapshot));
                 _table_reader_rf_num = _applied_rf_num;
             }
             if (_should_run_adaptive_batch_size()) {
@@ -659,6 +657,7 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
             .push_down_count_columns = std::move(push_down_count_columns),
             .condition_cache_digest =
                     _local_state != nullptr ? _local_state->get_condition_cache_digest() : 0,
+            .predicate_snapshot = _predicate_snapshot,
     }));
     return Status::OK();
 }
@@ -841,6 +840,7 @@ Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range,
             .global_rowid_context =
                     _create_global_rowid_context(_current_split.source_identity_range()),
             .row_ids = std::nullopt,
+            .predicate_snapshot = _predicate_snapshot,
     }));
     return Status::OK();
 }
@@ -1075,7 +1075,7 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
     return column;
 }
 
-Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const {
+Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) {
     DORIS_CHECK(conjuncts != nullptr);
     conjuncts->clear();
     if (_is_load) {
@@ -1087,6 +1087,12 @@ Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const
         RETURN_IF_ERROR(format::clone_table_expr_tree(conjunct->root(), &root));
         RETURN_IF_ERROR(rewrite_slot_refs_to_global_index(&root, _slot_id_to_global_index));
         conjuncts->push_back(VExprContext::create_shared(std::move(root)));
+    }
+    // Ready RF payloads are immutable; only a new arrival replaces Scanner's conjunct set.
+    // Keep one lazy key across source/physical splits, including transitions between formats.
+    if (_predicate_snapshot_rf_num != _applied_rf_num) {
+        _predicate_snapshot = std::make_shared<format::PredicateSnapshot>(*conjuncts);
+        _predicate_snapshot_rf_num = _applied_rf_num;
     }
     return Status::OK();
 }

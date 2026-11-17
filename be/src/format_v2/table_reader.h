@@ -82,6 +82,7 @@ class ParquetProfileCache;
 }
 
 using DeleteRows = std::vector<int64_t>;
+class PredicateSnapshot;
 
 // Row-level predicates on table/global schema. They are rewritten to file-local expressions when
 // possible, and remain the source of row-level filtering after localization.
@@ -171,6 +172,9 @@ struct TableReadOptions {
     // with SplitReadOptions::condition_cache_digest after collecting late-arrival runtime filters.
     // A zero digest disables condition cache.
     uint64_t condition_cache_digest = 0;
+    // Scanner-owned immutable semantics, shared across executable clones and physical splits.
+    // Standalone callers may omit it; only readers opting into adaptive sharing request its key.
+    std::shared_ptr<const PredicateSnapshot> predicate_snapshot = nullptr;
 };
 
 struct SplitReadOptions {
@@ -206,6 +210,8 @@ struct SplitReadOptions {
     // Optional absolute file-row selection used by TopN two-phase materialization. TableReader
     // carries it unchanged into the format-neutral FileScanRequest.
     std::optional<std::vector<int64_t>> row_ids = std::nullopt;
+    // Must describe conjuncts above. A late RF replaces this owner rather than mutating its key.
+    std::shared_ptr<const PredicateSnapshot> predicate_snapshot = nullptr;
 };
 
 // Base class for table-level readers.
@@ -254,9 +260,11 @@ public:
     // this operation decide the safe boundary at which the new immutable request becomes active.
     // A supplied digest describes this exact conjunct snapshot for condition-cache isolation. RF
     // completeness is monotonic within one split and enables safe COUNT(*) placeholder elision.
-    virtual Status refresh_conjuncts(VExprContextSPtrs conjuncts,
-                                     std::optional<uint64_t> condition_cache_digest = std::nullopt,
-                                     bool all_runtime_filters_applied = false);
+    virtual Status refresh_conjuncts(
+            VExprContextSPtrs conjuncts,
+            std::optional<uint64_t> condition_cache_digest = std::nullopt,
+            bool all_runtime_filters_applied = false,
+            std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot = nullptr);
 
     virtual bool current_split_pruned() const { return _current_split_pruned; }
     virtual bool current_split_uses_metadata_count() const {
@@ -486,7 +494,7 @@ protected:
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
                 _table_filters, _projected_columns, file_request.get(), _runtime_state));
         file_request->row_ids = _row_ids;
-        file_request->predicate_snapshot_digest = _predicate_snapshot_digest;
+        file_request->predicate_snapshot_digest = _current_predicate_snapshot_digest();
         _constant_pruning_safe_filter_count =
                 std::min(_constant_pruning_safe_filter_count,
                          file_request->constant_pruning_safe_table_filter_count);
@@ -582,6 +590,7 @@ protected:
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
     void _finalize_reader_condition_cache();
+    std::optional<uint64_t> _current_predicate_snapshot_digest() const;
     // The condition cache key covers the file identity plus the table-level predicate/session
     // digest only. A table format whose file-column binding can change without changing that digest
     // (Iceberg's positional fallback resolves an ID-less file by physical ordinals) must override
@@ -2296,7 +2305,7 @@ protected:
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
     std::optional<std::vector<GlobalIndex>> _push_down_count_columns;
-    std::optional<uint64_t> _predicate_snapshot_digest;
+    std::shared_ptr<const PredicateSnapshot> _predicate_snapshot;
     size_t _batch_size = 0;
     uint64_t _initial_condition_cache_digest = 0;
     uint64_t _condition_cache_digest = 0;

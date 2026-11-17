@@ -966,6 +966,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // FIX-NATIVE-SUBSPLIT: target file split size for native ORC/Parquet sub-splitting, computed
         // lazily ONCE on the first native split (legacy hasDeterminedTargetFileSplitSize parity).
         long targetSplitSize = -1;
+        long coarseTargetSplitSize = -1;
 
         Set<Long> physicalVariantSchemaIds = hasVariantProjection
                 ? physicalVariantSchemaIds(table, paimonHandle, rowType, columns, dataSplits)
@@ -1060,10 +1061,15 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     long nativeCoarseSize = coarseSplitSizeForRawFile(file.path(), defaultFileFormat,
                             countPushdown ? -1 : coarseSplitSize);
                     if (!countPushdown && nativeCoarseSize <= 0 && targetSplitSize < 0) {
-                        targetSplitSize = resolveTargetSplitSize(session, dataSplits);
+                        targetSplitSize = resolveTargetSplitSize(session, dataSplits, -1);
+                    }
+                    // A small coarse target must not bypass max_file_split_num and expand one
+                    // large native file into an unbounded list of FE ranges.
+                    if (!countPushdown && nativeCoarseSize > 0 && coarseTargetSplitSize < 0) {
+                        coarseTargetSplitSize = resolveTargetSplitSize(session, dataSplits, nativeCoarseSize);
                     }
                     long effectiveSplitSize = countPushdown ? 0L
-                            : nativeCoarseSize > 0 ? nativeCoarseSize : targetSplitSize;
+                            : nativeCoarseSize > 0 ? coarseTargetSplitSize : targetSplitSize;
                     long nativeWeightTarget = nativeCoarseSize > 0 ? nativeCoarseSize : weightDenominator;
                     DeletionFile deletionFile =
                             (optDeletionFiles.isPresent() && i < optDeletionFiles.get().size())
@@ -2060,7 +2066,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * once-per-scan computation (summing every {@code supportNativeReader}-eligible RawFile, like
      * {@code PaimonScanNode.java:552-564}).
      */
-    private long resolveTargetSplitSize(ConnectorSession session, List<DataSplit> dataSplits) {
+    private long resolveTargetSplitSize(ConnectorSession session, List<DataSplit> dataSplits, long coarseSplitSize) {
         long totalNativeFileSize = 0;
         for (DataSplit dataSplit : dataSplits) {
             Optional<List<RawFile>> rawFiles = dataSplit.convertToRawFiles();
@@ -2071,12 +2077,19 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 totalNativeFileSize += file.fileSize();
             }
         }
+        long maxFileSplitNum = sessionLong(session, MAX_FILE_SPLIT_NUM, DEFAULT_MAX_FILE_SPLIT_NUM);
+        if (coarseSplitSize > 0) {
+            // The dedicated target replaces file_split_size, but keeps the count-derived bound.
+            return maxFileSplitNum > 0 && totalNativeFileSize > 0
+                    ? Math.max(coarseSplitSize, (totalNativeFileSize + maxFileSplitNum - 1L) / maxFileSplitNum)
+                    : coarseSplitSize;
+        }
         return determineTargetSplitSize(
                 sessionLong(session, FILE_SPLIT_SIZE, 0L),
                 sessionLong(session, MAX_INITIAL_FILE_SPLIT_SIZE, DEFAULT_MAX_INITIAL_FILE_SPLIT_SIZE),
                 sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE),
                 sessionLong(session, MAX_INITIAL_FILE_SPLIT_NUM, DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM),
-                sessionLong(session, MAX_FILE_SPLIT_NUM, DEFAULT_MAX_FILE_SPLIT_NUM),
+                maxFileSplitNum,
                 totalNativeFileSize);
     }
 

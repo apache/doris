@@ -450,6 +450,10 @@ public:
     // granule and switch a newer snapshot at a well-defined boundary.
     virtual bool supports_scan_request_refresh() const { return false; }
 
+    // Only adaptive consumers need a semantic snapshot key. Other readers must not traverse
+    // large Bloom/IN runtime-filter payloads just to prepare another file.
+    virtual bool uses_predicate_snapshot_digest() const { return false; }
+
     virtual Status queue_scan_request(std::shared_ptr<FileScanRequest> request) {
         (void)request;
         return Status::NotSupported("FileReader does not support scan request refresh");

@@ -79,6 +79,7 @@
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_profile.h"
 #include "format_v2/schema_reader.h"
+#include "format_v2/table_reader.h"
 #include "gen_cpp/Types_types.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_meta_cache.h"
@@ -4911,6 +4912,60 @@ TEST_F(NewOrcReaderTest, InitRestoresNotFoundFromReadFailure) {
     EXPECT_TRUE(st.is<ErrorCode::NOT_FOUND>()) << st;
 }
 
+TEST_F(NewOrcReaderTest, MetadataAggregatesKeepTablePlanningReader) {
+    const auto path = (_test_dir / "metadata_aggregate.orc").string();
+    write_multi_stripe_orc_int_file(path);
+    ASSERT_EQ(get_orc_stripe_count(path), 2);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    format::ColumnDefinition column;
+    column.identifier = Field::create_field<TYPE_STRING>("id");
+    column.name = "id";
+    column.type = make_nullable(std::make_shared<DataTypeInt32>());
+    for (auto agg : {TPushAggOp::COUNT, TPushAggOp::MINMAX}) {
+        format::TableReader reader;
+        ASSERT_TRUE(
+                reader.init({
+                                    .projected_columns = {column},
+                                    .conjuncts = {},
+                                    .format = format::FileFormat::ORC,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = agg,
+                                    .push_down_count_columns = std::vector<format::GlobalIndex> {},
+                            })
+                        .ok());
+        format::SplitReadOptions options;
+        options.current_split_format = format::FileFormat::ORC;
+        options.current_range.__set_path(path);
+        options.current_range.__set_file_size(std::filesystem::file_size(path));
+        options.current_range.__set_start_offset(0);
+        options.current_range.__set_size(std::filesystem::file_size(path));
+        options.current_range.__set_modification_time(17);
+        options.current_range.__set_target_split_size(1);
+        ASSERT_TRUE(reader.prepare_split(options).ok());
+        FileScanSplit source;
+        source.range = options.current_range;
+        source.is_source_split = true;
+        std::vector<FileScanSplit> children;
+        bool was_split = false;
+        ASSERT_TRUE(reader.build_physical_splits(source, &children, &was_split).ok());
+        EXPECT_FALSE(was_split);
+        EXPECT_TRUE(children.empty());
+        ASSERT_NE(reader._data_reader.reader, nullptr);
+        ASSERT_TRUE(reader._metadata_aggregate_result.has_value());
+        EXPECT_EQ(reader._metadata_aggregate_result->count, 400);
+        if (agg == TPushAggOp::MINMAX) {
+            const auto& result = reader._metadata_aggregate_result->columns;
+            ASSERT_EQ(result.size(), 1);
+            EXPECT_EQ(result[0].min_value.get<TYPE_INT>(), 1);
+            EXPECT_EQ(result[0].max_value.get<TYPE_INT>(), 1199);
+        }
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
 TEST_F(NewOrcReaderTest, AggregatePushdownCountUsesOnlySplitStripes) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_count_split.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);
@@ -5387,6 +5442,9 @@ TEST_F(NewOrcReaderTest, AggregatePushdownTimestampMinMaxFallsBackWithoutExactNa
         format::FileAggregateResult aggregate_result;
         const auto status = reader->get_aggregate_result(aggregate_request, &aggregate_result);
         EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+        const auto metadata_status =
+                reader->get_metadata_aggregate_result(aggregate_request, &aggregate_result);
+        EXPECT_TRUE(metadata_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << metadata_status;
     };
 
     assert_fallback("aggregate_timestamp_no_nanos_tail.orc", false);
