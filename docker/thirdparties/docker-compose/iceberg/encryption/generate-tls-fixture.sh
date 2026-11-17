@@ -22,9 +22,16 @@ fixture_dir=${1:?Usage: generate-tls-fixture.sh OUTPUT_DIRECTORY}
 mkdir -p "$fixture_dir"
 cd "$fixture_dir"
 
+# The prebuilt BE dependency directory can shadow the runnable system CLI with an
+# OpenSSL binary whose shared libraries were removed for static linking.
+openssl_bin=$(command -v openssl)
+if ! "$openssl_bin" version >/dev/null 2>&1; then
+    openssl_bin=$(command -p -v openssl)
+fi
+
 # Test-only keys are regenerated per invocation; none is distributed with the fixture.
 for authority in ca untrusted-ca; do
-    openssl req -x509 -newkey rsa:2048 -nodes -days 2 -sha256 \
+    "$openssl_bin" req -x509 -newkey rsa:2048 -nodes -days 2 -sha256 \
         -keyout "$authority.key" -out "$authority.pem" \
         -subj "/CN=Doris Test $authority" \
         -addext 'basicConstraints=critical,CA:TRUE' \
@@ -42,7 +49,7 @@ for peer in fe be dns-fe wrong-name untrusted; do
         # A DNS-only identity detects clients that accidentally validate the resolved IP instead.
         san='DNS:localhost'
     fi
-    openssl req -new -newkey rsa:2048 -nodes -sha256 \
+    "$openssl_bin" req -new -newkey rsa:2048 -nodes -sha256 \
         -keyout "$peer.key" -out "$peer.csr" -subj "/CN=$peer"
     cat > "$peer.ext" <<EOF
 basicConstraints=critical,CA:FALSE
@@ -50,7 +57,7 @@ keyUsage=critical,digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth,clientAuth
 subjectAltName=$san
 EOF
-    openssl x509 -req -days 2 -sha256 -in "$peer.csr" \
+    "$openssl_bin" x509 -req -days 2 -sha256 -in "$peer.csr" \
         -CA "$authority.pem" -CAkey "$authority.key" -CAcreateserial \
         -extfile "$peer.ext" -out "$peer.pem"
 done
