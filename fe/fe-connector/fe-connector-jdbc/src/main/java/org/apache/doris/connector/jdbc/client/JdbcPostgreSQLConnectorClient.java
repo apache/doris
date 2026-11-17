@@ -28,7 +28,6 @@ import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -267,15 +266,18 @@ public class JdbcPostgreSQLConnectorClient extends JdbcConnectorClient {
     @Override
     public long getRowCount(String dbName, String tableName) {
         String sql = "SELECT reltuples FROM pg_class "
-                + "WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '" + dbName + "') "
-                + "AND relname = '" + tableName + "'";
+                + "WHERE relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = ?) "
+                + "AND relname = ?";
         try (Connection conn = dataSource.getConnection();
-                Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery(sql)) {
-            if (rs.next()) {
-                long count = rs.getLong(1);
-                if (!rs.wasNull() && count >= 0) {
-                    return count;
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, dbName);
+            stmt.setString(2, tableName);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long count = rs.getLong(1);
+                    if (!rs.wasNull() && count >= 0) {
+                        return count;
+                    }
                 }
             }
         } catch (Exception e) {

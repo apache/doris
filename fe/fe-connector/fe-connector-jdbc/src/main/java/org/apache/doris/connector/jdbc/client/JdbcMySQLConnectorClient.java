@@ -203,18 +203,23 @@ public class JdbcMySQLConnectorClient extends JdbcConnectorClient {
     public long getRowCount(String dbName, String tableName) {
         String sql = "SELECT MAX(row_count) AS cnt FROM ("
                 + "SELECT TABLE_ROWS AS row_count FROM INFORMATION_SCHEMA.TABLES "
-                + "WHERE TABLE_SCHEMA = '" + dbName + "' AND TABLE_NAME = '" + tableName + "' "
+                + "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? "
                 + "UNION ALL "
                 + "SELECT CARDINALITY AS row_count FROM INFORMATION_SCHEMA.STATISTICS "
-                + "WHERE TABLE_SCHEMA = '" + dbName + "' AND TABLE_NAME = '" + tableName + "' "
+                + "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? "
                 + "AND CARDINALITY IS NOT NULL) t";
         try (Connection conn = dataSource.getConnection();
-                Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery(sql)) {
-            if (rs.next()) {
-                long count = rs.getLong(1);
-                if (!rs.wasNull() && count >= 0) {
-                    return count;
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, dbName);
+            stmt.setString(2, tableName);
+            stmt.setString(3, dbName);
+            stmt.setString(4, tableName);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    long count = rs.getLong(1);
+                    if (!rs.wasNull() && count >= 0) {
+                        return count;
+                    }
                 }
             }
         } catch (Exception e) {
