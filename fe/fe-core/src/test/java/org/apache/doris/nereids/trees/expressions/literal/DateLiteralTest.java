@@ -352,4 +352,39 @@ class DateLiteralTest {
         Assertions.assertInstanceOf(StringLiteral.class, expression);
         Assertions.assertEquals("0201-07-23", ((StringLiteral) expression).value);
     }
+
+    // Issue 68723 / BE is_leap (`&& year`): year 0 is a common year, so the day
+    // after 0000-02-28 is 0000-03-01. Unfixed plusDays uses Java LocalDateTime
+    // and returns 0000-02-29.
+    @Test
+    void testYear0PlusDaysIsNotLeap() {
+        Expression next = new DateV2Literal(0, 2, 28).plusDays(1);
+        Assertions.assertEquals("'0000-03-01'", next.toSql());
+        Expression twoDays = new DateV2Literal(0, 2, 28).plusDays(2);
+        Assertions.assertEquals("'0000-03-02'", twoDays.toSql());
+        Expression prev = new DateV2Literal(0, 3, 1).plusDays(-1);
+        Assertions.assertEquals("'0000-02-28'", prev.toSql());
+        Expression leapYear = new DateV2Literal(4, 2, 28).plusDays(1);
+        Assertions.assertEquals("'0004-02-29'", leapYear.toSql());
+    }
+
+    // Java day-of-year for 0000-03-03 is 63 because year 0 is leap there.
+    // Doris daynr gives 62 (TO_DAYS('0000-03-03') - TO_DAYS('0000-01-01') + 1).
+    @Test
+    void testYear0DayOfYearAfterFebruary() {
+        Assertions.assertEquals(59, new DateV2Literal(0, 2, 28).getDayOfYear());
+        Assertions.assertEquals(60, new DateV2Literal(0, 3, 1).getDayOfYear());
+        Assertions.assertEquals(61, new DateV2Literal(0, 3, 2).getDayOfYear());
+        Assertions.assertEquals(62, new DateV2Literal(0, 3, 3).getDayOfYear());
+        Assertions.assertEquals(365, new DateV2Literal(0, 12, 31).getDayOfYear());
+    }
+
+    // Issue 68723 / BE is_leap (`&& year`): DateLiteral.plusDays must skip 0000-02-29.
+    // Unfixed plusDays uses Java LocalDateTime and returns 0000-02-29.
+    @Test
+    void testDateLiteralYear0PlusDays() {
+        Expression next = new DateLiteral(0, 2, 28).plusDays(1);
+        Assertions.assertEquals("'0000-03-01'", next.toSql());
+    }
+
 }

@@ -560,8 +560,16 @@ public class DateLiteral extends Literal implements ComparableLiteral {
         return true;
     }
 
+    /**
+     * Return the day of year using the Doris calendar.
+     *
+     * <p>Java treats year 0 as leap, so its day-of-year from March onward is one too
+     * high. BE {@code is_leap} requires {@code && year} ({@code be/src/util/time_lut.h});
+     * FE parsing accepts February 29 only when {@code year > 0} ({@link #checkDate}).
+     * After 0000-02-28 the Doris year therefore has 365 days.
+     */
     public int getDayOfYear() {
-        if (year == 0 && month == 3 && (day == 1 || day == 2)) {
+        if (year == 0 && month > 2) {
             return toJavaDateType().getDayOfYear() - 1;
         }
         return toJavaDateType().getDayOfYear();
@@ -576,19 +584,62 @@ public class DateLiteral extends Literal implements ComparableLiteral {
     }
 
     public Expression plusDays(long days) {
-        return fromJavaDateType(toJavaDateType().plusDays(days));
+        LocalDateTime start = toJavaDateType();
+        return fromJavaDateType(adjustYear0ForDayArithmetic(start, start.plusDays(days)));
     }
 
     public Expression plusMonths(long months) {
-        return fromJavaDateType(toJavaDateType().plusMonths(months));
+        return fromJavaDateType(clampYear0Feb29(toJavaDateType().plusMonths(months)));
     }
 
     public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(toJavaDateType().plusWeeks(weeks));
+        LocalDateTime start = toJavaDateType();
+        return fromJavaDateType(adjustYear0ForDayArithmetic(start, start.plusWeeks(weeks)));
     }
 
     public Expression plusYears(long years) {
-        return fromJavaDateType(toJavaDateType().plusYears(years));
+        return fromJavaDateType(clampYear0Feb29(toJavaDateType().plusYears(years)));
+    }
+
+    /**
+     * Adjust a Java day-based arithmetic result so year 0 is a common year.
+     *
+     * <p>Java's ISO chronology treats year 0 as leap. Doris BE {@code is_leap} requires
+     * {@code && year}, and {@link #checkDate} accepts February 29 only when
+     * {@code year > 0}. The calendars therefore disagree only when an operation
+     * crosses 0000-02-29: Java inserts that extra day, so the Doris result is one
+     * calendar day later when moving forward and one calendar day earlier when
+     * moving backward.
+     */
+    static LocalDateTime adjustYear0ForDayArithmetic(LocalDateTime start, LocalDateTime result) {
+        if (result.getYear() == 0 && result.getMonthValue() == 2 && result.getDayOfMonth() == 29) {
+            return result.isBefore(start) ? result.minusDays(1) : result.plusDays(1);
+        }
+        LocalDateTime startDate = start.toLocalDate().atStartOfDay();
+        LocalDateTime resultDate = result.toLocalDate().atStartOfDay();
+        LocalDateTime year0Feb28 = LocalDateTime.of(0, 2, 28, 0, 0, 0);
+        LocalDateTime year0Mar1 = LocalDateTime.of(0, 3, 1, 0, 0, 0);
+        if (!startDate.isAfter(year0Feb28) && !resultDate.isBefore(year0Mar1)) {
+            return result.plusDays(1);
+        }
+        if (!startDate.isBefore(year0Mar1) && !resultDate.isAfter(year0Feb28)) {
+            return result.minusDays(1);
+        }
+        return result;
+    }
+
+    /**
+     * Clamp 0000-02-29 produced by month/year arithmetic to 0000-02-28.
+     *
+     * <p>Java {@code plusMonths}/{@code plusYears} pin an overflow day to the last
+     * day of February. Because Java treats year 0 as leap, that last day is the
+     * 29th; Doris treats year 0 as common, so the last valid day is the 28th.
+     */
+    public static LocalDateTime clampYear0Feb29(LocalDateTime dateTime) {
+        if (dateTime.getYear() == 0 && dateTime.getMonthValue() == 2 && dateTime.getDayOfMonth() == 29) {
+            return dateTime.withDayOfMonth(28);
+        }
+        return dateTime;
     }
 
     public LocalDateTime toJavaDateType() {
