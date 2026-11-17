@@ -282,7 +282,7 @@ ARROW_MD5SUM="66c53bd00baa79034bd2ca167beea436"
 ARROW_ADBC_DOWNLOAD="https://github.com/apache/arrow-adbc/archive/refs/tags/apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
-ARROW_ADBC_MD5SUM="2b2a18e95c33bdfd2bfa33a8b57c78d6"
+ARROW_ADBC_MD5SUM="3d6aaf071d384fe8d3c12a9b5f62aa4e"
 
 # arrow-adbc Flight SQL driver, prebuilt.
 # Upstream writes this driver in Go and publishes no bare shared library, so it is
