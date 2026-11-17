@@ -123,6 +123,49 @@ public class IcebergSchemaBuilderTest {
         Assertions.assertTrue(ex.getMessage().contains("TINYINT"));
     }
 
+    @Test
+    public void testVarbinaryMapsToBinaryAtTopLevelAndNested() {
+        ConnectorType vb = ConnectorType.of("VARBINARY");
+        Schema schema = IcebergSchemaBuilder.buildSchema(Arrays.asList(
+                col("b", vb, true),
+                col("arr", ConnectorType.arrayOf(vb), true),
+                col("m", ConnectorType.mapOf(ConnectorType.of("STRING"), vb), true),
+                col("st", ConnectorType.structOf(Collections.singletonList("x"), Collections.singletonList(vb)),
+                        true)));
+
+        Assertions.assertEquals(Types.BinaryType.get(), schema.findField("b").type());
+        Assertions.assertEquals(Types.BinaryType.get(), schema.findField("arr").type().asListType().elementType());
+        Assertions.assertEquals(Types.BinaryType.get(), schema.findField("m").type().asMapType().valueType());
+        Assertions.assertEquals(Types.BinaryType.get(),
+                schema.findField("st").type().asStructType().fields().get(0).type());
+        // The mapping must round-trip: Iceberg BINARY reads back as the VARBINARY it was declared as.
+        Assertions.assertTrue(IcebergTypeMapping.isReadAs(Types.BinaryType.get(), vb));
+    }
+
+    @Test
+    public void testBoundedVarbinaryMapsToBinaryNotFixed() {
+        // FIXED(n) would reject every shorter value on write and could not be truncate-partitioned or widened.
+        ConnectorType vb16 = ConnectorType.of("VARBINARY", 16, 0);
+        Schema schema = IcebergSchemaBuilder.buildSchema(Arrays.asList(
+                col("b", vb16, true), col("arr", ConnectorType.arrayOf(vb16), true),
+                col("m", ConnectorType.mapOf(vb16, ConnectorType.of("INT")), true)));
+
+        Assertions.assertEquals(Types.BinaryType.get(), schema.findField("b").type());
+        Assertions.assertEquals(Types.BinaryType.get(), schema.findField("arr").type().asListType().elementType());
+        Assertions.assertEquals(Types.BinaryType.get(), schema.findField("m").type().asMapType().keyType());
+        // The bound is not stored: the column reads back as plain VARBINARY, so only that restates it in a MODIFY.
+        Assertions.assertFalse(IcebergTypeMapping.isReadAs(Types.BinaryType.get(), vb16));
+    }
+
+    @Test
+    public void testAddColumnStillRejectsVarbinary() {
+        // Only CREATE TABLE maps VARBINARY; ADD COLUMN keeps failing as before.
+        ConnectorType vb = ConnectorType.of("VARBINARY");
+        Assertions.assertThrows(DorisConnectorException.class, () -> IcebergSchemaBuilder.buildColumnType(vb));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> IcebergSchemaBuilder.buildColumnType(ConnectorType.arrayOf(vb)));
+    }
+
     // ---------- buildSchema: complex types + nested id allocation ----------
 
     @Test
