@@ -34,14 +34,22 @@
 #include <future>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
+#include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService.h"
+#include "gen_cpp/TPaloBrokerService.h"
+#include "gen_cpp/function_service.pb.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/exec_env.h"
 #include "testutil/scoped_temp_dir.h"
+#include "util/brpc_client_cache.h"
+#include "util/client_cache.h"
 #include "util/client_connection_provider.h"
 #include "util/defer_op.h"
+#include "util/dns_cache.h"
 #include "util/private_rpc_tls.h"
 #include "util/thrift_server.h"
 
@@ -111,6 +119,13 @@ protected:
 
     static std::string path(const std::string& name) {
         return (certificates->path() / name).string();
+    }
+
+    static void expect_successful_split(FrontendServiceConnection& connection) {
+        TFetchSplitBatchResult result;
+        connection->fetchSplitBatch(result, TFetchSplitBatchRequest());
+        EXPECT_TRUE(result.__isset.status);
+        EXPECT_EQ(TStatusCode::OK, result.status.status_code);
     }
 
     static void configure_test_channel(brpc::ChannelOptions* options, const std::string& mode) {
@@ -210,6 +225,37 @@ public:
         result.status.__set_status_code(TStatusCode::OK);
         result.backend_info.__set_be_port(1);
         result.backend_info.__set_http_port(1);
+    }
+};
+
+class TlsSplitService final : public FrontendServiceNull {
+public:
+    void fetchSplitBatch(TFetchSplitBatchResult& result, const TFetchSplitBatchRequest&) override {
+        TStatus status;
+        status.__set_status_code(TStatusCode::OK);
+        result.__set_status(status);
+    }
+};
+
+class PlainBrokerService final : public TPaloBrokerServiceNull {
+public:
+    void ping(TBrokerOperationStatus& result, const TBrokerPingBrokerRequest&) override {
+        result.__set_statusCode(TBrokerOperationStatusCode::OK);
+    }
+};
+
+class PlainFunctionService final : public PFunctionService {
+public:
+    void check_fn(google::protobuf::RpcController*, const PCheckFunctionRequest*,
+                  PCheckFunctionResponse* result, google::protobuf::Closure* done) override {
+        result->mutable_status()->set_status_code(0);
+        done->Run();
+    }
+
+    void fn_call(google::protobuf::RpcController*, const PFunctionCallRequest*,
+                 PFunctionCallResponse* result, google::protobuf::Closure* done) override {
+        result->mutable_status()->set_status_code(0);
+        done->Run();
     }
 };
 
@@ -388,6 +434,120 @@ TEST_F(InternalRpcTlsTest, ClientAuthenticatesBeforeOpenReturnsWithUnlimitedRpcR
         EXPECT_EQ(failure.getType(), TTransportException::TIMED_OUT);
     }
     socket->close();
+}
+
+TEST_F(InternalRpcTlsTest, FrontendCacheKeepsDnsIdentityAcrossResolvedConnectionsAndReopen) {
+    config::tls_certificate_path = path("dns-fe.pem");
+    config::tls_private_key_path = path("dns-fe.key");
+    auto processor =
+            std::make_shared<FrontendServiceProcessor>(std::make_shared<TlsSplitService>());
+    ThriftServer server("private-tls-dns-test", processor, 0);
+    ASSERT_TRUE(rpc_tls::configure_thrift_server(&server, "127.0.0.1", 0).ok());
+    ASSERT_TRUE(server.start().ok());
+    Defer shutdown {[&] { server.stop_for_testing(); }};
+    config::tls_certificate_path = path("be.pem");
+    config::tls_private_key_path = path("be.key");
+
+    DNSCache dns([](const std::string&, std::string& ip, bool, int* error) {
+        ip = "127.0.0.1";
+        *error = 0;
+        return Status::OK();
+    });
+    auto* previous_dns = std::exchange(ExecEnv::GetInstance()->_dns_cache, &dns);
+    Defer restore_dns {[&] { ExecEnv::GetInstance()->_dns_cache = previous_dns; }};
+    ClientCache<FrontendServiceClient> cache;
+    TNetworkAddress address;
+    address.__set_hostname("localhost");
+    address.__set_port(server._server_socket->getPort());
+    Status status;
+    {
+        ClientConnection<FrontendServiceClient> connection(&cache, address, 3000, &status, 0);
+        ASSERT_TRUE(status.ok()) << status;
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            expect_successful_split(connection);
+            if (attempt == 0) {
+                ASSERT_TRUE(connection.reopen(3000).ok());
+            }
+        }
+    }
+    {
+        ClientConnection<FrontendServiceClient> cached(&cache, address, 3000, &status, 0);
+        ASSERT_TRUE(status.ok()) << status;
+        expect_successful_split(cached);
+    }
+    // The resolver deliberately maps both names to one IP; the certificate must still distinguish them.
+    address.__set_hostname("other.invalid");
+    ClientConnection<FrontendServiceClient> wrong_host(&cache, address, 3000, &status, 0);
+    EXPECT_FALSE(status.ok());
+}
+
+TEST_F(InternalRpcTlsTest, ExternalFunctionCacheRetainsPlaintextWhilePrivateTlsIsEnabled) {
+    PlainFunctionService service;
+    brpc::Server server;
+    ASSERT_EQ(0, server.AddService(&service, brpc::SERVER_DOESNT_OWN_SERVICE));
+    ASSERT_EQ(0, server.Start("127.0.0.1:0", nullptr));
+    Defer shutdown {[&] {
+        server.Stop(0);
+        server.Join();
+    }};
+    const std::string endpoint = "127.0.0.1:" + std::to_string(server.listen_address().port);
+    BrpcClientCache<PFunctionService_Stub> cache("h2");
+    auto cached = cache.get_client(endpoint);
+    auto fresh = cache.get_new_client_no_cache(endpoint, "h2");
+    for (const auto& stub : {cached, fresh}) {
+        ASSERT_NE(nullptr, stub);
+        brpc::Controller validation;
+        validation.set_timeout_ms(1000);
+        validation.set_max_retry(0);
+        PCheckFunctionRequest check;
+        PCheckFunctionResponse checked;
+        stub->check_fn(&validation, &check, &checked, nullptr);
+        ASSERT_FALSE(validation.Failed()) << validation.ErrorText();
+        EXPECT_EQ(0, checked.status().status_code());
+        brpc::Controller execution;
+        execution.set_timeout_ms(1000);
+        execution.set_max_retry(0);
+        PFunctionCallRequest call;
+        PFunctionCallResponse called;
+        stub->fn_call(&execution, &call, &called, nullptr);
+        ASSERT_FALSE(execution.Failed()) << execution.ErrorText();
+        EXPECT_EQ(0, called.status().status_code());
+    }
+}
+
+TEST_F(InternalRpcTlsTest, BackendBrokerCacheRetainsTheExternalFilesystemTransport) {
+    auto processor =
+            std::make_shared<TPaloBrokerServiceProcessor>(std::make_shared<PlainBrokerService>());
+    ThriftServer server("plain-broker-test", processor, 0);
+    server.set_server_socket(
+            std::make_shared<apache::thrift::transport::TServerSocket>("127.0.0.1", 0));
+    ASSERT_TRUE(server.start().ok());
+    Defer shutdown {[&] { server.stop_for_testing(); }};
+    DNSCache dns([](const std::string&, std::string& ip, bool, int* error) {
+        ip = "127.0.0.1";
+        *error = 0;
+        return Status::OK();
+    });
+    auto* previous_dns = std::exchange(ExecEnv::GetInstance()->_dns_cache, &dns);
+    Defer restore_dns {[&] { ExecEnv::GetInstance()->_dns_cache = previous_dns; }};
+    BrokerServiceClientCache cache;
+    TNetworkAddress address;
+    address.__set_hostname("127.0.0.1");
+    address.__set_port(server._server_socket->getPort());
+    Status status;
+    BrokerServiceConnection connection(&cache, address, 3000, &status, 0);
+    ASSERT_TRUE(status.ok()) << status;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        TBrokerPingBrokerRequest request;
+        request.__set_version(TBrokerVersion::VERSION_ONE);
+        request.__set_clientId("fixture-backend");
+        TBrokerOperationStatus result;
+        connection->ping(result, request);
+        EXPECT_EQ(TBrokerOperationStatusCode::OK, result.statusCode);
+        if (attempt == 0) {
+            ASSERT_TRUE(connection.reopen(3000).ok());
+        }
+    }
 }
 
 } // namespace

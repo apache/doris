@@ -166,6 +166,8 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
     addr_with_ip.port = hostport.port;
 
     std::unique_ptr<ThriftClientImpl> client_impl(factory_method(addr_with_ip, client_key));
+    // Replacing the connect host with its IP must not replace the peer's certified DNS identity.
+    client_impl->set_peer_hostname(hostport.hostname);
     //VLOG_CONNECTION << "create_client(): adding new client for "
     //                << client_impl->ipaddress() << ":" << client_impl->port();
 
@@ -190,7 +192,7 @@ Status ClientCacheHelper::_create_client(const TNetworkAddress& hostport,
     {
         std::lock_guard<std::mutex> lock(_lock);
         // Because the client starts life 'checked out', we don't add it to the cache map
-        DCHECK(_client_map.count(*client_key) == 0);
+        DCHECK(!_client_map.contains(*client_key));
         _client_map[*client_key] = client_impl.release();
         // Store the original hostport (with hostname) for this client
         _client_hostport_map[*client_key] = hostport;

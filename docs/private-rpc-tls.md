@@ -24,6 +24,11 @@ Thrift RPC between nodes. Both ends require a certificate issued by the configur
 CA. Configuring TLS never falls back to plaintext after an authentication or
 connection failure. `enable_tls=false` preserves the existing plaintext behavior.
 
+External RPC functions retain plaintext for both FE validation and BE execution.
+Broker heartbeats and filesystem clients on FE and BE also retain their existing
+plaintext policy. These external service endpoints do not inherit the cluster's
+private RPC TLS configuration.
+
 ## Configuration and deployment
 
 Configure each participating FE and BE with its own PEM certificate and private
@@ -91,7 +96,8 @@ statement-scoped key ownership are separate requirements.
 generates ephemeral test CA and peer identities with OpenSSL. Certificates expire
 after two days, private files are created under `umask 077`, and tests use temporary
 directories. The fixture includes an untrusted CA and a certificate with a wrong
-hostname for rejection tests. These credentials are generated during the test;
+hostname for rejection tests. A DNS-only peer identity covers resolved native
+client-cache connections and reconnects. These credentials are generated during the test;
 private key material is not distributed with the fixture. The generator is for
 tests, including deliberately retaining its test CA key, and is not a production
 certificate provisioning workflow.
