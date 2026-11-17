@@ -32,6 +32,14 @@
 #include "util/debug_points.h"
 
 namespace doris {
+GroupCommitBlockSinkLocalState::GroupCommitBlockSinkLocalState(DataSinkOperatorXBase* parent,
+                                                               RuntimeState* state)
+        : Base(parent, state), _filter_bitmap(1024) {
+    _finish_dependency =
+            std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
+                                         parent->get_name() + "_FINISH_DEPENDENCY", true);
+}
+
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         DBUG_EXECUTE_IF("GroupCommitBlockSink.delay_teardown_remove_load_id", {
