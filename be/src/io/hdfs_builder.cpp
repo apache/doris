@@ -28,6 +28,7 @@
 #include "common/config.h"
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/fs/hdfs.h"
 #include "runtime/exec_env.h"
 #include "util/string_util.h"
@@ -137,7 +138,16 @@ std::string HDFSCommonBuilder::get_hdfs_conf_value(const std::string& key,
 }
 
 void HDFSCommonBuilder::set_hdfs_conf_to_hdfs_builder() {
+    if (get_hdfs_conf_value(HADOOP_SECURITY_AUTHENTICATION, "simple") == "kerberos") {
+        // FE can expand core-default.xml's renewal=false into the incoming configuration.
+        // libhdfs prepends settings and replays them in reverse order: false then true
+        // would apply true then false. Resolve the map first and emit this key only once.
+        set_hdfs_conf("hadoop.kerberos.keytab.login.autorenewal.enabled", TRUE_VALUE);
+    }
     for (const auto& pair : hdfs_conf) {
+        LOG(INFO) << "set hdfs config key: " << pair.first << ", value: " << pair.second;
+        TEST_SYNC_POINT_CALLBACK("HDFSCommonBuilder::set_hdfs_conf_to_hdfs_builder", pair.first,
+                                 pair.second);
         hdfsBuilderConfSetStr(hdfs_builder, pair.first.c_str(), pair.second.c_str());
     }
 }
@@ -207,7 +217,6 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         // set other conf
         for (const THdfsConf& conf : hdfsParams.hdfs_conf) {
             builder->set_hdfs_conf(conf.key, conf.value);
-            LOG(INFO) << "set hdfs config key: " << conf.key << ", value: " << conf.value;
             if (strcmp(conf.key.c_str(), "hadoop.security.authentication") == 0) {
                 auth_type = conf.value;
             }
@@ -227,8 +236,6 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
         hdfsBuilderSetPrincipal(builder->get(), builder->hdfs_kerberos_principal.c_str());
         hdfsBuilderSetKerb5Conf(builder->get(), doris::config::kerberos_krb5_conf_path.c_str());
         hdfsBuilderSetKeyTabFile(builder->get(), builder->hdfs_kerberos_keytab.c_str());
-        hdfsBuilderConfSetStr(builder->get(), "hadoop.kerberos.keytab.login.autorenewal.enabled",
-                              "true");
         // RETURN_IF_ERROR(builder->set_kerberos_ticket_cache());
     } else {
         if (hdfsParams.__isset.user) {
