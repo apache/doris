@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <orc/Reader.hh>
@@ -37,6 +38,21 @@ namespace doris::format::orc {
 
 struct OrcReaderScanState;
 
+struct OrcStripeMetadata {
+    uint64_t offset = 0;
+    uint64_t length = 0;
+    uint64_t rows = 0;
+};
+
+// ORC readers keep independent row/stripe execution state. Only the immutable serialized tail and
+// stripe layout cross physical children, so concurrent scanners never share an ORC RowReader.
+struct OrcSharedFileContext final : public FileContext {
+    std::string file_identity;
+    bool has_stable_identity = false;
+    std::string serialized_file_tail;
+    std::vector<OrcStripeMetadata> stripes;
+};
+
 namespace detail {
 bool valid_statistics_bounds(const Field& min_value, const Field& max_value);
 } // namespace detail
@@ -49,13 +65,16 @@ public:
               std::unique_ptr<io::FileDescription>& file_description,
               std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
               std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-              bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false);
+              bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
+              std::shared_ptr<const FileContext> file_context = nullptr);
     ~OrcReader() override;
 
     static format::ColumnDefinition row_position_column_definition();
 
     Status init(RuntimeState* state) override;
     void set_batch_size(size_t batch_size) override;
+    Status build_physical_splits(std::vector<PhysicalFileSplit>* splits,
+                                 bool* was_split) const override;
     Status get_schema(std::vector<format::ColumnDefinition>* const file_schema) const override;
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;
@@ -133,6 +152,7 @@ private:
     // Collect stripes whose offset falls in the current split window, matching ORC
     // RowReader's own range inclusion test.
     Status _collect_split_stripes(std::vector<uint64_t>* stripe_indices) const;
+    Status _collect_selected_stripes(std::vector<uint64_t>* stripe_indices) const;
     // Seed row_reader_options with the split byte window so each split only reads its own
     // stripes. Skips the call for a whole-file window to keep ORC library defaults.
     void _apply_split_range();
@@ -200,6 +220,7 @@ private:
     bool _enable_mapping_timestamp_tz = false;
     bool _enable_mapping_varbinary = false;
     size_t _batch_size = 0;
+    std::shared_ptr<const FileContext> _file_context;
 };
 
 } // namespace doris::format::orc

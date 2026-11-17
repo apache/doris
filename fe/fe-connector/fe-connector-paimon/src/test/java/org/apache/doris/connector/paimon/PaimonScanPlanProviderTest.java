@@ -130,6 +130,18 @@ public class PaimonScanPlanProviderTest {
     private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
 
     @Test
+    public void coarseSizeIsLimitedToNativeColumnarFiles() {
+        Assertions.assertEquals(512 * MB,
+                PaimonScanPlanProvider.coarseSplitSizeForRawFile("a.parquet", "orc", 512 * MB));
+        Assertions.assertEquals(512 * MB,
+                PaimonScanPlanProvider.coarseSplitSizeForRawFile("a.orc", "parquet", 512 * MB));
+        Assertions.assertEquals(-1,
+                PaimonScanPlanProvider.coarseSplitSizeForRawFile("a.avro", "avro", 512 * MB));
+        Assertions.assertEquals(-1,
+                PaimonScanPlanProvider.coarseSplitSizeForRawFile("a.parquet", "parquet", 0));
+    }
+
+    @Test
     public void scanReuseNamespaceUsesConnectorType() {
         String prefix = new PaimonConnectorProvider().getType() + ".";
         Assertions.assertTrue(PaimonScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
@@ -4026,7 +4038,8 @@ public class PaimonScanPlanProviderTest {
             // WHY: this is the whole fix — one scanner per large file becomes N parallel sub-ranges.
             // MUTATION: neuter computeFileSplitOffsets to a single whole-file range -> nativeRanges==1 -> red.
             ConnectorSession splitting = sessionWithProps(
-                    Collections.singletonMap("file_split_size", String.valueOf(splitSize)));
+                    Map.of("file_split_size", String.valueOf(splitSize), "enable_external_scan_task_reuse", "true"),
+                    new TestStatementScope());
             List<ConnectorScanRange> ranges = provider.planScan(splitting,
                     ConnectorScanRequest.builder(handle, noColumns)
                     .countPushdown(false).build());
@@ -4051,6 +4064,12 @@ public class PaimonScanPlanProviderTest {
             }
             Assertions.assertEquals(fileLength, expectedStart,
                     "native sub-ranges must cover exactly [0, fileLength)");
+
+            List<ConnectorScanRange> coarse = provider.planScan(splitting,
+                    ConnectorScanRequest.builder(handle, noColumns).coarseSplitSize(fileLength * 2).build());
+            Assertions.assertEquals(1, coarse.size());
+            Assertions.assertEquals(fileLength * 2, coarse.get(0).getTargetSplitSize());
+            Assertions.assertTrue(coarse.get(0).supportsBeSplitRefinement());
 
             // Contrast: with the default (large) split size the small file stays a SINGLE native range.
             List<ConnectorScanRange> whole = provider.planScan(sessionWithProps(Collections.emptyMap()),

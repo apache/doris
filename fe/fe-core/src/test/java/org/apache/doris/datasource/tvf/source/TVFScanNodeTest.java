@@ -44,6 +44,25 @@ public class TVFScanNodeTest {
     private static final long MB = 1024L * 1024L;
 
     @Test
+    public void testDetermineTargetFileSplitSizeUsesCoarseSizeForParquet() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        sv.setFileSplitSize(16 * MB);
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+        FunctionGenTable table = Mockito.mock(FunctionGenTable.class);
+        ExternalFileTableValuedFunction tvf = Mockito.mock(ExternalFileTableValuedFunction.class);
+        Mockito.when(table.getTvf()).thenReturn(tvf);
+        Mockito.when(tvf.getTFileFormatType()).thenReturn(org.apache.doris.thrift.TFileFormatType.FORMAT_PARQUET);
+        desc.setTable(table);
+        TVFScanNode node = new TVFScanNode(new PlanNodeId(0), desc, false, sv, ScanContext.EMPTY);
+        Method method = TVFScanNode.class.getDeclaredMethod("determineTargetFileSplitSize", List.class);
+        method.setAccessible(true);
+        List<TBrokerFileStatus> statuses = List.of(splittableFile("s3://bucket/large.parquet", 1024 * MB));
+        Assertions.assertEquals(512 * MB, (long) method.invoke(node, statuses));
+        sv.maxFileScannersConcurrency = 1;
+        Assertions.assertEquals(16 * MB, (long) method.invoke(node, statuses));
+    }
+
+    @Test
     public void testCountColumnKeepsNormalFileSplitting() throws Exception {
         SessionVariable sv = new SessionVariable();
         sv.parallelExecInstanceNum = 1;

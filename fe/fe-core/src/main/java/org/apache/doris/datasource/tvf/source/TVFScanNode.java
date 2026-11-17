@@ -179,9 +179,10 @@ public class TVFScanNode extends FileQueryScanNode {
         return super.classifyColumn(slot, partitionKeys);
     }
 
-    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
+    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) throws UserException {
         if (sessionVariable.getFileSplitSize() > 0) {
-            return sessionVariable.getFileSplitSize();
+            return selectFeSplitSizeForBe(sessionVariable.getFileSplitSize(), getFileFormatType(),
+                    !isTableLevelCountStarPushdown());
         }
         long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
@@ -195,7 +196,7 @@ public class TVFScanNode extends FileQueryScanNode {
         }
         result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
         result = applyMaxFileSplitNumLimit(result, totalFileSize);
-        return result;
+        return selectFeSplitSizeForBe(result, getFileFormatType(), !isTableLevelCountStarPushdown());
     }
 
     @Override

@@ -152,6 +152,66 @@ public class IcebergScanPlanProviderTest {
     Path tempDir;
 
     @Test
+    public void selectFeSplitSizeRetainsLegacySizeForDeleteFilesAndUnsupportedFormats() throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        DataFile file = dataFile(table.spec(), "s3://b/db/t1/data.parquet", 96L << 20, null, null);
+        table.newAppend().appendFile(file).commit();
+        DeleteFile deletion = FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                .withPath("s3://b/db/t1/delete.parquet").withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(100).withRecordCount(1).build();
+        table.newRowDelta().addDeletes(deletion).commit();
+        try (org.apache.iceberg.io.CloseableIterable<org.apache.iceberg.FileScanTask> tasks =
+                table.newScan().planFiles()) {
+            org.apache.iceberg.FileScanTask task = tasks.iterator().next();
+            Assertions.assertFalse(task.deletes().isEmpty());
+            Assertions.assertEquals(16L << 20,
+                    IcebergScanPlanProvider.selectFeSplitSize(task, 16L << 20, 64L << 20));
+        }
+        Table avro = createTable("avro_table", SCHEMA, PartitionSpec.unpartitioned());
+        avro.newAppend().appendFile(DataFiles.builder(avro.spec()).withPath("s3://b/db/a.avro")
+                .withFormat(FileFormat.AVRO).withFileSizeInBytes(100).withRecordCount(1).build()).commit();
+        try (org.apache.iceberg.io.CloseableIterable<org.apache.iceberg.FileScanTask> tasks =
+                avro.newScan().planFiles()) {
+            Assertions.assertEquals(16L << 20,
+                    IcebergScanPlanProvider.selectFeSplitSize(tasks.iterator().next(), 16L << 20, 64L << 20));
+        }
+    }
+
+    @Test
+    public void coarseSizesOverrideLegacySplitSizeInSynchronousAndStreamingPlans() throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        long mb = 1024L * 1024L;
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/big.parquet", 96 * mb,
+                null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC", Map.of(
+                "file_split_size", Long.toString(16 * mb), "enable_external_scan_task_reuse", "true"))
+                .withScope(new TestStatementScope());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList()).coarseSplitSize(64 * mb).build();
+        List<ConnectorScanRange> synchronous = provider.planScan(session, request);
+        List<ConnectorScanRange> streaming = new ArrayList<>();
+        try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+            while (source.hasNext()) {
+                streaming.add(source.next());
+            }
+        }
+        List<ConnectorScanRange> smaller = provider.planScan(session, ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList()).coarseSplitSize(32 * mb).build());
+        Assertions.assertEquals(3, smaller.size());
+        Assertions.assertSame(synchronous, provider.planScan(session, request));
+        for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, streaming)) {
+            Assertions.assertEquals(2, ranges.size());
+            Assertions.assertEquals(64 * mb, ranges.get(0).getLength());
+            Assertions.assertEquals(64 * mb, ranges.get(0).getTargetSplitSize());
+            Assertions.assertEquals(64 * mb, ranges.get(1).getStart());
+            Assertions.assertEquals(32 * mb, ranges.get(1).getLength());
+            Assertions.assertTrue(ranges.get(0).supportsBeSplitRefinement());
+        }
+    }
+
+    @Test
     public void scanReuseNamespaceUsesConnectorType() {
         String prefix = new IcebergConnectorProvider().getType() + ".";
         Assertions.assertTrue(IcebergScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));

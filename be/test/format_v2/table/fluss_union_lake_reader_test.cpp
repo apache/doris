@@ -69,9 +69,12 @@ public:
         return Status::OK();
     }
 
-    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts,
+                             std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                             bool all_runtime_filters_applied = false) override {
         ++refresh_calls;
-        return format::TableReader::refresh_conjuncts(std::move(conjuncts));
+        return format::TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest,
+                                                      all_runtime_filters_applied);
     }
 
     Status close() override {

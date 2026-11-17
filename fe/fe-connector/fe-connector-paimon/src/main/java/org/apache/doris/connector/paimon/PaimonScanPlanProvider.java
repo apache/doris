@@ -555,7 +555,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown(),
                     request.isAggregatePushdown(),
-                    request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY));
+                    request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
+                    request.getCoarseSplitSize());
         }
         if (paimonHandle.isSystemTable()) {
             // System tables resolve their snapshot on the BE and carry deferred side effects
@@ -563,7 +564,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown(),
                     request.isAggregatePushdown(),
-                    request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY));
+                    request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
+                    request.getCoarseSplitSize());
         }
         // Resolve the table ONCE at the statement scope so both the scan-planning path (here) and
         // the properties path (getScanNodeProperties) observe the SAME table generation. Without
@@ -585,7 +587,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 key -> Collections.unmodifiableList(planScanInternal(session,
                         request.getTableHandle(), request.getColumns(), request.getFilter(),
                         request.getLimit(), request.isCountPushdown(), request.isAggregatePushdown(),
-                        request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY), table)));
+                        request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
+                        request.getCoarseSplitSize(), table)));
     }
 
     private long resolvePaimonGeneration(PaimonTableHandle handle, Table table) {
@@ -768,9 +771,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             long limit,
             boolean countPushdown,
             boolean aggregatePushdown,
-            boolean backendsSupportRust) {
+            boolean backendsSupportRust, long coarseSplitSize) {
         return planScanInternal(session, handle, columns, filter, limit, countPushdown,
-                aggregatePushdown, backendsSupportRust, resolveScanTable((PaimonTableHandle) handle));
+                aggregatePushdown, backendsSupportRust, coarseSplitSize,
+                resolveScanTable((PaimonTableHandle) handle));
     }
 
     private List<ConnectorScanRange> planScanInternal(
@@ -782,7 +786,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             boolean countPushdown,
             boolean aggregatePushdown,
             boolean backendsSupportRust,
-            Table table) {
+            long coarseSplitSize, Table table) {
 
         PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
         boolean requiresMetadataColumns = requiresMetadataColumns(columns);
@@ -1050,18 +1054,22 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 // DV with null cardinality) is kept WHOLE. We mirror that by passing target size 0, which
                 // makes buildNativeRanges emit a single whole-file range; the target heuristic is then not
                 // needed (and not computed) under count pushdown.
-                if (!countPushdown && targetSplitSize < 0) {
-                    targetSplitSize = resolveTargetSplitSize(session, dataSplits);
-                }
-                long effectiveSplitSize = countPushdown ? 0L : targetSplitSize;
                 List<RawFile> rawFiles = optRawFiles.get();
                 for (int i = 0; i < rawFiles.size(); i++) {
                     RawFile file = rawFiles.get(i);
+                    long nativeCoarseSize = coarseSplitSizeForRawFile(file.path(), defaultFileFormat,
+                            countPushdown ? -1 : coarseSplitSize);
+                    if (!countPushdown && nativeCoarseSize <= 0 && targetSplitSize < 0) {
+                        targetSplitSize = resolveTargetSplitSize(session, dataSplits);
+                    }
+                    long effectiveSplitSize = countPushdown ? 0L
+                            : nativeCoarseSize > 0 ? nativeCoarseSize : targetSplitSize;
+                    long nativeWeightTarget = nativeCoarseSize > 0 ? nativeCoarseSize : weightDenominator;
                     DeletionFile deletionFile =
                             (optDeletionFiles.isPresent() && i < optDeletionFiles.get().size())
                                     ? optDeletionFiles.get().get(i) : null;
                     ranges.addAll(buildNativeRanges(file, deletionFile, defaultFileFormat,
-                            partitionValues, vendedToken, effectiveSplitSize, weightDenominator,
+                            partitionValues, vendedToken, effectiveSplitSize, nativeWeightTarget,
                             dataSplit.bucket()));
                 }
             } else {
@@ -3240,6 +3248,14 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * routing even when the projected root-column names are identical. System tables are excluded
      * upstream, and session variables are statement-constant, so both stay out of the key.
      */
+    static long coarseSplitSizeForRawFile(String path, String defaultFileFormat, long coarseSize) {
+        if (coarseSize <= 0) {
+            return -1;
+        }
+        String format = getFileFormatBySuffix(path).orElse(defaultFileFormat);
+        return "parquet".equals(format) || "orc".equals(format) ? coarseSize : -1;
+    }
+
     private static final class PaimonScanReuseKey {
         private final String databaseName;
         private final String tableName;
@@ -3253,6 +3269,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         private final long limit;
         private final boolean countPushdown;
         private final boolean aggregatePushdown;
+        private final long coarseSplitSize;
 
         private PaimonScanReuseKey(PaimonTableHandle handle, ConnectorScanRequest request,
                 long generation) {
@@ -3278,6 +3295,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             this.limit = request.getLimit();
             this.countPushdown = request.isCountPushdown();
             this.aggregatePushdown = request.isAggregatePushdown();
+            this.coarseSplitSize = request.getCoarseSplitSize();
         }
 
         private static String toPaimonColumnName(ConnectorColumnHandle column) {
@@ -3309,6 +3327,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     && limit == that.limit
                     && countPushdown == that.countPushdown
                     && aggregatePushdown == that.aggregatePushdown
+                    && coarseSplitSize == that.coarseSplitSize
                     && rustBackendCapable == that.rustBackendCapable
                     && Objects.equals(databaseName, that.databaseName)
                     && Objects.equals(tableName, that.tableName)
@@ -3323,7 +3342,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         public int hashCode() {
             return Objects.hash(databaseName, tableName, branchName,
                     scanOptions, generation, columnNames, nestedProjections,
-                    rustBackendCapable, filter, limit, countPushdown, aggregatePushdown);
+                    rustBackendCapable, filter, limit, countPushdown, aggregatePushdown, coarseSplitSize);
         }
 
         @Override

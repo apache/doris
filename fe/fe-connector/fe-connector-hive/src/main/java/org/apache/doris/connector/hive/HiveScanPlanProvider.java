@@ -144,7 +144,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse =
                 session.getStatementScope().computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
-        HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle, request.getRequiredPartitions());
+        HiveScanReuseKey reuseKey = new HiveScanReuseKey(
+                hiveHandle, request.getRequiredPartitions(), coarseSplitSize(request));
         AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
         List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {
             PlanCompleteness completeness = new PlanCompleteness();
@@ -201,7 +202,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             HiveFileFormat partFormat = partition.fileFormat != null
                     ? partition.fileFormat : fileFormat;
             listAndSplitFiles(dbName, tableName, partition, partFormat,
-                    splittable, isLzo, targetSplitSize, fs, ranges, completeness, request.getScanContext());
+                    splittable, isLzo, selectFeSplitSize(targetSplitSize, partFormat, coarseSplitSize(request)),
+                    fs, ranges, completeness, request.getScanContext());
         }
 
         LOG.info("Hive scan plan: table={}.{}, partitions={}, splits={}",
@@ -276,7 +278,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
     public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
         HiveTableHandle hiveHandle = (HiveTableHandle) request.getTableHandle();
         rejectTransactionalRead(hiveHandle);
-        return new HiveSplitSource(session, hiveHandle, request.getRequiredPartitions(), request.getScanContext());
+        return new HiveSplitSource(session, hiveHandle, request.getRequiredPartitions(), request.getScanContext(),
+                coarseSplitSize(request));
     }
 
     @Override
@@ -309,7 +312,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                     }
                     if (source == null) {
                         source = new HiveSplitSource(session, handle, names, request.getScanContext(),
-                                partitionsPerTask);
+                                coarseSplitSize(request), partitionsPerTask);
                         source.partitionLoader = loader;
                     }
                     return source.hasNext();
@@ -378,6 +381,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private final boolean isLzo;
         private final boolean splittable;
         private final long targetSplitSize;
+        private final long coarseSplitSize;
         private final int partitionBatchSize;
         private HivePartitionBatchLoader partitionLoader;
         private CompletableFuture<Void> blockedOnPartitions;
@@ -392,13 +396,13 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private volatile boolean closed;
 
         HiveSplitSource(ConnectorSession session, HiveTableHandle handle, List<String> requiredPartitions,
-                ConnectorScanContext scanContext) {
-            this(session, handle, requiredPartitions, scanContext, Math.max(1,
+                ConnectorScanContext scanContext, long coarseSplitSize) {
+            this(session, handle, requiredPartitions, scanContext, coarseSplitSize, Math.max(1,
                     sessionInt(session, "split_partition_batch_size", DEFAULT_PARTITION_BATCH_SIZE)));
         }
 
         HiveSplitSource(ConnectorSession session, HiveTableHandle handle, List<String> requiredPartitions,
-                ConnectorScanContext scanContext, int partitionsPerTask) {
+                ConnectorScanContext scanContext, long coarseSplitSize, int partitionsPerTask) {
             rejectTransactionalRead(handle);
             this.handle = handle;
             this.scanContext = scanContext;
@@ -411,6 +415,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             this.isLzo = isLzoInputFormat(handle.getInputFormat());
             this.splittable = tableFormat.isSplittable() && !isLzo;
             this.targetSplitSize = getTargetSplitSize(session);
+            this.coarseSplitSize = coarseSplitSize;
             this.partitionBatchSize = partitionsPerTask;
             recordPruningProfile(handle);
         }
@@ -483,7 +488,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
             HiveFileFormat format = partition.fileFormat == null ? tableFormat : partition.fileFormat;
             ranges = splitFileRanges(file.getPath(), file.getLength(), file.getModificationTime(),
-                    partition, format, splittable, targetSplitSize);
+                    partition, format, splittable, selectFeSplitSize(targetSplitSize, format, coarseSplitSize));
         }
 
         private void loadNextPartitionFiles() {
@@ -625,7 +630,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         }
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (HiveSplitSource source = new HiveSplitSource(
-                session, (HiveTableHandle) request.getTableHandle(), partitionBatch, request.getScanContext())) {
+                session, (HiveTableHandle) request.getTableHandle(), partitionBatch, request.getScanContext(),
+                coarseSplitSize(request))) {
             while (source.hasNext()) {
                 ranges.add(source.next());
             }
@@ -1148,6 +1154,15 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * pruned partition set (each partition's location and values). ACID tables are excluded
      * upstream, and session variables are statement-constant, so both stay out of the key.
      */
+    private static long coarseSplitSize(ConnectorScanRequest request) {
+        return request.isCountPushdown() ? -1 : request.getCoarseSplitSize();
+    }
+
+    static long selectFeSplitSize(long fallbackSize, HiveFileFormat format, long coarseSize) {
+        return coarseSize > 0 && (format == HiveFileFormat.PARQUET || format == HiveFileFormat.ORC)
+                ? coarseSize : fallbackSize;
+    }
+
     private static final class HiveScanReuseKey {
         private final String dbName;
         private final String tableName;
@@ -1158,8 +1173,10 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private final List<String> partitionKeyNames;
         private final List<HmsPartitionInfo> prunedPartitions;
         private final List<String> requiredPartitions;
+        private final long coarseSplitSize;
 
-        private HiveScanReuseKey(HiveTableHandle handle, List<String> requiredPartitions) {
+        private HiveScanReuseKey(HiveTableHandle handle, List<String> requiredPartitions, long coarseSplitSize) {
+            this.coarseSplitSize = coarseSplitSize;
             // Catalog and query isolation are provided by the statement-scope memo key. The table
             // location identifies the data source of unpartitioned tables, whose prunedPartitions
             // is null.
@@ -1187,7 +1204,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
                 return false;
             }
             HiveScanReuseKey that = (HiveScanReuseKey) object;
-            return firstColumnIsString == that.firstColumnIsString
+            return coarseSplitSize == that.coarseSplitSize && firstColumnIsString == that.firstColumnIsString
                     && Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(location, that.location)
@@ -1202,7 +1219,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         public int hashCode() {
             return Objects.hash(dbName, tableName, location,
                     inputFormat, serializationLib, firstColumnIsString,
-                    partitionKeyNames, prunedPartitions, requiredPartitions);
+                    partitionKeyNames, prunedPartitions, requiredPartitions, coarseSplitSize);
         }
 
         @Override

@@ -482,14 +482,18 @@ Status FlussUnionLakeReader::prepare_split(const format::SplitReadOptions& optio
     return _prepare_suppression(options);
 }
 
-Status FlussUnionLakeReader::refresh_conjuncts(VExprContextSPtrs conjuncts) {
-    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(std::move(conjuncts)));
+Status FlussUnionLakeReader::refresh_conjuncts(VExprContextSPtrs conjuncts,
+                                               std::optional<uint64_t> condition_cache_digest,
+                                               bool all_runtime_filters_applied) {
+    RETURN_IF_ERROR(format::TableReader::refresh_conjuncts(
+            std::move(conjuncts), condition_cache_digest, all_runtime_filters_applied));
     if (_lake_reader == nullptr) {
         return Status::OK();
     }
     VExprContextSPtrs child_conjuncts;
     RETURN_IF_ERROR(_clone_conjuncts(&child_conjuncts));
-    return _lake_reader->refresh_conjuncts(std::move(child_conjuncts));
+    return _lake_reader->refresh_conjuncts(std::move(child_conjuncts), condition_cache_digest,
+                                           all_runtime_filters_applied);
 }
 
 Status FlussUnionLakeReader::_prepare_suppression(const format::SplitReadOptions& options) {
