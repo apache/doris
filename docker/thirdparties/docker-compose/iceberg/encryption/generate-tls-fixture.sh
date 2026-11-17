@@ -31,13 +31,16 @@ for authority in ca untrusted-ca; do
         -addext 'keyUsage=critical,keyCertSign,cRLSign'
 done
 
-for peer in fe be wrong-name untrusted; do
+for peer in fe be dns-fe wrong-name untrusted; do
     authority=ca
     san='DNS:localhost,IP:127.0.0.1'
     if [[ "$peer" == untrusted ]]; then
         authority=untrusted-ca
     elif [[ "$peer" == wrong-name ]]; then
         san='DNS:wrong.invalid'
+    elif [[ "$peer" == dns-fe ]]; then
+        # A DNS-only identity detects clients that accidentally validate the resolved IP instead.
+        san='DNS:localhost'
     fi
     openssl req -new -newkey rsa:2048 -nodes -sha256 \
         -keyout "$peer.key" -out "$peer.csr" -subj "/CN=$peer"

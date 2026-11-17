@@ -70,7 +70,9 @@ class HandshakeSocket final : public apache::thrift::transport::TSSLSocket {
 public:
     HandshakeSocket(std::shared_ptr<apache::thrift::transport::SSLContext> context,
                     const std::string& host, int port, int timeout)
-            : TSSLSocket(std::move(context), host, port), _handshake_timeout(timeout) {}
+            : TSSLSocket(std::move(context), host, port),
+              _connect_host(host),
+              _handshake_timeout(timeout) {}
 
     HandshakeSocket(std::shared_ptr<apache::thrift::transport::SSLContext> context,
                     THRIFT_SOCKET socket, std::shared_ptr<THRIFT_SOCKET> interrupt, int timeout)
@@ -79,12 +81,18 @@ public:
 
     void open() override {
         const int connect_timeout = connTimeout_;
+        const std::string peer_hostname = getHost();
         setConnTimeout(bounded_timeout(connect_timeout));
         try {
+            // Cache connections use a resolved IP, while SNI and certificate checks must retain
+            // the registered hostname. Restore that identity before starting the lazy handshake.
+            setHost(_connect_host);
             TSSLSocket::open();
+            setHost(peer_hostname);
             setConnTimeout(connect_timeout);
             authenticate_peer();
         } catch (...) {
+            setHost(peer_hostname);
             setConnTimeout(connect_timeout);
             TSSLSocket::close();
             throw;
@@ -152,6 +160,7 @@ private:
         setSendTimeout(write_timeout);
     }
 
+    const std::string _connect_host;
     const int _handshake_timeout;
 };
 
@@ -301,6 +310,13 @@ std::shared_ptr<apache::thrift::transport::TSocket> create_client_socket(const s
         // OpenSSL/parser diagnostics can contain input paths or PEM material. Preserve only a classification.
         throw TTransportException(TTransportException::INTERNAL_ERROR,
                                   "Private RPC TLS initialization failed");
+    }
+}
+
+void set_peer_hostname(apache::thrift::transport::TSocket* socket, const std::string& hostname) {
+    // Plain transports and independently supplied TLS implementations retain their existing policy.
+    if (auto* tls = dynamic_cast<HandshakeSocket*>(socket)) {
+        tls->setHost(hostname);
     }
 }
 

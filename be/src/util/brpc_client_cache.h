@@ -35,6 +35,7 @@
 #include <mutex>
 #include <ostream>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -256,7 +257,11 @@ public:
                                                const std::string& connection_group = "",
                                                int connect_timeout_ms = 2000, int max_retry = 10) {
         brpc::ChannelOptions options;
-        Status status = doris::client::configure_brpc_channel_options(&options);
+        // Function endpoints are external services, unlike backend-to-backend cluster channels.
+        constexpr auto purpose = std::is_same_v<T, PFunctionService_Stub>
+                                         ? client::RpcPurpose::EXTERNAL_SERVICE
+                                         : client::RpcPurpose::INTERNAL_RPC;
+        Status status = client::configure_brpc_channel_options(&options, purpose);
         if (!status.ok()) {
             throw status;
         }

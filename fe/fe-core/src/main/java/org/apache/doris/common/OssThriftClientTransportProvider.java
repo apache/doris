@@ -34,4 +34,16 @@ public class OssThriftClientTransportProvider implements ThriftClientTransportPr
                 : new TSocket(address.hostname, address.port, timeoutMs);
         return nonBlocking ? new TFramedTransport(socket) : socket;
     }
+
+    @Override
+    public TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking, RpcPurpose purpose)
+            throws Exception {
+        // A legacy custom provider may subclass OSS and override the original method. Preserve that
+        // dispatch instead of silently replacing its transport policy through the new overload.
+        if (purpose != RpcPurpose.EXTERNAL_SERVICE || getClass() != OssThriftClientTransportProvider.class) {
+            return createTransport(address, timeoutMs, nonBlocking);
+        }
+        TSocket socket = new TSocket(address.hostname, address.port, timeoutMs);
+        return nonBlocking ? new TFramedTransport(socket) : socket;
+    }
 }

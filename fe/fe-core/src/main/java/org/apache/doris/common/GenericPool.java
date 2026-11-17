@@ -44,13 +44,20 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
     private String className;
     private int timeoutMs;
     private boolean isNonBlockingIO;
+    private final ThriftClientTransportProvider.RpcPurpose rpcPurpose;
 
     public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs, boolean isNonBlockingIO) {
+        this(className, config, timeoutMs, isNonBlockingIO, ThriftClientTransportProvider.RpcPurpose.INTERNAL_RPC);
+    }
+
+    public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs, boolean isNonBlockingIO,
+            ThriftClientTransportProvider.RpcPurpose rpcPurpose) {
         this.className = "org.apache.doris.thrift." + className + "$Client";
-        ThriftClientFactory factory = new ThriftClientFactory();
-        pool = new GenericKeyedObjectPool<>(factory, config);
         this.timeoutMs = timeoutMs;
         this.isNonBlockingIO = isNonBlockingIO;
+        this.rpcPurpose = rpcPurpose;
+        ThriftClientFactory factory = new ThriftClientFactory();
+        pool = new GenericKeyedObjectPool<>(factory, config);
     }
 
     public GenericPool(String className, GenericKeyedObjectPoolConfig config, int timeoutMs) {
@@ -209,7 +216,7 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
                 LOG.debug("before create socket hostname={} key.port={} timeoutMs={}",
                         key.hostname, key.port, timeoutMs);
             }
-            TTransport transport = TRANSPORT_PROVIDER.createTransport(key, timeoutMs, isNonBlockingIO);
+            TTransport transport = TRANSPORT_PROVIDER.createTransport(key, timeoutMs, isNonBlockingIO, rpcPurpose);
             if (!transport.isOpen()) {
                 transport.open();
             }

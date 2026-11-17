@@ -40,6 +40,7 @@ bool enabled(std::string_view protocol);
 Status configure_channel(brpc::ChannelOptions* options);
 Status configure_server(brpc::ServerOptions* options);
 Status configure_thrift_server(ThriftServer* server, const std::string& address, int port);
+void set_peer_hostname(apache::thrift::transport::TSocket* socket, const std::string& hostname);
 std::shared_ptr<apache::thrift::transport::TSocket> create_client_socket(const std::string& host,
                                                                          int port);
 
