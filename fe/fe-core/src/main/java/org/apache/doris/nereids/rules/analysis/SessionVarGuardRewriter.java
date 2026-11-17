@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 
@@ -144,8 +143,6 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
      */
     public static boolean checkSessionVariablesMatch(Map<String, String> currentSessionVars,
             Map<String, String> persistSessionVars) {
-        currentSessionVars = ConnectContextUtil.withoutVariantExecutionVersion(currentSessionVars);
-        persistSessionVars = ConnectContextUtil.withoutVariantExecutionVersion(persistSessionVars);
         if (persistSessionVars == null || persistSessionVars.isEmpty()) {
             // If no session variables saved, consider them matched
             return true;
@@ -165,8 +162,6 @@ public class SessionVarGuardRewriter extends ExpressionRewrite {
     public static boolean checkSessionVariablesMatchForSyncMv(
             Map<String, String> currentSessionVars,
             Map<String, String> persistSessionVars) {
-        currentSessionVars = ConnectContextUtil.withoutVariantExecutionVersion(currentSessionVars);
-        persistSessionVars = ConnectContextUtil.withoutVariantExecutionVersion(persistSessionVars);
 
         // Preserve compatibility with older MVs that have no saved session variables.
         if (persistSessionVars == null || persistSessionVars.isEmpty()) {

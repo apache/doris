@@ -349,8 +349,6 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
-
-    private boolean forceVariantV2Execution;
     // internal flag to expose Iceberg rowid metadata during analysis/planning.
     // When set to a valid table ID (>= 0), only that specific table's getFullSchema()
     // will include __DORIS_ICEBERG_ROWID_COL__. This prevents ambiguity in MERGE INTO
@@ -1518,15 +1516,6 @@ public class ConnectContext {
 
     public void setMinidump(JSONObject minidump) {
         this.minidump = minidump;
-    }
-
-    public void setForceVariantV2Execution(boolean forceVariantV2Execution) {
-        this.forceVariantV2Execution = forceVariantV2Execution;
-    }
-
-    public boolean isForceVariantV2Execution() {
-        return forceVariantV2Execution
-                || (statementContext != null && statementContext.isForceVariantV2Execution());
     }
 
     public StatementContext getStatementContext() {

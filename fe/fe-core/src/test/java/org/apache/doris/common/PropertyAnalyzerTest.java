@@ -630,13 +630,13 @@ public class PropertyAnalyzerTest {
     }
 
     @Test
-    public void testEscapeActivationIsIndependentOfGlobalQueryV2() throws Exception {
+    public void testEscapeRequiresPersistedV2Policy() throws Exception {
         Config.enable_variant_v2 = false;
         String key = PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS;
         Assertions.assertFalse(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(new HashMap<>()));
         Assertions.assertFalse(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(
                 new HashMap<>(ImmutableMap.of(key, "false"))));
-        Assertions.assertTrue(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(
                 new HashMap<>(ImmutableMap.of(key, "true"))));
         Assertions.assertDoesNotThrow(
                 () -> PropertyAnalyzer.validateVariantTable(true, ImmutableList.of(), ImmutableList.of()));
@@ -644,13 +644,11 @@ public class PropertyAnalyzerTest {
         Mockito.when(source.getVariantEscapeDotsInKeys()).thenReturn(true);
         Mockito.when(source.getBaseSchema()).thenReturn(ImmutableList.of(new Column("v", Type.VARIANT)));
         for (boolean consistent : new boolean[] {true, false}) {
-            Assertions.assertEquals("true", PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
-                    ImmutableMap.of(), ImmutableList.of(source), consistent).get(key));
+            Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                    ImmutableMap.of(), ImmutableList.of(source), consistent));
         }
         // A compute-only type is transient; enabling it cannot authorize persistent escaped storage.
         Assertions.assertTrue(org.apache.doris.nereids.types.VariantType.COMPUTE_V2_INSTANCE.isExecutionV2());
-        Config.enable_variant_escape_dots_in_keys = false;
-        Assertions.assertThrows(AnalysisException.class,
-                () -> PropertyAnalyzer.requireVariantEscapeStorageSupport(true));
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.requireVariantV2ForEscape(true));
     }
 }

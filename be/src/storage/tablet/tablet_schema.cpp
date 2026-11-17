@@ -869,7 +869,7 @@ int64_t TabletSchema::get_metadata_size() const {
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
-    if ((_variant_escape_dots_in_keys || _variant_v2_execution) && column.is_variant_type()) {
+    if (_variant_escape_dots_in_keys && column.is_variant_type()) {
         column.set_variant_is_v2(true);
     }
     if (column.is_key()) {
@@ -976,7 +976,6 @@ void TabletSchema::clear_columns() {
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns,
                                 bool reuse_cache_column) {
-    _variant_v2_execution = false;
     _keys_type = schema.keys_type();
     _variant_escape_dots_in_keys = schema.variant_escape_dots_in_keys();
     _num_columns = 0;
@@ -1107,15 +1106,11 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
 }
 
 void TabletSchema::copy_from(const TabletSchema& tablet_schema) {
-    const bool variant_v2_execution = tablet_schema._variant_v2_execution;
     TabletSchemaPB tablet_schema_pb;
     tablet_schema.to_schema_pb(&tablet_schema_pb);
     init_from_pb(tablet_schema_pb);
     _table_id = tablet_schema.table_id();
     _path_set_info_map = tablet_schema._path_set_info_map;
-    if (variant_v2_execution) {
-        enable_variant_v2_execution();
-    }
 }
 
 void TabletSchema::shawdow_copy_without_columns(const TabletSchema& tablet_schema) {
@@ -1162,7 +1157,6 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     // copy from ori_tablet_schema
     _keys_type = ori_tablet_schema.keys_type();
     _variant_escape_dots_in_keys = ori_tablet_schema.variant_escape_dots_in_keys();
-    _variant_v2_execution = ori_tablet_schema._variant_v2_execution;
     _num_short_key_columns = ori_tablet_schema.num_short_key_columns();
     _num_rows_per_row_block = ori_tablet_schema.num_rows_per_row_block();
     _compress_kind = ori_tablet_schema.compress_kind();
@@ -1224,7 +1218,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _skip_bitmap_col_idx = _num_columns;
         }
         TabletColumnPtr new_column;
-        if (_variant_escape_dots_in_keys || _variant_v2_execution) {
+        if (_variant_escape_dots_in_keys) {
             // ColumnPB and the shared pool key do not contain the V2 execution flag.
             new_column = std::make_shared<TabletColumn>(*column);
             if (new_column->is_variant_type()) {
@@ -1294,38 +1288,6 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
             append_column(new_col, TabletSchema::ColumnType::DROPPED);
         }
     }
-}
-
-void TabletSchema::enable_variant_v2_execution() {
-    _variant_v2_execution = true;
-    bool copied = false;
-    for (auto& column : _cols) {
-        if (column->is_variant_type() && !column->variant_is_v2()) {
-            // Cached/pool columns may also belong to foreground V1 readers.
-            column = std::make_shared<TabletColumn>(*column);
-            column->set_variant_is_v2(true);
-            copied = true;
-        }
-    }
-    if (copied) {
-        // StringRef and PathInDataRef keys must point into the copied column owners.
-        decltype(_field_name_to_index) names;
-        for (const auto& [name, cid] : _field_name_to_index) {
-            names.emplace(StringRef(_cols[cid]->name()), cid);
-        }
-        _field_name_to_index.swap(names);
-        decltype(_field_path_to_index) paths;
-        for (const auto& [path, cid] : _field_path_to_index) {
-            paths.emplace(_cols[cid]->path_info_ptr().get(), cid);
-        }
-        _field_path_to_index.swap(paths);
-    }
-}
-
-TabletSchemaSPtr TabletSchema::copy_for_variant_v2() const {
-    TabletSchemaSPtr copy(new TabletSchema(*this));
-    copy->enable_variant_v2_execution();
-    return copy;
 }
 
 TabletSchemaSPtr TabletSchema::copy_without_variant_extracted_columns() {

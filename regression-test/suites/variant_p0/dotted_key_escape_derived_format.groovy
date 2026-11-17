@@ -46,16 +46,13 @@ suite("dotted_key_escape_derived_format", "p0,nonConcurrent") {
         PROPERTIES("replication_num"="1") AS SELECT CAST(1 AS INT) k,
         (SELECT v FROM dotted_key_escape_derived_source WHERE k=1) v"""
     qt_subquery """SELECT k,v,v['a.b'],v['a']['b'] FROM dotted_key_escape_derived_subquery ORDER BY k"""
-    setFeConfigTemporary([enable_variant_v2: false]) {
-        sql "DROP TABLE IF EXISTS dotted_key_escape_derived_recursive"
-        sql """CREATE TABLE dotted_key_escape_derived_recursive DISTRIBUTED BY HASH(k) BUCKETS 1
-            PROPERTIES("replication_num"="1") AS WITH RECURSIVE r(k,v) AS (
-            SELECT k,v FROM dotted_key_escape_derived_legacy UNION ALL
-            SELECT s.k,s.v FROM r JOIN dotted_key_escape_derived_source s ON r.k=0)
-            SELECT k,v FROM r"""
-        qt_recursive """SELECT k,v,v['a.b'],v['a']['b'] FROM dotted_key_escape_derived_recursive ORDER BY k"""
-        assertFalse(getFeConfig("enable_variant_v2").toBoolean())
-    }
+    sql "DROP TABLE IF EXISTS dotted_key_escape_derived_recursive"
+    sql """CREATE TABLE dotted_key_escape_derived_recursive DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num"="1") AS WITH RECURSIVE r(k,v) AS (
+        SELECT k,v FROM dotted_key_escape_derived_legacy UNION ALL
+        SELECT s.k,s.v FROM r JOIN dotted_key_escape_derived_source s ON r.k=0)
+        SELECT k,v FROM r"""
+    qt_recursive """SELECT k,v,v['a.b'],v['a']['b'] FROM dotted_key_escape_derived_recursive ORDER BY k"""
 
     sql "DROP TABLE IF EXISTS dotted_key_escape_derived_false"
     sql """CREATE TABLE dotted_key_escape_derived_false DISTRIBUTED BY HASH(k) BUCKETS 1

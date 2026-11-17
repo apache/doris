@@ -35,7 +35,6 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.VariantExecutionContext;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
@@ -1068,13 +1067,6 @@ public abstract class RoutineLoadJob
 
     public TPipelineFragmentParams plan(NereidsStreamLoadPlanner planner, TUniqueId loadId, long txnId)
             throws UserException {
-        try (VariantExecutionContext.Scope ignored = VariantExecutionContext.forceV2()) {
-            return planWithVariantV2(planner, loadId, txnId);
-        }
-    }
-
-    private TPipelineFragmentParams planWithVariantV2(NereidsStreamLoadPlanner planner,
-            TUniqueId loadId, long txnId) throws UserException {
         Preconditions.checkNotNull(planner);
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
         Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);

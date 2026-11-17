@@ -22,8 +22,8 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.VariantExecutionContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
@@ -339,7 +339,7 @@ public class NereidsLoadUtils {
     }
 
     private static boolean shouldParseVariantForLoad(Expression expression, Column targetColumn) {
-        return VariantExecutionContext.useV2()
+        return Config.enable_variant_v2
                 && targetColumn.getType().isVariantType()
                 && expression.getDataType().isStringLikeType();
     }

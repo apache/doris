@@ -533,7 +533,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         return Status::OK();
     } else {
         // create inverted or ann index writer
-        auto output_rowset_schema = output_rowset_meta->tablet_schema()->copy_for_variant_v2();
+        auto output_rowset_schema = output_rowset_meta->tablet_schema();
         // If no requested index survives schema resolution and the input rowset
         // owned none, the output schema must not gain an orphan compound file.
         if (!output_rowset_schema->has_inverted_index() && !output_rowset_schema->has_ann_index()) {

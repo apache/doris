@@ -23,7 +23,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.VariantExecutionContext;
 import org.apache.doris.thrift.TAlterMaterializedViewParam;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TAlterTabletType;
@@ -121,12 +120,6 @@ public class AlterReplicaTask extends AgentTask {
     }
 
     public TAlterTabletReqV2 toThrift() {
-        try (VariantExecutionContext.Scope ignored = VariantExecutionContext.forceV2()) {
-            return toThriftWithVariantV2();
-        }
-    }
-
-    private TAlterTabletReqV2 toThriftWithVariantV2() {
         TAlterTabletReqV2 req = new TAlterTabletReqV2(baseTabletId, signature, baseSchemaHash, newSchemaHash);
         req.setAlterVersion(version);
         req.setJobId(jobId);

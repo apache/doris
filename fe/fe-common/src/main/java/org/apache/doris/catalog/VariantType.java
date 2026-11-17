@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.VariantExecutionContext;
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 
@@ -239,7 +239,7 @@ public class VariantType extends ScalarType {
         // set the count
         scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         scalarType.setVariantEnableDocMode(enableVariantDocMode);
-        scalarType.setVariantIsV2(VariantExecutionContext.useV2() || computeV2);
+        scalarType.setVariantIsV2(Config.enable_variant_v2 || computeV2);
     }
 
     @Override
@@ -263,17 +263,13 @@ public class VariantType extends ScalarType {
             return false;
         }
         VariantType otherVariantType = (VariantType) other;
-        return computeV2 == otherVariantType.computeV2 && equalsIgnoringExecutionVersion(otherVariantType);
-    }
-
-    /** The transient compute marker must not make persisted MV column schemas appear changed. */
-    public boolean equalsIgnoringExecutionVersion(VariantType otherVariantType) {
         return Objects.equals(otherVariantType.getPredefinedFields(), predefinedFields)
                 && variantMaxSubcolumnsCount == otherVariantType.variantMaxSubcolumnsCount
                 && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode
                 && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
-                && enableNestedGroup == otherVariantType.enableNestedGroup;
+                && enableNestedGroup == otherVariantType.enableNestedGroup
+                && computeV2 == otherVariantType.computeV2;
     }
 
     @Override

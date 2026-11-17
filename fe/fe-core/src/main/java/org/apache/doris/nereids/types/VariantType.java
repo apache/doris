@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.VariantExecutionContext;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
 
 import com.google.common.collect.ImmutableList;
@@ -271,7 +271,7 @@ public class VariantType extends PrimitiveType {
             return false;
         }
         VariantType other = (VariantType) o;
-        if (isExecutionV2() != other.isExecutionV2()) {
+        if (computeV2 != other.computeV2) {
             return false;
         }
         if (predefinedFields.size() != other.predefinedFields.size()) {
@@ -409,7 +409,7 @@ public class VariantType extends PrimitiveType {
     }
 
     public boolean isExecutionV2() {
-        return VariantExecutionContext.useV2() || computeV2;
+        return Config.enable_variant_v2 || computeV2;
     }
 
     /** Whether two Variant values use an execution-compatible physical representation. */

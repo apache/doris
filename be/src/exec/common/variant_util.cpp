@@ -20,7 +20,6 @@
 #include <assert.h>
 #include <fmt/format.h>
 #include <fnmatch.h>
-#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/FrontendService.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/HeartbeatService_types.h>
@@ -110,43 +109,6 @@
 namespace doris::variant_util {
 
 #include "common/compile_check_begin.h"
-
-void set_variant_execution_v2(TTypeDesc& type) {
-    for (auto& node : type.types) {
-        if (node.__isset.scalar_type && node.scalar_type.type == TPrimitiveType::VARIANT) {
-            node.scalar_type.__set_variant_is_v2(true);
-        }
-    }
-}
-
-void set_variant_execution_v2(TDescriptorTable& descriptors) {
-    for (auto& slot : descriptors.slotDescriptors) {
-        set_variant_execution_v2(slot.slotType);
-        if (slot.__isset.virtual_column_expr) {
-            set_variant_execution_v2(slot.virtual_column_expr);
-        }
-    }
-}
-
-void set_variant_execution_v2(TExpr& expr) {
-    for (auto& node : expr.nodes) {
-        set_variant_execution_v2(node.type);
-        if (node.__isset.fn) {
-            for (auto& argument : node.fn.arg_types) {
-                set_variant_execution_v2(argument);
-            }
-            set_variant_execution_v2(node.fn.ret_type);
-            if (node.fn.__isset.aggregate_fn) {
-                set_variant_execution_v2(node.fn.aggregate_fn.intermediate_type);
-            }
-        }
-        if (node.__isset.agg_expr) {
-            for (auto& parameter : node.agg_expr.param_types) {
-                set_variant_execution_v2(parameter);
-            }
-        }
-    }
-}
 
 Status check_variant_execution(bool escape_dots_in_keys, const DataTypePtr& type) {
     if (escape_dots_in_keys && type->get_primitive_type() == TYPE_VARIANT &&

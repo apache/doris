@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.common.VariantExecutionContext;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.qe.ConnectContext;
 
@@ -80,8 +79,6 @@ public class MoreFieldsThread extends Thread {
 
     /** setConnectContext */
     public static void setConnectContext(ConnectContext connectContext) {
-        VariantExecutionContext.setContextPolicy(connectContext == null
-                ? null : connectContext::isForceVariantV2Execution);
         Thread thread = Thread.currentThread();
         if (thread instanceof MoreFieldsThread) {
             ((MoreFieldsThread) thread).connectContext = connectContext;

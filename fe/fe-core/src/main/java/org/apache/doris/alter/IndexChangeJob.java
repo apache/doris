@@ -33,7 +33,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.VariantExecutionContext;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
@@ -238,12 +237,6 @@ public class IndexChangeJob implements Writable {
      *      db lock
      */
     public synchronized void run() {
-        try (VariantExecutionContext.Scope ignored = VariantExecutionContext.forceV2()) {
-            runWithVariantV2();
-        }
-    }
-
-    private void runWithVariantV2() {
         setCloudCluster();
 
         if (isTimeout()) {

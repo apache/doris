@@ -1220,8 +1220,8 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     writer_options.mow_ctx = _context.mow_context;
 
     *writer = std::make_unique<segment_v2::SegmentWriter>(
-            file_writer.get(), _num_segcompacted, _context.tablet_schema->copy_for_variant_v2(),
-            _context.tablet, _context.data_dir, writer_options, index_file_writer.get());
+            file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
+            _context.data_dir, writer_options, index_file_writer.get());
     if (auto& seg_writer = _segcompaction_worker->get_file_writer();
         seg_writer != nullptr && seg_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());

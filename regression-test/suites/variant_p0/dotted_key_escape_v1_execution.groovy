@@ -24,7 +24,7 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
     def decode = { rows -> rows.collect { row ->
         [row[0], row[1] == null ? null : new groovy.json.JsonSlurper().parseText(row[1])]
     } }
-    setFeConfigTemporary([enable_variant_v2:false, enable_variant_escape_dots_in_keys:true]) {
+    setFeConfigTemporary([enable_variant_v2:true, enable_variant_escape_dots_in_keys:true]) {
         // The same guard must cover materialized, sparse and doc-only paths.
         for (def layout : ['"variant_max_subcolumns_count"="10"',
                            '"variant_max_subcolumns_count"="1"',
@@ -43,19 +43,19 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
             def versions = sql_return_maparray("show partitions from dotted_key_escape_v1_reads")
                     .collect { it.VisibleVersion }
             setFeConfigTemporary([enable_variant_v2:false]) {
-                assertEquals(before, decode(sql("select id,v from dotted_key_escape_v1_reads order by id")))
-                assertEquals(before, decode(sql("select id,w from dotted_key_escape_v1_reads order by id")))
-                assertEquals([[1, 2, 3, 4]], sql("""select cast(v['a.b'] as int),cast(v['a']['b'] as int),
-                    cast(v['a%2Eb'] as int),cast(v['pct%'] as int)
-                    from dotted_key_escape_v1_reads where id=0"""))
+                for (def projection : ['v', 'w', "v['a.b']", "v['a']['b']", "v['a%2Eb']", "v['a']"]) {
+                    test {
+                        sql "select ${projection} from dotted_key_escape_v1_reads"
+                        exception "Escaped Variant storage requires V2 execution"
+                    }
+                }
                 assertEquals(ordinary, sql("select id,padding from dotted_key_escape_v1_reads order by id"))
-                sql """insert into dotted_key_escape_v1_reads(id,v,w)
-                    values (100,parse_to_variant('${json}'),parse_to_variant('${json}'))"""
-                def published = sql_return_maparray("show partitions from dotted_key_escape_v1_reads")
-                        .collect { it.VisibleVersion }
-                assertTrue((published[0] as long) > (versions[0] as long))
-                before = decode(sql("select id,v from dotted_key_escape_v1_reads order by id"))
-                assertEquals(5, before.size())
+                test {
+                    sql "insert into dotted_key_escape_v1_reads(id,v) values (100,parse_to_variant('${json}'))"
+                    exception "requires enable_variant_v2=true"
+                }
+                assertEquals(versions, sql_return_maparray("show partitions from dotted_key_escape_v1_reads")
+                        .collect { it.VisibleVersion })
                 // Maintenance selects V2 from the persisted schema, independently of FE config.
                 trigger_and_wait_compaction("dotted_key_escape_v1_reads", "full")
                 // Changing a value type forces a physical rewrite even with light schema enabled.
@@ -93,7 +93,10 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
         }
         def before = decode(sql("select id,v from dotted_key_escape_v1_rowstore where id=1"))
         setFeConfigTemporary([enable_variant_v2:false]) {
-            assertEquals(before, decode(sql("select id,v from dotted_key_escape_v1_rowstore where id=1")))
+            test {
+                sql "select v from dotted_key_escape_v1_rowstore where id=1"
+                exception "Escaped Variant storage requires V2 execution"
+            }
             sql "select padding from dotted_key_escape_v1_rowstore where id=1"
             sql "set enable_short_circuit_query=false"
             sql "set enable_two_phase_read_opt=true"
@@ -102,14 +105,17 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
                 sql "select v from dotted_key_escape_v1_rowstore order by padding limit 1"
                 contains "MaterializeNode"
             }
-            assertEquals(before, decode(sql("select id,v from dotted_key_escape_v1_rowstore order by padding limit 1")))
+            test {
+                sql "select v from dotted_key_escape_v1_rowstore order by padding limit 1"
+                exception "Escaped Variant storage requires V2 execution"
+            }
         }
         assertEquals(before, decode(sql("select id,v from dotted_key_escape_v1_rowstore where id=1")))
         sql "drop table if exists dotted_key_escape_v1_legacy"
         sql """create table dotted_key_escape_v1_legacy(id int,v variant) duplicate key(id)
             distributed by hash(id) buckets 1 properties("replication_num"="1","variant_escape_dots_in_keys"="false")"""
         def legacyJson = '{"nested":{"key":7},"pct%":4}'
-        sql "insert into dotted_key_escape_v1_legacy values (1,'${legacyJson}')"
+        sql "insert into dotted_key_escape_v1_legacy values (1,parse_to_variant('${legacyJson}'))"
         def legacy = decode(sql("select id,v from dotted_key_escape_v1_legacy order by id"))
         setFeConfigTemporary([enable_variant_v2:false]) {
             assertEquals(legacy, decode(sql("select id,v from dotted_key_escape_v1_legacy order by id")))
@@ -117,8 +123,7 @@ suite("dotted_key_escape_v1_execution", "p0,nonConcurrent") {
             sql "insert into dotted_key_escape_v1_legacy values (2,'${legacyJson}')"
             assertEquals(new groovy.json.JsonSlurper().parseText(legacyJson),
                     decode(sql("select id,v from dotted_key_escape_v1_legacy where id=2"))[0][1])
-            sql "drop table if exists dotted_key_escape_v1_new_legacy"
-            sql "create table dotted_key_escape_v1_new_legacy like dotted_key_escape_v1_legacy"
+            sql "create table if not exists dotted_key_escape_v1_new_legacy like dotted_key_escape_v1_legacy"
         }
     }
 }

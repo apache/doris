@@ -26,7 +26,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -214,12 +213,6 @@ public class InitMaterializationContextHook implements PlannerHook {
                 if (mtmvCache == null) {
                     continue;
                 }
-                if (!MTMVPlanUtil.isVariantExecutionCompatible(mtmvCache.getOriginalFinalPlan(),
-                        materializedView.getSessionVariables(),
-                        Config.enable_variant_v2
-                                || cascadesContext.getConnectContext().isForceVariantV2Execution())) {
-                    continue;
-                }
                 // For async materialization context, the cascades context when construct the struct info maybe
                 // different from the current cascadesContext
                 // so regenerate the struct info table bitset
@@ -298,11 +291,6 @@ public class InitMaterializationContextHook implements PlannerHook {
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
                                 basicMvContext, true,
                                 false, cascadesContext.getConnectContext(), !sessionVarMatch);
-                        if (!MTMVPlanUtil.isVariantExecutionCompatible(mtmvCache.getOriginalFinalPlan(),
-                                meta.getSessionVariables(), Config.enable_variant_v2
-                                        || cascadesContext.getConnectContext().isForceVariantV2Execution())) {
-                            continue;
-                        }
                         if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
                             contexts.add(new SyncMaterializationContext(
                                     mtmvCache.getAllRulesRewrittenPlanAndStructInfo().key(),

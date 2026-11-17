@@ -21,10 +21,10 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.VariantExecutionContext;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
@@ -316,7 +316,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         // Enforce the global switch here instead of during Paimon schema conversion. The cached
         // external schema is shared, while this tuple contains only the slots projected by the
         // current query and therefore does not reject scans of unrelated non-VARIANT columns.
-        if (!VariantExecutionContext.useV2()
+        if (!Config.enable_variant_v2
                 && tuple.getSlots().stream().anyMatch(slot -> PaimonUtil.containsVariant(slot.getType()))) {
             throw new UserException(
                     "Paimon VARIANT columns require FE config enable_variant_v2=true");

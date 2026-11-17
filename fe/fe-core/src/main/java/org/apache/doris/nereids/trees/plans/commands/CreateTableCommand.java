@@ -64,7 +64,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -155,11 +154,6 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
      * validateCreateTableAsSelect
      */
     public void validateCreateTableAsSelect(ConnectContext ctx, LogicalPlan query) {
-        Map<String, String> properties = createTableInfo.getProperties();
-        if (properties != null && Boolean.parseBoolean(
-                properties.get(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS))) {
-            ctx.getStatementContext().requireVariantV2Execution();
-        }
         List<String> ctasCols = createTableInfo.getCtasColumns();
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         // must disable constant folding by be, because be constant folding may return wrong type

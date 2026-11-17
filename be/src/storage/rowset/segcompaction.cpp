@@ -89,12 +89,10 @@ Status SegcompactionWorker::_get_segcompaction_reader(
         RowSourcesBuffer& row_sources_buf, bool is_key, std::vector<uint32_t>& return_columns,
         std::vector<uint32_t>& key_group_cluster_key_idxes,
         std::unique_ptr<VerticalBlockReader>* reader) {
-    auto ctx = _writer->_context;
-    ctx.tablet_schema = ctx.tablet_schema->copy_for_variant_v2();
+    const auto& ctx = _writer->_context;
     bool record_rowids = need_convert_delete_bitmap() && is_key;
     StorageReadOptions read_options;
     read_options.stats = stat;
-    read_options.io_ctx.reader_type = ReaderType::READER_SEGMENT_COMPACTION;
     read_options.use_page_cache = false;
     read_options.tablet_schema = ctx.tablet_schema;
     read_options.record_rowids = record_rowids;
@@ -131,7 +129,6 @@ Status SegcompactionWorker::_get_segcompaction_reader(
 
     TabletReader::ReaderParams reader_params;
     reader_params.is_segcompaction = true;
-    reader_params.reader_type = ReaderType::READER_SEGMENT_COMPACTION;
     reader_params.segment_iters_ptr = &seg_iterators;
     // no reader_params.version shouldn't break segcompaction
     reader_params.tablet_schema = ctx.tablet_schema;
@@ -271,7 +268,6 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     uint64_t index_size = 0;
     uint64_t total_index_size = 0;
     auto ctx = _writer->_context;
-    ctx.tablet_schema = ctx.tablet_schema->copy_for_variant_v2();
 
     auto writer = _create_segcompaction_writer(begin, end);
     if (UNLIKELY(writer == nullptr)) {

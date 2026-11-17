@@ -214,10 +214,6 @@ public class NereidsStreamLoadPlanner {
             statementContext.setConnectContext(connectContext);
         }
 
-        if (connectContext != null && destTable.getVariantEscapeDotsInKeys()) {
-            connectContext.getStatementContext().requireVariantV2Execution();
-        }
-
         // 1. create file group
         NereidsDataDescription dataDescription = new NereidsDataDescription(destTable.getName(), taskInfo);
         dataDescription.analyzeWithoutCheckPriv(db.getFullName());

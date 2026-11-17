@@ -19,7 +19,7 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.VariantExecutionContext;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -55,7 +55,7 @@ public final class PaimonVariantWriteAnalyzer {
             if (!VariantType.containsVariant(targetType)) {
                 continue;
             }
-            if (!VariantExecutionContext.useV2()) {
+            if (!Config.enable_variant_v2) {
                 throw new AnalysisException(
                         "Paimon VARIANT write only supports Variant V2; "
                                 + "set FE config enable_variant_v2=true");
@@ -76,7 +76,7 @@ public final class PaimonVariantWriteAnalyzer {
         if (!VariantType.containsVariant(targetType)) {
             return Optional.of(targetType);
         }
-        if (!VariantExecutionContext.useV2()) {
+        if (!Config.enable_variant_v2) {
             return Optional.empty();
         }
         try {

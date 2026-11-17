@@ -256,7 +256,6 @@ public class StreamingJobUtils {
 
     private static ConnectContext buildConnectContext() {
         ConnectContext ctx = new ConnectContext();
-        ctx.setForceVariantV2Execution(true);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();

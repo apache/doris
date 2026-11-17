@@ -1698,7 +1698,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols),
                 visitMTMVPartitionInfo(ctx.mvPartition()),
-                ConnectContextUtil.getMaterializedViewSessionVariables(ConnectContext.get())
+                ConnectContextUtil.getAffectQueryResultInPlanVariables(ConnectContext.get())
         ));
     }
 

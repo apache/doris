@@ -100,7 +100,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     for (auto& del_pred_rs : reader_params.delete_predicates) {
         merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
     }
-    reader_params.tablet_schema = merge_tablet_schema->copy_for_variant_v2();
+    reader_params.tablet_schema = merge_tablet_schema;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
@@ -116,7 +116,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_IF_ERROR(reader.init(reader_params));
 
-    Block block = reader_params.tablet_schema->create_block(reader_params.return_columns);
+    Block block = cur_tablet_schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
@@ -289,7 +289,7 @@ Status Merger::vertical_compact_one_group(
         merge_tablet_schema->merge_dropped_columns(*del_pred_rs->tablet_schema());
     }
 
-    reader_params.tablet_schema = merge_tablet_schema->copy_for_variant_v2();
+    reader_params.tablet_schema = merge_tablet_schema;
     bool has_cluster_key = false;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
@@ -307,7 +307,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.batch_size = batch_size;
     RETURN_IF_ERROR(reader.init(reader_params, sample_info));
 
-    Block block = reader_params.tablet_schema->create_block(reader_params.return_columns);
+    Block block = tablet_schema.create_block(reader_params.return_columns);
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {
@@ -371,7 +371,7 @@ Status Merger::vertical_compact_one_group(
         Statistics* stats_output, uint64_t* index_size, KeyBoundsPB& key_bounds,
         SimpleRowIdConversion* rowid_conversion) {
     // TODO: record_rowids
-    Block block = tablet_schema.copy_for_variant_v2()->create_block(column_group);
+    Block block = tablet_schema.create_block(column_group);
     size_t output_rows = 0;
     bool eof = false;
     while (!eof && !ExecEnv::GetInstance()->storage_engine().stopped()) {

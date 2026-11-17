@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
-#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
@@ -1155,49 +1154,6 @@ TEST_F(TabletSchemaTest, CurrentSchemaKeepsPersistedTablePolicy) {
     current.build_current_tablet_schema(1, 2, &index, persisted);
     EXPECT_TRUE(current.variant_escape_dots_in_keys());
     EXPECT_TRUE(current.column(0).variant_is_v2());
-}
-
-TEST_F(TabletSchemaTest, maintenance_variant_v2_is_private_and_preserves_storage_encoding) {
-    TabletSchemaPB pb;
-    pb.set_keys_type(DUP_KEYS);
-    auto* key = pb.add_column();
-    key->set_unique_id(0);
-    key->set_name("id");
-    key->set_type("INT");
-    key->set_is_key(true);
-    key->set_is_nullable(false);
-    auto* value = pb.add_column();
-    value->set_unique_id(1);
-    value->set_name("payload");
-    value->set_type("VARIANT");
-    value->set_is_key(false);
-    value->set_is_nullable(true);
-    value->set_aggregation("NONE");
-    auto original = std::make_shared<TabletSchema>();
-    original->init_from_pb(pb);
-    auto execution = original->copy_for_variant_v2();
-    EXPECT_FALSE(original->column(1).variant_is_v2());
-    EXPECT_TRUE(execution->column(1).variant_is_v2());
-    EXPECT_FALSE(execution->variant_escape_dots_in_keys());
-    TabletSchemaPB persisted;
-    execution->to_schema_pb(&persisted);
-    EXPECT_EQ(pb.variant_escape_dots_in_keys(), persisted.variant_escape_dots_in_keys());
-    original.reset();
-    EXPECT_EQ(1, execution->field_index("payload"));
-    EXPECT_EQ(1, execution->column_by_uid(1).unique_id());
-    TabletSchema copied;
-    copied.copy_from(*execution);
-    EXPECT_TRUE(copied.column(1).variant_is_v2());
-    EXPECT_TRUE(copied.copy_without_variant_extracted_columns()->column(1).variant_is_v2());
-    execution.reset();
-    EXPECT_EQ(1, copied.field_index("payload"));
-    EXPECT_EQ(1, copied.column_by_uid(1).unique_id());
-    auto block = copied.create_block();
-    EXPECT_NE(nullptr, typeid_cast<const DataTypeVariantV2*>(
-                               remove_nullable(block.get_by_position(1).type).get()));
-    TabletSchema reloaded;
-    reloaded.init_from_pb(persisted);
-    EXPECT_FALSE(reloaded.column(1).variant_is_v2());
 }
 
 } // namespace doris

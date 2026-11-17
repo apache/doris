@@ -30,7 +30,6 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/status.h"
-#include "exec/common/variant_util.h"
 #include "service/backend_options.h"
 #include "storage/delete/delete_handler.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
@@ -240,8 +239,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     // Create a new tablet schema, should merge with dropped columns in light weight schema change
     _base_tablet_schema = std::make_shared<TabletSchema>();
     _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
-    _base_tablet_schema = _base_tablet_schema->copy_for_variant_v2();
-    _new_tablet_schema = _new_tablet->tablet_schema()->copy_for_variant_v2();
+    _new_tablet_schema = _new_tablet->tablet_schema();
 
     std::vector<ColumnId> return_columns;
     return_columns.resize(_base_tablet_schema->num_columns());
@@ -295,9 +293,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
                    [](RowSetSplits& split) { return split.rs_reader->rowset(); });
     sc_params.output_to_file_cache = _should_cache_sc_output(rowsets);
 
-    auto descriptors = request.desc_tbl;
-    variant_util::set_variant_execution_v2(descriptors);
-    RETURN_IF_ERROR(DescriptorTbl::create(&sc_params.pool, descriptors, &sc_params.desc_tbl));
+    RETURN_IF_ERROR(DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
     sc_params.ref_rowset_readers.reserve(rs_splits.size());
     for (RowSetSplits& split : rs_splits) {
         sc_params.ref_rowset_readers.emplace_back(std::move(split.rs_reader));
@@ -333,7 +329,6 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
 
         if (item.__isset.mv_expr) {
             mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
-            variant_util::set_variant_execution_v2(*mv_param.expr);
         }
         sc_params.materialized_params_map.insert(
                 std::make_pair(to_lower(item.column_name), mv_param));

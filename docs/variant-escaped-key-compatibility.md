@@ -9,8 +9,8 @@ execution alone does **not** prove that a backend understands that encoding.
 `enable_variant_v2`. Creation (including inherited policies) and load planning
 reject escaped tables while the former is false. RESTORE checks the selected
 backup tables before changing local table state or creating replicas, independently
-of the query execution switch. Foreground statements over only unescaped
-internal tables retain the global V1/V2 query default.
+of the query execution switch. Unescaped tables retain their
+existing V1 and V2 behavior.
 
 This branch does not advertise escaped-path support in backend heartbeats. Backend
 version strings and the block execution version cannot reliably identify this
@@ -23,9 +23,8 @@ operator attestation, **not an automatic backend capability check**.
    upgrade every meta-service that persists or forwards tablet schemas as well.
 3. Verify that all these binaries preserve the schema property and understand
    `ColumnMetaPB.variant_path_encoding=1`.
-4. Only then enable `enable_variant_escape_dots_in_keys=true` on all frontends.
-   Escaped tables automatically select V2 for the whole statement; the global
-   `enable_variant_v2` query default may remain false.
+4. Only then enable both FE settings on all frontends:
+   `enable_variant_escape_dots_in_keys=true` and `enable_variant_v2=true`.
 
 Once escaped tables exist, do not add an older node or downgrade to binaries
 without this feature. Disabling the activation switch does not convert persisted
@@ -44,28 +43,11 @@ RowId fetch protocols. Queries requesting only ordinary columns remain allowed.
 The check uses the execution type before read-schema promotion and does not infer
 it from the session/config switch. Storage-reader checks remain in place.
 
-A statement reading or writing an escaped table automatically selects V2 for
-all its Variant expressions and slots, including joins with unescaped tables,
-CTAS, and stream loads. It does not toggle the global query default, mutate shared
-column types, or affect the next unrelated statement. The independent storage
-activation gate still applies to creation, inheritance, loads and restore.
-
-Background MV refresh/build, rollup, schema change, index build and compaction
-use V2 Variant execution even for unescaped tables. Background RPC serialization
-covers expression/function types and slot descriptors together; BE readers,
-aggregate functions, output blocks and writers use private V2 execution schemas.
-SC/rollup requests from older FEs are normalized on copies of their descriptors
-and expressions, so their V1 flags cannot conflict with the V2 maintenance blocks.
-The persisted table property still decides physical path encoding: unescaped
-history is not relabelled as escaped, and execution flags are not persisted.
-
-Materializations record their Variant execution version separately from encoding.
-A V1 query cannot reuse V2 Variant-dependent materializations: CAST and empty-array
-semantics can differ. Old materializations without a known execution version are
-conservatively excluded from Variant-dependent rewriting; recreate them under the
-new policy before relying on that optimization. Scalar-only materializations are
-unaffected. Refreshing an old MV alone does not assert that all historical or
-partially refreshed partitions were computed with V2.
+Creating an escaped table and planning user loads require V2. In contrast, an
+existing tablet's compaction, replica creation and column schema changes use its
+persisted schema property. Switching the FE's query implementation to V1 must not
+erase that property or select a V1 maintenance writer. New materialized-view
+queries still require V2 execution.
 
 The per-segment encoding marker remains authoritative for decoding historical
 segments. No V1 escaped-key codec, protocol field, format downgrade, or automatic
