@@ -195,19 +195,19 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         commands = re.search(r'reg="\^run \(([^)]+)\)', workflow).group(1).split('|')
         self.assertEqual(set(commands), set(mappings) | {'buildall'})
 
-    def parse_comment(self, command, branch='master', permission='write', check=True, user_id='27881198', role=None):
+    def parse_comment(self, command, branch='master', check=True, user_id='123456'):
         workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
         block = workflow.split('    - name: "Parse PR comment"\n', 1)[1].split('    - name:', 1)[0]
         script = textwrap.dedent(block.split('      run: |\n', 1)[1])
         script = script.replace('${{ github.event.issue.pull_request.url }}', 'https://api.github.com/repos/apache/doris/pulls/123')
-        script = script.replace('${{ github.repository }}', 'apache/doris').replace('${{ github.event.comment.user.login }}', 'tester')
+        script = script.replace('${{ github.repository }}', 'apache/doris')
         output = self.root / 'workflow-output'; output.write_text('')
         prefix = 'curl(){ printf "%s\\n" "$MOCK_GITHUB_RESPONSE"; };\n'
         result = subprocess.run(['bash', '-eo', 'pipefail', '-c', prefix + script], text=True, capture_output=True,
                                 env={**self.env, 'COMMENT_BODY': command, 'COMMENT_USER_ID': user_id,
                                      'GITHUB_TOKEN': 'test-github-token', 'GITHUB_OUTPUT': str(output),
                                      'GITHUB_ENV': str(self.root / 'workflow-env'),
-                                     'MOCK_GITHUB_RESPONSE': json.dumps({'head': {'sha': HEAD}, 'base': {'ref': branch}, 'permission': permission, 'role_name': role})})
+                                     'MOCK_GITHUB_RESPONSE': json.dumps({'head': {'sha': HEAD}, 'base': {'ref': branch}})})
         if check:
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return result, output.read_text()
@@ -223,7 +223,7 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
             self.assertNotIn('COMMENT_TRIGGER_TYPE=', output)
 
     def test_skip_buildall_authorization_is_preserved(self):
-        _, output = self.parse_comment('skip buildall')
+        _, output = self.parse_comment('skip buildall', user_id='27881198')
         self.assertIn('comment_skip=true', output)
         _, output = self.parse_comment('skip buildall', user_id='123456', check=False)
         self.assertNotIn('comment_skip=true', output)
@@ -244,45 +244,39 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
             self.assertEqual(set(self.skipped_contexts()), expected)
             self.assertFalse(self.state().get('posts'))
 
-    def test_workflow_branch_and_permission_checks(self):
+    def test_workflow_branch_checks(self):
         for branch in ['branch-4.2', 'branch-4.1']:
             result, _ = self.parse_comment('run performance', branch=branch, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.parse_comment('run buildall', branch=branch)
             self.parse_comment('run feut', branch=branch)
-        for branch, permission in [('branch-4.0', 'write'), ('master', 'read')]:
-            result, _ = self.parse_comment('run feut', branch=branch, permission=permission, check=False)
-            self.assertNotEqual(result.returncode, 0)
-
-    def test_triage_buildall(self):
-        _, output = self.parse_comment('run buildall', permission='read', role='triage')
-        self.assertIn('COMMENT_TRIGGER_TYPE=buildall', output)
-        self.assertNotIn('can_approve_pipeline_scripts=true', output)
-        for command, role in [('run feut', 'triage'), ('run buildall 2', 'triage'),
-                              ('run buildall', 'read'), ('run buildall', None)]:
-            with self.subTest(command=command, role=role):
-                result, _ = self.parse_comment(command, permission='read', role=role, check=False)
-                self.assertNotEqual(result.returncode, 0)
-        _, output = self.parse_comment('run buildall', permission='write', role='custom')
-        self.assertIn('can_approve_pipeline_scripts=true', output)
+        result, _ = self.parse_comment('run feut', branch='branch-4.0', check=False)
+        self.assertNotEqual(result.returncode, 0)
 
     def test_sensitive_scripts_require_write_access_and_buildall(self):
         workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
         step = workflow.split('    - name: "Check for sensitive pipeline script changes"', 1)[1].split('    - name:', 1)[0]
-        self.assertIn('CAN_APPROVE_PIPELINE_SCRIPTS: ${{ steps.parse.outputs.can_approve_pipeline_scripts }}', step)
+        self.assertIn('COMMENT_LOGIN: ${{ github.event.comment.user.login }}', step)
         script = textwrap.dedent(step.split('      run: |\n', 1)[1])
         script = script.replace('source regression-test/pipeline/common/github-utils.sh', 'create_an_issue_comment(){ :; }')
-        for path, approval, command, allowed in [
-                ('be/src/example.cpp', '', 'buildall', True),
-                ('regression-test/pipeline/p0/run.sh', '', 'buildall', False),
-                ('regression-test/pipeline/p0/run.sh', 'true', 'buildall', True),
-                ('regression-test/pipeline/p0/run.sh', 'true', 'p0', False)]:
-            with self.subTest(path=path, approval=approval, command=command):
+        script = 'curl(){ echo called >> calls; echo "$MOCK_PERMISSION"; };\n' + script
+        sensitive = 'regression-test/pipeline/p0/run.sh'
+        for path, command, permission, allowed, lookup in [
+                ('be/src/example.cpp', 'buildall', None, True, False),
+                ('be/src/example.cpp', 'p0', None, True, False),
+                (sensitive, 'buildall', 'read', False, True),
+                (sensitive, 'buildall', None, False, True),
+                (sensitive, 'buildall', 'write', True, True),
+                (sensitive, 'p0', 'admin', False, False)]:
+            with self.subTest(path=path, permission=permission, command=command):
                 (self.root / 'all_files').write_text(path + '\n')
-                result = subprocess.run(['bash', '-e', '-c', script], cwd=self.root, capture_output=True,
-                                        env={**self.env, 'CAN_APPROVE_PIPELINE_SCRIPTS': approval,
+                calls = self.root / 'calls'
+                calls.write_text('')
+                result = subprocess.run(['bash', '-eo', 'pipefail', '-c', script], cwd=self.root, capture_output=True,
+                                        env={**self.env, 'MOCK_PERMISSION': json.dumps({'permission': permission}),
                                              'COMMENT_TRIGGER_TYPE': command})
                 self.assertEqual(result.returncode, 0 if allowed else 1, result.stderr)
+                self.assertEqual(bool(calls.read_text()), lookup)
 
     def test_credentials_are_not_traced(self):
         result = self.run_shell('''curl(){ printf '%s\\n' "$@" > "$FIXTURE_ROOT/curl-args"; }

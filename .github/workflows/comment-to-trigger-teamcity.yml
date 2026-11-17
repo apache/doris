@@ -111,21 +111,7 @@ jobs:
         echo "TARGET_BRANCH=${TARGET_BRANCH}" | tee -a "$GITHUB_OUTPUT"
         echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "$GITHUB_ENV"
         case "$TARGET_BRANCH" in
-          master|branch-4.2|branch-4.1)
-            if [[ "$COMMENT_BODY" == *'run '* ]]; then
-              role=$(curl --fail --silent --show-error \
-                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-                "https://api.github.com/repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission" | \
-                jq -er 'if .permission == "read" and .role_name == "triage" then "triage" else .permission end')
-              case "$role" in
-                write|maintain|admin) echo "can_approve_pipeline_scripts=true" >> "$GITHUB_OUTPUT" ;;
-                triage)
-                  [[ "$COMMENT_BODY" == 'run buildall' ]] || { echo 'Triage access allows run buildall only'; exit 1; }
-                  ;;
-                *) echo 'Repository triage or write access is required to trigger TeamCity'; exit 1 ;;
-              esac
-            fi
-            ;;
+          master|branch-4.2|branch-4.1) ;;
           *) echo "No TeamCity PR pipeline configured for $TARGET_BRANCH"; exit 1;;
         esac
         COMMENT_BODY_DELIMITER=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
@@ -223,7 +209,7 @@ jobs:
       env:
         PULL_REQUEST_NUM: ${{ steps.parse.outputs.PULL_REQUEST_NUM }}
         COMMENT_TRIGGER_TYPE: ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }}
-        CAN_APPROVE_PIPELINE_SCRIPTS: ${{ steps.parse.outputs.can_approve_pipeline_scripts }}
+        COMMENT_LOGIN: ${{ github.event.comment.user.login }}
       run: |
         # This check is intentionally written inline (not sourced from any repository file)
         # so it cannot be bypassed by modifying files in a PR.
@@ -248,7 +234,15 @@ jobs:
           fi
         done < all_files
 
-        if ${changed_sensitive} && [[ "${COMMENT_TRIGGER_TYPE}" != "buildall" || "${CAN_APPROVE_PIPELINE_SCRIPTS}" != "true" ]]; then
+        if ${changed_sensitive}; then
+          if [[ "${COMMENT_TRIGGER_TYPE}" == "buildall" ]]; then
+            permission=$(curl --fail --silent --show-error \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/collaborators/${COMMENT_LOGIN}/permission" | jq -r '.permission')
+            case "$permission" in
+              write|maintain|admin) exit 0 ;;
+            esac
+          fi
           msg="This PR changes pipeline scripts that run with TeamCity credentials. A repository member with write access must review the changes and comment \`run buildall\` to trigger CI."
           create_an_issue_comment "${PULL_REQUEST_NUM}" "${msg}"
           exit 1
