@@ -386,6 +386,10 @@ public class CreateTableInfo {
         return engineName;
     }
 
+    public void setProperties(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
     public Map<String, String> getProperties() {
         return properties;
     }

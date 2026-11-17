@@ -21,8 +21,11 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureForDateArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubRearrangeable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.MonotonicityUtils;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -40,7 +43,7 @@ import java.util.List;
  * ScalarFunction 'days_sub'.
  */
 public class DaysSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic {
+        ComputeSignatureForDateArithmetic, PropagateNullable, DateAddSubMonotonic, DateAddSubRearrangeable {
 
     //ATTN: must place Datetime before Date, because for castring from string like literal, date and datetime has
     // the same precedence, but we prefer datetime to avoid data loss. for string literal which could cast to Date
@@ -75,6 +78,20 @@ public class DaysSub extends ScalarFunction implements BinaryExpression, Explici
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDaysSub(this, context);
+    }
+
+    @Override
+    public boolean isMonotonic(Literal lower, Literal upper) {
+        return DateAddSubMonotonic.super.isMonotonic(lower, upper)
+                && MonotonicityUtils.isCalendarDayMonotonic(child(0).getDataType());
+    }
+
+    @Override
+    public boolean canRearrangeComparison() {
+        // Even a fixed offset can put a valid UTC input outside the local date range. Checking
+        // only the inverse boundary would remove the original operation's range error.
+        return !(child(0).getDataType() instanceof TimeStampTzType)
+                && DateAddSubRearrangeable.super.canRearrangeComparison();
     }
 
     @Override

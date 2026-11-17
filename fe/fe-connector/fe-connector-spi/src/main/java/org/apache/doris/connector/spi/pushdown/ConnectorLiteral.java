@@ -29,9 +29,10 @@ import java.util.Objects;
 /**
  * A literal value expression.
  *
- * <p>The value is a standard Java type. The engine produces exactly these eight shapes — see the package
+ * <p>The value is a standard Java type. The engine produces exactly these nine shapes — see the package
  * javadoc (Rule 4) for the full Doris-type-to-Java-class table: {@code null}, {@code Boolean}, {@code Long},
- * {@code Double}, {@code BigDecimal}, {@code String}, {@code LocalDate}, {@code LocalDateTime}.</p>
+ * {@code Double}, {@code BigDecimal}, {@code String}, {@code LocalDate}, {@code LocalDateTime}, and for an
+ * {@code ARRAY} an unmodifiable {@code List} whose elements take these same shapes.</p>
  *
  * <p>Two consequences worth stating outright, because both have produced wrong connector code:
  * <b>{@code Integer} never arrives</b> (every integral type, {@code TINYINT} through {@code BIGINT}, is a

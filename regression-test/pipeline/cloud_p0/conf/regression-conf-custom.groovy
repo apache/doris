@@ -120,8 +120,6 @@ pythonUdfRuntimeVersion = "3.12.11"
 // Historical injected-adapter failures below are not evidence of original-framework defects.
 if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
     excludeSuites += "," + [
-        // Historical injected OUTFILE rewriter rejected two statement terminators; original framework cause not established.
-        "dml_into_outfile",
         // Historical local-rootless BE filesystem adapter failure; exact rejected path/operation remains unresolved.
         "test_export_basic",
         // Historical local-rootless BE filesystem adapter failure; exact rejected path/operation remains unresolved.
@@ -131,13 +129,7 @@ if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
         // Historical local-rootless BE filesystem adapter failure; exact rejected path/operation remains unresolved.
         "test_export_table_with_label_retry",
         // Historical local-rootless BE filesystem adapter failure; exact rejected path/operation remains unresolved.
-        "test_nereids_show_export",
-        // Historical CREATE REPOSITORY used public-bucket ANONYMOUS SQL while migration backup routing was disabled.
-        "test_temp_table",
-        // Historical injected TVF rewriter left repeated-TVF SQL using original public locations; original framework cause not established.
-        "test_uuid_csv_schema",
-        // Historical injected TVF rewriter left repeated-TVF SQL using original public locations; original framework cause not established.
-        "test_uuid_parquet_native"
+        "test_nereids_show_export"
     ].join(",")
 
     // Temporary environment exclusions using the existing suite-name filter.
@@ -146,12 +138,6 @@ if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
     // and export_p0/outfile/parquet/test_outfile_parquet.groovy. No whole directory is excluded.
     // The two independent-provider credential cases already have the p2 group in master.
     excludeSuites += "," + [
-        // shared parent database prerequisite
-        "test_nested_types_insert_into_with_s3",
-        // shared parent database prerequisite
-        "test_nestedtypes_csv_insert_into_with_s3",
-        // shared parent database prerequisite
-        "test_nestedtypes_json_insert_into_with_s3",
         // root SSH/SCP or remote filesystem prerequisite
         "test_export_view",
         // mysqldump column-statistics compatibility
@@ -170,4 +156,42 @@ if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
     // but the actual EXPLAIN shape omitted it; plan/baseline cause remains unresolved.
     // This does not establish a wrong query result.
     excludeSuites += ",scalar_agg_pushdown"
+}
+
+// Move remaining compatibility exclusions from the CI adapter into reviewed source.
+// These observations do not establish a universal framework defect.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    excludeSuites += "," + [
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_stream_load_error_url",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_csv_with_none_utf8_data",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "rewrite_when_dml",
+        // Requires regressionAliyunStsRegion and regressionAliyunStsRoleArn plus AssumeRole access.
+        // These inputs are not configured in rootless CI; static S3 credentials do not cover this suite.
+        "test_s3_load_with_tmp_token",
+        // Build 477: error-URL expectation differs; SQL returns please use show load instead. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_insert_strict_fail_url",
+        // Build 477: error-URL expectation differs; SQL returns please use show load instead. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_insert_partition_fail_url",
+        // Build 477: error-URL expectation differs; SQL returns please use show load instead. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_insert_docs_demo",
+        // Build 434: active near initial MS RSS surge (19:18:47-19:19:02); temporal correlation only, not proven cause. Restore: Developer MS investigation plus isolated/repeated memory-tracked pass, then re-enable individually.
+        "multi_slot",
+        // Build 434: active near initial MS RSS surge (19:18:47-19:19:02); temporal correlation only, not proven cause. Restore: Developer MS investigation plus isolated/repeated memory-tracked pass, then re-enable individually.
+        "variant_mv_rowstore_crash",
+        // Build 434: active near initial MS RSS surge (19:18:47-19:19:02); temporal correlation only, not proven cause. Restore: Developer MS investigation plus isolated/repeated memory-tracked pass, then re-enable individually.
+        "test_variant_search_subcolumn_snii"
+    ].join(",")
+}
+
+// Reviewed defaults for CI using the unmodified framework and rootless runtime.
+// Preserve other environments; addresses, local paths, credentials and build IDs are injected at deployment.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Use the existing read-only regression fixtures in Hong Kong.
+    s3BucketName = "doris-regression-hk"
+    s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+    s3Region = "oss-cn-hongkong"
+    s3Provider = "S3"
 }

@@ -39,16 +39,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.math.BigInteger;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.TemporalQueries;
-import java.time.zone.ZoneOffsetTransition;
-import java.time.zone.ZoneRules;
-import java.util.List;
 import java.util.Objects;
 
 /**
@@ -145,56 +141,11 @@ public class DateTimeLiteral extends DateLiteral {
 
     /** parseDateTimeLiteral */
     public static Result<DateTimeLiteral, AnalysisException> parseDateTimeLiteral(String s, boolean isV2) {
-        Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
-        if (parseResult.isError()) {
-            return parseResult.cast();
-        }
-
-        TemporalAccessor temporal = parseResult.get();
-        long year = DateUtils.getOrDefault(temporal, ChronoField.YEAR);
-        long month = DateUtils.getOrDefault(temporal, ChronoField.MONTH_OF_YEAR);
-        long day = DateUtils.getOrDefault(temporal, ChronoField.DAY_OF_MONTH);
-        long hour = DateUtils.getOrDefault(temporal, ChronoField.HOUR_OF_DAY);
-        long minute = DateUtils.getOrDefault(temporal, ChronoField.MINUTE_OF_HOUR);
-        long second = DateUtils.getOrDefault(temporal, ChronoField.SECOND_OF_MINUTE);
-
-        ZoneId zoneId = temporal.query(TemporalQueries.zone());
-        if (zoneId != null) {
-            LocalDateTime localDateTime = convertTimeZone(year, month, day, hour, minute, second,
-                    zoneId, DateUtils.getTimeZone());
-            year = localDateTime.getYear();
-            month = localDateTime.getMonthValue();
-            day = localDateTime.getDayOfMonth();
-            hour = localDateTime.getHour();
-            minute = localDateTime.getMinute();
-            second = localDateTime.getSecond();
-        }
-
-        long microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
-        // Microseconds have 7 digits.
-        long sevenDigit = microSecond % 10;
-        microSecond = microSecond / 10;
-        if (sevenDigit >= 5 && isV2) {
-            DateTimeV2Literal tempLiteral = new DateTimeV2Literal(year, month, day, hour, minute, second, microSecond);
-            DateTimeV2Literal result = (DateTimeV2Literal) tempLiteral.plusMicroSeconds(1);
-            second = result.second;
-            minute = result.minute;
-            hour = result.hour;
-            day = result.day;
-            month = result.month;
-            year = result.year;
-            microSecond = result.microSecond;
-        }
-
-        if (checkRange(year, month, day) || checkDate(year, month, day)) {
-            return Result.err(() -> new AnalysisException("datetime literal [" + s + "] is out of range"));
-        }
-
-        if (isV2) {
-            DateTimeV2Type type = DateTimeV2Type.forTypeFromString(s);
-            return Result.ok(new DateTimeV2Literal(type, year, month, day, hour, minute, second, microSecond));
-        } else {
-            return Result.ok(new DateTimeLiteral(DateTimeType.INSTANCE, year, month, day, hour, minute, second));
+        // Use the constructors so casts and inferred literals round before zone lookup.
+        try {
+            return Result.ok(isV2 ? new DateTimeV2Literal(s) : new DateTimeLiteral(s));
+        } catch (AnalysisException e) {
+            return Result.err(() -> e);
         }
     }
 
@@ -236,19 +187,18 @@ public class DateTimeLiteral extends DateLiteral {
         second = DateUtils.getOrDefault(temporal, ChronoField.SECOND_OF_MINUTE);
 
         ZoneId zoneId = temporal.query(TemporalQueries.zone());
-        if (zoneId != null) {
-            ZoneId targetZone = this.dataType instanceof TimeStampTzType ? ZoneId.of("UTC") : DateUtils.getTimeZone();
-            LocalDateTime localDateTime = convertTimeZone(year, month, day, hour, minute, second,
-                    zoneId, targetZone);
-            this.year = localDateTime.getYear();
-            this.month = localDateTime.getMonthValue();
-            this.day = localDateTime.getDayOfMonth();
-            this.hour = localDateTime.getHour();
-            this.minute = localDateTime.getMinute();
-            this.second = localDateTime.getSecond();
+        int scale = DateTimeV2Type.MAX_SCALE;
+        if (this.dataType instanceof TimeStampTzType) {
+            scale = ((TimeStampTzType) this.dataType).getScale();
+        } else if (this.dataType instanceof DateTimeV2Type) {
+            scale = ((DateTimeV2Type) this.dataType).getScale();
         }
-
-        microSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND) / 100L;
+        // Keep the target digits and one rounding digit. At scale 0, .4999996
+        // must round to zero, not to .500000 and then to one second.
+        long nanoSecond = DateUtils.getOrDefault(temporal, ChronoField.NANO_OF_SECOND);
+        long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale - 1);
+        nanoSecond = nanoSecond / factor * factor;
+        microSecond = nanoSecond / 100L;
         // Microseconds have 7 digits.
         long sevenDigit = microSecond % 10;
         microSecond = microSecond / 10;
@@ -264,6 +214,21 @@ public class DateTimeLiteral extends DateLiteral {
             this.microSecond = result.microSecond;
         }
 
+        // A carry can leave the gap. For example, 02:59:59.9999996 becomes 03:00
+        // in New York on 2024-03-10. Resolve the zone only after this carry.
+        if (zoneId != null) {
+            roundMicroSecond(scale);
+            ZoneId outputZone = this.dataType instanceof TimeStampTzType ? ZoneOffset.UTC : DateUtils.getTimeZone();
+            LocalDateTime converted = LocalDateTime.ofInstant(
+                    DateUtils.convertLocalToInstant(toJavaDateType(), zoneId), outputZone);
+            this.year = converted.getYear();
+            this.month = converted.getMonthValue();
+            this.day = converted.getDayOfMonth();
+            this.hour = converted.getHour();
+            this.minute = converted.getMinute();
+            this.second = converted.getSecond();
+        }
+
         if (checkRange(year, month, day) || checkDate(year, month, day)) {
             throw new AnalysisException("datetime literal [" + s + "] is out of range");
         }
@@ -273,48 +238,6 @@ public class DateTimeLiteral extends DateLiteral {
     // completely. use multiplyExact to be aware of multiplication overflow possibility.
     public DateTimeLiteral plusMicroSeconds(long microSeconds) {
         return fromJavaDateType(toJavaDateType().plusNanos(Math.multiplyExact(microSeconds, 1000L)), 6);
-    }
-
-    private static LocalDateTime convertTimeZone(long year, long month, long day, long hour, long minute,
-            long second, ZoneId fromZone, ZoneId toZone) {
-        LocalDateTime localDateTime = LocalDateTime.of((int) year, (int) month, (int) day,
-                (int) hour, (int) minute, (int) second);
-        Instant instant = convertLocalToInstant(localDateTime, fromZone);
-        return LocalDateTime.ofInstant(instant, toZone);
-    }
-
-    /**
-     * Convert a local civil datetime in {@code fromZone} to an instant with the same DST transition
-     * policy as BE cctz::convert(civil_second, zone).
-     *
-     * <p>For normal local times, there is one valid offset. For fall-back overlap times, two offsets
-     * are valid and the first one is the pre-transition offset. For spring-forward gap times, the
-     * local time does not exist, so any value inside the skipped interval maps to the transition
-     * instant.
-     */
-    public static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone) {
-        ZoneRules rules = fromZone.getRules();
-        List<ZoneOffset> validOffsets = rules.getValidOffsets(localDateTime);
-        int size = validOffsets.size();
-        // Match BE cctz::convert(civil_second, zone) semantics for constant folding.
-        // Normal local time has one offset; repeated local time uses the pre-transition offset.
-        if (size == 1 || size == 2) {
-            return localDateTime.atOffset(validOffsets.get(0)).toInstant();
-        }
-        // Skipped local time maps to the transition instant, e.g. 2021-03-28 02:15 Europe/Paris.
-        ZoneOffsetTransition transition = rules.getTransition(localDateTime);
-        return transition.getInstant();
-    }
-
-    /**
-     * Resolve a local civil second with the BE cctz policy while preserving its fraction.
-     * In a DST gap cctz maps the civil second to the transition instant independently of the
-     * subsecond part, so resolve the integral second first and then restore the fraction.
-     */
-    public static Instant convertLocalToInstantPreservingFraction(
-            LocalDateTime localDateTime, ZoneId fromZone) {
-        return convertLocalToInstant(localDateTime.withNano(0), fromZone)
-                .plusNanos(localDateTime.getNano());
     }
 
     public boolean checkRange() {

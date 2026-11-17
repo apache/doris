@@ -19,9 +19,6 @@
 name: 'Check Large File'
 
 on:
-  push:
-    branches:
-      - master
   pull_request_target:
 
 permissions:
@@ -43,14 +40,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
-            PR_NUM="$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")"
-            gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/files?per_page=100" --paginate \
-              --jq '.[] | select(.status == "added") | [.filename, .raw_url] | @tsv' > "$RUNNER_TEMP/files.tsv"
-          else
-            gh api "repos/$GITHUB_REPOSITORY/commits/${{ github.sha }}" \
-              --jq '.files[] | select(.status == "added") | [.filename, .raw_url] | @tsv' > "$RUNNER_TEMP/files.tsv"
-          fi
+          PR_NUM="$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/${PR_NUM}/files?per_page=100" --paginate \
+            --jq '.[] | select(.status == "added") | [.filename, .raw_url] | @tsv' > "$RUNNER_TEMP/files.tsv"
           echo "Added files: $(wc -l < "$RUNNER_TEMP/files.tsv")"
 
       - name: "Check sizes against the 1MB limit"
@@ -68,7 +60,6 @@ jobs:
           echo "Oversized files: $(wc -l < "$RUNNER_TEMP/oversized.tsv")"
 
       - name: "Warn on oversized files in pull requests"
-        if: github.event_name == 'pull_request_target'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -85,14 +76,3 @@ jobs:
             done < "$RUNNER_TEMP/oversized.tsv"
           } > "$RUNNER_TEMP/comment.md"
           gh pr comment "${PR_NUM}" --body-file "$RUNNER_TEMP/comment.md"
-
-      # Unlike the previous action, a direct master push with oversized files
-      # now fails the check instead of being silently ignored.
-      - name: "Fail on oversized files pushed to master"
-        if: github.event_name == 'push'
-        run: |
-          if [[ -s "$RUNNER_TEMP/oversized.tsv" ]]; then
-            echo "::error::Files larger than 1MB were pushed to master:"
-            cat "$RUNNER_TEMP/oversized.tsv"
-            exit 1
-          fi

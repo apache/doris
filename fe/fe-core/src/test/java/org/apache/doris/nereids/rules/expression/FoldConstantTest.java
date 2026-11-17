@@ -1517,14 +1517,16 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
                         new IntegerLiteral(1)).toSql());
     }
 
-    // Issue 68723 / BE is_leap (`&& year`): 0000-02-28 + 1 day is 0000-03-01.
-    // The time-of-day and timezone suffix stay in place. Unfixed plusDays builds
-    // 0000-02-29 and TimestampTzLiteral.roundMicroSecond rejects that date.
+    // TIMESTAMPTZ day arithmetic uses the session-local civil calendar, as BE
+    // TimestampTzValue::date_add_days does with cctz, so year 0 keeps February 29
+    // there. Landing on UTC 0000-02-29 is rejected in both FE and BE.
     @Test
     void testYear0TimestampTzDateAdd() {
         TimestampTzLiteral start = new TimestampTzLiteral("0000-02-28 12:34:56+00:00");
         Assertions.assertEquals("'0000-03-01 12:34:56+00:00'",
-                DateTimeArithmetic.dateAdd(start, new IntegerLiteral(1)).toSql());
+                DateTimeArithmetic.dateAdd(start, new IntegerLiteral(2)).toSql());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> DateTimeArithmetic.dateAdd(start, new IntegerLiteral(1)));
     }
 
     @Test

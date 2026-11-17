@@ -17,7 +17,11 @@
 
 package org.apache.doris.task;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TPushType;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.HashBasedTable;
@@ -54,6 +58,14 @@ public class AgentTaskQueue {
     public static synchronized boolean addTask(AgentTask task) {
         long backendId = task.getBackendId();
         TTaskType type = task.getTaskType();
+        if (type == TTaskType.PUBLISH_VERSION) {
+            // These lock-free metadata reads serialize late arrivals with terminal queue cleanup.
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(task.getDbId());
+            if (Env.getCurrentSystemInfo().getBackend(backendId) == null || db == null || db.isDropped()) {
+                abortTask(task, "Backend or database has been removed");
+                return false;
+            }
+        }
 
         Map<Long, AgentTask> signatureMap = tasks.get(backendId, type);
         if (signatureMap == null) {
@@ -98,15 +110,56 @@ public class AgentTaskQueue {
     }
 
     public static synchronized void removeTask(long backendId, Consumer<AgentTask> onTaskRemoved) {
-        Map<TTaskType, Map<Long, AgentTask>> tasks = AgentTaskQueue.tasks.row(backendId);
-        tasks.forEach((type, taskSet) -> {
-            Iterator<Map.Entry<Long, AgentTask>> it = taskSet.entrySet().iterator();
+        removeTask(backendId, onTaskRemoved, true);
+    }
+
+    public static synchronized void removeBackendTasks(long backendId) {
+        removeTask(backendId, task -> abortTask(task, "BE has been removed"), false);
+        tasks.row(backendId).clear();
+    }
+
+    public static synchronized void removePublishVersionTasks(long dbId) {
+        for (Map<Long, AgentTask> taskSet : tasks.column(TTaskType.PUBLISH_VERSION).values()) {
+            Iterator<AgentTask> it = taskSet.values().iterator();
             while (it.hasNext()) {
-                Map.Entry<Long, AgentTask> entry = it.next();
+                AgentTask task = it.next();
+                if (task.getDbId() == dbId) {
+                    it.remove();
+                    --taskNum;
+                    abortTask(task, "Database has been removed");
+                }
+            }
+        }
+    }
+
+    private static void removeTask(long backendId, Consumer<AgentTask> onTaskRemoved, boolean keepPublishTasks) {
+        Map<TTaskType, Map<Long, AgentTask>> backendTasks = tasks.row(backendId);
+        backendTasks.forEach((type, taskSet) -> {
+            if (keepPublishTasks && type == TTaskType.PUBLISH_VERSION) {
+                // Keep publish tasks retryable during temporary backend outages.
+                return;
+            }
+            Iterator<AgentTask> it = taskSet.values().iterator();
+            while (it.hasNext()) {
+                AgentTask task = it.next();
                 it.remove();
-                onTaskRemoved.accept(entry.getValue());
+                --taskNum;
+                onTaskRemoved.accept(task);
             }
         });
+    }
+
+    static void abortTask(AgentTask task, String errMsg) {
+        if (task instanceof PushTask) {
+            ((PushTask) task).countDownLatchWithStatus(task.getBackendId(), task.getTabletId(),
+                    new Status(TStatusCode.ABORTED, errMsg));
+        }
+        task.setFinished(true);
+        task.setErrorCode(TStatusCode.ABORTED);
+        task.setErrorMsg(errMsg);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("abort agent task: {}", task);
+        }
     }
 
     /*

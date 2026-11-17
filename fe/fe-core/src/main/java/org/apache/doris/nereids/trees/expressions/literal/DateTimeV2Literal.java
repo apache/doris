@@ -30,7 +30,6 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -213,8 +212,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
             }
         }
         if (targetType.isTimeStampTzType()) {
-            return TimestampTzLiteral.fromTimeZone((TimeStampTzType) targetType, this,
-                    ConnectContext.get().getSessionVariable().timeZone);
+            return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) targetType, this);
         }
         return super.uncheckedCastTo(targetType);
     }

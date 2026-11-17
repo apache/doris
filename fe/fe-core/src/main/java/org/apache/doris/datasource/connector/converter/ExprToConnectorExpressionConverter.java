@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.connector.converter;
 
 import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.BetweenPredicate;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
@@ -39,6 +40,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
@@ -114,10 +116,10 @@ public final class ExprToConnectorExpressionConverter {
             String fnName = fce.getFnName().getFunction();
             // Nereids translates Like/Regexp to FunctionCallExpr via visitScalarFunction,
             // so we need to detect them here and convert to ConnectorLike.
-            if ("like".equalsIgnoreCase(fnName) && fce.getChildren().size() == 2) {
+            if (isBuiltin(fce) && "like".equalsIgnoreCase(fnName) && fce.getChildren().size() == 2) {
                 return new ConnectorLike(ConnectorLike.Operator.LIKE,
                         convert(fce.getChild(0)), convert(fce.getChild(1)));
-            } else if ("regexp".equalsIgnoreCase(fnName) && fce.getChildren().size() == 2) {
+            } else if (isBuiltin(fce) && "regexp".equalsIgnoreCase(fnName) && fce.getChildren().size() == 2) {
                 return new ConnectorLike(ConnectorLike.Operator.REGEXP,
                         convert(fce.getChild(0)), convert(fce.getChild(1)));
             }
@@ -285,7 +287,7 @@ public final class ExprToConnectorExpressionConverter {
         return new ConnectorColumnRef(colName, ct);
     }
 
-    private static ConnectorExpression convertLiteral(LiteralExpr literal) {
+    private static ConnectorLiteral convertLiteral(LiteralExpr literal) {
         ConnectorType ct = typeToConnectorType(literal.getType());
         if (literal instanceof NullLiteral) {
             return ConnectorLiteral.ofNull(ct);
@@ -301,12 +303,26 @@ public final class ExprToConnectorExpressionConverter {
             return new ConnectorLiteral(ct, ((StringLiteral) literal).getValue());
         } else if (literal instanceof DateLiteral) {
             return convertDateLiteral((DateLiteral) literal, ct);
+        } else if (literal instanceof ArrayLiteral) {
+            return new ConnectorLiteral(ct, arrayElements((ArrayLiteral) literal));
         } else {
             return new ConnectorLiteral(ct, literal.getStringValue());
         }
     }
 
-    private static ConnectorExpression convertDateLiteral(DateLiteral dl, ConnectorType ct) {
+    /**
+     * The element values of an ARRAY literal, each in the shape it would have as a literal of its own:
+     * {@code null} for a NULL element, a nested list for a nested array.
+     */
+    private static List<Object> arrayElements(ArrayLiteral literal) {
+        List<Object> elements = new ArrayList<>(literal.getChildren().size());
+        for (Expr element : literal.getChildren()) {
+            elements.add(convertLiteral((LiteralExpr) element).getValue());
+        }
+        return Collections.unmodifiableList(elements);
+    }
+
+    private static ConnectorLiteral convertDateLiteral(DateLiteral dl, ConnectorType ct) {
         Type dorisType = dl.getType();
         if (dorisType.equals(Type.DATE) || dorisType.equals(Type.DATEV2)) {
             LocalDate ld = LocalDate.of(
@@ -336,7 +352,12 @@ public final class ExprToConnectorExpressionConverter {
         List<ConnectorExpression> args = fce.getChildren().stream()
                 .map(ExprToConnectorExpressionConverter::convert)
                 .collect(Collectors.toList());
-        return new ConnectorFunctionCall(fnName, retType, args);
+        // A UDF keeps only its bare name here, which may be a builtin's; the flag is what tells them apart.
+        return new ConnectorFunctionCall(fnName, retType, args, isBuiltin(fce));
+    }
+
+    private static boolean isBuiltin(FunctionCallExpr fce) {
+        return fce.getFn().getBinaryType() == Function.BinaryType.BUILTIN;
     }
 
     private static ConnectorExpression fallback(Expr expr) {
@@ -351,7 +372,9 @@ public final class ExprToConnectorExpressionConverter {
         } catch (Exception e) {
             sql = expr.debugString();
         }
-        return new ConnectorFunctionCall(sql, retType, Collections.emptyList());
+        boolean callsUdf = expr.contains(
+                (Expr node) -> node instanceof FunctionCallExpr && !isBuiltin((FunctionCallExpr) node));
+        return new ConnectorFunctionCall(sql, retType, Collections.emptyList(), !callsUdf);
     }
 
     private static ConnectorType scalarTypeToConnectorType(ScalarType st) {

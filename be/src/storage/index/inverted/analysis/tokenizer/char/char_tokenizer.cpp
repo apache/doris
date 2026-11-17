@@ -17,6 +17,9 @@
 
 #include "storage/index/inverted/analysis/tokenizer/char/char_tokenizer.h"
 
+#include <unicode/uchar.h>
+#include <unicode/utf8.h>
+
 #ifdef BE_TEST
 #include <atomic>
 #endif
@@ -80,17 +83,13 @@ CharTokenizer::AsciiCharClass CharTokenizer::read_next_char_class() {
     return is_token_char(c) ? AsciiCharClass::kToken : AsciiCharClass::kDelimiter;
 }
 
-Token* CharTokenizer::next(Token* token) {
-    if (!token) {
-        return nullptr;
-    }
-
+bool CharTokenizer::next_token(TokenRef& token) {
     int32_t start = -1;
     int32_t end = -1;
     while (true) {
         if (_buffer_index >= _data_len) {
             if (start == -1) {
-                return nullptr;
+                return false;
             }
             break;
         }
@@ -123,20 +122,16 @@ Token* CharTokenizer::next(Token* token) {
         }
     }
 
-    int32_t length = end - start + 1;
-    std::string_view term(_char_buffer + start, length);
-    set(token, term);
-    set_source_byte_offsets(term, start);
-    token->setStartOffset(correct_source_start_offset(start));
-    token->setEndOffset(correct_source_offset(start + length));
-    return token;
+    token = {.data = _char_buffer + start,
+             .size = static_cast<uint32_t>(end - start + 1),
+             .position_increment = 1};
+    return true;
 }
 
-void CharTokenizer::reset() {
-    DorisTokenizer::reset();
-
+void CharTokenizer::on_reset(std::string_view text) {
     _buffer_index = 0;
-    _data_len = _in->read((const void**)&_char_buffer, 0, static_cast<int32_t>(_in->size()));
+    _char_buffer = text.data();
+    _data_len = static_cast<int32_t>(text.size());
 }
 
 } // namespace doris::segment_v2::inverted_index

@@ -354,10 +354,6 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_alter_ram_user((MS*)s, c); },
                   .role = HttpRole::META_SERVICE}},
-                {"alter_iam",
-                 {.handler = [](void* s,
-                                brpc::Controller* c) { return process_alter_iam((MS*)s, c); },
-                  .role = HttpRole::META_SERVICE}},
                 {"adjust_rate_limit",
                  {.handler =
                           [](void* s, brpc::Controller* c) {
@@ -620,14 +616,6 @@ HttpResponse process_alter_ram_user(MetaServiceImpl* service, brpc::Controller* 
     return http_json_reply(resp.status());
 }
 
-HttpResponse process_alter_iam(MetaServiceImpl* service, brpc::Controller* ctrl) {
-    AlterIamRequest req;
-    PARSE_MESSAGE_OR_RETURN(ctrl, req);
-    AlterIamResponse resp;
-    service->alter_iam(ctrl, &req, &resp, nullptr);
-    return http_json_reply(resp.status());
-}
-
 HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Controller* cntl) {
     const auto& uri = cntl->http_request().uri();
     auto qps_limit_str = std::string {http_query(uri, "qps_limit")};
@@ -771,7 +759,7 @@ HttpResponse process_recycle_instance(RecyclerServiceImpl* service, brpc::Contro
                                "failed to parse RecycleInstanceRequest");
     }
     RecycleInstanceResponse res;
-    service->recycle_instance(cntl, &req, &res, nullptr);
+    service->recycle_instance(*cntl, req, res);
     return http_text_reply(res.status(), res.status().msg());
 }
 

@@ -114,6 +114,11 @@ public class PhysicalEmptyRelation extends PhysicalRelation
     }
 
     @Override
+    public boolean canComputeResultInFe(List<Slot> outputSlots) {
+        return true;
+    }
+
+    @Override
     public Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, List<Slot> outputSlots) {
         List<Column> columns = Lists.newArrayList();
         for (NamedExpression output : outputSlots) {

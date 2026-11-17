@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_format.h"
 #include "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer_factory.h"
@@ -50,8 +51,6 @@ private:
 protected:
     struct TokenWithPosition {
         std::string term;
-        int startOffset;
-        int endOffset;
         int position;
     };
 
@@ -59,44 +58,17 @@ protected:
                                                        const std::string& text) {
         std::vector<TokenWithPosition> tokens;
         auto tokenizer = factory.create();
-        {
-            auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-            reader->init(text.data(), text.size(), false);
-            tokenizer->set_reader(reader);
-            tokenizer->reset();
-
-            Token t;
-            int cumulative_position = 0;
-            while (tokenizer->next(&t)) {
-                std::string term(t.termBuffer<char>(), t.termLength<char>());
-                cumulative_position += t.getPositionIncrement();
-                TokenWithPosition token_detail;
-                token_detail.term = term;
-                token_detail.startOffset = t.startOffset();
-                token_detail.endOffset = t.endOffset();
-                token_detail.position = cumulative_position;
-                tokens.emplace_back(token_detail);
-            }
+        int cumulative_position = 0;
+        for (const CollectedToken& token : collect_checked(*tokenizer, text)) {
+            cumulative_position += token.position_increment;
+            tokens.push_back({.term = token.term, .position = cumulative_position});
         }
         return tokens;
     }
 
     std::vector<std::string> tokenize(PinyinTokenizerFactory& factory, const std::string& text) {
-        std::vector<std::string> tokens;
         auto tokenizer = factory.create();
-        {
-            auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-            reader->init(text.data(), text.size(), false);
-            tokenizer->set_reader(reader);
-            tokenizer->reset();
-
-            Token t;
-            while (tokenizer->next(&t)) {
-                std::string term(t.termBuffer<char>(), t.termLength<char>());
-                tokens.emplace_back(term);
-            }
-        }
-        return tokens;
+        return collect_terms(*tokenizer, text);
     }
 
     struct PinyinConfig {
@@ -121,13 +93,10 @@ protected:
 
     struct TermItem {
         std::string term;
-        int startOffset;
-        int endOffset;
         int position;
 
         TermItem() = default;
-        TermItem(const std::string& t, int start, int end, int pos)
-                : term(t), startOffset(start), endOffset(end), position(pos) {}
+        TermItem(const std::string& t, int pos) : term(t), position(pos) {}
     };
 
     std::unordered_map<std::string, std::vector<TermItem>> getStringArrayListHashMap(
@@ -167,7 +136,7 @@ protected:
                 std::vector<TermItem> termItems;
 
                 for (const auto& token : tokens_detail) {
-                    TermItem item(token.term, token.startOffset, token.endOffset, token.position);
+                    TermItem item(token.term, token.position);
                     termItems.push_back(item);
                 }
 
@@ -1455,13 +1424,10 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_SingleChinese) {
 
     ASSERT_GT(tokens.size(), 0);
 
-    int total_bytes = 9;
     std::vector<std::string> expected_terms = {"liu", "ldh", "de", "hua"};
     EXPECT_EQ(tokens.size(), expected_terms.size());
     for (size_t i = 0; i < tokens.size(); ++i) {
         EXPECT_EQ(tokens[i].term, expected_terms[i]) << "Token mismatch at position " << i;
-        EXPECT_EQ(tokens[i].startOffset, 0) << "Token: " << tokens[i].term;
-        EXPECT_EQ(tokens[i].endOffset, total_bytes) << "Token: " << tokens[i].term;
     }
 }
 
@@ -1477,12 +1443,6 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_KeepOriginal) {
     auto& tokens = result[text];
 
     ASSERT_GT(tokens.size(), 0);
-
-    int total_bytes = 6;
-    for (const auto& token : tokens) {
-        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
-        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
-    }
 }
 
 TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_JoinedFullPinyin) {
@@ -1498,12 +1458,6 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_JoinedFullPinyin) {
     auto& tokens = result[text];
 
     ASSERT_GT(tokens.size(), 0);
-
-    int total_bytes = 6;
-    for (const auto& token : tokens) {
-        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
-        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
-    }
 }
 
 TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_AsciiOnly) {
@@ -1518,12 +1472,6 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_AsciiOnly) {
     auto& tokens = result[text];
 
     ASSERT_GT(tokens.size(), 0);
-
-    int total_bytes = 5;
-    for (const auto& token : tokens) {
-        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
-        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
-    }
 }
 
 TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_WithNumbers) {
@@ -1538,12 +1486,6 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_WithNumbers) {
     auto& tokens = result[text];
 
     ASSERT_GT(tokens.size(), 0);
-
-    int total_bytes = 10;
-    for (const auto& token : tokens) {
-        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
-        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
-    }
 }
 
 TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_SpecialChars) {
@@ -1558,12 +1500,6 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_SpecialChars) {
     auto& tokens = result[text];
 
     ASSERT_GT(tokens.size(), 0);
-
-    int total_bytes = 8;
-    for (const auto& token : tokens) {
-        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
-        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
-    }
 }
 
 TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_Polyphone) {
@@ -1577,12 +1513,6 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_Polyphone) {
     auto& tokens = result[text];
 
     ASSERT_GT(tokens.size(), 0);
-
-    int total_bytes = 6;
-    for (const auto& token : tokens) {
-        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
-        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
-    }
 }
 
 TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_LongText) {
@@ -1596,12 +1526,6 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_LongText) {
     auto& tokens = result[text];
 
     ASSERT_GT(tokens.size(), 0);
-
-    int total_bytes = 21;
-    for (const auto& token : tokens) {
-        EXPECT_EQ(token.startOffset, 0) << "Token: " << token.term;
-        EXPECT_EQ(token.endOffset, total_bytes) << "Token: " << token.term;
-    }
 }
 
 TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_SingleChinese) {
@@ -1618,22 +1542,6 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_SingleChinese) {
     auto& tokens = result[text];
 
     ASSERT_GT(tokens.size(), 0);
-
-    for (const auto& token : tokens) {
-        if (token.term == "liu") {
-            EXPECT_EQ(token.startOffset, 0);
-            EXPECT_EQ(token.endOffset, 3);
-        } else if (token.term == "de") {
-            EXPECT_EQ(token.startOffset, 3);
-            EXPECT_EQ(token.endOffset, 6);
-        } else if (token.term == "hua") {
-            EXPECT_EQ(token.startOffset, 6);
-            EXPECT_EQ(token.endOffset, 9);
-        } else if (token.term == "ldh") {
-            EXPECT_EQ(token.startOffset, 0);
-            EXPECT_EQ(token.endOffset, 9);
-        }
-    }
 }
 
 TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_MultiByteCharacters) {
@@ -1655,16 +1563,10 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_MultiByteCharacters) {
 
     for (const auto& token : tokens) {
         if (token.term == "ni") {
-            EXPECT_EQ(token.startOffset, 0);
-            EXPECT_EQ(token.endOffset, 3);
             found_ni = true;
         } else if (token.term == "hao") {
-            EXPECT_EQ(token.startOffset, 3);
-            EXPECT_EQ(token.endOffset, 6);
             found_hao = true;
         } else if (token.term == "nh") {
-            EXPECT_EQ(token.startOffset, 0);
-            EXPECT_EQ(token.endOffset, 6);
             found_nh = true;
         }
     }
@@ -1687,13 +1589,10 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_True_MixedContent) {
 
     ASSERT_GT(tokens.size(), 0);
 
-    int total_bytes = 7;
     std::vector<std::string> expected_terms = {"liu", "lad", "a", "de"};
     EXPECT_EQ(tokens.size(), expected_terms.size());
     for (size_t i = 0; i < tokens.size(); ++i) {
         EXPECT_EQ(tokens[i].term, expected_terms[i]) << "Token mismatch at position " << i;
-        EXPECT_EQ(tokens[i].startOffset, 0) << "Token: " << tokens[i].term;
-        EXPECT_EQ(tokens[i].endOffset, total_bytes) << "Token: " << tokens[i].term;
     }
 }
 
@@ -1716,20 +1615,11 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_MixedContent) {
 
     for (const auto& token : tokens) {
         if (token.term == "liu") {
-            EXPECT_EQ(token.startOffset, 0);
-            EXPECT_EQ(token.endOffset, 3);
             found_liu = true;
         } else if (token.term == "a") {
-            EXPECT_EQ(token.startOffset, 3);
-            EXPECT_EQ(token.endOffset, 4);
             found_a = true;
         } else if (token.term == "de") {
-            EXPECT_EQ(token.startOffset, 4);
-            EXPECT_EQ(token.endOffset, 7);
             found_de = true;
-        } else if (token.term == "lad") {
-            EXPECT_EQ(token.startOffset, 0);
-            EXPECT_EQ(token.endOffset, 7);
         }
     }
 
@@ -1756,16 +1646,9 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_PolyphoneWords) {
 
     for (const auto& token : tokens) {
         if (token.term == "yin") {
-            EXPECT_EQ(token.startOffset, 0);
-            EXPECT_EQ(token.endOffset, 3);
             found_yin = true;
         } else if (token.term == "xing" || token.term == "hang") {
-            EXPECT_EQ(token.startOffset, 3);
-            EXPECT_EQ(token.endOffset, 6);
             found_xing_or_hang = true;
-        } else if (token.term == "yx" || token.term == "yh") {
-            EXPECT_EQ(token.startOffset, 0);
-            EXPECT_EQ(token.endOffset, 6);
         }
     }
 
@@ -1787,8 +1670,6 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_JoinedFullPinyin) {
 
     ASSERT_EQ(tokens.size(), 1);
     EXPECT_EQ(tokens[0].term, "liudehua");
-    EXPECT_EQ(tokens[0].startOffset, 0);
-    EXPECT_EQ(tokens[0].endOffset, 9);
 }
 
 TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_KeepOriginal) {
@@ -1804,6 +1685,4 @@ TEST_F(PinyinAnalysisTest, TestIgnorePinyinOffset_False_KeepOriginal) {
 
     ASSERT_EQ(tokens.size(), 1);
     EXPECT_EQ(tokens[0].term, "刘德华");
-    EXPECT_EQ(tokens[0].startOffset, 0);
-    EXPECT_EQ(tokens[0].endOffset, 9);
 }

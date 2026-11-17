@@ -96,7 +96,7 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
         metaScanRange.setMetadataType(TMetadataType.JOBS);
         TJobsMetadataParams jobParam = new TJobsMetadataParams();
         jobParam.setType(jobType.name());
-        jobParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
+        jobParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentityForRpc());
         metaScanRange.setJobsParams(jobParam);
         return metaScanRange;
     }

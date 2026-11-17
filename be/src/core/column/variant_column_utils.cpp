@@ -35,6 +35,15 @@ size_t find_variant_sparse_path_lower_bound(StringRef path, const ColumnString& 
     return start;
 }
 
+bool is_variant_sparse_row_sorted(const ColumnString& sparse_paths, size_t start, size_t end) {
+    for (size_t i = start + 1; i < end; ++i) {
+        if (sparse_paths.get_data_at(i) < sparse_paths.get_data_at(i - 1)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool is_variant_jsonb_value_semantically_empty(const JsonbValue* value) {
     if (value == nullptr || value->isNull()) {
         return true;
