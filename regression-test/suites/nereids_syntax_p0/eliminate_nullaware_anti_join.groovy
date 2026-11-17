@@ -72,5 +72,65 @@ suite("eliminate_nullaware_anti_join") {
         sql("select * from eliminate_nullaware_anti_join_A where eliminate_nullaware_anti_join_A.a not in (select c from eliminate_nullaware_anti_join_C);")
         contains "NULL AWARE LEFT ANTI JOIN"
     }
+
+    // The nullable probe key is a non-null constant in the filter's Uniform trait.
+    explain {
+        sql """
+            select c from eliminate_nullaware_anti_join_C
+            where c = 7 and c not in (
+                select b from eliminate_nullaware_anti_join_B
+                group by b having count(*) > 1
+            )
+        """
+        contains "LEFT ANTI JOIN"
+        notContains "NULL AWARE LEFT ANTI JOIN"
+    }
+
+    // The probe's proof does not establish that the build key is non-null.
+    explain {
+        sql """
+            select c from eliminate_nullaware_anti_join_C
+            where c = 7 and c not in (
+                select c from eliminate_nullaware_anti_join_C
+                group by c having count(*) > 1
+            )
+        """
+        contains "NULL AWARE LEFT ANTI JOIN"
+    }
+
+    sql "insert into eliminate_nullaware_anti_join_B values (1), (1), (2);"
+    // Duplicate NULLs make the NULL group survive HAVING in the nullable-build case.
+    sql "insert into eliminate_nullaware_anti_join_C values (null), (null), (7), (8), (8);"
+
+    order_qt_uniform_nonnull_build """
+        select c from eliminate_nullaware_anti_join_C
+        where c = 7 and c not in (
+            select b from eliminate_nullaware_anti_join_B
+            group by b having count(*) > 1
+        )
+    """
+
+    order_qt_nullable_build """
+        select c from eliminate_nullaware_anti_join_C
+        where c = 7 and c not in (
+            select c from eliminate_nullaware_anti_join_C
+            group by c having count(*) > 1
+        )
+    """
+
+    order_qt_null_probe """
+        select c from eliminate_nullaware_anti_join_C
+        where c is null and c not in (select b from eliminate_nullaware_anti_join_B)
+    """
+
+    // The right table is NOT NULL, but the left outer join still produces NULL build keys.
+    order_qt_outer_join_null_extension """
+        select c from eliminate_nullaware_anti_join_C
+        where c = 7 and c not in (
+            select b from eliminate_nullaware_anti_join_C
+            left join eliminate_nullaware_anti_join_B on eliminate_nullaware_anti_join_C.c =
+                    eliminate_nullaware_anti_join_B.b
+        )
+    """
 }
 
