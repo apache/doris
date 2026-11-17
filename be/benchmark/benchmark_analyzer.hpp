@@ -34,10 +34,13 @@
 #include "common/exception.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/analysis/token_stream.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer_config.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
 #include "util/hash_util.hpp"
 
-// Tokenizer throughput along the path the SNII writer takes for one row. The corpus is a directory
+// Tokenizer throughput along the paths the consumers take: "row/" makes a stream per row, as a
+// query does, and "reuse/" keeps one stream for all rows, as the SNII writer does. The analyzers
+// are built through the production entry points. The corpus is a directory
 // of `*.rows` files (little-endian u32 length + raw bytes per row) named by
 // ANALYZER_BENCH_CORPUS_DIR; without it nothing is registered. ANALYZER_BENCH_CORPUS_MB caps the
 // bytes used from each file (default 8) and ANALYZER_BENCH_DICT_DIR is the dictionary directory
@@ -76,70 +79,74 @@ inline std::shared_ptr<const Corpus> load_corpus(const std::filesystem::path& pa
     return corpus;
 }
 
-using AnalyzerFactory = std::function<AnalyzerPtr()>;
+using AnalyzerFactory = std::function<TextAnalyzerPtr()>;
 
-inline AnalyzerPtr builtin(InvertedIndexParserType type, const std::string& mode = "") {
-    return InvertedIndexAnalyzer::create_builtin_analyzer(type, mode, "true", "");
+// A builtin parser with lower_case=true, as the writers configure it.
+inline TextAnalyzerPtr builtin(InvertedIndexParserType type, const std::string& mode = "") {
+    InvertedIndexAnalyzerConfig config;
+    config.parser_type = type;
+    config.parser_mode = mode;
+    config.lower_case = INVERTED_INDEX_PARSER_TRUE;
+    return InvertedIndexAnalyzer::create_analyzer(&config);
 }
 
-inline AnalyzerPtr custom(const std::string& tokenizer, const std::vector<std::string>& filters) {
-    CustomAnalyzer::Builder builder;
-    builder.with_tokenizer(tokenizer, Settings());
+inline TextAnalyzerPtr custom(const std::string& tokenizer,
+                              const std::vector<std::string>& filters) {
+    CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config(tokenizer, Settings());
     for (const auto& filter : filters) {
-        builder.add_token_filter(filter, Settings());
+        builder.add_token_filter_config(filter, Settings());
     }
-    return builder.build();
+    return CustomAnalyzerProvider(builder.build()).get_analyzer();
 }
 
-inline uint64_t consume(lucene::analysis::TokenStream* stream, lucene::analysis::Token* token) {
+// The non-empty terms of `row`, read as the writers read them.
+inline uint64_t consume(TextTokenStream& stream, TokenBatch& batch, std::string_view row) {
     uint64_t tokens = 0;
     int32_t position = 0;
-    while (stream->next(token)) {
-        const size_t length = token->termLength<char>();
-        if (length != 0) {
-            position += token->getPositionIncrement();
-            benchmark::DoNotOptimize(token->termBuffer<char>()[0]);
-            benchmark::DoNotOptimize(position);
-            ++tokens;
+    stream.reset(row);
+    while (stream.next_batch(batch)) {
+        for (const TokenRef& token : batch.tokens()) {
+            if (token.size != 0) {
+                position += token.position_increment;
+                char first = token.data[0];
+                benchmark::DoNotOptimize(first);
+                benchmark::DoNotOptimize(position);
+                ++tokens;
+            }
         }
     }
+    batch.release_oversized();
     return tokens;
 }
 
-// The production row: tokenStream() builds a stream per row, as SniiIndexColumnWriter does.
+// A new stream for every row, as a query reads a value.
 inline void per_row_stream(benchmark::State& state, const AnalyzerFactory& factory,
                            const std::shared_ptr<const Corpus>& corpus) {
-    AnalyzerPtr analyzer = factory();
-    ReaderPtr reader = InvertedIndexAnalyzer::create_reader({});
+    const TextAnalyzerPtr analyzer = factory();
+    TokenBatch batch;
     uint64_t tokens = 0;
     for (auto _ : state) {
         for (const std::string_view row : corpus->rows) {
-            reader->init(row.data(), static_cast<int32_t>(row.size()), false);
-            std::unique_ptr<lucene::analysis::TokenStream> stream(
-                    analyzer->tokenStream(L"", reader));
-            lucene::analysis::Token token;
-            tokens += consume(stream.get(), &token);
-            stream->close();
+            const std::unique_ptr<TextTokenStream> stream = analyzer->create_stream();
+            tokens += consume(*stream, batch, row);
         }
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(corpus->bytes.size()));
     state.SetItemsProcessed(static_cast<int64_t>(tokens));
 }
 
-// One stream across rows, the shape the gram tokenizer already uses: the distance to
-// per_row_stream is what the per-row object graph costs.
+// One stream for all rows, as the SNII writer reads values: the distance to per_row_stream is
+// what making a stream costs.
 inline void reused_stream(benchmark::State& state, const AnalyzerFactory& factory,
                           const std::shared_ptr<const Corpus>& corpus) {
-    AnalyzerPtr analyzer = factory();
-    ReaderPtr reader = InvertedIndexAnalyzer::create_reader({});
+    const TextAnalyzerPtr analyzer = factory();
+    const std::unique_ptr<TextTokenStream> stream = analyzer->create_stream();
+    TokenBatch batch;
     uint64_t tokens = 0;
-    lucene::analysis::Token token;
     for (auto _ : state) {
         for (const std::string_view row : corpus->rows) {
-            reader->init(row.data(), static_cast<int32_t>(row.size()), false);
-            auto* stream = analyzer->reusableTokenStream(L"", reader);
-            stream->reset();
-            tokens += consume(stream, &token);
+            tokens += consume(*stream, batch, row);
         }
     }
     state.SetBytesProcessed(state.iterations() * static_cast<int64_t>(corpus->bytes.size()));
@@ -155,8 +162,9 @@ inline void write_digests(benchmark::State& state,
     for (auto _ : state) {
         std::ofstream out(path);
         for (const auto& [name, factory] : analyzers) {
-            AnalyzerPtr analyzer = factory();
-            ReaderPtr reader = InvertedIndexAnalyzer::create_reader({});
+            const TextAnalyzerPtr analyzer = factory();
+            std::unique_ptr<TextTokenStream> stream = analyzer->create_stream();
+            TokenBatch batch;
             for (const auto& [corpus_name, corpus] : corpora) {
                 for (size_t row = 0; row < corpus->rows.size(); ++row) {
                     const std::string_view value = corpus->rows[row];
@@ -164,29 +172,27 @@ inline void write_digests(benchmark::State& state,
                     uint64_t digest = 0;
                     bool threw = false;
                     try {
-                        reader->init(value.data(), static_cast<int32_t>(value.size()), false);
-                        std::unique_ptr<lucene::analysis::TokenStream> stream(
-                                analyzer->tokenStream(L"", reader));
-                        lucene::analysis::Token token;
                         int32_t position = 0;
-                        while (stream->next(&token)) {
-                            const size_t length = token.termLength<char>();
-                            if (length == 0) {
-                                continue;
+                        stream->reset(value);
+                        while (stream->next_batch(batch)) {
+                            for (const TokenRef& token : batch.tokens()) {
+                                if (token.size == 0) {
+                                    continue;
+                                }
+                                position += token.position_increment;
+                                digest = HashUtil::xxHash64WithSeed(token.data, token.size, digest);
+                                digest = HashUtil::xxHash64WithSeed(
+                                        reinterpret_cast<const char*>(&position), sizeof(position),
+                                        digest);
+                                ++tokens;
                             }
-                            position += token.getPositionIncrement();
-                            digest = HashUtil::xxHash64WithSeed(token.termBuffer<char>(), length,
-                                                                digest);
-                            digest = HashUtil::xxHash64WithSeed(
-                                    reinterpret_cast<const char*>(&position), sizeof(position),
-                                    digest);
-                            ++tokens;
                         }
-                        stream->close();
-                    } catch (const CLuceneError&) {
-                        threw = true;
+                        batch.release_oversized();
                     } catch (const Exception&) {
                         threw = true;
+                        // A stream is not used again after it threw.
+                        stream = analyzer->create_stream();
+                        batch.clear();
                     }
                     out << name << ' ' << corpus_name << ' ' << row << ' ';
                     if (threw) {

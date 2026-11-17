@@ -17,45 +17,40 @@
 
 #pragma once
 
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
+#include <string_view>
+
+#include "storage/index/inverted/analysis/per_token_stream.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class EmptyTokenizer : public DorisTokenizer {
+// The whole value as one token.
+class EmptyTokenizer final : public PerTokenTokenizer {
 public:
-    EmptyTokenizer() = default;
-    ~EmptyTokenizer() override = default;
+    EmptyTokenizer() : PerTokenTokenizer(TermLifetime::kUntilReset) {}
 
     void initialize() {}
 
-    Token* next(Token* token) override {
-        if (!_done) {
-            _done = true;
-            if (_char_buffer == nullptr) {
-                return nullptr;
-            }
-            std::string_view term(_char_buffer, _char_length);
-            set(token, term);
-            set_source_byte_offsets(term, 0);
-            token->setStartOffset(correct_source_offset(0));
-            token->setEndOffset(correct_source_offset(_char_length));
-            return token;
-        }
-        return nullptr;
-    }
+    // The token is a view of the value.
+    size_t reserved_bytes() const override { return 0; }
 
-    void reset() override {
-        DorisTokenizer::reset();
-        _done = false;
-        _char_buffer = nullptr;
-        _char_length = _in->read((const void**)&_char_buffer, 0, static_cast<int32_t>(_in->size()));
+protected:
+    void on_reset(std::string_view text) override { _text = text; }
+
+    bool next_token(TokenRef& token) override {
+        if (_text.empty()) {
+            return false;
+        }
+        token = {.data = _text.data(),
+                 .size = static_cast<uint32_t>(_text.size()),
+                 .position_increment = 1};
+        _text = {};
+        return true;
     }
 
 private:
-    bool _done = false;
-    const char* _char_buffer = nullptr;
-    int32_t _char_length = 0;
+    // What is left of the value: all of it, or nothing once the token is out.
+    std::string_view _text;
 };
 
 class EmptyTokenizerFactory : public TokenizerFactory {
@@ -65,14 +60,10 @@ public:
 
     void initialize(const Settings& settings) override {}
 
-    TokenizerPtr create() override {
-        auto tokenizer = std::make_shared<EmptyTokenizer>();
+    std::unique_ptr<TextTokenizer> create() const override {
+        auto tokenizer = std::make_unique<EmptyTokenizer>();
         tokenizer->initialize();
         return tokenizer;
-    }
-
-    PositionCapability position_capability() const override {
-        return PositionCapability::kAlwaysUnitIncrement;
     }
 };
 

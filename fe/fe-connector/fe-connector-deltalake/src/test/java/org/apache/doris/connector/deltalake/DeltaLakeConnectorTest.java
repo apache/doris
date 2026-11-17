@@ -21,6 +21,7 @@ package org.apache.doris.connector.deltalake;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -38,11 +39,21 @@ import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
 import java.util.ServiceLoader;
 
 class DeltaLakeConnectorTest {
     @TempDir
     Path warehouse;
+
+    @Test
+    void declaresUcCredentialsAndEndpoints() {
+        ConnectorSecuritySurface surface = new DeltaLakeConnectorProvider().securitySurface();
+        Assertions.assertTrue(surface.sensitiveKeys().containsAll(
+                List.of("deltalake.uc.token", "deltalake.uc.oauth.client-secret")));
+        Assertions.assertTrue(surface.ssrfEndpointKeys().containsAll(
+                List.of("deltalake.uc.uri", "deltalake.uc.oauth.token-uri")));
+    }
 
     @Test
     void providerDiscoversTablesAndReadsSchemaFromDeltaLog() throws Exception {

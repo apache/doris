@@ -417,4 +417,108 @@ TEST(MongoNativeStreamTest, FailedConnectionReturnsErrorAndReleasesLeases) {
     }
 }
 
+TEST(MongoNativeStreamTest, MalformedPushdownBsonIsRejectedBeforeConnecting) {
+    for (bool projection : {false, true}) {
+        auto scan = range();
+        auto& d = scan.table_format_params.mongodb_params;
+        d.__set_type_mismatch_as_null(true);
+        if (projection) {
+            d.__set_projection_bson("invalid BSON");
+        } else {
+            d.__set_filter_bson("invalid BSON");
+        }
+        EXPECT_FALSE(validate_mongodb_range(scan).ok());
+    }
+}
+
+namespace {
+std::string bson_bytes(const bson_t& value) {
+    return {reinterpret_cast<const char*>(bson_get_data(&value)), value.len};
+}
+} // namespace
+
+TEST(MongoNativeStreamTest, TypedFindOptionsKeepDateIntegerAndProjectionBytes) {
+    auto d = range().table_format_params.mongodb_params;
+    d.__set_type_mismatch_as_null(true);
+    bson_t source = BSON_INITIALIZER;
+    bson_t bounds;
+    BSON_APPEND_DOCUMENT_BEGIN(&source, "observed", &bounds);
+    BSON_APPEND_DATE_TIME(&bounds, "$gte", -1);
+    bson_append_document_end(&source, &bounds);
+    BSON_APPEND_INT64(&source, "n", 9007199254740993LL);
+    d.__set_filter_bson(bson_bytes(source));
+    bson_destroy(&source);
+    bson_t projection = BSON_INITIALIZER;
+    BSON_APPEND_INT32(&projection, "observed", 1);
+    BSON_APPEND_INT32(&projection, "_id", 0);
+    d.__set_projection_bson(bson_bytes(projection));
+    bson_destroy(&projection);
+    bson_t filter = BSON_INITIALIZER;
+    bson_t options = BSON_INITIALIZER;
+    ASSERT_TRUE(build_mongodb_find_options(d, &filter, &options).ok());
+    EXPECT_EQ(bson_bytes(filter), d.filter_bson);
+    bson_iter_t it;
+    ASSERT_TRUE(bson_iter_init_find(&it, &filter, "n"));
+    ASSERT_EQ(bson_iter_type(&it), BSON_TYPE_INT64);
+    EXPECT_EQ(bson_iter_int64(&it), 9007199254740993LL);
+    ASSERT_TRUE(bson_iter_init_find(&it, &options, "projection"));
+    uint32_t length;
+    const uint8_t* bytes;
+    bson_iter_document(&it, &length, &bytes);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(bytes), length), d.projection_bson);
+    ASSERT_TRUE(bson_iter_init_find(&it, &options, "collation"));
+    bson_t collation;
+    bson_iter_document(&it, &length, &bytes);
+    ASSERT_TRUE(bson_init_static(&collation, bytes, length));
+    ASSERT_TRUE(bson_iter_init_find(&it, &collation, "locale"));
+    EXPECT_STREQ(bson_iter_utf8(&it, nullptr), "simple");
+    bson_destroy(&filter);
+    bson_destroy(&options);
+}
+
+TEST(MongoNativeStreamTest, ViewProjectionNeverOverridesItsCollation) {
+    auto d = range().table_format_params.mongodb_params;
+    d.__set_object_kind("view");
+    bson_t projection = BSON_INITIALIZER;
+    BSON_APPEND_INT32(&projection, "value", 1);
+    d.__set_projection_bson(bson_bytes(projection));
+    bson_destroy(&projection);
+    bson_t filter = BSON_INITIALIZER;
+    bson_t options = BSON_INITIALIZER;
+    ASSERT_TRUE(build_mongodb_find_options(d, &filter, &options).ok());
+    bson_iter_t it;
+    EXPECT_FALSE(bson_iter_init_find(&it, &options, "collation"));
+    EXPECT_TRUE(bson_iter_init_find(&it, &options, "projection"));
+    bson_destroy(&filter);
+    bson_destroy(&options);
+}
+
+TEST(MongoNativeStreamTest, OldDescriptorsKeepEmptyFindOptions) {
+    auto d = range().table_format_params.mongodb_params;
+    bson_t filter = BSON_INITIALIZER;
+    bson_t options = BSON_INITIALIZER;
+    ASSERT_TRUE(build_mongodb_find_options(d, &filter, &options).ok());
+    EXPECT_TRUE(bson_empty(&filter));
+    EXPECT_TRUE(bson_empty(&options));
+    bson_destroy(&filter);
+    bson_destroy(&options);
+}
+
+TEST(MongoNativeStreamTest, UnsafeViewStrictAndOversizedDescriptorsAreRejected) {
+    auto scan = range();
+    auto& d = scan.table_format_params.mongodb_params;
+    bson_t candidate = BSON_INITIALIZER;
+    BSON_APPEND_INT32(&candidate, "value", 1);
+    d.__set_filter_bson(bson_bytes(candidate));
+    bson_destroy(&candidate);
+    EXPECT_FALSE(validate_mongodb_range(scan).ok());
+    d.__set_type_mismatch_as_null(true);
+    EXPECT_TRUE(validate_mongodb_range(scan).ok());
+    d.__set_object_kind("view");
+    EXPECT_FALSE(validate_mongodb_range(scan).ok());
+    d.__set_object_kind("collection");
+    d.__set_filter_bson(std::string(1024 * 1024 + 1, 'x'));
+    EXPECT_FALSE(validate_mongodb_range(scan).ok());
+}
+
 } // namespace doris::format::mongodb

@@ -48,6 +48,12 @@ final class MongoConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public boolean supportsCastPredicatePushdown(ConnectorSession session) {
+        // The neutral converter erases CAST. Accept predicates only through the CAST-filtered scan path.
+        return false;
+    }
+
+    @Override
     public List<String> listDatabaseNames(ConnectorSession session) {
         return client.databases();
     }

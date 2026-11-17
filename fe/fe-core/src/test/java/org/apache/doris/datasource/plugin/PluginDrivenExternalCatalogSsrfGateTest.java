@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
@@ -124,6 +125,21 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
         Assertions.assertEquals(9083, parsed.getPort());
     }
 
+    /**
+     * An http or https client connects to its scheme's default port when the URI names none, as a REST catalog
+     * URI such as https://host/ns usually does, so that is the destination to probe.
+     */
+    @ParameterizedTest
+    @CsvSource({"http://host1/ns, host1, 80", "http://host1, host1, 80", "HTTP://host1/, host1, 80",
+            "https://host1/v1, host1, 443", "https://user@host1/v1?ignored#ignored, host1, 443",
+            "http://[::1]/ns, ::1, 80", "https://host1:8443/v1, host1, 8443"})
+    public void parseEndpointUsesTheDefaultPortOfAWebScheme(String endpoint, String host, int port) {
+        HostAndPort parsed = PluginDrivenExternalCatalog.parseEndpoint(endpoint);
+        Assertions.assertNotNull(parsed, endpoint);
+        Assertions.assertEquals(host, parsed.getHost());
+        Assertions.assertEquals(port, parsed.getPort());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"thrift://[::1]:9083", "thrift://user@[::1]:9083?ignored#ignored", "[::1]:9083"})
     public void parseEndpointPreservesIpv6Destination(String endpoint) {
@@ -168,6 +184,19 @@ public class PluginDrivenExternalCatalogSsrfGateTest {
                 () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
                         Collections.singletonMap("hive.metastore.uris", endpoint)));
         Assertions.assertEquals(Collections.singletonList("10.0.0.1:9083"), checker.probed);
+    }
+
+    /** A web endpoint that names no port must not slip past the gate: its default port is what is probed. */
+    @ParameterizedTest
+    @CsvSource({"http://10.0.0.1/ns, 10.0.0.1:80", "https://10.0.0.1, 10.0.0.1:443"})
+    public void alterRejectsAnIntranetWebEndpointWithoutAPort(String endpoint, String probed) {
+        checker.intranetHost = "10.0.0.1";
+        TestCatalog catalog = new TestCatalog(hms("thrift://hms.public.example.com:9083"));
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.validatePropertiesBeforeUpdate(catalog.getProperties(),
+                        Collections.singletonMap("uri", endpoint)));
+        Assertions.assertTrue(checker.probed.contains(probed), checker.probed.toString());
     }
 
     @Test

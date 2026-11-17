@@ -739,6 +739,10 @@ struct TMongoScanDesc {
     // Maximum simultaneously leased clients in this pool, keyed by catalog/configuration and
     // connection policy. This is not a query-wide or source-wide scanner-concurrency budget.
     22: optional i32 pool_max_clients
+    // Typed BSON candidate filter; the Doris residual is retained. Absent means scan all documents.
+    23: optional binary filter_bson
+    // BSON inclusion projection of complete source roots. Absent means return the complete document.
+    24: optional binary projection_bson
 }
 
 struct TTableFormatFileDesc {

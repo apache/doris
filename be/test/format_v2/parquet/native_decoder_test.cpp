@@ -3589,6 +3589,45 @@ TEST(ParquetV2NativeDecoderTest, PageHeaderRejectsSignedAndV2LevelSizeCorruption
     EXPECT_TRUE(parse_header(competing_layouts).is<ErrorCode::CORRUPTION>());
 }
 
+TEST(ParquetV2NativeDecoderTest, CachedHeaderKeepsValidOffsetIndexRectangle) {
+    const auto first_page = serialize_plain_int32_page({10});
+    const auto second_page = serialize_plain_int32_page({20});
+    std::vector<uint8_t> bytes = first_page;
+    bytes.insert(bytes.end(), second_page.begin(), second_page.end());
+    tparquet::OffsetIndex offset_index;
+    std::vector<tparquet::PageLocation> locations(2);
+    locations[0].__set_offset(0);
+    locations[0].__set_compressed_page_size(first_page.size());
+    locations[0].__set_first_row_index(0);
+    locations[1].__set_offset(first_page.size());
+    locations[1].__set_compressed_page_size(second_page.size());
+    locations[1].__set_first_row_index(1);
+    offset_index.__set_page_locations(locations);
+    const std::string cache_key = "valid-index-cached-header-disk-size";
+    auto* page = new DataPage(first_page.size(), true, segment_v2::DATA_PAGE);
+    memcpy(page->data(), first_page.data(), first_page.size());
+    page->reset_size(first_page.size());
+    PageCacheHandle handle;
+    StoragePageCache::instance()->insert(StoragePageCache::CacheKey(cache_key, bytes.size(), 0),
+                                         page, &handle, segment_v2::DATA_PAGE);
+    tparquet::ColumnMetaData metadata;
+    metadata.__set_type(tparquet::Type::INT32);
+    metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    metadata.__set_num_values(2);
+    metadata.__set_total_compressed_size(bytes.size());
+    metadata.__set_data_page_offset(0);
+    MemoryBufferedReader stream(std::move(bytes));
+    PageReader<false, true> reader(&stream, nullptr, 0, metadata.total_compressed_size, 2, metadata,
+                                   ParquetPageReadContext(true, cache_key), &offset_index);
+    ASSERT_TRUE(reader.parse_page_header().ok());
+    EXPECT_EQ(reader._page_statistics.page_cache_hit_counter, 1);
+    EXPECT_EQ(reader._offset_index, &offset_index);
+    reader.skip_page_data();
+    ASSERT_TRUE(reader.next_page().ok());
+    ASSERT_TRUE(reader.parse_page_header().ok());
+    EXPECT_EQ(reader._offset_index, &offset_index);
+}
+
 TEST(ParquetV2NativeDecoderTest, ShiftedOffsetIndexFallsBackToSequentialPages) {
     auto data_page = [](int32_t value) {
         tparquet::PageHeader header;

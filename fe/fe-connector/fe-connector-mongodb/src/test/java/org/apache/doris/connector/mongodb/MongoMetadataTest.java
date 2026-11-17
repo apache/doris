@@ -123,4 +123,12 @@ class MongoMetadataTest {
             Assertions.assertEquals(handle.getSchema().getColumns(), restored.getSchema().getColumns());
         }
     }
+
+    @Test
+    void castPredicatesCannotEnterTheCastErasingApplyFilterPath() {
+        var metadata = metadata(new RecordingClient());
+        Assertions.assertFalse(metadata.supportsCastPredicatePushdown(null));
+        Assertions.assertTrue(metadata.applyFilter(null, null, null).isEmpty());
+    }
+
 }

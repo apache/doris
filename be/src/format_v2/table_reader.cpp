@@ -1323,6 +1323,10 @@ Status TableReader::create_next_reader(bool* eos) {
 
 Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     DORIS_CHECK(reader != nullptr);
+    const auto* encryption = file_encryption_info();
+    if (encryption != nullptr && _format != FileFormat::PARQUET) {
+        return Status::NotSupported("File encryption [UNSUPPORTED_FILE_FORMAT]");
+    }
     const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
                                              _scan_params->__isset.enable_mapping_timestamp_tz &&
                                              _scan_params->enable_mapping_timestamp_tz;
@@ -1338,7 +1342,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                hive_parquet_time_zone, preserve_binary_uuid(), _parquet_profile_cache);
+                hive_parquet_time_zone, preserve_binary_uuid(), _parquet_profile_cache,
+                encryption == nullptr ? std::nullopt : std::optional(*encryption));
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
@@ -1570,8 +1575,8 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         bool decoded_cache_hit = false;
         _deletion_vector = options.cache->get<DeletionVector>(
                 desc.key,
-                [&]() -> DeletionVector* {
-                    auto deletion_vector = std::make_unique<DeletionVector>();
+                [&]() -> std::shared_ptr<DeletionVector> {
+                    auto deletion_vector = std::make_shared<DeletionVector>();
 
                     const size_t bytes_read = desc.size;
                     std::vector<char> buffer;
@@ -1617,7 +1622,7 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         return nullptr;
                     }
                     COUNTER_UPDATE(_profile.num_delete_rows, deletion_vector->cardinality());
-                    return deletion_vector.release();
+                    return deletion_vector;
                 },
                 &decoded_cache_hit);
         RETURN_IF_ERROR(create_status);

@@ -129,6 +129,12 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
     }
 
     @Override
+    public boolean canComputeResultInFe(List<Slot> outputSlots) {
+        CHILD_TYPE child = child();
+        return child instanceof ComputeResultSet && ((ComputeResultSet) child).canComputeResultInFe(outputSlots);
+    }
+
+    @Override
     public Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, List<Slot> outputSlots) {
         CHILD_TYPE child = child();
         if (child instanceof ComputeResultSet) {

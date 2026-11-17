@@ -42,7 +42,7 @@ FLUSS_FLINK_IMAGE=apache/fluss-quickstart-flink:1.20-1.0.0
 # Address the fluss servers advertise to clients. Doris FE/BE run on the host,
 # so the servers must hand out the host address plus the published ports, not
 # their in-container hostnames.
-FLUSS_HOST_IP=${IP_HOST}
+FLUSS_HOST_IP="${FLUSS_HOST_IP:-${IP_HOST}}"
 
 # remote.data.dir holds remote log segments and kv snapshots. Doris BE reads
 # those files directly (primary-key table reads), so the directory is bind

@@ -26,6 +26,9 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.thrift.TMongoScanDesc;
 
+import org.bson.Document;
+
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -60,16 +63,26 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         d.setUsername(properties.getUsername());
         d.setPassword(properties.getPassword());
         d.setAuthDatabase(properties.getAuthDatabase());
-        d.setReadPreference(properties.getReadPreference());
-        d.setReadConcern(properties.getReadConcern());
         d.setTypeMismatchAsNull("null".equals(properties.getTypeMismatch()));
         Map<String, String> policies = session.getSessionProperties();
+        // Pin effective policies in the range; never mutate the catalog or its shared metadata client.
+        d.setReadPreference(properties.resolveReadPreference(
+                policies.getOrDefault("mongodb_read_preference", "inherit")));
+        d.setReadConcern(properties.resolveReadConcern(policies.getOrDefault("mongodb_read_concern", "inherit")));
         d.setBatchSize(bounded(policies, "batch_size", 1024, 1, 65536));
         d.setTimeoutMs(1000L * bounded(policies, "query_timeout", 300, 1, Integer.MAX_VALUE / 1000));
         d.setConnectTimeoutMs(properties.getConnectTimeoutMs());
         d.setServerSelectionTimeoutMs(properties.getServerSelectionTimeoutMs());
         d.setSocketTimeoutMs(properties.getSocketTimeoutMs());
         d.setPoolMaxClients(properties.getPoolMaxClients());
+        MongoPredicateTranslator.Result predicate = predicate(session, handle, request.getFilter());
+        if (predicate.kind() != MongoPredicateTranslator.Kind.UNSUPPORTED) {
+            d.setFilterBson(encode(predicate.filter()));
+        }
+        Document projection = projection(session, handle, request.getColumns());
+        if (!projection.isEmpty()) {
+            d.setProjectionBson(encode(projection));
+        }
         // One cursor owns the entire logical namespace. Filters and LIMIT remain Doris residuals.
         return List.of(new MongoScanRange(d));
     }
@@ -90,8 +103,13 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
     public Map<String, String> getScanNodeProperties(ConnectorSession session, ConnectorTableHandle handle,
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
         MongoTableHandle table = (MongoTableHandle) handle;
-        return Map.of("object_kind", table.getObjectKind(), "schema_source", table.getSchema().getSource(),
-                "schema_version", table.getSchema().getVersion());
+        Map<String, String> result = new LinkedHashMap<>();
+        result.put("object_kind", table.getObjectKind());
+        result.put("schema_source", table.getSchema().getSource());
+        result.put("schema_version", table.getSchema().getVersion());
+        result.put("predicate_pushdown", predicate(session, table, filter).kind().name());
+        result.put("projection_pushdown", projection(session, table, columns).isEmpty() ? "false" : "true");
+        return result;
     }
 
     @Override
@@ -99,6 +117,56 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         output.append(prefix).append("MongoDB object: ").append(nodeProperties.get("object_kind"))
                 .append("; schema: ").append(nodeProperties.get("schema_source"))
                 .append("; version: ").append(nodeProperties.get("schema_version")).append("\n");
+        output.append(prefix).append("MongoDB predicate: ").append(nodeProperties.get("predicate_pushdown"))
+                .append("; residual: retained; projection: ").append(nodeProperties.get("projection_pushdown"))
+                .append("\n");
+    }
+
+    private MongoPredicateTranslator.Result predicate(ConnectorSession session, MongoTableHandle table,
+            Optional<ConnectorExpression> filter) {
+        // Even a predicate on a valid field can hide a strict decode failure in another projected field.
+        // A validator does not validate historical rows, so strict scans and views keep every filter local.
+        if (!"null".equals(properties.getTypeMismatch()) || "view".equals(table.getObjectKind())
+                || Boolean.parseBoolean(session.getSessionProperties().getOrDefault("enable_strict_cast", "false"))
+                || !enabled(session, "enable_mongodb_predicate_pushdown") || filter.isEmpty()) {
+            return MongoPredicateTranslator.Result.unsupported();
+        }
+        var result = new MongoPredicateTranslator(table.getSchema(), enabled(session, "enable_mongodb_like_pushdown"))
+                .translate(filter.get());
+        return encode(result.filter()).length <= 1024 * 1024
+                ? result : MongoPredicateTranslator.Result.unsupported();
+    }
+
+    private static Document projection(ConnectorSession session, MongoTableHandle table,
+            List<ConnectorColumnHandle> columns) {
+        if (!enabled(session, "enable_mongodb_projection_pushdown")) {
+            return new Document();
+        }
+        Document result = new Document();
+        for (ConnectorColumnHandle column : columns) {
+            Document binding = Document.parse(((MongoColumnHandle) column).getBindingJson());
+            List<String> path = binding.getList("path", String.class);
+            if (!"".equals(binding.getString("special")) || path.isEmpty()
+                    || !MongoPredicateTranslator.safePath(path.get(0))) {
+                return new Document();
+            }
+            // Project the complete root: {a:1} at [a,b] must remain a path error, not become missing.
+            result.put(path.get(0), 1);
+        }
+        // _id alone is an inclusion projection for COUNT(*) and preserves one result per document.
+        result.put("_id", result.isEmpty() || result.containsKey("_id") ? 1 : 0);
+        return result;
+    }
+
+    private static boolean enabled(ConnectorSession session, String name) {
+        return Boolean.parseBoolean(session.getSessionProperties().getOrDefault(name, "true"));
+    }
+
+    private static byte[] encode(Document document) {
+        org.bson.io.BasicOutputBuffer buffer = new org.bson.io.BasicOutputBuffer();
+        new org.bson.codecs.DocumentCodec().encode(new org.bson.BsonBinaryWriter(buffer), document,
+                org.bson.codecs.EncoderContext.builder().build());
+        return buffer.toByteArray();
     }
 
 }

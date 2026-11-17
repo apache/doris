@@ -438,4 +438,32 @@ public class ConnectorSessionImplTest {
         public void close() {
         }
     }
+
+    @Test
+    public void testMongoDBPushdownSwitchesReachConnectorsAndForwardedStatements() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setThreadLocalInfo();
+        try {
+            var initial = ConnectorSessionBuilder.from(ctx).build().getSessionProperties();
+            for (String key : java.util.List.of("enable_mongodb_predicate_pushdown",
+                    "enable_mongodb_like_pushdown", "enable_mongodb_projection_pushdown")) {
+                Assertions.assertEquals("true", initial.get(key));
+            }
+            ctx.getSessionVariable().enableMongoDBPredicatePushdown = false;
+            ctx.getSessionVariable().enableMongoDBLikePushdown = false;
+            ctx.getSessionVariable().enableMongoDBProjectionPushdown = false;
+            SessionVariable forwarded = new SessionVariable();
+            forwarded.setForwardedSessionVariables(ctx.getSessionVariable().getForwardVariables());
+            ctx.setSessionVariable(forwarded);
+            var actual = ConnectorSessionBuilder.from(ctx).build().getSessionProperties();
+            for (String key : java.util.List.of("enable_mongodb_predicate_pushdown",
+                    "enable_mongodb_like_pushdown", "enable_mongodb_projection_pushdown")) {
+                Assertions.assertEquals("false", actual.get(key));
+            }
+            Assertions.assertEquals("true", initial.get("enable_mongodb_predicate_pushdown"));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
 }
