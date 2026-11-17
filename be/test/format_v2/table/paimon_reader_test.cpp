@@ -29,6 +29,7 @@
 #include <fstream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -48,6 +49,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/field.h"
+#include "cpp/sync_point.h"
 #include "exec/common/endian.h"
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr_context.h"
@@ -66,6 +68,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/options.h"
+#include "util/defer_op.h"
 #include "util/hash_util.hpp"
 #include "util/timezone_utils.h"
 
@@ -725,6 +728,52 @@ TEST(PaimonReaderTest, DecodeBitmap64DeletionVectorRejectsInvalidChecksum) {
     EXPECT_TRUE(deletion_vector.isEmpty());
 }
 
+TEST(PaimonReaderTest, ReadsEachDeletionVectorFormatAtEofInOneRead) {
+    const auto path = std::filesystem::temp_directory_path() / "doris_paimon_dv_single_read_test";
+    Defer cleanup([&] { std::filesystem::remove(path); });
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    const auto scan_params = make_local_parquet_scan_params();
+
+    size_t reads = 0;
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "LocalFileReader::pread", [&](auto&&) { ++reads; }, &guard);
+    sync_point->enable_processing();
+    Defer stop_sync([&] { sync_point->disable_processing(); });
+
+    const auto bitmap32 = build_paimon_deletion_vector_buffer({1});
+    const struct {
+        std::string_view bytes;
+        int64_t descriptor_size;
+    } cases[] = {
+            {.bytes = {bitmap32.data(), bitmap32.size()},
+             .descriptor_size = static_cast<int64_t>(bitmap32.size()) - 4},
+            {.bytes = {PAIMON_BITMAP64_DV, PAIMON_BITMAP64_DV_SIZE},
+             .descriptor_size = PAIMON_BITMAP64_DV_SIZE},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.descriptor_size);
+        {
+            std::ofstream output(path, std::ios::binary);
+            output.put(1); // Paimon index file version.
+            output.write(test_case.bytes.data(), test_case.bytes.size());
+            ASSERT_TRUE(output.good());
+        }
+        const DeleteFileDesc desc {
+                .path = path.string(), .start_offset = 1, .size = test_case.descriptor_size};
+        DeletionVectorReader reader(&state, nullptr, scan_params, desc, nullptr);
+        ASSERT_TRUE(reader.open().ok());
+
+        reads = 0;
+        std::vector<char> buffer;
+        const auto status = read_paimon_deletion_vector_buffer(reader, desc, buffer);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(reads, 1);
+        EXPECT_EQ(std::string_view(buffer.data(), buffer.size()), test_case.bytes);
+    }
+}
+
 // Scenario: PaimonReader must clear the previous split schema id before reading a new split. A
 // schema-evolved split must not force the following split without schema id to keep BY_FIELD_ID.
 TEST(PaimonReaderTest, ResetsSplitSchemaIdBeforePreparingNextSplit) {
@@ -999,9 +1048,11 @@ TEST(PaimonReaderTest, AppliesMixedBitmapDeletionVectorFile) {
         output.write(bitmap32.data(), static_cast<std::streamsize>(bitmap32.size()));
         output.write(crc_bytes, sizeof(crc_bytes));
         output.write(PAIMON_BITMAP64_DV, PAIMON_BITMAP64_DV_SIZE);
+        output.write(PAIMON_BITMAP64_DV, PAIMON_BITMAP64_DV_SIZE);
         ASSERT_TRUE(output.good());
     }
     const int64_t bitmap64_offset = 1 + bitmap32.size() + sizeof(crc_bytes);
+    const int64_t bitmap64_eof_offset = bitmap64_offset + PAIMON_BITMAP64_DV_SIZE;
 
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -1036,6 +1087,9 @@ TEST(PaimonReaderTest, AppliesMixedBitmapDeletionVectorFile) {
             {.offset = bitmap64_offset,
              .length = PAIMON_BITMAP64_DV_SIZE,
              .expected = {1, 3, 4, 5}},
+            {.offset = bitmap64_eof_offset,
+             .length = PAIMON_BITMAP64_DV_SIZE,
+             .expected = {1, 3, 4, 5}},
             // Repeat the first split through the decoded cache.
             {.offset = 1, .length = bitmap32_length, .expected = {2, 3, 4}},
     };
@@ -1046,8 +1100,8 @@ TEST(PaimonReaderTest, AppliesMixedBitmapDeletionVectorFile) {
                                                        test_case.expected));
     }
 
-    split_options.current_range.__set_table_format_params(
-            make_paimon_table_format_desc(dv_path, bitmap64_offset, PAIMON_BITMAP64_DV_SIZE - 1));
+    split_options.current_range.__set_table_format_params(make_paimon_table_format_desc(
+            dv_path, bitmap64_eof_offset, PAIMON_BITMAP64_DV_SIZE - 1));
     const auto status = reader.prepare_split(split_options);
     EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
     EXPECT_NE(status.to_string().find("descriptor length mismatch"), std::string::npos);

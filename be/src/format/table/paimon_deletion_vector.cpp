@@ -19,7 +19,7 @@
 
 #include <fmt/format.h>
 
-#include <cstring>
+#include <algorithm>
 #include <stdexcept>
 
 #include "common/status.h"
@@ -55,10 +55,16 @@ Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc&
 
 Status read_paimon_deletion_vector_buffer(DeletionVectorReader& reader, const DeleteFileDesc& desc,
                                           std::vector<char>& buffer) {
-    char header[PAIMON_DV_HEADER_BYTES];
-    RETURN_IF_ERROR(reader.read_at(desc.start_offset, {header, sizeof(header)}));
-    const uint32_t payload_size = BigEndian::Load32(header);
-    const uint32_t magic = BigEndian::Load32(header + PAIMON_DV_LENGTH_PREFIX_BYTES);
+    const auto offset = static_cast<size_t>(desc.start_offset);
+    // An 8-byte header is within the validated descriptor range. Read enough for bitmap32's
+    // extra prefix, capped at EOF so a bitmap64 entry at the end needs no trailing bytes.
+    const size_t bytes_to_read = std::min(
+            {static_cast<size_t>(desc.size + PAIMON_DV_LENGTH_PREFIX_BYTES),
+             static_cast<size_t>(MAX_PAIMON_DELETION_VECTOR_BYTES), reader.file_size() - offset});
+    buffer.resize(bytes_to_read);
+    RETURN_IF_ERROR(reader.read_at(offset, {buffer.data(), buffer.size()}));
+    const uint32_t payload_size = BigEndian::Load32(buffer.data());
+    const uint32_t magic = BigEndian::Load32(buffer.data() + PAIMON_DV_LENGTH_PREFIX_BYTES);
     // The length prefix counts the magic itself, even for an empty bitmap.
     if (payload_size < sizeof(magic)) {
         return Status::DataQualityError(
@@ -74,21 +80,20 @@ Status read_paimon_deletion_vector_buffer(DeletionVectorReader& reader, const De
     // Paimon may mix bitmap32 and bitmap64 entries in one index file. The bitmap32 descriptor
     // counts only magic and bitmap, while bitmap64 counts the prefix and CRC as well.
     const bool bitmap64 = magic == PAIMON_BITMAP64_MAGIC;
-    const int64_t read_size =
+    const int64_t entry_size =
             payload_size + PAIMON_DV_LENGTH_PREFIX_BYTES + (bitmap64 ? PAIMON_DV_CRC_BYTES : 0);
-    const int64_t expected_length = bitmap64 ? read_size : payload_size;
+    const int64_t expected_length = bitmap64 ? entry_size : payload_size;
     if (desc.size != expected_length) {
         return Status::DataQualityError(
                 "Paimon deletion vector descriptor length mismatch: path {}, offset {}, expected "
                 "{}, actual {}",
                 desc.path, desc.start_offset, expected_length, desc.size);
     }
-    RETURN_IF_ERROR(validate_paimon_deletion_vector_read_range(desc.start_offset, read_size));
-    RETURN_IF_ERROR(reader.validate_file_range(desc.start_offset, read_size));
-    buffer.resize(read_size);
-    memcpy(buffer.data(), header, sizeof(header));
-    return reader.read_at(desc.start_offset + sizeof(header),
-                          {buffer.data() + sizeof(header), buffer.size() - sizeof(header)});
+    RETURN_IF_ERROR(validate_paimon_deletion_vector_read_range(desc.start_offset, entry_size));
+    RETURN_IF_ERROR(reader.validate_file_range(offset, entry_size));
+    // A bitmap64 entry followed by another entry may have up to four extra bytes in the buffer.
+    buffer.resize(entry_size);
+    return Status::OK();
 }
 
 Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,

@@ -146,12 +146,12 @@ Status DeletionVectorReader::open() {
 }
 
 Status DeletionVectorReader::validate_file_range(size_t offset, size_t size) const {
-    const size_t file_size = _file_reader->size();
-    if (offset > file_size || size > file_size - offset) {
+    const size_t length = file_size();
+    if (offset > length || size > length - offset) {
         return Status::DataQualityError(
                 "Deletion vector range exceeds file size: path {}, offset {}, size {}, file size "
                 "{}",
-                _desc.path, offset, size, file_size);
+                _desc.path, offset, size, length);
     }
     return Status::OK();
 }

@@ -89,6 +89,7 @@ public:
     DeletionVectorReader(const DeletionVectorReader&) = delete;
     DeletionVectorReader& operator=(const DeletionVectorReader&) = delete;
     Status open();
+    size_t file_size() const { return _file_reader->size(); }
     Status validate_file_range(size_t offset, size_t size) const;
     Status read_at(size_t offset, Slice result);
 
