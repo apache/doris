@@ -16,8 +16,10 @@
 // under the License.
 
 suite("dotted_key_legacy_semantics", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-        assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+    // The golden results characterize legacy path encoding with V2 execution.
+    // V1 execution is covered by dotted_key_escape_v1_execution.
+    setFeConfigTemporary([enable_variant_v2: true]) {
+        assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     // Master rejects doc_mode=false together with explicit subcolumn properties.
     // Pin this one default here; each column still fixes all sparse layout options.
     sql "set default_variant_enable_doc_mode = false"
@@ -37,7 +39,7 @@ suite("dotted_key_legacy_semantics", "p0,nonConcurrent") {
                 "variant_sparse_hash_shard_count"="1",
                 "variant_enable_nested_group"="false")>
         ) duplicate key(id) distributed by hash(id) buckets 1
-        properties("replication_num"="1", "disable_auto_compaction"="true")
+        properties("replication_num"="1", "variant_escape_dots_in_keys"="false", "disable_auto_compaction"="true")
     """
     sql """insert into dotted_key_legacy_read values
         (1, parse_to_variant('{"a.b":1}'), parse_to_variant('{"a.b":1,"hot":9}')),
@@ -79,7 +81,7 @@ suite("dotted_key_legacy_semantics", "p0,nonConcurrent") {
                 "variant_enable_nested_group"="false")>,
         index idx_v(v) using inverted
     ) duplicate key(id) distributed by hash(id) buckets 1
-    properties("replication_num"="1", "disable_auto_compaction"="true",
+    properties("replication_num"="1", "variant_escape_dots_in_keys"="false", "disable_auto_compaction"="true",
                "inverted_index_storage_format"="V2")"""
 
     // D: legacy index suffix escaping maps both paths to a%2Eb. Publishing both
