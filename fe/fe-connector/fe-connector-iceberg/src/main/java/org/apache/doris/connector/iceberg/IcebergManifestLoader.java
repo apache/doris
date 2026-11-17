@@ -158,7 +158,7 @@ final class IcebergManifestLoader {
         return dataFiles;
     }
 
-    /** Recover the manifest writer's partition source types, or read its header when that schema expired. */
+    /** Recover physical partition types, consulting the header when commit metadata lacks a source. */
     private static Map<Integer, PartitionSpec> manifestReadSpecs(ManifestFile manifest, Table table, FileIO io)
             throws IOException {
         PartitionSpec spec = table.specs().get(manifest.partitionSpecId());
@@ -169,11 +169,13 @@ final class IcebergManifestLoader {
         if (!missingSource) {
             return Collections.singletonMap(spec.specId(), spec);
         }
-        Long writerSnapshotId = manifest.snapshotId();
-        Snapshot writerSnapshot = writerSnapshotId == null ? null : table.snapshot(writerSnapshotId);
-        Schema writerSchema = writerSnapshot == null ? null : table.schemas().get(writerSnapshot.schemaId());
-        if (writerSchema == null) {
-            // Preserve physical header types after expiration, allowing dropped source columns in rewritten headers.
+        Long commitSnapshotId = manifest.snapshotId();
+        Snapshot commitSnapshot = commitSnapshotId == null ? null : table.snapshot(commitSnapshotId);
+        Schema commitSchema = commitSnapshot == null ? null : table.schemas().get(commitSnapshot.schemaId());
+        if (commitSchema == null
+                || spec.fields().stream().anyMatch(field -> commitSchema.findField(field.sourceId()) == null)) {
+            // A rewrite can retain older physical types while committing after source removal. Recover the
+            // header types so data and delete partitions use the same canonical representation after adaptation.
             PartitionSpec readable = ManifestReaderAccess.readPartitionSpec(manifest, io);
             return Collections.singletonMap(readable.specId(), readable);
         }
@@ -181,12 +183,7 @@ final class IcebergManifestLoader {
         Set<String> reservedNames = new HashSet<>();
         spec.fields().forEach(field -> reservedNames.add(field.name()));
         for (PartitionField field : spec.fields()) {
-            Types.NestedField source = writerSchema.findField(field.sourceId());
-            if (source == null) {
-                // Metadata deletes can rewrite an old spec after its source was dropped. Its writer/header
-                // schema has no physical source type to recover; use the same raw spec as native SDK planning.
-                return Collections.singletonMap(spec.specId(), spec);
-            }
+            Types.NestedField source = commitSchema.findField(field.sourceId());
             String name = "source_" + field.sourceId();
             while (!reservedNames.add(name)) {
                 name += "_";

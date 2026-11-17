@@ -69,6 +69,7 @@ import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RewriteManifests;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaAwareDataTableScan;
@@ -6456,6 +6457,66 @@ public class IcebergScanPlanProviderTest {
         }
         Assertions.assertTrue(context.metadataSubmissions.get() > 0, "keep bounded manifest scheduling");
         Assertions.assertEquals(cacheEnabled ? fileCount : 0, cache.size());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false,false", "false,false,true", "false,true,false", "false,true,true",
+            "true,false,false", "true,false,true", "true,true,false", "true,true,true"})
+    public void manifestRewriteAcrossSourceRemovalPreservesDeleteAssociation(boolean cacheEnabled,
+            boolean floatingPartition, boolean equalityDelete) throws IOException {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "p", floatingPartition ? Types.FloatType.get() : Types.IntegerType.get()));
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = createPersistedTable("rewrite_source_removal", schema, spec,
+                Map.of(TableProperties.FORMAT_VERSION, "2"));
+        for (int i = 0; i < 2; i++) {
+            table.newFastAppend().appendFile(dataFile(spec, "/d/rewrite_source_" + i + ".parquet",
+                    100, null, "p=7")).commit();
+        }
+        FileMetadata.Builder delete = FileMetadata.deleteFileBuilder(spec);
+        if (equalityDelete) {
+            delete.ofEqualityDeletes(1);
+        } else {
+            delete.ofPositionDeletes();
+        }
+        table.newRowDelta().addDeletes(delete.withPath("/d/rewrite_source_delete.parquet")
+                .withFormat(FileFormat.PARQUET).withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("p=7").build()).commit();
+        String originalDeleteManifest = table.currentSnapshot().deleteManifests(table.io()).get(0).path();
+        // The rewrite captures the old typed specs; its commit snapshot uses the later schema without p.
+        RewriteManifests rewrite = table.rewriteManifests().clusterBy(file -> file.path().toString());
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        rewrite.commit();
+        table = reloadPersistedTable(table);
+        Assertions.assertEquals(originalDeleteManifest,
+                table.currentSnapshot().deleteManifests(table.io()).get(0).path());
+        Assertions.assertEquals(2, table.currentSnapshot().dataManifests(table.io()).size());
+        Assertions.assertNull(table.schemas().get(table.currentSnapshot().schemaId()).findField(2));
+        ConnectorScanRequest request = scanOf(new IcebergTableHandle("db1", "rewrite_source_removal")).build();
+        List<ConnectorScanRange> expected = providerOver(table).planScan(null, request);
+        Assertions.assertEquals(2, expected.size());
+        expected.forEach(range -> Assertions.assertEquals(1, deleteCount(range), "native SDK matches the delete"));
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(cacheEnabled ? manifestCacheProps() : Collections.emptyMap()),
+                opsReturning(table), context, cache);
+        for (int pass = 0; pass < 2; pass++) {
+            List<ConnectorScanRange> actual;
+            try (ConnectorSplitSource source = provider.streamSplits(emptySession(), request)) {
+                source.onMoreSplitsRequested();
+                actual = drain(source);
+            }
+            Assertions.assertEquals(sortedPaths(expected), sortedPaths(actual));
+            for (ConnectorScanRange range : actual) {
+                Assertions.assertEquals(1, deleteCount(range), "keep every SDK-associated delete");
+                Assertions.assertEquals(Set.of("/d/rewrite_source_delete.parquet"), deletePaths(range),
+                        "rewritten data and retained deletes must use compatible partition keys");
+            }
+        }
+        Assertions.assertTrue(context.metadataSubmissions.get() > 0, "exercise bounded manifest scheduling");
+        Assertions.assertEquals(cacheEnabled ? 3 : 0, cache.size());
     }
 
     @Test
