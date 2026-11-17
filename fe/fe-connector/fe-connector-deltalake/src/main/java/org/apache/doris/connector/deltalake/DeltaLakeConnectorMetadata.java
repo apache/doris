@@ -35,12 +35,15 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import io.delta.kernel.Snapshot;
+import io.delta.kernel.types.StructType;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
@@ -137,21 +140,26 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
         return runtime.execute(() -> {
             DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
             Snapshot snapshot = delta.snapshot(runtime);
-            if (snapshot.getPartitionColumnNames().isEmpty()) {
+            List<String> columns = snapshot.getPartitionColumnNames();
+            if (columns.isEmpty()) {
                 return Collections.emptyList();
             }
+            StructType schema = snapshot.getSchema();
+            boolean mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
+            Set<String> emptyDates = new HashSet<>();
             Map<String, ConnectorPartitionInfo> partitions = new LinkedHashMap<>();
             long[] files = {0};
             DeltaLakeScanFiles.forEach(snapshot, runtime.engine(delta.reference()), false, row -> {
                 files[0]++;
                 Map<String, String> values = DeltaLakePartitionValues.normalize(
-                        snapshot, DeltaKernelCompat.partitionValues(row));
+                        schema, columns, mapped, DeltaKernelCompat.partitionValues(row), emptyDates);
                 String name = DeltaLakePartitionValues.partitionName(values);
                 partitions.computeIfAbsent(name, ignored -> new ConnectorPartitionInfo(name, values,
                         Collections.emptyMap(), values.values().stream().map(value -> value == null ? "" : value)
                                 .collect(Collectors.toList()),
                         values.values().stream().map(value -> value == null).collect(Collectors.toList())));
             });
+            runtime.recordEmptyDatePartitions(snapshot, emptyDates);
             DeltaLakeStatementScope.fileCount(session, (DeltaLakeTableHandle) handle).value = files[0];
             return List.copyOf(partitions.values());
         });

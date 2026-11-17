@@ -57,7 +57,7 @@ import java.util.List;
 class DeltaLakePredicateConverterTest {
     private final ConnectorColumnRef column = new ConnectorColumnRef("mixed", ConnectorType.of("BIGINT"));
     private final DeltaLakePredicateConverter converter = new DeltaLakePredicateConverter(
-            new StructType().add("MiXeD", LongType.LONG), ZoneId.of("Asia/Shanghai"));
+            new StructType().add("MiXeD", LongType.LONG), ZoneId.of("Asia/Shanghai"), List.of());
 
     @Test
     void preservesLogicalColumnNamesAndEveryComparisonIncludingReversedOperands() {
@@ -148,7 +148,7 @@ class DeltaLakePredicateConverterTest {
         StructField field = new StructField("dt", TimestampNTZType.TIMESTAMP_NTZ, true)
                 .withTypeChanges(List.of(new TypeChange(DateType.DATE, TimestampNTZType.TIMESTAMP_NTZ)));
         DeltaLakePredicateConverter widening = new DeltaLakePredicateConverter(
-                new StructType().add(field).add("MiXeD", LongType.LONG), ZoneId.of("UTC"));
+                new StructType().add(field).add("MiXeD", LongType.LONG), ZoneId.of("UTC"), List.of());
         ConnectorExpression date = new ConnectorComparison(ConnectorComparison.Operator.GT,
                 new ConnectorColumnRef("dt", ConnectorType.of("DATETIMEV2", 6, 0)),
                 ConnectorLiteral.ofDatetime(LocalDateTime.of(2024, 2, 29, 0, 0)));
@@ -158,5 +158,23 @@ class DeltaLakePredicateConverterTest {
         Assertions.assertEquals(widening.convert(integer).orElseThrow().toString(),
                 widening.convert(new ConnectorAnd(List.of(date, integer))).orElseThrow().toString());
         Assertions.assertTrue(widening.convert(new ConnectorOr(List.of(date, integer))).isEmpty());
+    }
+
+    @Test
+    void keepsOnlyAffectedDatePartitionPredicatesResidual() {
+        DeltaLakePredicateConverter dates = new DeltaLakePredicateConverter(new StructType()
+                .add("Day", DateType.DATE).add("other_day", DateType.DATE).add("label", StringType.STRING),
+                ZoneId.of("UTC"), List.of("Day", "label"));
+        ConnectorExpression emptyDate = new ConnectorIsNull(new ConnectorColumnRef("day", ConnectorType.of("DATE")),
+                false);
+        ConnectorExpression otherDate = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("other_day", ConnectorType.of("DATE")), ConnectorLiteral.ofDate(LocalDate.EPOCH));
+        Assertions.assertTrue(dates.convert(emptyDate).isEmpty());
+        Assertions.assertTrue(dates.convert(new ConnectorNot(emptyDate)).isEmpty());
+        Assertions.assertTrue(dates.convert(new ConnectorOr(List.of(emptyDate, otherDate))).isEmpty());
+        Assertions.assertEquals(dates.convert(otherDate).orElseThrow().toString(),
+                dates.convert(new ConnectorAnd(List.of(emptyDate, otherDate))).orElseThrow().toString());
+        Assertions.assertTrue(dates.convert(new ConnectorIsNull(new ConnectorColumnRef("label",
+                ConnectorType.of("STRING")), false)).isPresent());
     }
 }

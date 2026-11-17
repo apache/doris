@@ -58,6 +58,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -65,10 +66,12 @@ import java.util.Optional;
 final class DeltaLakePredicateConverter {
     private final StructType schema;
     private final ZoneId zone;
+    private final Collection<String> possibleEmptyDatePartitions;
 
-    DeltaLakePredicateConverter(StructType schema, ZoneId zone) {
+    DeltaLakePredicateConverter(StructType schema, ZoneId zone, Collection<String> possibleEmptyDatePartitions) {
         this.schema = schema;
         this.zone = zone;
+        this.possibleEmptyDatePartitions = possibleEmptyDatePartitions;
     }
 
     Optional<Predicate> convert(ConnectorExpression expression) {
@@ -160,6 +163,11 @@ final class DeltaLakePredicateConverter {
         for (StructField field : schema.fields()) {
             if (field.getName().equalsIgnoreCase(name)) {
                 DataType type = field.getDataType();
+                // Kernel 4.4.1 treats an empty serialized DATE as non-null and fails to parse it for comparisons.
+                // Doris can still prune these files using its normalized partition values.
+                if (type instanceof DateType && possibleEmptyDatePartitions.contains(field.getName())) {
+                    return null;
+                }
                 // Kernel 4.4.1 parses min/max using the current type. Old DATE statistics
                 // contain only yyyy-MM-dd and fail its timestamp_ntz parser after widening.
                 // Keep predicates on these columns as BE residuals until Kernel handles them.

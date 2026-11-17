@@ -41,9 +41,11 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TimeZone;
 
 class DeltaLakePartitionValuesTest {
@@ -130,6 +132,29 @@ class DeltaLakePartitionValuesTest {
         Assertions.assertNull(normalized.get("Other"));
         Assertions.assertThrows(DorisConnectorException.class, () -> DeltaLakePartitionValues.normalize(schema,
                 Collections.singletonList("Renamed"), true, Collections.emptyMap()));
+    }
+
+    @Test
+    void recordsOnlyEmptyDatePartitionsUnderTheirLogicalNames() {
+        StructType schema = new StructType().add(new StructField("Day", DateType.DATE, true,
+                FieldMetadata.builder().putString("delta.columnMapping.physicalName", "old_day").build()))
+                .add(new StructField("label", StringType.STRING, true,
+                        FieldMetadata.builder().putString("delta.columnMapping.physicalName", "old_label").build()));
+        List<String> names = List.of("Day", "label");
+        Set<String> emptyDates = new HashSet<>();
+        Map<String, String> raw = new LinkedHashMap<>();
+        raw.put("old_day", null);
+        raw.put("old_label", "");
+        Map<String, String> jsonNull = DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyDates);
+        Assertions.assertTrue(emptyDates.isEmpty());
+        Assertions.assertNull(jsonNull.get("Day"));
+        Assertions.assertEquals("", jsonNull.get("label"));
+        raw.put("old_day", "");
+        Assertions.assertEquals(jsonNull, DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyDates));
+        Assertions.assertEquals(Set.of("Day"), emptyDates);
+        raw.put("old_day", " ");
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyDates));
     }
 
     @Test

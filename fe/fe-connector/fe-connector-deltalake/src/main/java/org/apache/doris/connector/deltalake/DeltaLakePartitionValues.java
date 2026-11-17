@@ -45,6 +45,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** Log partition values, in declaration order, with genuine nulls kept distinct from string values. */
@@ -77,6 +78,11 @@ final class DeltaLakePartitionValues {
 
     static Map<String, String> normalize(StructType schema, List<String> partitions,
             boolean mapped, Map<String, String> rawValues) {
+        return normalize(schema, partitions, mapped, rawValues, null);
+    }
+
+    static Map<String, String> normalize(StructType schema, List<String> partitions,
+            boolean mapped, Map<String, String> rawValues, Set<String> emptyDatePartitions) {
         Map<String, String> result = new LinkedHashMap<>();
         for (String name : partitions) {
             StructField field = schema.get(name);
@@ -85,7 +91,11 @@ final class DeltaLakePartitionValues {
                 throw new DorisConnectorException("Delta file has no partition value for column " + name);
             }
             try {
-                result.put(name, normalizeValue(field, rawValues.get(key)));
+                String raw = rawValues.get(key);
+                result.put(name, normalizeValue(field, raw));
+                if (emptyDatePartitions != null && "".equals(raw) && field.getDataType() instanceof DateType) {
+                    emptyDatePartitions.add(name);
+                }
             } catch (IllegalArgumentException | DateTimeException e) {
                 throw new DorisConnectorException("Invalid Delta partition value for column " + name
                         + " of type " + field.getDataType(), e);
@@ -124,7 +134,7 @@ final class DeltaLakePartitionValues {
                     .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         }
         if (type instanceof DateType) {
-            return LocalDate.parse(value).toString();
+            return value.isEmpty() ? null : LocalDate.parse(value).toString();
         }
         if (type instanceof BooleanType && !"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
             throw new IllegalArgumentException("Expected a boolean partition value");

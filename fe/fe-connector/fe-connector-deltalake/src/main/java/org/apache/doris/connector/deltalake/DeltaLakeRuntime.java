@@ -26,13 +26,18 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import io.delta.kernel.Snapshot;
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
 import org.apache.hadoop.conf.Configuration;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
 /** Lazily built plugin resources; constructing catalog properties never opens storage or Unity Catalog. */
@@ -41,6 +46,9 @@ final class DeltaLakeRuntime implements AutoCloseable {
     final DeltaLakeTableResolver resolver;
     final ConnectorContext storageContext;
     private final DeltaLakeFileIO fileIO;
+    // A completed partition listing proves which DATE columns Kernel can prune at this exact snapshot.
+    // Weak keys give the observation the same lifetime as the cached or in-flight Kernel snapshot.
+    private final Cache<Snapshot, Set<String>> emptyDatePartitions = Caffeine.newBuilder().weakKeys().build();
 
     DeltaLakeRuntime(DeltaLakeCatalogProperties properties, ConnectorContext context) {
         HmsConfHelper.initializeHadoopConfigDir(context);
@@ -86,6 +94,15 @@ final class DeltaLakeRuntime implements AutoCloseable {
     Engine engine(DeltaLakeTableReference reference) {
         return resolver instanceof DeltaLakeUnityCatalog ? ((DeltaLakeUnityCatalog) resolver).engine(reference, engine)
                 : engine;
+    }
+
+    void recordEmptyDatePartitions(Snapshot snapshot, Set<String> columns) {
+        emptyDatePartitions.put(snapshot, Set.copyOf(columns));
+    }
+
+    Collection<String> possibleEmptyDatePartitions(Snapshot snapshot) {
+        Set<String> observed = emptyDatePartitions.getIfPresent(snapshot);
+        return observed != null ? observed : snapshot.getPartitionColumnNames();
     }
 
     Map<String, String> backendProperties(DeltaLakeTableReference reference) throws IOException {

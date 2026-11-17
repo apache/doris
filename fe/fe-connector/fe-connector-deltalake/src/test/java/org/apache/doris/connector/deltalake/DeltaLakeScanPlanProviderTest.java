@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorIsNull;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
@@ -40,6 +41,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.delta.kernel.types.DateType;
 import io.delta.kernel.types.LongType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructType;
@@ -50,6 +52,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -309,6 +312,44 @@ class DeltaLakeScanPlanProviderTest {
             TestingConnectorSession next = new TestingConnectorSession("next");
             ConnectorTableHandle latest = metadata.getTableHandle(next, "db", "table").orElseThrow();
             Assertions.assertEquals(4, metadata.listPartitions(next, latest, Optional.empty()).size());
+        }
+    }
+
+    @Test
+    void datePartitionPruningUsesOnlyCompleteListingsOfTheSameSnapshot() throws Exception {
+        DeltaLakeTestTables.commit(warehouse.resolve("db/table"), 0, "table-id",
+                new StructType().add("id", LongType.LONG).add("p", DateType.DATE), List.of("p"));
+        appendFile(0, "json-null.parquet", null, 1);
+        appendFile(0, "leap-day.parquet", "2024-02-29", 1);
+        ConnectorColumnRef day = new ConnectorColumnRef("p", ConnectorType.of("DATE"));
+        ConnectorComparison equalsDay = new ConnectorComparison(ConnectorComparison.Operator.EQ, day,
+                ConnectorLiteral.ofDate(LocalDate.of(2024, 2, 29)));
+        TestingConnectorSession first = new TestingConnectorSession("first");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(first)) {
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            ConnectorTableHandle clean = metadata.getTableHandle(first, "db", "table").orElseThrow();
+            metadata.listPartitions(first, clean, Optional.empty());
+            ConnectorScanRequest cleanFilter = request(clean).filter(Optional.of(equalsDay)).build();
+            List<ConnectorScanRange> filtered = provider.planScan(new TestingConnectorSession("warm"), cleanFilter);
+            Assertions.assertEquals(1, filtered.size());
+            Assertions.assertTrue(filtered.get(0).getPath().orElseThrow().endsWith("leap-day.parquet"));
+
+            appendFile(1, "empty.parquet", "", 1);
+            connector.invalidateTable("db", "table");
+            TestingConnectorSession next = new TestingConnectorSession("next");
+            ConnectorTableHandle dirty = metadata.getTableHandle(next, "db", "table").orElseThrow();
+            // A scan can bypass the listing or reuse a partition view from another query.
+            Assertions.assertEquals(3, provider.planScan(next, request(dirty)
+                    .filter(Optional.of(equalsDay)).build()).size());
+            List<ConnectorPartitionInfo> partitions = metadata.listPartitions(next, dirty, Optional.empty());
+            Assertions.assertEquals(2, partitions.size());
+            String nullPartition = partitions.stream().filter(p -> p.getPartitionValueNullFlags().get(0))
+                    .findFirst().orElseThrow().getPartitionName();
+            List<ConnectorScanRange> nullFiles = provider.planScan(next, request(dirty)
+                    .requiredPartitions(List.of(nullPartition)).filter(Optional.of(new ConnectorIsNull(day, false)))
+                    .build());
+            Assertions.assertEquals(2, nullFiles.size());
+            Assertions.assertTrue(nullFiles.stream().allMatch(file -> file.getPartitionValues().get("p") == null));
         }
     }
 
