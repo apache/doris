@@ -34,6 +34,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 
 namespace doris::format::mongodb {
 namespace {
@@ -124,6 +125,29 @@ Status acquire_pool(const TMongoScanDesc& d, std::shared_ptr<ClientPool>* result
     return Status::OK();
 }
 
+Status validate_pushdown_bson(const TMongoScanDesc& d) {
+    for (const auto* bytes : {d.__isset.filter_bson ? &d.filter_bson : nullptr,
+                              d.__isset.projection_bson ? &d.projection_bson : nullptr}) {
+        if (!bytes) {
+            continue;
+        }
+        bson_t view;
+        // A truncated/oversized RPC payload must fail before libmongoc reads it or acquires a lease.
+        if (bytes->size() > 1024 * 1024 ||
+            !bson_init_static(&view, reinterpret_cast<const uint8_t*>(bytes->data()),
+                              bytes->size()) ||
+            !bson_validate(&view, BSON_VALIDATE_NONE, nullptr)) {
+            return Status::InvalidArgument("Invalid MongoDB pushdown BSON descriptor");
+        }
+    }
+    // A stale or malformed FE plan must not bypass the strict-error or view-collation contracts.
+    if (d.__isset.filter_bson && (!d.type_mismatch_as_null || d.object_kind == "view")) {
+        return Status::InvalidArgument(
+                "MongoDB predicate pushdown is unavailable for strict scans or views");
+    }
+    return Status::OK();
+}
+
 Status mongo_error(const bson_error_t& error) {
     // Driver messages can contain URIs, credentials, commands, or source values.
     return Status::IOError("MongoDB command failed (domain={}, code={})", error.domain, error.code);
@@ -136,6 +160,7 @@ public:
         _cancelled = std::move(cancelled);
         _deadline = Clock::now() + std::chrono::milliseconds(d.timeout_ms);
         RETURN_IF_ERROR(check_deadline());
+        RETURN_IF_ERROR(validate_pushdown_bson(d));
         RETURN_IF_ERROR(acquire_pool(d, &_pool));
         while (!(_client = mongoc_client_pool_try_pop(_pool->pool.get()))) {
             RETURN_IF_ERROR(check_deadline());
@@ -157,14 +182,17 @@ public:
         RETURN_IF_ERROR(configure_mongodb_read_preference(_collection.get(), d.read_preference));
         bson_t filter = BSON_INITIALIZER;
         bson_t options = BSON_INITIALIZER;
+        Defer release_bson([&] {
+            bson_destroy(&options);
+            bson_destroy(&filter);
+        });
+        RETURN_IF_ERROR(build_mongodb_find_options(d, &filter, &options));
         BSON_APPEND_INT32(&options, "batchSize", d.batch_size);
         BSON_APPEND_INT64(&options, "maxTimeMS", remaining_ms());
         // Always query the public logical namespace: a view may change rows, names, and _id,
         // and time-series buckets are an internal storage representation.
         _cursor.reset(
                 mongoc_collection_find_with_opts(_collection.get(), &filter, &options, nullptr));
-        bson_destroy(&options);
-        bson_destroy(&filter);
         if (!_cursor) {
             return Status::IOError("MongoDB cursor initialization failed");
         }
@@ -292,6 +320,33 @@ Status configure_mongodb_read_preference(_mongoc_collection_t* collection,
     return Status::OK();
 }
 
+Status build_mongodb_find_options(const TMongoScanDesc& d, bson_t* filter, bson_t* options) {
+    RETURN_IF_ERROR(validate_pushdown_bson(d));
+    if (d.__isset.filter_bson) {
+        bson_t view;
+        bson_init_static(&view, reinterpret_cast<const uint8_t*>(d.filter_bson.data()),
+                         d.filter_bson.size());
+        if (!bson_concat(filter, &view)) {
+            return Status::InvalidArgument("MongoDB candidate filter exceeds BSON limits");
+        }
+        // Views cannot override their own collation and are rejected above. For example, the
+        // ordinary collection's case-insensitive default must not change SQL text = 'alpha'.
+        bson_t collation;
+        BSON_APPEND_DOCUMENT_BEGIN(options, "collation", &collation);
+        BSON_APPEND_UTF8(&collation, "locale", "simple");
+        bson_append_document_end(options, &collation);
+    }
+    if (d.__isset.projection_bson) {
+        bson_t view;
+        bson_init_static(&view, reinterpret_cast<const uint8_t*>(d.projection_bson.data()),
+                         d.projection_bson.size());
+        if (!BSON_APPEND_DOCUMENT(options, "projection", &view)) {
+            return Status::InvalidArgument("MongoDB projection exceeds BSON limits");
+        }
+    }
+    return Status::OK();
+}
+
 Status validate_mongodb_range(const TFileRangeDesc& range) {
     if (!range.__isset.table_format_params ||
         range.table_format_params.table_format_type != "mongodb" ||
@@ -313,7 +368,7 @@ Status validate_mongodb_range(const TFileRangeDesc& range) {
          d.read_concern != "available")) {
         return Status::InvalidArgument("Invalid or unsupported MongoDB native scan descriptor");
     }
-    return Status::OK();
+    return validate_pushdown_bson(d);
 }
 
 MongoFileReader::MongoFileReader(std::shared_ptr<io::FileSystemProperties>& properties,
@@ -451,8 +506,8 @@ Status MongoFileReader::_read_block(Block* block, size_t* rows, bool* eof) {
             }
             SCOPED_TIMER(_decode_time);
             BsonValueView root = BsonValueView::document(*document);
-            // Resource/structural failures apply to the entire document, outside the per-field
-            // mismatch-as-NULL policy, so projection cannot bypass the decoding limits.
+            // Validate every returned subtree before conversion. Resource/structural failures
+            // must not be swallowed by the per-field mismatch-as-NULL policy.
             RETURN_IF_ERROR(validate_bson_tree(root));
             // A later field can fail after earlier columns appended. Snapshot every column before
             // the first append so the failing source document contributes no partial Doris row.

@@ -628,6 +628,12 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
 
+        try {
+            PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                    newMVColumns, Collections.emptyList());
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
         for (Column column : newMVColumns) {
             // check c.2
             if (column.isKey() && column.getType().isFloatingPointType()) {

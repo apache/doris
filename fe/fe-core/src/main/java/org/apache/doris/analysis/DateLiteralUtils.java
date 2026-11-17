@@ -85,9 +85,8 @@ public class DateLiteralUtils {
             TemporalAccessor dateTime = null;
             boolean parsed = false;
             ZoneId sourceZone = null;
-            // Every pre-existing date type retains its six-digit parsing contract. A null type is
-            // used when decoding an untyped DATE_LITERAL thrift node, where 7-9 digits are the only
-            // information available to infer TIMESTAMP_NS.
+            // Parse up to nine fractional digits when the type is unknown.
+            // Explicit types other than TIMESTAMP_NS keep the six-digit parsing limit.
             boolean parseNanoseconds = type == null || type.isTimeStampNs();
 
             // parse timezone

@@ -80,6 +80,11 @@ public class OlapTableWrapper extends OlapTable {
         this(originTable, new HashMap<>());
     }
 
+    @Override
+    public boolean getVariantEscapeDotsInKeys() {
+        return originTable.getVariantEscapeDotsInKeys();
+    }
+
     public OlapTable getOriginTable() {
         return originTable;
     }

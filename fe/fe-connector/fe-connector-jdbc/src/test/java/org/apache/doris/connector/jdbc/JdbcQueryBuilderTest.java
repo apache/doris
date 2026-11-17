@@ -200,6 +200,29 @@ class JdbcQueryBuilderTest {
     }
 
     @Test
+    void testUserDefinedFunctionsRemainLocalWithoutLimit() {
+        JdbcFunctionPushdownConfig config = JdbcFunctionPushdownConfig.create(JdbcDbType.MYSQL, null, true);
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.MYSQL, config, Collections.emptyMap());
+        List<ConnectorExpression> args = Collections.singletonList(new ConnectorColumnRef("id", INT_TYPE));
+        // A UDF named like MySQL's abs, and a pre-rendered fragment that calls a UDF.
+        for (ConnectorExpression udf : Arrays.asList(new ConnectorFunctionCall("abs", INT_TYPE, args, false),
+                new ConnectorFunctionCall("CASE WHEN my_udf(`id`) THEN 1 END", INT_TYPE,
+                        Collections.emptyList(), false))) {
+            ConnectorExpression predicate = new ConnectorComparison(
+                    ConnectorComparison.Operator.EQ, udf, ConnectorLiteral.ofInt(1));
+            Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl`",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(predicate), 1));
+            Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl` WHERE (`id` = 1)",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                            new ConnectorAnd(Arrays.asList(predicate, simpleComparison("id", 1)))), 1));
+        }
+        Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl` WHERE ((abs(`id`)) = 1) LIMIT 1",
+                builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(new ConnectorComparison(
+                        ConnectorComparison.Operator.EQ, new ConnectorFunctionCall("abs", INT_TYPE, args),
+                        ConnectorLiteral.ofInt(1))), 1));
+    }
+
+    @Test
     void testEmptyInRemainsLocalWithoutLimit() {
         ConnectorColumnRef column = new ConnectorColumnRef("id", INT_TYPE);
         for (boolean negated : Arrays.asList(false, true)) {
@@ -367,6 +390,33 @@ class JdbcQueryBuilderTest {
                 Assertions.assertFalse(sql.contains("NaN") || sql.contains("Infinity"), sql);
                 Assertions.assertFalse(sql.contains("LIMIT") || sql.contains("TOP") || sql.contains("ROWNUM"), sql);
             }
+        }
+    }
+
+    @Test
+    void testArrayLiteralsRemainLocalWithoutLimit() {
+        ConnectorType stringArray = ConnectorType.arrayOf(STRING_TYPE);
+        ConnectorColumnRef tags = new ConnectorColumnRef("tags", stringArray);
+        // Rendered as text, these elements would reach the remote SQL unquoted.
+        ConnectorLiteral array = new ConnectorLiteral(stringArray, Arrays.asList("a, b", "x') OR ('1'='1"));
+        ConnectorExpression comparison = new ConnectorComparison(ConnectorComparison.Operator.EQ, tags, array);
+        ConnectorExpression overlap = new ConnectorFunctionCall("arrays_overlap", BOOLEAN_TYPE,
+                Arrays.asList(tags, array));
+        // MySQL pushes any function not on its deny list, arrays_overlap included.
+        JdbcFunctionPushdownConfig config = JdbcFunctionPushdownConfig.create(JdbcDbType.MYSQL, null, true);
+        for (JdbcQueryBuilder builder : Arrays.asList(new JdbcQueryBuilder(JdbcDbType.MYSQL, config,
+                        Collections.emptyMap()), new JdbcQueryBuilder(JdbcDbType.POSTGRESQL),
+                new JdbcQueryBuilder(JdbcDbType.CLICKHOUSE), new JdbcQueryBuilder(JdbcDbType.TRINO))) {
+            for (ConnectorExpression filter : Arrays.asList(comparison, overlap, new ConnectorNot(comparison))) {
+                String sql = builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(filter), 1);
+                Assertions.assertFalse(sql.contains(" WHERE "), sql);
+                Assertions.assertFalse(sql.contains("LIMIT"), sql);
+            }
+            String sql = builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                    new ConnectorAnd(Arrays.asList(comparison, simpleComparison("id", 1)))), 1);
+            Assertions.assertTrue(sql.contains(" WHERE "), sql);
+            Assertions.assertFalse(sql.contains("a, b") || sql.contains("'1'='1"), sql);
+            Assertions.assertFalse(sql.contains("LIMIT"), sql);
         }
     }
 

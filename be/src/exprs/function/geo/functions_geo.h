@@ -46,11 +46,18 @@ struct StConstructState {
     std::string encoded_buf;
 };
 
-struct StContainsState {
-    StContainsState() : is_null(false), shapes {nullptr, nullptr} {}
-    ~StContainsState() {}
-    bool is_null;
-    std::vector<std::shared_ptr<GeoShape>> shapes;
+// Thread-local state of st_contains, st_within and the other relation functions: the decoded
+// shape of each constant argument, keyed by its encoded value. Decoding a polygon validates it,
+// which builds an index over all its edges, so a constant shape is decoded once per thread
+// instead of once per row.
+struct StRelationState {
+    struct ConstShape {
+        bool decoded = false;
+        std::string encoded;
+        // nullptr if `encoded` is not a valid shape
+        std::shared_ptr<GeoShape> shape;
+    };
+    ConstShape args[2];
 };
 
 template <typename Impl>
@@ -67,9 +74,21 @@ public:
         return make_nullable(std::make_shared<ReturnType>());
     }
 
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if constexpr (requires { Impl::open(context, scope); }) {
+            return Impl::open(context, scope);
+        } else {
+            return Status::OK();
+        }
+    }
+
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        return Impl::execute(block, arguments, result);
+        if constexpr (requires { Impl::execute(context, block, arguments, result); }) {
+            return Impl::execute(context, block, arguments, result);
+        } else {
+            return Impl::execute(block, arguments, result);
+        }
     }
 };
 

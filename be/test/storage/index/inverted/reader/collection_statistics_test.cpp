@@ -51,7 +51,6 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
-#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/common/string_helper.h"
@@ -2339,6 +2338,69 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternGlobInd
     EXPECT_EQ(it->second.index_meta->index_name(), "variant_field_pattern_glob_idx");
 }
 
+TEST_F(CollectionStatisticsTest, CollectMatchUsesEncodedVariantPath) {
+    auto schema = std::make_shared<TabletSchema>();
+    constexpr int32_t kRootUid = 9004;
+    TabletColumn root;
+    root.set_unique_id(kRootUid);
+    root.set_name("v");
+    root.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    TabletSchemaPB pb;
+    pb.set_variant_escape_dots_in_keys(true);
+    schema->init_from_pb(pb);
+    schema->append_column(root);
+
+    const std::vector<std::vector<std::string>> paths {{"a.b"}, {"a", "b"}, {"a%2Eb"}, {"50%"}};
+    for (size_t i = 0; i < paths.size(); ++i) {
+        std::vector<std::string> encoded;
+        for (const auto& component : paths[i]) {
+            encoded.push_back(encode_variant_path_component(component));
+        }
+        const PathInData path("v", encoded);
+        TabletColumn leaf;
+        leaf.set_unique_id(-1);
+        leaf.set_name(path.get_path());
+        leaf.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+        leaf.set_parent_unique_id(kRootUid);
+        leaf.set_path_info(path);
+        schema->append_column(leaf);
+
+        TabletIndexPB pb;
+        pb.set_index_id(2004 + i);
+        pb.set_index_name("escaped_path_index");
+        pb.set_index_type(IndexType::INVERTED);
+        pb.add_col_unique_id(kRootUid);
+        (*pb.mutable_properties())["parser"] = "standard";
+        (*pb.mutable_properties())["support_phrase"] = "true";
+        TabletIndex index;
+        index.init_from_pb(pb);
+        index.set_escaped_escaped_index_suffix_path(leaf.suffix_path(), true);
+        schema->append_index(std::move(index));
+    }
+    for (size_t i = 0; i < paths.size(); ++i) {
+        // FE sends escaped tables' slot paths in storage spelling.
+        std::vector<std::string> encoded;
+        std::string display_name = "v";
+        for (const auto& component : paths[i]) {
+            encoded.push_back(encode_variant_path_component(component));
+            display_name += "." + encoded.back();
+        }
+        const SlotId slot_id = 50 + i;
+        runtime_state_->_mock_desc_tbl->add_slot_descriptor(slot_id, kRootUid, display_name,
+                                                            encoded);
+        auto match = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        match->_children.push_back(
+                std::make_shared<collection_statistics::MockVSlotRef>(display_name, slot_id));
+        match->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("apple"));
+        MatchPredicateCollector collector;
+        CollectInfoMap infos;
+        auto status = collector.collect(runtime_state_.get(), schema, match, &infos);
+        ASSERT_TRUE(status.ok()) << display_name << ": " << status;
+        ASSERT_EQ(infos.size(), 1);
+        EXPECT_EQ(infos.begin()->second.index_meta->index_id(), 2004 + i);
+    }
+}
+
 // E1: Match predicate whose left subtree contains no VSlotRef.
 // find_slot_ref recurses through children; when it returns nullptr the
 // collector reports INVERTED_INDEX_NOT_SUPPORTED.
@@ -2855,10 +2917,9 @@ TEST_F(CollectionStatisticsTest, CollectUsesMatchRequestAnalyzerProvider) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
 
     segment_v2::inverted_index::TextAnalyzerPtr analyzer =
-            std::make_shared<segment_v2::inverted_index::LuceneBackedTextAnalyzer>(
-                    segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
-                            InvertedIndexParserType::PARSER_ENGLISH, "",
-                            INVERTED_INDEX_PARSER_FALSE, "none"));
+            segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+                    InvertedIndexParserType::PARSER_ENGLISH, "", INVERTED_INDEX_PARSER_FALSE,
+                    "none");
     auto provider =
             std::make_shared<collection_statistics::FixedAnalyzerProvider>(std::move(analyzer));
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();

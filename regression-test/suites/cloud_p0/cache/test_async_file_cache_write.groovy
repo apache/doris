@@ -77,13 +77,10 @@ suite("test_async_file_cache_write", "docker") {
                     "update_config ${name}=${value} failed, out=${out}, err=${err}")
         }
 
+        // Every queued, running or inflight async write task holds a buffer charged to this
+        // per-disk gauge, so it returns to zero only after all of them finished.
         def waitForPendingWrites = {
-            long deadline = System.currentTimeMillis() + 30000L
-            while (System.currentTimeMillis() < deadline &&
-                    readMetric("async_cache_write_pending_task_count") != 0L) {
-                sleep(100)
-            }
-            assertEquals(readMetric("async_cache_write_pending_task_count"), 0L)
+            awaitUntil(30, 0.1) { readMetric("async_cache_write_buffer_memory_bytes") == 0L }
         }
 
         sql "DROP TABLE IF EXISTS test_async_file_cache_write_phase1"
@@ -113,6 +110,8 @@ suite("test_async_file_cache_write", "docker") {
             FROM test_async_file_cache_write_phase1
         """
         long submittedAfter = readMetric("async_cache_write_submitted_task_count")
+        logger.info("async_cache_write_buffer_memory_bytes after the first query: " +
+                "${readMetric("async_cache_write_buffer_memory_bytes")}")
         assertTrue(submittedAfter > submittedBefore,
                 "cold query should submit async cache writes: before=${submittedBefore}, " +
                         "after=${submittedAfter}")

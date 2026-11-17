@@ -21,6 +21,7 @@
 #include <simdjson.h>
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <cerrno> // IWYU pragma: keep
 #include <cstdint>
 #include <cstdlib>
@@ -246,6 +247,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _result_queue_mgr = new ResultQueueMgr();
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
+    // A cached transport keeps the timeout of the caller that opened it, so the Arrow Flight
+    // cancellation keeps its own, opened with its short timeout, and none of them reaches another
+    // caller. Each idle connection holds an FE thrift thread, so at most two are kept per FE.
+    _flight_cancel_frontend_client_cache = new FrontendServiceClientCache(2);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
     TimezoneUtils::load_timezones_to_cache();
@@ -305,9 +310,15 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
                               .build(&_s3_file_system_thread_pool));
+    // Give every race slot an S3 thread; a smaller pool queues S3 legs behind each other.
+    const int peer_race_s3_max_threads =
+            std::max(config::max_peer_race_s3_thread_num, config::max_concurrent_peer_races);
+    LOG(INFO) << "PeerRaceS3ThreadPool max_threads=" << peer_race_s3_max_threads
+              << ", max_peer_race_s3_thread_num=" << config::max_peer_race_s3_thread_num
+              << ", max_concurrent_peer_races=" << config::max_concurrent_peer_races;
     static_cast<void>(ThreadPoolBuilder("PeerRaceS3ThreadPool")
                               .set_min_threads(config::min_peer_race_s3_thread_num)
-                              .set_max_threads(config::max_peer_race_s3_thread_num)
+                              .set_max_threads(peer_race_s3_max_threads)
                               .build(&_peer_race_s3_thread_pool));
     RETURN_IF_ERROR(init_mem_env());
 
@@ -398,6 +409,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
+    _flight_cancel_frontend_client_cache->init_metrics("flight_cancel_frontend");
     _broker_client_cache->init_metrics("broker");
     static_cast<void>(_result_mgr->init());
     Status status = _load_path_mgr->init();
@@ -1023,6 +1035,7 @@ void ExecEnv::destroy() {
     _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
+    SAFE_DELETE(_flight_cancel_frontend_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_queue_mgr);

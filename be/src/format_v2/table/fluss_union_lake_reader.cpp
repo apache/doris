@@ -357,16 +357,16 @@ Status FlussUnionLakeReader::_load_suppression_keys(const format::SplitReadOptio
     const auto cache_key = fmt::format("fluss_union_tail:{}:{}", tail.spec.size(), tail.spec);
     Status read_status = Status::OK();
     bool cache_hit = false;
-    auto* cached = options.cache->get<SuppressionKeys>(
+    auto cached = options.cache->get<SuppressionKeys>(
             cache_key,
-            [&]() -> SuppressionKeys* {
-                auto loaded = std::make_unique<SuppressionKeys>();
+            [&]() -> std::shared_ptr<SuppressionKeys> {
+                auto loaded = std::make_shared<SuppressionKeys>();
                 read_status = _read_tail_keys(tail, loaded.get());
                 if (!read_status.ok()) {
                     return nullptr;
                 }
                 update_counter(_tail_keys_read_counter, loaded->records);
-                return loaded.release();
+                return loaded;
             },
             &cache_hit);
     RETURN_IF_ERROR(read_status);

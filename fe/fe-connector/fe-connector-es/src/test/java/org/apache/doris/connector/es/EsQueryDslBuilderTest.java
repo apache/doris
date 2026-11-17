@@ -18,6 +18,7 @@
 package org.apache.doris.connector.es;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 public class EsQueryDslBuilderTest {
 
@@ -57,6 +59,27 @@ public class EsQueryDslBuilderTest {
         EsQueryDslResult result = buildWithTracking(partiallyPushableAnd());
         Assertions.assertEquals(Collections.singletonList(1), result.getNotPushedIndices());
         Assertions.assertEquals("{\"term\":{\"name\":\"one\"}}", result.getQueryDsl());
+    }
+
+    @Test
+    void udfNamedEsqueryIsEvaluatedByDoris() {
+        List<ConnectorExpression> args = Arrays.asList(new ConnectorColumnRef("name", ConnectorType.of("VARCHAR")),
+                ConnectorLiteral.ofString("{\"term\":{\"name\":\"one\"}}"));
+        ConnectorExpression esquery = new ConnectorFunctionCall("esquery", ConnectorType.of("BOOLEAN"), args);
+        ConnectorExpression udf = new ConnectorFunctionCall("esquery", ConnectorType.of("BOOLEAN"), args, false);
+        EsQueryDslResult pushed = buildWithTracking(esquery);
+        Assertions.assertEquals("{\"term\":{\"name\":\"one\"}}", pushed.getQueryDsl());
+        Assertions.assertTrue(pushed.getNotPushedIndices().isEmpty());
+        EsQueryDslResult local = buildWithTracking(udf);
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), local.getQueryDsl());
+        Assertions.assertEquals(Collections.singletonList(0), local.getNotPushedIndices());
+        // In an OR that cannot be pushed, the builtin has no BE implementation to fall back to; the UDF has.
+        ConnectorExpression unpushable = new ConnectorFunctionCall("unsupported_predicate", ConnectorType.of("BOOLEAN"),
+                Collections.singletonList(new ConnectorColumnRef("name", ConnectorType.of("VARCHAR"))));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> buildWithTracking(new ConnectorOr(Arrays.asList(esquery, unpushable))));
+        Assertions.assertEquals(Collections.singletonList(0),
+                buildWithTracking(new ConnectorOr(Arrays.asList(udf, unpushable))).getNotPushedIndices());
     }
 
     @Test
@@ -118,6 +141,28 @@ public class EsQueryDslBuilderTest {
                 ConnectorLiteral.ofLong(1));
         Assertions.assertEquals(buildWithTracking(new ConnectorAnd(Arrays.asList(ne, eq))).getQueryDsl(),
                 buildWithTracking(new ConnectorNot(new ConnectorOr(Arrays.asList(eq, ne)))).getQueryDsl());
+    }
+
+    @Test
+    void arrayLiteralComparisonsRemainLocal() {
+        ConnectorType stringArray = ConnectorType.arrayOf(ConnectorType.of("VARCHAR"));
+        ConnectorColumnRef tags = new ConnectorColumnRef("tags", stringArray);
+        ConnectorLiteral array = new ConnectorLiteral(stringArray, Arrays.asList("red", "blue"));
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                ConnectorComparison.Operator.NE, ConnectorComparison.Operator.LT)) {
+            for (ConnectorExpression comparison : Arrays.asList(new ConnectorComparison(op, tags, array),
+                    new ConnectorComparison(op, array, tags))) {
+                EsQueryDslResult result = EsQueryDslBuilder.buildQueryDslWithResult(comparison,
+                        Collections.emptyMap(), Collections.emptyMap(), true, Collections.emptyList());
+                Assertions.assertEquals(Collections.singletonList(0), result.getNotPushedIndices(), comparison.toString());
+                Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+            }
+        }
+        EsQueryDslResult partial = EsQueryDslBuilder.buildQueryDslWithResult(new ConnectorAnd(Arrays.asList(
+                keywordEquals("one"), new ConnectorComparison(ConnectorComparison.Operator.EQ, tags, array))),
+                Collections.emptyMap(), Collections.singletonMap("name", "keyword"), true, Collections.emptyList());
+        Assertions.assertEquals(Collections.singletonList(1), partial.getNotPushedIndices());
+        Assertions.assertEquals("{\"term\":{\"name\":\"one\"}}", partial.getQueryDsl());
     }
 
     @Test

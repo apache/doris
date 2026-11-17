@@ -20,8 +20,12 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+#include <string>
+#include <string_view>
 #include <vector>
 
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/tokenizer/keyword/keyword_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -31,20 +35,17 @@ uint64_t unicode_path_count();
 void reset_unicode_path_count();
 } // namespace lower_case_testing
 
-TokenStreamPtr create_lowercase_filter(const std::string& text, Settings settings = Settings()) {
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), text.size(), false);
-
-    KeywordTokenizerFactory tokenizer_factory;
-    tokenizer_factory.initialize(Settings());
-    auto tokenizer = tokenizer_factory.create();
-    tokenizer->set_reader(reader);
+std::unique_ptr<TextTokenStream> create_lowercase_filter(
+        std::unique_ptr<TextTokenStream> input = nullptr, Settings settings = Settings()) {
+    if (input == nullptr) {
+        KeywordTokenizerFactory tokenizer_factory;
+        tokenizer_factory.initialize(Settings());
+        input = tokenizer_factory.create();
+    }
 
     LowerCaseFilterFactory filter_factory;
     filter_factory.initialize(settings);
-    auto filter = filter_factory.create(tokenizer);
-    filter->reset();
-    return filter;
+    return filter_factory.create(std::move(input));
 }
 
 struct ExpectedToken {
@@ -52,26 +53,23 @@ struct ExpectedToken {
     int pos_inc;
 };
 
-class ScriptedLowercaseInput final : public TokenStream {
+// Hands out the scripted terms, each with position increment 3, whatever the text.
+class ScriptedLowercaseInput final : public TextTokenizer {
 public:
     explicit ScriptedLowercaseInput(std::vector<std::string> terms) : _terms(std::move(terms)) {}
 
-    Token* next(Token* token) override {
+    void reset(std::string_view /*text*/) override { _next = 0; }
+
+    bool next_batch(TokenBatch& batch) override {
+        batch.clear();
         if (_next == _terms.size()) {
-            return nullptr;
+            return false;
         }
-        const auto& term = _terms[_next++];
-        token->clear();
-        token->setTextNoCopy(term.data(), static_cast<int32_t>(term.size()));
-        token->setPositionIncrement(3);
-        token->setStartOffset(7);
-        token->setEndOffset(19);
-        token->setType(_T("scripted"));
-        return token;
+        batch.push(_terms[_next++], 3);
+        return true;
     }
 
-    void close() override {}
-    void reset() override { _next = 0; }
+    size_t reserved_bytes() const override { return 0; }
 
 private:
     std::vector<std::string> _terms;
@@ -81,14 +79,13 @@ private:
 class LowerCaseFilterTest : public ::testing::Test {
 protected:
     void assert_filter_output(const std::string& text, const std::vector<ExpectedToken>& expected) {
-        auto filter = create_lowercase_filter(text);
+        auto filter = create_lowercase_filter();
 
-        Token t;
         size_t i = 0;
-        while (filter->next(&t)) {
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
+        for (const CollectedToken& t : collect_checked(*filter, text)) {
+            const std::string& term = t.term;
             EXPECT_EQ(term, expected[i].term) << "Term mismatch at index " << i;
-            EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc)
+            EXPECT_EQ(t.position_increment, expected[i].pos_inc)
                     << "Pos increment mismatch at index " << i;
             ++i;
         }
@@ -123,29 +120,18 @@ TEST_F(LowerCaseFilterTest, ASCIIBypassesUnicodeConversion) {
     EXPECT_EQ(lower_case_testing::unicode_path_count(), 1);
 }
 
-TEST_F(LowerCaseFilterTest, ASCIIPreservesMetadataAndEmbeddedNul) {
-    auto input = std::make_shared<ScriptedLowercaseInput>(
-            std::vector<std::string> {std::string("A\0B", 3), "already lower"});
-    LowerCaseFilterFactory factory;
-    factory.initialize({});
-    auto filter = factory.create(input);
-    filter->reset();
+TEST_F(LowerCaseFilterTest, ASCIIPreservesIncrementAndEmbeddedNul) {
+    auto filter = create_lowercase_filter(std::make_unique<ScriptedLowercaseInput>(
+            std::vector<std::string> {std::string("A\0B", 3), "already lower"}));
 
-    Token token;
-    ASSERT_NE(filter->next(&token), nullptr);
-    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()),
-              std::string("a\0b", 3));
-    EXPECT_EQ(token.getPositionIncrement(), 3);
-    EXPECT_EQ(token.startOffset(), 7);
-    EXPECT_EQ(token.endOffset(), 19);
-    EXPECT_EQ(std::wstring(token.type()), L"scripted");
+    const std::vector<CollectedToken> tokens = collect_checked(*filter, "");
+    ASSERT_GE(tokens.size(), 1);
+    EXPECT_EQ(tokens[0].term, std::string("a\0b", 3));
+    EXPECT_EQ(tokens[0].position_increment, 3);
 
-    ASSERT_NE(filter->next(&token), nullptr);
-    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "already lower");
-    EXPECT_EQ(token.getPositionIncrement(), 3);
-    EXPECT_EQ(token.startOffset(), 7);
-    EXPECT_EQ(token.endOffset(), 19);
-    EXPECT_EQ(std::wstring(token.type()), L"scripted");
+    ASSERT_GE(tokens.size(), 2);
+    EXPECT_EQ(tokens[1].term, "already lower");
+    EXPECT_EQ(tokens[1].position_increment, 3);
 }
 
 TEST_F(LowerCaseFilterTest, ConvertsUnicodeCharacters) {
@@ -157,18 +143,19 @@ TEST_F(LowerCaseFilterTest, RetriesUnicodeExpansionWithRequiredBufferSize) {
 }
 
 TEST_F(LowerCaseFilterTest, RejectsInvalidUtf8WithAnalyzerError) {
-    auto input = std::make_shared<ScriptedLowercaseInput>(
-            std::vector<std::string> {"VALID", std::string(1, static_cast<char>(0xFF))});
-    LowerCaseFilterFactory factory;
-    factory.initialize({});
-    auto filter = factory.create(input);
-    filter->reset();
+    auto valid = create_lowercase_filter(
+            std::make_unique<ScriptedLowercaseInput>(std::vector<std::string> {"VALID"}));
+    const std::vector<std::string> valid_terms = collect_terms(*valid, "");
+    ASSERT_EQ(valid_terms.size(), 1);
+    EXPECT_EQ(valid_terms[0], "valid");
 
-    Token token;
-    ASSERT_NE(filter->next(&token), nullptr);
-    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "valid");
+    // The batch with the malformed token fails as a whole, and the stream is not read after that.
+    auto filter = create_lowercase_filter(std::make_unique<ScriptedLowercaseInput>(
+            std::vector<std::string> {"VALID", std::string(1, static_cast<char>(0xFF))}));
+    filter->reset("");
+    TokenBatch batch;
     try {
-        filter->next(&token);
+        filter->next_batch(batch);
         FAIL() << "expected malformed UTF-8 to fail analysis";
     } catch (const Exception& error) {
         EXPECT_EQ(error.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
@@ -196,10 +183,9 @@ TEST_F(LowerCaseFilterTest, FactoryInitialization) {
     factory.initialize(settings);
 
     // Verify factory creates correct filter type
-    auto mockStream = std::make_shared<KeywordTokenizer>();
-    auto filter = factory.create(mockStream);
+    auto filter = factory.create(std::make_unique<KeywordTokenizer>());
     EXPECT_NE(filter, nullptr);
-    EXPECT_NE(std::dynamic_pointer_cast<LowerCaseFilter>(filter), nullptr);
+    EXPECT_NE(dynamic_cast<LowerCaseFilter*>(filter.get()), nullptr);
 }
 
 } // namespace doris::segment_v2::inverted_index
