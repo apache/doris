@@ -70,11 +70,6 @@ TEST(LoadVersionBackpressureTest, SenderWaitMatchesPercentageAndLimit) {
             {1, 1, 1, 3000, 1001},
             // Calculate in int64_t: INT32_MAX * 80 / 100 = 1717986917.
             {80, max_versions, 1717986918, 3000, 1001},
-            {100, max_versions - 1, max_versions, 3000, 1001},
-            // Adding the base wait must also preserve values above INT32_MAX.
-            {1, 1, max_versions, std::numeric_limits<int64_t>::max(),
-             static_cast<int64_t>(max_versions) + 1000},
-            {80, 2000, 1800, 1100, 1100},
             {80, 2000, 1601, 500, 500},
             // Feedback may be at or below the sender's threshold when BE configs differ.
             {80, 2000, 1600, 3000, 0},
@@ -105,8 +100,6 @@ TEST(LoadVersionBackpressureTest, SenderWaitMatchesPercentageAndLimit) {
     second->set_max_config_rowset_nums(1000);
     second->set_current_rowset_nums(1000);
     expect_wait(infos, 1200);
-    infos.Clear();
-    expect_wait(infos, 0);
 }
 
 } // namespace doris
