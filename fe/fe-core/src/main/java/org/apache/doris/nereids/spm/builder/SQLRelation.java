@@ -28,32 +28,20 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
- * Intermediate representation of the SPM physical-plan decompiler.
- *
- * A container for the SQL fragments assembled while SPMPlan2SQLBuilder walks a physical
- * plan tree. Each physical operator (Scan, Join, Aggregate, TopN, ...) produces a
- * SQLRelation that represents one complete SELECT block. A parent operator references a
- * child relation through toRelationSQL():
- *
- * - relationName == null (inline): return the from field directly (e.g. "t1")
- * - relationName != null (after newAlias): wrap as a (SELECT ...) t_N subquery
- * - assertRows (after setAssertRows): render as the ASSERT_ROWS (SELECT ...) t_N
- *   relation prefix (the frozen form of a scalar subquery's single-row assertion)
- *
- * This class models the relation rendering state of SPMPlan2SQLBuilder (design doc 6.2.1).
- * Key fields: columnNames (ExprId -> SQL reference name), from / where / groupBy / having /
- * orderBy / limit / groupings, selects (the SELECT list), and relationName (subquery alias).
+ * Mutable SQL fragments and ExprId reference mappings for one decompiled relation. toSQL assembles a SELECT block.
+ * toRelationSQL returns an inline FROM fragment when possible, otherwise wraps the block with an alias; it also
+ * preserves ASSERT_ROWS boundaries and already-aliased set-operation inputs.
  */
 public class SQLRelation {
 
     /**
-     * Per-decompile table-alias sequence (t_0, t_1, ...). A relation only needs its
+     * Per-decompile table-alias sequence (t_0, t_1,...). A relation only needs its
      * alias to be unique WITHIN the one SQL it belongs to, so the sequence is reset at
-     * the start of each decompile (SPMPlan2SQLBuilder#toSQL) instead of growing forever
+     * the start of each decompile (SPMPlan2SQLBuilder.toSQL) instead of growing forever
      * process-wide - aliases stay small and the decompiled SQL is reproducible.
      * ThreadLocal keeps concurrent decompiles on different FE worker threads isolated.
      * A standalone SQLRelation (expression printing / tests, which never call
-     * newAlias()) lazily gets its own per-thread sequence.
+     * newAlias) lazily gets its own per-thread sequence.
      */
     private static final ThreadLocal<AtomicInteger> TABLE_ALIAS =
             ThreadLocal.withInitial(AtomicInteger::new);
@@ -64,10 +52,10 @@ public class SQLRelation {
     /** WITH clause fragments (CTE decompile output); null means no CTE. */
     private List<String> cte = null;
 
-    /** SELECT list: (column ExprId, SQL text of that column). An empty list makes toSQL() output "*". */
+    /** SELECT list: (column ExprId, SQL text of that column). An empty list makes toSQL output "*". */
     private List<Pair<ExprId, String>> selects = List.of();
 
-    /** Hints such as SET_VAR (reserved; Phase 1 only keeps the field). */
+    /** Optional SELECT hint text emitted verbatim by toSQL. */
     private String hints = "";
 
     /** FROM clause text. */
@@ -106,8 +94,8 @@ public class SQLRelation {
      * table like "(a UNION ALL b) t_3"). A set-operation relation is such a derived
      * table: its FROM fragment is the parenthesized set expression itself, so the alias
      * must sit INSIDE the FROM text (a derived table without an alias is a parse error)
-     * and toRelationSQL() must return that fragment as-is instead of wrapping
-     * the whole query block again. newAlias() still records the alias for column
+     * and toRelationSQL must return that fragment as-is instead of wrapping
+     * the whole query block again. newAlias still records the alias for column
      * qualification.
      */
     private boolean fromCarriesAlias = false;
@@ -122,14 +110,14 @@ public class SQLRelation {
      */
     private String relationIdentity = null;
 
-    /** All column names of the table (to avoid JOIN column-name conflicts; reserved in Phase 1). */
+    /** Optional reserved column-name metadata exposed through accessors; not consumed by this renderer. */
     private List<String> reserveNames = null;
 
     /**
      * Marks which catalog relation (table) this relation reads (see
      * isSameRelation).
      *
-     * @param relationIdentity the rendered qualified table name of the scan
+     * Parameter relationIdentity: the rendered qualified table name of the scan
      */
     public void setRelationIdentity(String relationIdentity) {
         this.relationIdentity = relationIdentity;
@@ -139,8 +127,8 @@ public class SQLRelation {
      * Whether this relation and the other read the SAME catalog relation (two
      * occurrences of one table under different scan modifiers).
      *
-     * @param other the other relation of a join
-     * @return whether both sides scan the same table
+     * Parameter other: the other relation of a join
+     * Returns: whether both sides scan the same table
      */
     public boolean isSameRelation(SQLRelation other) {
         return relationIdentity != null && relationIdentity.equals(other.relationIdentity);
@@ -150,9 +138,9 @@ public class SQLRelation {
      * Registers an explicit reference name (e.g. a local aggregate registers
      * "sum(c_2)" under the id of column 10).
      *
-     * @param exprId column id
-     * @param alias  SQL reference name
-     * @return the registered alias
+     * Parameter exprId: column id
+     * Parameter alias: SQL reference name
+     * Returns: the registered alias
      */
     public String registerRef(ExprId exprId, String alias) {
         columnNames.put(exprId, alias);
@@ -162,8 +150,8 @@ public class SQLRelation {
     /**
      * Registers a normalized reference name (default c_ExprId).
      *
-     * @param exprId column id
-     * @return the generated c_N alias
+     * Parameter exprId: column id
+     * Returns: the generated c_N alias
      */
     public String registerRef(ExprId exprId) {
         String ref = "c_" + exprId;
@@ -174,7 +162,7 @@ public class SQLRelation {
     /**
      * Allocates a new alias and marks this relation as needing subquery wrapping.
      *
-     * @return the new alias t_N
+     * Returns: the new alias t_N
      */
     public String newAlias() {
         relationName = "t_" + TABLE_ALIAS.get().getAndIncrement();
@@ -186,7 +174,7 @@ public class SQLRelation {
      * expression by a parent operator. When relationName == null (a plain inline
      * table name), the from field itself (e.g. "t1") is the alias.
      *
-     * @return the relation alias
+     * Returns: the relation alias
      */
     public String getRelationAlias() {
         return relationName == null ? from : relationName;
@@ -199,10 +187,10 @@ public class SQLRelation {
      * modifiers ("internal.db.t PARTITION(p1)", "... TABLESAMPLE(...)", a lateral-view
      * chain), a table-valued function call, an already wrapped subquery or a whole join -
      * would produce invalid references such as "internal.db.t PARTITION(p1).id". Those
-     * are wrapped as a derived table ("(SELECT * FROM ...) t_N") and qualified with the
-     * generated alias, which is what toRelationSQL() emits for the parent's FROM.
+     * are wrapped as a derived table ("(SELECT * FROM...) t_N") and qualified with the
+     * generated alias, which is what toRelationSQL emits for the parent's FROM.
      *
-     * @return the qualifier to prefix this relation's columns with
+     * Returns: the qualifier to prefix this relation's columns with
      */
     public String ensureQualifierAlias() {
         if (relationName != null) {
@@ -222,7 +210,7 @@ public class SQLRelation {
 
     /**
      * Marks the FROM fragment as an ALREADY-ALIASED derived table: the alias allocated by
-     * newAlias() lives inside the FROM text (see fromCarriesAlias).
+     * newAlias lives inside the FROM text (see fromCarriesAlias).
      */
     public void markFromCarriesAlias() {
         fromCarriesAlias = true;
@@ -234,22 +222,16 @@ public class SQLRelation {
     }
 
     /**
-     * Returns the SQL fragment that a parent operator can reference; this is where
-     * subquery nesting is generated. Three branches (design doc 6.2.1):
-     *
-     * - assertRows: the ASSERT_ROWS (SELECT ...) t_N relation prefix
-     * - relationName == null: inline, return from directly (e.g. "t1")
-     * - otherwise: wrap as the (SELECT ...) t_N subquery - UNLESS the FROM fragment is
-     *   already an aliased derived table (a set-operation expression), which is its own
-     *   relation fragment and must not be nested one more level
-     *
-     * @return the fragment that can be embedded into a parent FROM clause
+     * Returns a fragment suitable for a parent FROM clause. Preserves ASSERT_ROWS, wraps FROM-less or
+     * clause-bearing inputs, and keeps an already-aliased set input inline when it has no additional block.
+     * Rendering can allocate or replace the relation alias, so callers must build qualified references using the
+     * resulting alias.
      */
     public String toRelationSQL() {
         if (assertRows) {
             // The single-row assertion of a scalar subquery renders as the ASSERT_ROWS
             // relation prefix; the parser rebuilds the LogicalAssertNumRows on replay
-            // (LogicalPlanBuilder#visitAliasedQuery). The alias has been allocated by
+            // (LogicalPlanBuilder.visitAliasedQuery). The alias has been allocated by
             // visitPhysicalAssertNumRows, so relationName is set here.
             return "ASSERT_ROWS (" + toSQL() + ") " + relationName;
         }
@@ -291,7 +273,7 @@ public class SQLRelation {
      * Outputs the complete SELECT statement (WITH, SELECT, FROM, WHERE, GROUP BY,
      * HAVING, ORDER BY, LIMIT).
      *
-     * @return the complete SELECT SQL
+     * Returns: the complete SELECT SQL
      */
     public String toSQL() {
         StringBuilder sql = new StringBuilder();
@@ -335,9 +317,9 @@ public class SQLRelation {
      * LATERAL VIEW) is attached: keeping its clauses on the outer relation would move
      * them AFTER the new clause and change the result (LIMIT 10 would then limit the
      * exploded rows instead of the lateral-view input, a GROUP BY would regroup the
-     * generator output, ...).
+     * generator output,...).
      *
-     * @return true when a subquery wrapper is required to stay semantically identical
+     * Returns: true when a subquery wrapper is required to stay semantically identical
      */
     public boolean hasOwnBlock() {
         return !selects.isEmpty()
@@ -350,7 +332,7 @@ public class SQLRelation {
                 || (cte != null && !cte.isEmpty());
     }
 
-    // ==================== getters / setters (used by SPMPlan2SQLBuilder) ====================
+    // getters / setters (used by SPMPlan2SQLBuilder).
 
     public Map<ExprId, String> getColumnNames() {
         return columnNames;
@@ -449,7 +431,7 @@ public class SQLRelation {
         return assertRows;
     }
 
-    /** Marks this relation as the ASSERT_ROWS (SELECT ...) t_N form. */
+    /** Marks this relation as the ASSERT_ROWS (SELECT...) t_N form. */
     public void setAssertRows(boolean assertRows) {
         this.assertRows = assertRows;
     }
@@ -462,16 +444,20 @@ public class SQLRelation {
         this.reserveNames = reserveNames;
     }
 
-    // ==================== table alias counter ====================
+    // table alias counter.
 
-    /** Allocates a fresh relation alias (t_N) without marking any relation as needing
-     * subquery wrapping. Used for CTE definition names in the emitted WITH clause. */
+    /**
+     * Allocates a fresh relation alias (t_N) without marking any relation as needing
+     * subquery wrapping. Used for CTE definition names in the emitted WITH clause.
+     */
     public static String newTableAlias() {
         return "t_" + TABLE_ALIAS.get().getAndIncrement();
     }
 
-    /** Resets the per-decompile alias sequence (called at the start of each decompile
-     * and by tests that assert on t_N values). */
+    /**
+     * Resets the per-decompile alias sequence (called at the start of each decompile
+     * and by tests that assert on t_N values).
+     */
     public static void resetAliasCounter() {
         TABLE_ALIAS.get().set(0);
     }

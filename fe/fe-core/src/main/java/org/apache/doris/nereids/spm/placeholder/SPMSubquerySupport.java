@@ -34,26 +34,8 @@ import java.util.List;
 import java.util.function.Function;
 
 /**
- * SPMSubquerySupport - helpers to collect and rebuild the filter predicates of a
- * subquery plan tree.
- *
- * Subquery literals (e.g. the 300 in ... HAVING sum(l_quantity) > 300, or the
- * 'EUROPE' inside a scalar subquery) must go through the same placeholder lifecycle as
- * top-level literals: parameterize (SPMPlaceholderBuilder), match/extract
- * (SPMAstCheckVisitor) and substitute (SPMPlaceholderReplacer). Since those literals
- * live inside LOGICAL PLAN nodes (LogicalFilter / LogicalHaving) of the subquery plan
- * (not in the expression children of the SubqueryExpr), the three visitors delegate the
- * plan traversal here:
- *
- * - transformFilters(LogicalPlan, Function) rebuilds every filter/having
- *   predicate of the plan via an expression transform (used for parameterization and
- *   substitution).
- * - collectFilterPredicates(LogicalPlan) returns all filter/having predicates
- *   in DFS order (used for the pairwise bind-vs-user comparison during matching).
- *
- * Nested subqueries inside a predicate are handled by the expression visitors
- * themselves (their visitSubqueryExpr recurses into the nested plan), so this helper
- * only needs to walk the plain plan nodes.
+ * Helpers for rebuilding supported subquery expressions and visiting filter predicates through ordinary plan
+ * children. Whole-tree placeholder traversal is implemented by SPMPlanTreeSupport.
  */
 public final class SPMSubquerySupport {
 
@@ -61,12 +43,9 @@ public final class SPMSubquerySupport {
     }
 
     /**
-     * Rebuilds the plan tree applying an expression transform to every filter/having
-     * predicate. Plan nodes that cannot be rebuilt (no withChildren) are kept as-is.
-     *
-     * @param plan      the subquery plan (or any logical plan)
-     * @param transform the predicate transform (e.g. parameterize / substitute)
-     * @return the rebuilt plan (the original instance when nothing changed)
+     * Transforms LogicalFilter and LogicalHaving predicates after visiting ordinary child plans. A child-rebuild
+     * failure retains the original node; expression-owned subqueries and CTE alias payloads are not traversed by
+     * this helper.
      */
     public static LogicalPlan transformFilters(LogicalPlan plan,
             Function<Expression, Expression> transform) {
@@ -75,12 +54,8 @@ public final class SPMSubquerySupport {
     }
 
     /**
-     * Rebuilds a SubqueryExpr with a new (parameterized / substituted) query plan,
-     * preserving correlateSlots, typeCoercionExpr and the NOT flag.
-     *
-     * @param subquery the original subquery expression
-     * @param newPlan  the rebuilt query plan
-     * @return the rebuilt subquery expression
+     * Rebuilds IN, scalar and EXISTS subqueries with the supplied plan while preserving their expression metadata.
+     * Other subquery expression types are returned unchanged.
      */
     public static Expression rebuildSubquery(SubqueryExpr subquery, LogicalPlan newPlan) {
         if (subquery instanceof InSubquery) {
@@ -100,12 +75,9 @@ public final class SPMSubquerySupport {
     }
 
     /**
-     * Collects the filter/having predicates of the plan tree in DFS order (children of
-     * every node are visited first, then the node itself is emitted if it is a
-     * LogicalFilter or LogicalHaving).
-     *
-     * @param plan the subquery plan
-     * @return the predicate expressions in DFS order
+     * Collects LogicalFilter and LogicalHaving predicates through ordinary plan children in postorder. Nested
+     * filters and having nodes are all visited; expression-owned subquery plans are handled separately by the
+     * expression renderer.
      */
     public static List<Expression> collectFilterPredicates(LogicalPlan plan) {
         List<Expression> predicates = new ArrayList<>();
@@ -180,12 +152,14 @@ public final class SPMSubquerySupport {
 
         @Override
         public Void visitLogicalFilter(LogicalFilter<?> filter, Void context) {
+            filter.child().accept(this, context);
             predicates.add(filter.getPredicate());
             return null;
         }
 
         @Override
         public Void visitLogicalHaving(LogicalHaving<?> having, Void context) {
+            having.child().accept(this, context);
             predicates.add(having.getPredicate());
             return null;
         }

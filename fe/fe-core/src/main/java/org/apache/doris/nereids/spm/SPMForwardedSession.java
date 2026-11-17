@@ -34,52 +34,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Carries the enabled SESSION-scope baselines of a forwarding connection to the master FE.
- *
- * A SESSION baseline is created on the FE the connection is attached to
- * (CREATE SESSION BASELINE PLAN never forwards) and lives only in that
- * SessionBaselineStore. A SELECT that must be FORWARDED (the observer cannot read,
- * or forwarding is forced) returns before local SPM matching, and the master executes it in
- * a fresh ConnectContext with an EMPTY session store - so the very baseline the
- * connection created was never used. The observer therefore attaches the rows the
- * statement could MATCH (see serializeForStatement; the full store travels for
- * statements that address rows by id, like the baseline management commands) to the
- * forwarded request (see FEOpExecutor#fillForwardRequest) and the master rebuilds them
- * into its context's store before the statement is planned
- * (ConnectProcessor#proxyExecute).
- *
- * The payload always comes from the store right before forwarding (the variable is
- * overwritten there), so a client cannot inject rows with a plain SET, and the
- * ADMIN-authorized CREATE remains the only way a row is created.
+ * Serializes enabled SESSION baselines for a forwarded statement and rebuilds them in the receiving context. Query
+ * statements carry candidates selected by hash and digest; other statements carry all enabled rows. Imported rows
+ * are request-context state, not GLOBAL baselines.
  */
 public final class SPMForwardedSession {
 
     /**
-     * The forward payload's CHARACTER budget (the JSON text carried in the session variable
-     * of the forwarded statement). The payload is part of a Thrift
-     * TMasterOpRequest whose default message limit is 100 MiB - an unbounded
-     * serialization of a session holding enough ADMIN-created baselines (each with BOTH SQL
-     * texts) made EVERY forwarded statement on that connection fail with a transport error.
-     *
-     * The budget is enforced where the rows are CREATED
-     * (SessionBaselineStore#createBaseline rejects a row that would exceed it), not
-     * while serializing: a row that was silently DROPPED here still participates in local
-     * matching, so the same connection rewrote the statement locally with its SESSION
-     * baseline yet planned the FORWARDED statement without it (falling through to a GLOBAL
-     * baseline or to none) - the rewrite context silently changed with the forwarding
-     * decision. 8 MiB is generous for any realistic session (thousands of multi-KB
-     * baselines) yet far below the transport limit even after JSON escaping doubles the
-     * text.
+     * Character budget for the serialized baseline payload. SessionBaselineStore applies the same accounting when
+     * admitting rows, including disabled rows that may later be enabled. This character limit is not a byte count
+     * for the enclosing transport request.
      */
     public static final int MAX_PAYLOAD_CHARS = 8 * 1024 * 1024;
 
-    /**
-     * Characters the JSON ARRAY enclosure ([]) adds to the payload.
-     * The session store's admission check AND serialize must account for it with
-     * the SAME number: a store that admitted rows summing exactly to the row budget used
-     * to serialize two characters MORE than the budget and every rewrite-enabled
-     * statement forwarded from that connection failed in serialize.
-     */
+    /** Characters used by the JSON array enclosure, included in both admission and serialization accounting. */
     public static final int PAYLOAD_ENCLOSURE_CHARS = 2;
 
     private static final Logger LOG = LogManager.getLogger(SPMForwardedSession.class);
@@ -88,12 +56,8 @@ public final class SPMForwardedSession {
     }
 
     /**
-     * The exact number of payload characters ONE row contributes (see serialize):
-     * the JSON of toPayloadRow plus the array separator. Used by the session
-     * store to bound what it accepts, so serialization can always carry every row.
-     *
-     * @param plan the baseline
-     * @return the row's payload size in characters
+     * Conservative payload charge for one row: its JSON length plus one separator character. An array with rows
+     * needs one fewer separator than the sum of these charges.
      */
     public static int payloadRowChars(BaselinePlan plan) {
         return new Gson().toJson(toPayloadRow(plan)).length() + 1;
@@ -107,9 +71,9 @@ public final class SPMForwardedSession {
      * store invariant broke (a row was registered without the check): fail the statement
      * loudly instead of silently planning it without a baseline the session owns.
      *
-     * @param store the connection's session store (may be null)
-     * @return the JSON payload, or "" when there is nothing to carry
-     * @throws IllegalStateException when the enabled rows exceed the payload budget
+     * Parameter store: the connection's session store (may be null)
+     * Returns: the JSON payload, or "" when there is nothing to carry
+     * Throws IllegalStateException: when the enabled rows exceed the payload budget
      */
     public static String serialize(SessionBaselineStore store) {
         if (store == null || store.isEmpty()) {
@@ -119,25 +83,9 @@ public final class SPMForwardedSession {
     }
 
     /**
-     * Serializes the session baselines the forwarded statement could actually USE: the
-     * ENABLED rows whose (structural hash, canonical digest) equal the statement's own
-     * match key - the very contract SPMPlanner#tryRewritePlan looks candidates up with
-     * (see SPMPlanner#queryMatchKey). The master imports the payload BEFORE classifying
-     * the statement (ConnectProcessor#proxyExecute) and REBUILDS every carried row (both
-     * SQL texts of each are re-parsed): forwarding the whole store made a connection
-     * with a large store pay that reconstruction on every forwarded statement -
-     * including statements that can never consult a baseline - while
-     * spm_rewrite_timeout_ms only bounds the planner side of the work.
-     *
-     * Statements that are NOT plan-rewritable queries (commands / DDL, statement
-     * batches, unparsable text) keep the FULL payload: the baseline management commands
-     * executed on the master ADDRESS ROWS BY ID against this context's store, so they
-     * must see every row of the connection.
-     *
-     * @param store the connection's session store (may be null)
-     * @param ctx   the forwarding statement's context (may be null in tests)
-     * @param sql   the forwarded statement text
-     * @return the payload for the statement (see serialize)
+     * Serializes enabled rows with the statement match key when queryMatchKey can compute one. If no key is
+     * available, serializes all enabled rows. Disabled rows are always omitted, including for management
+     * statements.
      */
     public static String serializeForStatement(SessionBaselineStore store, ConnectContext ctx,
             String sql) {
@@ -208,18 +156,10 @@ public final class SPMForwardedSession {
     }
 
     /**
-     * Rebuilds the carried rows into the given context's session store (the transient
-     * parameterized trees are re-parsed exactly like the on-disk reload does). The payload
-     * is the forwarding connection's store restricted to what the statement can use - or
-     * the full store for a statement that addresses rows by id (see
-     * serializeForStatement) - so the import REPLACES this context's content: a row the
-     * payload deliberately left out must not survive on the master either.
-     *
-     * Malformed payloads / unparsable rows are skipped with a warning - SPM must never
-     * break the statement it is attached to.
-     *
-     * @param ctx     the master-side context of the forwarded statement
-     * @param payload the payload of the SPM_FORWARDED_SESSION_BASELINES session variable
+     * Clears the receiving context store and imports replayable rows when rewriting is enabled. A null context,
+     * null payload or missing store leaves state unchanged. Empty payloads and disabled rewriting leave the store
+     * empty. Rows with missing SQL or unusable reconstructed trees are skipped. A runtime failure while decoding
+     * or importing logs a warning and stops the remaining import; rows already imported remain.
      */
     public static void importInto(ConnectContext ctx, String payload) {
         if (ctx == null || payload == null) {

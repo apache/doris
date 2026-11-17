@@ -31,37 +31,29 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * SpmConstList - SPM IN-list placeholder function expression.
- *
- * The list placeholder function is rendered as _spm_const_list(id, v1, v2, ...). During
- * parameterization,
- * SPMPlaceholderBuilder replaces the list part of "IN (constant list)" with a
- * SpmConstList. During query rewrite the actual value set is extracted from the user's IN
- * list by id and substituted back into planSql.
- *
- * This class is an internal AST node: the value list is kept as children to preserve the
- * original values used when the baseline was created (only for readability, not part of
- * the semantics).
+ * Marker for the options of an IN predicate. The id selects a matched user IN predicate whose options replace this
+ * marker during replay. Captured children preserve payload values and type information. AST rendering includes
+ * those children; frozen SQL rendering emits only the id.
  */
 public class SpmConstList extends Expression implements AlwaysNullable {
 
     // Conservatively NULLABLE (like SpmConstVar): the value list is substituted at
     // rewrite time and may contain NULL whatever the captured list was, so a NOT NULL
     // comparand's IN predicate stays nullable. Implementing AlwaysNotNullable made
-    // InPredicate.nullable() false, so the enabled NullableDependentExpressionRewrite
+    // InPredicate.nullable false, so the enabled NullableDependentExpressionRewrite
     // folded a surrounding COALESCE(k IN (1, NULL), false) into k IN (1, NULL) while
     // the frozen plan was decompiled - after list substitution even the identical
     // query returned NULL instead of false (integer widening casts preserve the false
     // non-nullability, so the marker itself must be nullable).
 
-    /** Auto-increment placeholder id. */
+    /** Marker id, normally allocated by SPMPlaceholderBuilder. */
     private final long id;
 
     /**
      * Constructs a SpmConstList.
      *
-     * @param id     placeholder id
-     * @param values the original value list (kept as children)
+     * Parameter id: placeholder id
+     * Parameter values: the original value list (kept as children)
      */
     public SpmConstList(long id, List<Expression> values) {
         super(ImmutableList.copyOf(values));
@@ -79,16 +71,15 @@ public class SpmConstList extends Expression implements AlwaysNullable {
         return id;
     }
 
-    /** Returns the original value list (all children). */
+    /** Returns the current payload expressions, stored as the marker children. */
     public List<Expression> getValues() {
         return children();
     }
 
     /**
-     * Rebuilds the placeholder with new children (see
-     * SpmConstVar#withChildren for why the base implementation cannot be
-     * used). An unchanged value list returns the same node; otherwise the
-     * placeholder id is kept and only the readability payload is updated.
+     * Returns this node when the replacement payload list equals the current children; otherwise rebuilds the
+     * marker with the same id and new payload expressions. The first payload child supplies capture-time type
+     * information.
      */
     @Override
     public Expression withChildren(List<Expression> children) {
@@ -98,33 +89,19 @@ public class SpmConstList extends Expression implements AlwaysNullable {
         return new SpmConstList(id, children);
     }
 
-    /**
-     * A list placeholder carries its original value literals as children; expose the
-     * type of the first value so plan-node construction / type derivation (which may run
-     * while the placeholder is still in the tree) never hits the unbound default.
-     */
+    /** Uses the first payload expression type, or NullType for an empty payload. */
     @Override
     public DataType getDataType() {
         return children().isEmpty() ? NullType.INSTANCE : child(0).getDataType();
     }
 
-    /**
-     * A placeholder must never be treated as a foldable expression: while it keeps its
-     * original value list as children, the placeholder is a marker whose values are
-     * replaced by the user query at rewrite time. Folding it during the baseline CREATE
-     * optimization would bake the captured constants into the frozen plan and break the
-     * later value substitution.
-     */
+    /** Prevents constant folding from erasing the list marker before replay substitution. */
     @Override
     public boolean foldable() {
         return false;
     }
 
-    /**
-     * A placeholder must never be treated as a constant even though its children are
-     * literals: constant-collecting / constant-moving rules would fold / move / evaluate
-     * it and lose the placeholder marker before the physical plan is decompiled.
-     */
+    /** Keeps the list marker out of constant-expression rewrites. */
     @Override
     public boolean isConstant() {
         return false;

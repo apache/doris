@@ -44,22 +44,10 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * SPMAstCheckVisitor - AST structure matcher (M2).
- *
- * Corresponds to design doc section 6.4. Recursively compares the bindSql expression tree
- * with the user query expression tree, verifying structural consistency level by level,
- * and extracts the actual parameter values for the placeholders during the comparison.
- *
- * Placeholder handling rules:
- *
- * - bind side is a SpmConstVar -> extract the id and record the actual value from the
- *   corresponding position on the user side; the same id appearing more than once must
- *   resolve to the same value.
- * - bind side is InPredicate(expr, [SpmConstList]) -> the whole user IN list becomes the
- *   actual value of that id.
- *
- * Column references are compared by name (design doc 6.4: "SlotRef 比列名"), so
- * "a = 100" never matches "b = 42" even though both are structurally identical.
+ * Compares bind and user expressions and records user expressions under scalar or IN-list marker ids. Concrete
+ * expression classes and operator metadata are checked before recursively comparing children. SlotReference uses
+ * its name; UnboundSlot uses its digest, which preserves qualification. Unordered predicate matching restores
+ * captured values after a failed tentative pairing.
  */
 public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVisitor.CheckContext> {
 
@@ -82,10 +70,10 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
     /**
      * Match entry point.
      *
-     * @param bindExpr          the bindSql-side expression
-     * @param userExpr          the user-query-side expression
-     * @param placeholderValues the placeholder value extraction result (filled in here)
-     * @return whether the structures match
+     * Parameter bindExpr: the bindSql-side expression
+     * Parameter userExpr: the user-query-side expression
+     * Parameter placeholderValues: the placeholder value extraction result (filled in here)
+     * Returns: whether the structures match
      */
     public boolean checkExpression(Expression bindExpr, Expression userExpr,
             Map<Long, Expression> placeholderValues) {
@@ -96,7 +84,7 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
     public Boolean visit(Expression bindExpr, CheckContext context) {
         Expression userExpr = context.userExpr;
 
-        // ===== placeholder: extract the value (do not compare inner children) =====
+        // placeholder: extract the value (do not compare inner children).
         if (bindExpr instanceof SpmConstVar) {
             SpmConstVar placeholder = (SpmConstVar) bindExpr;
             return recordPlaceholderValue(placeholder.getId(), userExpr, context);
@@ -107,7 +95,7 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
             return false;
         }
 
-        // Identity fields that live OUTSIDE children() must be compared explicitly:
+        // Identity fields that live OUTSIDE children must be compared explicitly:
         // UnboundStar: the REPLACE payload (a leaf with no children - a baseline
         //   captured with "* REPLACE(k + 1 AS k)" must not replay its captured
         //   expression for a query using "* REPLACE(k + 2 AS k)")
@@ -118,8 +106,8 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
         //   WindowFrame is not an expression child, so neither the placeholder
         //   construction nor the generic child comparison sees its bound offsets)
         if (bindExpr instanceof UnboundStar) {
-            // The REPLACE / EXCEPT payloads are kept OUTSIDE children(). Compare them
-            // STRUCTURALLY rather than by toSql() text: the payload may own a SUBQUERY
+            // The REPLACE / EXCEPT payloads are kept OUTSIDE children. Compare them
+            // STRUCTURALLY rather than by toSql text: the payload may own a SUBQUERY
             // whose relations are namespace-qualified on the user side while the stored
             // bind tree stays the raw parse (relation NAMES are deliberately not part of
             // Level 3 - the digest pre-filter owns the namespace), so text equality
@@ -164,8 +152,8 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
                 return false;
             }
         }
-        // Match: the analyzer (the tokenizer named in "USING ANALYZER ...") decides how the
-        // pattern is read and is stored outside children(); BinaryOperator.toDigest()
+        // Match: the analyzer (the tokenizer named in "USING ANALYZER...") decides how the
+        // pattern is read and is stored outside children; BinaryOperator.toDigest
         // omits it as well. Two MATCH variants with different analyzers must not match:
         // the replay keeps the baseline analyzer and can return different matches.
         if (bindExpr instanceof Match
@@ -217,12 +205,9 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
             return Objects.equals(slotName(bindExpr), slotName(userExpr));
         }
 
-        // A literal on the bind side that is NOT a placeholder (e.g. it lives inside a
-        // plan-node slot not reached by parameterization, such as a sort key that was not
-        // parameterized) must equal the user literal: structure equality alone would
-        // otherwise let "ORDER BY substr(x, 1, 20)" match "ORDER BY substr(x, 1, 21)"
-        // and the rewritten tree would keep the bind-side literal while group-by /
-        // project got the user's value.
+        // An unparameterized bind literal, such as a LIKE escape character or a star replacement value, must
+        // equal the user literal. Otherwise replay would retain a captured value from a position the builder
+        // intentionally leaves concrete.
         if (bindExpr instanceof Literal && userExpr instanceof Literal) {
             return Objects.equals(((Literal) bindExpr).getValue(), ((Literal) userExpr).getValue());
         }
@@ -243,23 +228,24 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
     }
 
     /**
-     * Returns the column name of a slot (SlotReference or UnboundSlot).
+     * Returns a bound slot name or an unbound slot digest. The digest preserves the distinction between one quoted
+     * dotted component and separate qualifier and column components.
      */
     private static String slotName(Expression expr) {
         if (expr instanceof SlotReference) {
             return ((SlotReference) expr).getName();
         }
         if (expr instanceof UnboundSlot) {
-            // Boundary-preserving rendering (see UnboundSlot#toDigest): joining the raw
-            // name parts with dots made `a.b` (ONE dotted component) equal to a.b
-            // (qualifier a + column b), so a replay could return the captured `a.b`
+            // Boundary-preserving rendering (see UnboundSlot.toDigest): joining the raw
+            // name parts with dots made a.b (ONE dotted component) equal to a.b
+            // (qualifier a + column b), so a replay could return the captured a.b
             // value for a query that selected column b.
             return expr.toDigest();
         }
         return expr.toSql();
     }
 
-    // ==================== IN predicate special handling ====================
+    // IN predicate special handling.
 
     @Override
     public Boolean visitInPredicate(InPredicate bindIn, CheckContext context) {
@@ -298,10 +284,10 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
      * Records a placeholder value: records on first occurrence and validates
      * consistency on later occurrences.
      *
-     * @param id       the placeholder id
-     * @param userExpr the actual user-side value
-     * @param context  the match context
-     * @return whether it passes
+     * Parameter id: the placeholder id
+     * Parameter userExpr: the actual user-side value
+     * Parameter context: the match context
+     * Returns: whether it passes
      */
     private boolean recordPlaceholderValue(long id, Expression userExpr, CheckContext context) {
         if (!context.placeholderValues.containsKey(id)) {
@@ -311,16 +297,11 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
         return Objects.equals(context.placeholderValues.get(id), userExpr);
     }
 
-    // ==================== subquery matching ====================
+    // subquery matching.
 
     /**
-     * Subquery comparison: the query plan of the bind side is compared against the
-     * user side structurally (its filter/having predicates compared pairwise, which
-     * also extracts the values of any placeholders inside the subquery), and the
-     * compare expression / NOT flag of InSubquery / Exists are checked as well.
-     *     * Compares one star-payload list (EXCEPT / REPLACE items) pairwise, structurally.
-     * Relation names inside a payload subquery plan are left to the digest pre-filter
-     * (see the UnboundStar branch); literals are compared exactly.
+     * Compares payload expressions positionally using the plan-tree payload matcher, which also checks alias
+     * metadata.
      */
     private boolean samePayloadExpressions(List<? extends Expression> bind,
             List<? extends Expression> user, CheckContext context) {
@@ -340,9 +321,10 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
         return true;
     }
 
-    /**     * The overall query structure (including the subquery) is already guaranteed by
-     * the Level 2 full-query digest match, so the per-predicate comparison is the
-     * value extraction pass for the constants inside the subquery.
+    /**
+     * Checks subquery kind, IN or EXISTS negation, the IN compare expression and the nested plan structure. Marker
+     * values are collected through the same context. Nested LIMIT and OFFSET values remain exact structural
+     * constraints.
      */
     @Override
     public Boolean visitSubqueryExpr(SubqueryExpr bindSubquery, CheckContext context) {
@@ -377,7 +359,7 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
 
         // compare the subquery's whole plan tree against the user side (every node's
         // expressions pairwise); this extracts the user values for placeholders anywhere
-        // inside the subquery (filters, having, projections, nested subqueries, ...),
+        // inside the subquery (filters, having, projections, nested subqueries,...),
         // while LIMIT / OFFSET of the subquery plan are compared exactly (they cannot be
         // merged from the user query afterwards)
         return SPMPlanTreeSupport.checkSubqueryPlan(bindSubquery.getQueryPlan(),

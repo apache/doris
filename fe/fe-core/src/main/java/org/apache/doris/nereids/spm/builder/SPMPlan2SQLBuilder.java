@@ -119,28 +119,14 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Physical-plan decompiler (M1).
+ * Decompiles supported physical plans into SQL that can be parsed and planned for baseline replay. SQL blocks and
+ * distribution hints retain selected plan structure; replay still runs ordinary analysis and optimization.
+ * Unsupported operators or expression forms raise UnsupportedOperationException so baseline creation can retain
+ * the original plan SQL.
  *
- * Decompiles the optimal physical plan tree output by the optimizer into one
- * semantically equivalent standard SQL (planSql). planSql freezes the optimizer's key
- * decisions (JOIN order, aggregate structure, sort semantics) through SQL structure and
- * HINTs, so the plan can be replayed during query rewrite. This is the core engine of
- * the SPM "plan-to-SQL" approach.
- *
- * Design (design doc 6.2):
- *
- * - Pass-through: physical infrastructure nodes such as PhysicalDistribute and
- *   PhysicalResultSink have no SQL equivalent and return the child result directly.
- * - Merge: a local aggregate (LOCAL) registers the aggregate function names onto the
- *   child relation without adding nesting.
- * - Wrap: Filter / Join / global aggregate / TopN / Project / Window create a new
- *   SQLRelation and set an alias; parent operators reference it as a subquery through
- *   toRelationSQL().
- *
- * Known M1 simplifications:
- *
- * - Scan uses the real column names (no c_N normalization; column-name collision
- *   scenarios are handled in a later milestone).
+ * The renderer tracks ExprId references, exported column names, CTE definitions and live output columns.
+ * Execution-only stages are folded where supported, while wrappers preserve semantic clause boundaries and
+ * assertions.
  */
 public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
@@ -165,14 +151,15 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /** Expression printer (carries the columnNames mapping of SQLRelation). */
     private final SPMExprSqlBuilder exprSqlBuilder = new SPMExprSqlBuilder();
 
-    /** Per-decompile alias sequence for LATERAL VIEW clauses whose output slot has no
-     * user qualifier (reset in toSQL). */
+    /**
+     * Per-decompile alias sequence for LATERAL VIEW clauses whose output slot has no
+     * user qualifier (reset in toSQL).
+     */
     private int lateralViewSeq = 0;
 
-    /** CTE body relations keyed by CTEId (registered by visitPhysicalCTEProducer). The
-     * consumer references the CTE by its alias instead of inlining the body, so the
-     * decompiled planSql keeps the WITH structure - one definition shared by every
-     * consumer - like StarRocks does. */
+    /**
+     * CTE body relations registered by the producer and referenced through generated WITH aliases by consumers.
+     */
     private final Map<CTEId, SQLRelation> cteBodies = new HashMap<>();
 
     /** CTEId -> the generated alias (t_N) that references the WITH definition. */
@@ -181,7 +168,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * The WITH entries (alias AS (body)) in producer visit order - the definition
      * order of the emitted WITH clause. They are attached to the ROOT relation in
-     * toSQL(): every consumer lies inside the statement, so the definitions are
+     * toSQL: every consumer lies inside the statement, so the definitions are
      * visible everywhere regardless of how deeply the CTE anchors are nested in the
      * physical tree (attaching at each anchor instead would place a definition inside
      * one join branch while a consumer sits in another branch). Producers are visited
@@ -191,17 +178,21 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      */
     private final List<String> cteDefinitions = new ArrayList<>();
 
-    /** Recursive CTE output column names keyed by CTE name. Registered from the anchor
+    /**
+     * Recursive CTE output column names keyed by CTE name. Registered from the anchor
      * branch of a PhysicalRecursiveUnion; used to name the recursive work-table self
      * reference and the outer reference so the decompiled WITH RECURSIVE stays
-     * re-parseable. */
+     * re-parseable.
+     */
     private final Map<String, List<String>> recursiveCteColumns = new HashMap<>();
 
-    /** Local (partial) aggregate output column -> the aggregate input expression it
+    /**
+     * Local (partial) aggregate output column -> the aggregate input expression it
      * aggregates, e.g. local partial_sum(x)#N registers N -> x. A global
      * aggregate references such a column as sum(partial_sum(x)#N); the global
      * decompile rewrites it back to sum(x) so the decompiled SQL stays a single
-     * logical aggregate (no partial_ intermediate functions). */
+     * logical aggregate (no partial_ intermediate functions).
+     */
     private final Map<ExprId, Expression> localAggParams = new HashMap<>();
 
     /**
@@ -222,16 +213,17 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Table id to (partition id to the name the CAPTURE resolved), snapshotted while the
-     * planning locks were held (see SPMOptimizer.OptimizeResult#getPartitionNames). Empty when
+     * planning locks were held (see SPMOptimizer.OptimizeResult.getPartitionNames). Empty when
      * the caller has none (a direct / test-side decompile).
      */
     private final Map<Long, Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin>>
             capturedPartitionNames;
 
-    /** The OUTERMOST projection of the decompiled tree (by identity). It alone prunes its
-     * output to the final user-visible columns; every intermediate projection outputs the
-     * full child column set plus its own expressions, so an upper layer (filter / join /
-     * aggregate / projection) can always resolve the columns it references. */
+    /**
+     * Outermost projection reached through unary nodes, stopping at an aggregate or branching node. It emits the
+     * final project list. Intermediate projections carry child references and their own expressions, filtered by
+     * live-column analysis when available.
+     */
     private final Set<Plan> outputProjects =
             Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
@@ -271,7 +263,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Per-decompile generated-column-name state: when a decompiled output column has no
-     * clean user alias it is exported under a generated c_N name (c_1, c_2, ...),
+     * clean user alias it is exported under a generated c_N name (c_1, c_2,...),
      * assigned in decompile order and memoized by the output ExprId so every reference
      * to the same column prints the same alias. A fresh per-decompile sequence (instead
      * of embedding the analyzer's ExprId) keeps the generated names small, readable and
@@ -304,9 +296,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Builds a renderer carrying the partition names the CAPTURE resolved while the planning locks
-     * were held (see SPMOptimizer.OptimizeResult#getPartitionNames).
+     * were held (see SPMOptimizer.OptimizeResult.getPartitionNames).
      *
-     * @param partitionNames table id to (partition id to the ADMITTED pin), or null
+     * Parameter partitionNames: table id to (partition id to the ADMITTED pin), or null
      */
     public SPMPlan2SQLBuilder(
             Map<Long, Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin>>
@@ -323,7 +315,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * AliasUdfBuilder), including creators whose variables already matched - the frozen
      * text would otherwise re-analyze the arithmetic under the CALLER's settings.
      *
-     * @param plan the physical plan about to be decompiled
+     * Parameter plan: the physical plan about to be decompiled
      */
     public static void rejectSessionVarGuardedExpressions(Plan plan) {
         org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
@@ -340,20 +332,20 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Rejects freezing when any expression of the plan still carries a SUBQUERY.
      *
-     * <p>This builder renders expressions with {@link SPMExprSqlBuilder}, which has no SQL
+     * This builder renders expressions with SPMExprSqlBuilder, which has no SQL
      * rendering for a subquery: it emits the structural PSEUDO text
-     * {@code INSUBQUERY(compareExpr)[...]} / {@code EXISTS[...]} / {@code SCALARSUBQUERY[...]}
-     * (see SPMExprSqlBuilder#visitSubqueryExpr) - the digest form, not a query. Stored as frozen
-     * SQL that text is not the user's {@code IN (SELECT ...)}: it is an ordinary, unreserved
+     * INSUBQUERY(compareExpr)[...] / EXISTS[...] / SCALARSUBQUERY[...]
+     * (see SPMExprSqlBuilder.visitSubqueryExpr) - the digest form, not a query. Stored as frozen
+     * SQL that text is not the user's IN (SELECT...): it is an ordinary, unreserved
      * function call, so a user alias UDF (or catalog function) of that name with compatible
      * arguments made capture-time validation SUCCEED, the baseline was stored with
-     * {@code planFrozen = true}, and every replay evaluated the user's UDF / array access instead
+     * planFrozen = true, and every replay evaluated the user's UDF / array access instead
      * of the original subquery - returning different rows than the query it claims to replay
-     * (round-89 review). Rejecting here keeps the baseline on the parameterized-plan-tree path,
+     * . Rejecting here keeps the baseline on the parameterized-plan-tree path,
      * which handles subqueries natively; the same refusal covers a plan whose subquery survives in
      * a projection (scalar subquery) or a filter (IN / EXISTS).
      *
-     * @param plan the physical plan about to be decompiled
+     * Parameter plan: the physical plan about to be decompiled
      */
     public static void rejectSubqueryExpressions(Plan plan) {
         org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
@@ -369,14 +361,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Rejects freezing when the plan references a USER function under one of SPM's INTERNAL
-     * pseudo names (see {@link SPMExprSqlBuilder#INTERNAL_PSEUDO_FUNCTION_NAMES}).
+     * pseudo names (see SPMExprSqlBuilder.INTERNAL_PSEUDO_FUNCTION_NAMES).
      *
-     * <p>Those names are reserved by SPM: they name the structural markers of the digest text, and
+     * Those names are reserved by SPM: they name the structural markers of the digest text, and
      * a frozen SQL must never be readable as - or shadowed by - a user function of the same name.
      * A user (or catalog) function that happens to carry one of them keeps the baseline on the
      * parameterized-plan-tree path instead of producing text that means two different things.
      *
-     * @param plan the physical plan about to be decompiled
+     * Parameter plan: the physical plan about to be decompiled
      */
     public static void rejectReservedInternalFunctionNames(Plan plan) {
         org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
@@ -439,7 +431,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Marks the OUTERMOST projection of the decompiled tree: the first PhysicalProject
      * reached from the root along single-child pass-through nodes (ResultSink / Sort /
-     * Distribute / ...). Walking stops at an aggregate - an aggregate that feeds the
+     * Distribute /...). Walking stops at an aggregate - an aggregate that feeds the
      * result carries the final SELECT list itself, so there is no outermost projection
      * and every projection below it is an intermediate one (full child output).
      */
@@ -457,11 +449,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
     }
 
-    // ==================== live-column analysis (dead-column pruning) ====================
+    // live-column analysis (dead-column pruning).
 
-    /** Whether this subtree may be pruned by the live-column analysis. Non-linear
-     * decompile shapes (CTE bodies, set operations, recursive unions, grouping sets)
-     * are left untouched: their select lists are kept whole. */
+    /**
+     * Whether live-column requirements can be propagated through this node. Supported linear, join, aggregate and
+     * CTE-anchor shapes propagate requirements; other nodes retain all descendant columns. CTE consumers record
+     * producer-column requirements separately.
+     */
     private static boolean isPrunableNode(Plan node) {
         return node instanceof PhysicalProject
                 || node instanceof PhysicalWindow
@@ -597,7 +591,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             }
             propagateNeed(sort.child(0), childNeed);
         } else {
-            // pure pass-through nodes (limit / distribute / lazy materialize / ...):
+            // pure pass-through nodes (limit / distribute / lazy materialize /...):
             // their output slots are the child slots, so the same need flows down
             for (Plan child : node.children()) {
                 propagateNeed(child, nodeNeed);
@@ -605,8 +599,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
     }
 
-    /** PhysicalProject: live pass-through columns plus the columns referenced by the
-     * project's own expressions whose output is itself live. */
+    /**
+     * PhysicalProject: live pass-through columns plus the columns referenced by the
+     * project's own expressions whose output is itself live.
+     */
     private void propagateProjectNeed(PhysicalProject<? extends Plan> project, Set<ExprId> need) {
         Plan child = project.child(0);
         if (child == null) {
@@ -638,9 +634,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         propagateNeed(child, childNeed);
     }
 
-    /** Join: the preserved output columns flow to the side that produces them; the
+    /**
+     * Join: the preserved output columns flow to the side that produces them; the
      * hash / other / mark conjuncts are always decompiled, so every column they
-     * reference stays alive on its own side. */
+     * reference stays alive on its own side.
+     */
     private void propagateJoinNeed(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
             Set<ExprId> need) {
         Plan left = join.left();
@@ -682,9 +680,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         propagateNeed(right, rightNeed);
     }
 
-    /** Aggregate: the global stage keeps its whole output list (GROUP BY keys and
+    /**
+     * Aggregate: the global stage keeps its whole output list (GROUP BY keys and
      * aggregate functions), but the input columns its expressions reference must stay
-     * alive below. Local / intermediate execution stages are pass-through nodes. */
+     * alive below. Local / intermediate execution stages are pass-through nodes.
+     */
     private void propagateAggregateNeed(PhysicalHashAggregate<? extends Plan> agg, Set<ExprId> need) {
         AggPhase phase = agg.getAggPhase();
         if (phase.isLocal() || isIntermediateAggStage(agg)) {
@@ -707,8 +707,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         propagateNeed(child, childNeed);
     }
 
-    /** Window: live pass-through columns plus the input columns of the live window
-     * expressions. */
+    /**
+     * Window: live pass-through columns plus the input columns of the live window
+     * expressions.
+     */
     private void propagateWindowNeed(PhysicalWindow<? extends Plan> window, Set<ExprId> need) {
         Plan child = window.child(0);
         if (child == null) {
@@ -729,10 +731,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         propagateNeed(child, childNeed);
     }
 
-    /** The columns referenced by one global-aggregate output expression, with every
+    /**
+     * The columns referenced by one global-aggregate output expression, with every
      * local partial-buffer reference resolved down to its data columns (mirrors
      * appendAggSelect / resolveBufferSlots so the pruned SELECT lists keep exactly the
-     * columns the decompiled aggregate prints). */
+     * columns the decompiled aggregate prints).
+     */
     private void addAggregateOutputRefs(NamedExpression output, Set<ExprId> out) {
         Expression inner = output instanceof Alias ? ((Alias) output).child() : output;
         if (inner instanceof SlotReference) {
@@ -752,8 +756,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         addExprSlots(inner, out);
     }
 
-    /** Collects every slot of expr, resolving partial-buffer slots through
-     * localAggParams down to their data columns (mirrors resolveBufferSlots). */
+    /**
+     * Collects every slot of expr, resolving partial-buffer slots through
+     * localAggParams down to their data columns (mirrors resolveBufferSlots).
+     */
     private void addResolvedExprSlots(Expression expr, Set<ExprId> out) {
         if (expr instanceof SlotReference) {
             Expression param = localAggParams.get(((SlotReference) expr).getExprId());
@@ -786,9 +792,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         collectAllSlotIds(expr, out);
     }
 
-    /** Pre-walk that fills localAggParams bottom-up so the live-column analysis
+    /**
+     * Pre-walk that fills localAggParams bottom-up so the live-column analysis
      * (which runs before the decompile walk) can resolve partial-buffer references. The
-     * decompile walk re-fills the same map while it descends (harmless duplicate). */
+     * decompile walk re-fills the same map while it descends (harmless duplicate).
+     */
     private void collectLocalAggParams(Plan node) {
         for (Plan child : node.children()) {
             collectLocalAggParams(child);
@@ -801,8 +809,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
     }
 
-    /** Registers one local (partial) aggregate stage's buffer outputs (see the field
-     * comment of localAggParams). */
+    /**
+     * Registers one local (partial) aggregate stage's buffer outputs (see the field
+     * comment of localAggParams).
+     */
     private void recordLocalAggStage(PhysicalHashAggregate<? extends Plan> agg) {
         for (NamedExpression output : agg.getOutputExpressions()) {
             Expression inner = output instanceof Alias ? ((Alias) output).child() : output;
@@ -842,10 +852,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * the physical input of the buffer - because the merge function's argument is
      * normalized to the data column for EVERY buffer:
      *
-     * - merge-chain buffer (plain aggregate riding along): its input is another
+     * merge-chain buffer (plain aggregate riding along): its input is another
      *   partial buffer, already recorded in localAggParams, or a count-star function
      *   with no argument at all;
-     * - distinct-dedup buffer: its input is the dedup KEY data column, either as the
+     * distinct-dedup buffer: its input is the dedup KEY data column, either as the
      *   bare slot (partial_count(key)) or wrapped as the partial function's argument
      *   (count(key)).
      */
@@ -871,9 +881,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return true;
     }
 
-    /** The live column filter for one explicit SELECT list: the list a node emits is
+    /**
+     * The live column filter for one explicit SELECT list: the list a node emits is
      * pruned to the node's needed output columns (no entry in the map, or a null need,
-     * keeps the whole list - e.g. mock plan trees and unpruned subtrees). */
+     * keeps the whole list - e.g. mock plan trees and unpruned subtrees).
+     */
     private void filterLiveSelects(Plan node, List<Pair<ExprId, String>> selects) {
         Set<ExprId> need = neededOutputs.get(node);
         if (need == null) {
@@ -885,12 +897,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Decompile entry: physical plan -> planSql.
      *
-     * @param plan the optimal physical plan
-     * @return planSql (standard SQL text)
+     * Parameter plan: the optimal physical plan
+     * Returns: planSql (standard SQL text)
      */
     public String toSQL(Plan plan) {
         // An alias-UDF expansion computed under the DEFINITION's stored session
-        // variables (decimalOverflowScale / enable_decimal256 / ...) carries a
+        // variables (decimalOverflowScale / enable_decimal256 /...) carries a
         // SessionVarGuardExpr; the SQL text has no way to express that guard, so
         // printing only its child would replan the arithmetic under the LATER caller's
         // variables and could change its type, scale or value while the same bind SQL
@@ -934,8 +946,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // as the ASSERT_ROWS relation prefix wherever its parent references the input
         // relation (visitPhysicalAssertNumRows), and the parser rebuilds the assertion.
         //
-        // At the ROOT there is no parent to consume that prefix (round-83 #4): toSQL() of the
-        // relation never renders assertRows, so `SELECT * FROM ASSERT_ROWS (SELECT ...) a`
+        // At the ROOT there is no parent to consume that prefix: toSQL of the
+        // relation never renders assertRows, so SELECT * FROM ASSERT_ROWS (SELECT...) a
         // froze as an ordinary filtered SELECT - CREATE's probe planned it happily and an
         // identical replay returned BOTH rows where native execution raises the row-count
         // error. The boundary is therefore materialized HERE, in the only statement form the
@@ -949,14 +961,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Handles a child node.
      *
-     * @param plan child physical plan
-     * @return SQLRelation of the child plan
+     * Parameter plan: child physical plan
+     * Returns: SQLRelation of the child plan
      */
     private SQLRelation process(Plan plan) {
         return plan.accept(this, null);
     }
 
-    // ==================== default: unsupported operators ====================
+    // default: unsupported operators.
 
     @Override
     public SQLRelation visit(Plan plan, Void context) {
@@ -964,14 +976,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 "SPMPlan2SQLBuilder does not support plan: " + plan.getClass().getSimpleName());
     }
 
-    // ==================== pass-through mode ====================
+    // pass-through mode.
     /**
      * PhysicalStorageLayerAggregate: a scan-shaped shortcut that returns COUNT / MIN / MAX
      * for the wrapped scan from table or footer metadata instead of reading the data.
      * AggregateStrategies keeps the enclosing aggregate (or the constant-only project) on
      * TOP of the shortcut and keeps every expression in terms of the wrapped relation's
      * slots, so decompiling the wrapped relation publishes exactly those slots and the
-     * enclosing operators render the same SQL aggregate (count(*) / min(x) / ...) over the
+     * enclosing operators render the same SQL aggregate (count(*) / min(x) /...) over the
      * same table. Replaying that SQL re-derives an equivalent plan; there is no clause that
      * describes the shortcut itself and none is needed, because the shortcut is an
      * execution strategy of the aggregate rather than a different result.
@@ -1038,16 +1050,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 return child;
             }
             // Final output columns in the USER SELECT order. Each output column is
-            // emitted as its in-scope reference (child.getColumnNames()), and - when the
+            // emitted as its in-scope reference (child.getColumnNames), and - when the
             // reference is a decompile-internal alias (c_N) that hides the original
             // column label - re-labelled with the ResultSink output slot's name
-            // (output.getName()): that label is exactly what a normal execution of the
+            // (output.getName): that label is exactly what a normal execution of the
             // original query shows in the result header (a plain alias such as
             // "d_week_seq1", a table column name, or the expression text of an
             // un-aliased expression column), so the frozen planSql keeps the SAME output
-            // column names as the original SQL (SR model: the final SELECT list is
-            // driven by the logical query's output columns, not by the internal c_N
-            // aliases the decompiler had to mint for unambiguous references).
+            // labels from the result sink rather than internal generated references.
             List<Pair<ExprId, String>> ordered = new ArrayList<>();
             boolean anyRenamed = false;
             for (Slot output : outputs) {
@@ -1061,7 +1071,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     continue;
                 }
                 // Re-expose the column under its original label: "c_3 AS d_week_seq1"
-                // (or "AS `round(...)`" for an un-aliased expression column, whose header
+                // (or "AS round(...)" for an un-aliased expression column, whose header
                 // text is the expression itself). The quoted name never participates in
                 // name resolution of the frozen SQL body, so quoting is always safe.
                 ordered.add(Pair.of(output.getExprId(), ref + " AS " + quoteIdentifier(display)));
@@ -1093,9 +1103,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // "sum(...) AS revenue" or a pass-through projection). Overwriting it in
             // place would replace the expression with a bare name that is not resolvable
             // in the FROM scope, so:
-            //  - if the emitted columns already carry the original labels in the user
+            //  if the emitted columns already carry the original labels in the user
             //    SELECT order, keep the projection untouched;
-            //  - otherwise wrap the child in a subquery and select the ordered
+            //  otherwise wrap the child in a subquery and select the ordered
             //    (re-labelled) columns from it.
             if (!anyRenamed && sameExprIdOrder(child.getSelects(), ordered)) {
                 return child;
@@ -1113,7 +1123,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // The ORDER BY moves WITH the LIMIT: a derived-table ORDER BY WITHOUT its
             // LIMIT is only a hint the optimizer is free to drop, and the outer SELECT
             // would then return an arbitrary LIMIT slice (a q02-style query replayed as
-            // unordered rows). Clear both BEFORE rendering the child text - toSQL()
+            // unordered rows). Clear both BEFORE rendering the child text - toSQL
             // captures them into the string.
             String sinkOrderBy = child.getOrderBy();
             String sinkLimit = child.getLimit();
@@ -1139,10 +1149,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     child.setLimit("");
                 }
             }
-            // A relabelled ASSERT_ROWS child keeps its assertion (round-85): toSQL() of the
+            // A relabelled ASSERT_ROWS child keeps its assertion: toSQL of the
             // relation never renders the relation PREFIX (only toRelationSQL does), so the
             // wrapper used to drop the single-row assertion of
-            // `SELECT * FROM ASSERT_ROWS (SELECT k+1 FROM t WHERE k>0) a` - CREATE's probe planned
+            // SELECT * FROM ASSERT_ROWS (SELECT k+1 FROM t WHERE k>0) a - CREATE's probe planned
             // the plain SELECT happily and an identical replay returned BOTH rows where native
             // execution raises the row-count error. The relation prefix is the only statement
             // form the grammar has for it, so it is rendered HERE with this wrapper's alias.
@@ -1170,17 +1180,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Quotes an identifier for use as executable SQL text whenever it is not a plain
-     * unquotable identifier: a column named a-b must be emitted as `a-b`,
-     * otherwise the frozen projection re-parses as the subtraction a - b. A name that
-     * looks plain can still be a RESERVED keyword (a legal quoted column named
-     * from must not be emitted bare - the parser tokenizes that as the FROM
-     * keyword rather than an identifier), so the keyword check decides as well.
-     * Embedded backticks are doubled. Unquotable names stay verbatim, so ordinary
-     * schemas keep byte-identical frozen SQL. Also used for result-column labels (the
-     * expression text of an un-aliased output column such as
-     * round((sun_sales1 / sun_sales2), 2) is wrapped so the frozen planSql can
-     * carry the original column header verbatim).
+     * Returns a valid unquoted identifier unchanged and otherwise backtick-quotes the whole name, doubling
+     * embedded backticks. A name containing a minus sign or a dot must remain one identifier rather than becoming
+     * an expression or multiple components.
      */
     public static String quoteIdentifier(String name) {
         if (name == null) {
@@ -1194,7 +1196,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Quotes every dot-separated component of a (possibly) qualified metadata name
-     * (catalog.db.table), so a table whose name is not a plain identifier (`my-table`)
+     * (catalog.db.table), so a table whose name is not a plain identifier (my-table)
      * is still emitted as an identifier reference rather than as an expression.
      */
     static String quoteQualifiedName(String name) {
@@ -1214,9 +1216,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Fully-qualified name of a table with every COMPONENT quoted separately
-     * (catalog.db.table). getNameWithFullQualifiers() FLATTENS a legal quoted
-     * component such as `t.a` into "internal.db.t.a", and splitting that on every dot
-     * would emit FOUR identifiers instead of the intended three-part name with `t.a`
+     * (catalog.db.table). getNameWithFullQualifiers FLATTENS a legal quoted
+     * component such as t.a into "internal.db.t.a", and splitting that on every dot
+     * would emit FOUR identifiers instead of the intended three-part name with t.a
      * quoted as ONE component - a manually created frozen baseline carrying that broken
      * text then fails re-analysis after a reload, and no raw fallback tree exists for a
      * frozen row. The metadata components are taken structurally, never re-split.
@@ -1232,14 +1234,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return sb.toString();
     }
 
-    // ==================== Scan (wrapped as subquery or inline) ====================
+    // Scan (wrapped as subquery or inline).
 
     /**
-     * PhysicalRelation (PhysicalOlapScan / PhysicalFileScan, etc.): table scan.
-     *
-     * M1 simplification: the scan output columns are registered to columnNames by their
-     * real column names and from is inlined as the table name (not wrapped). The
-     * predicate is handled by the parent PhysicalFilter.
+     * Renders a catalog relation with a qualified table name, supported scan modifiers and registered output
+     * references. Temporary table names are refused so creation can retain user SQL for session-local resolution.
      */
     @Override
     public SQLRelation visitPhysicalRelation(PhysicalRelation relation, Void context) {
@@ -1249,7 +1248,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
         PhysicalCatalogRelation catalogRelation = (PhysicalCatalogRelation) relation;
         // A TEMPORARY table's catalog object carries the CREATOR session's internal name
-        // (<sessionId>_#TEMP#_<name>), not the text the user typed. Emitting it into the
+        // (<sessionId>_#TEMP._<name>), not the text the user typed. Emitting it into the
         // frozen planSql would persist a session-scoped identifier: another session
         // running the same "FROM t" text matches the same bind key (catalog.db.t), and
         // Database.getTableNullable accepts the already-marked internal name unchanged,
@@ -1267,11 +1266,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // Emit the fully qualified name (catalog.db.table) so the frozen planSql resolves
         // the same table when it is replayed from a session whose current database (or
         // catalog) differs from the one used at CREATE time (cross-db queries,
-        // information_schema, ...). Tables without a database (e.g. FunctionGenTable)
+        // information_schema,...). Tables without a database (e.g. FunctionGenTable)
         // keep the bare name. Every COMPONENT is backtick-quoted separately when it is
         // not a plain identifier, so a metadata name containing operators is re-parsed
         // as an identifier instead of an expression, and a legal quoted component such
-        // as `t.a` keeps its boundary (see quoteQualifiedTableName). Scan modifiers
+        // as t.a keeps its boundary (see quoteQualifiedTableName). Scan modifiers
         // (partition selection, TABLESAMPLE, snapshot, scan parameters) follow the name
         // in grammar order.
         String table = catalogRelation.getTable().getDatabase() == null
@@ -1289,7 +1288,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (isSystemColumnName(slot.getName())) {
                 continue;
             }
-            // registered as executable SQL text: a special-character column (`a-b`)
+            // registered as executable SQL text: a special-character column (a-b)
             // must be backtick-quoted, otherwise a frozen projection SELECT a-b
             // re-parses as the subtraction a - b and returns a different value
             sqlRelation.registerRef(slot.getExprId(), quoteIdentifier(slot.getName()));
@@ -1297,7 +1296,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return sqlRelation;
     }
 
-    // ==================== table-valued functions ====================
+    // table-valued functions.
 
     /**
      * PhysicalTVFRelation: a table-valued function in FROM (e.g.
@@ -1316,7 +1315,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Renders one TVF call safely. TableValuedFunction.computeToSql() concatenates each
+     * Renders one TVF call safely. TableValuedFunction.computeToSql concatenates each
      * concrete key/value between apostrophes WITHOUT escaping, so a valid property such
      * as an S3 object key containing an apostrophe or backslash would freeze malformed
      * SQL: with a placeholder-bearing predicate the row is classified as frozen, no
@@ -1366,13 +1365,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * pin only survives in the user tree, so such queries never match a frozen text that
      * dropped the pin.
      *
-     * A user-written INDEX pin is NOT lost to this asymmetry (round-54 #2): the pin is a
+     * A user-written INDEX pin is NOT lost to this asymmetry: the pin is a
      * SEMANTIC choice (on an aggregate-key table the forced rollup returns one aggregated
      * row per rollup key while the base table returns one per record), the matching key
-     * carries it (UnboundRelation#toDigest renders "INDEX &lt;name&gt;", so only callers
+     * carries it (UnboundRelation.toDigest renders "INDEX index_name", so only callers
      * with the same pin match), and this method cannot reproduce it. The CREATE therefore
      * declines the FREEZE for a statement that pins an index at all
-     * (SPMPlanTreeSupport#pinsExplicitIndex): the user planSql is kept, plan_frozen stays
+     * (SPMPlanTreeSupport.pinsExplicitIndex): the user planSql is kept, plan_frozen stays
      * false, and the rewrite replays the parameterized tree, whose own analysis re-applies
      * the pin - so the frozen-text path below is never asked to render one.
      */
@@ -1397,14 +1396,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * Whether the CAPTURE admitted one pinned partition in the TEMPORARY namespace (see
      * recordPartitionNames), and whether the live table still agrees.
      *
-     * <p>A pin without a snapshot (a table the capture never described) keeps the live answer, so
+     * A pin without a snapshot (a table the capture never described) keeps the live answer, so
      * an old baseline is unaffected. A snapshot that DISAGREES with the live namespace declines
      * the freeze - the pin can no longer be described by the caller's own text.
      *
-     * @param table  the scanned OLAP table
-     * @param pins   the captured pins of that table, or null
-     * @param partitionId the pinned partition
-     * @return whether the pinned partition is TEMPORARY
+     * Parameter table: the scanned OLAP table
+     * Parameter pins: the captured pins of that table, or null
+     * Parameter partitionId: the pinned partition
+     * Returns: whether the pinned partition is TEMPORARY
      */
     private static boolean snapshotTemporary(OlapTable table,
             Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin> pins,
@@ -1448,7 +1447,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         Collections.sort(sortedIds);
         Map<Long, org.apache.doris.nereids.spm.SPMPlanTreeSupport.PartitionPin> tablePins =
                 capturedPartitionNames.get(table.getId());
-        // The NAMESPACE comes from the CAPTURE (round-91 review): a temporary pin promoted to a
+        // The NAMESPACE comes from the CAPTURE: a temporary pin promoted to a
         // formal partition (use_temp_partition_name=true) between the unlock and this render made
         // the live check say "formal", the frozen text said PARTITION(name), and an identical
         // replay bound the formal partition - or nothing - while the caller's own query reads
@@ -1470,9 +1469,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     tablePins == null ? null : tablePins.get(partitionId);
             String capturedName = pin == null ? null : pin.getName();
             if (capturedName != null) {
-                // The ADMITTED name wins (round-86): the applied pin is a SET OF IDS, while the
+                // The ADMITTED name wins: the applied pin is a SET OF IDS, while the
                 // stored bind text (and every later caller matching it) names the partition it
-                // wrote. Reading the LIVE name here would freeze a `RENAME PARTITION` that landed
+                // wrote. Reading the LIVE name here would freeze a RENAME PARTITION that landed
                 // between the capture and this render, so an identical caller pinning the OLD
                 // name - now a different, newly added partition - would be answered from the
                 // renamed one. A partition whose live name already moved makes the CREATE decline
@@ -1499,7 +1498,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * OLAP tablet pin: TABLET(id, ...) is frozen when the user wrote it. Bucket
+     * OLAP tablet pin: TABLET(id,...) is frozen when the user wrote it. Bucket
      * pruning also fills selectedTabletIds, so only the manual provenance is
      * rendered; without the clause a replayed scan would read every tablet of the
      * selected partitions and could return rows the captured query excluded. Ids are
@@ -1611,11 +1610,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return "'" + value.replace("\\", "\\\\").replace("'", "''") + "'";
     }
 
-    // ==================== Generate (LATERAL VIEW) ====================
+    // Generate (LATERAL VIEW).
 
     /**
      * PhysicalGenerate: LATERAL VIEW clauses over the child relation - one clause per
-     * generator. The parser wraps every user-written LATERAL VIEW ... into its
+     * generator. The parser wraps every user-written LATERAL VIEW... into its
      * own single-generator node, while MergeGenerates (for two independent
      * views) folds stacked nodes into one node carrying several generators; the
      * executor rolls several functions over each child row, i.e. a cartesian expansion,
@@ -1641,7 +1640,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     + generators.size() + "/" + outputs.size());
         }
         // The LATERAL VIEW must attach to the child's COMPLETE query block. Attaching it
-        // to the bare FROM fragment (getFrom()) would keep the child's WHERE / GROUP BY /
+        // to the bare FROM fragment (getFrom) would keep the child's WHERE / GROUP BY /
         // HAVING / ORDER BY / LIMIT clauses on the OUTER relation, where they apply AFTER
         // the explode: a derived table with LIMIT 10 would limit the exploded rows
         // instead of the lateral-view input, a GROUP BY would regroup the generator
@@ -1672,13 +1671,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // (SELECT t.x, lv.x FROM t LATERAL VIEW explode(t.arr) lv AS x is valid: the two
         // slots carry different qualifiers, but the frozen SQL references a derived
         // relation's columns by name) - registering both as bare x made the parent emit
-        // SELECT x, x ..., which fails binding as ambiguous after reload. Rename the
-        // generator output to a unique visible name and register THAT for the slot.
-        // A generator output may also COLLIDE with a name the child already exports
-        // (SELECT t.x, lv.x FROM t LATERAL VIEW explode(t.arr) lv AS x is valid: the two
-        // slots carry different qualifiers, but the frozen SQL references a derived
-        // relation's columns by name) - registering both as bare x made the parent emit
-        // SELECT x, x ..., which fails binding as ambiguous after reload. Rename the
+        // SELECT x, x..., which fails binding as ambiguous after reload. Rename the
         // generator output to a unique visible name and register THAT for the slot.
         //
         // The comparison follows the ANALYZER's identifier-case rules: Doris resolves
@@ -1758,7 +1751,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * Whether one generator renders its OUTER form - the "xxx_outer" function family
-     * (explode_outer / posexplode_outer / ...; the catalog derives the same name for
+     * (explode_outer / posexplode_outer /...; the catalog derives the same name for
      * outer lookup) or an Unnest still carrying the outer flag before convertUnnest.
      * Only the outer form keeps the NULL-extended row when the expandConjuncts fail
      * (see visitPhysicalGenerate).
@@ -1770,13 +1763,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return generator.getName().endsWith("_outer");
     }
 
-    // ==================== CTE (anchor / producer / consumer) ====================
+    // CTE (anchor / producer / consumer).
 
     /**
      * PhysicalCTEAnchor: two children - child(0) is the PhysicalCTEProducer (the CTE
      * body, processed first: it registers the WITH definition and the alias consumers
      * reference) and child(1) is the main query. The WITH entry itself is attached to
-     * the root relation in toSQL(), not here (see cteDefinitions).
+     * the root relation in toSQL, not here (see cteDefinitions).
      */
     @Override
     public SQLRelation visitPhysicalCTEAnchor(
@@ -1797,9 +1790,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         String alias = SQLRelation.newTableAlias();
         cteBodies.put(producer.getCteId(), body);
         cteAliases.put(producer.getCteId(), alias);
-        // A pending ROW ASSERTION must render INSIDE the WITH definition (round-91 review):
-        // visitPhysicalAssertNumRows only sets body.assertRows, which body.toSQL() does not
-        // consume (only toRelationSQL() does), so the definition became a plain filtered SELECT
+        // A pending ROW ASSERTION must render INSIDE the WITH definition:
+        // visitPhysicalAssertNumRows only sets body.assertRows, which body.toSQL does not
+        // consume (only toRelationSQL does), so the definition became a plain filtered SELECT
         // and the identical replay returned the rows the caller's ASSERT_ROWS rejects.
         String definition = body.isAssertRows()
                 ? "SELECT * FROM " + body.toRelationSQL()
@@ -1835,21 +1828,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return relation;
     }
 
-    // ==================== Recursive CTE ====================
+    // Recursive CTE.
 
     /**
-     * PhysicalRecursiveUnion: the recursive CTE node. Its physical tree is
-     *
-     *     PhysicalRecursiveUnion (cteName)
-     *     ├── child(0): [Distribute] PhysicalRecursiveUnionAnchor → anchor body
-     *     └── child(1): [Distribute] PhysicalRecursiveUnionProducer → recursive body
-     *         (the recursive body's base is a PhysicalWorkTableReference to the CTE itself)
-     *
-     * A recursive CTE cannot be inlined (its recursive member references the CTE by
-     * name), so it is decompiled as a self-contained subquery with a WITH RECURSIVE
-     * prefix: (WITH RECURSIVE cte(cols) AS (anchor UNION [ALL] recursive)
-     * SELECT cols FROM cte) t_N. The caller (e.g. the outer filter / project) wraps it
-     * like any other relation, so the rest of the decompiler is unchanged.
+     * Renders anchor and recursive member queries as a WITH RECURSIVE definition. Branch SELECT lists are aligned
+     * to the CTE output columns where possible. The anchor names are registered while visiting the recursive
+     * member so its work-table references use those names.
      */
     @Override
     public SQLRelation visitPhysicalRecursiveUnion(
@@ -2012,11 +1996,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return relation;
     }
 
-    // ==================== Empty relation ====================
+    // Empty relation.
 
     /**
      * PhysicalEmptyRelation: a relation that is statically known to return no rows.
-     * Rendered as a NULL value cast to the column's type (SELECT ... FROM (SELECT 1) WHERE FALSE)
+     * Rendered as a NULL value cast to the column's type (SELECT... FROM (SELECT 1) WHERE FALSE)
      * so parent
      * operators can still reference its output columns AND each column keeps its DECLARED
      * type: defaulting every column to INT 1 (a) makes the frozen text fail to analyze once
@@ -2041,11 +2025,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return relation;
     }
 
-    // ==================== Partition top-N (window partition sort) ====================
+    // Partition top-N (window partition sort).
 
     /**
      * PhysicalPartitionTopN: implements the partition-sort of a window function
-     * (e.g. row_number() OVER (PARTITION BY ... ORDER BY ...)). The PhysicalWindow above
+     * (e.g. row_number() OVER (PARTITION BY... ORDER BY...)). The PhysicalWindow above
      * renders the actual OVER clause, so this node is a pass-through.
      */
     @Override
@@ -2054,7 +2038,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return process(partitionTopN.child(0));
     }
 
-    // ==================== Filter (wrap + WHERE) ====================
+    // Filter (wrap + WHERE).
 
     /**
      * PhysicalFilter: wraps the child relation and puts the predicate into WHERE.
@@ -2070,7 +2054,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return relation;
     }
 
-    // ==================== Join (wrap + ON + distribution HINT) ====================
+    // Join (wrap + ON + distribution HINT).
 
     /**
      * PhysicalHashJoin and PhysicalNestedLoopJoin share the same handling logic.
@@ -2090,7 +2074,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * Common Join handling: recursively process left/right, assemble FROM (including
      * the distribution HINT), build the ON condition, merge column names and wrap.
      *
-     * Column-name collision handling (design doc 6.2.2): when the two sides share the
+     * Column-name collision handling: when the two sides share the
      * same relation alias (e.g. a self join where both sides inline as "t1") both are
      * forced to wrap with a new alias; when the two sides register a column under the
      * same SQL name, the join relation qualifies every column with "alias." so outer
@@ -2099,15 +2083,15 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     private SQLRelation visitPhysicalJoin(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join, Void context) {
         JoinType joinType = join.getJoinType();
         boolean isMarkJoin = join.isMarkJoin();
-        // ===== ASOF / MARK / NULL-AWARE join handling =====
+        // ASOF / MARK / NULL-AWARE join handling.
         // A MARK join is any SEMI/ANTI join that carries a mark slot (the output of an
         // IN / NOT IN / EXISTS / NOT EXISTS predicate). The MARK / MARK_CONDITION /
         // MARK_SLOT keywords are only the SQL surface that passes the mark parameters
         // back into the very same SEMI/ANTI join, so every MARK join decompiles
         // natively in one of three shapes:
-        //  1. correlation in ON, no mark key  : SEMI/ANTI MARK JOIN ... MARK_SLOT m ON <conds>
-        //  2. only a mark key, no correlation : SEMI/ANTI MARK JOIN ... MARK_CONDITION(<key>) MARK_SLOT m ON true
-        //  3. correlation in ON + a mark key  : SEMI/ANTI MARK JOIN ... MARK_CONDITION(<key>) MARK_SLOT m ON <conds>
+        //  1. correlation in ON, no mark key: SEMI/ANTI MARK JOIN... MARK_SLOT m ON <conds>
+        //  2. only a mark key, no correlation: SEMI/ANTI MARK JOIN... MARK_CONDITION(<key>) MARK_SLOT m ON true
+        //  3. correlation in ON + a mark key: SEMI/ANTI MARK JOIN... MARK_CONDITION(<key>) MARK_SLOT m ON <conds>
         // When only the mark key exists the ON clause is emitted as "ON true" so the
         // SEMI/ANTI join stays parseable; the parser keeps hash / other empty and the
         // translator turns the mark-key-only join into the null-aware operator for BE.
@@ -2160,19 +2144,20 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
 
         // Materialize BOTH FROM fragments BEFORE any qualified reference is built, but
-        // AFTER the same-alias force-wrap below: toRelationSQL() allocates the FINAL
+        // AFTER the same-alias force-wrap below: toRelationSQL allocates the FINAL
         // alias when the relation needs a wrapper - a TopN / Limit over a set operation
         // carries fromCarriesAlias AND its own ORDER BY / LIMIT block, so it is wrapped
         // one level deeper under a FRESH alias. Building the ON condition (or the
-        // explicit projection's qualifiers) through ensureQualifierAlias() first made
+        // explicit projection's qualifiers) through ensureQualifierAlias first made
         // them reference the INNER set alias (t_0) while the FROM fragment exposed t_1 -
-        // the frozen SQL could not bind after reload. toRelationSQL() allocates at most
-        // one alias per relation, so the fragments are materialized once and reused.
+        // the frozen SQL could not bind after reload. toRelationSQL can allocate a fresh alias; materialize each
+        // fragment once
+        // and reuse it.
         SQLRelation joinRelation = new SQLRelation();
         String hints = getJoinDistributionHints(join);
         String hintStr = hints.isEmpty() ? "" : "[" + hints + "]";
 
-        // ===== column-name collision handling =====
+        // column-name collision handling.
         // Computed BEFORE the FROM fragments are materialized: when the columns collide,
         // EVERY column of both sides is referenced QUALIFIED below, and that qualifier can
         // require a wrapper (a composite FROM such as a scan carrying scan modifiers).
@@ -2190,7 +2175,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             left.newAlias();
             right.newAlias();
         } else if (columnConflicts) {
-            // allocate the wrapper aliases NOW: ensureQualifierAlias() wraps a composite
+            // allocate the wrapper aliases NOW: ensureQualifierAlias wraps a composite
             // FROM (scan modifiers, a TVF call) so the references below and the FROM
             // fragment agree
             left.ensureQualifierAlias();
@@ -2273,7 +2258,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     .collect(Collectors.joining(" AND ")) + ")";
         }
 
-        // ===== MARK join output column + mark key =====
+        // MARK join output column + mark key.
         // MARK_CONDITION carries the (three-valued) IN / NOT IN key when the mark join
         // has one; MARK_SLOT names the exported mark column (an upper filter / projection
         // references it through the registered alias, so the same name is reused). Both
@@ -2326,7 +2311,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         if (columnConflicts) {
             // Conflicting column names: the qualified references (t_a.X) above are only
             // valid INSIDE the join scope (ON clause). Once this join is wrapped into a
-            // (SELECT ... FROM <join>) t_N subquery, upper layers can only see the columns
+            // (SELECT... FROM <join>) t_N subquery, upper layers can only see the columns
             // the subquery SELECT emits, so the join must export an EXPLICIT projection:
             // each output column is referenced by its qualified name (valid here) and
             // re-exported under a unique plain alias (c_<seq>) that upper references
@@ -2437,7 +2422,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             }
         } else {
             // The key was found among the hash conjuncts: the other conjuncts STILL have
-            // to become the subquery filter. The old `if (key == null)` guard skipped
+            // to become the subquery filter. The old if (key == null) guard skipped
             // this loop entirely and silently DROPPED every residual other conjunct -
             // NULL_AWARE_LEFT_ANTI(hash=[l.a = r.b], other=[r.b > 5]) froze as
             // "l.a NOT IN (SELECT r.b FROM r)" without r.b > 5, so with both keys 2 the
@@ -2466,9 +2451,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     "SPM decompile NULL_AWARE anti: cannot split the IN key sides");
         }
 
-        // A SELF join must not render the preserved input unaliased (round-84 #4): with both
+        // A SELF join must not render the preserved input unaliased: with both
         // sides being the SAME relation occurrence text, the residual predicate's outer
-        // reference and the subquery's own FROM share one qualifier (`internal.db.t.v`), so
+        // reference and the subquery's own FROM share one qualifier (internal.db.t.v), so
         // BOTH bind to the INNER occurrence - the NOT IN degenerates and the anti join keeps
         // every left row. The ordinary join path forces fresh aliases for exactly this case
         // (see visitPhysicalJoin).
@@ -2477,7 +2462,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             left.newAlias();
             right.newAlias();
         }
-        // Materialize BOTH fragments BEFORE the qualifier below is taken: toRelationSQL()
+        // Materialize BOTH fragments BEFORE the qualifier below is taken: toRelationSQL
         // allocates the FINAL wrapper alias when the relation needs one (a left / right
         // relation carrying its own ORDER BY / LIMIT block, a FROM-less relation), and the
         // qualifier must be the alias that is VISIBLE in these fragments (mirrors
@@ -2571,11 +2556,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return joinRelation;
     }
 
-    /** Re-exports the preserved-side columns of a mark / NULL-AWARE anti / IN-subquery
+    /**
+     * Re-exports the preserved-side columns of a mark / NULL-AWARE anti / IN-subquery
      * rewrite onto the new join relation, pruned to the join's live output columns (a
      * dead preserved column that no upper layer references is dropped from the SELECT
      * list; the correlated subquery still resolves its own conditions inside the FROM
-     * scope). */
+     * scope).
+     */
     private void appendLivePreservedColumns(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
             SQLRelation preserved, SQLRelation joinRelation, List<Pair<ExprId, String>> selects) {
         Set<ExprId> need = neededOutputs.get(join);
@@ -2630,16 +2617,16 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * Whether a rendered column reference already carries a RELATION qualifier, i.e. contains a
      * dot that is NOT inside an identifier's backticks.
      *
-     * A plain {@code indexOf('.')} test cannot tell `t.k` from a single column literally named
-     * `a.b` (rendered with backticks as one component). The residual of a NULL-AWARE anti join
+     * A plain indexOf('.') test cannot tell t.k from a single column literally named
+     * a.b (rendered with backticks as one component). The residual of a NULL-AWARE anti join
      * therefore left the preserved side's column BARE because of that false positive, and the
-     * frozen NOT IN subquery filtered its own inner relation with `a.b < a.b` - both sides bound
+     * frozen NOT IN subquery filtered its own inner relation with a.b < a.b - both sides bound
      * to r, the subquery was empty and the replay KEPT the row the native join removes
-     * (round-77 #5). The frozen SQL still parsed, so neither the CREATE probe nor the metadata
+     * . The frozen SQL still parsed, so neither the CREATE probe nor the metadata
      * checks noticed.
      *
-     * @param reference the rendered reference
-     * @return true when the reference is relation-qualified
+     * Parameter reference: the rendered reference
+     * Returns: true when the reference is relation-qualified
      */
     private static boolean hasUnquotedDot(String reference) {
         if (reference == null) {
@@ -2693,17 +2680,17 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
     }
 
-    // ==================== Aggregate (local merge / global wrap) ====================
+    // Aggregate (local merge / global wrap).
 
     /**
      * PhysicalHashAggregate:
      *
-     * - LOCAL / DISTINCT_LOCAL (partial): a distributed-execution detail with no SQL
+     * LOCAL / DISTINCT_LOCAL (partial): a distributed-execution detail with no SQL
      *   equivalent. Its output columns are recorded (local-output-column -> the
      *   aggregated input expression, localAggParams) so the enclosing GLOBAL aggregate
      *   decompiles to a single logical aggregate, then the child is passed through
      *   without nesting and without leaking any partial_* intermediate column.
-     * - GLOBAL / DISTINCT_GLOBAL (final): wrap mode - GROUP BY plus the aggregate
+     * GLOBAL / DISTINCT_GLOBAL (final): wrap mode - GROUP BY plus the aggregate
      *   function list, each partial reference rewritten back to its input expression.
      */
     @Override
@@ -2723,7 +2710,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             return childRelation;
         }
 
-        // ===== wrap mode: global (final) aggregate =====
+        // wrap mode: global (final) aggregate.
         SQLRelation aggRelation;
         if (!childRelation.getGroupings().isEmpty()) {
             // GROUPING SETS: PhysicalRepeat has already built the FROM clause and the
@@ -2754,14 +2741,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // The distinct keys SplitAggMultiPhase put BELOW this stage: the eliminated
         // dedup stages group by (the user's group keys + the DISTINCT arguments), so
         // the extra keys identify an aggregate whose DISTINCT the split CLEARED. See
-        // dedupKeysBelow for the reviewer's sum(DISTINCT x) with a non-empty GROUP BY.
+        // dedupKeysBelow for the sum(DISTINCT x) with a non-empty GROUP BY.
         // Computed for EVERY phase: the scalar-count shape SplitAggBaseRule leaves KEEPS
         // the user's DISTINCT flag (see appendAggSelect), and its retained grouping is
         // only provable through these keys.
         Set<ExprId> dedupKeyIds = dedupKeysBelow(agg.child(0), ownGroupKeyIds(agg),
                 stageHasDistinctMergeBuffer);
         // The dedup keys are only a RETENTION claim when the stage carrying them survives into
-        // the frozen SQL (round-85): dedupKeysBelow also harvests keys from stages that
+        // the frozen SQL: dedupKeysBelow also harvests keys from stages that
         // visitPhysicalHashAggregate FOLDS AWAY, and a tuple grouping on such a stage is NOT
         // deduplicating anything in the rendered text (see retainedGroupingKeysBelow).
         Set<ExprId> retainedGroupingKeys =
@@ -2798,7 +2785,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * The ONLY reliable provenance is the aggregation MODE: the physical plan keeps the
      * USER'S function instance in every stage (a partial_sum buffer is a Sum expression
      * with aggMode.productAggregateBuffer), and the "partial_" text is synthesized
-     * when the buffer stage is RENDERED (AggregateExpression#computeToSql()). A
+     * when the buffer stage is RENDERED (AggregateExpression.computeToSql). A
      * name test therefore misclassifies a user UDAF whose own name starts with
      * partial_: its one-phase GLOBAL aggregate looked like an execution-only
      * intermediate stage, the whole aggregate was folded away and the frozen SQL degraded
@@ -2840,8 +2827,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * The input expression aggregated by a local partial aggregate: sum(x) -> x,
-     * count(*) -> null (no argument).
+     * Returns the sole function argument of a partial aggregate, or null when it has zero or multiple arguments.
      */
     private static Expression extractPartialParam(AggregateExpression aggExpr) {
         List<Expression> fnChildren = aggExpr.getFunction().children();
@@ -2863,13 +2849,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      *
      * The slot form is decided by PROVENANCE, never by the name alone: a slot the
      * child relation EXPORTS as a column is a data argument no matter what it is called
-     * (a quoted user column named count() - legal under
+     * (a quoted user column named "count()" - legal under
      * enable_unicode_name_support - froze as count(*) and every baseline hit then counted
      * ROWS where the column is NULL, changing the value). Only a slot the relation does
      * not export (an execution-only buffer) may collapse.
      *
-     * @param expr  the aggregate argument (already resolved through localAggParams)
-     * @param child the decompiled child relation of the aggregate (null when unknown)
+     * Parameter expr: the aggregate argument (already resolved through localAggParams)
+     * Parameter child: the decompiled child relation of the aggregate (null when unknown)
      */
     private static boolean isNestedNoArgCount(Expression expr, SQLRelation child) {
         if (expr instanceof SlotReference) {
@@ -2907,10 +2893,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 || (children.size() == 1 && children.get(0).isConstant());
     }
 
-    /** Whether any aggregate output of a DISTINCT_GLOBAL stage consumes a recorded
+    /**
+     * Whether any aggregate output of a DISTINCT_GLOBAL stage consumes a recorded
      * distinct-dedup buffer (see distinctMergeBuffers / isDistinctMergeArg). Applies to
-     * EVERY supported aggregate (sum / avg / ...), not only count: SplitAggMultiPhase
-     * clears isDistinct on the final DISTINCT_GLOBAL function for all of them. */
+     * EVERY supported aggregate (sum / avg /...), not only count: SplitAggMultiPhase
+     * clears isDistinct on the final DISTINCT_GLOBAL function for all of them.
+     */
     private boolean hasMarkedDistinctMergeArg(List<NamedExpression> outputs) {
         for (NamedExpression output : outputs) {
             Expression inner = output instanceof Alias ? ((Alias) output).child() : output;
@@ -2952,9 +2940,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * the lower stage's partial buffer (see localAggParams), never a bare key, so it
      * stays plain.
      *
-     * @param childPlan     the input of the final stage
-     * @param ownGroupKeys  the final stage's own group keys (never dedup keys)
-     * @return the dedup key ExprIds (empty when no eliminated stage groups by an extra key)
+     * Parameter childPlan: the input of the final stage
+     * Parameter ownGroupKeys: the final stage's own group keys (never dedup keys)
+     * Returns: the dedup key ExprIds (empty when no eliminated stage groups by an extra key)
      */
     private static Set<ExprId> dedupKeysBelow(Plan childPlan, Set<ExprId> ownGroupKeys,
             boolean markedMergeBuffer) {
@@ -3025,10 +3013,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * The group keys of the aggregate stage below this one that STAYS in the frozen SQL - the
-     * tuple deduplication a scalar count may rely on (round-85), or empty when the whole chain
+     * tuple deduplication a scalar count may rely on, or empty when the whole chain
      * is execution-only and gets folded away.
      *
-     * `dedupKeysBelow` harvests the keys of every FOLDED stage (that is exactly what restoring a
+     * dedupKeysBelow harvests the keys of every FOLDED stage (that is exactly what restoring a
      * cleared DISTINCT needs), but a key harvested from a stage this decompiler FOLDS is not
      * deduplicating anything in the rendered text. The multi-key count mixed with a plain
      * aggregate exposes the difference:
@@ -3037,14 +3025,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      *     GLOBAL [k,a,b], partial_sum(v)      <- ALL outputs are partial buffers
      *       Scan(t)
      *
-     * The lower stage is `isIntermediateAggStage`, so visitPhysicalHashAggregate eliminates it -
-     * its grouping never reaches the SQL. `dedupKeysBelow` still reported {a,b}, the count
+     * The lower stage is isIntermediateAggStage, so visitPhysicalHashAggregate eliminates it -
+     * its grouping never reaches the SQL. dedupKeysBelow still reported {a,b}, the count
      * looked "retained", its DISTINCT was suppressed, and the frozen text counted the RAW rows
      * (3 for (k,a,b,v) = (1,1,7,10),(1,1,7,20),(1,2,7,30)) where native execution returns 2.
      *
-     * @param childPlan    the input of the final stage
-     * @param ownGroupKeys the final stage's own group keys (never dedup keys)
-     * @return the SURVIVING stage's extra group keys (empty when every stage is folded)
+     * Parameter childPlan: the input of the final stage
+     * Parameter ownGroupKeys: the final stage's own group keys (never dedup keys)
+     * Returns: the SURVIVING stage's extra group keys (empty when every stage is folded)
      */
     private static Set<ExprId> retainedGroupingKeysBelow(Plan childPlan,
             Set<ExprId> ownGroupKeys) {
@@ -3071,17 +3059,17 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
     /**
      * The DISTINCT keys of the user's multi-column count, reconstructed from the PHYSICAL
-     * argument pattern (round-85), or null when the argument is not that pattern.
+     * argument pattern, or null when the argument is not that pattern.
      *
-     * `SplitAggBaseRule` / `AggregateUtils#countDistinctMultiExprToCountIf` rewrite
-     * `count(DISTINCT a, b)` into `count(IF(ISNULL(a), NULL, b))` (one nesting level per leading
+     * SplitAggBaseRule / AggregateUtils.countDistinctMultiExprToCountIf rewrite
+     * count(DISTINCT a, b) into count(IF(ISNULL(a), NULL, b)) (one nesting level per leading
      * key, the last key as the innermost value) over a dedup stage grouped by the keys. When that
      * stage survives, the plain count over its distinct tuples is correct; when it is folded, the
-     * ONLY faithful spelling left is the user's `count(DISTINCT a, b)` - the scalar
-     * `count(DISTINCT IF(...))` would count the shared trailing column once.
+     * ONLY faithful spelling left is the user's count(DISTINCT a, b) - the scalar
+     * count(DISTINCT IF(...)) would count the shared trailing column once.
      *
-     * @param args the aggregate's printed arguments
-     * @return the key expressions in written order, or null when the argument is no such chain
+     * Parameter args: the aggregate's printed arguments
+     * Returns: the key expressions in written order, or null when the argument is no such chain
      */
     private static List<Expression> multiKeyDistinctCountKeys(List<Expression> args) {
         if (args == null || args.size() != 1) {
@@ -3118,11 +3106,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Whether any dedup KEY slot appears anywhere INSIDE an argument EXPRESSION (not as
-     * the direct argument). The multi-key tuple count count(DISTINCT a, b) reaches the
-     * final stage as Count(IF(a IS NULL,NULL,b)) whose argument consumes the RETAINED
-     * dedup stage's grouping keys through the IF - see the distinction from
-     * consumesDedupKey, which recognizes the DIRECT-key (folded-stage) form.
+     * Whether an argument references a non-buffer slot in the supplied dedup-key set. Includes direct arguments
+     * and slots nested within expressions. Callers separately exclude direct-key consumption when identifying
+     * retained tuple deduplication.
      */
     private boolean dedupKeyConsumedByExpression(List<Expression> args, Set<ExprId> dedupKeyIds) {
         if (dedupKeyIds.isEmpty()) {
@@ -3169,9 +3155,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return false;
     }
 
-    /** Whether one of the count arguments consumes the distinct-dedup buffer recorded
+    /**
+     * Whether one of the count arguments consumes the distinct-dedup buffer recorded
      * by recordLocalAggStage - either as the buffer slot itself or nested one level
-     * below a partial_* merge function. */
+     * below a partial_* merge function.
+     */
     private boolean isDistinctMergeArg(List<Expression> args) {
         for (Expression arg : args) {
             if (arg instanceof SlotReference
@@ -3263,7 +3251,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             AggregateFunction fn = aggExpr.getFunction();
             if (fn instanceof GroupConcat || fn instanceof MultiDistinctGroupConcat) {
                 // Dedicated GROUP_CONCAT grammar: resolve the physical buffer slots first,
-                // then render ([DISTINCT] value [ORDER BY ...] [SEPARATOR ...]) - a
+                // then render ([DISTINCT] value [ORDER BY...] [SEPARATOR...]) - a
                 // comma-joined form would print the order keys as extra arguments
                 // (group_concat(v, ',', k DESC)) and break after a reload.
                 List<Expression> resolvedChildren = new ArrayList<>(fn.children().size());
@@ -3333,7 +3321,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // counted the SCALAR column and returned 1 instead of 2 for the tuples
             // (1,7),(2,7).
             // RETENTION is a claim about the RENDERED text: only a grouping that survives into
-            // it can deduplicate the rows a scalar argument reads (round-85). A key harvested
+            // it can deduplicate the rows a scalar argument reads. A key harvested
             // from a folded execution-only stage deduplicates nothing - see
             // retainedGroupingKeysBelow for the mixed count(DISTINCT a, b) + sum(v) shape whose
             // lower tuple stage is eliminated.
@@ -3342,7 +3330,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                             && !consumesDedupKey(args, retainedGroupingKeys)
                             && !consumesDedupKey(bufferArgs, retainedGroupingKeys);
             // The SAME pattern with the tuple grouping FOLDED away: the split left
-            // count(IF(a IS NULL,NULL,b)) (see AggregateUtils#countDistinctMultiExprToCountIf)
+            // count(IF(a IS NULL,NULL,b)) (see AggregateUtils.countDistinctMultiExprToCountIf)
             // over a dedup stage this decompiler eliminates, so the IF would count RAW rows.
             // Restoring the user's multi-column COUNT(DISTINCT a, b) is the only faithful
             // spelling: a scalar DISTINCT would count the shared b once, and a plain count
@@ -3364,7 +3352,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     // isDistinct on the final function because a lower physical stage
                     // deduplicates its input; the decompiler folds that lower stage away,
                     // so EVERY aggregate whose expression consumes the distinct-dedup
-                    // buffer (sum / avg / count / ...) must restore its DISTINCT - only
+                    // buffer (sum / avg / count /...) must restore its DISTINCT - only
                     // checking count would freeze sum(DISTINCT x) as sum(x) and return a
                     // different value when x has duplicates. An aggregate riding along
                     // the same stage consumes a merge-chain buffer and stays plain (see
@@ -3372,7 +3360,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     distinct = isDistinctMergeArg(bufferArgs) || isDistinctMergeArg(args);
                 } else {
                     // No buffer of the stage is marked (distinct plans built by other
-                    // shapes): keep the historical blanket behavior for count ...
+                    // shapes): keep the historical blanket behavior for count...
                     distinct = "count".equalsIgnoreCase(aggName);
                     // ... EXCEPT for the MULTI-KEY tuple count: count(DISTINCT a, b) is
                     // physically Count(IF(a IS NULL,NULL,b)) over a RETAINED dedup stage
@@ -3400,7 +3388,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     && !multiKeyCountKeys.isEmpty()) {
                 // count(DISTINCT a, b): the tuple deduplication the physical IF chain relied on
                 // was folded away, so the frozen text has to re-express the USER'S own
-                // multi-column distinct count (round-85).
+                // multi-column distinct count.
                 List<String> keySqls = new ArrayList<>(multiKeyCountKeys.size());
                 for (Expression key : multiKeyCountKeys) {
                     keySqls.add(exprSqlBuilder.print(key, child));
@@ -3417,7 +3405,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 // alias, e.g. an execution-added pre-aggregate with several "sum"
                 // columns). Keeping "sum" would decompile many identical aggregate
                 // columns whose bare references are ambiguous on re-parse ("sum is
-                // ambiguous: sum#23, sum#24, ..."). Emit a unique c_<seq> instead.
+                // ambiguous: sum#23, sum#24,..."). Emit a unique c_<seq> instead.
                 ref = generatedColumnName(output.getExprId(), scopeNames(child, relation));
             }
             sql = sql + " AS " + ref;
@@ -3447,7 +3435,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (name != null && name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
                 // reserve the user alias too: a later generated c_N must not shadow it
                 reservedOutputNames.add(normalizeIdentifier(name));
-                // A RESERVED word (from, select, ...) is a legal QUOTED identifier but not
+                // A RESERVED word (from, select,...) is a legal QUOTED identifier but not
                 // an unquoted one: freezing "sum(v) AS from" produced text the parser
                 // rejects, and a persisted frozen row has no plan-tree fallback - the
                 // baseline could never replay. Keep the user's label quoted instead.
@@ -3512,7 +3500,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return names;
     }
 
-    // ==================== Sort / TopN / Limit ====================
+    // Sort / TopN / Limit.
 
     /**
      * PhysicalTopN: wraps as ORDER BY + LIMIT (reuses the child relation when it has no
@@ -3524,7 +3512,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         SQLRelation child = process(childNode);
 
         // A two-phase distributed TopN (LOCAL_SORT stage feeding a MERGE_SORT stage
-        // with the same keys/limit) is ONE SQL ORDER BY ... LIMIT ... . The inner
+        // with the same keys/limit) is ONE SQL ORDER BY... LIMIT.... The inner
         // stage has already printed the sort keys + limit onto the (unwrapped) child
         // relation, so the outer stage must reuse that relation instead of wrapping
         // another subquery - a redundant inner "LIMIT n) t_x" would truncate the
@@ -3546,9 +3534,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
 
         SQLRelation relation;
-        // An ASSERT_ROWS relation is a BOUNDARY (round-86): a cap / sort written INTO its block
-        // would be evaluated before the assertion, so `... FROM ASSERT_ROWS (...) a LIMIT 1`
-        // froze as `ASSERT_ROWS (SELECT ... LIMIT 1)` - the assertion then saw one row and the
+        // An ASSERT_ROWS relation is a BOUNDARY: a cap / sort written INTO its block
+        // would be evaluated before the assertion, so... FROM ASSERT_ROWS (...) a LIMIT 1
+        // froze as ASSERT_ROWS (SELECT... LIMIT 1) - the assertion then saw one row and the
         // row-count error the native query raises never fired. The clause therefore always
         // lands on a WRAPPER whose FROM is the assert relation.
         if (!child.isAssertRows() && child.getLimit().isEmpty()
@@ -3615,10 +3603,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * when it would overflow - an unlimited stage carries Long.MAX_VALUE, and any
      * addition to it wraps negative and could match a garbage local limit.
      *
-     * @param outerLimit  the merge stage's limit
-     * @param outerOffset the merge stage's offset
-     * @param innerLimit  the local stage's limit
-     * @return whether the local stage kept exactly the outer stage's demanded slice
+     * Parameter outerLimit: the merge stage's limit
+     * Parameter outerOffset: the merge stage's offset
+     * Parameter innerLimit: the local stage's limit
+     * Returns: whether the local stage kept exactly the outer stage's demanded slice
      */
     private static boolean isExactTopNContinuationLimit(long outerLimit, long outerOffset, long innerLimit) {
         if (outerLimit == Long.MAX_VALUE) {
@@ -3633,9 +3621,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return innerLimit == outerLimit + outerOffset;
     }
 
-    /** Walks through execution-only exchange / distribute pass-through nodes so a
+    /**
+     * Walks through execution-only exchange / distribute pass-through nodes so a
      * distributed two-phase TopN (MERGE_SORT -> [Distribute] -> LOCAL_SORT) is seen as
-     * two adjacent TopN stages and folded into a single ORDER BY ... LIMIT .... */
+     * two adjacent TopN stages and folded into a single ORDER BY... LIMIT....
+     */
     private static Plan skipPassThrough(Plan node) {
         while (node instanceof PhysicalDistribute) {
             Plan child = node.child(0);
@@ -3680,7 +3670,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * otherwise reuses it.
      *
      * Two-phase LIMIT (SplitLimit: GLOBAL(l, o) -> LOCAL(l + o, 0)) is COLLAPSED into
-     * one semantic block: the pair encodes exactly one user LIMIT ... OFFSET, and
+     * one semantic block: the pair encodes exactly one user LIMIT... OFFSET, and
      * serializing both phases as query blocks freezes an inner and an outer LIMIT. The
      * rewrite-time LIMIT merge only reaches the node with a user-tree counterpart (the
      * outer one), so a captured order-free LIMIT 10 kept returning 10 rows when a
@@ -3701,7 +3691,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             child = process(limit.child(0));
         }
         SQLRelation limitRelation;
-        // the same ASSERT_ROWS boundary as visitPhysicalTopN (round-86): a LIMIT written into the
+        // the same ASSERT_ROWS boundary as visitPhysicalTopN: a LIMIT written into the
         // assert block suppresses the row-count error the caller's query raises
         if (!child.isAssertRows() && child.getLimit().isEmpty()) {
             limitRelation = child;
@@ -3716,16 +3706,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return limitRelation;
     }
 
-    // ==================== Project (wrap + SELECT list) ====================
+    // Project (wrap + SELECT list).
 
     /**
-     * PhysicalProject: assembles a SELECT list and wraps. The OUTERMOST projection (the
-     * one that feeds the result) prunes its output to the final user-visible columns.
-     * Every intermediate projection passes through the child's full output plus its own
-     * expressions (each with a stable alias), so an upper filter / join / aggregate /
-     * projection always resolves the columns it references - the intermediate column
-     * pruning of the physical plan is an execution detail that must not break the
-     * decompiled SQL's column scoping.
+     * Builds a SELECT block over the child. The outermost project emits its complete project list; intermediate
+     * projects pass through and add only required columns when live-column information is available. Duplicate
+     * exported names are repaired. Child ORDER BY and LIMIT clauses move together when projection expressions and
+     * exported names permit hoisting.
      */
     @Override
     public SQLRelation visitPhysicalProject(PhysicalProject<? extends Plan> project, Void context) {
@@ -3734,9 +3721,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // A top-level ORDER BY / LIMIT pair must not end up INSIDE the derived table of this
         // projection. NormalizeSort makes "SELECT a FROM t ORDER BY b + 1" a (final) Project
         // over Sort, so inlining the child relation - which carries the clause as its own
-        // query block and is therefore wrapped by toRelationSQL() - buried the user's
+        // query block and is therefore wrapped by toRelationSQL - buried the user's
         // ORDER BY one level down: the replay planner is free to drop an ORDER BY that is
-        // not paired with a LIMIT, and for "ORDER BY ... LIMIT 20" the buried cap also hid
+        // not paired with a LIMIT, and for "ORDER BY... LIMIT 20" the buried cap also hid
         // the Limit from mergeLimitNode (the frozen root was a Project, so a matching
         // LIMIT 20 could not replace the captured value and the query kept the old cap).
         relation.getColumnNames().putAll(child.getColumnNames());
@@ -3777,9 +3764,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // A top-level ORDER BY / LIMIT pair must not end up INSIDE the derived table of
         // this projection. NormalizeSort makes "SELECT a FROM t ORDER BY b + 1" a (final)
         // Project over Sort, so inlining the child relation - which carries the clause as
-        // its own query block and is therefore wrapped by toRelationSQL() - buried the
+        // its own query block and is therefore wrapped by toRelationSQL - buried the
         // user's ORDER BY one level down: the replay planner is free to drop an ORDER BY
-        // that is not paired with a LIMIT, and for "ORDER BY ... LIMIT 20" the buried cap
+        // that is not paired with a LIMIT, and for "ORDER BY... LIMIT 20" the buried cap
         // also hid the Limit from mergeLimitNode (the frozen root was a Project, so a
         // matching LIMIT 20 could not replace the captured value and the query kept the
         // old cap). This projection is row-wise with a 1:1 output relation, so keeping
@@ -3839,12 +3826,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * renamed to its unique c_ reference and re-registered here; upper references use
      * the registered name and stay consistent.
      *
-     * @param selects  the projection list of the relation (mutated in place)
-     * @param relation the relation being built (its column registry is updated)
+     * Parameter selects: the projection list of the relation (mutated in place)
+     * Parameter relation: the relation being built (its column registry is updated)
      */
     private static void dedupeSelectOutputNames(List<Pair<ExprId, String>> selects,
             SQLRelation relation) {
-        // Names compare CASE-INSENSITIVELY: a derived table that exported both `x` and `X`
+        // Names compare CASE-INSENSITIVELY: a derived table that exported both x and X
         // for two distinct ExprIds made every upper reference ambiguous after reload
         // (Doris resolves column names case-insensitively), so the pass-through item must
         // be renamed whenever the shared name collides in ANY case.
@@ -3867,7 +3854,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // intermediate slot (its registered name is updated here) stay resolvable.
             Pair<ExprId, String> first = selects.get(previous);
             // Works for COMPUTED items too: "k + 1 AS x" and "v + 1 AS x" for two
-            // distinct ExprIds (a derived table with ORDER BY ... LIMIT consumed by an
+            // distinct ExprIds (a derived table with ORDER BY... LIMIT consumed by an
             // upper star/join) both exported x, and a parent selecting x, x from the
             // two x columns failed as ambiguous after reload. The earlier item keeps
             // its expression (a previous alias is stripped first) and gains a unique
@@ -3881,7 +3868,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // The ITEM POSITION, not its ExprId: the ExprId of a captured node depends on how
             // many ids the enclosing statement had already consumed, so an id-derived name made
             // the frozen text differ between two CREATEs of the SAME query (see
-            // StatementContext#continueIdGeneratorsFrom). The position is stable.
+            // StatementContext.continueIdGeneratorsFrom). The position is stable.
             String unique = "c_" + previous;
             while (usedNames.contains(unique.toLowerCase(java.util.Locale.ROOT))) {
                 unique = unique + "_";
@@ -3896,7 +3883,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * The output name of one SELECT item: the alias of a TOP-LEVEL " AS " token, or the
      * item itself. " AS " inside a backtick-quoted identifier, inside a single-quoted
      * literal or inside nested parentheses is NOT the alias separator: a legal column
-     * named `a as b` exported by an inner layer was read as "b`" by the naive
+     * named a as b exported by an inner layer was read as "b" by the naive
      * lastIndexOf, and the next frozen layer referenced an identifier that no longer
      * parses.
      */
@@ -3951,7 +3938,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Whether the child relation is embedded as a (SELECT ...) subquery (toRelationSQL).
+     * Whether the child relation is embedded as a (SELECT...) subquery (toRelationSQL).
      */
     private static boolean embedsAsSubquery(SQLRelation child) {
         if (child.getRelationName() == null) {
@@ -3964,7 +3951,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * Prepares the child's ORDER BY for a move onto the wrapper, or refuses the hoist.
      *
      * The clause text was rendered against the CHILD scope; moving it up must keep every
-     * reference resolvable (a fully QUOTED column name `a b` is a
+     * reference resolvable (a fully QUOTED column name a b is a
      * perfectly resolvable reference and must not force the clause to stay buried inside a
      * derived table, where a no-LIMIT sort is re-planned as a droppable hint and the replay
      * returns unordered rows) and must keep every reference bound to the SAME column:
@@ -3980,13 +3967,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      *       (a-b) from being appended a second time, which exposed two identical
      *       columns and made every outer reference ambiguous.
      *
-     * @param child          the relation whose ORDER BY is hoisted
-     * @param orderBy        the rendered ORDER BY text
-     * @param wrapperOutputs the wrapper's SELECT items (their output names shadow the
+     * Parameter child: the relation whose ORDER BY is hoisted
+     * Parameter orderBy: the rendered ORDER BY text
+     * Parameter wrapperOutputs: the wrapper's SELECT items (their output names shadow the
      *                       child's exports at the outer level), or null when unknown
-     * @param canAugment     whether the child's SELECT list can still receive an export
+     * Parameter canAugment: whether the child's SELECT list can still receive an export
      *                       (the child renders as its own subquery block)
-     * @return the clause text to place on the wrapper (possibly rewritten), or null when
+     * Returns: the clause text to place on the wrapper (possibly rewritten), or null when
      *         the clause cannot be hoisted safely - the caller keeps it inside the child
      *         then, where its own query block resolves every reference
      */
@@ -4083,7 +4070,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // A clause the previous hoist steps already REWROTE carries output names ("c_N"
         // re-export labels) that no child-map entry mentions, so the loop above never
         // visits them: hoisting one level further past the scope that owns them froze an
-        // unresolvable reference (tpcds q78: "Unknown column 'c_14' ... in 'SORT'").
+        // unresolvable reference (tpcds q78: "Unknown column 'c_14'... in 'SORT'").
         // Every generated name the rewritten clause references must be exported by the
         // scope the clause lands in - the child below it, or the wrapper's own outputs.
         // A label a previous hoist step created one level below resolved against the
@@ -4119,7 +4106,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return rewritten;
     }
 
-    /** Generated "c_N" output names referenced as standalone tokens in a clause. */
+    /**
+     * Finds c_N patterns at word boundaries in clause text. This textual scan includes occurrences inside SQL
+     * literals.
+     */
     private static List<String> generatedNameReferences(String clause) {
         List<String> names = new ArrayList<>();
         Matcher matcher = GENERATED_NAME_PATTERN.matcher(clause);
@@ -4180,14 +4170,18 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return false;
     }
 
-    /** Output names compare case-insensitively with backticks stripped (see the aliasing
-     * note in hoistableOrderBy). */
+    /**
+     * Output names compare case-insensitively with backticks stripped (see the aliasing
+     * note in hoistableOrderBy).
+     */
     private static String normalizeOutputName(String name) {
         return name.replace("`", "").toLowerCase(java.util.Locale.ROOT);
     }
 
-    /** A fresh output name for a re-pointed ORDER BY key: not already exported, not
-     * shadowed, not a registered child column and not present in the clause itself. */
+    /**
+     * A fresh output name for a re-pointed ORDER BY key: not already exported, not
+     * shadowed, not a registered child column and not present in the clause itself.
+     */
     private static String freshExportName(SQLRelation child, String orderBy,
             Map<String, ExprId> exported, Map<String, ExprId> shadowed) {
         for (long i = 1; ; i++) {
@@ -4279,7 +4273,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return Character.isLetterOrDigit(c) || c == '_';
     }
 
-    /** Whether an ORDER BY text references the name as a standalone identifier. */
+    /**
+     * Tests for a name using identifier-boundary matching in rendered clause text. This textual helper does not
+     * parse SQL strings or quoted identifiers.
+     */
     private static boolean referencesName(String sql, String name) {
         return java.util.regex.Pattern
                 .compile("(?<![A-Za-z0-9_`])" + java.util.regex.Pattern.quote(name)
@@ -4291,7 +4288,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     /**
      * Passes through the child relation's full output columns: its SELECT list when it
      * has one (a wrapped subquery), otherwise every registered column of a SELECT *
-     * relation (filter / scan / join / ...). Internal system columns (e.g. Doris rowid
+     * relation (filter / scan / join /...). Internal system columns (e.g. Doris rowid
      * columns used by some joins / unique tables) are execution details and must never
      * surface in the decompiled SQL.
      *
@@ -4358,7 +4355,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * decompiled projection. Mirror of the internal-column naming defined in
      * Column: every hidden execution column is named under the
      * Column.HIDDEN_COLUMN_PREFIX "__DORIS_" family (rowid columns, version /
-     * delete-sign / sequence columns, ...), plus the lowercase shadow prefix
+     * delete-sign / sequence columns,...), plus the lowercase shadow prefix
      * Column.SHADOW_NAME_PREFIX. Any new internal column added to Column under one of
      * these prefixes is covered automatically.
      *
@@ -4381,8 +4378,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * still referenced it, so the baseline failed to bind
      * ("Unknown column 'GROUPING_ID' in 'table list'") on every replay.
      *
-     * @param slot  the slot of a projection / group-by list
-     * @param owner the relation that must export the slot when it is a real column
+     * Parameter slot: the slot of a projection / group-by list
+     * Parameter owner: the relation that must export the slot when it is a real column
      */
     private static boolean isRollupGroupingIdMarker(SlotReference slot, SQLRelation owner) {
         return "GROUPING_ID".equals(slot.getName())
@@ -4420,15 +4417,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         selects.add(Pair.of(projectExpr.getExprId(), exprSql));
     }
 
-    // ==================== Window (wrap + OVER clause) ====================
+    // Window (wrap + OVER clause).
 
     /**
-     * PhysicalWindow: a window computation layer with no SQL equivalent of its own; it
-     * must pass through the child's full output (so upper projections can still
-     * reference the underlying columns such as group-by keys / plain columns) AND emit
-     * the window-function columns. Only emitting the window columns would cut off every
-     * other child column for the upper layers ("Unknown column 'i_item_id' in table
-     * list" - a window over an aggregate leaves only the window result referenceable).
+     * Builds a SELECT block carrying live child outputs and live window expressions. Window results receive stable
+     * references, and duplicate exported names are repaired for parent scopes.
      */
     @Override
     public SQLRelation visitPhysicalWindow(PhysicalWindow<? extends Plan> window, Void context) {
@@ -4482,7 +4475,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return relation;
     }
 
-    // ==================== SetOperation (UNION/EXCEPT/INTERSECT) ====================
+    // SetOperation (UNION/EXCEPT/INTERSECT).
 
     /**
      * PhysicalUnion / PhysicalExcept / PhysicalIntersect: join the child queries with
@@ -4525,11 +4518,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // downstream reference (sum(sum) over the set hits all of them - the analyzer
         // rejects the replayed plan with "sum is ambiguous"), while the originating SQL
         // could never reference such a column by name either. Such outputs are aliased
-        // to their positional reference (c_<output id>) instead; every branch exposes
+        // to a unique reference derived from the output position; every branch exposes
         // that reference locally, so no further renaming is needed.
-        // Case-INSENSITIVE counting: Doris identifiers are case-insensitive, so `a` and
-        // `A` are the SAME output name - two raw names each counted once left both
-        // branches exporting a / A and the result sink's SELECT a, A ... was rejected
+        // Case-INSENSITIVE counting: Doris identifiers are case-insensitive, so a and
+        // A are the SAME output name - two raw names each counted once left both
+        // branches exporting a / A and the result sink's SELECT a, A... was rejected
         // as ambiguous after reload. Every duplicate (by normalized name) is aliased to
         // its positional reference instead.
         Map<String, Integer> outputNameCounts = new HashMap<>();
@@ -4552,7 +4545,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (outputNameCounts.getOrDefault(normalizedOutputName(output.getName()), 0) > 1) {
                 // The POSITION, not the ExprId: the frozen text must be reproducible, and the
                 // ExprIds of a capture depend on how many ids the enclosing statement had already
-                // consumed (see StatementContext#continueIdGeneratorsFrom).
+                // consumed (see StatementContext.continueIdGeneratorsFrom).
                 String unique = "c_" + j;
                 while (usedOutputNames.contains(normalizedOutputName(unique))) {
                     unique = unique + "_";
@@ -4572,13 +4565,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // stands would emit whatever columns that branch happened to produce (e.g. all 36
             // sales columns), so the names the outer SQL references after the set node would
             // never exist in the frozen planSql.
-            // NO newAlias() on the branch: its SQL is placed directly on either side of
+            // NO newAlias on the branch: its SQL is placed directly on either side of
             // UNION / EXCEPT / INTERSECT, where DorisParser accepts a parenthesized query
-            // term but NO trailing alias - "(SELECT ...) t_3" is not a legal set operand
+            // term but NO trailing alias - "(SELECT...) t_3" is not a legal set operand
             // (aliases are legal only in relation position, i.e. under FROM). Creation
-            // never re-parses the decompiled text, so the invalid fragment was invisible
-            // in-memory; a later refresh / restart could not rebuild the persisted frozen
-            // baseline at all. The alias is allocated further below, on the COMPLETED set
+            // probes re-planning before storing decompiled SQL. The alias is allocated
+            // further below, on the completed set
             // relation, where parent nodes reference it.
             SQLRelation branch = new SQLRelation();
             branch.setFrom(childRelation.toRelationSQL());
@@ -4605,7 +4597,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             branchSqls.add("(" + branch.toSQL() + ")");
         }
         // PhysicalUnion may carry constant one-row branches that rule
-        // MergeOneRowRelationIntoUnion MOVED out of children() into constantExprsList.
+        // MergeOneRowRelationIntoUnion MOVED out of children into constantExprsList.
         // Emitting only the regular children would silently DROP those rows at replay
         // (e.g. SELECT 1 UNION ALL SELECT x FROM t WHERE y = ? lost the SELECT 1 row;
         // a constant-only UNION rendered an empty body). Emit every constant row as a
@@ -4625,7 +4617,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     if (outputNameCounts.getOrDefault(normalizedOutputName(outputName), 0) > 1) {
                         // duplicated output name: use the UNIQUE positional reference the
                         // set registered (the result sink selects THAT name from the
-                        // derived union; emitting `AS x` twice left its c_<ExprId>
+                        // derived union; emitting AS x twice left its generated
                         // references pointing at nonexistent columns)
                         item = item + " AS " + registeredOutputNames.get(j);
                     } else if (!item.equals(outputName)) {
@@ -4634,8 +4626,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     selects.add(Pair.of(project.getExprId(), item));
                 }
                 branch.setSelects(selects);
-                // a FROM-less branch is a plain SELECT (toRelationSQL would return the
-                // empty FROM text for it)
+                // A constant branch is emitted as a plain SELECT set operand.
                 branchSqls.add(branch.toSQL());
             }
         }
@@ -4660,13 +4651,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return name == null ? "" : name.toLowerCase(java.util.Locale.ROOT);
     }
 
-    // ==================== GROUPING SETS (PhysicalRepeat) ====================
+    // GROUPING SETS (PhysicalRepeat).
 
     /**
-     * PhysicalRepeat (GROUPING SETS): builds the GROUPING SETS(...) expression onto the
-     * child relation and returns it without wrapping - the parent global aggregate
-     * (visitPhysicalHashAggregate) consumes the groupings field and emits
-     * GROUP BY GROUPING SETS(...).
+     * Wraps the child relation, registers grouping virtual expressions and records the GROUPING SETS clause for
+     * the enclosing global aggregate. The aggregate consumes this relation and supplies the actual GROUP BY.
      */
     @Override
     public SQLRelation visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, Void context) {
@@ -4708,12 +4697,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return groupingRelation;
     }
 
-    // ==================== ASSERT_ROWS (PhysicalAssertNumRows) ====================
+    // ASSERT_ROWS (PhysicalAssertNumRows).
 
     /**
      * PhysicalAssertNumRows (the "at most one row" assertion of a scalar-subquery
      * unnest, e.g. the inner side of the INNER join ScalarApplyToJoin builds): render it
-     * as the ASSERT_ROWS relation prefix, "ASSERT_ROWS (SELECT ...) t_N". The Nereids
+     * as the ASSERT_ROWS relation prefix, "ASSERT_ROWS (SELECT...) t_N". The Nereids
      * grammar accepts that relation and the parser rebuilds the LogicalAssertNumRows on
      * replay, so the frozen text keeps the single-row contract instead of falling back
      * to the user planSql.
@@ -4730,7 +4719,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return relation;
     }
 
-    // ==================== helper methods ====================
+    // helper methods.
 
     /**
      * JOIN type -> SQL keyword.
@@ -4770,11 +4759,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     }
 
     /**
-     * Infers the JOIN distribution HINT from the data distribution of the children.
-     *
-     * M1 basic rule: BROADCAST (DistributionSpecReplicated) on the right child gives
-     * [BROADCAST]; any Distribution on either side gives [SHUFFLE]; otherwise no HINT.
-     * The complete rules (COLOCATE/BUCKET) are added in a later milestone.
+     * Infers a distribution hint from immediate exchange children. A replicated right exchange yields BROADCAST.
+     * Any other right exchange, or an exchange only on the left, yields SHUFFLE. With no immediate exchange, emits
+     * no hint.
      */
     private String getJoinDistributionHints(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join) {
         Plan left = join.left();

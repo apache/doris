@@ -52,7 +52,7 @@ public class SPMRound47SafetyTest {
                 "the rejection must describe the VALUES rows: " + failure.getMessage());
     }
 
-    /** The identity read is bounded by the compact key and keeps the new order. */
+    /** The identity read uses the compact key and the reservation lifecycle order. */
     @Test
     public void testPendingLookupIsBoundedByTheIdentityKey() {
         String sql = BaselineManagerTestAccess.pendingSeqLookupSql();
@@ -62,7 +62,7 @@ public class SPMRound47SafetyTest {
         Assertions.assertTrue(orderBy.startsWith(
                         "ORDER BY `baseline_id` DESC, `reserve_time` DESC,"),
                 "the NEWEST identity must still win first: " + orderBy);
-        Assertions.assertTrue(orderBy.contains("`dropped` DESC, `unconfirmed` DESC"),
-                "the tombstone / marker priority stays within one identity: " + orderBy);
+        Assertions.assertTrue(orderBy.contains("`dropped` DESC, `unconfirmed` ASC"),
+                "tombstones and resolved records must precede unconfirmed markers: " + orderBy);
     }
 }

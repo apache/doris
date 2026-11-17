@@ -53,40 +53,23 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * SPMOptimizer - baseline-dedicated optimizer (M3).
+ * Optimizes a baseline plan in a nested statement context. The context carries a rule-exclusion mask that combines
+ * SPM restrictions with the session rule whitelist. The public enable_nereids_rules value is not replaced, and the
+ * session disable list still applies.
  *
- * Corresponds to design doc section 6.7. When a baseline is created, a dedicated
- * optimizer is used that deliberately disables many "state-sensitive" optimization
- * rules (MV rewrite, table pruning, UKFK JOIN pruning, equivalence derivation,
- * structural rewrites, ...), so the baseline plan only depends on SQL semantics and the
- * general cost model - because a baseline is a cross-time promise that must remain
- * reproducible and semantically correct even after data, statistics or MVs change.
- *
- * Rule exclusion mechanism (WHITELIST mode): the session variable enable_nereids_rules
- * carries a comma-separated rule WHITELIST; when non-empty, the engine only applies the
- * listed rules (the statement-level rule mask forbids every rule outside the list, see
- * StatementContext#getOrCacheDisableRules). SPMOptimizer temporarily replaces that
- * variable with the SPM whitelist - every RuleType except the excluded set below, see
- * buildSpmEnabledRules - while a baseline is created, and restores the original value
- * after optimization completes (the original value is cached before calling and
- * restored in a finally block). disable_nereids_rules is NOT touched: the user's own
- * disable list keeps applying on top of the whitelist.
- *
- * The excluded set is:
- * - an explicit list of state-sensitive RuleType names (categories 1, 3, 4, 5, 6), and
- * - the whole RuleTypeClass.MATERIALIZE_VIEW rule family (category 2) enumerated
- *   programmatically via RuleType.isMaterializedViewRule(), so new MV rules are covered
- *   automatically.
+ * Capture temporarily disables TopN lazy materialization and changes CTE settings so the physical plan can be
+ * decompiled. The original settings and outer statement context are restored, and the nested context is closed in
+ * finally.
  */
 public class SPMOptimizer {
 
     /**
-     * RuleType names excluded from the SPM whitelist (aligned with design doc 5.4).
+     * RuleType names excluded from the SPM whitelist.
      * All names must exist in RuleType (the whitelist is parsed with
      * RuleType.valueOf, which throws on unknown names).
      */
     public static final List<String> SPM_EXCLUDED_RULE_NAMES = List.of(
-            // ===== category 1: data-state sensitive =====
+            // category 1: data-state sensitive.
             // simple aggregate to constant (wrong result on an empty table)
             "REWRITE_SIMPLE_AGG_TO_CONSTANT",
             // skewed JOIN salt splitting (skew pattern changes over time)
@@ -94,7 +77,7 @@ public class SPMOptimizer {
             // grouping sets decomposition (topology change, cardinality dependent)
             "DECOMPOSE_REPEAT",
 
-            // ===== category 1b: TYPE-changing lowerings =====
+            // category 1b: TYPE-changing lowerings.
             // avg(DISTINCT x) -> sum(DISTINCT CAST(x AS LARGEINT)) / count(...): the
             // LARGEINT accumulator cast is part of the lowered expression's SEMANTICS, but
             // the frozen text is re-planned for a caller whose literal may have ANOTHER type
@@ -103,11 +86,11 @@ public class SPMOptimizer {
             // value. Keeping AVG itself leaves the coercion to the replay's own analysis.
             "AVG_DISTINCT_TO_SUM_DIV_COUNT",
 
-            // ===== category 2: MV rewrite (all) =====
+            // category 2: MV rewrite (all).
             // Excluded via the whole RuleTypeClass.MATERIALIZE_VIEW family (see
-            // getMaterializedViewRuleNames()), not listed here.
-
-            // ===== category 3: table pruning + UKFK =====
+            // getMaterializedViewRuleNames), not listed here.
+            //
+            // category 3: table pruning + UKFK.
             "ELIMINATE_JOIN_BY_UK",              // UK constraint JOIN elimination
             "ELIMINATE_JOIN_BY_FK",              // FK constraint JOIN elimination
             "ELIMINATE_GROUP_BY_KEY",            // UKFK GROUP BY key elimination
@@ -145,11 +128,11 @@ public class SPMOptimizer {
             // DECLARED UNIQUE constraint - which schemaFingerprint does not capture (it
             // hashes only the table id + base columns), so dropping the declaration
             // after freezing would leave the rewrite in place:
-            // - SIMPLIFY_WINDOW_EXPRESSION / AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION:
+            // SIMPLIFY_WINDOW_EXPRESSION / AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION:
             //   Window(SUM(v) PARTITION BY k) -> Project(v) -> Scan(t) once t declares
             //   UNIQUE(k); after dropping the declaration and adding (k,10),(k,20) the
             //   original window returns 30,30 while the frozen replay returns 10,20;
-            // - PUSH_DOWN_TOP_N_DISTINCT_THROUGH_JOIN / _PROJECT_JOIN: a hard TopN
+            // PUSH_DOWN_TOP_N_DISTINCT_THROUGH_JOIN / _PROJECT_JOIN: a hard TopN
             //   pushed through the join / project retains rows justified by the
             //   declared uniqueness.
             "SIMPLIFY_WINDOW_EXPRESSION",
@@ -157,13 +140,13 @@ public class SPMOptimizer {
             "PUSH_DOWN_TOP_N_DISTINCT_THROUGH_JOIN",
             "PUSH_DOWN_TOP_N_DISTINCT_THROUGH_PROJECT_JOIN",
 
-            // ===== category 4: equivalence derivation =====
+            // category 4: equivalence derivation.
             "INFER_PREDICATES",                  // predicate derivation
             "INFER_FILTER_NOT_NULL",             // Filter NOT NULL derivation
             "INFER_JOIN_NOT_NULL",               // JOIN NOT NULL derivation
             "CONSTANT_PROPAGATION",              // constant propagation
 
-            // ===== category 5: structural rewrite =====
+            // category 5: structural rewrite.
             "EXTRACT_SINGLE_TABLE_EXPRESSION_FROM_DISJUNCTION", // split OR into single table
             "OR_EXPANSION",                      // OR expansion into UNION
             "PUSH_DOWN_FILTER_THROUGH_WINDOW",   // window predicate push down
@@ -184,12 +167,12 @@ public class SPMOptimizer {
             // reaches the block that has a user-tree counterpart) can never grow the
             // inner one - a captured order-free LIMIT 10 kept returning 10 rows when a
             // matching user query asked for LIMIT 20. The split is an execution
-            // detail; freezing the single-phase limit keeps LIMIT ... OFFSET
+            // detail; freezing the single-phase limit keeps LIMIT... OFFSET
             // semantics (see SPMPlan2SQLBuilder.visitPhysicalLimit for the
             // collapse of already-frozen pairs).
             "SPLIT_LIMIT",
 
-            // ===== category 6: external sources / empty relations (data dependent) =====
+            // category 6: external sources / empty relations (data dependent).
             "PUSH_FILTER_INTO_SCHEMA_SCAN",      // schema table predicate push down
             "ELIMINATE_JOIN_ON_EMPTYRELATION",   // empty-relation operator elimination
             "ELIMINATE_FILTER_ON_EMPTYRELATION",
@@ -202,8 +185,8 @@ public class SPMOptimizer {
             "ELIMINATE_EXCEPT_ON_EMPTYRELATION",
             "ELIMINATE_LIMIT_ON_EMPTY_RELATION",
             "PRUNE_EMPTY_PARTITION",
-            // Partition pruning freezes the CURRENT partition set: `SELECT p FROM t
-            // WHERE p = 99` with only p1 VALUES IN (1) prunes every partition and the
+            // Partition pruning freezes the CURRENT partition set: SELECT p FROM t
+            // WHERE p = 99 with only p1 VALUES IN (1) prunes every partition and the
             // rule emits a LogicalEmptyRelation, which the decompiler stores as WHERE
             // FALSE. ADD PARTITION p99 + a 99 row changes no value schemaFingerprint
             // hashes (the table id and base columns are unchanged), so the same query
@@ -217,7 +200,7 @@ public class SPMOptimizer {
     );
 
     /**
-     * SET_VAR keys that carry the SPM safety overrides (see optimize()): a plan-SQL hint
+     * SET_VAR keys that carry the SPM safety overrides (see optimize): a plan-SQL hint
      * must never clear or weaken them for the nested statement, otherwise the frozen plan
      * could be produced with state-sensitive rewrites re-enabled (e.g.
      * SET_VAR(enable_nereids_rules='') re-enables FK join elimination, so a join could be
@@ -233,7 +216,7 @@ public class SPMOptimizer {
 
     /**
      * Depth of the SPM CAPTURE optimizations running on this thread (see
-     * {@link #isCaptureInProgress}): the parameterized plan of a baseline is optimized by
+     * isCaptureInProgress): the parameterized plan of a baseline is optimized by
      * this class, and a rule that must not lose a piece of USER-VISIBLE intent while that
      * plan is turned into the frozen text (an explicit CAST over a substitutable literal)
      * consults it.
@@ -242,9 +225,9 @@ public class SPMOptimizer {
 
     /**
      * The nested-context factory (see createNestedStatementContext). A seam, not a
-     * configuration: the production value always builds a {@link CaptureStatementContext},
-     * and a unit test substitutes a recording subclass to observe that the close() in
-     * optimize()'s finally releases the context the plan actually used. A construction mock
+     * configuration: the production value always builds a CaptureStatementContext,
+     * and a unit test substitutes a recording subclass to observe that the close in
+     * optimize's finally releases the context the plan actually used. A construction mock
      * of StatementContext cannot see it - the allocation names the SUBCLASS.
      */
     private static volatile java.util.function.BiFunction<ConnectContext, String,
@@ -263,7 +246,7 @@ public class SPMOptimizer {
      * eligible AFTER the baseline was created (the reported case: an async MTMV over the
      * very query, built and refreshed later) then substitutes the MV's storage table for
      * the source table. The post-plan fingerprint guard
-     * (SPMPlanner#verifyReplayMetadata, which pins the frozen plan's tables)
+     * (SPMPlanner.verifyReplayMetadata, which pins the frozen plan's tables)
      * rejects its own replay and, with the default enable_spm_fallback=false, the
      * SELECT fails although the source table has not changed.
      *
@@ -277,7 +260,7 @@ public class SPMOptimizer {
      * elimination, aggregate-to-constant) keep their established fail-closed behavior:
      * the fingerprint mismatch surfaces through the caller's fallback policy.
      *
-     * @param statementContext the REPLAYING statement's context; its rule cache must not
+     * Parameter statementContext: the REPLAYING statement's context; its rule cache must not
      *                         have been computed yet (the callers install the mask before
      *                         the planner runs)
      */
@@ -287,10 +270,10 @@ public class SPMOptimizer {
 
     /**
      * The replay mask: one bit per materialized-view rewrite rule
-     * (RuleType#isMaterializedViewRule(), so newly added MV rules are covered
+     * (RuleType.isMaterializedViewRule, so newly added MV rules are covered
      * automatically).
      *
-     * @return the forbidden-rule mask of the whole MV family
+     * Returns: the forbidden-rule mask of the whole MV family
      */
     private static BitSet materializedViewRuleMask() {
         BitSet mask = new BitSet();
@@ -307,7 +290,7 @@ public class SPMOptimizer {
      * enumerated programmatically so newly added MV rules are excluded from the SPM
      * whitelist automatically.
      *
-     * @return the immutable list of MV rewrite RuleType names
+     * Returns: the immutable list of MV rewrite RuleType names
      */
     public static List<String> getMaterializedViewRuleNames() {
         return ImmutableList.copyOf(Arrays.stream(RuleType.values())
@@ -320,7 +303,7 @@ public class SPMOptimizer {
      * The full set of RuleType names excluded from the SPM whitelist: the explicit
      * state-sensitive list plus the whole MV rewrite family (deduplicated).
      *
-     * @return the immutable list of all SPM-excluded rule names
+     * Returns: the immutable list of all SPM-excluded rule names
      */
     public static List<String> getSpmExcludedRuleNames() {
         return ImmutableList.copyOf(Stream.concat(
@@ -335,13 +318,13 @@ public class SPMOptimizer {
      * created: every RuleType name except the SPM-excluded set, intersected with the
      * caller's existing whitelist when one is configured (a session whitelist is
      * preserved, never widened). The engine turns a non-empty enable_nereids_rules into
-     * the statement-level forbidden-rule mask (StatementContext#getOrCacheDisableRules),
+     * the statement-level forbidden-rule mask (StatementContext.getOrCacheDisableRules),
      * so the excluded rules cannot apply during baseline creation.
      *
-     * @param originalEnabled the previous raw enable_nereids_rules value (may be null /
+     * Parameter originalEnabled: the previous raw enable_nereids_rules value (may be null /
      *                        empty)
-     * @return the comma-separated whitelist (RuleType declaration order)
-     * @throws AnalysisException when the original value names an unknown rule, or when
+     * Returns: the comma-separated whitelist (RuleType declaration order)
+     * Throws AnalysisException: when the original value names an unknown rule, or when
      *                           its intersection with the SPM whitelist is empty (the
      *                           session whitelists only rules that SPM excludes)
      */
@@ -382,20 +365,8 @@ public class SPMOptimizer {
     }
 
     /**
-     * Optimizes a planSql in SPM mode: parse -> analyze -> rewrite -> CBO optimize with
-     * the SPM rule whitelist installed in enable_nereids_rules, then return the best
-     * physical plan and its estimated cost.
-     *
-     * The original enable_nereids_rules value is cached before the call and restored in
-     * a finally block (disable_nereids_rules is not touched). A fresh StatementContext is
-     * used so the per-statement forbidden-rule cache
-     * (CascadesContext.getAndCacheDisableRules) reflects the whitelist.
-     *
-     * @param ctx    the connect context (provides session variables and catalog)
-     * @param planSql the plan SQL to optimize (a SELECT statement, may contain SET_VAR
-     *               hints)
-     * @return the optimization result (best physical plan + estimated cost)
-     * @throws UserException when the SQL cannot be parsed or planned
+     * Parses plan SQL and optimizes the logical query through the SPM nested-context entry. Rejects commands and
+     * non-logical plans. The returned result contains the physical plan, estimated cost and captured metadata.
      */
     public static OptimizeResult optimize(ConnectContext ctx, String planSql) throws UserException {
         Plan parsed = new NereidsParser().parseSingle(planSql);
@@ -407,23 +378,9 @@ public class SPMOptimizer {
     }
 
     /**
-     * Optimizes an already-parsed (possibly parameterized) plan tree in SPM mode:
-     * analyze -> rewrite -> CBO optimize with the SPM rule whitelist installed in
-     * enable_nereids_rules, then return the best physical plan and its estimated cost.
-     *
-     * This is the entry used by CREATE BASELINE when the plan tree is first
-     * parameterized (literals replaced by SpmConstVar / SpmConstList placeholders) and
-     * then optimized: the placeholders travel through the optimizer and survive into
-     * the physical plan, so the decompiled frozen planSql keeps the placeholder ids
-     * (matching the SR model where the frozen SQL is re-parsed and user values are
-     * substituted by id at rewrite time).
-     *
-     * @param ctx          the connect context (provides session variables and catalog)
-     * @param logicalPlan  the (possibly parameterized) SELECT plan tree
-     * @param originSql    the original SQL text (used for the statement context /
-     *                     error messages)
-     * @return the optimization result (best physical plan + estimated cost)
-     * @throws UserException when the plan cannot be analyzed / planned
+     * Optimizes an already parsed logical plan with the nested statement rule mask and capture settings.
+     * Parameterized marker nodes can survive into the physical plan, allowing frozen SQL to retain ids for replay
+     * substitution. Session settings and the outer context are restored when planning finishes or fails.
      */
     public static OptimizeResult optimize(ConnectContext ctx, LogicalPlan logicalPlan, String originSql)
             throws UserException {
@@ -437,15 +394,15 @@ public class SPMOptimizer {
         // analyzed: analysis INLINES an alias-UDF body, so the frozen text keeps the OLD body
         // while a fingerprint derived afterwards would describe whatever definition the registry
         // holds then. CREATE compares this snapshot with the entries it derives (see
-        // SPMPlanTreeSupport#schemaFingerprintForCreateFromLockedEntries) and refuses to certify
-        // a baseline whose expansion and fingerprint disagree (round-77 #4).
+        // SPMPlanTreeSupport.schemaFingerprintForCreateFromLockedEntries) and refuses to certify
+        // a baseline whose expansion and fingerprint disagree.
         java.util.TreeSet<String> bindFunctionSnapshot =
                 SPMPlanTreeSupport.bindFunctionDependencyEntries(ctx, logicalPlan);
         // The alias-body safety check of the CREATE entry point ran BEFORE this snapshot, so a
-        // definition REPLACED in between (`f() -> abs(1)` swapped for `f() -> current_user()`)
+        // definition REPLACED in between (f() -> abs(1) swapped for f() -> current_user())
         // was certified by both dependency snapshots (they already describe the unsafe body)
         // while the capture inlined it and folded the CREATOR's identity into the frozen SQL
-        // (round-86). Re-running the check against the SAME registry state the snapshot
+        // . Re-running the check against the SAME registry state the snapshot
         // describes closes that window: any LATER change is caught by the registry version
         // fence below.
         if (SPMPlanTreeSupport.containsReplayContextInAliasBodies(ctx, logicalPlan)) {
@@ -459,7 +416,7 @@ public class SPMOptimizer {
         // The registry's monotonic UDF version at the SAME instant: equal entry sets before /
         // after analysis do not prove nothing changed - a definition recreated and then restored
         // leaves both snapshots identical while the expansion inlined the INTERMEDIATE body, so
-        // CREATE also requires that the definitions did not MOVE at all (round-79 #9).
+        // CREATE also requires that the definitions did not MOVE at all.
         long functionRegistryVersionBefore = SPMPlanTreeSupport.functionRegistryVersion();
         StatementContext statementContext = createNestedStatementContext(ctx, originSql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
@@ -491,12 +448,12 @@ public class SPMOptimizer {
             // The WITH structure of the user query must survive into the frozen planSql:
             // the decompiler turns PhysicalCTEAnchor / PhysicalCTEProducer /
             // PhysicalCTEConsumer into a real WITH clause (one shared definition,
-            // referenced by alias), like StarRocks. Three settings are overridden while
+            // referenced by alias). Three settings are overridden while
             // the baseline plan is produced:
-            // - enable_cte_materialize / inline_cte_referenced_threshold: by default the
+            // enable_cte_materialize / inline_cte_referenced_threshold: by default the
             //   engine inlines a CTE with a single consumer (a common TPCDS shape), which
             //   deletes the anchor from the optimized plan before the decompiler can see it;
-            // - cte_inline_mode = -1: mode 0 (the default) builds an alternative fully
+            // cte_inline_mode = -1: mode 0 (the default) builds an alternative fully
             //   inlined plan and uses it when consumer filters can eliminate union branches
             //   of the CTE body, which silently drops WITH for such queries (TPCDS q04/
             //   q11/q74); SPM needs the anchored plan, and a re-plan at rewrite time still
@@ -508,10 +465,10 @@ public class SPMOptimizer {
             sessionVar.cteInlineMode = -1;
             // Install the FRESH statement context for the whole nested plan: the table
             // collector caches the SELECT tables into the ConnectContext's CURRENT
-            // statement context, and collectAndLockTable() then locks THAT object. When
+            // statement context, and collectAndLockTable then locks THAT object. When
             // the caller (StmtExecutor for a CREATE BASELINE statement) already installed
             // the outer command's context, leaving it active made collectRelation cache
-            // into the outer object while lock() ran on the fresh (empty) one: the nested
+            // into the outer object while lock ran on the fresh (empty) one: the nested
             // plan was optimized / decompiled WITHOUT its metadata-stability locks and
             // could race concurrent ALTER / DROP. The exact original (possibly null) is
             // restored in the finally below.
@@ -521,7 +478,7 @@ public class SPMOptimizer {
             // decompiler (the physical plan already carries distribution specs).
             // The root physical plan is the RETURN value of planWithLock: the planner's
             // physicalPlan field is only assigned through the lockCallback used by
-            // plan(), so planner.getPhysicalPlan() would be null here.
+            // plan, so planner.getPhysicalPlan would be null here.
             //
             // The result becomes the FROZEN text, so the thread is marked as a CAPTURE
             // while it is produced: a rule that would erase user-visible intent the frozen
@@ -546,7 +503,7 @@ public class SPMOptimizer {
             // The bind-side tables of this plan were resolved UNDER the locks taken above
             // and are read here, while the nested statement context that owns them is still
             // open: a fingerprint computed later can only re-resolve the LIVE catalog (see
-            // OptimizeResult#tableSnapshot).
+            // OptimizeResult.tableSnapshot).
             return new OptimizeResult((PhysicalPlan) resultPlan,
                     extractCost((PhysicalPlan) resultPlan),
                     snapshotTables(statementContext.getTables()),
@@ -567,7 +524,7 @@ public class SPMOptimizer {
             // The nested statement context OWNS everything the nested plan
             // registered on it - the connector scope an external (e.g. Iceberg) bind
             // installed, whose table-cache lease / tracked tables are released only by
-            // close() (connectorStatementScope.closeAll), plus its planner resources
+            // close (connectorStatementScope.closeAll), plus its planner resources
             // (releasePlannerResources). Restoring the outer context above is NOT a
             // substitute: the statement's own teardown (ConnectProcessor / the
             // forwarded-request finally) later closes only the context the session
@@ -584,14 +541,14 @@ public class SPMOptimizer {
     private static StatementContext createNestedStatementContext(ConnectContext ctx,
             String originSql) {
         StatementContext nested = nestedContextFactory.apply(ctx, originSql);
-        // The plan tree handed to optimize() was PARSED under the caller's statement context, and
+        // The plan tree handed to optimize was PARSED under the caller's statement context, and
         // parsing already allocates ExprIds: LogicalPlanBuilder builds a BOUND Alias for a literal
-        // select item (`SELECT 7 AS b`), so such an item carries an id from the OUTER generator.
+        // select item (SELECT 7 AS b), so such an item carries an id from the OUTER generator.
         // A nested context starts its own generators at 0, so the scan columns bound below get the
-        // SAME small ids, and because SlotReference#equals / hashCode compare only the exprId,
+        // SAME small ids, and because SlotReference.equals / hashCode compare only the exprId,
         // every Map<Slot, Expression> substitution (projection merging / column pruning) then
-        // conflates the derived constant column with a real one: `SELECT k, ... FROM
-        // (SELECT k, 7 AS b FROM t) x` froze as `SELECT _spm_const_var(1) AS k, ...` and replayed
+        // conflates the derived constant column with a real one: SELECT k,... FROM
+        // (SELECT k, 7 AS b FROM t) x froze as SELECT _spm_const_var(1) AS k,... and replayed
         // the CONSTANT for every k. Continuing the generators keeps every id this statement
         // allocates above the ids the swapped-in tree already carries.
         StatementContext outer = ctx.getStatementContext();
@@ -604,7 +561,7 @@ public class SPMOptimizer {
     /**
      * Installs a nested-context factory for one test (see nestedContextFactory).
      *
-     * @param factory the factory, or null to restore the production one
+     * Parameter factory: the factory, or null to restore the production one
      */
     static void setNestedContextFactoryForTest(java.util.function.BiFunction<ConnectContext,
             String, StatementContext> factory) {
@@ -613,11 +570,11 @@ public class SPMOptimizer {
 
     /**
      * The locked bind-side tables of one nested plan, keyed like
-     * SPMPlanTreeSupport#lockedTablesByQualifiedName (bare name and database-qualified
+     * SPMPlanTreeSupport.lockedTablesByQualifiedName (bare name and database-qualified
      * name, lower case). MUST be read before the nested statement context is closed.
      *
-     * @param tables the nested statement's resolved tables (qualifier to TableIf)
-     * @return lowercase bare / db-qualified table name to the under-lock TableIf
+     * Parameter tables: the nested statement's resolved tables (qualifier to TableIf)
+     * Returns: lowercase bare / db-qualified table name to the under-lock TableIf
      */
     private static java.util.Map<String, org.apache.doris.catalog.TableIf> snapshotTables(
             java.util.Map<List<String>, org.apache.doris.catalog.TableIf> tables) {
@@ -661,8 +618,8 @@ public class SPMOptimizer {
 
     /**
      * Walks the WHOLE statement and rejects any SELECT hint targeting a protected
-     * variable. The walk must follow the plans held outside children() (CTE bodies via
-     * extraPlans(), IN / EXISTS / scalar subquery plans via SubqueryExpr.queryPlan and
+     * variable. The walk must follow the plans held outside children (CTE bodies via
+     * extraPlans, IN / EXISTS / scalar subquery plans via SubqueryExpr.queryPlan and
      * through expression coercions): a hint inside a CTE definition or a subquery would
      * otherwise escape the pre-scan and EliminateLogicalSelectHint would apply it AFTER
      * the SPM CTE / TopN serialization overrides were installed, letting CTE inlining or
@@ -712,20 +669,9 @@ public class SPMOptimizer {
     }
 
     /**
-     * Extracts the estimated cost of the root physical plan.
-     *
-     * The cost is estimated over the PARAMETERIZED plan tree, whose literals are still
-     * SpmConstVar / SpmConstList placeholder calls (not concrete values), so predicates
-     * such as c > SpmConstVar(...) cannot be folded and their selectivity falls back to
-     * the optimizer's default (e.g. 1/3). The absolute value is therefore not the cost
-     * of any one concrete query; it is only used as a RELATIVE ranking key among the
-     * baselines that share one bind digest (when several stored plans exist, the
-     * cheapest frozen plan wins - see BaselineManager), exactly like StarRocks, which
-     * also takes the CBO cost of the placeholder-carrying optimized plan
-     * (optimizedPlan.getCost()) with no placeholder-specific adjustment.
-     *
-     * @param physicalPlan the root physical plan
-     * @return the cost value (0 when the group cost is not available)
+     * Reads the root group cost for PhysicalProperties.ANY, returning zero when unavailable or when lookup fails.
+     * For parameterized plans the estimate uses marker expressions and is a relative candidate-ranking input,
+     * rather than a measurement of a concrete query execution.
      */
     private static double extractCost(PhysicalPlan physicalPlan) {
         try {
@@ -751,8 +697,8 @@ public class SPMOptimizer {
         /**
          * The under-lock metadata snapshot of the statement's catalog relations, keyed by
          * bare / database-qualified lowercase table name (see
-         * SPMPlanTreeSupport#schemaFingerprintForCreate). The nested statement context
-         * that owns these TableIf objects is CLOSED when optimize() returns, so a
+         * SPMPlanTreeSupport.schemaFingerprintForCreate). The nested statement context
+         * that owns these TableIf objects is CLOSED when optimize returns, so a
          * fingerprint computed afterwards could only re-resolve the tables from the LIVE
          * catalog - hashing a schema a concurrent ALTER may already have changed while
          * the frozen output slots still describe the older one (the CREATE-time
@@ -762,23 +708,23 @@ public class SPMOptimizer {
 
         /**
          * Table fingerprint entries hashed WHILE the planning locks were held (see
-         * {@link CaptureStatementContext}): lower-case bare / db-qualified /
+         * CaptureStatementContext): lower-case bare / db-qualified /
          * catalog-qualified table name to the entry. The TableIf objects are MUTABLE in
-         * place, so a fingerprint computed after optimize() returned could pair the frozen
+         * place, so a fingerprint computed after optimize returned could pair the frozen
          * output slots with a NEWER schema.
          */
         private final java.util.Map<String, String> tableFingerprints;
 
         /**
          * The FUNCTION dependency entries the bind text resolved to BEFORE the nested plan was
-         * analyzed (see SPMPlanTreeSupport#bindFunctionDependencyEntries), or null when the
+         * analyzed (see SPMPlanTreeSupport.bindFunctionDependencyEntries), or null when the
          * caller did not capture one.
          *
          * Analysis inlines an alias-UDF body, so the frozen text is a snapshot of the
          * definition that was live at expansion time while the CREATE fingerprint derives its
          * function entries from the LIVE registry afterwards. A redefinition inside that window
          * made both checks pass with a body the registry no longer holds, and the replay
-         * returned the OLD implementation's result (round-77 #4). The snapshot lets CREATE
+         * returned the OLD implementation's result. The snapshot lets CREATE
          * prove the two agree.
          */
         private final java.util.Set<String> bindFunctionDependencies;
@@ -786,15 +732,15 @@ public class SPMOptimizer {
         /**
          * The registry's UDF-definition version read together with the snapshot above, or null
          * when the caller recorded none (see
-         * SPMPlanTreeSupport#schemaFingerprintForCreateFromLockedEntries).
+         * SPMPlanTreeSupport.schemaFingerprintForCreateFromLockedEntries).
          */
         private final Long functionRegistryVersion;
 
         /**
          * The PARTITION NAMES of every OLAP table the statement resolved, snapshotted WHILE the
-         * planning locks were held (round-86): table id to partition id to name. The frozen
+         * planning locks were held: table id to partition id to name. The frozen
          * PARTITION(...) clause names partitions by id, and the renderer runs AFTER
-         * {@link #optimize} released the locks - a `RENAME PARTITION` in that window made it emit
+         * optimize released the locks - a RENAME PARTITION in that window made it emit
          * the NEW name while the stored bind text still said the old one, so a later caller
          * pinning the old name (on another partition) matched the bind and replayed the renamed
          * one.
@@ -827,15 +773,15 @@ public class SPMOptimizer {
         /**
          * The full result: the physical plan, its cost, the under-lock table snapshot, the
          * fingerprint entries hashed under the locks, the bind-side FUNCTION entries captured
-         * before analysis and the UDF registry version read at that same instant (see the field
+         * before analysis and the UDF registry version read before analysis (see the field
          * javadocs).
          *
-         * @param physicalPlan           the optimized physical plan
-         * @param cost                   its estimated cost
-         * @param tableSnapshot          the under-lock bind-side tables
-         * @param tableFingerprints      the under-lock table fingerprint entries
-         * @param bindFunctionDependencies the pre-analysis function entries, or null
-         * @param functionRegistryVersion the pre-analysis UDF registry version, or null
+         * Parameter physicalPlan: the optimized physical plan
+         * Parameter cost: its estimated cost
+         * Parameter tableSnapshot: the under-lock bind-side tables
+         * Parameter tableFingerprints: the under-lock table fingerprint entries
+         * Parameter bindFunctionDependencies: the pre-analysis function entries, or null
+         * Parameter functionRegistryVersion: the pre-analysis UDF registry version, or null
          */
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
@@ -849,13 +795,13 @@ public class SPMOptimizer {
         /**
          * The full result including the under-lock PARTITION NAMES (see the field javadoc).
          *
-         * @param physicalPlan            the optimized physical plan
-         * @param cost                    its estimated cost
-         * @param tableSnapshot           the under-lock bind-side tables
-         * @param tableFingerprints       the under-lock table fingerprint entries
-         * @param bindFunctionDependencies the pre-analysis function entries, or null
-         * @param functionRegistryVersion the pre-analysis UDF registry version, or null
-         * @param partitionNames          table id to partition id to the ADMITTED name
+         * Parameter physicalPlan: the optimized physical plan
+         * Parameter cost: its estimated cost
+         * Parameter tableSnapshot: the under-lock bind-side tables
+         * Parameter tableFingerprints: the under-lock table fingerprint entries
+         * Parameter bindFunctionDependencies: the pre-analysis function entries, or null
+         * Parameter functionRegistryVersion: the pre-analysis UDF registry version, or null
+         * Parameter partitionNames: table id to partition id to the ADMITTED name
          */
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
@@ -890,7 +836,7 @@ public class SPMOptimizer {
          * The bind-side tables as they were resolved UNDER the planning locks (see the
          * field javadoc); empty when unknown.
          *
-         * @return lowercase bare / db-qualified table name to the locked TableIf
+         * Returns: lowercase bare / db-qualified table name to the locked TableIf
          */
         public java.util.Map<String, org.apache.doris.catalog.TableIf> getTableSnapshot() {
             return tableSnapshot;
@@ -900,7 +846,7 @@ public class SPMOptimizer {
          * The table fingerprint entries hashed under the planning locks (see the field
          * javadoc).
          *
-         * @return lowercase table name to the fingerprint entry
+         * Returns: lowercase table name to the fingerprint entry
          */
         public java.util.Map<String, String> getTableFingerprints() {
             return tableFingerprints;
@@ -910,17 +856,17 @@ public class SPMOptimizer {
          * The FUNCTION dependency entries captured before the nested plan was analyzed (see the
          * field javadoc), or null when the capture recorded none.
          *
-         * @return the bind-side function entries captured at expansion time
+         * Returns: the bind-side function entries captured at expansion time
          */
         public java.util.Set<String> getBindFunctionDependencies() {
             return bindFunctionDependencies;
         }
 
         /**
-         * The UDF registry version read at the same instant as the function entries above (see
+         * The UDF registry version read before analysis, after the function entry snapshot (see
          * the field javadoc), or null when the capture recorded none.
          *
-         * @return the pre-analysis UDF version
+         * Returns: the pre-analysis UDF version
          */
         public Long getFunctionRegistryVersion() {
             return functionRegistryVersion;
@@ -928,21 +874,18 @@ public class SPMOptimizer {
     }
 
     /**
-     * The nested statement context of one baseline-plan optimization: it records the
-     * fingerprint of EVERY table the capture analysis resolves, at the moment the table is
-     * cached - i.e. while the planning locks are held.
-     *
-     * A TableIf is mutable in place: `ALTER TABLE ... ADD COLUMN` updates the SAME object, so
-     * describing it after `planWithLock` released the locks hashed a schema the frozen output
-     * slots (and the decompiled planSql) never saw. The replay guard then accepted the stale
-     * baseline and silently returned the old column set.
+     * Nested capture context that records table fingerprints and partition names. Initial relation lookup can
+     * occur before metadata locks are held, so lock refreshes all collected entries after acquiring the locks.
+     * Later lookups overwrite entries with the metadata seen during analysis.
      */
     private static final class CaptureStatementContext extends StatementContext {
         private final java.util.Map<String, String> tableFingerprints =
                 new java.util.concurrent.ConcurrentHashMap<>();
 
-        /** table id -> partition id -> the name the LOCKED bind resolved (see
-         * OptimizeResult#getPartitionNames). */
+        /**
+         * table id -> partition id -> the name the LOCKED bind resolved (see
+         * OptimizeResult.getPartitionNames).
+         */
         private final java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames =
                 new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -966,14 +909,14 @@ public class SPMOptimizer {
          * Re-hashes every collected table the moment the planning locks are HELD.
          *
          * CollectRelation resolves (and caches) the statement's relations BEFORE
-         * NereidsPlanner#collectAndLockTable acquires the locks, so this override's
-         * getAndCacheTable hook ran UNLOCKED: for `t(k, v)` a concurrent
-         * `ALTER TABLE t DROP COLUMN v` could land between that resolution and the lock, the
-         * locked capture froze `Project(k, k + ph AS z) over Scan(t[k])` (the NEW schema) while
-         * the recorded entry still described the OLD one (`[k, v]`), and re-adding `v` with the
+         * NereidsPlanner.collectAndLockTable acquires the locks, so this override's
+         * getAndCacheTable hook ran UNLOCKED: for t(k, v) a concurrent
+         * ALTER TABLE t DROP COLUMN v could land between that resolution and the lock, the
+         * locked capture froze Project(k, k + ph AS z) over Scan(t[k]) (the NEW schema) while
+         * the recorded entry still described the OLD one ([k, v]), and re-adding v with the
          * same type / nullability restored that old name-and-type string - so the identical
-         * `SELECT t.*, k + 1 AS z` passed BOTH fingerprint checks and replayed a plan that
-         * omits `v` (round-75 #1). Re-recording here makes every stored entry describe the
+         * SELECT t.*, k + 1 AS z passed BOTH fingerprint checks and replayed a plan that
+         * omits v. Re-recording here makes every stored entry describe the
          * schema the LOCKED bind actually saw; a table FIRST resolved after the lock is
          * recorded correctly by getAndCacheTable, which now OVERWRITES instead of keeping the
          * first value.
@@ -982,7 +925,7 @@ public class SPMOptimizer {
         public synchronized void lock() {
             super.lock();
             SPMPlanTreeSupport.recordTableFingerprints(tableFingerprints, getTables());
-            // the PARTITION NAMES of the locked bind, snapshotted in the same window (round-86):
+            // the PARTITION NAMES of the locked bind, snapshotted in the same window:
             // a RENAME PARTITION committing after this point must not change the name the
             // frozen PARTITION(...) clause carries
             SPMPlanTreeSupport.recordPartitionNames(partitionNames, getTables().values());
@@ -999,13 +942,13 @@ public class SPMOptimizer {
 
     /**
      * Whether the current thread is optimizing a BASELINE CAPTURE plan (see
-     * SPMOptimizer#optimize): SimplifyCastRule keeps an EXPLICIT cast that it would
+     * SPMOptimizer.optimize): SimplifyCastRule keeps an EXPLICIT cast that it would
      * otherwise discard as redundant, because the placeholder it wraps reports the
      * CAPTURED literal's type - eliminating the conversion froze a plan that silently
      * dropped the user's cast, and a matching query whose literal has a WIDER type then
      * substituted it without any conversion.
      *
-     * @return true while a capture optimization (or its replan probe) is running here
+     * Returns: true while a capture optimization (or its replan probe) is running here
      */
     public static boolean isCaptureInProgress() {
         Integer depth = CAPTURE_DEPTH.get();

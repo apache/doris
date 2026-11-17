@@ -21,56 +21,34 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.SqlModeHelper;
 
 /**
- * BaselinePlan - SPM baseline data model.
- *
- * Corresponds to design doc sections 6.1 and 6.14 (the spm_baselines table). A baseline
- * describes:
- *
- * - bindSql: the binding SQL used for matching (contains literals, shown by SHOW)
- * - bindSqlDigest: the parameterized binding SQL (used for exact digest matching, Level 2)
- * - bindSqlHash: a 64-bit structural hash (used for fast in-memory index filtering, Level 1)
- * - planSql: the frozen plan SQL (contains HINTs and placeholders, executed during query
- *   rewrite)
- * - queryId: the audit_log identity of the statement that produced this baseline.
- *   CREATE BASELINE PLAN stores the queryId of the CREATE statement itself and auto
- *   capture the queryId of the captured query, so the audit_log row (db / user / timing /
- *   the full stmt text) of the originating statement can be looked up through
- *   a SELECT over __internal_schema.audit_log filtered by this query_id.
- *   For auto-captured baselines the audit row carries the very stmt text that was
- *   stored here as bindSql (the capture pipeline reads bindSql from audit_log verbatim),
- *   so the two texts can be compared directly.
+ * Baseline metadata and transient trees used to match and replay a query plan. The bind digest is a canonical
+ * structural key. The stored plan SQL is either a decompiled frozen plan or the original plan SQL retained for
+ * fallback planning.
  */
 public class BaselinePlan {
 
-    /** Globally unique id (auto-increment). */
+    /** Store-assigned identifier. Its range distinguishes GLOBAL and SESSION scope. */
     private long id;
 
     /** The original binding SQL (contains literals, used for SHOW). */
     private String bindSql;
 
-    /** The parameterized binding SQL (used for exact digest matching). */
+    /** Canonical structural digest of the parameterized bind query, used for exact digest matching. */
     private String bindSqlDigest;
 
     /** A 64-bit structural hash (used for fast in-memory index filtering). */
     private long bindSqlHash;
 
-    /** The frozen plan SQL (contains HINTs and placeholder functions). */
+    /** Stored plan SQL, either decompiled frozen SQL or the original fallback SQL. */
     private String planSql;
 
-    /**
-     * The audit_log query id (DebugUtil.printId format, e.g. "8c1afc857d724b74-aa87f48b9de66193")
-     * of the statement that produced this baseline: the CREATE BASELINE PLAN statement for
-     * source = USER, the captured query for source = CAPTURE. Persisted as the `query_id`
-     * column (see design doc 6.14.1) so the corresponding audit_log row - and through it the
-     * full statement text, db / user and execution statistics - can be located by query id.
-     * Empty when unknown (e.g. an internal context without a query id).
-     */
+    /** Query id of the statement that created the baseline; empty when unavailable. */
     private String queryId = "";
 
     /** The CBO estimated cost. */
     private double cost;
 
-    /** Actual execution time in milliseconds (-1 means unknown; only filled for auto capture). */
+    /** Recorded execution time in milliseconds; a negative value means unknown. */
     private long queryTimeMs = -1;
 
     /** Source: USER (manual) / CAPTURE (auto capture). */
@@ -88,12 +66,12 @@ public class BaselinePlan {
      */
     private transient BaselineScope scope = BaselineScope.GLOBAL;
 
-    /** Creation time (epoch millis). */
+    /** Creation time in epoch microseconds. */
     private long createTime;
 
     /**
      * The parser-relevant sql_mode bits of the CREATING session (persisted in the
-     * `sql_mode` column). The stored bindSql is USER-authored text: re-parsing it under
+     * sql_mode column). The stored bindSql is USER-authored text: re-parsing it under
      * MODE_DEFAULT could change its meaning - under PIPES_AS_CONCAT a || b is
      * concat(a, b), while a default-mode parse produces a boolean Or - so the reloaded
      * bind tree would still be found by the stored digest but fail Level-3 structural
@@ -130,60 +108,41 @@ public class BaselinePlan {
      * query at CREATE time (empty / null = pre-column rows). Matching validates it
      * against the current session's tables before replaying the frozen plan: the bind
      * key is built from the still-unbound query, so without the fingerprint an ALTER
-     * TABLE ... ADD COLUMN keeps matching while the frozen result sink still emits the
+     * TABLE... ADD COLUMN keeps matching while the frozen result sink still emits the
      * creator-time output columns.
      */
     private String schemaFingerprint;
 
     /**
-     * Canonical digest of the SUBMITTED plan SQL (empty / null = pre-column rows).
-     * The bind digest identifies the binding but NOT the plan text: two baselines may
-     * share one bind digest while carrying different plan texts, so this is the
-     * plan-side identity a follower compares when confirming a forwarded CREATE (the
-     * persisted plan text itself is the DECOMPILED one and never matches the submitted
-     * text).
+     * Canonical digest of the submitted plan SQL, used to confirm the identity of a forwarded CREATE independently
+     * of the stored plan rendering.
      */
     private String planSqlDigest;
 
-    /** Last update time (epoch millis). */
+    /** Last update time in epoch microseconds. */
     private volatile long updateTime;
 
     /**
-     * The parameterized whole-query bind plan tree (transient, not persisted): the
-     * parsed bindSql with EVERY literal replaced by a placeholder (SpmConstVar /
-     * SpmConstList), including literals inside subqueries. Produced by
-     * SPMPlaceholderBuilder over the whole tree, with a single shared builder so
-     * placeholder ids are globally unique and stay aligned with
-     * parameterizedPlanPlan. Used for the Level 3 structural comparison against
-     * the user query (value extraction).
+     * Transient bind tree with supported literal positions replaced by scalar or list markers. Used for structural
+     * matching and extraction of the current query expressions. Marker ids are allocated within the builder, with
+     * corresponding bind and plan occurrences sharing ids.
      */
     private transient LogicalPlan parameterizedBindPlan;
 
     /**
-     * The parameterized whole-query plan plan tree (transient, not persisted): the
-     * parsed planSql with the same placeholders as parameterizedBindPlan.
-     * During a rewrite the placeholders are substituted with the user's actual values
-     * and the resulting tree is planned normally.
-     *
-     * Not stored in the internal table; rebuilt at startup load / periodic refresh from
-     * the persisted bindSql + planSql texts with ONE shared builder in the CREATE order
-     * (see SPMPlanner#rebuildParameterizedTrees and
-     * BaselineManager#readPersistedSnapshot), unless the planSql is a frozen
-     * (placeholder-carrying) text - such baselines replay the frozen text directly and
-     * keep this field null.
-     *
-     * The rebuild is LAZY (see treesPending): the snapshot decode reads the persisted
-     * scalars only and the trees are built when the row actually enters the match cache.
+     * Transient parameterized fallback plan tree. Matching supplies replacements for its markers before normal
+     * planning. Rebuilt lazily from stored SQL when needed; frozen SQL is replayed directly and does not require
+     * this tree.
      */
     private transient LogicalPlan parameterizedPlanPlan;
 
     /**
      * Whether the transient trees of this row are still PENDING: the shallow snapshot
-     * decode (see BaselineManager#shallowPersistedRow) reads only the persisted SCALARS -
+     * decode (see BaselineManager.shallowPersistedRow) reads only the persisted SCALARS -
      * a load / refresh snapshot serves the hash index, the mutation-fence settlement, the
      * tombstone filter, the duplicate collapse and the id watermark, none of which parses
      * SQL - and marks the row so its trees are rebuilt LAZILY, exactly when the row enters
-     * the per-bindSql match cache (see BaselineManager#deepenPersistedRow).
+     * the per-bindSql match cache (see BaselineManager.deepenPersistedRow).
      *
      * A row whose trees were never rebuilt must never serve a match / rewrite: the
      * placeholder substitution would run against a null tree. Not persisted, transient
@@ -235,7 +194,7 @@ public class BaselinePlan {
      * Returns the audit_log query id of the statement that produced this baseline (see the
      * field javadoc); empty when unknown.
      *
-     * @return the audit query id
+     * Returns: the audit query id
      */
     public String getQueryId() {
         return queryId;
@@ -303,9 +262,9 @@ public class BaselinePlan {
 
     /**
      * Returns the parser-relevant sql_mode bits of the creating session (see the field
-     * javadoc); SqlModeHelper#MODE_DEFAULT when unknown.
+     * javadoc); SqlModeHelper.MODE_DEFAULT when unknown.
      *
-     * @return the creation sql_mode bits
+     * Returns: the creation sql_mode bits
      */
     public long getCreatorSqlMode() {
         return creatorSqlMode;
@@ -319,7 +278,7 @@ public class BaselinePlan {
      * Returns the parser mode the stored planSql must be re-parsed with (see the field
      * javadoc); null for pre-column rows / when unknown (callers pin MODE_DEFAULT).
      *
-     * @return the stored planSql parse mode, or null
+     * Returns: the stored planSql parse mode, or null
      */
     public Long getPlanSqlMode() {
         return planSqlMode;
@@ -334,7 +293,7 @@ public class BaselinePlan {
      * frozen text (see the field javadoc); null for pre-column rows (classify by
      * parsing) or when unknown.
      *
-     * @return the persisted frozen provenance, or null
+     * Returns: the persisted frozen provenance, or null
      */
     public Boolean getPlanFrozen() {
         return planFrozen;
@@ -349,7 +308,7 @@ public class BaselinePlan {
      * field javadoc); null / empty for pre-column rows and table-less queries (no
      * validation possible / needed).
      *
-     * @return the schema fingerprint, or null
+     * Returns: the schema fingerprint, or null
      */
     public String getSchemaFingerprint() {
         return schemaFingerprint;
@@ -364,7 +323,7 @@ public class BaselinePlan {
      * null / empty for pre-column rows, in which case only the bind digest can
      * identify the row.
      *
-     * @return the canonical plan digest, or null
+     * Returns: the canonical plan digest, or null
      */
     public String getPlanSqlDigest() {
         return planSqlDigest;
@@ -375,13 +334,8 @@ public class BaselinePlan {
     }
 
     /**
-     * A detached copy of the PERSISTED scalar fields (no transient trees): used to write
-     * a status change durably WITHOUT publishing it on the live object first (see
-     * BaselineManager#updateStatus) - matching readers do not take the writer lock, so
-     * an early setStatus would let a concurrent query replay a baseline whose durable
-     * row is still DISABLED if the write later fails.
-     *
-     * @return the detached copy
+     * Copies stored scalar metadata and the store-supplied scope. Transient plan trees and their pending-rebuild
+     * flag are not copied.
      */
     public BaselinePlan copyPersistedScalars() {
         BaselinePlan copy = new BaselinePlan();
@@ -410,7 +364,7 @@ public class BaselinePlan {
      * Returns the parameterized whole-query bind plan tree (may be null when the
      * baseline was built without a parsed bind plan).
      *
-     * @return the parameterized bind plan tree
+     * Returns: the parameterized bind plan tree
      */
     public LogicalPlan getParameterizedBindPlan() {
         return parameterizedBindPlan;
@@ -424,7 +378,7 @@ public class BaselinePlan {
      * Returns the parameterized whole-query plan plan tree (may be null when the
      * baseline was built without a parsed plan plan).
      *
-     * @return the parameterized plan plan tree
+     * Returns: the parameterized plan plan tree
      */
     public LogicalPlan getParameterizedPlanPlan() {
         return parameterizedPlanPlan;
@@ -438,7 +392,7 @@ public class BaselinePlan {
      * Whether the transient trees still have to be rebuilt (see treesPending): a shallow
      * snapshot row is deepened before it enters the match cache.
      *
-     * @return whether the trees are pending
+     * Returns: whether the trees are pending
      */
     public boolean isTreesPending() {
         return treesPending;
@@ -447,7 +401,7 @@ public class BaselinePlan {
     /**
      * Marks (or clears) the pending state of the transient trees (see treesPending).
      *
-     * @param treesPending whether the trees have to be rebuilt
+     * Parameter treesPending: whether the trees have to be rebuilt
      */
     public void setTreesPending(boolean treesPending) {
         this.treesPending = treesPending;

@@ -34,23 +34,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * SPMFrozenTreeReplacer - placeholder replacer for the RE-PARSED frozen plan tree (M3).
- *
- * At rewrite time the frozen planSql - the decompiled optimal plan
- * carrying the placeholder ids, join distribution hints ([BROADCAST] / [SHUFFLE]) and the
- * pushed-down structure - is re-parsed into an unbound logical plan. In that tree a
- * placeholder is NOT an in-memory SpmConstVar / SpmConstList node (those
- * only exist inside the parameterized bind / plan trees) but a raw parsed function call:
- *
- *   _spm_const_var(id) - a scalar placeholder, possibly wrapped by an outer
- *       CAST (the optimizer typed it at CREATE time), e.g.
- *       a > CAST(_spm_const_var(1) AS INT);
- *   _spm_const_list(id) - the single option of an IN predicate, e.g.
- *       x IN (_spm_const_list(3)).
- *
- * This replacer identifies those calls by name + leading integer literal (the id) and
- * substitutes the actual user value (extracted by SPMAstCheckVisitor from the bind tree)
- * - mirroring SR's PlaceholderReplacer which visits FunctionCallExpr and InPredicate.
+ * Replaces unqualified marker function calls in a parsed frozen plan expression. Scalar ids select matched
+ * expressions; a list marker inside an IN predicate selects replacement options. Outer casts and operators remain
+ * in place. The caller checks for unresolved marker calls before using the rewritten plan.
  */
 public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Long, Expression>> {
 
@@ -61,13 +47,8 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
     public static final String CONST_LIST_FUNC = "_spm_const_list";
 
     /**
-     * Substitutes every placeholder call of the frozen (re-parsed) tree expression with
-     * the user value registered under the placeholder id.
-     *
-     * @param expr              the frozen-tree expression (may contain placeholders)
-     * @param placeholderValues placeholder id -> user actual value (extracted from the
-     *                          bind-side structural check)
-     * @return the substituted expression
+     * Applies available substitutions to a frozen-tree expression. Missing mappings and unsupported child rebuilds
+     * can leave marker calls in the result.
      */
     public Expression replace(Expression expr, Map<Long, Expression> placeholderValues) {
         return expr.accept(this, placeholderValues);
@@ -76,7 +57,7 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
     /**
      * Returns whether the expression is a frozen-tree placeholder call
      * (_spm_const_var(id) / _spm_const_list(id)) that was NOT substituted
-     * - such an expression must never reach the analyzer (the function is not registered),
+     * such an expression must never reach the analyzer (the function is not registered),
      * so a rewritten tree containing one must be rejected by the caller.
      */
     public static boolean isUnsubstitutedPlaceholder(Expression expr) {
@@ -86,7 +67,7 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
             // QUALIFIED call such as db._spm_const_var(1) is a legal user UDF reference:
             // classifying it as a placeholder would let the replacer replace the whole
             // real function call by the user's literal (returning the literal instead of
-            // evaluating the UDF). Provenance (BaselinePlan#planFrozen) is the primary
+            // evaluating the UDF). Provenance (BaselinePlan.planFrozen) is the primary
             // guard; this name + namespace check keeps the legacy parse-based fallback
             // from forging a frozen tree out of ordinary raw-fallback text.
             String dbName = function.getDbName();
@@ -97,7 +78,7 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
             if (!CONST_VAR_FUNC.equals(name) && !CONST_LIST_FUNC.equals(name)) {
                 return false;
             }
-            // The marker ALWAYS carries a single INTEGER-literal id argument. A GLOBAL
+            // SPM emits a single integer-literal id argument. A GLOBAL
             // user UDF may legally be named _spm_const_var (an unqualified call has no
             // namespace), and _spm_const_var(k) is exactly such a call - classifying it
             // as an unresolved marker made the residue scan reject a perfectly replayable
@@ -156,7 +137,7 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
             }
             // NOT the marker: a real global UDF of the same name whose first argument is
             // not an integer literal. Its OTHER arguments may still carry genuine markers
-            // - returning the call unchanged left them substituted never,
+            // returning the call unchanged left them substituted never,
             // and the residue scan then rejected a persisted frozen baseline that has no
             // parameterized-tree fallback. Fall through and rebuild the arguments.
         }
@@ -170,7 +151,7 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
             Map<Long, Expression> placeholderValues) {
         // _spm_const_list(id) as the single option: replace with the user's actual IN
         // list (the whole user-side IN predicate carries the options). Type coercion
-        // wraps the placeholder in a CAST (x IN (CAST(_spm_const_list(id) AS ...))), so
+        // wraps the placeholder in a CAST (x IN (CAST(_spm_const_list(id) AS...))), so
         // the list call must be detected THROUGH the wrapper.
         if (inPredicate.getOptions().size() == 1) {
             UnboundFunction listFn = findConstListCall(inPredicate.getOptions().get(0));
@@ -202,17 +183,17 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
         return super.visitInPredicate(inPredicate, placeholderValues);
     }
 
-    // ==================== subquery substitution ====================
+    // subquery substitution.
 
     @Override
     public Expression visitSubqueryExpr(SubqueryExpr subqueryExpr,
             Map<Long, Expression> placeholderValues) {
-        // The generic visit() only walks Expression.children(): a SubqueryExpr's own
+        // The generic visit only walks Expression.children: a SubqueryExpr's own
         // queryPlan is out-of-band (IN / EXISTS / scalar / residual NOT IN), so its
         // placeholders must be substituted by recursing into the plan explicitly -
         // mirroring SPMPlaceholderReplacer / SPMPlaceholderBuilder. Without this, a
         // residual LEFT NULL_AWARE ANTI JOIN frozen as
-        // NOT IN (SELECT ... WHERE ... _spm_const_var(...)) keeps the call inside the
+        // NOT IN (SELECT... WHERE... _spm_const_var(...)) keeps the call inside the
         // subquery plan, the residue scan rejects the replay and a reloaded frozen row
         // has no usable fallback either.
         Expression newCompare = subqueryExpr instanceof InSubquery
@@ -254,10 +235,8 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
     }
 
     /**
-     * Extracts the placeholder id from a parsed placeholder call: the leading argument is
-     * an integer literal carrying the id (_spm_const_var(1) -> 1).
-     *
-     * @return the id, or null when the call does not carry an integer id argument
+     * Reads the first literal argument as a Number and converts it to a long id. Returns null when there is no
+     * numeric literal argument; this helper does not check argument count or require an integer literal type.
      */
     private static Long placeholderId(UnboundFunction function) {
         if (function.children().isEmpty()) {

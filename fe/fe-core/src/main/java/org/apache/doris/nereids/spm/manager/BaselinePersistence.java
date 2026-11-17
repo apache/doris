@@ -26,15 +26,15 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * The durable layer of {@link BaselineManager}: every internal-table statement the
+ * The durable layer of BaselineManager: every internal-table statement the
  * manager issues, expressed as semantic operations.
  *
  * The production implementation
- * ({@code BaselineManager.TablePersistence}) executes the SQL against
- * {@code __internal_schema.spm_baselines} and its companion tables; unit tests may bind
+ * (BaselineManager.TablePersistence) executes the SQL against
+ * __internal_schema.spm_baselines and its companion tables; unit tests may bind
  * an isolated manager to a substituted implementation (a Mockito mock or a test-local
- * fixture) through {@link BaselineManager#BaselineManager(BaselinePersistence,
- * BaselineClusterGateway, java.util.function.LongSupplier)}.
+ * fixture) through BaselineManager.BaselineManager(BaselinePersistence,
+ * BaselineClusterGateway, java.util.function.LongSupplier).
  *
  * Defaults are chosen so that a SIMULATED store (a test double whose scenario does not
  * model a particular aspect) degrades to the historically "synchronous store" behavior:
@@ -48,7 +48,7 @@ public interface BaselinePersistence {
      * One unit of the sequence table's identity records
      * (see the manager's allocation / tombstone protocol): the id, the instant it was
      * reserved and what the record REPRESENTS - an ambiguous-create marker
-     * ({@code unconfirmed}), a tombstone ({@code dropped}) or the plain pre-INSERT
+     * (unconfirmed), a tombstone (dropped) or the plain pre-INSERT
      * reservation of every create.
      */
     final class SeqReservation {
@@ -86,7 +86,7 @@ public interface BaselinePersistence {
         }
     }
 
-    /** Outcome of one durable identity probe (see {@link #probeRow}). */
+    /** Outcome of one durable identity probe (see probeRow). */
     enum DurablePresence {
         PRESENT, ABSENT, UNKNOWN
     }
@@ -103,11 +103,8 @@ public interface BaselinePersistence {
     }
 
     /**
-     * Whether the store serves the stable WHOLE-STORE reads of the matching path (the
-     * by-hash cache fill and the SHOW snapshot): true for the live internal table; a
-     * substituted store answers false unless it also models those reads, which leaves the
-     * in-memory store of the manager in charge exactly like the historic simulator
-     * bindings did.
+     * Whether durable by-hash and snapshot reads are available for matching and SHOW. Defaults to isDurable;
+     * substituted stores can override it when they model writes without those reads.
      */
     default boolean hashReadsAvailable() {
         return isDurable();
@@ -115,16 +112,16 @@ public interface BaselinePersistence {
 
     /**
      * Whether the store MODELS the id-reservation readback: the allocation watermark plus
-     * the identity's latest record (see {@link #readReservationView}).
+     * the identity's latest record (see readReservationView).
      *
      * This is a STATIC CAPABILITY of the store implementation, never a dynamic value. It
-     * used to be inferred from a readback VALUE ({@code sequenceWatermark() <= 0}), which
+     * used to be inferred from a readback VALUE (sequenceWatermark <= 0), which
      * is wrong in the exact case the proof exists for: a fresh cluster's LAGGING readback
      * answers 0 while the reservation the CREATE must prove is simply not published yet,
      * so the proof was skipped and a successor handed the same id out twice - two ENABLED
      * rows then published under one id. Never turn this back into a value probe.
      *
-     * The create's ownership proof (see BaselineManager#confirmReservationReadable) is
+     * The create's ownership proof (see BaselineManager.confirmReservationReadable) is
      * skipped for a store that answers false: the scripted collision / status stores
      * stand in for the WHOLE protocol instead of modelling its reads.
      */
@@ -132,14 +129,11 @@ public interface BaselinePersistence {
         return false;
     }
 
-    // ==================== row reads ====================
+    // row reads.
 
     /**
-     * Every durable row carrying one id (the collision probe / reconciliation /
-     * adoption read). {@code rebuildTrees} selects the FULL decode (transient
-     * parameterized trees rebuilt, like a load) over the plain scalar decode.
-     * Rows are returned RAW: the caller applies the drop-tombstone filter where the
-     * original protocol did.
+     * Returns raw durable rows for an id. The rebuildTrees flag requests reconstruction of transient trees instead
+     * of scalar-only decoding. The caller applies tombstone filtering separately.
      */
     default List<BaselinePlan> readRowsById(long id, boolean rebuildTrees) {
         return List.of();
@@ -154,22 +148,17 @@ public interface BaselinePersistence {
     }
 
     /**
-     * {@link #readRowsByHash(long)} with an explicit statement timeout: the matching-path
-     * cache miss bounds its WHOLE read by the caller's remaining rewrite budget
-     * (spm_rewrite_timeout_ms), so a slow / unavailable baseline tablet degrades the
-     * single rewrite attempt instead of stalling the query past its budget. A store that
-     * does not model timeouts falls back to the plain read.
-     *
-     * @param timeoutSeconds the statement timeout in seconds (>= 1)
+     * Reads a hash bucket with the supplied statement timeout in seconds. The live reader passes this timeout to
+     * its row and tombstone queries; multiple queries and tree rebuilding can exceed that duration in total. The
+     * default delegates to the overload without a timeout.
      */
     default List<BaselinePlan> readRowsByHash(long hash, int timeoutSeconds) {
         return readRowsByHash(hash);
     }
 
     /**
-     * One stable whole-table snapshot: FINAL rows (drop tombstones filtered, same-key
-     * twins collapsed to the deterministic winner, per-id duplicates resolved), keyed by
-     * id. The load / refresh / SHOW paths publish it as-is.
+     * Returns a stable snapshot keyed by id after durable-row filtering and duplicate resolution. The manager
+     * applies its publication, generation and mutation-fence checks before publishing it.
      */
     default Map<Long, BaselinePlan> readSnapshot() {
         return Map.of();
@@ -177,7 +166,7 @@ public interface BaselinePersistence {
 
     /**
      * Whether the durable table holds a row with this (id, key) AND - when
-     * {@code status} is given - the expected status, the schema fingerprint (when given)
+     * status is given - the expected status, the schema fingerprint (when given)
      * and the REQUIRED stored instant (when given; the attempted instant of a fresh write
      * is strictly later than every row it met, see the manager's status bump). A read
      * that cannot answer is UNKNOWN - never ABSENT.
@@ -208,7 +197,7 @@ public interface BaselinePersistence {
 
     /**
      * Whether the identity's durable rows are ABSENT (the delete confirmation, see
-     * {@link #isRowReadable} for the probing convention).
+     * isRowReadable for the probing convention).
      */
     default boolean isRowGone(BaselinePlan plan) {
         return true;
@@ -226,22 +215,22 @@ public interface BaselinePersistence {
      * The newest stored update_time of THIS id's rows, in epoch MICROSECONDS (0 = none).
      *
      * MICROSECONDS are the SPM time unit of every stored instant: the internal columns are
-     * TIMESTAMPTZ(6) (see InternalSchema#SPM_TIMESTAMP_SCALE), the writers take their `now`
+     * TIMESTAMPTZ(6) (see InternalSchema.SPM_TIMESTAMP_SCALE), the writers take their now
      * from a microsecond clock, and every durable-order comparison of the status-flip
      * protocol - "no newer row of this id exists" (see
-     * BaselineManager#conditionalStatusInsertSql) and "this is the version I complete" (see
+     * BaselineManager.conditionalStatusInsertSql) and "this is the version I complete" (see
      * deleteByIdAndStatusSql) - is made against the EXACT instant. A coarser unit would be
      * strictly EARLIER than the row it was derived from, so those comparisons would see the
      * id's own row as a newer write and void themselves.
      *
-     * @param id the baseline id
-     * @return the newest stored instant in epoch microseconds
+     * Parameter id: the baseline id
+     * Returns: the newest stored instant in epoch microseconds
      */
     default long newestStoredUpdateMicros(long id) {
         return 0;
     }
 
-    // ==================== row writes ====================
+    // row writes.
 
     /** Inserts one baseline row (the create path, after its id was reserved). */
     default void insert(BaselinePlan plan) {
@@ -262,14 +251,14 @@ public interface BaselinePersistence {
      * As insertIfPreviousPresent, with the DURABLE ORDER attached: the statement must also
      * observe that no NEWER row of the id exists, so a stalled earlier flip cannot land after
      * a successor already moved the intent (see
-     * BaselineManager#conditionalStatusInsertSql).
+     * BaselineManager.conditionalStatusInsertSql).
      *
-     * @param plan                 the new-status row
-     * @param previousStatus       the status the flip starts from
-     * @param previousUpdateMicros the stored INSTANT the flip is based on, in epoch
+     * Parameter plan: the new-status row
+     * Parameter previousStatus: the status the flip starts from
+     * Parameter previousUpdateMicros: the stored INSTANT the flip is based on, in epoch
      *                             microseconds
      *                             (0 = unknown)
-     * @return whether a row was written
+     * Returns: whether a row was written
      */
     default boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus,
             long previousUpdateMicros) {
@@ -292,16 +281,16 @@ public interface BaselinePersistence {
     /**
      * Reclaims the SUPERSEDED versions of one baseline identity: every row of the id whose
      * stored instant is strictly EARLIER than keepFromMicros (see
-     * BaselineManager#persistNoOpStatusIntent).
+     * BaselineManager.persistNoOpStatusIntent).
      *
      * A successful no-op ALTER appends an ordering-intent row and nothing ever removed the
      * earlier ones, so one baseline accumulated unbounded durable rows - and every cold match
      * re-parsed ALL of them before collapsing by id. The predicate preserves the intent row
      * itself and every NEWER concurrent version.
      *
-     * @param identity       the baseline identity scoping the delete (id, digest, plan text,
+     * Parameter identity: the baseline identity scoping the delete (id, digest, plan text,
      *                       fingerprint)
-     * @param keepFromMicros the stored instant (epoch microseconds) to keep from
+     * Parameter keepFromMicros: the stored instant (epoch microseconds) to keep from
      *                       (0 = nothing to prune)
      */
     default void pruneSupersededVersions(BaselinePlan identity, long keepFromMicros) {
@@ -309,20 +298,20 @@ public interface BaselinePersistence {
 
     /**
      * How many versions of one baseline identity are still READABLE below a stored instant -
-     * the visibility probe of a prune (see BaselineManager#confirmPruneVisible). SQL OK only
+     * the visibility probe of a prune (see BaselineManager.confirmPruneVisible). SQL OK only
      * proves the DELETE was dispatched, and a paginated snapshot reader could still step
      * over a row it removes.
      *
-     * @param identity       the identity scoping the read
-     * @param keepFromMicros the stored instant the prune keeps from
-     * @return the count of older readable versions (0 = none / a store that models no
+     * Parameter identity: the identity scoping the read
+     * Parameter keepFromMicros: the stored instant the prune keeps from
+     * Returns: the count of older readable versions (0 = none / a store that models no
      *         versions, -1 = the store cannot answer)
      */
     default long countVersionsBefore(BaselinePlan identity, long keepFromMicros) {
         return 0;
     }
 
-    // ==================== id allocation / identity records ====================
+    // id allocation / identity records.
 
     /** The baselines table's own MAX(id) (see the manager's "Id source"). */
     default long tableWatermark() {
@@ -356,42 +345,27 @@ public interface BaselinePersistence {
 
     /**
      * The identity's LATEST reservation record (plain reservation / unconfirmed marker /
-     * tombstone), or null when the store holds none (see {@link SeqReservation}).
+     * tombstone), or null when the store holds none (see SeqReservation).
      *
      * The answer is deliberately IDENTITY-scoped, not write-scoped: it tells a caller what
      * a SUCCESSOR would conclude about this identity right now, which is exactly what the
-     * create's ownership proof asks (see {@link #readReservationView}), and what the
+     * create's ownership proof asks (see readReservationView), and what the
      * defer / adopt / condemn decision of a retried CREATE needs. It used to be named
      * pendingSeqReservation, which read as "only for a pending create" although the proof
      * uses it too.
      *
-     * @param bindSqlDigest the identity's canonical bind digest
-     * @param planSqlHash   the identity's plan SQL hash
-     * @return the latest record, or null
+     * Parameter bindSqlDigest: the identity's canonical bind digest
+     * Parameter planSqlHash: the identity's plan SQL hash
+     * Returns: the latest record, or null
      */
     default SeqReservation readLatestReservation(String bindSqlDigest, long planSqlHash) {
         return null;
     }
 
     /**
-     * The BATCH form of {@link #readLatestReservation}: the COMPACT identity record of every
-     * requested slot in ONE read.
-     *
-     * A snapshot filter needs the state of EVERY identity in the snapshot, and the single form
-     * issues one distributed SELECT per identity - with 2,000 live baselines that is 2,000
-     * sequential queries on every periodic refresh on every FE, all of them while the refresh
-     * holds the writer lock (so a GLOBAL CREATE / ALTER / DROP waits behind the whole loop).
-     * The batch answers the healthy identities; the caller still takes the single read for a
-     * slot this map does NOT answer, because that path replays the append-only HISTORY - a
-     * compact tombstone can PREDATE a newer reservation of the same identity.
-     *
-     * The default performs no read (an empty map = "not answered"): a substituted / scripted
-     * store keeps using the single-identity form, which is also what the history fallback
-     * needs.
-     *
-     * @param compactIds the compact slot ids (see the manager's compactSeqId)
-     * @param timeoutSeconds the statement timeout
-     * @return compact slot id to its compact record (a slot without one is absent)
+     * Reads compact identity records for requested slots in a batch. Unanswered slots can use the single-identity
+     * history fallback. The default returns an empty map and performs no read. Snapshot filtering invokes this
+     * outside the state lock, with writer serialization where repair is required.
      */
     default Map<Long, SeqReservation> readLatestReservations(Collection<Long> compactIds,
             int timeoutSeconds) {
@@ -404,7 +378,7 @@ public interface BaselinePersistence {
      *
      * The pair is NOT atomic, and does not need to be: the view only ever confirms what was
      * ALREADY written, and every caller re-reads it in a bounded loop (see
-     * BaselineManager#confirmReservationReadable), so a view that misses either half just
+     * BaselineManager.confirmReservationReadable), so a view that misses either half just
      * makes the loop retry. Bundling it keeps the caller from composing the two reads by
      * hand, which made the confirmation look like an accident of the read interface.
      */
@@ -422,18 +396,15 @@ public interface BaselinePersistence {
             return watermark;
         }
 
-        /** The identity's latest record, or null (see {@link #readLatestReservation}). */
+        /** The identity's latest record, or null (see readLatestReservation). */
         public SeqReservation latest() {
             return latest;
         }
 
         /**
-         * Whether the reservation of exactly this id is VISIBLE: the watermark reaches it
-         * and the identity's latest record IS that plain reservation (not an older id, not
-         * an unconfirmed marker of it, not a tombstone).
-         *
-         * @param id the id this CREATE reserved
-         * @return whether a successor would see the reservation
+         * Whether the allocation watermark covers the id and the latest identity record has that id without a DROP
+         * tombstone. Both plain reservations and unconfirmed-create markers satisfy this ownership check; either
+         * makes the id visible as reserved to a successor.
          */
         public boolean showsReservation(long id) {
             return watermark >= id && latest != null && latest.id == id && !latest.dropped;
@@ -441,10 +412,10 @@ public interface BaselinePersistence {
     }
 
     /**
-     * The reservation view one identity exposes RIGHT NOW (see {@link ReservationView}),
+     * The reservation view one identity exposes RIGHT NOW (see ReservationView),
      * read through the SAME two reads a successor / a retry on another FE performs: the
-     * allocation watermark ({@code sequenceWatermark}) and the identity lookup
-     * ({@code readLatestReservation}).
+     * allocation watermark (sequenceWatermark) and the identity lookup
+     * (readLatestReservation).
      *
      * That equivalence is the WHOLE point: the create's ownership proof must assert the
      * visibility a successor will have, so it may not use a "more reliable" read of its
@@ -458,9 +429,9 @@ public interface BaselinePersistence {
      * do the same - but it means this method must not be called from a pure-read context
      * that cannot tolerate an internal-table write.
      *
-     * @param bindSqlDigest the identity's canonical bind digest
-     * @param planSqlHash   the identity's plan SQL hash
-     * @return the view a successor's two reads would assemble
+     * Parameter bindSqlDigest: the identity's canonical bind digest
+     * Parameter planSqlHash: the identity's plan SQL hash
+     * Returns: the view a successor's two reads would assemble
      */
     default ReservationView readReservationView(String bindSqlDigest, long planSqlHash) {
         return new ReservationView(sequenceWatermark(),
@@ -482,32 +453,32 @@ public interface BaselinePersistence {
     }
 
     /**
-     * The DURABLE drop tombstones of the given ids as {@code id|digest|planSqlHash} /
-     * {@code id||0} keys. A read failure propagates (loads fail closed).
+     * The DURABLE drop tombstones of the given ids as id|digest|planSqlHash /
+     * id||0 keys. A read failure propagates (loads fail closed).
      */
     default Set<String> readDroppedIdentities(Collection<Long> ids) {
         return Set.of();
     }
 
     /**
-     * {@link #readDroppedIdentities(Collection)} with an explicit statement timeout: the
+     * readDroppedIdentities(Collection) with an explicit statement timeout: the
      * matching-path cache miss bounds its whole read - the rows AND the tombstone
      * filter - by the remaining rewrite budget (see readRowsByHash(long, int)).
      *
-     * @param timeoutSeconds the statement timeout in seconds (>= 1)
+     * Parameter timeoutSeconds: the statement timeout in seconds (>= 1)
      */
     default Set<String> readDroppedIdentities(Collection<Long> ids, int timeoutSeconds) {
         return readDroppedIdentities(ids);
     }
 
-    // ==================== compact id high-water mark ====================
+    // compact id high-water mark.
 
-    /** The compact HWM slot's newest {@code last_id} (0 = no record). */
+    /** The compact HWM slot's newest last_id (0 = no record). */
     default long readHwmRecord() {
         return 0;
     }
 
-    /** The highest sequence reservation visible beyond {@code floor} (bounded read). */
+    /** The highest sequence reservation visible beyond floor (bounded read). */
     default long readSequenceTail(long floor) {
         return 0;
     }
@@ -517,7 +488,7 @@ public interface BaselinePersistence {
         return 0;
     }
 
-    // ==================== mutation clock ====================
+    // mutation clock.
 
     /** The slot's [MAX(last_id), MAX(tick)]. */
     default long[] slotState() {

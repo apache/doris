@@ -35,35 +35,18 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
- * SessionBaselineStore - per-connection storage of SESSION-scope baselines.
+ * Connection-owned SESSION baseline storage. Rows are kept in memory and can be serialized into a forwarded
+ * request context. Matching checks this store before GLOBAL candidates. The hash index is followed by exact digest
+ * and active-status filtering, with the same candidate ordering as BaselineManager.
  *
- * A CREATE SESSION BASELINE PLAN baseline never touches the shared
- * __internal_schema.spm_baselines table: it lives in this store, which hangs off the
- * ConnectContext that created it. Other sessions never see it, BaselineRefreshDaemon /
- * auto capture never touch it, and it is discarded together with the connection. The
- * rewrite matcher (SPMPlanner) consults the session store BEFORE the global
- * BaselineManager, so a session baseline can override a global one for this session only.
- *
- * The semantics mirror BaselineManager: a hashIndex for the Level 1 coarse filter,
- * exact digest matching, DISABLED filtering, the same priority ordering and the same
- * (hash, digest, planSql) dedup ("IF NOT EXISTS") on create.
- *
- * Ids come from the SESSION id range [2^62, 2^63) through one process-wide counter, so
- * a session id can never collide with any GLOBAL id (the shared generator allocates
- * from [1, 2^62), see BaselineScope#ofId): the scope of every id is self-describing and
- * SHOW / ALTER / DROP can address baselines of both scopes without ambiguity - and
- * without inventing cross-FE coordination for memory-only baselines. Numeric session
- * ids may repeat across FE processes, which is harmless: a session baseline never
- * leaves its FE/connection, so two sessions can never observe the same value in
- * conflicting stores.
+ * Locally generated ids use a process-wide counter in the SESSION range. Imports can preserve ids from another FE;
+ * numeric ids need only be unambiguous within the owning store. Synchronized methods protect the maps, but
+ * returned BaselinePlan objects are not deep copies.
  */
 public class SessionBaselineStore {
 
     /**
-     * Process-wide session id counter; the first session id is BaselineScope.SESSION_ID_BASE
-     * (2^62). One counter per FE process keeps ids unique across the sessions of THIS FE
-     * (nice for logs), while the disjoint range is what guarantees the no-collision
-     * invariant against GLOBAL ids.
+     * Process-wide counter for locally created SESSION ids. Imported rows may retain ids allocated by another FE.
      */
     private static final AtomicLong SESSION_ID_GENERATOR =
             new AtomicLong(BaselineScope.SESSION_ID_BASE);
@@ -76,7 +59,7 @@ public class SessionBaselineStore {
 
     /**
      * Payload characters the CURRENT rows take when this connection's baselines are
-     * forwarded (see SPMForwardedSession#payloadRowChars). The bound is enforced at
+     * forwarded (see SPMForwardedSession.payloadRowChars). The bound is enforced at
      * CREATION - a store that accepts more than the forwarded payload can carry forced
      * serialize to drop rows, and a dropped row still participates in LOCAL
      * matching: the same statement was rewritten here but planned without that baseline on
@@ -95,8 +78,8 @@ public class SessionBaselineStore {
      * is NOT a duplicate: SPM matching skips it, so returning its id would leave the
      * session unable to recreate a usable baseline - it is retired instead.
      *
-     * @param plan the baseline (id is assigned here from the session id range)
-     * @return the id of the created baseline (or the existing id when duplicated)
+     * Parameter plan: the baseline (id is assigned here from the session id range)
+     * Returns: the id of the created baseline (or the existing id when duplicated)
      */
     public synchronized long createBaseline(BaselinePlan plan) {
         long duplicate = retireStaleAndFindDuplicate(plan);
@@ -114,8 +97,8 @@ public class SessionBaselineStore {
      * create does) made the reported hit unmanageable from the user's session and
      * produced yet another id on every forwarded request.
      *
-     * @param plan the carried baseline (id from the source store)
-     * @return the id of the imported baseline (or the existing id when duplicated)
+     * Parameter plan: the carried baseline (id from the source store)
+     * Returns: the id of the imported baseline (or the existing id when duplicated)
      */
     public synchronized long importBaseline(BaselinePlan plan) {
         long duplicate = retireStaleAndFindDuplicate(plan);
@@ -136,8 +119,8 @@ public class SessionBaselineStore {
      * identical (bindSqlHash, digest, planSql, fingerprint) row returns its id
      * ("IF NOT EXISTS" semantics), a same-key row under an OLD fingerprint is retired.
      *
-     * @param plan the baseline to check
-     * @return the existing id, or 0 when the plan is new
+     * Parameter plan: the baseline to check
+     * Returns: the existing id, or 0 when the plan is new
      */
     private long retireStaleAndFindDuplicate(BaselinePlan plan) {
         if (plan.getBindSqlHash() != 0) {
@@ -187,7 +170,7 @@ public class SessionBaselineStore {
                     + SPMForwardedSession.MAX_PAYLOAD_CHARS + " characters; drop some SESSION"
                     + " baselines (DROP SESSION BASELINE PLAN <id>) first");
         }
-        // every SPM stored instant is epoch MICROSECONDS (see SPMUtils#nowMicros): SHOW
+        // every SPM stored instant is epoch MICROSECONDS (see SPMUtils.nowMicros): SHOW
         // renders a SESSION row with the same formatter as a GLOBAL one
         long now = SPMUtils.nowMicros();
         plan.setCreateTime(now);
@@ -212,8 +195,8 @@ public class SessionBaselineStore {
     /**
      * Drops a session baseline.
      *
-     * @param id the baseline id
-     * @return whether the id existed
+     * Parameter id: the baseline id
+     * Returns: whether the id existed
      */
     public synchronized boolean dropBaseline(long id) {
         BaselinePlan removed = baselines.remove(id);
@@ -234,9 +217,9 @@ public class SessionBaselineStore {
     /**
      * Updates the status of a session baseline (memory only, nothing to persist).
      *
-     * @param id     the baseline id
-     * @param status the target status
-     * @return whether the id existed
+     * Parameter id: the baseline id
+     * Parameter status: the target status
+     * Returns: whether the id existed
      */
     public synchronized boolean updateStatus(long id, BaselineStatus status) {
         BaselinePlan plan = baselines.get(id);
@@ -250,24 +233,18 @@ public class SessionBaselineStore {
 
     /**
      * Whether this connection-local store holds no baseline. Used by the rewrite fast path
-     * together with BaselineManager#hasBaselines: when both stores are empty there is
+     * together with BaselineManager.hasBaselines: when both stores are empty there is
      * nothing to match and the whole-tree digest rendering is skipped.
      *
-     * @return whether the store is empty
+     * Returns: whether the store is empty
      */
     public synchronized boolean isEmpty() {
         return baselines.isEmpty();
     }
 
     /**
-     * Discards every session baseline. Called by ConnectContext#resetConnection (and any
-     * equivalent session-reset path): COM_RESET_CONNECTION REUSES the same
-     * ConnectContext, so without this a later logical session on a pooled connection
-     * inherited the previous borrower's SESSION baselines - and because SPM consults the
-     * session store BEFORE the global manager, a leftover session baseline could
-     * silently rewrite the new session's query. The id counter is intentionally NOT
-     * reset: ids stay unique across the process and a stale id from a discarded session
-     * must never resolve to a different baseline.
+     * Clears the rows, hash index and forwarded-payload accounting when the connection resets. The process-wide id
+     * counter is retained.
      */
     public synchronized void clear() {
         baselines.clear();
@@ -279,9 +256,9 @@ public class SessionBaselineStore {
      * Finds candidates matching the value-free digest / hash (same Level 1 hash +
      * Level 2 digest contract as BaselineManager).
      *
-     * @param digest the parameterized digest of the user query
-     * @param hash   the structural hash of the user query
-     * @return the candidate baselines sorted by priority (possibly empty)
+     * Parameter digest: the parameterized digest of the user query
+     * Parameter hash: the structural hash of the user query
+     * Returns: the candidate baselines sorted by priority (possibly empty)
      */
     public synchronized List<BaselinePlan> findCandidateBaselines(String digest, long hash) {
         List<Long> candidateIds = hashIndex.get(hash);
@@ -300,8 +277,8 @@ public class SessionBaselineStore {
     /**
      * Returns a session baseline by id.
      *
-     * @param id the baseline id
-     * @return the baseline, or null when not found
+     * Parameter id: the baseline id
+     * Returns: the baseline, or null when not found
      */
     public synchronized BaselinePlan getBaseline(long id) {
         return baselines.get(id);
