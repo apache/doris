@@ -52,6 +52,7 @@ import java.lang.reflect.Field;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -63,6 +64,8 @@ class BackendHeartbeatHandlerTest {
     private static final String HOST = "be-0.be-service.test";
     private static final String OLD_IP = "127.0.0.1";
     private static final String NEW_IP = "127.0.0.2";
+    private static final List<String> AUTH_TOKENS =
+            List.of("oldest-token", "older-token", "signing-token", "auth-token");
 
     private final DNSCache dnsCache = Mockito.mock(DNSCache.class);
     private final SystemInfoService nodeMgr = Mockito.mock(SystemInfoService.class);
@@ -96,7 +99,7 @@ class BackendHeartbeatHandlerTest {
 
         Env env = Mockito.mock(Env.class);
         TokenManager tokenManager = Mockito.mock(TokenManager.class);
-        Mockito.when(tokenManager.acquireToken()).thenReturn("auth-token");
+        Mockito.when(tokenManager.getAuthTokens()).thenReturn(AUTH_TOKENS);
         Mockito.when(env.getTokenManager()).thenReturn(tokenManager);
         Mockito.when(env.getDnsCache()).thenReturn(dnsCache);
         mockedEnv = Mockito.mockStatic(Env.class);
@@ -148,6 +151,8 @@ class BackendHeartbeatHandlerTest {
         for (TMasterInfo request : requests.getAllValues()) {
             Assertions.assertEquals(HOST, request.getBackendIp());
             Assertions.assertEquals(backend.getId(), request.getBackendId());
+            Assertions.assertEquals(AUTH_TOKENS, request.getAuthTokens());
+            Assertions.assertEquals("auth-token", request.getAuthToken());
         }
     }
 
@@ -270,6 +275,8 @@ class BackendHeartbeatHandlerTest {
             socket = new TServerSocket(new ServerSocket(port, 50, InetAddress.getByName(ip)));
             HeartbeatService.Iface checkedHandler = request -> {
                 Assertions.assertEquals(HOST, request.getBackendIp());
+                Assertions.assertEquals(AUTH_TOKENS, request.getAuthTokens());
+                Assertions.assertEquals("auth-token", request.getAuthToken());
                 calls.incrementAndGet();
                 return handler.heartbeat(request);
             };

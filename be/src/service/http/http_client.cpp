@@ -430,7 +430,7 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error,
 
     if (auth_token_mode == AuthTokenMode::CLUSTER) {
 #ifndef BE_TEST
-        set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
+        set_auth_token(ExecEnv::GetInstance()->cluster_info()->get_sign_token());
 #endif
     }
     return Status::OK();

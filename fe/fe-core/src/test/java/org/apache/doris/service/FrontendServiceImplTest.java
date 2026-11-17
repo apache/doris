@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TokenManager;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
@@ -59,6 +60,7 @@ import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
 import org.apache.doris.thrift.TMaxComputeBlockIdResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
+import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TPrivilegeCtrl;
 import org.apache.doris.thrift.TPrivilegeHier;
@@ -104,6 +106,32 @@ import java.util.stream.Collectors;
 public class FrontendServiceImplTest extends TestWithFeService {
 
     private ExecuteEnv exeEnv = Mockito.mock(ExecuteEnv.class);
+
+    @Test
+    public void testAcquireTokenOnlyServedByMaster() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        TokenManager tokenManager = Mockito.mock(TokenManager.class);
+        List<String> tokens = List.of("old-token", "signing-token", "current-token");
+        Mockito.when(env.getTokenManager()).thenReturn(tokenManager);
+        Mockito.when(tokenManager.getAuthTokens()).thenReturn(tokens);
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            TMySqlLoadAcquireTokenResult followerResult = impl.acquireToken();
+            Assertions.assertEquals(TStatusCode.NOT_MASTER, followerResult.getStatus().getStatusCode());
+            Assertions.assertFalse(followerResult.isSetToken());
+            Assertions.assertFalse(followerResult.isSetAuthTokens());
+            Mockito.verifyNoInteractions(tokenManager);
+
+            Mockito.when(env.isMaster()).thenReturn(true);
+            TMySqlLoadAcquireTokenResult masterResult = impl.acquireToken();
+            Assertions.assertEquals(TStatusCode.OK, masterResult.getStatus().getStatusCode());
+            Assertions.assertEquals(tokens, masterResult.getAuthTokens());
+            Assertions.assertEquals("current-token", masterResult.getToken());
+            Mockito.verify(tokenManager).getAuthTokens();
+            Mockito.verify(tokenManager, Mockito.never()).acquireAuthTokens();
+        }
+    }
 
     @Override
     protected void beforeCreatingConnectContext() throws Exception {
