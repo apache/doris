@@ -45,7 +45,7 @@ public:
 
     virtual Status prepare() { return Status::OK(); }
 
-    virtual Status open() { return Status::OK(); }
+    virtual Status open(RuntimeState* /*state*/) { return Status::OK(); }
 
     virtual Status process_init(Block* block, RuntimeState* state) = 0;
 

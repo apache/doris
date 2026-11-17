@@ -29,6 +29,8 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
+class RuntimeState;
+
 /**
  * Aggregate state data for Python UDAF
  * 
@@ -49,11 +51,13 @@ struct AggregatePythonUDAFData {
     Status create(int64_t place);
 
     Status add(int64_t place_id, const IColumn** columns, int64_t row_num_start,
-               int64_t row_num_end, const DataTypes& argument_types);
+               int64_t row_num_end, const DataTypes& argument_types, bool datetime_naive,
+               const std::string& timezone, const cctz::time_zone& timezone_obj);
 
     Status add_batch(AggregateDataPtr* places, size_t place_offset, size_t num_rows,
                      const IColumn** columns, const DataTypes& argument_types, size_t start,
-                     size_t end);
+                     size_t end, bool datetime_naive, const std::string& timezone,
+                     const cctz::time_zone& timezone_obj);
 
     Status merge(const AggregatePythonUDAFData& rhs, int64_t place);
 
@@ -65,7 +69,8 @@ struct AggregatePythonUDAFData {
 
     Status destroy(int64_t place);
 
-    Status get(IColumn& to, const DataTypePtr& result_type, int64_t place) const;
+    Status get(IColumn& to, const DataTypePtr& result_type, int64_t place,
+               const cctz::time_zone& timezone_obj) const;
 };
 
 /**
@@ -105,7 +110,7 @@ public:
     /**
      * Initialize function metadata
      */
-    Status open();
+    Status open(RuntimeState* state);
 
     /**
      * Create aggregate state in Python server
@@ -173,6 +178,7 @@ private:
     DataTypePtr _return_type;
     PythonUDFMeta _func_meta;
     PythonVersion _python_version;
+    cctz::time_zone _timezone_obj;
     // Arrow Flight schema: [argument_types..., places: int64, binary_data: binary]
     // Used for all UDAF RPC operations
     // - places column is always present (NULL in single-place mode, actual place_id values in GROUP BY mode)

@@ -405,6 +405,7 @@ public class Function implements Writable {
         fn.setSignature(signatureString());
         fn.setName(name.toThrift());
         fn.setBinaryType(binaryType);
+        fn.setEnablePythonUdfArrowTimeV2(true);
         if (location != null) {
             fn.setHdfsLocation(location.getLocation());
         }
