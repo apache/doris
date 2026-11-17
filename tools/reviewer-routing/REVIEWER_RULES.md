@@ -3,14 +3,15 @@
 Use this file when selecting or inviting reviewers for `apache/doris`. The
 complete module table below is derived from 4,645 PRs merged into `master` in
 `[2025-11-17T00:00:00Z, 2026-11-17T09:26:38Z)`. It describes observed review
-experience, not appointed ownership. Applicability to other base branches has
-not been validated.
+experience. Explicit maintainer overrides provide the routing preferences listed
+below. Applicability to other base branches has not been validated.
 
 The `need-reviewers` workflow uses the [GitHub Action mode](GITHUB_ACTION.md).
 In that mode, an explicit label also routes draft PRs, the selection budget is
 at most two people independent of existing assignees, and the downstream script
 adds assignees and posts a mention comment instead of requesting formal reviews.
-The qualification, author exclusion and freshness rules still apply.
+The candidate policy below, author exclusion and global mapping freshness rules
+still apply.
 
 Start with this file and the PR diff. Use `select_reviewers.py` for a repeatable
 plan. Candidate statistics and representative PRs are in `module-reviewers.json`;
@@ -82,12 +83,29 @@ For each PR, the ranking contribution is:
 These weights are heuristic. CODEOWNERS only breaks ties after score and review
 count; it does not confer candidate eligibility.
 
-An automatic candidate must have at least three review PRs, at least two review
+A history-derived automatic candidate must have at least three review PRs, at least two review
 PRs after splitting credit across modules, at least two distinct PR authors and
 a review within 180 days of the snapshot. `high` confidence additionally requires
 ten review PRs, five weighted review PRs, three authors and two reviews within
 90 days. Other eligible candidates have `medium` confidence. Confidence describes
 historical evidence, not review quality or current availability.
+
+Maintainer overrides take precedence over those historical gates. A module's
+`reviewer_override` list replaces its historical candidate pool, in the supplied
+order, and bypasses historical sample-size and individual inactivity checks:
+
+| Module | Ordered reviewers |
+|---|---|
+| Trino connector | `morningman`, `Gabriel39`, `924060929` |
+| Fluss | `morningman`, `Gabriel39` |
+| MongoDB | `Gabriel39` |
+| Memory management and MemTracker | `yiguolei`, `mrhhsg` |
+
+These choices use `confidence: maintainer`; the original historical records are
+retained unchanged. Keep author exclusion, duplicate handling, unavailability,
+live account checks and global mapping expiry. If every configured person is
+excluded, report the module as uncovered; do not use an unlisted historical
+candidate for that module.
 
 Exclude the author, bots, explicitly unavailable people and already-requested
 or previously reviewed people from new requests. Compare logins without case
@@ -100,12 +118,18 @@ with a minimum of one for renames or zero-line changes. From each module's first
 five currently eligible candidates, greedily choose the person maximizing:
 
 ```text
-sum(module_file_weight * candidate_score / highest_eligible_module_score)
+sum(module_file_weight * candidate_preference_weight)
 ```
+
+Historical preference weight is the candidate score divided by the highest
+eligible score in that module. Override preference weight is `1 / (rank + 1)`,
+where the first listed person has rank zero. Shared coverage may favor an override
+candidate who can cover several modules over an earlier person for just one.
 
 Sum only modules still uncovered. Break ties by number of covered modules, then
 login. Existing individual reviewers count toward the total limit. The planner
-also excludes people whose last review is over 180 days old at execution time.
+excludes history-derived people whose last review is over 180 days old at
+execution time; that individual inactivity gate does not filter overrides.
 
 Report every uncovered module, exhausted budget and insufficient-evidence case.
 CODEOWNERS and merge-only participants may suggest a manual contact, but do not
@@ -160,7 +184,8 @@ recollecting a complete window. Do not change timestamps to bypass expiry.
 
 Each candidate has `R/A/M` counts: distinct nonself review PRs, PRs with an
 approval, and nonself merges. Approval PRs are a subset of review PRs; merges do
-not prove review. Up to five qualified candidates are shown in score order.
+not prove review. Historical candidates are shown in score order; override
+candidates are shown in the explicit maintainer order.
 The JSON contains additional candidates, evidence and exact ranking scores.
 
 | Module | PRs | Candidates (R/A/M) | Confidence |
@@ -173,11 +198,11 @@ The JSON contains additional candidates, evidence and exact ranking scores.
 | `connector.paimon`: Paimon | 176 | @924060929 (53/53/1); @CalvinKirs (50/50/3); @Gabriel39 (25/24/13); @morningman (54/53/29); @zhangstar333 (18/18/1) | high |
 | `connector.hive`: Hive, HMS and Hudi | 163 | @924060929 (43/42/4); @CalvinKirs (48/47/1); @morningman (54/52/32); @zhangstar333 (19/19/0); @Gabriel39 (16/16/12) | high |
 | `connector.jdbc`: JDBC and ADBC | 76 | @CalvinKirs (31/31/0); @924060929 (19/19/0); @zhangstar333 (8/7/0); @Gabriel39 (11/8/3); @morningman (15/15/7) | high |
-| `connector.trino`: Trino connector | 26 | Insufficient evidence; manual decision required | manual |
+| `connector.trino`: Trino connector | 26 | @morningman (6/6/3); @Gabriel39 (2/2/2); @924060929 (9/9/0) | maintainer |
 | `connector.maxcompute`: MaxCompute | 52 | @Gabriel39 (8/8/7); @morningman (20/20/11); @CalvinKirs (22/22/0) | medium |
-| `connector.fluss`: Fluss | 11 | Insufficient evidence; manual decision required | manual |
+| `connector.fluss`: Fluss | 11 | @morningman (1/1/0); @Gabriel39 (6/6/4) | maintainer |
 | `connector.es`: Elasticsearch | 25 | @924060929 (9/9/0) | medium |
-| `connector.mongodb`: MongoDB | 5 | Insufficient evidence; manual decision required | manual |
+| `connector.mongodb`: MongoDB | 5 | @Gabriel39 (1/1/0) | maintainer |
 | `connector`: External catalogs, connector framework and metadata caches | 364 | @924060929 (117/114/7); @CalvinKirs (124/119/7); @morningman (124/117/71); @Gabriel39 (33/31/22); @hubgeter (44/44/0) | high |
 | `files.parquet`: Parquet readers and writers | 136 | @yiguolei (63/62/19); @Gabriel39 (26/26/13); @morningman (32/31/19); @zhangstar333 (10/10/1); @CalvinKirs (14/13/0) | high |
 | `files.orc`: ORC readers and writers | 67 | @Gabriel39 (13/13/8); @yiguolei (29/28/11); @morningman (20/18/11) | high |
@@ -193,7 +218,7 @@ The JSON contains additional candidates, evidence and exact ranking scores.
 | `execution.spill`: Operator spilling | 13 | @yiguolei (4/4/4) | medium |
 | `execution`: Pipeline, join, aggregation, sort, scan and exchange | 587 | @yiguolei (194/185/83); @HappenLee (116/100/23); @Gabriel39 (73/71/16); @BiteTheDDDDt (75/66/14); @Mryange (51/47/1) | high |
 | `runtime.workload`: Workload groups, queues and resource management | 45 | @yiguolei (18/16/10); @zclllyybb (6/6/1); @HappenLee (5/4/2); @jacktengg (5/3/0); @hello-stephen (3/3/2) | high |
-| `runtime.memory`: Memory management and tracking | 21 | Insufficient evidence; manual decision required | manual |
+| `runtime.memory`: Memory management and tracking | 21 | @yiguolei (8/8/6); @mrhhsg (5/3/0) | maintainer |
 | `runtime`: BE runtime, utilities, profiles and common infrastructure | 361 | @gavinchou (120/112/22); @yiguolei (86/81/39); @HappenLee (43/38/12); @eldenmoon (37/37/8); @liaoxin01 (53/48/15) | high |
 | `load`: Ingestion, Stream Load, Routine Load and write paths | 423 | @liaoxin01 (178/169/45); @sollhui (50/49/4); @gavinchou (95/91/22); @CalvinKirs (69/66/0); @924060929 (57/56/2) | high |
 | `transaction`: Transactions and commit protocols | 47 | @gavinchou (33/32/5); @morrySnow (16/15/1) | medium |

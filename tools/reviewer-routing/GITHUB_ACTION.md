@@ -12,7 +12,8 @@ It uses this tool's guides and historical evidence to select reviewer candidates
    It never checks out or executes the PR's code.
 3. Codex reads `README.md`, `REVIEWER_RULES.md` and the PR context. It outputs only
    a JSON object such as `{"reviewers":["eldenmoon","csun5285"]}`. The schema
-   permits at most two IDs from active qualified candidates. The helper rejects
+   permits at most two IDs from qualified historical candidates or explicit
+   maintainer overrides. The helper rejects
    the author, duplicate IDs, unqualified people and an empty result.
 4. A separate write job verifies the selection again, checks that both accounts
    are human and assignable, and preserves every existing assignee.
@@ -144,6 +145,11 @@ only needs the workflow and its trusted source files on the default branch:
 3. The workflow, helper scripts and `tools/reviewer-routing/` are present on the
    default branch. A PR containing this new workflow does not activate it before
    it is merged into the trusted default branch.
+
+The offline planner and the workflow validator share `reviewer_candidates.py`.
+Both honor ordered `reviewer_override` lists before historical thresholds or
+individual inactivity checks. The frozen historical records remain available
+for explanation, and the global mapping-expiry guard still applies.
 
 Test with a maintainer-labeled PR, inspect the selected IDs, confirmed assignees,
 mention comment and labels, then remove/reapply `need-reviewers` to test a new

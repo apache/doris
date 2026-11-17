@@ -27,6 +27,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
+from reviewer_candidates import eligible_candidates, preference_weight
 from taxonomy.classify_paths import classify_pr
 
 ROOT = Path(__file__).resolve().parent
@@ -58,9 +59,7 @@ def plan(pr, mapping, now, limit=3):
         if item["module"] in wanted and (not classified["primary_modules"] or item["kind"] == "production"):
             file = by_path[item["path"]]
             weights[item["module"]] += max(1, min(100, file.get("additions", 0) + file.get("deletions", 0)))
-    eligible = {mid: [s for s in modules[mid]["candidates"] if s["auto_eligible"]
-                     and (now - dt.datetime.fromisoformat(s["last_review"].replace("Z", "+00:00"))).total_seconds() <= 180 * 86400]
-                for mid in wanted}
+    eligible = {mid: eligible_candidates(modules[mid], now) for mid in wanted}
     covered_existing = {mid for mid in wanted if any(s["login"].lower() in existing for s in eligible[mid])}
     uncovered = wanted - covered_existing
     choices = {}
@@ -73,14 +72,14 @@ def plan(pr, mapping, now, limit=3):
         ranked = []
         for login, evidence in choices.items():
             covers = uncovered & evidence.keys()
-            benefit = sum(weights[mid] * evidence[mid]["score"] / eligible[mid][0]["score"] for mid in covers)
+            benefit = sum(weights[mid] * preference_weight(evidence[mid], eligible[mid][0]) for mid in covers)
             if covers:
                 ranked.append((benefit, len(covers), login, covers))
         if not ranked:
             break
         _, _, login, covers = sorted(ranked, key=lambda x: (-x[0], -x[1], x[2].lower()))[0]
         chosen.append({"login": login, "covers": sorted(covers), "evidence": {
-            mid: {key: choices[login][mid][key] for key in ["review_prs", "approval_prs", "merge_prs", "last_review", "confidence", "review_examples"]}
+            mid: {key: choices[login][mid][key] for key in ["review_prs", "approval_prs", "merge_prs", "last_review", "confidence", "review_examples", "selection_source"]}
             for mid in sorted(covers)}})
         uncovered -= covers
         del choices[login]

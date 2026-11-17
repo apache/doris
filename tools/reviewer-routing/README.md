@@ -2,8 +2,9 @@
 
 Select reviewers for an Apache Doris pull request using a frozen analysis of
 4,645 PRs merged into `master` between `2025-11-17T00:00:00Z` (inclusive) and
-`2026-11-17T09:26:38Z` (exclusive). The mapping covers 57 modules; 49 have
-candidates that meet the documented evidence thresholds.
+`2026-11-17T09:26:38Z` (exclusive). The mapping covers 57 modules: 49 have
+historically qualified candidates and four have explicit maintainer overrides.
+The remaining four modules require manual classification.
 
 The Python commands run offline and produce a review plan. An agent follows
 [REVIEWER_RULES.md](REVIEWER_RULES.md) to inspect the diff, check current PR state
@@ -20,6 +21,7 @@ adds them as assignees, posts a mention comment and updates labels.
 | `REVIEWER_RULES.md` | Agent instructions and the complete module candidate table | Read this before choosing or inviting reviewers |
 | `GITHUB_ACTION.md` | Label-triggered assignee workflow, permissions and credentials | Read this for the `need-reviewers` automation mode |
 | `select_reviewers.py` | Deterministic reviewer planning CLI | Execute it; it makes no network requests |
+| `reviewer_candidates.py` | Shared maintainer-override and historical eligibility policy | Used by the planner and GitHub Action validator |
 | `module-reviewers.json` | Ranked candidates, historical counts, activity and example PRs | The selector reads it; inspect specific modules for more evidence |
 | `taxonomy/classify_paths.py` | Path normalization and module classification | Imported by the selector; can also run directly |
 | `taxonomy/module-spec.json` | Module definitions, priorities and path expressions | Read by the classifier |
@@ -208,19 +210,43 @@ Inspect candidates for a specific module without loading the entire mapping
 into an agent's context:
 
 ```bash
-jq '.modules[] | select(.id == "search") | {id, label, recommended, candidates}' \
+jq '.modules[] | select(.id == "search") | {id, label, reviewer_override, recommended, candidates}' \
   tools/reviewer-routing/module-reviewers.json
 ```
+
+## Maintainer overrides
+
+A module's `reviewer_override` list is its authoritative candidate pool, in
+preference order. It replaces historical candidates for that module and bypasses
+historical sample-size and individual inactivity checks. Author exclusion,
+existing-reviewer deduplication, explicit unavailability, live account checks
+and the global 90-day mapping-expiry guard still apply.
+
+| Module | Ordered reviewers |
+|---|---|
+| Trino connector | `morningman`, `Gabriel39`, `924060929` |
+| Fluss | `morningman`, `Gabriel39` |
+| MongoDB | `Gabriel39` |
+| Memory management and MemTracker | `yiguolei`, `mrhhsg` |
+
+Override candidates have `confidence: maintainer` and selection evidence with
+`selection_source: maintainer_override`. The original historical counts, scores,
+activity dates and `auto_eligible` flags remain unchanged in the candidate JSON.
+An old review date or a false historical `auto_eligible` flag does not disqualify
+a maintainer-configured person. If all configured people are excluded, report
+the module as uncovered instead of falling back to an unlisted historical name.
 
 ## Freshness, maintenance and limits
 
 Refresh the mapping after 30 days when practical. The selector stops after 90
-days and also excludes candidates whose last review is more than 180 days old
-at execution time. Rebuild from a new complete merged-PR window; changing
+days and excludes history-derived candidates whose last review is more than
+180 days old at execution time. Maintainer overrides bypass that individual
+inactivity filter. Rebuild from a new complete merged-PR window; changing
 `as_of` alone does not refresh the evidence.
 
 When refreshing, preserve the documented scoring and eligibility rules, update
-the candidate JSON and the table in `REVIEWER_RULES.md` together, and review path
+the candidate JSON and the table in `REVIEWER_RULES.md` together, preserve explicit
+maintainer override lists and their order, and review path
 rules after directory moves. `research_provenance` records hashes from the source
 research; those source files are not runtime dependencies.
 

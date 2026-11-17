@@ -26,12 +26,16 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 from urllib.parse import quote
 
 from review_github_api import decode_json, run_gh
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools/reviewer-routing"
+sys.path.append(str(TOOL))
+from reviewer_candidates import eligible_candidates
+
 REQUEST_LABEL = "need-reviewers"
 DONE_LABEL = "reviewers-assigned"
 BOT = "github-actions[bot]"
@@ -81,11 +85,9 @@ def candidates(tool, now):
     require(0 <= age <= 90, "Reviewer mapping is expired or future-dated; refresh the snapshot.")
     allowed = {}
     for module in mapping["modules"]:
-        for person in module["candidates"]:
-            if (person["auto_eligible"] and person["last_review"]
-                    and (now - timestamp(person["last_review"])).total_seconds() <= 180 * 86400):
-                allowed[person["login"].lower()] = person["login"]
-    require(allowed, "No active qualified reviewers remain in the snapshot.")
+        for person in eligible_candidates(module, now):
+            allowed[person["login"].lower()] = person["login"]
+    require(allowed, "No qualified historical or maintainer-configured reviewers are available.")
     return allowed
 
 
@@ -100,7 +102,7 @@ def validate_selection(selection, author, allowed):
     require(len(set(lowered)) == len(lowered), "Duplicate reviewer IDs are not allowed.")
     require(author.lower() not in lowered, "The PR author cannot be selected.")
     require(all(person in allowed for person in lowered),
-            "Every selected reviewer must have active, qualified historical evidence.")
+            "Every selected reviewer must have qualified historical evidence or a maintainer override.")
     return [allowed[person] for person in lowered]
 
 
@@ -201,6 +203,11 @@ then inspect pr.json, pr-details.json and pr.diff. Use the frozen module evidenc
 and the complete diff to judge specialization, including semantic changes in
 shared files. You may run the local selector with --limit 2 as a starting point.
 Inspect specific module records rather than dumping the entire candidate file.
+Honor each module's reviewer_override list as its authoritative candidate pool,
+in the listed preference order. These maintainer choices override historical
+thresholds and individual review inactivity; do not substitute an unlisted
+historical candidate for that module. Shared coverage may favor a listed person
+who can review several affected modules.
 
 This is the need-reviewers automation mode. An explicit label requests routing
 even for a draft PR. The downstream script will ADD ASSIGNEES, post a mention

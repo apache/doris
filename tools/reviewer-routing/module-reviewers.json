@@ -7,7 +7,7 @@
   "dataset_sha256": "4c00b34f76909451d52a64ab9b8c5268e58bea675e1106c8474341c4f0d2b9eb",
   "module_spec_commit": "fbb96f24ad8a11c0ad00ac4b410e266a2dd651c1",
   "scoring": "sum((5*review_pr + approval_pr + 0.5*nonself_merge_pr) * 2^(-PR_age_days/180) / PR_routing_module_count). One credit per person/PR/module; approval is a review subset. CODEOWNERS only breaks otherwise equal scores.",
-  "eligibility": "review_prs>=3, weighted_review_prs>=2, distinct_authors>=2, reviews_180d>=1; unknown path modules never auto eligible",
+  "eligibility": "Historical candidates: review_prs>=3, weighted_review_prs>=2, distinct_authors>=2, reviews_180d>=1; unknown path modules never auto eligible",
   "limitations": [
     "Review expertise is associated with PR modules, not every reviewed line; inline comment paths are not collected.",
     "Issue discussion comments and unsubmitted/self/bot/postmerge reviews do not earn review credit. DISMISSED counts as historical review expertise, not as an approval.",
@@ -7280,8 +7280,17 @@
         "CalvinKirs",
         "morningman"
       ],
-      "recommended": [],
-      "confidence": "manual"
+      "recommended": [
+        "morningman",
+        "Gabriel39",
+        "924060929"
+      ],
+      "confidence": "maintainer",
+      "reviewer_override": [
+        "morningman",
+        "Gabriel39",
+        "924060929"
+      ]
     },
     {
       "id": "connector.maxcompute",
@@ -8187,8 +8196,15 @@
         "morningman",
         "yiguolei"
       ],
-      "recommended": [],
-      "confidence": "manual"
+      "recommended": [
+        "morningman",
+        "Gabriel39"
+      ],
+      "confidence": "maintainer",
+      "reviewer_override": [
+        "morningman",
+        "Gabriel39"
+      ]
     },
     {
       "id": "connector.es",
@@ -8880,8 +8896,13 @@
         "Gabriel39",
         "yiguolei"
       ],
-      "recommended": [],
-      "confidence": "manual"
+      "recommended": [
+        "Gabriel39"
+      ],
+      "confidence": "maintainer",
+      "reviewer_override": [
+        "Gabriel39"
+      ]
     },
     {
       "id": "connector",
@@ -23854,8 +23875,15 @@
         }
       ],
       "codeowners": [],
-      "recommended": [],
-      "confidence": "manual"
+      "recommended": [
+        "yiguolei",
+        "mrhhsg"
+      ],
+      "confidence": "maintainer",
+      "reviewer_override": [
+        "yiguolei",
+        "mrhhsg"
+      ]
     },
     {
       "id": "runtime",
@@ -53385,5 +53413,6 @@
     "taxonomy/module-spec.json": "82326e8f7c7c72fef34482db9e100ec5787ddd93e392c22f1312f59b4f2eca0f",
     "taxonomy/historical-path-aliases.json": "b6ad4609a32ddf9454faa905e6ae89ea0d006911bb8b20fb137d17f8e2060b1c",
     "taxonomy/classify_paths.py": "5b73466ed2b6f5ec727b4b931b7646c5f45918613a05b01680e767cefbc510c3"
-  }
+  },
+  "override_policy": "A module reviewer_override list is authoritative and ordered. It replaces historical candidates for routing and bypasses historical eligibility and individual inactivity checks. Historical candidate records remain unchanged; the global mapping-expiry guard still applies."
 }

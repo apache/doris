@@ -33,6 +33,8 @@ import unittest
 from unittest.mock import patch
 
 import reviewer_assignment as assignment
+import select_reviewers as selector
+from reviewer_candidates import eligible_candidates
 
 NOW = dt.datetime(2026, 11, 17, 12, tzinfo=dt.timezone.utc)
 PREFIX = "repos/apache/doris"
@@ -311,6 +313,18 @@ class AssignmentTest(unittest.TestCase):
             self.prepare()
         self.assertEqual(self.api.calls, [])
 
+    def test_workflow_honors_override_despite_old_unqualified_history(self):
+        module = self.mapping["modules"][0]
+        module["reviewer_override"] = ["Alice"]
+        module["candidates"][1].update(auto_eligible=False, last_review="2025-01-01T00:00:00Z")
+        self.save_mapping()
+        self.prepare()
+        allowed = assignment.candidates(self.tool, NOW)
+        self.assertEqual(allowed, {"alice": "Alice"})
+        with self.assertRaisesRegex(ValueError, "maintainer override"):
+            assignment.validate_selection({"reviewers": ["Bob"]}, "Author", allowed)
+        self.assertTrue(self.apply(("Alice",))["assigned"])
+
     def test_queued_labeled_event_runs_even_if_prior_run_removed_the_label(self):
         self.api.labels = {"bug", "reviewers-assigned"}
         self.assertFalse(self.prepare(run="102"))
@@ -356,6 +370,95 @@ class TransportTest(unittest.TestCase):
         with patch.object(assignment, "run_gh", side_effect=failure), self.assertRaises(assignment.GitHubError) as error:
             assignment.GitHub().request("GET", "repos/apache/doris/labels/missing")
         self.assertEqual(error.exception.status, 404)
+
+
+class ReviewerOverrideTest(unittest.TestCase):
+    EXPECTED = {
+        "connector.trino": ["morningman", "Gabriel39", "924060929"],
+        "connector.fluss": ["morningman", "Gabriel39"],
+        "connector.mongodb": ["Gabriel39"],
+        "runtime.memory": ["yiguolei", "mrhhsg"],
+    }
+    PATHS = {
+        "connector.trino": "fe/fe-connector/fe-connector-trino/src/main/java/TrinoConnector.java",
+        "connector.fluss": "fe/fe-connector/fe-connector-fluss/src/main/java/FlussCatalog.java",
+        "connector.mongodb": "fe/fe-connector/fe-connector-mongodb/src/main/java/MongoDBCatalog.java",
+        "runtime.memory": "be/src/runtime/memory/mem_tracker_limiter.cpp",
+    }
+
+    def setUp(self):
+        self.mapping = json.loads((assignment.TOOL / "module-reviewers.json").read_text())
+        self.modules = {module["id"]: module for module in self.mapping["modules"]}
+
+    def pr(self, module, author="Contributor", unavailable=()):
+        return {"number": 42, "author": author, "files": [self.PATHS[module]],
+                "unavailable_reviewers": list(unavailable)}
+
+    def test_exact_maintainer_lists_and_order_are_preserved(self):
+        for module, expected in self.EXPECTED.items():
+            with self.subTest(module=module):
+                data = self.modules[module]
+                self.assertEqual(data["reviewer_override"], expected)
+                self.assertEqual(data["recommended"], expected)
+                self.assertEqual(data["confidence"], "maintainer")
+                self.assertEqual([p["login"] for p in eligible_candidates(data, NOW)], expected)
+
+    def test_each_module_selects_its_first_configured_reviewer(self):
+        for module, expected in self.EXPECTED.items():
+            with self.subTest(module=module):
+                result = selector.plan(self.pr(module), self.mapping, NOW, limit=2)
+                self.assertEqual([p["login"] for p in result["reviewers"]], expected[:1])
+                self.assertFalse(result["uncovered_modules"])
+                evidence = result["reviewers"][0]["evidence"][module]
+                self.assertEqual(evidence["selection_source"], "maintainer_override")
+                self.assertEqual(evidence["confidence"], "maintainer")
+
+    def test_author_exclusion_uses_the_next_configured_person(self):
+        for module, expected in self.EXPECTED.items():
+            with self.subTest(module=module):
+                result = selector.plan(self.pr(module, author=expected[0].upper()), self.mapping, NOW)
+                self.assertEqual([p["login"] for p in result["reviewers"]], expected[1:2])
+                self.assertEqual(result["uncovered_modules"], [module] if len(expected) == 1 else [])
+
+    def test_exhausted_overrides_do_not_fall_back_to_historical_names(self):
+        for module, expected in self.EXPECTED.items():
+            with self.subTest(module=module):
+                result = selector.plan(self.pr(module, unavailable=expected), self.mapping, NOW)
+                self.assertEqual(result["reviewers"], [])
+                self.assertEqual(result["uncovered_modules"], [module])
+
+    def test_multi_module_coverage_can_reuse_a_configured_reviewer(self):
+        pr = self.pr("connector.trino")
+        pr["files"].append(self.PATHS["connector.mongodb"])
+        result = selector.plan(pr, self.mapping, NOW, limit=2)
+        self.assertEqual([p["login"] for p in result["reviewers"]], ["Gabriel39"])
+        self.assertEqual(set(result["reviewers"][0]["covers"]), {"connector.trino", "connector.mongodb"})
+
+    def test_overrides_do_not_rewrite_historical_evidence(self):
+        original = copy.deepcopy(self.mapping)
+        trino = self.modules["connector.trino"]
+        morningman = next(p for p in trino["candidates"] if p["login"] == "morningman")
+        self.assertFalse(morningman["auto_eligible"])
+        self.assertGreater((NOW - assignment.timestamp(morningman["last_review"])).days, 180)
+        result = selector.plan(self.pr("connector.trino"), self.mapping, NOW)
+        evidence = result["reviewers"][0]["evidence"]["connector.trino"]
+        self.assertEqual(evidence["review_prs"], morningman["review_prs"])
+        self.assertEqual(evidence["last_review"], morningman["last_review"])
+        self.assertEqual(self.mapping, original)
+
+    def test_maintainer_without_historical_records_can_be_selected(self):
+        mapping = {"as_of": self.mapping["as_of"], "repository": "apache/doris", "modules": [
+            {"id": "runtime.memory", "candidates": [], "reviewer_override": ["NewMaintainer"]}]}
+        result = selector.plan(self.pr("runtime.memory"), mapping, NOW)
+        self.assertEqual([p["login"] for p in result["reviewers"]], ["NewMaintainer"])
+
+    def test_history_routing_and_global_expiry_remain_in_effect(self):
+        pr = {"number": 42, "author": "Contributor", "files": ["be/src/storage/index/inverted/query/query.cpp"]}
+        result = selector.plan(pr, self.mapping, NOW)
+        self.assertEqual(result["reviewers"][0]["login"], "eldenmoon")
+        self.assertEqual(result["reviewers"][0]["evidence"]["search"]["selection_source"], "history")
+        with self.assertRaisesRegex(AssertionError, "older than 90"):
+            selector.plan(self.pr("connector.trino"), self.mapping, NOW + dt.timedelta(days=91))
 
 
 class AuthPoolShellTest(unittest.TestCase):
