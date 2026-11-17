@@ -214,7 +214,7 @@ public class FlightSqlSchemaHelper {
         if (dbSchemaFilterPattern != null) {
             getDbsParams.setPattern(dbSchemaFilterPattern);
         }
-        getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         return impl.getDbNames(getDbsParams);
     }
 
@@ -232,7 +232,7 @@ public class FlightSqlSchemaHelper {
         }
         // Flight SQL only consumes names and types, not the potentially expensive table statistics.
         getTablesParams.setRequiredColumns(Set.of("TABLE_NAME", "TABLE_TYPE"));
-        getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         return impl.listTableStatus(getTablesParams);
     }
 
@@ -247,7 +247,7 @@ public class FlightSqlSchemaHelper {
             describeTablesParams.setCatalog(catalogName);
         }
         describeTablesParams.setTablesName(tablesName);
-        describeTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        describeTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         return impl.describeTables(describeTablesParams);
     }
 
