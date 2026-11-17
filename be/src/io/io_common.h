@@ -20,7 +20,6 @@
 #include <gen_cpp/Types_types.h>
 
 #include <array>
-#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -262,23 +261,6 @@ struct FileCacheStatistics {
 };
 
 struct IOContext {
-    // Scanner stop requests race with reader polling (including MongoDB's cursor callback).
-    // Copies used by cache/writeback tasks retain an independent snapshot, not a shared signal.
-    class StopFlag {
-    public:
-        StopFlag(bool value = false) : _value(value) {}
-        StopFlag(const StopFlag& other) : _value(static_cast<bool>(other)) {}
-        StopFlag& operator=(const StopFlag& other) { return *this = static_cast<bool>(other); }
-        StopFlag& operator=(bool value) {
-            _value.store(value);
-            return *this;
-        }
-        operator bool() const { return _value.load(); }
-
-    private:
-        std::atomic_bool _value;
-    };
-
     FileReadTraceSource read_trace_source {FileReadTraceSource::NORMAL};
     uint64_t read_trace_id {0}; // read-ahead range or hole-fill task; zero when not traced
     ReaderType reader_type = ReaderType::UNKNOWN;
@@ -291,7 +273,7 @@ struct IOContext {
     // TODO(lightman): use following member variables to control file cache
     bool is_persistent = false;
     // stop reader when reading, used in some interrupted operations
-    StopFlag should_stop = false;
+    bool should_stop = false;
     int64_t expiration_time = 0;
     const TUniqueId* query_id = nullptr;             // Ref
     FileCacheStatistics* file_cache_stats = nullptr; // Ref

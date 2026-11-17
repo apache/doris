@@ -19,10 +19,12 @@ package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import com.mongodb.ClientSessionOptions;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCursor;
@@ -30,8 +32,10 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.internal.MongoClientImpl;
 import com.mongodb.internal.operation.BatchCursor;
 import com.mongodb.internal.operation.ListCollectionsOperation;
+import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.bson.codecs.DocumentCodec;
+import org.bson.types.ObjectId;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -103,6 +107,73 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
         } catch (MongoException e) {
             throw failure(e);
         }
+    }
+
+    @Override
+    public MongoSnapshot.Source snapshotSource(long timeoutMs) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        try {
+            Document hello = snapshotDatabase("admin", deadline).runCommand(new Document("hello", 1));
+            int wireVersion = hello.getInteger("maxWireVersion", 0);
+            if ("isdbgrid".equals(hello.getString("msg"))) {
+                Document version = snapshotDatabase("config", deadline).getCollection("version")
+                        .find(new Document("_id", 1)).projection(new Document("clusterId", 1)).limit(1).first();
+                ObjectId identity = version == null ? null : version.getObjectId("clusterId");
+                if (identity == null) {
+                    throw new IllegalArgumentException("MongoDB snapshot cluster identity metadata is unavailable");
+                }
+                return new MongoSnapshot.Source("mongos", identity.toHexString(), 0, wireVersion);
+            }
+            if (!hello.containsKey("setName")) {
+                throw new IllegalArgumentException("MongoDB snapshot reads require a replica set or mongos");
+            }
+            Document config = snapshotDatabase("admin", deadline).runCommand(new Document("replSetGetConfig", 1))
+                    .get("config", Document.class);
+            ObjectId identity = config == null ? null : config.get("settings", new Document())
+                    .getObjectId("replicaSetId");
+            Number version = config == null ? null : config.get("version", Number.class);
+            if (identity == null || version == null) {
+                throw new IllegalArgumentException("MongoDB snapshot replica-set identity metadata is unavailable");
+            }
+            return new MongoSnapshot.Source("replica_set", identity.toHexString(), version.longValue(), wireVersion);
+        } catch (MongoException failure) {
+            throw failure(failure);
+        }
+    }
+
+    @Override
+    public BsonTimestamp selectSnapshot(String database, String collection, String preference, long timeoutMs) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        // A constant projection bounds the probe payload independently of source document size.
+        // MongoDB 7 time-series rewrites can ignore singleBatch. The driver's server-bound cursor
+        // must close before its snapshot session, including when routers differ or selection fails.
+        try (ClientSession session = client.startSession(ClientSessionOptions.builder()
+                .causallyConsistent(false).snapshot(true).build());
+                MongoCursor<Document> cursor = snapshotDatabase(database, deadline).getCollection(collection)
+                        .withReadPreference(properties.readPreferenceForSnapshot(preference)).find(session)
+                        .projection(new Document("_id", 0)
+                                .append("__doris_snapshot_probe__", new Document("$literal", 1)))
+                        .limit(1).batchSize(1).iterator()) {
+            cursor.hasNext();
+            // This is cursor.atClusterTime captured by the driver's snapshot-session protocol;
+            // operationTime, $clusterTime and the local wall clock are not substitutes for T.
+            BsonTimestamp timestamp = session.getSnapshotTimestamp();
+            if (timestamp == null) {
+                throw new DorisConnectorException("MongoDB snapshot probe did not return a snapshot timestamp");
+            }
+            return timestamp;
+        } catch (MongoException failure) {
+            throw failure(failure);
+        }
+    }
+
+    private MongoDatabase snapshotDatabase(String database, long deadline) {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            throw new DorisConnectorException("MongoDB snapshot planning deadline exceeded");
+        }
+        return metadataDatabase(database).withTimeout(Math.max(1, TimeUnit.NANOSECONDS.toMillis(remaining)),
+                TimeUnit.MILLISECONDS);
     }
 
     private MongoDatabase metadataDatabase(String database) {

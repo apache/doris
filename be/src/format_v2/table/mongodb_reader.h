@@ -56,6 +56,9 @@ Status validate_mongodb_range(const TFileRangeDesc& range);
 // source collation; collection candidates use simple collation. No network or client ownership.
 Status build_mongodb_find_options(const TMongoScanDesc& descriptor, _bson_t* filter,
                                   _bson_t* options);
+// Validate that current public source metadata still identifies the statement-pinned cluster.
+Status validate_mongodb_snapshot_source(const TMongoSnapshot& snapshot, const _bson_t& hello,
+                                        const _bson_t& identity);
 // Apply the effective catalog mode while preserving URI tag sets and max staleness on the collection.
 Status configure_mongodb_read_preference(_mongoc_collection_t* collection,
                                          const std::string& preference);

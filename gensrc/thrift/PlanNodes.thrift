@@ -661,6 +661,21 @@ struct TLanceFileDesc {
     6: optional bool use_scalar_index
 }
 
+// A statement-wide source snapshot. Sessions and cursors remain local to each driver owner.
+struct TMongoSnapshot {
+    1: optional i64 timestamp_seconds
+    2: optional i64 timestamp_increment
+    // "replica_set" or "mongos", qualified independently of the collection's object kind.
+    3: optional string source_kind
+    // Replica-set settings.replicaSetId or sharded-cluster config.version.clusterId, as hex.
+    4: optional string source_id
+    // Replica-set configuration version; zero for mongos, whose clusterId survives router changes.
+    5: optional i64 topology_version
+    6: optional i32 max_wire_version
+    // Pinned public time-series options; absent for ordinary collections. Does not contain credentials.
+    7: optional string timeseries_options_json
+}
+
 // Stable single-cursor read contract. Driver objects and active sessions remain local to FE/BE.
 // The reader validates the required version-1 fields before opening the logical namespace.
 struct TMongoScanDesc {
@@ -697,7 +712,7 @@ struct TMongoScanDesc {
     // URI tag sets and max staleness remain in uri and are preserved by the native driver.
     // Metadata/UUID checks use primary independently of this data-read preference.
     14: optional string read_preference
-    // Data-read concern: local, majority, or available. Majority alone is not a shared snapshot.
+    // Data-read concern: local, majority, available, or snapshot. Snapshot requires the shared pin below.
     15: optional string read_concern
     // Replace top-level conversion mismatches with SQL NULL after rollback. Transport, cancellation,
     // allocation and document-limit errors still fail the scan.
@@ -721,6 +736,8 @@ struct TMongoScanDesc {
     23: optional binary filter_bson
     // BSON inclusion projection of complete source roots. Absent means return the complete document.
     24: optional binary projection_bson
+    // Present exactly for read_concern=snapshot; every participating scan uses the same timestamp.
+    25: optional TMongoSnapshot snapshot
 }
 
 struct TTableFormatFileDesc {

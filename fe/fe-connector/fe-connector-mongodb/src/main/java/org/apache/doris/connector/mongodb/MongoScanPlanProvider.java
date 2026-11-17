@@ -32,12 +32,16 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
     private final MongoCatalogProperties properties;
 
-    MongoScanPlanProvider(MongoCatalogProperties properties) {
+    private final Supplier<MongoCatalogClient> client;
+
+    MongoScanPlanProvider(MongoCatalogProperties properties, Supplier<MongoCatalogClient> client) {
         this.properties = properties;
+        this.client = client;
     }
 
     @Override
@@ -71,6 +75,12 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         d.setReadConcern(properties.resolveReadConcern(policies.getOrDefault("mongodb_read_concern", "inherit")));
         d.setBatchSize(bounded(policies, "batch_size", 1024, 1, 65536));
         d.setTimeoutMs(1000L * bounded(policies, "query_timeout", 300, 1, Integer.MAX_VALUE / 1000));
+        var snapshot = MongoSnapshot.prepare(session, properties, handle, client,
+                d.getReadConcern(), d.getReadPreference(), d.getTimeoutMs());
+        if (snapshot != null) {
+            d.setSnapshot(snapshot);
+            d.setTimeoutMs(MongoSnapshot.remainingMillis(session));
+        }
         d.setConnectTimeoutMs(properties.getConnectTimeoutMs());
         d.setServerSelectionTimeoutMs(properties.getServerSelectionTimeoutMs());
         d.setSocketTimeoutMs(properties.getSocketTimeoutMs());
@@ -104,6 +114,15 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
             List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter) {
         MongoTableHandle table = (MongoTableHandle) handle;
         Map<String, String> result = new LinkedHashMap<>();
+        var policies = session.getSessionProperties();
+        String concern = properties.resolveReadConcern(policies.getOrDefault("mongodb_read_concern", "inherit"));
+        String preference = properties.resolveReadPreference(
+                policies.getOrDefault("mongodb_read_preference", "inherit"));
+        var snapshot = MongoSnapshot.prepare(session, properties, table, client, concern, preference,
+                1000L * bounded(policies, "query_timeout", 300, 1, Integer.MAX_VALUE / 1000));
+        result.put("read_concern", concern);
+        result.put("snapshot", snapshot == null ? "none" : snapshot.getTimestampSeconds()
+                + ":" + snapshot.getTimestampIncrement());
         result.put("object_kind", table.getObjectKind());
         result.put("schema_source", table.getSchema().getSource());
         result.put("schema_version", table.getSchema().getVersion());
@@ -117,6 +136,8 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         output.append(prefix).append("MongoDB object: ").append(nodeProperties.get("object_kind"))
                 .append("; schema: ").append(nodeProperties.get("schema_source"))
                 .append("; version: ").append(nodeProperties.get("schema_version")).append("\n");
+        output.append(prefix).append("MongoDB read concern: ").append(nodeProperties.get("read_concern"))
+                .append("; snapshot: ").append(nodeProperties.get("snapshot")).append("\n");
         output.append(prefix).append("MongoDB predicate: ").append(nodeProperties.get("predicate_pushdown"))
                 .append("; residual: retained; projection: ").append(nodeProperties.get("projection_pushdown"))
                 .append("\n");
