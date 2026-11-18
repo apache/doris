@@ -109,6 +109,8 @@ Status merge_delete_sign_rows(const std::vector<const reader::LogicalIndexReader
     DORIS_CHECK_EQ(source_indexes.size(), rowid_conversion.source_segment_count());
     destination_rows->reset();
     std::vector<roaring::Roaring> merged(rowid_conversion.destination_segment_doc_counts().size());
+    CompressedRowIdMap::Cursor rowid_cursor;
+    CompressedRowIdMap::DecodeWorkspace rowid_workspace;
     for (size_t source_ordinal = 0; source_ordinal < source_indexes.size(); ++source_ordinal) {
         std::shared_ptr<const roaring::Roaring> source_rows;
         RETURN_IF_ERROR(source_indexes[source_ordinal]->read_delete_sign_rows(&source_rows));
@@ -118,7 +120,10 @@ Status merge_delete_sign_rows(const std::vector<const reader::LogicalIndexReader
         const auto source_mapping = rowid_conversion.source_mapping(source_ordinal);
         for (const uint32_t source_docid : *source_rows) {
             DORIS_CHECK_LT(source_docid, source_mapping.size());
-            const auto [destination_segment, destination_docid] = source_mapping[source_docid];
+            RowIdConversionSource::Pair destination;
+            RETURN_IF_ERROR(
+                    source_mapping.get(source_docid, rowid_cursor, rowid_workspace, &destination));
+            const auto [destination_segment, destination_docid] = destination;
             if (destination_segment == std::numeric_limits<uint32_t>::max()) {
                 continue;
             }

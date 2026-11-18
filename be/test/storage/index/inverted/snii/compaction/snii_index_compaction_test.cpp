@@ -1216,6 +1216,55 @@ TEST(SniiIndexCompactionTest, MergesRecordedDeleteSignRowsIntoTheirMergedRows) {
     }
 }
 
+// A compaction large enough to compress its row-id conversion moves the recorded rows as a dense
+// conversion does: the same sources and placement as the case above.
+TEST(SniiIndexCompactionTest, MergesRecordedDeleteSignRowsThroughACompressedConversion) {
+    OpenedIndex source_zero;
+    OpenedIndex source_one;
+    roaring::Roaring source_zero_rows;
+    source_zero_rows.addMany(2, std::array<uint32_t, 2> {1, 3}.data());
+    roaring::Roaring source_one_rows;
+    source_one_rows.add(2);
+    SniiIndexInput source_zero_input =
+            make_input(/*doc_count=*/4, /*null_docids=*/ {1}, source_zero_terms());
+    source_zero_input.delete_sign_rows = &source_zero_rows;
+    build_index(std::move(source_zero_input), &source_zero,
+                reader::LogicalIndexOpenMode::kCompaction);
+    SniiIndexInput source_one_input =
+            make_input(/*doc_count=*/3, /*null_docids=*/ {2}, source_one_terms());
+    source_one_input.delete_sign_rows = &source_one_rows;
+    build_index(std::move(source_one_input), &source_one);
+
+    // Source zero's last row is dropped.
+    doris::RowsetId rowset;
+    rowset.init(83);
+    doris::RowIdConversion conversion(doris::RowIdConversion::Mode::COMPRESSED);
+    assert_ok(conversion.init_segment_map(rowset, {7, 19}, {4, 3}));
+    const std::vector<uint32_t> destination_rows {4, 2};
+    assert_ok(conversion.add({{rowset, 7, 0},
+                              {rowset, 19, 0},
+                              {rowset, 7, 1},
+                              {rowset, 19, 1},
+                              {rowset, 7, 2},
+                              {rowset, 19, 2}},
+                             destination_rows));
+    assert_ok(conversion.finalize(destination_rows));
+    std::unique_ptr<ValidatedRowIdConversion> validated;
+    const std::vector<uint32_t> source_rows {4, 3};
+    assert_ok(ValidatedRowIdConversion::create(&conversion, source_rows, destination_rows,
+                                               &validated));
+    ASSERT_NE(validated, nullptr);
+    ASSERT_FALSE(validated->source_mapping(0).is_dense());
+
+    std::optional<std::vector<roaring::Roaring>> merged_rows;
+    assert_ok(compaction::merge_delete_sign_rows({&source_zero.index, &source_one.index},
+                                                 *validated, &merged_rows));
+    ASSERT_TRUE(merged_rows.has_value());
+    ASSERT_EQ(merged_rows->size(), 2);
+    EXPECT_EQ((*merged_rows)[0], roaring::Roaring::bitmapOf(1, 2));
+    EXPECT_EQ((*merged_rows)[1], roaring::Roaring::bitmapOf(1, 1));
+}
+
 // A source that records no rows written with the delete sign, as an older BE wrote or merged it,
 // holds terms for them, and which rows they are is not known here, so no destination records any.
 TEST(SniiIndexCompactionTest, MergesNoDeleteSignRowsWhenASourceRecordsNone) {

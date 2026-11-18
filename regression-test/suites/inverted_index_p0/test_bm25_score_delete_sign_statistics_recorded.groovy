@@ -139,10 +139,14 @@ suite("test_bm25_score_delete_sign_statistics_recorded", "nonConcurrent") {
             }
 
             assertSameScores(scores(visible), scores(mow), "${format}, after the loads")
-            trigger_and_wait_compaction(mow, "cumulative")
-            assertSameScores(scores(visible), scores(mow), "${format}, after a cumulative compaction")
-            trigger_and_wait_compaction(mow, "full")
-            assertSameScores(scores(visible), scores(mow), "${format}, after a full compaction")
+            // A threshold of 0 compresses the row-id conversion of every compaction that may
+            // compress it, as a large one does, so SNII moves the record through it.
+            setBeConfigTemporary([compressed_rowid_conversion_threshold_bytes: 0]) {
+                trigger_and_wait_compaction(mow, "cumulative")
+                assertSameScores(scores(visible), scores(mow), "${format}, after a cumulative compaction")
+                trigger_and_wait_compaction(mow, "full")
+                assertSameScores(scores(visible), scores(mow), "${format}, after a full compaction")
+            }
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs(readsColumn)
         }
