@@ -160,3 +160,6 @@ compile_commands.json
 .worktree_initialized
 
 plan-doc/
+
+# Verified source archives downloaded by CMake ExternalProject dependencies.
+/.dependency-downloads/

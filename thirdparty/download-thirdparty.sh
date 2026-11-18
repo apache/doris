@@ -516,19 +516,6 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " LIBRDKAFKA " ]]; then
     echo "Finished patching ${LIBRDKAFKA_SOURCE}"
 fi
 
-# patch jemalloc, disable JEMALLOC_MANGLE for overloading the memory API.
-if [[ " ${TP_ARCHIVES[*]} " =~ " JEMALLOC_DORIS " ]]; then
-    if [[ "${JEMALLOC_DORIS_SOURCE}" = "jemalloc-5.3.0" ]]; then
-        cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p0 <"${TP_PATCH_DIR}/jemalloc_hook.patch"
-            touch "${PATCHED_MARK}"
-        fi
-        cd -
-    fi
-    echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
-fi
-
 # patch libunwind so Doris can force GNU libunwind to use the BE PHDR cache
 # without changing ordinary dl_iterate_phdr callers.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then

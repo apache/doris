@@ -247,7 +247,9 @@
 #include <hs/hs_runtime.h>
 
 // jemalloc headers
+#ifdef USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
+#endif
 
 // json2pb headers
 #include <json2pb/json_to_pb.h>

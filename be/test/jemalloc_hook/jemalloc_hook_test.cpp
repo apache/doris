@@ -17,6 +17,7 @@
 
 #include <dlfcn.h>
 #include <gtest/gtest.h>
+#include <jemalloc/jemalloc.h>
 #include <malloc.h>
 #include <unistd.h>
 
@@ -25,8 +26,10 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <limits>
 #include <memory>
+#include <string>
 #include <thread>
 
 extern "C" void* doris_memalign(size_t alignment, size_t size) noexcept;
@@ -96,6 +99,56 @@ protected:
     AllocationFunction _libc_valloc = nullptr;
     AllocationFunction _libc_pvalloc = nullptr;
 };
+
+TEST_F(JemallocHookTest, VersionAndHeapProfiling) {
+    const char* version = nullptr;
+    size_t version_size = sizeof(version);
+    ASSERT_EQ(0, jemallctl("version", &version, &version_size, nullptr, 0));
+    EXPECT_STREQ(JEMALLOC_VERSION, version);
+    EXPECT_EQ(0, std::string(version).find("5.3.1-"));
+
+    bool profiling = false;
+    size_t bool_size = sizeof(profiling);
+    ASSERT_EQ(0, jemallctl("config.prof", &profiling, &bool_size, nullptr, 0));
+    ASSERT_TRUE(profiling);
+    ASSERT_EQ(0, jemallctl("opt.prof", &profiling, &bool_size, nullptr, 0));
+    ASSERT_TRUE(profiling);
+
+    // Sample every allocation so a small test deterministically produces a profile.
+    size_t lg_sample = 0;
+    ASSERT_EQ(0, jemallctl("prof.reset", nullptr, nullptr, &lg_sample, sizeof(lg_sample)));
+    bool active = true;
+    ASSERT_EQ(0, jemallctl("prof.active", nullptr, nullptr, &active, sizeof(active)));
+    void* allocation = std::malloc(1024 * 1024);
+    EXPECT_NE(nullptr, allocation);
+    // arenas.lookup accepts a jemalloc-owned pointer: this also verifies that the
+    // public malloc entry point reaches the same allocator as mallctl.
+    unsigned arena = 0;
+    size_t arena_size = sizeof(arena);
+    EXPECT_EQ(0, jemallctl("arenas.lookup", &arena, &arena_size, &allocation, sizeof(allocation)));
+
+    char profile_path[] = "jemalloc-profile-XXXXXX";
+    int fd = mkstemp(profile_path);
+    EXPECT_GE(fd, 0);
+    const char* filename = profile_path;
+    int dump_result = jemallctl("prof.dump", nullptr, nullptr, &filename, sizeof(filename));
+    active = false;
+    EXPECT_EQ(0, jemallctl("prof.active", nullptr, nullptr, &active, sizeof(active)));
+    std::free(allocation);
+    close(fd);
+    EXPECT_EQ(0, dump_result);
+
+    std::ifstream profile(profile_path);
+    std::string header;
+    std::getline(profile, header);
+    EXPECT_EQ("heap_v2/1", header);
+    std::string tag;
+    size_t samples = 0;
+    profile >> tag >> samples;
+    EXPECT_EQ("t*:", tag);
+    EXPECT_GT(samples, 0);
+    unlink(profile_path);
+}
 
 TEST_F(JemallocHookTest, LibcAllocationsCanBeFreedThroughPublicEntry) {
     for (size_t size : {0, 17, 4097}) {

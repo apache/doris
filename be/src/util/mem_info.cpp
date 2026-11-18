@@ -31,7 +31,9 @@
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/segment_v2.pb.h>
+#ifdef USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
+#endif
 
 #include <algorithm>
 #include <boost/algorithm/string/trim.hpp>
