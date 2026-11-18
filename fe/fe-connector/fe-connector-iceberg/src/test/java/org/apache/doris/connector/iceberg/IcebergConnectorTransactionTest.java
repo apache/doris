@@ -51,7 +51,6 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NotFoundException;
@@ -987,24 +986,23 @@ public class IcebergConnectorTransactionTest {
         TableIdentifier id = TableIdentifier.of("db1", "t1");
         Table loaded = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
                 props("write.format.default", "parquet"));
-        Table racing = new BaseTable(((HasTableOperations) loaded).operations(), loaded.name()) {
-            private boolean injected;
-
-            @Override
-            public Transaction newTransaction() {
-                if (!injected) {
-                    injected = true;
-                    Table concurrent = catalog.loadTable(id);
-                    concurrent.newAppend().appendFile(dataFile(concurrent.spec(),
-                            "s3://b/db1/t1/during-refresh.parquet", 1L)).commit();
-                }
-                return super.newTransaction();
-            }
-        };
+        TableOperations operations = ((HasTableOperations) loaded).operations();
+        AtomicBoolean injected = new AtomicBoolean();
+        Table racing = new BaseTable((TableOperations) Proxy.newProxyInstance(TableOperations.class.getClassLoader(),
+                new Class<?>[] {TableOperations.class}, (proxy, method, args) -> {
+                    // Inject at the SDK refresh boundary, including transactions opened through guarded operations.
+                    if ("refresh".equals(method.getName()) && injected.compareAndSet(false, true)) {
+                        Table concurrent = catalog.loadTable(id);
+                        concurrent.newAppend().appendFile(dataFile(concurrent.spec(),
+                                "s3://b/db1/t1/during-refresh.parquet", 1L)).commit();
+                    }
+                    return invokeUnwrapped(operations, method, args);
+                }), loaded.name());
         IcebergConnectorTransaction txn = txnFor(
                 opsReturning(racing), new RecordingConnectorContext());
 
         txn.beginWrite(SESSION, "db1", "t1", overwriteCtxPinned(-1L));
+        Assertions.assertTrue(injected.get(), "The first snapshot must commit during transaction refresh");
         txn.addCommitData(commitBytes(dataFileItem(
                 "s3://b/db1/t1/replacement.parquet", 1L, 1024L, Collections.emptyList())));
 

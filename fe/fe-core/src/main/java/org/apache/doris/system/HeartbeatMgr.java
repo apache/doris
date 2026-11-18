@@ -217,6 +217,14 @@ public class HeartbeatMgr extends MasterDaemon {
                 isChanged = handleHbResponse(response, false);
 
                 if (isChanged) {
+                    if (response instanceof BackendHbResponse) {
+                        BackendHbResponse backendResponse = (BackendHbResponse) response;
+                        Backend backend = nodeMgr.getBackend(backendResponse.getBeId());
+                        // A backend can be removed while the asynchronous heartbeat is in flight.
+                        if (backend != null) {
+                            response = backend.heartbeatForJournal(backendResponse);
+                        }
+                    }
                     hbPackage.addHbResponse(response);
                 }
             } catch (InterruptedException | ExecutionException e) {
