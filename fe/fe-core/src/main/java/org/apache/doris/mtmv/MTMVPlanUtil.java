@@ -611,6 +611,10 @@ public class MTMVPlanUtil {
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
+            if (statementContext.hasMaxVisiblePartition()) {
+                throw new AnalysisException(
+                        "max_visible_partition() is not supported in materialized view definitions");
+            }
             Plan analyzedPlan = planner.getAnalyzedPlan();
             // can not contain Random function
             analyzeExpressions(analyzedPlan, mvProperties);

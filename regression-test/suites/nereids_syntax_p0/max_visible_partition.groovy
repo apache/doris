@@ -120,6 +120,35 @@ suite("max_visible_partition") {
         contains "partitions=1/"
     }
 
+    // max_visible_partition() is data-dependent and cannot define an asynchronously refreshed MV.
+    // Use an empty source to cover the path where no manually specified partition is present.
+    sql """DROP TABLE IF EXISTS mvp_mtmv_empty_source;"""
+    sql """
+        CREATE TABLE mvp_mtmv_empty_source (
+            id BIGINT,
+            val BIGINT
+        ) DUPLICATE KEY(`id`)
+        PARTITION BY RANGE(`id`)
+        (
+            PARTITION `p1` VALUES LESS THAN ('5'),
+            PARTITION `p2` VALUES LESS THAN ('10')
+        )
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ("replication_num" = "1");
+    """
+    test {
+        sql """
+            CREATE MATERIALIZED VIEW mvp_mtmv_invalid_definition
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            PARTITION BY (id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+            AS SELECT id, val
+            FROM mvp_mtmv_empty_source MAX_VISIBLE_PARTITION();
+        """
+        exception "max_visible_partition() is not supported in materialized view definitions"
+    }
+
     // ============================================================
     // Case 3: View is not OLAP-backed -> reject explicitly
     // ============================================================
