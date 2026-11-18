@@ -71,14 +71,11 @@ final class DeltaLakePredicateConverter {
     private static final SignedZeros DOUBLE_ZEROS = new SignedZeros(Literal.ofDouble(-0.0), Literal.ofDouble(0.0));
     private final StructType schema;
     private final ZoneId zone;
-    private final Collection<String> partitionColumns;
     private final Collection<String> possibleEmptyDatePartitions;
 
-    DeltaLakePredicateConverter(StructType schema, ZoneId zone, Collection<String> partitionColumns,
-            Collection<String> possibleEmptyDatePartitions) {
+    DeltaLakePredicateConverter(StructType schema, ZoneId zone, Collection<String> possibleEmptyDatePartitions) {
         this.schema = schema;
         this.zone = zone;
-        this.partitionColumns = partitionColumns;
         this.possibleEmptyDatePartitions = possibleEmptyDatePartitions;
     }
 
@@ -133,7 +130,7 @@ final class DeltaLakePredicateConverter {
                 if (value == null) {
                     return null;
                 }
-                SignedZeros zeros = signedZeros(field, value);
+                SignedZeros zeros = signedZeros(value);
                 if (zeros != null) {
                     values.add(zeros.negative());
                     values.add(zeros.positive());
@@ -162,7 +159,7 @@ final class DeltaLakePredicateConverter {
                 operator = "IS NOT DISTINCT FROM";
             }
             ConnectorComparison.Operator op = comparison.getOperator();
-            SignedZeros zeros = signedZeros(field, value);
+            SignedZeros zeros = signedZeros(value);
             if (zeros != null) {
                 // Kernel orders -0.0 below +0.0. Doris treats them as one value, including inside NOT.
                 if (op == ConnectorComparison.Operator.EQ || op == ConnectorComparison.Operator.NE
@@ -184,13 +181,12 @@ final class DeltaLakePredicateConverter {
         return null;
     }
 
-    private SignedZeros signedZeros(StructField field, Literal literal) {
+    private static SignedZeros signedZeros(Literal literal) {
         Object value = literal.getValue();
         if (value instanceof Double && (double) value == 0.0) {
             return DOUBLE_ZEROS;
         }
-        // FLOAT data columns use file statistics. FLOAT partitions still use Doris LIST pruning.
-        if (value instanceof Float && (float) value == 0.0f && !partitionColumns.contains(field.getName())) {
+        if (value instanceof Float && (float) value == 0.0f) {
             return FLOAT_ZEROS;
         }
         return null;

@@ -24,3 +24,13 @@ TBLPROPERTIES ('delta.enableDeletionVectors'='false');
 INSERT OVERWRITE delta_m1.signed_zero VALUES (1, CAST('-0.0' AS FLOAT), CAST('-0.0' AS DOUBLE));
 INSERT INTO delta_m1.signed_zero VALUES (2, CAST('0.0' AS FLOAT), CAST('0.0' AS DOUBLE));
 INSERT INTO delta_m1.signed_zero VALUES (3, -1, -1), (4, 1, 1), (5, NULL, NULL);
+
+DROP TABLE IF EXISTS delta_m1.signed_zero_partition;
+CREATE TABLE delta_m1.signed_zero_partition (id BIGINT, p FLOAT)
+USING delta PARTITIONED BY (p) LOCATION 's3a://delta/warehouse/delta_m1/signed_zero_partition'
+TBLPROPERTIES ('delta.enableDeletionVectors'='false');
+
+-- Keep one file in each of the three physical partitions.
+INSERT OVERWRITE delta_m1.signed_zero_partition VALUES (1, CAST('-0.0' AS FLOAT));
+INSERT INTO delta_m1.signed_zero_partition VALUES (2, CAST('0.0' AS FLOAT));
+INSERT INTO delta_m1.signed_zero_partition VALUES (3, CAST('1.0' AS FLOAT));

@@ -352,8 +352,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     private Optional<Predicate> predicate(ConnectorSession session, Snapshot snapshot,
             Optional<ConnectorExpression> filter) {
         return filter.flatMap(expression -> new DeltaLakePredicateConverter(snapshot.getSchema(),
-                ZoneId.of(session.getTimeZone()), snapshot.getPartitionColumnNames(),
-                runtime.possibleEmptyDatePartitions(snapshot)).convert(expression));
+                ZoneId.of(session.getTimeZone()), runtime.possibleEmptyDatePartitions(snapshot)).convert(expression));
     }
 
     @Override

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_deltalake_signed_zero", "p0,external,deltalake") {
     def config = context.config.otherConfigs
     if (!"true".equalsIgnoreCase(config.get("enableDeltaLakeTest"))) {
@@ -66,4 +68,23 @@ suite("test_deltalake_signed_zero", "p0,external,deltalake") {
             }
         }
     }
+
+    sql "set enable_profile=true"
+    def profiles = new ProfileAction(context)
+    def checkPartition = { String tag, String value, int expected ->
+        String token = UUID.randomUUID().toString()
+        "order_qt_${tag}"("""select /* ${token} */ id from test_deltalake_signed_zero.delta_m1.signed_zero_partition
+                where p = cast('${value}' as float) order by id""")
+        String profile = profiles.getProfileBySql(token, ["Delta Scan Metrics", "EnumerationComplete: true"])
+        def metrics = profile.readLines()*.trim()
+        assertTrue(metrics.contains("- SelectedPartitions: " + expected), profile)
+        assertTrue(metrics.contains("- SelectedFiles: " + expected), profile)
+    }
+    for (boolean batch : [false, true]) {
+        sql "set enable_external_table_batch_mode=${batch}"
+        checkPartition("partition_${batch}_positive_zero", "0.0", 2)
+        checkPartition("partition_${batch}_negative_zero", "-0.0", 2)
+        checkPartition("partition_${batch}_one", "1.0", 1)
+    }
+    order_qt_partition_names "show partitions from test_deltalake_signed_zero.delta_m1.signed_zero_partition"
 }

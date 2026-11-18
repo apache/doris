@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TTableType;
 
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.types.DoubleType;
+import io.delta.kernel.types.FloatType;
 import io.delta.kernel.types.StructType;
 
 import java.util.Collections;
@@ -178,15 +179,16 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
             Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime);
             StructType schema = snapshot.getSchema();
             return snapshot.getPartitionColumnNames().stream()
-                    .anyMatch(name -> schema.get(name).getDataType() instanceof DoubleType);
+                    .map(name -> schema.get(name).getDataType())
+                    .anyMatch(type -> type instanceof FloatType || type instanceof DoubleType);
         });
     }
 
     @Override
     public Optional<ConnectorMvccPartitionView> getMvccPartitionView(
             ConnectorSession session, ConnectorTableHandle handle) {
-        // An eager consumer still needs the real partition names. A Doris LIST key can narrow a
-        // DOUBLE to FLOAT and discard matching files before either Kernel or BE sees the predicate.
+        // Eager consumers still need the real partition names. Doris LIST pruning distinguishes
+        // signed zeros and can narrow DOUBLE keys to FLOAT, excluding matching Delta files.
         return supportsNativePartitionPlanning(session, handle)
                 ? Optional.of(ConnectorMvccPartitionView.unpartitioned()) : Optional.empty();
     }

@@ -59,7 +59,7 @@ import java.util.List;
 class DeltaLakePredicateConverterTest {
     private final ConnectorColumnRef column = new ConnectorColumnRef("mixed", ConnectorType.of("BIGINT"));
     private final DeltaLakePredicateConverter converter = new DeltaLakePredicateConverter(
-            new StructType().add("MiXeD", LongType.LONG), ZoneId.of("Asia/Shanghai"), List.of(), List.of());
+            new StructType().add("MiXeD", LongType.LONG), ZoneId.of("Asia/Shanghai"), List.of());
 
     @Test
     void preservesLogicalColumnNamesAndEveryComparisonIncludingReversedOperands() {
@@ -90,29 +90,24 @@ class DeltaLakePredicateConverterTest {
     }
 
     @Test
-    void expandsBothZerosInTheDataColumnTypeAndPreservesPartitionPredicates() {
+    void expandsBothSignedZerosInTheColumnType() {
         for (Literal negative : List.of(Literal.ofFloat(-0.0f), Literal.ofDouble(-0.0))) {
             boolean isFloat = negative.getDataType() instanceof FloatType;
             Literal positive = isFloat ? Literal.ofFloat(0.0f) : Literal.ofDouble(0.0);
             ConnectorType type = ConnectorType.of(isFloat ? "FLOAT" : "DOUBLE");
-            DeltaLakePredicateConverter partitioned = new DeltaLakePredicateConverter(new StructType()
-                    .add("P", negative.getDataType()).add("value", negative.getDataType()),
-                    ZoneId.of("UTC"), List.of("P"), List.of());
+            DeltaLakePredicateConverter floating = new DeltaLakePredicateConverter(
+                    new StructType().add("value", negative.getDataType()), ZoneId.of("UTC"), List.of());
             ConnectorColumnRef data = new ConnectorColumnRef("value", type);
             ConnectorLiteral zero = new ConnectorLiteral(type, -0.0);
-            Predicate eq = partitioned.convert(new ConnectorComparison(
+            Predicate eq = floating.convert(new ConnectorComparison(
                     ConnectorComparison.Operator.EQ, data, zero)).orElseThrow();
             Assertions.assertEquals("OR", eq.getName());
             Assertions.assertEquals(negative, eq.getChildren().get(0).getChildren().get(1));
             Assertions.assertEquals(positive, eq.getChildren().get(1).getChildren().get(1));
-            In in = (In) partitioned.convert(new ConnectorIn(data,
+            In in = (In) floating.convert(new ConnectorIn(data,
                     List.of(zero, ConnectorLiteral.ofNull(type)), false)).orElseThrow();
             Assertions.assertEquals(List.of(negative, positive, Literal.ofNull(negative.getDataType())),
                     in.getInListElements());
-
-            ConnectorColumnRef partition = new ConnectorColumnRef("p", type);
-            Assertions.assertEquals(isFloat ? "=" : "OR", partitioned.convert(new ConnectorComparison(
-                    ConnectorComparison.Operator.EQ, partition, zero)).orElseThrow().getName());
         }
     }
 
@@ -177,7 +172,7 @@ class DeltaLakePredicateConverterTest {
         StructField field = new StructField("dt", TimestampNTZType.TIMESTAMP_NTZ, true)
                 .withTypeChanges(List.of(new TypeChange(DateType.DATE, TimestampNTZType.TIMESTAMP_NTZ)));
         DeltaLakePredicateConverter widening = new DeltaLakePredicateConverter(
-                new StructType().add(field).add("MiXeD", LongType.LONG), ZoneId.of("UTC"), List.of(), List.of());
+                new StructType().add(field).add("MiXeD", LongType.LONG), ZoneId.of("UTC"), List.of());
         ConnectorExpression date = new ConnectorComparison(ConnectorComparison.Operator.GT,
                 new ConnectorColumnRef("dt", ConnectorType.of("DATETIMEV2", 6, 0)),
                 ConnectorLiteral.ofDatetime(LocalDateTime.of(2024, 2, 29, 0, 0)));
@@ -193,7 +188,7 @@ class DeltaLakePredicateConverterTest {
     void keepsOnlyAffectedDatePartitionPredicatesResidual() {
         DeltaLakePredicateConverter dates = new DeltaLakePredicateConverter(new StructType()
                 .add("Day", DateType.DATE).add("other_day", DateType.DATE).add("label", StringType.STRING),
-                ZoneId.of("UTC"), List.of("Day", "label"), List.of("Day", "label"));
+                ZoneId.of("UTC"), List.of("Day", "label"));
         ConnectorExpression emptyDate = new ConnectorIsNull(new ConnectorColumnRef("day", ConnectorType.of("DATE")),
                 false);
         ConnectorExpression otherDate = new ConnectorComparison(ConnectorComparison.Operator.EQ,
