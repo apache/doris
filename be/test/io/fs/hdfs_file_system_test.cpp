@@ -30,6 +30,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "testutil/scoped_file_cache.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -105,12 +107,18 @@ TEST(HdfsFileSystemTest, Write) {
             },
             &guard4);
 
+    test::ScopedFileCache file_cache;
+    st = file_cache.init();
+    ASSERT_TRUE(st.ok()) << st;
+
+    const auto old_batch_size = config::hdfs_write_batch_buffer_size_mb;
+    Defer restore_batch_size {[&] { config::hdfs_write_batch_buffer_size_mb = old_batch_size; }};
     config::hdfs_write_batch_buffer_size_mb = 1;
-    // TODO(plat1ko): Test write file cache
 
     io::FileWriterOptions opts {.write_file_cache = true};
     auto hdfs_file_writer = std::make_unique<io::HdfsFileWriter>("mock_hdfs_file", nullptr, nullptr,
                                                                  "fs_name", &opts);
+    ASSERT_NE(hdfs_file_writer->cache_builder(), nullptr);
 
     std::string content_1000(1000, 'a');
     constexpr size_t MB = 1024 * 1024;

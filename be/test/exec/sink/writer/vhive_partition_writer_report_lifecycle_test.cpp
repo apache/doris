@@ -30,6 +30,7 @@
 #include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/scoped_file_cache.h"
 
 namespace doris {
 namespace {
@@ -174,8 +175,19 @@ ReportStatusRequest report_request(RuntimeState* state, bool done) {
 
 } // namespace
 
-TEST(VHivePartitionWriterReportLifecycleTest,
-     PeriodicReportDefersMetadataAndFinalReportTransfersUploadIdentity) {
+class VHivePartitionWriterReportLifecycleTest : public testing::Test {
+protected:
+    void SetUp() override {
+        auto st = _file_cache.init();
+        ASSERT_TRUE(st.ok()) << st;
+    }
+
+private:
+    test::ScopedFileCache _file_cache;
+};
+
+TEST_F(VHivePartitionWriterReportLifecycleTest,
+       PeriodicReportDefersMetadataAndFinalReportTransfersUploadIdentity) {
     MockRuntimeState state;
     VExprContextSPtrs output_exprs;
     auto client = std::make_shared<RecordingObjStorageClient>();
@@ -201,7 +213,7 @@ TEST(VHivePartitionWriterReportLifecycleTest,
     EXPECT_EQ("upload-id", pending_upload.upload_id);
 }
 
-TEST(VHivePartitionWriterReportLifecycleTest, AzureFinalReportCarriesExactBlockIdentity) {
+TEST_F(VHivePartitionWriterReportLifecycleTest, AzureFinalReportCarriesExactBlockIdentity) {
     MockRuntimeState state;
     VExprContextSPtrs output_exprs;
     auto client = std::make_shared<RecordingObjStorageClient>();

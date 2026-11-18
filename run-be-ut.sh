@@ -412,6 +412,9 @@ CONF_DIR="${DORIS_TEST_BINARY_DIR}/conf"
 rm -rf "${CONF_DIR}"
 mkdir "${CONF_DIR}"
 cp "${DORIS_HOME}/conf/be.conf" "${CONF_DIR}"/
+# doris_be_test does not initialize ExecEnv's file cache. Fixtures that exercise
+# caching install a populated factory and enable it for the duration of the test.
+printf '\nenable_file_cache = false\n' >> "${CONF_DIR}/be.conf"
 
 export TERM="xterm"
 export UDF_RUNTIME_DIR="${DORIS_TEST_BINARY_DIR}/lib/udf-runtime"
