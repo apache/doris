@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -29,6 +30,7 @@ import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
@@ -187,6 +189,8 @@ public class KillUtilsTest {
     public void testKillQueryByQueryIdFoundOnCurrentNode() throws UserException {
         String queryId = "test_query_id";
         ConnectContext mockKillQueryCtx = Mockito.mock(ConnectContext.class);
+        StmtExecutor targetExecutor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(mockKillQueryCtx.getExecutor()).thenReturn(targetExecutor);
         ExecuteEnv mockExecEnv = Mockito.mock(ExecuteEnv.class);
         ConnectScheduler mockQueryScheduler = Mockito.mock(ConnectScheduler.class);
 
@@ -205,7 +209,8 @@ public class KillUtilsTest {
             KillUtils.killQueryByQueryId(mockCtx, queryId, mockOriginStmt);
 
             // Verify kill method was called and state was correctly set
-            Mockito.verify(mockKillQueryCtx).kill(false);
+            Mockito.verify(targetExecutor).cancelQueryId(Mockito.eq(queryId), Mockito.any(Status.class));
+            Mockito.verify(mockKillQueryCtx, Mockito.never()).kill(false);
             Mockito.verify(mockState).setOk();
         }
     }

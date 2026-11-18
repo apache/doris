@@ -21,11 +21,13 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.FEOpExecutor;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -145,6 +147,7 @@ public class KillUtils {
     @VisibleForTesting
     public static boolean killByQueryIdOnCurrentNode(ConnectContext ctx, String queryId) throws DdlException {
         ConnectContext killCtx = ExecuteEnv.getInstance().getScheduler().getContextWithQueryId(queryId);
+        StmtExecutor targetExecutor = killCtx == null ? null : killCtx.getExecutor();
         if (LOG.isDebugEnabled()) {
             LOG.debug("kill query '{}' on current node", queryId);
         }
@@ -154,7 +157,9 @@ public class KillUtils {
                     && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, queryId);
             }
-            killCtx.kill(false);
+            if (targetExecutor != null) {
+                targetExecutor.cancelQueryId(queryId, new Status(TStatusCode.CANCELLED, "cancel query by query id"));
+            }
             ctx.getState().setOk();
             return true;
         }

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -31,6 +32,7 @@ import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
+import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel.RecordedPacket;
 import org.apache.doris.thrift.TMasterOpRequest;
@@ -218,6 +220,33 @@ public class MysqlResultSenderTest {
         Assertions.assertEquals(3, packets.size());
         Assertions.assertArrayEquals(new byte[] {1}, packets.get(0));
         Assertions.assertArrayEquals(new byte[] {1, 49}, packets.get(2));
+    }
+
+    @Test
+    public void testPreparedPointQueryCachedFieldsKeepTheSameWireMetadata() throws IOException {
+        RecordingMysqlChannel channel = newChannel(false);
+        ConnectContext ctx = newContext(channel);
+        ctx.setCommand(MysqlCommand.COM_STMT_EXECUTE);
+        StatementContext statement = new StatementContext();
+        statement.setShortCircuitQuery(true);
+        statement.setShortCircuitQueryContext(
+                Mockito.mock(ShortCircuitQueryContext.class, Mockito.CALLS_REAL_METHODS));
+        ctx.setStatementContext(statement);
+        List<String> names = Lists.newArrayList("key", "payload");
+        List<Type> types = Lists.newArrayList(Type.BIGINT, Type.STRING);
+
+        ctx.getResultSender().sendFields(names, null, types);
+        List<byte[]> first = payloads(channel);
+        channel.clearOutbound();
+        ctx.getResultSender().sendFields(names, null, types);
+        List<byte[]> cached = payloads(channel);
+        Assertions.assertEquals(4, first.size());
+        Assertions.assertEquals(first.size(), cached.size());
+        for (int i = 0; i < first.size(); i++) {
+            Assertions.assertArrayEquals(first.get(i), cached.get(i));
+        }
+        Assertions.assertArrayEquals(new byte[] {2}, cached.get(0));
+        Assertions.assertEquals(0xFE, Byte.toUnsignedInt(cached.get(3)[0]));
     }
 
     @Test

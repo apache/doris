@@ -586,6 +586,37 @@ public class Config extends ConfigBase {
     @ConfField(description = "The timeout of RPC for high-concurrency short-circuit queries")
     public static int point_query_timeout_ms = 10000; // 10s
 
+    @ConfField(description = "Number of shards for point-query async batch flush timers; must be positive. "
+                    + "Each shard uses one timer thread. Increasing it spreads scheduling work across more threads.")
+    public static int point_query_async_deadline_shards = 4;
+
+    @ConfField(mutable = true, description = "Whether to schedule point-query RPC batch flushing asynchronously; "
+                    + "otherwise the submitting thread waits.")
+    public static volatile boolean enable_point_query_rpc_async_flush = false;
+
+    @ConfField(description = "Number of threads dispatching timer-flushed point-query RPC batches; must be positive. "
+                    + "Increasing it allows more concurrent dispatch work and uses more threads.")
+    public static int point_query_batch_dispatch_threads = 16;
+
+    @ConfField(description = "Separate capacity limits, in batches, for pending async flushes and the dispatch queue; "
+                    + "must be positive. Exhausted pending slots reject requests needing a new batch; "
+                    + "a full dispatch queue rejects the batch. "
+                    + "Increasing it may increase memory use and queueing time.")
+    public static int point_query_batch_pending_limit = 1024;
+
+    @ConfField(mutable = true, description = "Coalesce concurrent point lookups into per-backend RPC batches.")
+    public static volatile boolean enable_point_query_rpc_batch = false;
+
+    @ConfField(mutable = true, description = "Maximum point lookups per RPC batch, "
+            + "clamped to [1, 8]; 1 uses unary RPC.")
+    public static volatile int point_query_rpc_batch_max_size = 8;
+
+    @ConfField(mutable = true, description = "Maximum point-query coalescing delay in microseconds; 0 uses unary RPC.")
+    public static volatile int point_query_rpc_batch_max_wait_us = 10;
+
+    @ConfField(mutable = true, description = "Maximum serialized point-query batch bytes, capped at 1 MiB.")
+    public static volatile int point_query_rpc_batch_max_request_bytes = 1048576;
+
     @ConfField(mutable = true, masterOnly = true, description = "Default timeout for insert load jobs, in seconds.")
     public static int insert_load_default_timeout_second = 14400; // 4 hour
 
@@ -1594,6 +1625,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(description = "The time without GRPC read activity before sending a keepalive ping")
     public static int grpc_keep_alive_second = 10;
+
+    @ConfField(mutable = true, description = "Whether to enable gRPC retry for BackendServiceClient. "
+            + "Cached channels are replaced on subsequent RPCs; in-flight RPCs finish on the old channel. "
+            + "No retry policy is installed: enabling this permits transparent retries for unprocessed requests.")
+    public static volatile boolean grpc_backend_client_enable_retry = false;
 
     /**
      * Whether to use gRPC directExecutor() for BackendServiceClient.

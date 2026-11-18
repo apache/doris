@@ -59,6 +59,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.protobuf.ByteString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
@@ -68,13 +70,13 @@ import org.apache.thrift.TSerializer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -83,7 +85,8 @@ public class PointQueryExecutor implements CoordInterface {
     private long tabletID = 0;
     private long timeoutMs = Config.point_query_timeout_ms; // default 10s
 
-    private boolean isCancel = false;
+    private volatile boolean isCancel;
+    private volatile ListenableFuture<InternalService.PTabletKeyLookupResponse> activeFuture;
     private List<Backend> candidateBackends;
     private final int maxMsgSizeOfResultReceiver;
 
@@ -115,10 +118,14 @@ public class PointQueryExecutor implements CoordInterface {
         LOG.debug("set cloud version {}", snapshotVisibleVersions.get(0));
     }
 
-    void setScanRangeLocations() throws Exception {
+    void selectPointQueryRoute() throws Exception {
+        tabletID = 0;
+        candidateBackends = null;
+        snapshotVisibleVersions = null;
         OlapScanNode scanNode = shortCircuitQueryContext.scanNode;
         // compute scan range
-        List<TScanRangeLocations> locations = scanNode.lazyEvaluateRangeLocations();
+        List<TScanRangeLocations> locations =
+                scanNode.lazyEvaluateRangeLocations(shortCircuitQueryContext.getKeyColumns());
         Preconditions.checkNotNull(locations);
         if (scanNode.getScanTabletIds().isEmpty()) {
             return;
@@ -158,6 +165,12 @@ public class PointQueryExecutor implements CoordInterface {
             StatementContext statementContext) throws Exception {
         Preconditions.checkNotNull(preparedStmtCtx.shortCircuitQueryContext);
         ShortCircuitQueryContext shortCircuitQueryContext = preparedStmtCtx.shortCircuitQueryContext.get();
+        PointQueryBindings bindings = shortCircuitQueryContext.getPointQueryBindings();
+        if (bindings != null && bindings.bindParameters(statementContext, preparedStmtCtx.command)) {
+            executor.executeAndSendResult(false, false,
+                    shortCircuitQueryContext.analzyedQuery, executor.getContext().getResultSender(), null, null);
+            return;
+        }
         // update conjuncts
         Map<String, Expr> colNameToConjunct = Maps.newHashMap();
         for (Entry<PlaceholderId, SlotReference> entry : statementContext.getIdToComparisonSlot().entrySet()) {
@@ -203,7 +216,7 @@ public class PointQueryExecutor implements CoordInterface {
         }
     }
 
-    private static Expr getKeyColumnLiteral(Expr literalExpr, Column column) throws TException {
+    static Expr getKeyColumnLiteral(Expr literalExpr, Column column) throws TException {
         if (literalExpr instanceof LiteralExpr) {
             Type colType = column.getType();
             if (!colType.equals(literalExpr.getType())
@@ -226,22 +239,25 @@ public class PointQueryExecutor implements CoordInterface {
 
     void addKeyTuples(
             InternalService.PTabletKeyLookupRequest.Builder requestBuilder) throws TException {
-        // TODO handle IN predicates
-        Map<String, Expr> columnExpr = Maps.newHashMap();
-        KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
-        for (Expr expr : shortCircuitQueryContext.scanNode.getConjuncts()) {
-            BinaryPredicate predicate = (BinaryPredicate) expr;
-            Expr left = predicate.getChild(0);
-            Expr right = predicate.getChild(1);
-            SlotRef columnSlot = left.unwrapSlotRef();
-            columnExpr.put(columnSlot.getColumnName(), right);
+        PointQueryBindings bindings = shortCircuitQueryContext.getPointQueryBindings();
+        Map<String, Expr> columnExpr = null;
+        if (bindings == null) {
+            columnExpr = Maps.newHashMap();
+            for (Expr expr : shortCircuitQueryContext.scanNode.getConjuncts()) {
+                BinaryPredicate predicate = (BinaryPredicate) expr;
+                SlotRef slot = predicate.getChild(0).unwrapSlotRef();
+                columnExpr.put(slot.getColumnName(), predicate.getChild(1));
+            }
         }
+        KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
         // Serialize each literal expr as TExprNode bytes for typed value transfer.
         // BE deserializes the TExprNode and uses DataType::get_field() to extract
         // typed Field values directly, avoiding string parsing.
         TSerializer serializer = new TSerializer();
-        for (Column column : shortCircuitQueryContext.scanNode.getOlapTable().getBaseSchemaKeyColumns()) {
-            Expr literalExpr = columnExpr.get(column.getName());
+        List<Column> keyColumns = shortCircuitQueryContext.getKeyColumns();
+        for (int i = 0; i < keyColumns.size(); i++) {
+            Column column = keyColumns.get(i);
+            Expr literalExpr = bindings != null ? bindings.getKeyLiteral(i) : columnExpr.get(column.getName());
             // Ensure the literal type matches the column type for proper TExprNode
             // deserialization on BE side. Prepared statement parameters may have
             // mismatched types (e.g., setBigDecimal for INT column produces a
@@ -263,33 +279,37 @@ public class PointQueryExecutor implements CoordInterface {
 
     @Override
     public void cancel(Status cancelReason) {
-        // Do nothing
+        cancel();
     }
 
 
     @Override
     public RowBatch getNext() throws Exception {
-        setScanRangeLocations();
-        // No partition/tablet found return emtpy row batch
-        if (candidateBackends == null || candidateBackends.isEmpty()) {
-            return new RowBatch();
+        Lookup lookup = prepareLookup();
+        while (!lookup.done()) {
+            ListenableFuture<InternalService.PTabletKeyLookupResponse> future = null;
+            InternalService.PTabletKeyLookupResponse response = null;
+            Throwable failure = null;
+            try {
+                future = lookup.submit();
+                long remaining = lookup.deadlineNs - System.nanoTime();
+                if (remaining <= 0) {
+                    throw new TimeoutException("query request timeout");
+                }
+                response = future.get(remaining, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException | TimeoutException | ExecutionException | CancellationException
+                    | RpcException e) {
+                failure = e;
+                if (future != null) {
+                    future.cancel(true);
+                }
+            }
+            lookup.accept(response, failure);
         }
-        Iterator<Backend> backendIter = candidateBackends.iterator();
-        RowBatch rowBatch = null;
-        int tryCount = 0;
-        int maxTry = Math.min(Config.max_point_query_retry_time, candidateBackends.size());
-        Status status = new Status();
-        do {
-            Backend backend = backendIter.next();
-            rowBatch = getNextInternal(status, backend);
-            if (rowBatch != null) {
-                break;
-            }
-            if (++tryCount >= maxTry) {
-                break;
-            }
-        } while (true);
-        // handle status code
+        return lookup.result();
+    }
+
+    private static void checkStatus(Status status) throws UserException, RpcException {
         if (!status.ok()) {
             if (Strings.isNullOrEmpty(status.getErrorMsg())) {
                 status.rewriteErrorMsg();
@@ -298,16 +318,14 @@ public class PointQueryExecutor implements CoordInterface {
             LOG.warn("query failed: {}", errMsg);
             if (status.isRpcError()) {
                 throw new RpcException(null, errMsg);
-            } else {
-                // hide host info
-                int hostIndex = errMsg.indexOf("host");
-                if (hostIndex != -1) {
-                    errMsg = errMsg.substring(0, hostIndex);
-                }
-                throw new UserException(errMsg);
             }
+            // Hide host information in the MySQL error.
+            int hostIndex = errMsg.indexOf("host");
+            if (hostIndex != -1) {
+                errMsg = errMsg.substring(0, hostIndex);
+            }
+            throw new UserException(errMsg);
         }
-        return rowBatch;
     }
 
     @Override
@@ -316,98 +334,156 @@ public class PointQueryExecutor implements CoordInterface {
         // only handles in getNext()
     }
 
-    private RowBatch getNextInternal(Status status, Backend backend) throws TException {
-        long timeoutTs = System.currentTimeMillis() + timeoutMs;
-        RowBatch rowBatch = new RowBatch();
-        InternalService.PTabletKeyLookupResponse pResult = null;
-        boolean includeQueryContext = true;
-        try {
-            Preconditions.checkNotNull(shortCircuitQueryContext.serializedDescTable);
+    Lookup prepareLookup() throws Exception {
+        selectPointQueryRoute();
+        Lookup lookup = new Lookup();
+        if (candidateBackends == null || candidateBackends.isEmpty()) {
+            lookup.batch = new RowBatch();
+            lookup.batch.setEos(true);
+        } else {
+            lookup.prepareAttempt();
+        }
+        return lookup;
+    }
 
-            boolean allowLightweight = Config.enable_lightweight_lookup_request
+    final class Lookup {
+        private final Status status = new Status();
+        private int attempt;
+        private Backend backend;
+        private InternalService.PTabletKeyLookupRequest request;
+        private boolean fullContext;
+        private boolean failed;
+        private RowBatch batch;
+        private long deadlineNs;
+
+        private void prepareAttempt() throws TException {
+            backend = candidateBackends.get(attempt);
+            deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+            fullContext = !(Config.enable_lightweight_lookup_request
                     && ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE
-                    && shortCircuitQueryContext.cacheID != null;
-
-            includeQueryContext = !allowLightweight;
-
-            // First try: lightweight request (omit desc_tbl/output_expr/query_options) when enabled.
-            InternalService.PTabletKeyLookupRequest request = buildLookupRequest(includeQueryContext);
-            pResult = fetchTabletData(status, backend, request, timeoutTs);
-            if (pResult == null) {
-                return null;
-            }
-        } catch (TException e) {
-            throw e;
+                    && shortCircuitQueryContext.cacheID != null);
+            request = buildLookupRequest(fullContext);
         }
 
-        Status resultStatus = new Status(pResult.getStatus());
-        if (resultStatus.getErrorCode() != TStatusCode.OK) {
-            status.updateStatus(resultStatus.getErrorCode(), resultStatus.getErrorMsg());
-            return null;
+        long deadlineNs() {
+            return deadlineNs;
         }
 
-        // Lightweight request miss: resend a full request with query context.
-        if (pResult.hasNeedResendQueryContext() && pResult.getNeedResendQueryContext()) {
-            if (includeQueryContext) {
-                LOG.warn("backend {} requests query context resend for a full point-query request, tablet_id={}",
-                        backend.getBrpcAddress(), tabletID);
-                status.updateStatus(TStatusCode.INTERNAL_ERROR,
-                        "backend requests query context resend but request already contains query context");
-                return null;
+        boolean done() {
+            return batch != null || failed;
+        }
+
+        RowBatch result() throws UserException, RpcException {
+            if (isCancel) {
+                status.updateStatus(TStatusCode.CANCELLED, "cancelled");
             }
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("lookup query context miss on backend {}, resend full request, tablet_id={}",
-                        backend.getBrpcAddress(), tabletID);
+            checkStatus(status);
+            return batch;
+        }
+
+        ListenableFuture<InternalService.PTabletKeyLookupResponse> submit() throws RpcException {
+            if (isCancel) {
+                return com.google.common.util.concurrent.Futures.immediateCancelledFuture();
             }
-            InternalService.PTabletKeyLookupRequest fullRequest = buildLookupRequest(true);
-            pResult = fetchTabletData(status, backend, fullRequest, timeoutTs);
-            if (pResult == null) {
-                return null;
+            long remaining = deadlineNs - System.nanoTime();
+            if (remaining <= 0) {
+                return com.google.common.util.concurrent.Futures.immediateFailedFuture(
+                        new TimeoutException("query request timeout"));
             }
-            resultStatus = new Status(pResult.getStatus());
-            if (resultStatus.getErrorCode() != TStatusCode.OK) {
+            ListenableFuture<InternalService.PTabletKeyLookupResponse> future =
+                    BackendServiceProxy.fetchTabletDataAsync(backend.getBrpcAddress(), request,
+                            Math.max(0, TimeUnit.NANOSECONDS.toMillis(remaining)));
+            activeFuture = future;
+            // Cancellation may precede publication or race with it.
+            if (isCancel) {
+                future.cancel(true);
+            }
+            return future;
+        }
+
+        void accept(InternalService.PTabletKeyLookupResponse response, Throwable failure)
+                throws TException {
+            activeFuture = null;
+            if (isCancel) {
+                status.updateStatus(TStatusCode.CANCELLED, "cancelled");
+            } else if (failure != null) {
+                recordFailure(status, backend, failure);
+            } else {
+                Status resultStatus = new Status(response.getStatus());
                 status.updateStatus(resultStatus.getErrorCode(), resultStatus.getErrorMsg());
-                return null;
-            }
-            if (pResult.hasNeedResendQueryContext() && pResult.getNeedResendQueryContext()) {
-                LOG.warn("backend {} still requests query context resend after full point-query request, "
-                                + "tablet_id={}",
-                        backend.getBrpcAddress(), tabletID);
-                status.updateStatus(TStatusCode.INTERNAL_ERROR,
-                        "backend still requests query context resend after full request");
-                return null;
-            }
-        }
-
-        if (pResult.hasEmptyBatch() && pResult.getEmptyBatch()) {
-            LOG.debug("get empty rowbatch");
-            rowBatch.setEos(true);
-            status.updateStatus(TStatusCode.OK, "");
-            return rowBatch;
-        } else if (pResult.hasRowBatch() && pResult.getRowBatch().size() > 0) {
-            byte[] serialResult = pResult.getRowBatch().toByteArray();
-            TResultBatch resultBatch = new TResultBatch();
-            TDeserializer deserializer = new TDeserializer(
-                    new TCustomProtocolFactory(this.maxMsgSizeOfResultReceiver));
-            try {
-                deserializer.deserialize(resultBatch, serialResult);
-            } catch (TException e) {
-                if (ResultReceiver.isMessageSizeExceeded(e)) {
-                    throw new TException("MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
-                } else {
-                    throw e;
+                if (status.ok()) {
+                    if (response.hasNeedResendQueryContext() && response.getNeedResendQueryContext()) {
+                        if (!fullContext) {
+                            fullContext = true;
+                            request = buildLookupRequest(true);
+                            // A context miss shares this replica's original deadline.
+                            return;
+                        }
+                        status.updateStatus(TStatusCode.INTERNAL_ERROR,
+                                "backend requests query context resend but request already contains query context");
+                    } else {
+                        if (!response.getEmptyBatch()
+                                && (!response.hasRowBatch() || response.getRowBatch().isEmpty())) {
+                            throw new IllegalStateException("No row batch or empty batch found");
+                        }
+                        try {
+                            batch = buildRowBatch(response.getEmptyBatch(), response.getRowBatch());
+                        } catch (TException e) {
+                            if (ResultReceiver.isMessageSizeExceeded(e)) {
+                                throw new TException(
+                                        "MaxMessageSize reached, try increase max_msg_size_of_result_receiver");
+                            }
+                            throw e;
+                        }
+                        return;
+                    }
                 }
             }
-            rowBatch.setBatch(resultBatch);
-            rowBatch.setEos(true);
-            status.updateStatus(TStatusCode.OK, "");
-            return rowBatch;
-        } else {
-            Preconditions.checkState(false, "No row batch or empty batch found");
+            if (isCancel || status.isCancelled() || Thread.currentThread().isInterrupted()
+                    || ++attempt >= Math.max(1,
+                            Math.min(Config.max_point_query_retry_time, candidateBackends.size()))) {
+                failed = true;
+            } else {
+                status.updateStatus(TStatusCode.OK, "");
+                prepareAttempt();
+            }
         }
+    }
 
-        if (isCancel) {
+    static void recordFailure(Status status, Backend backend, Throwable failure) {
+        if (failure instanceof RpcException) {
+            status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, failure.getMessage());
+            SimpleScheduler.addToBlacklist(backend.getId(), failure.getMessage());
+        } else if (failure instanceof TimeoutException) {
+            status.updateStatus(TStatusCode.INTERNAL_ERROR, "query fetch result timeout");
+        } else if (failure instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+            status.updateStatus(TStatusCode.INTERNAL_ERROR, "interrupted while waiting for point query result");
+        } else if (failure instanceof CancellationException) {
             status.updateStatus(TStatusCode.CANCELLED, "cancelled");
+        } else {
+            Throwable cause = failure instanceof ExecutionException ? failure.getCause() : failure;
+            io.grpc.Status.Code code = io.grpc.Status.fromThrowable(cause).getCode();
+            String message = cause.getMessage();
+            if (code == io.grpc.Status.Code.DEADLINE_EXCEEDED
+                    || (message != null && message.contains("time out"))) {
+                status.updateStatus(TStatusCode.TIMEOUT, message);
+            } else if (code == io.grpc.Status.Code.CANCELLED) {
+                status.updateStatus(TStatusCode.CANCELLED, message);
+            } else if (cause instanceof RejectedExecutionException) {
+                status.updateStatus(TStatusCode.INTERNAL_ERROR, message);
+            } else {
+                status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, message);
+                SimpleScheduler.addToBlacklist(backend.getId(), message);
+            }
+        }
+    }
+
+    private RowBatch buildRowBatch(boolean empty, ByteString serializedBatch) throws TException {
+        RowBatch rowBatch = new RowBatch();
+        rowBatch.setEos(true);
+        if (!empty) {
+            rowBatch.setBatch(deserializeRowBatch(serializedBatch, maxMsgSizeOfResultReceiver));
         }
         return rowBatch;
     }
@@ -447,55 +523,21 @@ public class PointQueryExecutor implements CoordInterface {
         return requestBuilder.build();
     }
 
-    private InternalService.PTabletKeyLookupResponse fetchTabletData(
-            Status status, Backend backend, InternalService.PTabletKeyLookupRequest request, long timeoutTs) {
-        Future<InternalService.PTabletKeyLookupResponse> futureResponse;
-        try {
-            futureResponse = BackendServiceProxy.getInstance()
-                    .fetchTabletDataAsync(backend.getBrpcAddress(), request);
-        } catch (RpcException e) {
-            LOG.warn("query fetch rpc exception {}, e {}", backend.getBrpcAddress(), e);
-            status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
-            SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
-            return null;
+    static TResultBatch deserializeRowBatch(ByteString bytes, int maxMessageSize) throws TException {
+        if (bytes.size() > maxMessageSize) {
+            throw new TException("MaxMessageSize reached");
         }
-        long currentTs = System.currentTimeMillis();
-        if (currentTs >= timeoutTs) {
-            LOG.warn("fetch result timeout {}", backend.getBrpcAddress());
-            status.updateStatus(TStatusCode.INTERNAL_ERROR, "query request timeout");
-            return null;
-        }
-        try {
-            return futureResponse.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            futureResponse.cancel(true);
-            Thread.currentThread().interrupt();
-            if (isCancel) {
-                status.updateStatus(TStatusCode.CANCELLED, "cancelled");
-            } else {
-                status.updateStatus(TStatusCode.INTERNAL_ERROR, "interrupted while waiting for point query result");
-            }
-            return null;
-        } catch (TimeoutException e) {
-            futureResponse.cancel(true);
-            LOG.warn("fetch result timeout {}, addr {}", timeoutTs - currentTs, backend.getBrpcAddress());
-            status.updateStatus(TStatusCode.INTERNAL_ERROR, "query fetch result timeout");
-            return null;
-        } catch (ExecutionException e) {
-            LOG.warn("query fetch execution exception {}, addr {}", e, backend.getBrpcAddress());
-            if (e.getMessage() != null && e.getMessage().contains("time out")) {
-                // if timeout, we set error code to TIMEOUT, and it will not retry querying.
-                status.updateStatus(TStatusCode.TIMEOUT, e.getMessage());
-            } else {
-                status.updateStatus(TStatusCode.THRIFT_RPC_ERROR, e.getMessage());
-                SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
-            }
-            return null;
-        }
+        TResultBatch result = new TResultBatch();
+        new TDeserializer(new TCustomProtocolFactory(maxMessageSize)).deserialize(result, bytes.toByteArray());
+        return result;
     }
 
     public void cancel() {
         isCancel = true;
+        ListenableFuture<InternalService.PTabletKeyLookupResponse> future = activeFuture;
+        if (future != null) {
+            future.cancel(true);
+        }
     }
 
     @Override

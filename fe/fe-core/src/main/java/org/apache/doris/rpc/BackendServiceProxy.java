@@ -62,7 +62,7 @@ public class BackendServiceProxy {
     // use concurrent map to allow access serviceMap in multi thread.
     private ReentrantLock lock = new ReentrantLock();
 
-    private static Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
+    private static Executor grpcThreadPool = ThreadPoolManager.newDaemonCacheThreadPoolThrowException(
             Config.grpc_threadmgr_threads_nums,
             "grpc_thread_pool", true);
 
@@ -90,6 +90,17 @@ public class BackendServiceProxy {
 
     public static BackendServiceProxy getInstance() {
         return Holder.get();
+    }
+
+    // Aggregate before selecting one of the existing channels, otherwise the 48 proxy shards
+    // divide the arrival rate and prevent small batches from filling.
+    private static class PointQueryBatcherHolder {
+        private static final PointQueryRpcBatcher BATCHER = new PointQueryRpcBatcher(
+                address -> getInstance().getProxy(address), grpcThreadPool);
+
+        static {
+            Runtime.getRuntime().addShutdownHook(new Thread(BATCHER::close, "point-query-batcher-shutdown"));
+        }
     }
 
     private class BackendServiceClientExtIp {
@@ -131,12 +142,14 @@ public class BackendServiceProxy {
 
         BackendServiceClientExtIp serviceClientExtIp = serviceMap.get(address);
         if (serviceClientExtIp != null && serviceClientExtIp.realIp.equals(realIp)
-                && serviceClientExtIp.client.isNormalState()) {
+                && serviceClientExtIp.client.isNormalState()
+                && serviceClientExtIp.client.isRetryEnabled() == Config.grpc_backend_client_enable_retry) {
             return serviceClientExtIp.client;
         }
 
         // not exist, create one and return.
         BackendServiceClient removedClient = null;
+        boolean retryConfigChanged = false;
         lock.lock();
         try {
             serviceClientExtIp = serviceMap.get(address);
@@ -154,7 +167,12 @@ public class BackendServiceProxy {
                 removedClient = serviceClientExtIp.client;
                 serviceClientExtIp = null;
             }
-            if (serviceClientExtIp == null) {
+            if (serviceClientExtIp == null
+                    || serviceClientExtIp.client.isRetryEnabled() != Config.grpc_backend_client_enable_retry) {
+                if (serviceClientExtIp != null) {
+                    removedClient = serviceClientExtIp.client;
+                    retryConfigChanged = true;
+                }
                 // Pass resolved IP to BackendServiceClient to avoid DNS resolution at gRPC layer
                 BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
@@ -163,7 +181,11 @@ public class BackendServiceProxy {
         } finally {
             lock.unlock();
             if (removedClient != null) {
-                removedClient.shutdown();
+                if (retryConfigChanged) {
+                    removedClient.shutdownGracefully();
+                } else {
+                    removedClient.shutdown();
+                }
             }
         }
     }
@@ -294,7 +316,7 @@ public class BackendServiceProxy {
         }
     }
 
-    public Future<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
+    public ListenableFuture<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
             TNetworkAddress address, InternalService.PTabletKeyLookupRequest request) throws RpcException {
         try {
             final BackendServiceClient client = getProxy(address);
@@ -304,6 +326,17 @@ public class BackendServiceProxy {
                     address.getHostname(), address.getPort(), e);
             throw new RpcException(address.hostname, e.getMessage());
         }
+    }
+
+    public static ListenableFuture<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
+            TNetworkAddress address, InternalService.PTabletKeyLookupRequest request, long timeoutMs)
+            throws RpcException {
+        if (!Config.enable_point_query_rpc_batch) {
+            return getInstance().fetchTabletDataAsync(address, request);
+        }
+        // The batcher selects a proxy at dispatch time. Selecting here as well would update
+        // the shared round-robin counter once per item without using the selected channel.
+        return PointQueryBatcherHolder.BATCHER.submit(address, request, timeoutMs);
     }
 
     public InternalService.PFetchDataResult fetchDataSync(

@@ -56,18 +56,20 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
                 ctx.setThreadLocalInfo();
                 try {
                     connectProcessor.processOnce();
-                    if (!ctx.isKilled()) {
-                        protocol.resumeAcceptQuery();
-                    } else {
-                        protocol.stopAcceptQuery();
-                        ctx.cleanup();
-                    }
                 } catch (Throwable e) {
                     LOG.warn("Exception happened in one session(" + ctx + ").", e);
                     ctx.setKilled();
-                    ctx.cleanup();
                 } finally {
-                    ConnectContext.remove();
+                    try {
+                        if (ctx.isKilled()) {
+                            ctx.cleanup();
+                        }
+                    } finally {
+                        ConnectContext.remove();
+                    }
+                    if (!ctx.isKilled()) {
+                        protocol.resumeAcceptQuery();
+                    }
                 }
             });
         } catch (RejectedExecutionException e) {

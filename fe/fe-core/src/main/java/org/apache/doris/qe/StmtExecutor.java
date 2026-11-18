@@ -207,6 +207,7 @@ public class StmtExecutor {
     private volatile Boolean profileEnabled;
 
     private volatile Coordinator coord = null;
+    private volatile TUniqueId executionQueryId;
     private volatile QueryScanTaskScope scanTaskScope = new QueryScanTaskScope();
     // A statement can be cancelled while it is still planning and has no coordinator yet.
     // Keep this state scoped to the coordinator publication handoff: other execution targets
@@ -814,6 +815,7 @@ public class StmtExecutor {
     }
 
     public void execute(TUniqueId queryId) throws Exception {
+        executionQueryId = queryId.deepCopy();
         scanTaskScope = new QueryScanTaskScope();
         profile.getSummaryProfile().startQueryAttempt(queryId, TimeUtils.getStartTimeMs());
         SessionVariable sessionVariable = context.getSessionVariable();
@@ -1628,6 +1630,14 @@ public class StmtExecutor {
         }
     }
 
+    // Capture the executor when resolving KILL QUERY: the connection may already run its next command.
+    public void cancelQueryId(String queryId, Status reason) {
+        TUniqueId id = executionQueryId;
+        if (id != null && queryId.equals(DebugUtil.printId(id))) {
+            cancel(reason);
+        }
+    }
+
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
         pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
         // Query-owned work may already exist during planning, before there is a coordinator to cancel.
@@ -1891,6 +1901,9 @@ public class StmtExecutor {
             coordBase = coord;
         }
 
+        if (coordBase instanceof PointQueryExecutor) {
+            registerQueryCancellationCallback(((PointQueryExecutor) coordBase)::cancel);
+        }
         coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
         OutFileClause outFileClause = null;
         if (isOutfileQuery) {

@@ -20,6 +20,7 @@ package org.apache.doris.mysql;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Status;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProtocolType;
 import org.apache.doris.mysql.ProxyProtocolHandler.ProxyProtocolResult;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
@@ -27,6 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.MysqlConnectProcessor;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -113,7 +115,12 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             if (res == -1) {
                 MysqlProto.sendResponsePacket(context);
                 connection.setCloseListener(
-                        streamConnection -> connectScheduler.getConnectPoolMgr().unregisterConnection(context));
+                        streamConnection -> {
+                            context.setKilled();
+                            context.cancelQuery(new Status(
+                                    TStatusCode.CANCELLED, "MySQL connection closed"));
+                            connectScheduler.getConnectPoolMgr().unregisterConnection(context);
+                        });
             } else {
                 String errMsg = connectScheduler.getConnectPoolMgr().limitReachedMessage(context, res);
                 // The refused client sees the message; the operator finds it here, since the login
