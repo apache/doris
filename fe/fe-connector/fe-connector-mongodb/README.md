@@ -93,7 +93,8 @@ and values outside the target range are rejected. No implicit string coercion oc
 
 ## Execution policy
 
-This implementation emits one split per logical namespace. The native cursor handles
+By default, each logical namespace has one split. Opt-in range planning is described
+below. The native cursor handles
 find/getMore batches. Safe source projection includes complete top-level roots required by
 output columns and every residual predicate; whole-document bindings and literal dot/dollar
 roots keep full documents. Whole roots preserve scalar-ancestor errors for nested mappings.
@@ -119,8 +120,8 @@ for every arm. LIKE sends an escaped required literal substring as a conservativ
 wildcard-only, ambiguous escapes, NUL and REGEXP stay local. Doris always evaluates the full
 LIKE pattern, including anchors, wildcards, Unicode and newline rules.
 
-Join, aggregation, sort and LIMIT remain Doris operations. Range splitting and LIMIT pushdown
-remain separate work. Common snapshots are described below. Use matching FE/BE versions; the new optional BSON
+Join, aggregation, sort and LIMIT remain Doris operations; LIMIT is not pushed to MongoDB.
+Common snapshots and range planning are described below. Use matching FE/BE versions; the optional BSON
 filter/projection fields preserve the single-cursor descriptor layout.
 
 `batch_size` and `query_timeout` are session variables. The following session variables
@@ -166,7 +167,8 @@ Catalog connection defaults:
 | `mongodb.datetime_timezone` | `UTC` |
 
 A majority read does not imply a point-in-time snapshot. User-supplied time-travel
-timestamps and range scans remain unsupported. EOF, early termination, cancellation and errors close the
+timestamps remain unsupported. Parallel ranges require the qualified snapshot contract below.
+EOF, early termination, cancellation and errors close the
 cursor and return its exclusive client lease. Pool identities include catalog
 configuration and credentials. Driver errors expose stable error codes without
 source values or connection strings. Keep network timeouts small enough for the
@@ -230,18 +232,48 @@ supported. No direct shard or bucket scans are used.
 
 ```sql
 SELECT /*+ SET_VAR(mongodb_read_concern='snapshot', mongodb_split_strategy='range',
-                  mongodb_split_count=8) */ count(*) FROM mongo_native.sample.records;
+                  file_split_size=67108864, max_file_split_num=8) */ count(*) FROM mongo_native.sample.records;
 ```
 
-| Session variable | Default | Meaning |
+| MongoDB session variable | Default | Meaning |
 | --- | --- | --- |
 | `mongodb_split_strategy` | `single` | `single`, conservative `auto`, or explicit `range` |
 | `mongodb_split_field` | empty | Select `_id`; an explicit top-level field requires exactly one MongoDB scan in the statement |
-| `mongodb_split_count` | `0` | Desired total including complement; zero estimates from logical collection bytes, one uses single |
-| `mongodb_split_max_count` | `256` | Per-scan total cap; requested counts above it are rejected |
-| `mongodb_split_target_bytes` | `268435456` | Estimated logical bytes per split; storage compression and residual selectivity are not used |
-| `mongodb_split_sample_rows` | `4096` | Maximum boundary samples; fixed-width scalar projection also limits returned bytes |
-| `mongodb_split_plan_timeout_ms` | `2000` | Optional probe budget, further capped by remaining query time |
+
+Sizing and count admission reuse the existing external-scan settings:
+
+| Shared session variable | Default | MongoDB planning use |
+| --- | --- | --- |
+| `file_split_size` | `0` | A positive value selects the logical-byte target directly; otherwise use the shared size heuristic |
+| `max_initial_file_split_size` | 32 MiB | Initial logical-byte target for smaller collections |
+| `max_file_split_size` | 64 MiB | Target for unknown size or collections at least this size times `max_initial_file_split_num` |
+| `max_initial_file_split_num` | `200` | Threshold used by the shared size heuristic |
+| `max_file_split_num` | `100000` | Per-scan count cap; nonpositive means no user cap, while internal safety caps still apply |
+
+The desired total is estimated from `collStats.size / target`, rounded up and
+including the complement; unknown size uses eight as a bounded `range` hint, while
+`auto` retains single. This is a logical-byte estimate, not compressed storage,
+network bytes or an exact per-partition size. The internal per-scan/source cap is
+256. MongoDB freezes its complete boundary table even when publishing through the
+streaming transport, so `max_file_split_num` also caps that retained plan in batch
+mode. A cap of one yields a complete single scan. Repeated boundaries and other
+planning budgets can reduce the actual count further.
+
+Execution still uses `parallel_pipeline_task_num`, `max_file_scanners_concurrency`,
+`min_file_scanners_concurrency`, the remote scanner pool and workload-group limits.
+The split total is a task count, not a client/thread count. A native reader that
+cannot immediately borrow a pooled client retries cooperatively: it preserves its
+split and original deadline and yields the worker so an existing lease holder can
+resume, including in a one-worker workload group.
+
+Boundary probing has fixed internal limits of 4096 rows and 2000 ms, capped by the
+remaining query time. The fixed-width sample uses one bounded batch, so cancellation
+or timeout leaves no sampling cursor on the source. The pinned Java driver's snapshot
+session otherwise adds an unsupported readConcern to killCursors. These are planning
+safeguards rather than additional session variables. Properties/schema initialization performs no snapshot or range probe;
+source work and byte admission happen in final planning with its complete predicate,
+projection and query cancellation signal. EXPLAIN properties read the resulting
+frozen plan without starting another probe.
 
 Range planning additionally requires `listIndexes` and `collStats` on the collection;
 a missing privilege fails explicitly. The planner admits a completed, visible,
@@ -270,7 +302,8 @@ The source candidate is ANDed with each partition; SQL residuals remain in Doris
 including when predicate/projection pushdown switches are off or strict decoding is used.
 
 A statement admits at most 4096 planned range partitions in total and 256 per pinned
-source, including complements; unused quantile slots are refunded. Conservative
+source, including complements; successful single fallbacks also consume these budgets,
+while the default `single` strategy remains exempt. Unused quantile slots are refunded. Conservative
 serialized descriptor budgets are 8 MiB per plan, 32 MiB per pinned source and 64 MiB
 per statement, including repeated schema/connection/filter payloads. Wide metadata
 therefore reduces admitted counts instead of multiplying into an oversized split RPC. These are planning

@@ -28,6 +28,7 @@ import org.bson.BsonValue;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CancellationException;
@@ -40,6 +41,8 @@ import java.util.function.Supplier;
 
 /** Complete planning precedes publication. Statement memos retain either that plan or its failure. */
 final class MongoRangePlanner {
+    static final int SAMPLE_ROWS = 4096;
+    static final int PROBE_TIMEOUT_MS = 2000;
     private final String memoKey = "mongodb.split.plan:" + UUID.randomUUID();
     private final Supplier<MongoCatalogClient> client;
 
@@ -49,23 +52,14 @@ final class MongoRangePlanner {
 
     MongoSplitPlan plan(ConnectorSession session, MongoTableHandle table, TMongoSnapshot snapshot,
             String preference, ConnectorScanContext context, long descriptorBytes) {
-        context.checkCancelled();
+        checkCancelled(session, context);
         var options = session.getSessionProperties();
         String strategy = options.getOrDefault("mongodb_split_strategy", "single");
         if (!Set.of("single", "auto", "range").contains(strategy)) {
             throw new IllegalArgumentException("Invalid mongodb_split_strategy");
         }
-        int requested = number(options, "mongodb_split_count", 0, 0, 256);
-        int maximum = number(options, "mongodb_split_max_count", 256, 1, 256);
-        int rows = number(options, "mongodb_split_sample_rows", 4096, 1, 4096);
-        int timeout = number(options, "mongodb_split_plan_timeout_ms", 2000, 1, 300000);
-        int targetBytes = number(options, "mongodb_split_target_bytes", 268435456, 1, Integer.MAX_VALUE);
-        if (requested > maximum) {
-            throw new IllegalArgumentException("mongodb_split_count exceeds mongodb_split_max_count");
-        }
-        if ("single".equals(strategy) || requested == 1) {
-            return MongoSplitPlan.single(Math.max(1, requested), 1,
-                    requested == 1 ? "requested_one" : "single_strategy");
+        if ("single".equals(strategy)) {
+            return MongoSplitPlan.single(1, 1, "single_strategy");
         }
         String field = options.getOrDefault("mongodb_split_field", "");
         boolean custom = !field.isEmpty();
@@ -77,85 +71,94 @@ final class MongoRangePlanner {
         }
         String selectedField = field;
         Budget budget = session.getStatementScope().computeIfAbsent("mongodb.split.budget", Budget::new);
-        // A provider may be reused: records and another_records must not share boundaries or admission.
-        String tableKey = memoKey + ":" + session.getCatalogId() + ":" + table.getSchema().getVersion();
-        // Count fallback scans too: an auto view scan must not make a global custom field appear
-        // unambiguous when another MongoDB relation also participates in the statement.
+        String tableKey = tableKey(session, table);
+        // Count fallback scans too: a view must not make a global custom field look unambiguous.
         if (custom) {
             budget.customField(tableKey);
         }
-        if (!"collection".equals(table.getObjectKind())) {
-            return fallback(strategy, requested, "unsupported_object");
-        }
-        if (snapshot == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
-            return fallback(strategy, requested, "snapshot_required");
-        }
         Memo memo = session.getStatementScope().computeIfAbsent(tableKey, Memo::new);
-        return memo.get(session, context, () -> load(session, table, snapshot, preference, context, strategy,
-                selectedField, requested, maximum, rows, timeout, targetBytes, descriptorBytes, budget));
+        return memo.get(session, context, () -> load(session, table, snapshot, preference, context,
+                strategy, selectedField, descriptorBytes, budget));
+    }
+
+    Optional<MongoSplitPlan> planned(ConnectorSession session, MongoTableHandle table) {
+        Memo memo = session.getStatementScope().getIfPresent(tableKey(session, table));
+        return memo == null ? Optional.empty() : memo.completed();
+    }
+
+    private String tableKey(ConnectorSession session, MongoTableHandle table) {
+        // One provider can see several namespaces; never reuse another collection's bounds/admission.
+        return memoKey + ":" + session.getCatalogId() + ":" + table.getSchema().getVersion();
     }
 
     private MongoSplitPlan load(ConnectorSession session, MongoTableHandle table, TMongoSnapshot snapshot,
-            String preference, ConnectorScanContext context, String strategy, String field, int requested,
-            int maximum, int rows, int timeout, int targetBytes, long descriptorBytes, Budget budget) {
+            String preference, ConnectorScanContext context, String strategy, String field,
+            long descriptorBytes, Budget budget) {
+        int maximum = splitLimit(session);
+        targetBytes(session, -1);
+        int requested = Math.min(8, maximum);
         int descriptorMaximum = (int) Math.min(maximum, (8L * 1024 * 1024) / descriptorBytes);
         if (descriptorMaximum == 0) {
             throw new DorisConnectorException("MongoDB split descriptor exceeds planning byte budget");
         }
-        String source = snapshot.getSourceKind() + ":" + snapshot.getSourceId();
+        String source = snapshot == null ? "catalog:" + session.getCatalogId()
+                : snapshot.getSourceKind() + ":" + snapshot.getSourceId();
+        if (!"collection".equals(table.getObjectKind())) {
+            return fallback(strategy, requested, "unsupported_object", source, descriptorBytes, budget);
+        }
+        if (snapshot == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return fallback(strategy, requested, "snapshot_required", source, descriptorBytes, budget);
+        }
         if (descriptorMaximum == 1) {
-            budget.admit(source, 1, descriptorBytes);
-            return MongoSplitPlan.single(Math.max(1, requested), 1, "descriptor_budget")
-                    .withDescriptorBudget(descriptorBytes);
+            return single(requested, maximum == 1 ? "split_limit" : "descriptor_budget",
+                    source, descriptorBytes, budget);
         }
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
-                Math.min(timeout, MongoSnapshot.remainingMillis(session)));
+                Math.min(PROBE_TIMEOUT_MS, MongoSnapshot.remainingMillis(session)));
         MongoSplitProbe probe;
         try {
-            // Waiting behind two active probes consumes the same optional budget as source I/O.
-            // Keep acquisition inside the fallback boundary, but never release a slot we did not acquire.
             budget.acquireProbe(session, context, deadline);
             try {
-                context.checkCancelled();
-                probe = client.get().probeSplits(table, field, preference, snapshot, rows,
-                        remaining(session, context, deadline), context);
+                checkCancelled(session, context);
+                probe = client.get().probeSplits(table, field, preference, snapshot, SAMPLE_ROWS,
+                        remaining(session, context, deadline), () -> checkCancelled(session, context));
                 budget.sampled(probe.sampleBytes());
             } finally {
                 budget.probes.release();
             }
         } catch (PlanningLimit limit) {
-            context.checkCancelled();
+            checkCancelled(session, context);
             MongoSnapshot.remainingMillis(session);
-            // Only this optional, pre-publication tuning budget may trigger auto fallback.
-            // Source authorization/identity/history errors and query cancellation remain failures.
-            return fallback(strategy, requested, "probe_budget");
+            // Only optional pre-publication tuning can fall back. Cancellation, authorization,
+            // history and source errors must never be converted into a successful full scan.
+            return fallback(strategy, requested, "probe_budget", source, descriptorBytes, budget);
         }
-        context.checkCancelled();
+        checkCancelled(session, context);
         MongoSnapshot.remainingMillis(session);
+        long targetBytes = targetBytes(session, probe.logicalBytes());
+        long estimate = probe.logicalBytes() < 0 ? 8
+                : Math.max(1, probe.logicalBytes() / targetBytes + (probe.logicalBytes() % targetBytes == 0 ? 0 : 1));
+        requested = (int) Math.min(maximum, estimate);
         if (!probe.indexed()) {
-            return fallback(strategy, requested, "missing_index");
+            return fallback(strategy, requested, "missing_index", source, descriptorBytes, budget);
         }
         String family = family(probe.samples());
         if (family.isEmpty()) {
-            return probe.samples().isEmpty() ? MongoSplitPlan.single(Math.max(1, requested), 1, "empty_sample")
-                    : fallback(strategy, requested, "unsupported_type");
+            return probe.samples().isEmpty()
+                    ? single(requested, "empty_sample", source, descriptorBytes, budget)
+                    : fallback(strategy, requested, "unsupported_type", source, descriptorBytes, budget);
         }
         if ("auto".equals(strategy) && probe.logicalBytes() < 0) {
-            // Every ordinary collection needs a complement; without size metadata its extra scan
-            // cost is unknown. A homogeneous sample must never remove that partition.
-            return MongoSplitPlan.single(Math.max(1, requested), 1, "unknown_complement_cost");
+            return single(requested, "unknown_complement_cost", source, descriptorBytes, budget);
         }
-        long estimate = probe.logicalBytes() < 0 ? 8
-                : Math.max(1, probe.logicalBytes() / targetBytes + (probe.logicalBytes() % targetBytes == 0 ? 0 : 1));
-        int desired = requested == 0 ? (int) Math.min(maximum, estimate) : requested;
-        int target = Math.min(desired, descriptorMaximum);
-        if ("auto".equals(strategy) && probe.logicalBytes() < 2L * targetBytes) {
-            return MongoSplitPlan.single(Math.max(1, requested), 1, "small_collection");
+        // Division avoids overflow when a valid shared split-size setting is near Long.MAX_VALUE.
+        if ("auto".equals(strategy) && probe.logicalBytes() / targetBytes < 2) {
+            return single(requested, "small_collection", source, descriptorBytes, budget);
         }
-        int admitted = budget.admit(source, target, descriptorBytes);
+        int admitted = budget.admit(source, Math.min(requested, descriptorMaximum), descriptorBytes);
         try {
             var values = probe.samples().stream().filter(v -> family.equals(family(List.of(v)))).toList();
-            MongoSplitPlan plan = MongoSplitPlan.ranges(field, family, values, Math.max(1, desired), admitted)
+            MongoSplitPlan plan = MongoSplitPlan.ranges(field, family, values, requested, admitted)
                     .withDescriptorBudget(descriptorBytes);
             budget.refund(source, admitted - plan.size(), descriptorBytes);
             return plan;
@@ -163,6 +166,37 @@ final class MongoRangePlanner {
             budget.refund(source, admitted, descriptorBytes);
             throw failure;
         }
+    }
+
+    static int splitLimit(ConnectorSession session) {
+        long limit = number(session.getSessionProperties(), "max_file_split_num", 100000);
+        // Mongo freezes all boundaries even when transport is streaming; that retained plan must
+        // honor the shared count cap too. Nonpositive means no user cap, as on other file scans.
+        return limit <= 0 ? 256 : (int) Math.min(256, limit);
+    }
+
+    static long targetBytes(ConnectorSession session, long logicalBytes) {
+        var options = session.getSessionProperties();
+        long specified = number(options, "file_split_size", 0);
+        if (specified > 0) {
+            return specified;
+        }
+        long regular = number(options, "max_file_split_size", 64L * 1024 * 1024);
+        long initial = number(options, "max_initial_file_split_size", 32L * 1024 * 1024);
+        long initialCount = number(options, "max_initial_file_split_num", 200);
+        if (regular <= 0 || initial <= 0) {
+            throw new IllegalArgumentException("MongoDB split sizes must be positive");
+        }
+        // Match the shared scan-size heuristic without overflowing regular * initialCount.
+        return logicalBytes < 0 || initialCount <= 0 || logicalBytes / regular >= initialCount
+                ? regular : initial;
+    }
+
+    static void checkCancelled(ConnectorSession session, ConnectorScanContext context) {
+        context.checkCancelled();
+        // Synchronous final planning may have no registered scan context. Observe the same query
+        // task-group lifetime as asynchronous split producers before every remote cursor advance.
+        MongoSnapshot.checkQueryCancelled(session);
     }
 
     static String family(List<BsonValue> samples) {
@@ -178,15 +212,24 @@ final class MongoRangePlanner {
         return counts.keySet().stream().sorted().max(java.util.Comparator.comparingInt(counts::get)).orElse("");
     }
 
-    private static MongoSplitPlan fallback(String strategy, int requested, String reason) {
+    private static MongoSplitPlan fallback(String strategy, int requested, String reason,
+            String source, long descriptorBytes, Budget budget) {
         if ("range".equals(strategy)) {
             throw new IllegalArgumentException("MongoDB range planning unavailable: " + reason);
         }
-        return MongoSplitPlan.single(Math.max(1, requested), 1, reason);
+        return single(requested, reason, source, descriptorBytes, budget);
+    }
+
+    private static MongoSplitPlan single(int requested, String reason, String source,
+            long descriptorBytes, Budget budget) {
+        // A successful fallback still publishes a descriptor and a source scan. For example,
+        // 257 empty collection scans must not bypass the same 256-partition pinned-source cap.
+        budget.admit(source, 1, descriptorBytes);
+        return MongoSplitPlan.single(requested, 1, reason).withDescriptorBudget(descriptorBytes);
     }
 
     static long remaining(ConnectorSession session, ConnectorScanContext context, long deadline) {
-        context.checkCancelled();
+        checkCancelled(session, context);
         long query = MongoSnapshot.remainingMillis(session);
         long left = deadline - System.nanoTime();
         if (left <= 0) {
@@ -195,16 +238,12 @@ final class MongoRangePlanner {
         return Math.min(query, Math.max(1, TimeUnit.NANOSECONDS.toMillis(left)));
     }
 
-    static int number(Map<String, String> options, String name, int fallback, int minimum, int maximum) {
+    private static long number(Map<String, String> options, String name, long fallback) {
         try {
-            int value = Integer.parseInt(options.getOrDefault(name, Integer.toString(fallback)));
-            if (value >= minimum && value <= maximum) {
-                return value;
-            }
-        } catch (NumberFormatException ignored) {
-            // The connector validates direct SPI calls as well as SQL session-variable assignments.
+            return Long.parseLong(options.getOrDefault(name, Long.toString(fallback)));
+        } catch (NumberFormatException malformed) {
+            throw new IllegalArgumentException("Invalid split setting: " + name);
         }
-        throw new IllegalArgumentException("Invalid MongoDB split policy: " + name);
     }
 
     static final class PlanningLimit extends RuntimeException {
@@ -262,7 +301,7 @@ final class MongoRangePlanner {
         void acquireProbe(ConnectorSession session, ConnectorScanContext context, long deadline) {
             try {
                 while (!probes.tryAcquire(Math.min(50, remaining(session, context, deadline)), TimeUnit.MILLISECONDS)) {
-                    context.checkCancelled();
+                    checkCancelled(session, context);
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
@@ -273,6 +312,11 @@ final class MongoRangePlanner {
 
     private static final class Memo {
         private CompletableFuture<MongoSplitPlan> value;
+
+        synchronized Optional<MongoSplitPlan> completed() {
+            return value != null && value.isDone() && !value.isCompletedExceptionally()
+                    ? Optional.of(value.getNow(null)) : Optional.empty();
+        }
 
         MongoSplitPlan get(ConnectorSession session, ConnectorScanContext context, Supplier<MongoSplitPlan> loader) {
             CompletableFuture<MongoSplitPlan> selected;
@@ -292,9 +336,12 @@ final class MongoRangePlanner {
                 }
             }
             while (true) {
-                context.checkCancelled();
+                checkCancelled(session, context);
                 try {
-                    return selected.get(Math.min(50, MongoSnapshot.remainingMillis(session)), TimeUnit.MILLISECONDS);
+                    // An offline auto fallback has no statement pin/deadline. Its private memo
+                    // was completed by this caller; only live statement waiters need timed polling.
+                    return session.getStatementScope() == ConnectorStatementScope.NONE ? selected.get()
+                            : selected.get(Math.min(50, MongoSnapshot.remainingMillis(session)), TimeUnit.MILLISECONDS);
                 } catch (TimeoutException waiting) {
                     // Poll cancellation while another planner owns the bounded probe.
                 } catch (InterruptedException interrupted) {

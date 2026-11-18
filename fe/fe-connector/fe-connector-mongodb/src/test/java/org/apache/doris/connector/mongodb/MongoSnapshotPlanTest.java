@@ -145,8 +145,10 @@ class MongoSnapshotPlanTest {
         var secondSession = session(scope, 2, "snapshot");
         var explanation = firstProvider.getScanNodeProperties(firstSession, firstTable, List.of(),
                 java.util.Optional.empty());
-        Assertions.assertEquals("1700000000:7", explanation.get("snapshot"));
+        Assertions.assertEquals("none", explanation.get("snapshot"));
+        Assertions.assertEquals(0, first.selections);
         var left = plan(firstProvider, firstSession, firstTable);
+        Assertions.assertEquals("1700000000:7", explanation.get("snapshot"));
         var right = plan(secondProvider, secondSession, secondTable);
         Assertions.assertEquals(left.getSnapshot(), right.getSnapshot());
         Assertions.assertEquals("snapshot", left.getReadConcern());

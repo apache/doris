@@ -65,15 +65,21 @@ class ChainMockScanner : public Scanner {
 public:
     ChainMockScanner(RuntimeState* state, ScanLocalStateBase* local_state, RuntimeProfile* profile,
                      int blocks_per_scanner, std::atomic<int>* running,
-                     std::atomic<int>* peak_running, CountDownLatch* overlap)
+                     std::atomic<int>* peak_running, CountDownLatch* overlap, int pending_reads = 0)
             : Scanner(state, local_state, -1, profile),
               _blocks_left(blocks_per_scanner),
               _running(running),
               _peak_running(peak_running),
-              _overlap(overlap) {}
+              _overlap(overlap),
+              _pending_reads(pending_reads) {}
 
 protected:
     Status _get_block_impl(RuntimeState* /*state*/, Block* block, bool* eof) override {
+        if (_pending_reads > 0) {
+            --_pending_reads;
+            *eof = false;
+            return Status::NeedSendAgain("fixture scanner resource is busy");
+        }
         const int running = ++*_running;
         Defer done([&] { --*_running; });
         int peak = _peak_running->load();
@@ -104,6 +110,7 @@ private:
     std::atomic<int>* _running;
     std::atomic<int>* _peak_running;
     CountDownLatch* _overlap;
+    int _pending_reads;
 };
 
 class ScannerContextTest : public testing::Test {
@@ -1520,6 +1527,82 @@ TEST_F(ScannerContextTest, thread_pool_context_chain_runs_all_scanners) {
     EXPECT_TRUE(scanner_context->_process_status.ok());
     // The successor runnable ramped concurrency to the per-Context limit, and never beyond it.
     EXPECT_EQ(peak_running.load(), parallel_tasks);
+}
+
+TEST_F(ScannerContextTest, thread_pool_one_worker_retries_without_dropping_scanners_or_rows) {
+    const int parallel_tasks = 2;
+    const int scanner_count = 3;
+    const int blocks_per_scanner = 4;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto olap_scan_local_state =
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    olap_scan_local_state->_parent = scan_operator.get();
+    olap_scan_local_state->_max_scan_concurrency = max_concurrency_counter.get();
+    olap_scan_local_state->_min_scan_concurrency = min_concurrency_counter.get();
+    scan_operator->_should_run_serial = false;
+    TQueryOptions query_options;
+    query_options.__set_max_column_reader_num(0);
+    state->set_query_options(query_options);
+
+    std::atomic<int> running {0};
+    std::atomic<int> peak_running {0};
+    CountDownLatch overlap(0);
+    std::list<std::shared_ptr<ScannerDelegate>> scanners;
+    for (int i = 0; i < scanner_count; ++i) {
+        std::shared_ptr<Scanner> scanner = std::make_shared<ChainMockScanner>(
+                state.get(), olap_scan_local_state.get(), profile.get(), blocks_per_scanner,
+                &running, &peak_running, &overlap, 2);
+        scanners.push_back(std::make_shared<ScannerDelegate>(scanner));
+    }
+
+    // The worker's task_exec_ctx() must resolve, otherwise _run_context() exits before admission.
+    auto task_execution_context = std::make_shared<TaskExecutionContext>();
+    state->set_task_execution_context(task_execution_context);
+    auto scanner_context = ScannerContext::create_shared(
+            state.get(), olap_scan_local_state.get(), output_tuple_desc, false, scanners, -1,
+            scan_dependency, &shared_limit, nullptr, nullptr, 0, false, parallel_tasks);
+    scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
+    scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
+
+    // A busy reader must give back the sole worker so a different scanner can make progress.
+    ThreadPoolSimplifiedScanScheduler scheduler("cooperative_retry_test", cgroup_cpu_ctl);
+    ASSERT_TRUE(scheduler.start(1, 1, 16, 1).ok());
+    Defer cleanup = [&] { scheduler.stop(); };
+    scanner_context->_scanner_scheduler = &scheduler;
+    // Keep task admission independent of the sole worker's currently active count.
+    scanner_context->_min_scan_concurrency_of_scan_scheduler = 20;
+    ASSERT_EQ(scanner_context->_max_scan_concurrency, parallel_tasks);
+
+    // init() performs the bootstrap submission of the first Context runnable.
+    ASSERT_TRUE(scanner_context->init().ok());
+
+    int64_t rows = 0;
+    bool eos = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    while (!eos) {
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline) << scanner_context->debug_string();
+        // One Context submission represents all pending scanners, so the pool never holds more
+        // than one runnable for this Context.
+        EXPECT_LE(scheduler.get_queue_size(), 1);
+        Block block;
+        Status st = scanner_context->get_block_from_queue(state.get(), &block, &eos, 0);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        rows += block.rows();
+        if (!eos && block.rows() == 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    // Every consumed non-EOS scanner was re-admitted until it reported EOS.
+    EXPECT_EQ(rows, scanner_count * blocks_per_scanner);
+    std::unique_lock<std::mutex> transfer_lock(scanner_context->transfer_lock());
+    EXPECT_EQ(scanner_context->_num_finished_scanners, scanner_count);
+    EXPECT_EQ(scanner_context->_in_flight_tasks_num, 0);
+    EXPECT_TRUE(scanner_context->_pending_tasks.empty());
+    EXPECT_FALSE(scanner_context->is_context_queued(transfer_lock));
+    EXPECT_TRUE(scanner_context->_process_status.ok());
+    EXPECT_EQ(peak_running.load(), 1);
 }
 
 TEST_F(ScannerContextTest, thread_pool_context_runnable_is_deduplicated) {

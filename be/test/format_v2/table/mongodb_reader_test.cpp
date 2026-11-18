@@ -21,6 +21,9 @@
 #include <gtest/gtest.h>
 #include <mongoc/mongoc.h>
 
+#include <chrono>
+#include <thread>
+
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
@@ -45,6 +48,7 @@ struct StreamState {
     int closes = 0;
     int reads = 0;
     bool fail_open = false;
+    int pending_opens = 0;
     bool fail_read = false;
     std::string kind;
     std::vector<std::string> documents {R"({"id":1,"value":10})", R"({"id":2,"value":20})",
@@ -62,6 +66,9 @@ public:
         ++_state->opens;
         _state->kind = d.object_kind;
         _cancelled = std::move(cancelled);
+        if (_state->opens <= _state->pending_opens) {
+            return Status::NeedSendAgain("fixture pool is busy");
+        }
         return _state->fail_open ? Status::IOError("fixture open failed") : Status::OK();
     }
     Status next(const bson_t** document, bool* eof) override {
@@ -238,6 +245,30 @@ TEST_F(MongoReaderTest, BatchesAndProjectionOrderUseNativeBson) {
     ASSERT_TRUE(scan->close().ok());
     EXPECT_EQ(_responses->closes, 1);
 }
+TEST_F(MongoReaderTest, PendingClientLeaseYieldsWithoutClosingOrLosingTheSplit) {
+    _responses->pending_opens = 2;
+    auto scan = reader();
+    auto projection = request({0, 1});
+    ASSERT_TRUE(scan->open(projection).ok());
+    EXPECT_EQ(_responses->closes, 0);
+    auto output = block(*scan, *projection);
+    size_t rows = 0;
+    bool eof = false;
+    auto status = scan->get_block(&output, &rows, &eof);
+    EXPECT_TRUE(status.is<ErrorCode::NEED_SEND_AGAIN>());
+    EXPECT_FALSE(eof);
+    EXPECT_EQ(rows, 0);
+    EXPECT_EQ(_responses->closes, 0);
+    ASSERT_TRUE(scan->get_block(&output, &rows, &eof).ok());
+    EXPECT_EQ(rows, 2);
+    EXPECT_EQ(_responses->opens, 3);
+    output = block(*scan, *projection);
+    ASSERT_TRUE(scan->get_block(&output, &rows, &eof).ok());
+    EXPECT_EQ(rows, 1);
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(_responses->closes, 1);
+}
+
 TEST_F(MongoReaderTest, EveryLogicalObjectKindKeepsItsNamespace) {
     for (const auto& kind : {"collection", "view", "timeseries"}) {
         _range.table_format_params.mongodb_params.__set_object_kind(kind);
@@ -646,6 +677,24 @@ TEST(MongoNativeStreamTest, RemainingBudgetsBelowTransportCapsShareOneClientBoun
     EXPECT_TRUE(recovered->open(d, [] { return false; }).ok());
     recovered->close();
 }
+TEST(MongoNativeStreamTest, BusyPoolReturnsToSchedulerAndPreservesTheOriginalDeadline) {
+    auto d = range().table_format_params.mongodb_params;
+    d.__set_uri("mongodb://127.0.0.1:1");
+    d.__set_pool_max_clients(1);
+    auto holder = make_native_mongo_stream();
+    ASSERT_TRUE(holder->open(d, [] { return false; }).ok());
+    d.__set_timeout_ms(200);
+    auto waiter = make_native_mongo_stream();
+    auto status = waiter->open(d, [] { return false; });
+    ASSERT_TRUE(status.is<ErrorCode::NEED_SEND_AGAIN>());
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+    holder->close();
+    status = waiter->open(d, [] { return false; });
+    EXPECT_FALSE(status.ok());
+    EXPECT_FALSE(status.is<ErrorCode::NEED_SEND_AGAIN>());
+    waiter->close();
+}
+
 TEST(MongoNativeStreamTest, CancellationAfterPoolSetupStopsBeforeSourceIdentityCommands) {
     auto d = snapshot_descriptor();
     d.__set_uri("mongodb://127.0.0.1:1");

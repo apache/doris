@@ -22,7 +22,6 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
-import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
@@ -33,6 +32,7 @@ import org.apache.doris.thrift.TMongoSplit;
 import org.bson.Document;
 
 import java.util.AbstractList;
+import java.util.AbstractMap;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
@@ -56,7 +57,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
-        request.getScanContext().checkCancelled();
+        MongoRangePlanner.checkCancelled(session, request.getScanContext());
         MongoTableHandle handle = (MongoTableHandle) request.getTableHandle();
         for (ConnectorColumnHandle column : request.getColumns()) {
             if (!(column instanceof MongoColumnHandle)
@@ -131,7 +132,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
             @Override
             public ConnectorScanRange get(int index) {
                 java.util.Objects.checkIndex(index, plan.size());
-                request.getScanContext().checkCancelled();
+                MongoRangePlanner.checkCancelled(session, request.getScanContext());
                 TMongoScanDesc range = d.deepCopy();
                 TMongoSplit split = new TMongoSplit();
                 split.setStrategy(plan.family().isEmpty() ? "single" : "range");
@@ -177,7 +178,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
         return "single".equals(session.getSessionProperties().getOrDefault("mongodb_split_strategy", "single"))
-                ? -1 : 8;
+                ? -1 : Math.min(8, MongoRangePlanner.splitLimit(session));
     }
 
     @Override
@@ -191,7 +192,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
                 if (closed) {
                     return false;
                 }
-                request.getScanContext().checkCancelled();
+                MongoRangePlanner.checkCancelled(session, request.getScanContext());
                 if (ranges == null) {
                     // All probes, admission and boundary validation finish before the first publication.
                     ranges = planScan(session, request).iterator();
@@ -250,31 +251,47 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         Map<String, String> result = new LinkedHashMap<>();
         var policies = session.getSessionProperties();
         String concern = properties.resolveReadConcern(policies.getOrDefault("mongodb_read_concern", "inherit"));
-        String preference = properties.resolveReadPreference(
-                policies.getOrDefault("mongodb_read_preference", "inherit"));
-        var snapshot = MongoSnapshot.prepare(session, properties, table, client, concern, preference,
-                1000L * bounded(policies, "query_timeout", 300, 1, Integer.MAX_VALUE / 1000));
         var pushed = predicate(session, table, filter);
         var pruned = projection(session, table, columns);
-        MongoSplitPlan plan = rangePlanner.plan(session, table, snapshot, preference, new ConnectorScanContext(),
-                descriptorBytes(session, table, pushed.kind() == MongoPredicateTranslator.Kind.UNSUPPORTED
-                        ? 0 : encode(pushed.filter()).length, pruned.isEmpty() ? 0 : encode(pruned).length));
-        result.put("split_strategy", plan.family().isEmpty() ? "single" : "range");
-        result.put("split_field", plan.field());
-        result.put("split_type", plan.family());
-        result.put("splits_requested", Integer.toString(plan.requested()));
-        result.put("splits_admitted", Integer.toString(plan.admitted()));
-        result.put("splits_actual", Integer.toString(plan.size()));
-        result.put("split_reason", plan.reason());
         result.put("read_concern", concern);
-        result.put("snapshot", snapshot == null ? "none" : snapshot.getTimestampSeconds()
-                + ":" + snapshot.getTimestampIncrement());
         result.put("object_kind", table.getObjectKind());
         result.put("schema_source", table.getSchema().getSource());
         result.put("schema_version", table.getSchema().getVersion());
         result.put("predicate_pushdown", pushed.kind().name());
         result.put("projection_pushdown", pruned.isEmpty() ? "false" : "true");
-        return result;
+        // initSchemaParams reads properties BEFORE WHERE/projection are attached. Source probes
+        // and byte admission here would reject a normal large predicate and ignore KILL QUERY.
+        // Resolve diagnostics lazily from the final cancellable plan, without doing any source I/O.
+        return new AbstractMap<>() {
+            @Override
+            public Set<Entry<String, String>> entrySet() {
+                Map<String, String> current = new LinkedHashMap<>(result);
+                var plan = rangePlanner.planned(session, table);
+                if (plan.isEmpty() && "single".equals(policies.getOrDefault("mongodb_split_strategy", "single"))) {
+                    plan = Optional.of(MongoSplitPlan.single(1, 1, "single_strategy"));
+                }
+                if (plan.isPresent()) {
+                    var frozen = plan.get();
+                    current.put("split_strategy", frozen.family().isEmpty() ? "single" : "range");
+                    current.put("split_field", frozen.field());
+                    current.put("split_type", frozen.family());
+                    current.put("splits_requested", Integer.toString(frozen.requested()));
+                    current.put("splits_admitted", Integer.toString(frozen.admitted()));
+                    current.put("splits_actual", Integer.toString(frozen.size()));
+                    current.put("split_reason", frozen.reason());
+                } else {
+                    current.put("split_strategy", policies.getOrDefault("mongodb_split_strategy", "single"));
+                    current.put("split_field", policies.getOrDefault("mongodb_split_field", ""));
+                    current.put("split_type", "");
+                    current.put("splits_requested", "0");
+                    current.put("splits_admitted", "0");
+                    current.put("splits_actual", "0");
+                    current.put("split_reason", "planning_pending");
+                }
+                current.put("snapshot", MongoSnapshot.pinnedTimestamp(session));
+                return Collections.unmodifiableMap(current).entrySet();
+            }
+        };
     }
 
     @Override

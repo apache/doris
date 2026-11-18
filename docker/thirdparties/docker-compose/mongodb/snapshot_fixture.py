@@ -114,14 +114,27 @@ class Fixture:
                 self.wait(member, lambda client: client.admin.command("ping"))
         with self.connect(ports[0], False) as primary:
             configuration = {"_id": name, "members": [
-                {"_id": index, "host": f"{self.args.advertised_host}:{port}"}
+                {"_id": index, "host": f"{self.args.advertised_host}:{port}",
+                 "tags": {"fixture_member": str(index)}}
                 for index, port in enumerate(ports)]}
             if config_server:
                 configuration["configsvr"] = True
             primary.admin.command("replSetInitiate", configuration)
-            self.wait(primary, lambda client: client.admin.command("hello").get("isWritablePrimary"))
+        # An election can choose any member. Waiting only on the seed stalls when it is secondary.
+        elected = self.wait(None, lambda ignored: self.primary_port(ports))
+        with self.connect(elected, False) as primary:
             primary.admin.command("createUser", self.state["username"], pwd=self.state["password"], roles=["root"],
                                   writeConcern={"w": "majority"})
+
+    def primary_port(self, ports):
+        for port in ports:
+            try:
+                with self.connect(port, False) as member:
+                    if member.admin.command("hello").get("isWritablePrimary"):
+                        return port
+            except PyMongoError:
+                pass
+        return None
 
     def uri(self, ports, extra=""):
         hosts = ",".join(f"{self.args.advertised_host}:{port}" for port in ports)
@@ -134,10 +147,10 @@ class Fixture:
             raise RuntimeError("The state directory already owns a fixture; remove it before recreating")
         username = os.environ["MONGODB_SNAPSHOT_ADMIN_USER"]
         password = os.environ["MONGODB_SNAPSHOT_ADMIN_PASSWORD"]
-        if not 1024 < self.args.base_port < 65527:
-            raise ValueError("base-port must leave eight valid fixture ports")
+        if not 1024 < self.args.base_port < 65523:
+            raise ValueError("base-port must leave twelve valid fixture ports")
         # Fail before allocating containers if a requested listening port is already occupied.
-        for port in range(self.args.base_port + 1, self.args.base_port + 9):
+        for port in range(self.args.base_port + 1, self.args.base_port + 13):
             with socket.socket() as probe:
                 # Closed fixture connections can still leave TIME_WAIT sockets after removal.
                 probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -156,13 +169,15 @@ class Fixture:
         replica_set, config_set = "snapshot_rs_" + token, "snapshot_cfg_" + token
         shards = ["snapshot_s0_" + token, "snapshot_s1_" + token]
         self.start("config", base + 1, ["--configsvr", "--replSet", config_set])
+        shard_ports = [[base + 2, base + 9, base + 10], [base + 3, base + 11, base + 12]]
         for index in range(2):
-            self.start("shard" + str(index), base + 2 + index, ["--shardsvr", "--replSet", shards[index]])
+            for member, port in enumerate(shard_ports[index]):
+                self.start(f"shard{index}-member{member}", port, ["--shardsvr", "--replSet", shards[index]])
         for index in range(3):
             self.start("member" + str(index), base + 6 + index, ["--replSet", replica_set])
         self.initialize_replica_set([base + 1], config_set, True)
         for index in range(2):
-            self.initialize_replica_set([base + 2 + index], shards[index])
+            self.initialize_replica_set(shard_ports[index], shards[index])
         self.initialize_replica_set([base + 6, base + 7, base + 8], replica_set)
         for index in range(2):
             self.start("router" + str(index), base + 4 + index,
@@ -170,12 +185,15 @@ class Fixture:
         with self.connect(base + 4) as router:
             self.wait(router, lambda client: client.admin.command("ping"))
             for index in range(2):
-                router.admin.command("addShard", f"{shards[index]}/{self.args.advertised_host}:{base + 2 + index}")
+                hosts = ",".join(f"{self.args.advertised_host}:{port}" for port in shard_ports[index])
+                router.admin.command("addShard", f"{shards[index]}/{hosts}")
             router.admin.command("enableSharding", "doris_mongodb_snapshot", primaryShard=shards[0])
         self.state.update(replica_uri=self.uri([base + 6, base + 7, base + 8], "&replicaSet=" + replica_set),
                           router_uris=[self.uri([base + 4 + index], "&directConnection=true") for index in range(2)],
-                          shard_uris=[self.uri([base + 2 + index], "&directConnection=true") for index in range(2)],
-                          shard_names=shards)
+                          shard_uris=[self.uri(shard_ports[index], "&replicaSet=" + shards[index]) for index in range(2)],
+                          shard_names=shards, shard_ports=shard_ports,
+                          replica_ports=[base + 6, base + 7, base + 8], config_port=base + 1,
+                          router_ports=[base + 4, base + 5])
         self.save()
         print("Ready: authenticated three-member replica set, two shards and two routers; state file written", flush=True)
 

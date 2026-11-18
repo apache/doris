@@ -35,6 +35,9 @@ suite("test_mongodb_splits", "p0,external") {
             "decimal_records", "double_records", "string_records", "no_index_records", "record_view", "measurements"]) {
         manifest["doris_mongodb_splits.${name}"] = [columns: columns]
     }
+    manifest["doris_mongodb_splits.predicate_records"] = [columns: [
+        [name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"],
+        [name: "text", path: ["text"], bson_types: ["string"], doris_type: "STRING"]]]
     def create = { String catalog, String policy ->
         sql "DROP CATALOG IF EXISTS ${catalog}"
         def properties = ["type": "mongodb", "mongodb.uri": uri, "mongodb.databases": "doris_mongodb_splits",
@@ -60,7 +63,7 @@ suite("test_mongodb_splits", "p0,external") {
                 for (int count : [1, 2, 3, 8, 32]) {
                     for (boolean enabled : [false, true]) {
                         def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
-                            mongodb_split_field='${field}',mongodb_split_count=${count},
+                            mongodb_split_field='${field}',file_split_size=1,max_file_split_num=${count},
                             enable_mongodb_predicate_pushdown=${enabled},enable_mongodb_projection_pushdown=${enabled}) */
                             * FROM ${namespace}.${name} ORDER BY seq"""
                         assertEquals(baseline, parallel)
@@ -68,39 +71,39 @@ suite("test_mongodb_splits", "p0,external") {
                 }
             }
             "qt_count_${name}" """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
-                mongodb_split_field='${field}',mongodb_split_count=8) */ count(*),sum(seq)
+                mongodb_split_field='${field}',file_split_size=1,max_file_split_num=8) */ count(*),sum(seq)
                 FROM ${namespace}.${name}"""
         }
         sql "SET time_zone='UTC'"
-        order_qt_precision """SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_count=8,
+        order_qt_precision """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,
             mongodb_split_field='split_key') */ * FROM ${namespace}.integer_records WHERE seq < 9"""
         for (String condition : ["seq > 0 AND seq < 300", "CAST(seq AS STRING) LIKE '%7%'",
                 "time_p6 >= '2024-03-10 09:59:59.999' AND decimal_p38s4 >= 1", "seq < 3 OR seq > 597"]) {
             def baseline = sql "SELECT * FROM ${namespace}.integer_records WHERE ${condition} ORDER BY seq"
-            def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_count=8,
+            def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,
                 mongodb_split_field='split_key') */ * FROM ${namespace}.integer_records
                 WHERE ${condition} ORDER BY seq"""
             assertEquals(baseline, parallel)
         }
         for (String name : ["decimal_records", "double_records", "string_records", "no_index_records"]) {
             test {
-                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_count=8,
+                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,
                     mongodb_split_field='split_key') */ count(*) FROM ${namespace}.${name}"""
                 exception "range planning unavailable"
             }
-            "qt_auto_${name}" """SELECT /*+ SET_VAR(mongodb_split_strategy='auto',mongodb_split_count=8,
+            "qt_auto_${name}" """SELECT /*+ SET_VAR(mongodb_split_strategy='auto',file_split_size=1,max_file_split_num=8,
                 mongodb_split_field='split_key') */ count(*),sum(seq) FROM ${namespace}.${name}"""
         }
         for (String name : ["record_view", "measurements"]) {
             test {
                 sql """SELECT /*+ SET_VAR(mongodb_read_concern='majority',mongodb_split_strategy='range',
-                    mongodb_split_count=8) */ count(*) FROM ${namespace}.${name}"""
+                    file_split_size=1,max_file_split_num=8) */ count(*) FROM ${namespace}.${name}"""
                 exception "unsupported_object"
             }
         }
         for (String strategy : ["single", "range"]) {
             test {
-                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='${strategy}',mongodb_split_count=8,
+                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='${strategy}',file_split_size=1,max_file_split_num=8,
                     mongodb_split_field='split_key') */ decimal_p1s0
                     FROM mongodb_splits_strict.doris_mongodb_splits.integer_records"""
                 exception "BSON"
@@ -108,19 +111,26 @@ suite("test_mongodb_splits", "p0,external") {
         }
         test {
             sql """SELECT /*+ SET_VAR(mongodb_read_concern='majority',mongodb_split_strategy='range',
-                mongodb_split_count=8) */ count(*) FROM ${namespace}.integer_records"""
+                file_split_size=1,max_file_split_num=8) */ count(*) FROM ${namespace}.integer_records"""
             exception "snapshot_required"
         }
         test {
             sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_field='split_key',
-                mongodb_split_count=8) */ l.seq FROM ${namespace}.integer_records l
+                file_split_size=1,max_file_split_num=8) */ l.seq FROM ${namespace}.integer_records l
                 JOIN ${namespace}.date_records r ON l.seq=r.seq"""
             exception "exactly one MongoDB scan"
         }
-        String plan = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_count=8," +
+        String plan = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8," +
             "mongodb_split_field='split_key') */ count(*) FROM ${namespace}.duplicate_records").toString()
         assertTrue(plan.contains("requested/admitted/actual: 8/8/2"))
         assertTrue(plan.contains("type: integer"))
+        String one = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='range'," +
+            "file_split_size=2147483647,max_file_split_num=8) */ count(*) FROM ${namespace}.integer_records").toString()
+        assertTrue(one.contains("requested/admitted/actual: 1/1/1"))
+        String literal = "v" * 60000
+        qt_large_final_predicate """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
+            file_split_size=1,max_file_split_num=8) */ count(*),sum(seq)
+            FROM ${namespace}.predicate_records WHERE text='${literal}'"""
         qt_statement_restored "SELECT @@mongodb_split_strategy,length(@@mongodb_split_field)"
     } finally {
         sql "SET mongodb_read_concern='${original[0]}'"
