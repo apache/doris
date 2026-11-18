@@ -4708,6 +4708,77 @@ TEST(MetaServiceTest, GetTxnTest) {
 }
 //
 
+TEST(MetaServiceTest, GetTxnByLabelTest) {
+    auto meta_service = get_meta_service();
+    int64_t db_id = 34521431232;
+    const std::string label = "test_get_txn_by_label";
+
+    auto get_txn_by_label = [&](const std::string& l) {
+        brpc::Controller cntl;
+        GetTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_label(l);
+        GetTxnResponse res;
+        meta_service->get_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                              &res, nullptr);
+        return res;
+    };
+    auto get_txn_id_by_label = [&](const std::string& l) {
+        brpc::Controller cntl;
+        GetTxnIdRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_label(l);
+        GetTxnIdResponse res;
+        meta_service->get_txn_id(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                 &req, &res, nullptr);
+        return res;
+    };
+
+    ASSERT_EQ(get_txn_by_label("no_such_label").status().code(), MetaServiceCode::TXN_ID_NOT_FOUND);
+
+    // Between begin_txn's two commits the label holds only its version stamp: no transaction yet.
+    MetaServiceCode get_txn_code_in_window = MetaServiceCode::OK;
+    MetaServiceCode get_txn_id_code_in_window = MetaServiceCode::OK;
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        SyncPoint::get_instance()->disable_processing();
+    };
+    sp->set_call_back("begin_txn:after:commit_txn:1", [&](auto&& args) {
+        const auto& l = *try_any_cast<std::string*>(args[0]);
+        get_txn_code_in_window = get_txn_by_label(l).status().code();
+        get_txn_id_code_in_window = get_txn_id_by_label(l).status().code();
+    });
+    sp->enable_processing();
+
+    int64_t txn_id = -1;
+    {
+        brpc::Controller cntl;
+        BeginTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        TxnInfoPB txn_info_pb;
+        txn_info_pb.set_db_id(db_id);
+        txn_info_pb.set_label(label);
+        txn_info_pb.add_table_ids(1234);
+        txn_info_pb.set_timeout_ms(36000);
+        req.mutable_txn_info()->CopyFrom(txn_info_pb);
+        BeginTxnResponse res;
+        meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        txn_id = res.txn_id();
+    }
+    sp->disable_processing();
+    ASSERT_EQ(get_txn_code_in_window, MetaServiceCode::TXN_ID_NOT_FOUND);
+    ASSERT_EQ(get_txn_id_code_in_window, MetaServiceCode::TXN_ID_NOT_FOUND);
+
+    GetTxnResponse res = get_txn_by_label(label);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(res.txn_info().txn_id(), txn_id);
+}
+
 TEST(MetaServiceTest, CopyJobTest) {
     auto meta_service = get_meta_service();
     brpc::Controller cntl;
