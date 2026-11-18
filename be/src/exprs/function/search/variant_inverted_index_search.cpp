@@ -97,9 +97,6 @@ Result<InvertedIndexAnalyzerCtxSPtr> build_search_analyzer_context(
         const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
     try {
         return build_analyzer_context_unsafe(properties, analyzer_key);
-    } catch (const CLuceneError& error) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "Build search analyzer failed: {}", error.what()));
     } catch (const Exception& error) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "Build search analyzer failed: {}", error.what()));

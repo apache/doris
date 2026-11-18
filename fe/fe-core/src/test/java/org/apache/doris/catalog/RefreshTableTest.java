@@ -97,7 +97,7 @@ public class RefreshTableTest extends TestWithFeService {
         TableNameInfo tableNameInfo = new TableNameInfo("test1", "db1", "tbl11");
         try {
             Env.getCurrentEnv().getRefreshManager()
-                    .handleRefreshTable(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl(), false);
+                    .handleRefreshTable(tableNameInfo.getCtl(), tableNameInfo.getDb(), tableNameInfo.getTbl());
         } catch (Exception e) {
             // Do nothing
         }

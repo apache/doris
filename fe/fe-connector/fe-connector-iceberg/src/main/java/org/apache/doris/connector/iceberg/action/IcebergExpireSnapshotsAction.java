@@ -189,6 +189,10 @@ public class IcebergExpireSnapshotsAction extends BaseIcebergAction {
 
         ExecutorService deleteExecutor = null;
         try {
+            // expireSnapshots() refreshes the table metadata before planning expiration. Build the file-kind
+            // map from that same generation so delete files committed since this table handle was loaded are
+            // not left unmapped and counted as data files by the delete callback.
+            icebergTable.refresh();
             Map<String, FileKind> fileKindByPath = buildFileKindMap(icebergTable);
             ExpireSnapshots expireSnapshots = icebergTable.expireSnapshots();
 

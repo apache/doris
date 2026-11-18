@@ -66,7 +66,8 @@ suite("test_search_score_keyword_filters", "p0") {
                         ["equality", "tag = 'x'"],
                         ["keyword_match", "tag MATCH_ANY 'x'"],
                         ["keyword_match_all", "tag MATCH_ALL 'x'"]]) {
-                    // The keyword predicate filters rows; only the SEARCH leaf contributes a score.
+                    // IN and equality only filter rows; a keyword MATCH also adds the idf of its
+                    // value, as an Elasticsearch match on a keyword field does.
                     quickTest("${variant}${storageFormat}_${wand}_${filter[0]}", """
                         SELECT id, ROUND(bm25_score, 6), bm25_score > 0 AND bm25_score < 1000000
                         FROM (

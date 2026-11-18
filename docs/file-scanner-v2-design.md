@@ -54,7 +54,7 @@ flowchart TB
 
 | Layer | Primary responsibilities | Intentionally isolated concerns |
 | --- | --- | --- |
-| Operator / Scheduler | Select V1 or V2, control concurrency, distribute Splits, and apply late Runtime Filters | Does not understand file-schema mapping or interpret format metadata |
+| Operator / Scheduler | Create FileScannerV2, control concurrency, distribute Splits, and apply late Runtime Filters | Does not understand file-schema mapping or interpret format metadata |
 | FileScannerV2 | Maintain Scanner lifecycle, advance Splits, connect query context, predict batch size, handle errors, and collect statistics | Does not decode specific formats or implement table-format delete semantics |
 | TableReader | Restore table-level column semantics and manage partition constants, predicates, deletes, Split state, and reader open order | Does not depend on Scanner scheduling |
 | Format Reader | Interpret physical formats, metadata, encodings, pages, row groups, and JNI protocols | Does not control query-level concurrency or resource governance |
@@ -265,7 +265,7 @@ flowchart TB
 
 - Implement schema discovery, reads, and format-level Profile reporting.
 - Reuse TableReader mapping, deletes, constants, and finalize logic.
-- Declare a capability matrix and select V2 only when every Split is supported.
+- Register the reader in the format factory and report unsupported operations explicitly.
 
 ### Adding a new table format
 
@@ -273,9 +273,8 @@ flowchart TB
 - Select native or JNI execution per Split.
 - Ensure state queries and cleanup reach the actual child reader.
 
-> **Incremental migration:** V2 protects compatibility through a capability matrix instead of
-> assuming that every format migrates at once. Coverage can expand gradually while retaining the V1
-> fallback path.
+All file formats use V2. Reader factories and concrete readers report unsupported formats or
+operations explicitly; there is no V1 fallback or scanner-level capability matrix.
 
 ## 8. Observability and Failure Semantics
 
@@ -332,7 +331,7 @@ flowchart LR
 | Separate table-global and file-local semantics | Supports schema evolution, field mapping, and complex-column pruning | Makes Column Mapper and finalize logic more complex |
 | Prune before opening a reader | Maximizes avoided remote I/O and initialization | Can evaluate only predicates that are safe to decide early |
 | Adapt batches from actual bytes | Controls memory peaks for wide and nested rows | Requires an initial probe and uses a dynamic estimate |
-| Capability matrix with V1 fallback | Enables incremental migration without exposing incomplete format paths | Requires both paths to preserve equivalent semantics during migration |
+| Explicit unsupported-operation errors | Keeps format support at the reader that owns it | New readers must implement the shared contracts before registration |
 
 > **In one sentence:** FileScannerV2 separates whether to read, what to read, how to read, how to
 > restore table semantics, and how to account for cost, allowing correctness, performance, and
@@ -365,12 +364,14 @@ corresponding skip-bitmap marks. A fully rejected batch is not EOF.
 Non-line JSON pipes read successive messages until pipe EOF; chunked HTTP buffers are still
 combined into one document. File ranges in non-line mode remain single-document inputs.
 
-Supported traditional file loads select V2 even when their planner omits query session options.
-`enable_file_scanner_v2` continues to control query scans; Thrift does not distinguish an omitted
-option from its default false value for load plans. Formats outside the load adapter's selection
-remain on their existing path, including Avro and Arrow IPC loads. V2 Arrow support is currently
-limited to the remote-Doris table reader. Load ranges retain FE split boundaries rather than
-publishing additional physical children.
+All file scans, schema inference, file loads, and external row-ID fetches use V2.
+`enable_file_scanner_v2` is a deprecated compatibility variable: setting it to false has no effect.
+The FE keeps sending true in the existing optional Thrift field for compatibility with older BEs.
+Unsupported table formats or reader operations return an error from the concrete reader rather
+than selecting another scanner. Arrow IPC stream loads use `LoadTableReader` and the V2 Arrow
+stream reader. Historical Push ingestion also uses `LoadTableReader`, and Iceberg position-delete
+files are read through a standalone V2 `TableReader`. Load ranges retain FE split boundaries
+rather than publishing additional physical children.
 
 ## Further Reading
 

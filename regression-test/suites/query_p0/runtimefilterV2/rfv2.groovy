@@ -16,6 +16,8 @@
 // under the License.
 
 suite("rfv2") {
+    sql "set enable_spill = false"
+    sql "set enable_force_spill = false"
     sql """
     drop table if exists a;
     create table a

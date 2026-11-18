@@ -82,9 +82,9 @@ Status execute_single_pattern(const TQueryOptions& query_options, const std::str
                                        ? ColumnPtr(std::move(patterns))
                                        : ColumnConst::create(std::move(patterns), 1);
 
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_columns(2);
     if (mode == PatternMode::CONST_AT_OPEN) {
-        constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
+        constant_columns[1] = std::make_shared<ConstantExprResult>(pattern_column);
     }
     context->set_constant_cols(constant_columns);
 
@@ -144,8 +144,8 @@ void check_constant_pattern_batch(const std::vector<std::string>& values,
     pattern_data->insert_data(pattern.data(), pattern.size());
     ColumnPtr pattern_column = ColumnConst::create(std::move(pattern_data), values.size());
 
-    std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_columns(2);
-    constant_columns[1] = std::make_shared<ColumnPtrWrapper>(pattern_column);
+    std::vector<std::shared_ptr<ConstantExprResult>> constant_columns(2);
+    constant_columns[1] = std::make_shared<ConstantExprResult>(pattern_column);
     context->set_constant_cols(constant_columns);
 
     Function function;
@@ -623,7 +623,7 @@ TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-functio
         FunctionUtils fn_utils({}, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(
-                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+                {nullptr, std::make_shared<ConstantExprResult>(block.get_by_position(1).column)});
 
         ASSERT_EQ(Status::OK(),
                   func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
@@ -703,7 +703,7 @@ TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-functio
         FunctionUtils fn_utils({}, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(
-                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+                {nullptr, std::make_shared<ConstantExprResult>(block.get_by_position(1).column)});
 
         ASSERT_EQ(Status::OK(),
                   func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
@@ -743,7 +743,7 @@ TEST(FunctionLikeTest, regexp_extract_all_array) { // NOLINT(readability-functio
         FunctionUtils fn_utils({}, arg_types, false);
         auto* fn_ctx = fn_utils.get_fn_ctx();
         fn_ctx->set_constant_cols(
-                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+                {nullptr, std::make_shared<ConstantExprResult>(block.get_by_position(1).column)});
 
         ASSERT_EQ(Status::OK(),
                   func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
@@ -787,7 +787,7 @@ TEST(FunctionLikeTest, regexp_extract_all_boost_zero_width_match) {
         query_options.__set_enable_extended_regex(true);
         fn_ctx->state()->set_query_options(query_options);
         fn_ctx->set_constant_cols(
-                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column)});
+                {nullptr, std::make_shared<ConstantExprResult>(block.get_by_position(1).column)});
 
         ASSERT_EQ(Status::OK(),
                   func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
@@ -959,7 +959,7 @@ TEST(FunctionLikeTest, regexp_invalid_column_pattern_fails) {
         Block block;
         ColumnNumbers arguments;
         std::vector<DataTypePtr> arg_types;
-        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+        std::vector<std::shared_ptr<ConstantExprResult>> constant_cols;
         for (auto& arg : arg_cols) {
             arguments.push_back(static_cast<unsigned int>(block.columns()));
             arg_types.push_back(arg.type);
@@ -1082,12 +1082,12 @@ TEST(FunctionLikeTest, regexp_null_pattern_hides_invalid_payload) {
         Block block;
         ColumnNumbers arguments;
         std::vector<DataTypePtr> arg_types;
-        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+        std::vector<std::shared_ptr<ConstantExprResult>> constant_cols;
         for (auto& arg : arg_cols) {
             arguments.push_back(static_cast<unsigned int>(block.columns()));
             arg_types.push_back(arg.type);
             constant_cols.push_back(is_column_const(*arg.column)
-                                            ? std::make_shared<ColumnPtrWrapper>(arg.column)
+                                            ? std::make_shared<ConstantExprResult>(arg.column)
                                             : nullptr);
             block.insert(std::move(arg));
         }
@@ -1218,12 +1218,12 @@ TEST(FunctionLikeTest, regexp_count_non_nullable_arguments) {
         Block block;
         ColumnNumbers arguments;
         std::vector<DataTypePtr> arg_types;
-        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+        std::vector<std::shared_ptr<ConstantExprResult>> constant_cols;
         for (auto& arg : arg_cols) {
             arguments.push_back(static_cast<unsigned int>(block.columns()));
             arg_types.push_back(arg.type);
             constant_cols.push_back(is_column_const(*arg.column)
-                                            ? std::make_shared<ColumnPtrWrapper>(arg.column)
+                                            ? std::make_shared<ConstantExprResult>(arg.column)
                                             : nullptr);
             block.insert(std::move(arg));
         }
@@ -1309,12 +1309,12 @@ TEST(FunctionLikeTest, regexp_non_nullable_arguments) {
         Block block;
         ColumnNumbers arguments;
         std::vector<DataTypePtr> arg_types;
-        std::vector<std::shared_ptr<ColumnPtrWrapper>> constant_cols;
+        std::vector<std::shared_ptr<ConstantExprResult>> constant_cols;
         for (auto& arg : arg_cols) {
             arguments.push_back(static_cast<unsigned int>(block.columns()));
             arg_types.push_back(arg.type);
             constant_cols.push_back(is_column_const(*arg.column)
-                                            ? std::make_shared<ColumnPtrWrapper>(arg.column)
+                                            ? std::make_shared<ConstantExprResult>(arg.column)
                                             : nullptr);
             block.insert(std::move(arg));
         }

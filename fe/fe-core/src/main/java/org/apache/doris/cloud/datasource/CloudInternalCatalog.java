@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.RowTtlConfig;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
@@ -399,6 +400,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), tbl.getStorageFormat(), storagePolicy, isInMemory, false,
                         tbl.getName(), tbl.getTTLSeconds(),
+                        tbl.getRowTtlConfig(), tbl.getRowTtlTimeZoneOffsetSeconds(),
                         enableUniqueKeyMergeOnWrite, tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
                         binlogConfig, tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
@@ -409,7 +411,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                         indexId == tbl.getBaseIndexId() ? partitionInvertedIndexFileStorageFormat : null,
                         tbl.rowStorePageSize(),
-                        tbl.variantEnableFlattenNested(), clusterKeyUids,
+                        tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
                         tbl.getColumnSeqMapping(),
@@ -438,14 +440,16 @@ public class CloudInternalCatalog extends InternalCatalog {
             short shortKeyColumnCount, Set<String> bfColumns, double bfFpp, List<Index> indexes,
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             TStorageFormat storageFormat, String storagePolicy, boolean isInMemory, boolean isShadow,
-            String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
+            String tableName, long ttlSeconds, RowTtlConfig rowTtlConfig,
+            int rowTtlTimeZoneOffsetSeconds,
+            boolean enableUniqueKeyMergeOnWrite,
             boolean storeRowColumn, int schemaVersion, TabletBinlogConfig binlogConfig, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-            boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+            boolean variantEnableFlattenNested, boolean variantEscapeDotsInKeys, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
             boolean createInitialRowset, Map<String, List<String>> columnSeqMapping,
             int verticalCompactionNumColumnsPerGroup, OlapFile.TabletRolePB tabletRole) throws DdlException {
@@ -533,6 +537,11 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setCommitTsoColIdx(commitTsoCol);
         schemaBuilder.setRowLsnColIdx(rowLsnCol);
         schemaBuilder.setStoreRowColumn(storeRowColumn);
+        if (rowTtlConfig.getDurationUs() >= 0 && schemaColumns.stream().anyMatch(Column::isTtlColumn)) {
+            builder.setRowTtlConfig(rowTtlConfig.toPb());
+        }
+        setRowTtlSchemaFields(schemaBuilder, schemaColumns, rowTtlConfig.getDurationUs(),
+                rowTtlTimeZoneOffsetSeconds);
 
         if (dataSortInfo.getSortType() == TSortType.LEXICAL) {
             schemaBuilder.setSortType(OlapFile.SortType.LEXICAL);
@@ -636,6 +645,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setStoragePageSize(storagePageSize);
         schemaBuilder.setStorageDictPageSize(storageDictPageSize);
         schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
+        schemaBuilder.setVariantEscapeDotsInKeys(variantEscapeDotsInKeys);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             schemaBuilder.addAllClusterKeyUids(clusterKeyUids);
         }
@@ -668,6 +678,24 @@ public class CloudInternalCatalog extends InternalCatalog {
             builder.setEncryptionAlgorithm(encryptionAlgorithm);
         }
         return builder;
+    }
+
+    static void setRowTtlSchemaFields(OlapFile.TabletSchemaCloudPB.Builder schemaBuilder,
+            List<Column> schemaColumns, long rowTtlDurationMicros,
+            int rowTtlTimeZoneOffsetSeconds) {
+        int ttlCol = -1;
+        for (int i = 0; i < schemaColumns.size(); i++) {
+            if (schemaColumns.get(i).isTtlColumn()) {
+                Preconditions.checkState(ttlCol == -1, "multiple row TTL columns");
+                ttlCol = i;
+            }
+        }
+        if (ttlCol < 0) {
+            return;
+        }
+        schemaBuilder.setTtlColIdx(ttlCol);
+        schemaBuilder.setRowTtlDurationUs(rowTtlDurationMicros);
+        schemaBuilder.setRowTtlTimeZoneOffsetSeconds(rowTtlTimeZoneOffsetSeconds);
     }
 
     private OlapFile.RowsetMetaCloudPB.Builder createInitialRowset(Tablet tablet, long partitionId,

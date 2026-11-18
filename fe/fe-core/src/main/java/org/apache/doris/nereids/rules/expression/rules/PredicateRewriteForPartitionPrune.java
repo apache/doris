@@ -35,8 +35,8 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
-import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TemporalConversionProperties;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -81,7 +81,7 @@ public class PredicateRewriteForPartitionPrune
                     return in;
                 }
                 TimeStampNsLiteral literal = (TimeStampNsLiteral) option;
-                if (canRepresentExactly(literal, sourceType.getScale())) {
+                if (TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(literal, sourceType)) {
                     children.add(literal.roundFloorToDateTimeV2(sourceType.getScale()));
                 }
             }
@@ -147,7 +147,7 @@ public class PredicateRewriteForPartitionPrune
             Cast cast = (Cast) equalTo.left();
             DateTimeV2Type sourceType = (DateTimeV2Type) cast.child().getDataType();
             TimeStampNsLiteral literal = (TimeStampNsLiteral) equalTo.right();
-            return canRepresentExactly(literal, sourceType.getScale())
+            return TemporalConversionProperties.isTimeStampNsLiteralExactlyRepresentable(literal, sourceType)
                     ? new EqualTo(cast.child(), literal.roundFloorToDateTimeV2(sourceType.getScale()))
                     : BooleanLiteral.FALSE;
         }
@@ -164,11 +164,6 @@ public class PredicateRewriteForPartitionPrune
         return expression instanceof Cast
                 && expression.getDataType() instanceof TimeStampNsType
                 && expression.child(0).getDataType() instanceof DateTimeV2Type;
-    }
-
-    private static boolean canRepresentExactly(TimeStampNsLiteral literal, int scale) {
-        long scaleFactor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
-        return literal.getNanoSecond() % scaleFactor == 0;
     }
 
     private static Optional<Expression> timestampNsDateRange(Expression dateChild, Expression option) {
@@ -204,5 +199,4 @@ public class PredicateRewriteForPartitionPrune
             this.allowCastRewrite = allowCastRewrite;
         }
     }
-
 }

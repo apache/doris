@@ -28,6 +28,7 @@
 #include <string>
 #include <utility>
 
+#include "core/column/column_const.h"
 #include "exec/operator/operator.h"
 #include "exec/spill/spill_file.h"
 #include "exprs/vectorized_agg_fn.h"
@@ -1331,6 +1332,9 @@ Status AnalyticSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* input
     return Status::OK();
 }
 
+// Keep NTILE's scalar materialization beside the row-wise aggregate path despite the existing
+// function's complexity; splitting it would obscure their shared Block and timer lifetime.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block* input_block) {
     if (input_block->rows() <= 0) {
         return Status::OK();
@@ -1352,6 +1356,19 @@ Status AnalyticSinkOperatorX::_add_input_block(doris::RuntimeState* state, Block
         SCOPED_TIMER(local_state._compute_agg_data_timer);
         //insert _agg_input_columns, execute calculate for its, and those columns maybe could remove have used data
         for (size_t i = 0; i < _agg_functions_size; ++i) {
+            if (local_state._agg_functions[i]->window_spill_strategy() ==
+                WindowSpillStrategy::NTILE) {
+                DCHECK_EQ(local_state._agg_expr_ctxs[i].size(), 1);
+                auto& bucket_column = local_state._agg_input_columns[i][0];
+                if (bucket_column->empty()) {
+                    ColumnPtr column;
+                    RETURN_IF_ERROR(local_state._agg_expr_ctxs[i][0]->execute(input_block, column));
+                    // Each NTILE function retains its own bucket once, even across Blocks and partitions.
+                    bucket_column->insert_from(*unpack_if_const(column).first, 0);
+                    DCHECK_GT(bucket_column->get_int(0), 0);
+                }
+                continue;
+            }
             for (size_t j = 0; j < local_state._agg_expr_ctxs[i].size(); ++j) {
                 RETURN_IF_ERROR(_insert_range_column(input_block, local_state._agg_expr_ctxs[i][j],
                                                      local_state._agg_input_columns[i][j].get(),
@@ -1434,6 +1451,10 @@ void AnalyticSinkLocalState::_remove_unused_rows() {
     {
         SCOPED_TIMER(_remove_rows_timer);
         for (size_t i = 0; i < _agg_functions_size; i++) {
+            // NTILE's one bucket is not indexed by row, so pruning input rows must retain it.
+            if (_agg_functions[i]->window_spill_strategy() == WindowSpillStrategy::NTILE) {
+                continue;
+            }
             for (size_t j = 0; j < _agg_expr_ctxs[i].size(); j++) {
                 _agg_input_columns[i][j]->erase(0, remove_rows);
             }

@@ -535,14 +535,21 @@ struct TQueryOptions {
 
   // FE can explicitly and idempotently acknowledge external-file commit reports.
   236: optional bool supports_external_file_report_ack = false;
+  // Keep field 237 aligned with branch-4.1 Paimon BLOB query options.
+  237: optional i64 paimon_blob_max_size = 10485760;
+
+  // Optional Parquet output indexes; absent fields retain the existing writer defaults.
+  238: optional bool enable_parquet_write_page_index = true;
+  239: optional i32 parquet_write_data_page_size = 1048576;
   // Memory limit for one non-streaming analytic partition before it proactively spills.
-  237: optional i64 spill_analytic_sink_mem_limit_bytes = 67108864;
+  240: optional i64 spill_analytic_sink_mem_limit_bytes = 67108864;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
-  1002: optional bool enable_file_scanner_v2 = false
+  // Deprecated: file scans always use V2. Retain the field id for wire compatibility.
+  1002: optional bool enable_file_scanner_v2 = true
   1003: optional bool enable_topn_lazy_mat_phase2_no_write_file_cache = false
   1004: optional i64 file_cache_query_limit_bytes = -1
   // SNII inverted index query reads take the REMOTE_ONLY_ON_MISS file-cache
@@ -558,6 +565,9 @@ struct TQueryOptions {
   // reads the data instead.
   // Defaults to false because an old FE never sends this field, and BE checked both cases before.
   1006: optional bool force_pushdown_zonemap_minmax = false
+  // Use the cache option range to avoid unrelated query-option IDs allocated on other branches.
+  // Explicitly sent by new FEs; an omitted field keeps older-FE queries on the local policy.
+  1007: optional bool enable_file_cache_io_adaptor = false;
 }
 
 
@@ -720,6 +730,7 @@ struct TAIResource {
   17: optional string embed_mm_provider_type
   18: optional string embed_mm_model_name
   19: optional string embed_mm_api_key
+  20: optional bool enable_structured_output = true
 }
 
 struct TCondition {

@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.PasswordOptions;
+import org.apache.doris.analysis.ResourcePattern;
+import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -27,19 +30,38 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.datasource.property.constants.AIProperties;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIGenerate;
 import org.apache.doris.nereids.trees.expressions.functions.ai.AISentiment;
 import org.apache.doris.nereids.trees.expressions.functions.ai.Embed;
 import org.apache.doris.nereids.trees.expressions.literal.JsonLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
+import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -48,6 +70,8 @@ import org.apache.logging.log4j.Logger;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -101,6 +125,38 @@ public class AIResourceTest {
         aiProperties.put("ai.api_key", apiKey);
         aiProperties.put("ai.model_name", modelName);
         aiProperties.put("ai.validity_check", "false");
+    }
+
+    @Test
+    public void testEnableStructuredOutput() throws Exception {
+        AIResource resource = new AIResource(name);
+        resource.setProperties(ImmutableMap.copyOf(aiProperties));
+        Assertions.assertTrue(resource.toThrift().isEnableStructuredOutput());
+        JsonObject legacyJson = JsonParser.parseString(GsonUtils.GSON.toJson(resource)).getAsJsonObject();
+        legacyJson.getAsJsonObject("properties").remove(AIProperties.ENABLE_STRUCTURED_OUTPUT);
+        AIResource legacy = GsonUtils.GSON.fromJson(legacyJson, AIResource.class);
+        Assertions.assertTrue(legacy.toThrift().isEnableStructuredOutput());
+        resource.modifyProperties(Map.of(AIProperties.ENABLE_STRUCTURED_OUTPUT, "false"));
+        Assertions.assertFalse(resource.toThrift().isEnableStructuredOutput());
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        resource.write(new DataOutputStream(bytes));
+        AIResource restored = (AIResource) Resource.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+        Assertions.assertFalse(restored.toThrift().isEnableStructuredOutput());
+        resource.modifyProperties(Map.of(AIProperties.ENABLE_STRUCTURED_OUTPUT, "true"));
+        Assertions.assertTrue(resource.toThrift().isEnableStructuredOutput());
+        Assertions.assertThrows(DdlException.class,
+                () -> resource.modifyProperties(Map.of(AIProperties.ENABLE_STRUCTURED_OUTPUT, "invalid")));
+        Assertions.assertTrue(resource.toThrift().isEnableStructuredOutput());
+
+        aiProperties.put(AIProperties.ENABLE_STRUCTURED_OUTPUT, "invalid");
+        Assertions.assertThrows(DdlException.class,
+                () -> new AIResource(name).setProperties(ImmutableMap.copyOf(aiProperties)));
+        aiProperties.put(AIProperties.ENABLE_STRUCTURED_OUTPUT, "false");
+        AIResource disabled = new AIResource(name);
+        disabled.setProperties(ImmutableMap.copyOf(aiProperties));
+        Assertions.assertFalse(disabled.toThrift().isEnableStructuredOutput());
     }
 
     @Test
@@ -327,82 +383,204 @@ public class AIResourceTest {
     @Test
     public void testRejectEmbedOnlyResourceForNonEmbedScalarFunction() throws DdlException {
         AIResource aiResource = createEmbedOnlyResource();
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
-            Mockito.when(resourceMgr.getResource("embed-only-resource")).thenReturn(aiResource);
-
+        withAIResource(aiResource, () -> {
             AISentiment function = new AISentiment(new StringLiteral("embed-only-resource"),
                     new StringLiteral("text"));
-            Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
-        }
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    function::checkLegalityAfterRewrite);
+            Assertions.assertTrue(exception.getMessage().contains("does not contain complete general AI properties"));
+        });
     }
 
     @Test
     public void testRejectEmbedOnlyResourceForAiAgg() throws DdlException {
         AIResource aiResource = createEmbedOnlyResource();
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
-            Mockito.when(resourceMgr.getResource("embed-only-resource")).thenReturn(aiResource);
-
+        withAIResource(aiResource, () -> {
             AIAgg function = new AIAgg(new StringLiteral("embed-only-resource"),
                     new StringLiteral("text"), new StringLiteral("task"));
-            Assertions.assertThrows(AnalysisException.class, function::checkLegalityAfterRewrite);
-        }
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    function::checkLegalityAfterRewrite);
+            Assertions.assertTrue(exception.getMessage().contains("does not contain complete general AI properties"));
+        });
     }
 
     @Test
     public void testAcceptEmbedOnlyResourceForEmbedFunction() throws DdlException {
         AIResource aiResource = createEmbedOnlyResource();
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
-            Mockito.when(resourceMgr.getResource("embed-only-resource")).thenReturn(aiResource);
-
+        withAIResource(aiResource, () -> {
             Embed function = new Embed(new StringLiteral("embed-only-resource"),
                     new StringLiteral("text"));
             Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
             Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
-        }
+        });
     }
 
     @Test
     public void testAcceptMultimodalEmbedOnlyResourceForJsonEmbed() throws DdlException {
         AIResource aiResource = createMultimodalEmbedOnlyResource();
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
-            Mockito.when(resourceMgr.getResource("multimodal-embed-only-resource")).thenReturn(aiResource);
-
+        withAIResource(aiResource, () -> {
             Embed function = new Embed(new StringLiteral("multimodal-embed-only-resource"),
                     new JsonLiteral("{\"text\":\"hello\"}"));
             Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion);
             Assertions.assertDoesNotThrow(function::checkLegalityAfterRewrite);
-        }
+        });
     }
 
     @Test
     public void testRejectMultimodalEmbedOnlyResourceForTextEmbed() throws DdlException {
         AIResource aiResource = createMultimodalEmbedOnlyResource();
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            Env env = Mockito.mock(Env.class);
-            ResourceMgr resourceMgr = Mockito.mock(ResourceMgr.class);
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getResourceMgr()).thenReturn(resourceMgr);
-            Mockito.when(resourceMgr.getResource("multimodal-embed-only-resource")).thenReturn(aiResource);
-
+        withAIResource(aiResource, () -> {
             Embed function = new Embed(new StringLiteral("multimodal-embed-only-resource"),
                     new StringLiteral("hello"));
-            Assertions.assertThrows(AnalysisException.class, function::checkLegalityBeforeTypeCoercion);
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    function::checkLegalityBeforeTypeCoercion);
+            Assertions.assertTrue(exception.getMessage().contains("does not have properties required by EMBED"));
+        });
+    }
+
+    private void withAIResource(AIResource resource, Runnable check) {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setCurrentUserIdentity(UserIdentity.ROOT);
+        context.setRemoteIP("127.0.0.1");
+        context.setThreadLocalInfo();
+        ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
+        resourceMgr.replayCreateResource(resource);
+        try {
+            check.run();
+        } finally {
+            resourceMgr.replayDropResource(new DropResourceOperationLog(resource.getName()));
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"generate", "aggregate", "embed", "multimodal", "default_generate",
+            "default_aggregate", "default_embed", "default_multimodal", "null_input"})
+    public void testAIResourceUsagePrivilege(String kind) throws Exception {
+        String resourceName = "ai_resource_privilege_test";
+        UserIdentity user = UserIdentity.createAnalyzedUserIdentWithIp("ai_resource_privilege_user", "%");
+        AIResource resource = new AIResource(resourceName);
+        resource.setProperties(ImmutableMap.<String, String>builder()
+                .put("ai.provider_type", "LOCAL")
+                .put("ai.endpoint", "http://localhost:8000")
+                .put("ai.model_name", "chat")
+                .put("ai.embed.provider_type", "LOCAL")
+                .put("ai.embed.endpoint", "http://localhost:8001")
+                .put("ai.embed.model_name", "embed")
+                .put("ai.embed.mm.provider_type", "LOCAL")
+                .put("ai.embed.mm.endpoint", "http://localhost:8002")
+                .put("ai.embed.mm.model_name", "multimodal")
+                .build());
+        Auth auth = Env.getCurrentEnv().getAuth();
+        ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setCurrentUserIdentity(user);
+        context.setRemoteIP("127.0.0.1");
+        context.getSessionVariable().defaultAIResource = resourceName;
+        context.getSessionVariable().setEnableSqlCache(true);
+        context.setThreadLocalInfo();
+        try {
+            auth.replayCreateUser(new PrivInfo(user, null, new byte[0], null, PasswordOptions.UNSET_OPTION));
+            Assertions.assertTrue(auth.doesUserExist(user));
+            resourceMgr.replayCreateResource(resource);
+            BoundFunction function = aiFunctionForPrivilegeCheck(kind, resourceName);
+            Assertions.assertFalse(function.isDeterministic());
+            assertResourceAccessDenied(function, resourceName);
+
+            auth.replayGrant(usagePrivilege(user, "another_ai_resource"));
+            assertResourceAccessDenied(function, resourceName);
+
+            auth.replayGrant(usagePrivilege(user, resourceName));
+            Assertions.assertTrue(Env.getCurrentEnv().getAccessManager()
+                    .checkResourcePriv(context, resourceName, PrivPredicate.USAGE));
+            for (Expression expression : ImmutableList.of(function,
+                    new UnboundFunction(function.getName(), function.getArguments()))) {
+                StatementContext statementContext = new StatementContext(context, new OriginStatement("SELECT 1", 0));
+                context.setStatementContext(statementContext);
+                SqlCacheContext sqlCacheContext = statementContext.getSqlCacheContext().orElseThrow();
+                function.checkLegalityBeforeTypeCoercion();
+                function.checkLegalityAfterRewrite();
+                Assertions.assertTrue(sqlCacheContext.supportSqlCache());
+                LogicalEmptyRelation plan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
+                CascadesContext cascadesContext = CascadesContext.initContext(statementContext,
+                        plan, PhysicalProperties.ANY);
+                Expression analyzed = ExpressionAnalyzer.analyzeFunction(plan, cascadesContext, expression);
+                Assertions.assertTrue(analyzed.containsNondeterministic());
+                Assertions.assertTrue(statementContext.hasNondeterministic());
+                Assertions.assertFalse(sqlCacheContext.supportSqlCache());
+            }
+
+            auth.replayRevoke(usagePrivilege(user, resourceName));
+            Assertions.assertFalse(Env.getCurrentEnv().getAccessManager()
+                    .checkResourcePriv(context, resourceName, PrivPredicate.USAGE));
+            assertResourceAccessDenied(function, resourceName);
+
+            auth.replayGrant(usagePrivilege(user, "*"));
+            function.checkLegalityBeforeTypeCoercion();
+            function.checkLegalityAfterRewrite();
+            auth.replayRevoke(usagePrivilege(user, "*"));
+            assertResourceAccessDenied(function, resourceName);
+        } finally {
+            auth.replayDropUser(user);
+            resourceMgr.replayDropResource(new DropResourceOperationLog(resourceName));
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    private void assertResourceAccessDenied(BoundFunction function, String resourceName) {
+        AnalysisException before = Assertions.assertThrows(AnalysisException.class,
+                function::checkLegalityBeforeTypeCoercion);
+        AnalysisException after = Assertions.assertThrows(AnalysisException.class,
+                function::checkLegalityAfterRewrite);
+        for (AnalysisException exception : new AnalysisException[] {before, after}) {
+            Assertions.assertTrue(exception.getMessage().contains("Access denied"), exception.getMessage());
+            Assertions.assertTrue(exception.getMessage().contains("Usage_priv"), exception.getMessage());
+            Assertions.assertTrue(exception.getMessage().contains(resourceName), exception.getMessage());
+        }
+    }
+
+    private PrivInfo usagePrivilege(UserIdentity user, String resourceName) throws Exception {
+        ResourcePattern pattern = new ResourcePattern(resourceName, ResourceTypeEnum.GENERAL);
+        pattern.analyze();
+        return new PrivInfo(user, pattern, PrivBitSet.of(Privilege.USAGE_PRIV), null, null);
+    }
+
+    private BoundFunction aiFunctionForPrivilegeCheck(String kind, String resourceName) {
+        StringLiteral resource = new StringLiteral(resourceName);
+        StringLiteral input = new StringLiteral("input");
+        StringLiteral task = new StringLiteral("summarize");
+        JsonLiteral multimodal = new JsonLiteral("{\"text\":\"input\"}");
+        switch (kind) {
+            case "generate":
+                return new AIGenerate(resource, input);
+            case "aggregate":
+                return new AIAgg(resource, input, task);
+            case "embed":
+                return new Embed(resource, input);
+            case "multimodal":
+                return new Embed(resource, multimodal);
+            case "default_generate":
+                return new AIGenerate(input);
+            case "default_aggregate":
+                return new AIAgg(input, task);
+            case "default_embed":
+                return new Embed(input);
+            case "default_multimodal":
+                return new Embed(multimodal);
+            case "null_input":
+                return new AIGenerate(resource, NullLiteral.INSTANCE);
+            default:
+                throw new IllegalArgumentException(kind);
         }
     }
 
@@ -592,35 +770,34 @@ public class AIResourceTest {
     }
 
     @Test
-    public void testEmptyEffortIsNotForwarded() throws DdlException {
+    public void testEmptyEffortIsRejected() throws DdlException {
         Map<String, String> properties = new HashMap<>(aiProperties);
         properties.put(AIProperties.EFFORT, "");
 
         AIResource aiResource = new AIResource("empty-effort-resource");
-        aiResource.setProperties(ImmutableMap.copyOf(properties));
-
-        Assertions.assertFalse(aiResource.toThrift().isSetEffort());
+        Assertions.assertThrows(DdlException.class, () -> aiResource.setProperties(ImmutableMap.copyOf(properties)));
     }
 
     @Test
-    public void testClearEffortOnModifyAndPersistence() throws Exception {
+    public void testRejectEmptyEffortOnModifyAndPersistence() throws Exception {
         Map<String, String> properties = new HashMap<>(aiProperties);
         properties.put(AIProperties.EFFORT, "high");
 
-        AIResource aiResource = new AIResource("clear-effort-resource");
+        AIResource aiResource = new AIResource("non-empty-effort-resource");
         aiResource.setProperties(ImmutableMap.copyOf(properties));
-        aiResource.modifyProperties(ImmutableMap.of(AIProperties.EFFORT, ""));
+        Assertions.assertThrows(DdlException.class,
+                () -> aiResource.modifyProperties(ImmutableMap.of(AIProperties.EFFORT, "")));
 
-        Assertions.assertNull(aiResource.getProperty(AIProperties.EFFORT));
-        Assertions.assertFalse(aiResource.toThrift().isSetEffort());
+        Assertions.assertEquals("high", aiResource.getProperty(AIProperties.EFFORT));
+        Assertions.assertEquals("high", aiResource.toThrift().getEffort());
 
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         aiResource.write(new DataOutputStream(bytes));
         AIResource restoredResource = (AIResource) Resource.read(
                 new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
 
-        Assertions.assertNull(restoredResource.getProperty(AIProperties.EFFORT));
-        Assertions.assertFalse(restoredResource.toThrift().isSetEffort());
+        Assertions.assertEquals("high", restoredResource.getProperty(AIProperties.EFFORT));
+        Assertions.assertEquals("high", restoredResource.toThrift().getEffort());
     }
 
     @Test

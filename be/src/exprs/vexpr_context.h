@@ -42,7 +42,7 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/zone_map/zonemap_filter_result.h"
-#include "storage/segment/column_reader.h"
+#include "storage/segment/column_iterator_options.h"
 
 namespace doris {
 class RowDescriptor;

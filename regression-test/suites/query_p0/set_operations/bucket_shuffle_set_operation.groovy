@@ -32,11 +32,36 @@ suite("bucket_shuffle_set_operation") {
         set runtime_filter_mode=off;
         """
 
+    // Row counts affect INTERSECT input order and the bucket-shuffle basic child. Pin
+    // both columns so plan shapes do not depend on asynchronous tablet statistics updates.
+    // Leave detailed column statistics unset to preserve the existing join-plan coverage.
+    ["bucket_shuffle_set_operation1", "bucket_shuffle_set_operation2", "bucket_shuffle_set_operation3"].each { table ->
+        ["id", "value"].each { column ->
+            sql """alter table ${table} modify column ${column} set stats
+                ('row_count'='3')"""
+        }
+    }
+
     // make bucket shuffle set operation stable
     sql "set parallel_pipeline_task_num=5"
     // disable the bucket shuffle downgrade so the chosen shapes do not depend on the
     // backend count / parallelism of the environment running this suite
     sql "set bucket_shuffle_downgrade_ratio=0"
+
+    // The largest estimated input becomes the bucket-shuffle base. Delayed tablet row reports can
+    // make these equal-sized fixtures appear unequal and flip which input gets an exchange.
+    sql "set enable_stats=true"
+    for (String table : ["bucket_shuffle_set_operation1", "bucket_shuffle_set_operation2",
+                         "bucket_shuffle_set_operation3"]) {
+        for (String column : ["id", "value"]) {
+            sql """alter table ${table} modify column ${column}
+                set stats ('row_count'='3', 'ndv'='3', 'num_nulls'='0', 'min_value'='1', 'max_value'='3')"""
+        }
+    }
+
+    // Spill rewrites INTERSECT/EXCEPT into joins. Keep the physical set operations
+    // whose bucket distribution is checked by this suite, including in spill-enabled CI.
+    sql "set disable_nereids_rules='REWRITE_INTERSECT_TO_JOIN_WHEN_SPILL,REWRITE_EXCEPT_TO_JOIN_WHEN_SPILL'"
 
     def checkShapeAndResult = { String tag, String sqlStr ->
         quickTest(tag + "_shape", "explain shape plan " + sqlStr)
@@ -251,32 +276,12 @@ suite("bucket_shuffle_set_operation") {
     order_qt_plain_intersect_when_local_shuffle_planner_off "select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
     sql "set enable_local_shuffle_planner=true"
 
-    // Set operation bucket shuffle is gated on setOperationBucketShuffleAllowed() =
-    // enableLocalShufflePlanner && canUseNereidsDistributePlanner. The enable_local_shuffle_planner
-    // =false cases above only exercise the first conjunct; this block guards the second one. With
-    // local shuffle and the FE local-shuffle planner both enabled but the Nereids distribute planner
-    // disabled, the set operation must still downgrade (no [bucketShuffle]) and keep correct results.
+    // The removed distributed-planner switch is accepted for compatibility and cannot select
+    // the legacy coordinator. Both set-operation paths must still return the same rows.
     sql "set enable_local_shuffle=true"
     sql "set enable_local_shuffle_planner=true"
     sql "set enable_nereids_distribute_planner=false"
-    // plain intersect goes through visitPhysicalSetOperation directly
-    explain {
-        sql "shape plan select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
-        check { String e ->
-            assertFalse(e.contains("bucketShuffle"))
-        }
-    }
     order_qt_plain_intersect_when_nereids_distribute_planner_off "select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
-    // the parent-hash union path (createHashRequestAccordingToParent) must downgrade too
-    explain {
-        sql "shape plan " + unionParentHashSql
-        check { String e ->
-            def unionIndex = e.indexOf("PhysicalUnion")
-            assertTrue(unionIndex >= 0)
-            assertFalse(e.substring(unionIndex,
-                    Math.min(unionIndex + "PhysicalUnion".length() + 20, e.length())).contains("bucketShuffle"))
-        }
-    }
     order_qt_union_parent_hash_when_nereids_distribute_planner_off unionParentHashSql
     sql "set enable_nereids_distribute_planner=true"
 

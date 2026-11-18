@@ -16,6 +16,7 @@
 // under the License.
 #include "core/data_type_serde/data_type_serde.h"
 
+#include <new>
 #include <vector>
 
 #include "common/check.h"
@@ -26,19 +27,30 @@
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/storage_field_type.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_decimal_serde.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
 #include "core/data_type_serde/data_type_number_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "core/field.h"
 #include "exprs/function/cast/cast_base.h"
 #include "runtime/descriptors.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
+
 namespace doris {
 DataTypeSerDe::~DataTypeSerDe() = default;
+
+Status DataTypeSerDe::from_string_as_nested(StringRef& str, IColumn& column,
+                                            const FormatOptions& options,
+                                            bool is_strict_mode) const {
+    auto unquoted = str.trim_quote();
+    return is_strict_mode ? from_string_strict_mode(unquoted, column, options)
+                          : from_string(unquoted, column, options);
+}
 
 bool decoded_column_view_can_null_on_conversion_failure(const DecodedColumnView& view) {
     return !view.enable_strict_mode && view.conversion_failure_null_map != nullptr;
@@ -389,6 +401,53 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
 #undef HANDLE_T_NUM_SERDE
 #undef HANDLE_SIMPLE_SERDE
     return end;
+}
+
+Status DataTypeSerDe::read_one_cell_from_bson(IColumn& column, const BsonValueView& value,
+                                              const BsonDecodeContext& context) const {
+    const size_t before = column.size();
+    Status status;
+    try {
+        status = decode_bson_value(column, value, context);
+    } catch (const Exception& error) {
+        status = error.to_status();
+    } catch (const std::bad_alloc&) {
+        status = Status::MemoryLimitExceeded("BSON decoding allocation failed");
+    }
+    if (!status.ok() && column.size() > before) {
+        column.pop_back(column.size() - before);
+    }
+    return status;
+}
+
+Status DataTypeSerDe::decode_bson_value(IColumn&, const BsonValueView&,
+                                        const BsonDecodeContext&) const {
+    return Status::NotSupported("BSON decoding is not supported for this Doris type");
+}
+
+Status DataTypeSerDe::deserialize_one_cell_from_simdjson(IColumn& column,
+                                                         simdjson::ondemand::value& value,
+                                                         const FormatOptions& options,
+                                                         SimdJsonReadContext& context,
+                                                         const std::string& column_name) const {
+    std::string_view text;
+    switch (value.type().value()) {
+    case simdjson::ondemand::json_type::null:
+        return Status::DataQualityError("Json value is null, but the column `{}` is not nullable.",
+                                        column_name);
+    case simdjson::ondemand::json_type::string:
+        text = JsonbParser::decoded_string(value, context.cache());
+        break;
+    case simdjson::ondemand::json_type::boolean:
+        // Preserve legacy true -> "1" coercion for text-based String/Decimal/JSONB targets.
+        text = value.get_bool() ? "1" : "0";
+        break;
+    default:
+        text = simdjson::to_json_string(value);
+        break;
+    }
+    Slice slice {text.data(), text.size()};
+    return deserialize_one_cell_from_json(column, slice, options);
 }
 
 } // namespace doris

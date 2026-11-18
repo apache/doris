@@ -70,7 +70,7 @@ public:
                 // constant expression such as an arithmetic one is not evaluated in open. Then the
                 // generator is seeded with the first row in execute.
                 if (context->is_col_constant(0)) {
-                    state->generator.seed(get_seed(*context->get_constant_col(0)->column_ptr));
+                    state->generator.seed(get_seed(*context->get_constant_col(0)->column_ptr()));
                 } else {
                     state->seed_in_execute = true;
                 }

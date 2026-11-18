@@ -31,13 +31,8 @@ public:
         _preserve_original = settings.get_bool("preserve_original", false);
     }
 
-    TokenFilterPtr create(const TokenStreamPtr& in) override {
-        return std::make_shared<ASCIIFoldingFilter>(in, _preserve_original);
-    }
-
-    PositionCapability position_capability() const override {
-        return _preserve_original ? PositionCapability::kUnknown
-                                  : PositionCapability::kAlwaysUnitIncrement;
+    std::unique_ptr<TextTokenStream> create(std::unique_ptr<TextTokenStream> in) const override {
+        return std::make_unique<ASCIIFoldingFilter>(std::move(in), _preserve_original);
     }
 
 private:

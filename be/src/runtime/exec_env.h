@@ -54,10 +54,12 @@ class ThreadPool;
 struct StorePath;
 struct CachePath;
 namespace io {
+class FileRangeReadScheduler;
 class FDCache;
 class FileCacheFactory;
 class HdfsMgr;
 class PackedFileManager;
+class PartialBlockWritebackManager;
 } // namespace io
 
 namespace segment_v2 {
@@ -131,6 +133,7 @@ class LookupConnectionCache;
 class RowCache;
 class DummyLRUCache;
 class CacheManager;
+class LRUCachePolicy;
 class IdManager;
 class ProcessProfile;
 class HeapProfiler;
@@ -164,6 +167,8 @@ public:
 
     // Stop all threads and delete resources.
     void destroy();
+    void init_fluss_union_tail_cache();
+    void destroy_fluss_union_tail_cache();
 
     /// Returns the first created exec env instance. In a normal doris, this is
     /// the only instance. In test setups with multiple ExecEnv's per process,
@@ -200,6 +205,10 @@ public:
     ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
+    // Only for the FE calls that cancel an Arrow Flight query, see ArrowFlightBatchReaderBase.
+    ClientCache<FrontendServiceClient>* flight_cancel_frontend_client_cache() {
+        return _flight_cancel_frontend_client_cache;
+    }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
     WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
@@ -267,6 +276,12 @@ public:
     ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
     ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
     ThreadPool* segment_prefetch_thread_pool() { return _segment_prefetch_thread_pool.get(); }
+    io::FileRangeReadScheduler* file_range_read_scheduler() {
+        return _file_range_read_scheduler.get();
+    }
+    io::PartialBlockWritebackManager* partial_block_writeback_manager() {
+        return _partial_block_writeback_manager.get();
+    }
     ThreadPool* peer_race_s3_thread_pool() { return _peer_race_s3_thread_pool.get(); }
 
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
@@ -402,6 +417,7 @@ public:
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
+    LRUCachePolicy* get_fluss_union_tail_cache() { return _fluss_union_tail_cache; }
     IdManager* get_id_manager() { return _id_manager; }
     ProcessProfile* get_process_profile() { return _process_profile; }
     HeapProfiler* get_heap_profiler() { return _heap_profiler; }
@@ -464,6 +480,7 @@ private:
     ResultQueueMgr* _result_queue_mgr = nullptr;
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
+    ClientCache<FrontendServiceClient>* _flight_cancel_frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
 
     // The default tracker consumed by mem hook. If the thread does not attach other trackers,
@@ -510,6 +527,8 @@ private:
     std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
     // Threadpool used to prefetch segment file cache blocks
     std::unique_ptr<ThreadPool> _segment_prefetch_thread_pool;
+    std::unique_ptr<io::FileRangeReadScheduler> _file_range_read_scheduler;
+    std::unique_ptr<io::PartialBlockWritebackManager> _partial_block_writeback_manager;
     std::unique_ptr<ThreadPool> _peer_race_s3_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
@@ -596,6 +615,7 @@ private:
     io::PackedFileManager* _packed_file_manager = nullptr;
     S3RateLimiterHolder* _warmup_download_rate_limiter = nullptr;
     std::unique_ptr<MSRpcRateLimitServices> _ms_rpc_rate_limit_services;
+    LRUCachePolicy* _fluss_union_tail_cache = nullptr;
 };
 
 template <>

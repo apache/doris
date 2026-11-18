@@ -18,8 +18,6 @@
 #include "exec/spill/spill_file_writer.h"
 
 #include <algorithm>
-#include <chrono>
-#include <thread>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
@@ -31,12 +29,10 @@
 #include "io/fs/local_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
-#include "runtime/runtime_profile_counter_names.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
-#include "util/threadpool.h"
 
 namespace doris {
 
@@ -67,9 +63,6 @@ SpillFileWriter::SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, R
     _write_file_current_size = custom_profile->get_counter("SpillWriteFileCurrentBytes");
     _write_rows_counter = custom_profile->get_counter("SpillWriteRows");
     _total_file_count = custom_profile->get_counter("SpillWriteFileTotalCount");
-    _remote_upload_bytes = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_BYTES);
-    _remote_upload_timer = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_TIME);
-    _remote_upload_wait_timer = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_WAIT_TIME);
 }
 
 SpillFileWriter::~SpillFileWriter() {
@@ -100,10 +93,8 @@ void SpillFileWriter::_discard(SpillFile* spill_file) {
     // without publishing the object, before the SpillFile deletes its prefix. Incomplete
     // multipart uploads are left to the bucket lifecycle rule.
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
-    if (_data_dir->is_remote()) {
-        _account_remote_part(/*closed=*/false);
-    }
     writer.reset();
+    _on_part_closed(nullptr, /*closed=*/false, /*close_ns=*/0);
     _advance_part();
 }
 
@@ -157,13 +148,10 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     if (status.ok()) {
         _part_written_bytes += meta_size;
         COUNTER_UPDATE(_write_file_total_size, meta_size);
-        if (_resource_ctx) {
-            if (_data_dir->is_remote()) {
-                _resource_ctx->io_context()->update_spill_write_bytes_to_remote_storage(meta_size);
-            } else {
-                _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(meta_size);
-            }
-        }
+        // The S3 destructor closes before base destruction; a standalone base writer
+        // dispatches to its local implementation during its own destructor.
+        // NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.VirtualCall)
+        _record_spill_write_bytes(meta_size);
         if (_write_file_current_size) {
             COUNTER_UPDATE(_write_file_current_size, meta_size);
         }
@@ -181,16 +169,12 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     // tail of the uploads plus one CompleteMultipartUpload) is negligible against the part
     // itself, so overlapping it with the next part is not worth an async close pipeline.
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
+    int64_t close_ns = 0;
     if (status.ok()) {
         MonotonicStopWatch close_watch;
         close_watch.start();
         status = writer->close();
-        if (_data_dir->is_remote()) {
-            _part_upload_ns += close_watch.elapsed_time();
-        }
-    }
-    if (_data_dir->is_remote()) {
-        _account_remote_part(status.ok());
+        close_ns = close_watch.elapsed_time();
     }
     if (!status.ok()) {
         // A part that failed before close() (an append failed or the query was cancelled) must
@@ -203,13 +187,11 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
 
     if (!status.ok()) {
         LOG(WARNING) << "failed to close spill part " << _current_part_path << ": " << status;
-        // A failed append or close can still leave an object in S3. The writer has drained
-        // in-flight uploads above, so list the prefix after accounting a conservative upper
-        // bound rather than relying on the close status to prove whether PUT committed.
-        if (spill_file && _data_dir->is_remote()) {
-            spill_file->account_potential_part(_part_written_bytes);
-        }
-    } else if (spill_file) {
+    }
+    // S3 destruction closes while derived hooks still exist; base-only writers use this no-op.
+    // NOLINTNEXTLINE(clang-analyzer-optin.cplusplus.VirtualCall)
+    _on_part_closed(spill_file, status.ok(), close_ns);
+    if (status.ok() && spill_file) {
         spill_file->add_part(_part_written_bytes);
     }
 
@@ -217,62 +199,17 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     return status;
 }
 
-void SpillFileWriter::_account_remote_part(bool closed) {
-    // A successful close() publishes the whole part, including its footer. Failed uploads
-    // can still be in flight, so their bytes are not counted as successfully uploaded.
-    const int64_t uploaded_bytes = closed ? _part_written_bytes : 0;
-    if (_remote_upload_bytes != nullptr) {
-        COUNTER_UPDATE(_remote_upload_bytes, uploaded_bytes);
-        COUNTER_UPDATE(_remote_upload_timer, _part_upload_ns);
+void SpillFileWriter::_record_spill_write_bytes(int64_t bytes) {
+    if (_resource_ctx) {
+        _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(bytes);
     }
-    ExecEnv::GetInstance()->spill_file_mgr()->update_spill_remote_write(uploaded_bytes);
 }
 
-Status SpillFileWriter::_wait_for_upload_queue() {
-    auto is_cancelled = [this]() {
-        return _resource_ctx != nullptr && _resource_ctx->task_controller()->is_cancelled();
-    };
-    // A cancelled query must not start another (billed) upload.
-    if (is_cancelled()) {
-        return Status::Cancelled("query cancelled before uploading spill data");
-    }
-    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
-    auto queue_full = [upload_pool]() {
-        return static_cast<int64_t>(upload_pool->get_queue_size()) * config::s3_write_buffer_size >=
-               config::spill_s3_max_inflight_upload_bytes;
-    };
-    if (!queue_full()) {
-        return Status::OK();
-    }
-    MonotonicStopWatch wait_watch;
-    wait_watch.start();
-    Defer record_wait {
-            [&]() { COUNTER_UPDATE(_remote_upload_wait_timer, wait_watch.elapsed_time()); }};
-    // Queued uploads always finish, so the wait ends without help from other writers.
-    while (queue_full()) {
-        if (is_cancelled()) {
-            return Status::Cancelled("query cancelled while waiting for the spill upload queue");
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    }
-    return Status::OK();
-}
+void SpillFileWriter::_on_part_closed(const std::shared_ptr<SpillFile>&, bool, int64_t) {}
 
 Status SpillFileWriter::_append_to_part(const Slice& data) {
     RETURN_IF_ERROR(_part_append_status);
-    if (!_data_dir->is_remote()) {
-        _part_append_status = _file_writer->append(data);
-        return _part_append_status;
-    }
-    // S3FileWriter splits `data` into upload buffers and queues every full one without waiting,
-    // so the queue is checked once per append: `data` is already in memory, and the wait keeps
-    // the next append from producing faster than object storage takes the data.
-    _part_append_status = _wait_for_upload_queue();
-    RETURN_IF_ERROR(_part_append_status);
-    MonotonicStopWatch append_watch;
-    append_watch.start();
     _part_append_status = _file_writer->append(data);
-    _part_upload_ns += append_watch.elapsed_time();
     return _part_append_status;
 }
 
@@ -282,7 +219,6 @@ void SpillFileWriter::_advance_part() {
     _part_written_bytes = 0;
     _part_max_sub_block_size = 0;
     _part_meta.clear();
-    _part_upload_ns = 0;
     _part_append_status = Status::OK();
 }
 
@@ -427,15 +363,7 @@ Status SpillFileWriter::_write_internal(const Block& block,
 
                     _part_meta.append((const char*)&_part_written_bytes, sizeof(size_t));
                     COUNTER_UPDATE(_write_file_total_size, buff_size);
-                    if (_resource_ctx) {
-                        if (_data_dir->is_remote()) {
-                            _resource_ctx->io_context()->update_spill_write_bytes_to_remote_storage(
-                                    buff_size);
-                        } else {
-                            _resource_ctx->io_context()->update_spill_write_bytes_to_local_storage(
-                                    buff_size);
-                        }
-                    }
+                    _record_spill_write_bytes(buff_size);
                     if (_write_file_current_size) {
                         COUNTER_UPDATE(_write_file_current_size, buff_size);
                     }

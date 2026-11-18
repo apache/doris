@@ -482,6 +482,11 @@ public class OlapTableSink extends DataSink {
         schemaParam.setIsPartialUpdate(uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
         schemaParam.setUniqueKeyUpdateMode(uniqueKeyUpdateMode);
         if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            // TTL GC may remove the old row independently on each replica/index. Filling missing
+            // columns from that row would then alternate between stored values and defaults.
+            if (table.hasRowTtl()) {
+                throw new AnalysisException("Partial update is not supported on tables with row TTL");
+            }
             if (table.getState() == OlapTable.OlapTableState.ROLLUP
                     || table.getState() == OlapTable.OlapTableState.SCHEMA_CHANGE) {
                 throw new AnalysisException("Can't do partial update when table is doing schema change.");

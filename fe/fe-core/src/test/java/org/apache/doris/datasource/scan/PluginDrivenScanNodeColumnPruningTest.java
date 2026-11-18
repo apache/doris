@@ -35,6 +35,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Guards {@link PluginDrivenScanNode}'s column projection — the engine-side half of connector column
@@ -83,6 +84,7 @@ public class PluginDrivenScanNodeColumnPruningTest {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         Mockito.when(metadata.getColumnHandles(Mockito.any(), Mockito.any())).thenReturn(handles);
         Deencapsulation.setField(node, "cachedMetadata", metadata);
+        Deencapsulation.setField(node, "metadataRead", Optional.empty());
 
         TupleDescriptor desc = Mockito.mock(TupleDescriptor.class);
         ArrayList<SlotDescriptor> slotList = new ArrayList<>();

@@ -26,9 +26,12 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "core/value/jsonb_value.h"
 #include "exprs/json_functions.h"
 #include "util/jsonb_parser_simd.h"
+
 namespace doris {
 
 Status DataTypeJsonbSerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -298,6 +301,20 @@ Status DataTypeJsonbSerDe::from_string(StringRef& str, IColumn& column,
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
+Status DataTypeJsonbSerDe::from_string_as_nested(StringRef& str, IColumn& column,
+                                                 const FormatOptions& options,
+                                                 bool is_strict_mode) const {
+    // Quotes belong to the JSON value: stripping them turns "123" into a number
+    // and "null" into JSON null, losing the original type.
+    auto token = str;
+    // SQL apostrophes are an optional outer wrapper, e.g. '{"a":1}' or '"123"'.
+    if (token.size >= 2 && token.front() == '\'' && token.back() == '\'') {
+        token = token.substring(1, token.size - 2);
+    }
+    return is_strict_mode ? from_string_strict_mode(token, column, options)
+                          : from_string(token, column, options);
+}
+
 void DataTypeJsonbSerDe::write_one_cell_to_binary(const IColumn& src_column,
                                                   ColumnString::Chars& chars,
                                                   int64_t row_num) const {
@@ -341,14 +358,10 @@ void DataTypeJsonbSerDe::to_string(const IColumn& column, size_t row_num, Buffer
     const auto& col = assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(column);
     const auto& data_ref = col.get_data_at(row_num);
     if (data_ref.size > 0) {
-        if (_nesting_level > 1) {
-            bw.write('"');
-        }
+        // JSON text already quotes strings and escapes their contents. Wrapping a nested
+        // object again would produce invalid text such as ["{"a":1}"].
         std::string str = JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
         bw.write(str.c_str(), str.size());
-        if (_nesting_level > 1) {
-            bw.write('"');
-        }
     } else {
         bw.write("NULL", 4);
     }
@@ -366,6 +379,38 @@ bool DataTypeJsonbSerDe::write_column_to_presto_text(const IColumn& column, Buff
         bw.write("NULL", 4);
     }
     return true;
+}
+
+Status DataTypeJsonbSerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                             const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    std::string json;
+    RETURN_IF_ERROR(bson_canonical_json(value, &json));
+    Slice slice(json);
+    Status status = deserialize_one_cell_from_json(column, slice, FormatOptions());
+    return status.ok() ? status
+                       : Status::InvalidArgument("BSON Extended JSON exceeds JSONB limits");
+}
+
+Status DataTypeJsonbSerDe::deserialize_one_cell_from_simdjson(
+        IColumn& column, simdjson::ondemand::value& input, const FormatOptions& options,
+        SimdJsonReadContext& context, const std::string& column_name) const {
+    const auto type = input.type().value();
+    if (type != simdjson::ondemand::json_type::object &&
+        type != simdjson::ondemand::json_type::array) {
+        return DataTypeSerDe::deserialize_one_cell_from_simdjson(column, input, options, context,
+                                                                 column_name);
+    }
+    auto& writer = context.jsonb_writer;
+    RETURN_IF_ERROR(JsonbParser::parse_value(input, writer, context.cache()));
+    const auto size = writer.getOutput()->getSize();
+    if (size > JsonBinaryValue::MAX_LENGTH) {
+        return Status::InternalError(
+                "Jsonb value length {} exceeds maximum allowed length of {} bytes", size,
+                JsonBinaryValue::MAX_LENGTH);
+    }
+    column.insert_data(writer.getOutput()->getBuffer(), size);
+    return Status::OK();
 }
 
 } // namespace doris

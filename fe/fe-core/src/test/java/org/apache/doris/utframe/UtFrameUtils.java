@@ -36,6 +36,7 @@ import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultPBackendServiceImpl;
@@ -70,6 +71,8 @@ public class UtFrameUtils {
     // Help to create a mocked ConnectContext.
     public static ConnectContext createDefaultCtx(UserIdentity userIdentity, String remoteIp) throws IOException {
         ConnectContext ctx = new ConnectContext();
+        UUID queryId = UUID.randomUUID();
+        ctx.setQueryId(new TUniqueId(queryId.getMostSignificantBits(), queryId.getLeastSignificantBits()));
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.setRemoteIP(remoteIp);
         ctx.setEnv(Env.getCurrentEnv());
@@ -147,7 +150,6 @@ public class UtFrameUtils {
         }
 
         int feHttpPort = findValidPort();
-        int feRpcPort = findValidPort();
         int feQueryPort = findValidPort();
         int arrowFlightSqlPort = findValidPort();
         int feEditLogPort = findValidPort();
@@ -157,14 +159,13 @@ public class UtFrameUtils {
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(feHttpPort));
-        feConfMap.put("rpc_port", String.valueOf(feRpcPort));
         feConfMap.put("query_port", String.valueOf(feQueryPort));
         feConfMap.put("arrow_flight_sql_port", String.valueOf(arrowFlightSqlPort));
         feConfMap.put("edit_log_port", String.valueOf(feEditLogPort));
         feConfMap.put("tablet_create_timeout_second", "10");
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
-        return feRpcPort;
+        return frontend.getRpcPort();
     }
 
     public static void createDorisCluster(String runningDir) throws InterruptedException, NotInitException,

@@ -127,6 +127,13 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_task_pending_total, M
                                      "", compaction_task_state_total,
                                      Labels({{"type", "cumulative"}}));
 
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(changelog_ttl_cleanup_success_total, MetricUnit::OPERATIONS,
+                                     "", changelog_ttl_cleanup_total,
+                                     Labels({{"result", "success"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(changelog_ttl_cleanup_failed_total, MetricUnit::OPERATIONS, "",
+                                     changelog_ttl_cleanup_total, Labels({{"result", "failed"}}));
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(changelog_ttl_reclaimed_bytes_total, MetricUnit::BYTES);
+
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_read_total, MetricUnit::OPERATIONS,
                                      "(segment_v2) total number of segments read", segment_read,
                                      Labels({{"type", "segment_read_total"}}));
@@ -210,6 +217,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(all_segments_num, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_used_permits, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(compaction_waitting_permits, MetricUnit::NOUNIT);
+
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(changelog_ttl_last_success_timestamp_seconds,
+                                   MetricUnit::SECONDS);
 
 DEFINE_HISTOGRAM_METRIC_PROTOTYPE_2ARG(tablet_version_num_distribution, MetricUnit::NOUNIT);
 
@@ -368,6 +378,10 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_running_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_task_pending_total);
 
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, changelog_ttl_cleanup_success_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, changelog_ttl_cleanup_failed_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, changelog_ttl_reclaimed_bytes_total);
+
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, condition_cache_search_count);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, condition_cache_hit_count);
@@ -409,6 +423,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
 
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_used_permits);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, compaction_waitting_permits);
+
+    INT_GAUGE_METRIC_REGISTER(_server_metric_entity, changelog_ttl_last_success_timestamp_seconds);
 
     HISTOGRAM_METRIC_REGISTER(_server_metric_entity, tablet_version_num_distribution);
 

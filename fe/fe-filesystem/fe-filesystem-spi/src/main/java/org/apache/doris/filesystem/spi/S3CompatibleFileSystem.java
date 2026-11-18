@@ -552,6 +552,13 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         private List<FileEntry> buffer = new ArrayList<>();
         private int bufferIdx = 0;
         private boolean done = false;
+        private Runnable cancellationCheck = () -> { };
+
+        @Override
+        public FileIterator withCancellationCheck(Runnable check) {
+            cancellationCheck = check;
+            return this;
+        }
 
         ObjectStorageFileIterator(String prefix) {
             this.prefix = prefix;
@@ -559,6 +566,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
         @Override
         public boolean hasNext() throws IOException {
+            cancellationCheck.run();
             // A truncated page may consist entirely of directory markers and filter down to an
             // empty buffer; keep paging until a visible entry shows up or the listing is exhausted.
             while (bufferIdx >= buffer.size() && !done) {
@@ -568,6 +576,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         }
 
         private void fetchNextPage() throws IOException {
+            cancellationCheck.run();
             RemoteObjects page = objStorage.listObjects(prefix, continuationToken);
             buffer = new ArrayList<>();
             bufferIdx = 0;

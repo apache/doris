@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.hive;
 
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.ConnectorMetadataCache;
 import org.apache.doris.connector.cache.ScopePath;
@@ -149,12 +150,21 @@ public class HiveConnector implements Connector {
         this.context = context;
         this.metaCache = CatalogMetaCache.managed(context.getCatalogId(), "hive", this.properties);
         this.fileListingCache = new HiveFileListingCache(metaCache, props);
-        // Reads its own meta.cache.hive.partition_view.(enable|ttl-second|capacity) from the catalog properties
-        // via the framework's CacheSpec (default ON / 24h / 1000).
+        // The derived view must inherit the partition-name TTL when no view TTL is specified. Otherwise
+        // partition.cache.ttl-second=0 still leaves a 24h cached view, and batch scans miss new partitions.
         this.partitionViewCache = new ConnectorMetadataCache<>(metaCache, "hive-partition-view",
-                "hive", "partition_view", this.properties,
+                "hive", "partition_view", partitionViewProperties(this.properties),
                 key -> ScopePath.partitionCollection(key.getDb(), key.getTable()),
                 HivePartitionViewSizeEstimator::estimateEntry);
+    }
+
+    private static Map<String, String> partitionViewProperties(Map<String, String> properties) {
+        String partitionNamesTtl = CacheSpec.metaCacheTtlKey("hive", "partition_names");
+        String partitionViewTtl = CacheSpec.metaCacheTtlKey("hive", "partition_view");
+        Map<String, String> withLegacyTtl = CacheSpec.applyCompatibilityMap(properties,
+                Collections.singletonMap("partition.cache.ttl-second", partitionNamesTtl));
+        return CacheSpec.applyCompatibilityMap(withLegacyTtl,
+                Collections.singletonMap(partitionNamesTtl, partitionViewTtl));
     }
 
     @Override

@@ -219,17 +219,17 @@ enum TSchemaTableType {
     SCH_SQL_BLOCK_RULE_STATUS = 59;
     SCH_CLUSTER_SNAPSHOTS = 60;
     SCH_CLUSTER_SNAPSHOT_PROPERTIES = 61;
-    SCH_BLACKHOLE = 62;
-    SCH_COLUMN_DATA_SIZES = 63;
-    SCH_LOAD_JOBS = 64;
-    SCH_FILE_CACHE_INFO = 65;
-    SCH_DATABASE_PROPERTIES = 66;
-    SCH_AUTHENTICATION_INTEGRATIONS = 67;
-    SCH_TABLE_STREAMS = 68;
-    SCH_TABLE_STREAM_CONSUMPTION = 69;
-    SCH_BE_COMPACTION_TASKS = 70;
-    SCH_ROLE_MAPPINGS = 71;
-    SCH_BACKEND_MS_RPC_TABLE_THROTTLERS = 72;
+    SCH_FILE_CACHE_INFO = 62;
+    SCH_BLACKHOLE = 63;
+    SCH_COLUMN_DATA_SIZES = 64;
+    SCH_LOAD_JOBS = 65;
+    SCH_AUTHENTICATION_INTEGRATIONS = 66;
+    SCH_BE_COMPACTION_TASKS = 67;
+    SCH_ROLE_MAPPINGS = 68;
+    SCH_BACKEND_MS_RPC_TABLE_THROTTLERS = 69;
+    SCH_DATABASE_PROPERTIES = 70;
+    SCH_TABLE_STREAMS = 71;
+    SCH_TABLE_STREAM_CONSUMPTION = 72;
     SCH_EXTENSIONS = 73;
     SCH_TSO_STATUS = 74;
 }
@@ -380,6 +380,9 @@ struct TOlapTableSchemaParam {
     16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
     // ATTN(changelog-rename): formerly "row_binlog_index_schemas"
     17: optional list<TOlapTableIndexSchema> changelog_index_schemas
+    // Unused: row TTL tables reject partial updates. Keep these field IDs for compatibility.
+    18: optional i32 row_ttl_source_column_unique_id = -1
+    19: optional TColumn row_ttl_source_column
 }
 
 struct TTabletLocation {

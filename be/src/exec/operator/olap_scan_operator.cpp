@@ -53,6 +53,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
+#include "storage/utils.h"
 #include "util/to_string.h"
 
 namespace doris {
@@ -114,11 +115,9 @@ PushDownType OlapScanLocalState::_should_push_down_binary_predicate(
     DCHECK(children.size() == 2);
     DCHECK_EQ(VExpr::expr_without_cast(children[0])->node_type(), TExprNodeType::SLOT_REF);
     if (children[1]->is_constant()) {
-        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+        std::shared_ptr<ConstantExprResult> const_col_wrapper;
         THROW_IF_ERROR(children[1]->get_const_col(expr_ctx, &const_col_wrapper));
-        const auto* const_column =
-                assert_cast<const ColumnConst*>(const_col_wrapper->column_ptr.get());
-        constant_val = const_column->operator[](0);
+        constant_val = const_col_wrapper->column()[0];
         return PushDownType::ACCEPTABLE;
     } else {
         // only handle constant value
@@ -585,15 +584,15 @@ Status OlapScanLocalState::_should_push_down_function_filter(VectorizedFnCall* f
             return Status::OK();
         } else {
             DCHECK(is_string_type(children[1 - i]->data_type()->get_primitive_type()));
-            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+            std::shared_ptr<ConstantExprResult> const_col_wrapper;
             RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
-            if (const auto* const_column =
-                        check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr.get())) {
-                *constant_str = const_column->get_data_at(0);
-            } else {
+            // LIKE/NOT LIKE with a NULL pattern must retain expression evaluation: the storage
+            // predicate only receives a StringRef and would interpret NULL as an empty pattern.
+            if (const_col_wrapper->column().is_null_at(0)) {
                 pdt = PushDownType::UNACCEPTABLE;
                 return Status::OK();
             }
+            *constant_str = const_col_wrapper->column().get_data_at(0);
         }
     }
     *fn_ctx = func_cxt;
@@ -622,6 +621,10 @@ bool OlapScanLocalState::_check_expr_storage_filter(const VExprSPtr& expr,
                                                     ExprStorageFilterCheckMode mode) {
     if (expr->is_slot_ref()) {
         const auto* slot_ref = assert_cast<const VSlotRef*>(expr.get());
+        if (slot_ref->expr_name() == TTL_COL) {
+            // TTL observes the row only after UNIQUE winner/sequence/delete-sign merging.
+            return false;
+        }
         return mode == ExprStorageFilterCheckMode::HAS_SEGMENT_EVALUABLE_EXPR ||
                !_is_key_column(slot_ref->expr_name());
     }
@@ -1414,6 +1417,12 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                 // In either case, predicates with negation semantics (effective NE / NOT_IN_LIST)
                 // are never subsumed by scan key ranges and must always be preserved.
                 auto can_erase_predicate = [is_fixed_value_range](const ColumnPredicate& pred) {
+                    // Static scan keys do not capture runtime bounds. For example, a full-range
+                    // key cannot replace a TopN predicate that later tightens to k1 <= 100.
+                    // Keep the shared predicate installed so readers can observe later updates.
+                    if (pred.is_runtime_filter()) {
+                        return false;
+                    }
                     PredicateType pt = pred.type();
                     bool opposite = pred.opposite();
 

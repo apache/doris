@@ -51,6 +51,9 @@ public:
               scale_multiplier(decimal_scale_multiplier<typename FieldType::NativeType>(scale)),
               _parquet_predicate_values(0, static_cast<UInt32>(scale)) {}
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override { return type_to_string(T); }
 
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,

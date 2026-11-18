@@ -53,6 +53,16 @@ public final class MetaCache<K, V> {
     }
 
     /**
+     * Share completed values, but coalesce in-flight loads only within this identity-scoped owner.
+     * The cache must have automatic refresh disabled: a request-owned loader cannot outlive its request.
+     */
+    public V getForLoadScope(K key, Object loadScope, Function<K, V> loader) {
+        K nonNullKey = Objects.requireNonNull(key, "key can not be null");
+        return delegate.getForLoadScope(nonNullKey, definition.scope(nonNullKey),
+                Objects.requireNonNull(loadScope, "loadScope can not be null"), loader);
+    }
+
+    /**
      * Loads on the caller when elected, or observes an existing load without blocking this caller.
      * Cancelling or completing a future obtained from the stage does not affect the shared load.
      * Callbacks run on the completing thread and must not perform blocking work.
@@ -206,7 +216,10 @@ public final class MetaCache<K, V> {
             this.delegate = delegate;
         }
 
-        /** Returns false when an invalidation raced the remote load and the value was intentionally not cached. */
+        /**
+         * Returns false when invalidation or owner retirement prevents retaining this already-started load.
+         * A closed handle or a handle from another cache remains a caller error.
+         */
         public boolean publish(K key, V value) {
             K nonNullKey = Objects.requireNonNull(key, "key can not be null");
             return owner.delegate.publish(delegate, nonNullKey, owner.definition.scope(nonNullKey), value);

@@ -90,6 +90,11 @@ public class IvmRewriteContext {
     // where its query would qualify for the append-only detail model. Only creation reads it -- afterwards
     // the model is what the MV's own key type says -- and, like useFullKeys, null outside analyzeQuery.
     private Boolean forceMow;
+    // Set by MTMVPlanUtil before normalization: the explicit ivm_minmax_top_k value, null when the
+    // property is absent. Normalize resolves the effective capacity (auto 0 for append-only plans,
+    // otherwise the default) and records it in resolvedMinMaxTopK.
+    private Long minMaxTopK;
+    private Long resolvedMinMaxTopK;
 
     // Whether a read of this statement answered with a base table as of the stream offset, which a snapshot
     // read does for the partitions that hold data the offset has not consumed. Set by the rewrite that binds
@@ -163,11 +168,19 @@ public class IvmRewriteContext {
                 Collections.emptyMap());
     }
 
-    /** EXPLAIN REFRESH COMPLETE: only a plan is produced. */
+    /**
+     * EXPLAIN REFRESH COMPLETE: only a plan is produced, and it is the plan a whole-MV COMPLETE
+     * refresh runs. That refresh reads its base tables through IVM table streams in RESET mode for
+     * the first batch of a whole-MV refresh and for every table it does not partition by, and the
+     * full-refresh rewrite reads every stream in this mode under EXPLAIN: one plan stands for the
+     * whole refresh, and RESET is the read it starts with. A context that left the mode empty would
+     * plan the normalized query over ordinary base scans -- a different plan from the one the
+     * refresh executes.
+     */
     public static IvmRewriteContext fullExplain(MTMV mtmv) {
         return new IvmRewriteContext(Mode.FULL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
-                null, false, ExecutionKind.EXPLAIN, Optional.empty(), Collections.emptyMap(), Optional.empty(),
-                Collections.emptyMap());
+                null, false, ExecutionKind.EXPLAIN, Optional.empty(), Collections.emptyMap(),
+                Optional.of(StreamReadMode.RESET), Collections.emptyMap());
     }
 
     public static IvmRewriteContext full(MTMV mtmv) {
@@ -259,5 +272,29 @@ public class IvmRewriteContext {
 
     public void setForceMow(boolean forceMow) {
         this.forceMow = forceMow;
+    }
+
+    /**
+     * MIN/MAX top-K capacity configured on the MV, or null when {@code ivm_minmax_top_k} is absent.
+     *
+     * <p>An explicit 0 is meaningful (extreme-only mode), so the absent case is distinct: normalize
+     * resolves it from the MV's plan shape (append-only changelog and no outer join) and records the
+     * answer in {@link #resolvedMinMaxTopK} so CREATE can persist it.
+     */
+    public Long getMinMaxTopK() {
+        return minMaxTopK;
+    }
+
+    public void setMinMaxTopK(Long minMaxTopK) {
+        this.minMaxTopK = minMaxTopK;
+    }
+
+    /** The capacity normalize actually used for this MV, set once the plan shape is known. */
+    public Long getResolvedMinMaxTopK() {
+        return resolvedMinMaxTopK;
+    }
+
+    public void setResolvedMinMaxTopK(Long resolvedMinMaxTopK) {
+        this.resolvedMinMaxTopK = resolvedMinMaxTopK;
     }
 }

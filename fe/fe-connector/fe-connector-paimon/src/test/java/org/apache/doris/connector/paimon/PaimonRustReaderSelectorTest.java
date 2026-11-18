@@ -63,7 +63,7 @@ public class PaimonRustReaderSelectorTest {
                 false, false, false).canRead(split));
         Assertions.assertFalse(selector(session(false, true), true, table, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split));
-        Assertions.assertFalse(selector(session(true, false), true, table, columns(), Collections.emptyMap(),
+        Assertions.assertTrue(selector(session(true, false), true, table, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split));
         Assertions.assertFalse(selector(session(true, true, true), true, table, columns(), Collections.emptyMap(),
                 false, false, false).canRead(split));

@@ -146,6 +146,8 @@ void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
     input->prx_zstd_level = std::clamp(
             is_direct_load ? config::snii_prx_zstd_level_direct_load : config::snii_prx_zstd_level,
             3, 19);
+    // Negative: the index chooses the percentage within its own size budget.
+    input->prx_zstd_budget = config::snii_prx_zstd_min_saving_percent < 0;
     input->prx_window_limits.zstd_min_saving_percent =
             static_cast<uint32_t>(std::clamp(config::snii_prx_zstd_min_saving_percent, 0, 100));
     // G16-d: dict block size experiment knob; <= 0 keeps the format default.
@@ -202,6 +204,11 @@ Status IndexFileWriter::_insert_directory_into_map(int64_t index_id,
 }
 
 Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletIndex* index_meta) {
+    // A directory opened now would never reach the sealed file, and the index would be lost.
+    if (_closed) {
+        return ResultError(Status::InternalError("open index {} on closed index file writer {}",
+                                                 index_meta->index_id(), debug_string()));
+    }
     // No index under SNII writes through a CLucene filesystem directory: text
     // postings go through the SPIMI writer, and an ANN index uses self-cleaning
     // per-file staging (see open_ann_directory).

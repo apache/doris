@@ -45,4 +45,25 @@ TEST(AgentUtilsTest, Test) {
     }
 }
 
+// The shell must return each input unchanged. No profiler or table data is required.
+TEST(AgentUtilsTest, ShellQuotePreservesOneArgument) {
+    for (const std::string& value :
+         {"", "a b", "a'b'c", "\"$HOME\"`printf injected`$(printf injected);|&<>*?\\\n#"}) {
+        std::string output;
+        AgentUtils util;
+        ASSERT_TRUE(util.exec_cmd("printf '<%s>' " + AgentUtils::shell_quote(value), &output));
+        EXPECT_EQ("<" + value + ">", output);
+    }
+}
+
+TEST(AgentUtilsTest, RejectNulBeforeRunningCommand) {
+    std::string command = "printf unexpected";
+    command += '\0';
+    command += "printf ignored";
+    std::string output;
+    AgentUtils util;
+    EXPECT_FALSE(util.exec_cmd(command, &output));
+    EXPECT_EQ("The shell command contains a NUL byte.\n", output);
+}
+
 } // namespace doris

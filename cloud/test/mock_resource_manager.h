@@ -61,7 +61,8 @@ public:
             std::function<bool(const ClusterPB&)> filter,
             std::function<std::string(ClusterPB&, std::vector<ClusterPB>& clusters_in_instance)>
                     action,
-            bool replace_if_existing_empty_target_cluster) override {
+            bool replace_if_existing_empty_target_cluster,
+            bool allow_cluster_name_fallback) override {
         return "";
     }
 

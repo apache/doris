@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.TabletSlidingWindowAccessStats;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -110,6 +111,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -166,6 +168,15 @@ public class ReportHandler extends Daemon {
         }
 
         long beId = backend.getId();
+        // A backend too old to send these fields contributes no activity at all, for as long as
+        // it stays un-upgraded. Not fixed: a capability handshake costs far more than the
+        // precision is worth here. Upgrade BEs before FE if it matters.
+        if (request.isSetTopQueryTablets() || request.isSetTopLoadTablets()) {
+            TabletSlidingWindowAccessStats.getInstance().updateFromReport(
+                    beId,
+                    request.isSetTopQueryTablets() ? request.getTopQueryTablets() : Collections.emptyList(),
+                    request.isSetTopLoadTablets() ? request.getTopLoadTablets() : Collections.emptyList());
+        }
         Map<TTaskType, Set<Long>> tasks = null;
         Map<String, TDisk> disks = null;
         Map<Long, TTablet> tablets = null;
@@ -1100,10 +1111,13 @@ public class ReportHandler extends Daemon {
                                             objectPool,
                                             olapTable.rowStorePageSize(),
                                             olapTable.variantEnableFlattenNested(),
+                                            olapTable.getVariantEscapeDotsInKeys(),
                                             olapTable.storagePageSize(), olapTable.getTDEAlgorithm(),
                                             olapTable.storageDictPageSize(),
                                             olapTable.getColumnSeqMapping(),
-                                            olapTable.getVerticalCompactionNumColumnsPerGroup());
+                                            olapTable.getVerticalCompactionNumColumnsPerGroup(),
+                                            olapTable.getRowTtlConfig(),
+                                            olapTable.getRowTtlTimeZoneOffsetSeconds());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());
@@ -1324,9 +1338,11 @@ public class ReportHandler extends Daemon {
             for (long txnId : map.keySet()) {
                 PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
                         Lists.newArrayList(map.get(txnId)), createPublishVersionTaskTime);
-                batchTask.addTask(task);
-                // add to AgentTaskQueue for handling finish report.
+                // A duplicate signature can carry new partitions; only terminally aborted tasks are skipped.
                 AgentTaskQueue.addTask(task);
+                if (task.getErrorCode() != TStatusCode.ABORTED) {
+                    batchTask.addTask(task);
+                }
             }
         }
         AgentTaskExecutor.submit(batchTask);

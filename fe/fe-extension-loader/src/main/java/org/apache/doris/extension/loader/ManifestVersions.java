@@ -91,7 +91,11 @@ final class ManifestVersions {
         return lastDot < 0 ? null : className.substring(0, lastDot).replace('.', '/') + "/";
     }
 
-    /** Jar file that defined the class per its protection domain, or null. */
+    /**
+     * Defining jar location from the protection domain, or null for class directories or unavailable
+     * provenance. Keep the location even if the jar was removed after class loading, so callers report
+     * the read failure instead of falling back to an unrelated candidate with the same class entry.
+     */
     static Path jarOf(Class<?> clazz) {
         try {
             CodeSource codeSource = clazz.getProtectionDomain().getCodeSource();
@@ -99,7 +103,7 @@ final class ManifestVersions {
                 return null;
             }
             Path path = Paths.get(codeSource.getLocation().toURI());
-            return Files.isRegularFile(path) ? path : null;
+            return Files.isDirectory(path) ? null : path;
         } catch (URISyntaxException | RuntimeException e) {
             return null;
         }

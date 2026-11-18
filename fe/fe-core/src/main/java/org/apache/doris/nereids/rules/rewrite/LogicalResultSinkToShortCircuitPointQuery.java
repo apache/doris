@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -91,11 +92,16 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
         if (olapTable instanceof RemoteOlapTable) {
             return false;
         }
-        if (olapTable.hasVariantColumns()) {
+        if (olapTable.hasVariantColumns() || olapTable.hasRowTtl()) {
             return false;
         }
         return olapTable.getEnableLightSchemaChange() && olapTable.getEnableUniqueKeyMergeOnWrite()
                         && olapTable.storeRowColumn();
+    }
+
+    // Queries reading hidden columns do not use the short circuit.
+    private boolean readsHiddenColumn(Set<Slot> slots) {
+        return slots.stream().anyMatch(slot -> !((SlotReference) slot).isVisible());
     }
 
     // set short circuit flag and return the original plan
@@ -122,7 +128,8 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                 RuleType.SHOR_CIRCUIT_POINT_QUERY.build(
                         logicalResultSink(logicalProject(logicalFilter(logicalOlapScan()
                             .when(this::scanMatchShortCircuitCondition)
-                    ).when(this::filterMatchShortCircuitCondition)))
+                    ).when(this::filterMatchShortCircuitCondition))
+                        .when(project -> !readsHiddenColumn(project.getInputSlots())))
                         .thenApply(ctx -> {
                             return shortCircuit(ctx.root, ctx.root.child().child().child().getTable(),
 
@@ -132,6 +139,7 @@ public class LogicalResultSinkToShortCircuitPointQuery implements RewriteRuleFac
                         logicalResultSink(logicalFilter(logicalOlapScan()
                                 .when(this::scanMatchShortCircuitCondition)
                         ).when(this::filterMatchShortCircuitCondition))
+                                .when(sink -> !readsHiddenColumn(sink.getInputSlots()))
                                 .thenApply(ctx -> {
                                     return shortCircuit(ctx.root, ctx.root.child().child().getTable(),
                                             ctx.root.child().getConjuncts(), ctx.statementContext);

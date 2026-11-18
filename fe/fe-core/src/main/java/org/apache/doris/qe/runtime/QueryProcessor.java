@@ -128,10 +128,10 @@ public class QueryProcessor extends AbstractJobProcessor {
 
             // if reached limit rows, cancel this query immediately
             // to avoid BE from reading more data.
-            // ATTN: if change here, also need to change the same logic in Coordinator.getNext();
             boolean reachedLimit = LimitUtils.cancelIfReachLimit(
                     resultBatch, limitRows, numReceivedRows, coordinatorContext::cancelSchedule);
             if (reachedLimit) {
+                coordinatorContext.stopSplitGeneration();
                 resultBatch.setEos(true);
             } else if (resultBatch.isEos()) {
                 tryFinishSchedule();

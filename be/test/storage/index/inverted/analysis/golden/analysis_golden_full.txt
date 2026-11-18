@@ -1,0 +1,176 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# Frozen digests. Lines are added, never changed or removed: a changed line is a
+# changed output. See the test that checks this file.
+# <name> <part> <count> <digest>
+# added at 1aa505cb0be
+builtin/english/lower_case=unset/stopwords=unset all_code_points 2228224 e77d2574b95c7b53
+builtin/english/lower_case=true/stopwords=none all_code_points 2228224 e77d2574b95c7b53
+builtin/english/lower_case=false/stopwords=unset all_code_points 2228224 b9f0dee82d6a83c4
+builtin/standard/lower_case=unset/stopwords=none all_code_points 4634336 ee333e6e83dbbdfc
+builtin/standard/lower_case=true/stopwords=unset all_code_points 3554131 d8fa84f0662dd712
+builtin/standard/lower_case=false/stopwords=none all_code_points 4634336 787cbbf676ef76aa
+builtin/unicode/lower_case=unset/stopwords=unset all_code_points 3554131 d8fa84f0662dd712
+builtin/unicode/lower_case=true/stopwords=none all_code_points 4634336 ee333e6e83dbbdfc
+builtin/unicode/lower_case=false/stopwords=unset all_code_points 3554132 93853b5816d25c09
+builtin/basic/lower_case=unset/stopwords=none all_code_points 4642230 557a18090c4e23fd
+builtin/basic/lower_case=true/stopwords=unset all_code_points 4642230 557a18090c4e23fd
+builtin/basic/lower_case=false/stopwords=none all_code_points 4642230 772440b6170b9608
+builtin/icu/lower_case=unset/stopwords=unset all_code_points 4722955 c6870415d5876829
+builtin/icu/lower_case=true/stopwords=none all_code_points 4722955 c6870415d5876829
+builtin/icu/lower_case=false/stopwords=unset all_code_points 4722955 7e20c39798c75b13
+builtin/chinese/coarse_grained/lower_case=unset/stopwords=none all_code_points 5558300 80b2e78730046011
+builtin/chinese/coarse_grained/lower_case=true/stopwords=unset all_code_points 5558300 6c6e0504c4301c86
+builtin/chinese/coarse_grained/lower_case=false/stopwords=none all_code_points 5558300 80b2e78730046011
+builtin/chinese/fine_grained/lower_case=unset/stopwords=unset all_code_points 5569705 2ff39135310c5e5b
+builtin/chinese/fine_grained/lower_case=true/stopwords=none all_code_points 5569705 9c59a812f613946b
+builtin/chinese/fine_grained/lower_case=false/stopwords=unset all_code_points 5569705 2ff39135310c5e5b
+builtin/ik/ik_smart/lower_case=unset/stopwords=none all_code_points 5519068 be5c2553e7516a79
+builtin/ik/ik_smart/lower_case=true/stopwords=unset all_code_points 5519068 be5c2553e7516a79
+builtin/ik/ik_smart/lower_case=false/stopwords=none all_code_points 5519068 f9b17cd38e461dc3
+builtin/ik/ik_max_word/lower_case=unset/stopwords=unset all_code_points 5519183 3d573d3b3de98987
+builtin/ik/ik_max_word/lower_case=true/stopwords=none all_code_points 5519183 3d573d3b3de98987
+builtin/ik/ik_max_word/lower_case=false/stopwords=unset all_code_points 5519183 a2354e3a78265393
+builtin/kuromoji/search/lower_case=unset/stopwords=none all_code_points 4516846 74a73022de33e6d0
+builtin/kuromoji/search/lower_case=true/stopwords=unset all_code_points 4516846 74a73022de33e6d0
+builtin/kuromoji/search/lower_case=false/stopwords=none all_code_points 4516846 802353d20f589ce7
+builtin/kuromoji/normal/lower_case=unset/stopwords=unset all_code_points 4516846 74a73022de33e6d0
+builtin/kuromoji/normal/lower_case=true/stopwords=none all_code_points 4516846 74a73022de33e6d0
+builtin/kuromoji/normal/lower_case=false/stopwords=unset all_code_points 4516846 802353d20f589ce7
+builtin/kuromoji/extended/lower_case=unset/stopwords=none all_code_points 4520414 c608e626b764eb8c
+builtin/kuromoji/extended/lower_case=true/stopwords=unset all_code_points 4520414 c608e626b764eb8c
+builtin/kuromoji/extended/lower_case=false/stopwords=none all_code_points 4520414 118e9c01dc4dfe95
+builtin/english/index_char_replace all_code_points 2228224 e77d2574b95c7b53
+builtin/standard/index_char_replace all_code_points 3554131 60bcbd0fc143feb0
+builtin/chinese/index_char_replace all_code_points 5569705 2ff39135310c5e5b
+builtin/ik/index_char_replace all_code_points 5519068 af508a77efc3ab25
+custom/standard all_code_points 4634336 787cbbf676ef76aa
+custom/standard/max_token_length=1 all_code_points 69643 db818fec9e6877aa
+custom/standard/max_token_length=2 all_code_points 69853 469f863829b115e7
+custom/standard/max_token_length=3 all_code_points 418825 6edd6d02c9ec2f7c
+custom/standard/max_token_length=4 all_code_points 4673440 bd63858348d5bec0
+custom/standard/max_token_length=5 all_code_points 4644451 f5b92ffe1c71e7c1
+custom/standard/max_token_length=16 all_code_points 4634336 787cbbf676ef76aa
+custom/standard/max_token_length=255 all_code_points 4634336 787cbbf676ef76aa
+custom/standard/max_token_length=256 all_code_points 4634336 787cbbf676ef76aa
+custom/standard/max_token_length=1000 all_code_points 4634336 787cbbf676ef76aa
+custom/standard/max_token_length=16383 all_code_points 4634336 787cbbf676ef76aa
+custom/basic all_code_points 4642230 772440b6170b9608
+custom/basic/extra_chars=-_. all_code_points 4642236 a84f43093e401ec6
+custom/basic/extra_chars=symbols all_code_points 4642290 977abdce49869be0
+custom/keyword all_code_points 69632 a3154d8b102beaaf
+custom/keyword/buffer_size=16 all_code_points 69632 a3154d8b102beaaf
+custom/char_group/whitespace all_code_points 2228282 f537af014de90d04
+custom/char_group/whitespace_punctuation all_code_points 2229878 dd29d67cfad306f8
+custom/char_group/letter_digit all_code_points 4188570 384e1b22436906cc
+custom/char_group/symbol_cjk all_code_points 4737284 a1bfe8060352ea06
+custom/char_group/escaped/max_token_length=5 all_code_points 3404987 a89d86dbd55a4b6f
+custom/ngram all_code_points 17747968 1084810600574d19
+custom/ngram/2_3/letter_digit all_code_points 795442 16dbde9c13682eb6
+custom/ngram/1_1/custom_whitespace all_code_points 2228280 383c01246cf450d5
+custom/ngram/2_2/punctuation_symbol all_code_points 0 2945bd66d67a806b
+custom/ngram/1_4/max_ngram_diff=3 all_code_points 35217408 9f28e51ec40fa99a
+custom/ngram/mode=dense all_code_points 139517 bd73f6a71235a120
+custom/ngram/mode=sparse all_code_points 181 843b922d81bcffe3
+custom/ngram/mode=auto/density=0.5 all_code_points 241 7125b5c1e95ed008
+custom/ngram/mode=dense/lower_case=false all_code_points 374 a65397f0f681de51
+custom/edge_ngram all_code_points 139264 c8550632b511a4dc
+custom/edge_ngram/2_5 all_code_points 278528 1000b72bdf5078e7
+custom/icu all_code_points 4722955 7e20c39798c75b13
+custom/ik_smart all_code_points 5519068 be5c2553e7516a79
+custom/ik_max_word all_code_points 5519183 3d573d3b3de98987
+custom/pinyin/row=0 all_code_points 4566954 175c89296a60025a
+custom/pinyin/row=1 all_code_points 449915 c8feefe0f3fa219b
+custom/pinyin/row=2 all_code_points 2408012 88482a607813551c
+custom/pinyin/row=3 all_code_points 518837 762beae58c4f7354
+custom/pinyin/row=4 all_code_points 158060 6607e3f12ab60439
+custom/pinyin/row=5 all_code_points 4607360 fe1e93550a43d1c6
+custom/pinyin/row=6 all_code_points 4636590 1381828c2e454327
+custom/pinyin/row=7 all_code_points 665970 0c275901e99b6801
+custom/empty all_code_points 69632 a3154d8b102beaaf
+custom/standard+lowercase all_code_points 4634336 bfad127e404f78f2
+custom/icu+lowercase all_code_points 4722955 c6870415d5876829
+custom/standard+asciifolding all_code_points 4634336 cfcd1cc608edff22
+custom/standard+asciifolding/preserve_original all_code_points 4636330 a139020ed6a33ce6
+custom/keyword+asciifolding/preserve_original+lowercase all_code_points 69601 090277921e84b3ab
+custom/whitespace+word_delimiter/row=0 all_code_points 4183173 9c67acddafdf3ca2
+custom/whitespace+word_delimiter/row=1 all_code_points 2238932 f47c013ec955b9e9
+custom/whitespace+word_delimiter/row=2 all_code_points 4176073 c12c0a05042f21ab
+custom/whitespace+word_delimiter/row=3 all_code_points 4176073 c12c0a05042f21ab
+custom/whitespace+word_delimiter/row=4 all_code_points 6130932 e0a49b170c96176b
+custom/whitespace+word_delimiter/row=5 all_code_points 6120282 a68f298d12427ac8
+custom/whitespace+word_delimiter/type_table all_code_points 4183181 087d332e46e0e87e
+custom/whitespace+word_delimiter/protected_words all_code_points 6134514 8d52d3f73ddd474f
+custom/keyword+icu_normalizer all_code_points 69632 b24ef360a7098ff4
+custom/keyword+icu_normalizer/nfc all_code_points 69632 a20c5dfb52efed57
+custom/standard+icu_normalizer/nfkc/unicode_set_filter all_code_points 4634336 8802c1436f1824b9
+custom/keyword+pinyin/row=0 all_code_points 4566954 1e0ba30f8e73ebf1
+custom/keyword+pinyin/row=1 all_code_points 449915 1b083206dcff74c3
+custom/keyword+pinyin/row=2 all_code_points 2407628 f7f326625600feee
+custom/keyword+pinyin/row=3 all_code_points 518837 c39bd0d5eebe5e4c
+custom/keyword+pinyin/row=4 all_code_points 158188 79e647a902e08454
+custom/keyword+pinyin/row=5 all_code_points 4606976 9d6ce9116dd405ae
+custom/keyword+pinyin/row=6 all_code_points 4636592 cab42354ce43bbcb
+custom/keyword+pinyin/row=7 all_code_points 665970 05884eedb68b7f00
+custom/ik_max_word+pinyin all_code_points 7788390 15b4ad73fe3d1763
+custom/standard+empty all_code_points 4634336 787cbbf676ef76aa
+custom/char_replace+standard all_code_points 4634338 7a87ca4775224158
+custom/char_replace_default+keyword all_code_points 69632 12783ae5401f5339
+custom/icu_normalizer+keyword all_code_points 69632 b24ef360a7098ff4
+custom/icu_normalizer/nfkc_decompose+standard all_code_points 4635101 75b2204c6e7e8bec
+custom/empty+standard all_code_points 4634336 787cbbf676ef76aa
+custom/standard+lowercase/index_char_replace all_code_points 4634337 0c9adb200201cb33
+custom/char_replace+standard/index_char_replace all_code_points 4634337 d9867595bb72b08a
+custom/char_replace+standard+word_delimiter+asciifolding+lowercase all_code_points 4633147 88ddcd1826ee5dca
+normalizer/lowercase all_code_points 69504 a337d07346d4460c
+normalizer/char_replace+asciifolding+lowercase all_code_points 69632 bef50ba9ee109799
+normalizer/icu_normalizer all_code_points 69632 b24ef360a7098ff4
+normalizer/asciifolding+lowercase/index_char_replace all_code_points 69632 ca2f2703281d3903
+normalize/builtin/english/lower_case=unset all_code_points 69632 41c42bd946f009be
+normalize/builtin/english/lower_case=true all_code_points 69632 41c42bd946f009be
+normalize/builtin/english/lower_case=false all_code_points 69632 a3154d8b102beaaf
+normalize/builtin/standard/lower_case=unset all_code_points 69632 41c42bd946f009be
+normalize/builtin/standard/lower_case=true all_code_points 69632 41c42bd946f009be
+normalize/builtin/standard/lower_case=false all_code_points 69632 a3154d8b102beaaf
+normalize/builtin/unicode/lower_case=unset all_code_points 69632 41c42bd946f009be
+normalize/builtin/unicode/lower_case=true all_code_points 69632 41c42bd946f009be
+normalize/builtin/unicode/lower_case=false all_code_points 69632 a3154d8b102beaaf
+normalize/builtin/basic/lower_case=unset all_code_points 69632 adf7a3d63ff90d99
+normalize/builtin/basic/lower_case=true all_code_points 69632 adf7a3d63ff90d99
+normalize/builtin/basic/lower_case=false all_code_points 69632 a3154d8b102beaaf
+normalize/builtin/icu/lower_case=unset all_code_points 69632 adf7a3d63ff90d99
+normalize/builtin/icu/lower_case=true all_code_points 69632 adf7a3d63ff90d99
+normalize/builtin/icu/lower_case=false all_code_points 69632 a3154d8b102beaaf
+normalize/builtin/chinese/lower_case=unset all_code_points 69632 41c42bd946f009be
+normalize/builtin/chinese/lower_case=true all_code_points 69632 41c42bd946f009be
+normalize/builtin/chinese/lower_case=false all_code_points 69632 a3154d8b102beaaf
+normalize/builtin/ik/lower_case=unset all_code_points 69632 4498553223a58eb6
+normalize/builtin/ik/lower_case=true all_code_points 69632 4498553223a58eb6
+normalize/builtin/ik/lower_case=false all_code_points 69632 8cbd2b241ad8b139
+normalize/builtin/kuromoji/lower_case=unset all_code_points 69632 0006b8f280fb8d2e
+normalize/builtin/kuromoji/lower_case=true all_code_points 69632 0006b8f280fb8d2e
+normalize/builtin/kuromoji/lower_case=false all_code_points 69632 8cbd2b241ad8b139
+normalize/builtin/standard/index_char_replace all_code_points 69632 02fd5e677f5bf106
+normalize/builtin/ik/index_char_replace all_code_points 69632 70d25eaab4939cd6
+normalize/normalizer/lowercase all_code_points 69504 a337d07346d4460c
+normalize/normalizer/char_replace+asciifolding+lowercase all_code_points 69632 bef50ba9ee109799
+normalize/normalizer/icu_normalizer all_code_points 69632 b24ef360a7098ff4
+normalize/normalizer/asciifolding+lowercase/index_char_replace all_code_points 69632 ca2f2703281d3903
+normalize/custom/standard+word_delimiter+asciifolding+lowercase all_code_points 69632 bef50ba9ee109799
+normalize/custom/standard all_code_points 69632 a3154d8b102beaaf
+normalize/custom/standard/index_char_replace all_code_points 69632 0a2ec0611868f254

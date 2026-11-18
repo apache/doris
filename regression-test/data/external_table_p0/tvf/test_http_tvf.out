@@ -153,17 +153,17 @@ m	map<text,text>	Yes	false	\N	NONE
 4	\N	\N	123.123456789876	12	\N	123
 5	1.1234	12.123456	\N	\N	1234.123456789	\N
 
--- !sql15 --
-204
-
--- !sql16 --
-204
-
 -- !replaced_before --
 1	aaaa
 
 -- !replaced_after --
 2	bbbb
+
+-- !sql15 --
+204
+
+-- !sql16 --
+204
 
 -- !sql17 --
 c1	text	Yes	false	\N	NONE

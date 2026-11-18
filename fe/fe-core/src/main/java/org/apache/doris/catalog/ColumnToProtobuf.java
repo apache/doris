@@ -75,12 +75,14 @@ public class ColumnToProtobuf {
         }
         builder.setIsNullable(column.isAllowNull());
         String realDefaultValue = column.getRealDefaultValue();
-        String defaultValue = column.getType().isTimeStampNs() && realDefaultValue != null
+        String defaultValue = (column.getType().isTimeStampNs() || column.getType().isTimeStampTz())
+                && realDefaultValue != null
                 ? realDefaultValue : column.getDefaultValue();
         if (defaultValue != null) {
             builder.setDefaultValue(ByteString.copyFrom(defaultValue.getBytes()));
         }
-        if (column.getType().isTimeStampNs() && realDefaultValue != null && column.getDefaultValue() != null
+        if ((column.getType().isTimeStampNs() || column.getType().isTimeStampTz())
+                && realDefaultValue != null && column.getDefaultValue() != null
                 && !realDefaultValue.equals(column.getDefaultValue())) {
             builder.setDefaultValueExpr(ByteString.copyFrom(column.getDefaultValue().getBytes()));
         }

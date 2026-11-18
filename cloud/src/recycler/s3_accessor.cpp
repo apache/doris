@@ -56,6 +56,7 @@
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "cpp/util.h"
+#include "meta-service/meta_service_helper.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/sync_executor.h"
 
@@ -314,8 +315,23 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
     return s3_conf;
 }
 
+namespace {
+
+// Endpoint, bucket and prefix as configured, plus the credential identity: gateways such as Ceph
+// RGW resolve one bucket name per tenant. The ak is hidden as in logs, the sk is never part of it.
+// '\n' never occurs in an endpoint or a bucket name, so different confs never collide.
+std::string s3_location(const S3Conf& conf) {
+    return fmt::format("{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}", conf.endpoint, conf.bucket, conf.prefix,
+                       static_cast<int>(conf.provider), hide_access_key(conf.ak), conf.role_arn,
+                       conf.external_id, static_cast<int>(conf.cred_provider_type));
+}
+
+} // namespace
+
 S3Accessor::S3Accessor(S3Conf conf)
-        : StorageVaultAccessor(AccessorType::S3), conf_(std::move(conf)) {}
+        : StorageVaultAccessor(AccessorType::S3, s3_location(conf),
+                               storage_root(conf.bucket, conf.prefix)),
+          conf_(std::move(conf)) {}
 
 S3Accessor::~S3Accessor() = default;
 
@@ -329,7 +345,17 @@ std::string S3Accessor::to_uri(const std::string& relative_path) const {
 
 int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3Accessor::init.s3_init_failed", (int)-1);
-    *accessor = std::make_shared<S3Accessor>(conf);
+    switch (conf.provider) {
+    case S3Conf::GCS:
+        if (!config::enable_gcs_batch_delete_object) {
+            *accessor = std::make_shared<GcsAccessor>(conf);
+            break;
+        }
+    default:
+        *accessor = std::make_shared<S3Accessor>(conf);
+        break;
+    }
+
     return (*accessor)->init();
 }
 
@@ -611,6 +637,82 @@ int S3Accessor::get_lifecycle(int64_t* expiration_days) {
 
 int S3Accessor::check_versioning() {
     return obj_client_->check_versioning(conf_.bucket).status.code;
+}
+
+int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
+    LOG_INFO("begin delete prefix").tag("uri", to_uri(path_prefix));
+
+    int ret = 0;
+    int cnt = 0;
+    int skip = 0;
+    int64_t del_nonexisted = 0;
+    int del = 0;
+    auto iter = obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)});
+    for (;;) {
+        auto result = iter->next();
+        if (!result.object.has_value()) {
+            if (result.resp.status.code != ObjStorageStatus::NOT_FOUND &&
+                result.resp.status.code != ObjStorageStatus::OK) {
+                ret = result.resp.status.code;
+            }
+            break;
+        }
+        auto& obj = *result.object;
+        if (!(++cnt % 100)) {
+            LOG_INFO("loop delete prefix")
+                    .tag("uri", to_uri(path_prefix))
+                    .tag("total_obj_cnt", cnt)
+                    .tag("deleted", del)
+                    .tag("del_nonexisted", del_nonexisted)
+                    .tag("skipped", skip);
+        }
+        if (expiration_time > 0 && obj.mtime_s > expiration_time) {
+            skip++;
+            continue;
+        }
+        del++;
+
+        // FIXME(plat1ko): Delete objects by batch with genuine GCS client
+        int del_ret =
+                obj_client_->delete_object({.bucket = conf_.bucket, .key = obj.key}).status.code;
+        del_nonexisted += (del_ret == ObjStorageStatus::NOT_FOUND);
+        static_assert(ObjStorageStatus::OK == 0);
+        if (del_ret != ObjStorageStatus::OK && del_ret != ObjStorageStatus::NOT_FOUND) {
+            ret = del_ret;
+        }
+    }
+
+    LOG_INFO("finish delete prefix")
+            .tag("uri", to_uri(path_prefix))
+            .tag("total_obj_cnt", cnt)
+            .tag("deleted", del)
+            .tag("del_nonexisted", del_nonexisted)
+            .tag("skipped", skip);
+
+    if (!iter->is_valid()) {
+        return -1;
+    }
+
+    return ret;
+}
+
+int GcsAccessor::delete_files(const std::vector<std::string>& paths) {
+    std::vector<int> delete_rets(paths.size());
+#ifdef USE_LIBCPP
+    std::transform(paths.begin(), paths.end(), delete_rets.begin(),
+#else
+    std::transform(std::execution::par, paths.begin(), paths.end(), delete_rets.begin(),
+#endif
+                   [this](const std::string& path) { return delete_file(path); });
+
+    int ret = 0;
+    for (int delete_ret : delete_rets) {
+        if (delete_ret != 0) {
+            ret = delete_ret;
+            break;
+        }
+    }
+    return ret;
 }
 
 } // namespace doris::cloud

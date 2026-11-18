@@ -29,6 +29,7 @@ import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheGovernance;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.datasource.doris.FeServiceClient;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.log.CatalogLog;
@@ -114,6 +115,33 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testTableDiscoveryPreservesConnectorFailureAndCanRecover() {
+        AtomicBoolean unavailable = new AtomicBoolean(true);
+        DorisConnectorException failure = new DorisConnectorException("Source authentication failed");
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog() {
+            @Override
+            protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
+                if (unavailable.get()) {
+                    throw failure;
+                }
+                return List.of("records");
+            }
+        };
+        catalog.setInitializedForTest(true);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 410L, "db_by_id", "db_by_id");
+        db.setInitializedForTest(true);
+
+        Assertions.assertSame(failure, Assertions.assertThrows(DorisConnectorException.class,
+                () -> db.getTableNullable("records")));
+        Assertions.assertNull(db.getCachedTableForTest("records"));
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+
+        unavailable.set(false);
+        Assertions.assertNotNull(db.getTableNullable("records"));
+        Assertions.assertNull(db.getTableNullable("missing_table"));
+    }
+
+    @Test
     public void testScopedWeightAlterStillInvalidatesRemoteBackendsAndRowCounts() throws Exception {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(RemoteDorisProperties.FE_THRIFT_HOSTS, "127.0.0.1:9020");
@@ -192,10 +220,10 @@ public class ExternalCatalogTest extends TestWithFeService {
             }
 
             @Override
-            protected void closeResources() {
+            protected Runnable detachResources() {
                 Assertions.assertEquals("4KB", getProperties().get("meta.cache.max-weight"),
-                        "new limits must not be published before old connector resources close");
-                super.closeResources();
+                        "new limits must not be published before old connector resources detach");
+                return super.detachResources();
             }
         };
         mgr.getIdToCatalog().put(catalog.getId(), catalog);

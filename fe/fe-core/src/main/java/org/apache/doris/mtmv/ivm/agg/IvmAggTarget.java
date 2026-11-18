@@ -55,10 +55,13 @@ public class IvmAggTarget {
     // the expression(s) from the base scan that feed this aggregate
     // (empty for COUNT(*); may be Slot or compound Expression like v1+v2)
     private final List<Expression> exprArgs;
+    // MIN/MAX top-K capacity of this MV: the state size and the delta truncation size. 0 is the
+    // extreme-only mode. Other aggregate kinds ignore it.
+    private final long minMaxTopK;
 
     public IvmAggTarget(int ordinal, IvmAggFunctionKind functionKind, Slot visibleSlot,
             Map<IvmAggStateKey, Slot> hiddenStateSlots, Slot valueStateSlot, boolean visibleColumnNameGenerated,
-            List<Expression> exprArgs) {
+            List<Expression> exprArgs, long minMaxTopK) {
         this.ordinal = ordinal;
         this.functionKind = Objects.requireNonNull(functionKind);
         this.visibleSlot = Objects.requireNonNull(visibleSlot);
@@ -66,6 +69,7 @@ public class IvmAggTarget {
         this.valueStateSlot = valueStateSlot;
         this.visibleColumnNameGenerated = visibleColumnNameGenerated;
         this.exprArgs = ImmutableList.copyOf(exprArgs);
+        this.minMaxTopK = minMaxTopK;
     }
 
     public int getOrdinal() {
@@ -114,13 +118,18 @@ public class IvmAggTarget {
         return valueStateSlot != null ? valueStateSlot.getName() : visibleSlot.getName();
     }
 
+    /** MIN/MAX top-K capacity; only MIN/MAX targets read it. */
+    public long getMinMaxTopK() {
+        return minMaxTopK;
+    }
+
     /** Rebinds this target to the state slots materialized for it by normalize. */
     public IvmAggTarget withStateSlots(Slot newValueStateSlot, Map<IvmAggStateKey, Slot> newHiddenStateSlots) {
         if (Objects.equals(valueStateSlot, newValueStateSlot) && hiddenStateSlots.equals(newHiddenStateSlots)) {
             return this;
         }
         return new IvmAggTarget(ordinal, functionKind, visibleSlot, newHiddenStateSlots, newValueStateSlot,
-                visibleColumnNameGenerated, exprArgs);
+                visibleColumnNameGenerated, exprArgs, minMaxTopK);
     }
 
     /**

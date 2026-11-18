@@ -55,6 +55,7 @@ public:
     static format::ColumnDefinition row_position_column_definition();
 
     Status init(RuntimeState* state) override;
+    void set_batch_size(size_t batch_size) override;
     Status get_schema(std::vector<format::ColumnDefinition>* const file_schema) const override;
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;
@@ -74,6 +75,10 @@ public:
 private:
     struct OrcProfile {
         RuntimeProfile::Counter* row_readers_created = nullptr;
+        RuntimeProfile::Counter* dictionary_stripes_filtered = nullptr;
+        RuntimeProfile::Counter* dictionary_values_evaluated = nullptr;
+        RuntimeProfile::Counter* file_footer_read_calls = nullptr;
+        RuntimeProfile::Counter* file_footer_cache_hits = nullptr;
         RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* reader_call = nullptr;                 // ReaderCall
         RuntimeProfile::Counter* reader_inclusive_latency_us = nullptr; // ReaderInclusiveLatencyUs
@@ -98,6 +103,7 @@ private:
     };
 
     class OrcFilterImpl;
+    class StringDictFilterImpl;
 
     void _init_profile() override;
     void _collect_profile() const;
@@ -135,9 +141,16 @@ private:
     Status _apply_current_stripe_range();
     Status _advance_to_next_stripe_range(bool* advanced);
     Status _create_row_reader();
+    size_t _read_batch_size() const;
 
+    Status _init_lazy_predicate_block();
     Status _filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                              void* arg);
+
+    Status _materialize_dictionary_selection(const ::orc::StructVectorBatch& batch,
+                                             size_t physical_rows,
+                                             const std::vector<size_t>& candidates, Block* block,
+                                             size_t* rows);
 
     Status _decode_column(const ::orc::Type& file_type, const ::orc::Type& selected_type,
                           const ::orc::ColumnVectorBatch& batch, MutableColumnPtr& column,
@@ -180,11 +193,13 @@ private:
                                    size_t selected_rows) const;
 
     std::unique_ptr<OrcFilterImpl> _orc_filter;
+    std::unique_ptr<StringDictFilterImpl> _string_dict_filter;
     std::unique_ptr<OrcReaderScanState> _state;
     OrcProfile _orc_profile; // RuntimeProfile counters
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     bool _enable_mapping_timestamp_tz = false;
     bool _enable_mapping_varbinary = false;
+    size_t _batch_size = 0;
 };
 
 } // namespace doris::format::orc

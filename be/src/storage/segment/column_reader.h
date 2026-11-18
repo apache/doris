@@ -47,6 +47,7 @@
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/segment/column_iterator_options.h"
 #include "storage/segment/common.h"
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_pointer.h"
@@ -69,6 +70,7 @@ class StorageReadOptions;
 
 namespace io {
 class FileReader;
+class ReadAheadRangeBuffer;
 } // namespace io
 struct Slice;
 struct StringRef;
@@ -87,6 +89,7 @@ class RowRanges;
 class ZoneMapIndexReader;
 class IndexIterator;
 class ColumnMetaAccessor;
+struct ColumnReadAheadHint;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -97,25 +100,6 @@ struct ColumnReaderOptions {
     int be_exec_version = -1;
 
     TabletSchemaSPtr tablet_schema = nullptr;
-};
-
-struct ColumnIteratorOptions {
-    bool use_page_cache = false;
-    bool is_predicate_column = false;
-    // for page cache allocation
-    // page types are divided into DATA_PAGE & INDEX_PAGE
-    // INDEX_PAGE including index_page, dict_page and short_key_page
-    PageTypePB type = PageTypePB::UNKNOWN_PAGE_TYPE;
-    io::FileReader* file_reader = nullptr; // Ref
-    // reader statistics
-    OlapReaderStatistics* stats = nullptr; // Ref
-    io::IOContext io_ctx;
-    bool only_read_offsets = false;
-
-    void sanity_check() const {
-        CHECK_NOTNULL(file_reader);
-        CHECK_NOTNULL(stats);
-    }
 };
 
 class ColumnIterator;
@@ -162,7 +146,7 @@ public:
 
     // create a new column iterator. Client should delete returned iterator
     virtual Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                                const StorageReadOptions*);
+                                const StorageReadOptions*, bool enable_read_ahead = false);
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_array_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
@@ -182,7 +166,8 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec) const;
+                     BlockCompressionCodec* codec,
+                     io::ReadAheadRangeBuffer* read_ahead = nullptr) const;
 
     bool is_nullable() const { return _meta_is_nullable; }
 
@@ -414,6 +399,8 @@ public:
 
     virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
 
+    virtual Status prepare_read_ahead(const ColumnReadAheadHint& hint) { return Status::OK(); }
+
     virtual void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) {}
@@ -602,6 +589,16 @@ public:
             PrefetcherInitMethod init_method) override;
 
 protected:
+    struct PageReadContext {
+        io::ReadAheadRangeBuffer* buffer {nullptr};
+        bool retry_on_error {false};
+    };
+
+    // Called synchronously at every physical data-page load, including dictionary inspection
+    // during init() and page transitions inside a batch. No worker invokes these hooks.
+    virtual PageReadContext _before_page_read(int32_t page_index) { return {}; }
+    virtual void _after_page_read(int32_t page_index, const PagePointer& page) {}
+
     // Exposed to derived iterators (e.g. StringFileColumnIterator) so they can
     // query column metadata such as the storage field type.
     const std::shared_ptr<ColumnReader>& get_reader() const { return _reader; }
@@ -654,7 +651,7 @@ public:
 // reading for string/binary column types. When the OFFSET path is detected in set_access_paths, it
 // sets only_read_offsets on the ColumnIteratorOptions so that the BinaryPlainPageDecoder skips
 // chars memcpy and only fills offsets.
-class StringFileColumnIterator final : public FileColumnIterator {
+class StringFileColumnIterator : public FileColumnIterator {
 public:
     explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~StringFileColumnIterator() override = default;
@@ -1108,7 +1105,8 @@ public:
                            bool* matched) const override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* /*col*/,
-                        const StorageReadOptions* /*opt*/) override {
+                        const StorageReadOptions* /*opt*/,
+                        bool /*enable_read_ahead*/ = false) override {
         *iterator = std::make_unique<ConstantColumnIterator>(_value);
         return Status::OK();
     }

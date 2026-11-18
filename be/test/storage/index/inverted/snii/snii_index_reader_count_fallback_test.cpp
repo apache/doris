@@ -917,7 +917,7 @@ TEST_F(SniiIndexReaderCountFallback, PublicBooleanQueriesScoreOnlyFinalBitmapWit
     EXPECT_EQ(all_stats->idf_terms, (std::vector<std::wstring> {L"alpha", L"beta"}));
     // Each term's query reads the average length and its idf.
     EXPECT_EQ(all_stats->fields,
-              (std::vector<std::wstring> {L"content", L"content", L"content", L"content"}));
+              (std::vector<std::wstring>(4, match_statistics_field(L"content", 31))));
     EXPECT_EQ(match_all.stats.inverted_index_query_cache_lookup, 0);
 
     auto any_stats = std::make_shared<FixedCollectionStatistics>();
@@ -934,7 +934,7 @@ TEST_F(SniiIndexReaderCountFallback, PublicBooleanQueriesScoreOnlyFinalBitmapWit
               (std::vector<uint32_t> {0, 1, 2}));
     EXPECT_EQ(any_stats->idf_terms, (std::vector<std::wstring> {L"alpha", L"beta"}));
     EXPECT_EQ(any_stats->fields,
-              (std::vector<std::wstring> {L"content", L"content", L"content", L"content"}));
+              (std::vector<std::wstring>(4, match_statistics_field(L"content", 31))));
     EXPECT_EQ(match_any.stats.inverted_index_query_cache_lookup, 0);
 }
 

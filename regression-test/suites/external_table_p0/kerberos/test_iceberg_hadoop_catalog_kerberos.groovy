@@ -34,15 +34,15 @@ suite("test_iceberg_hadoop_catalog_kerberos", "p0,external") {
             'type'='iceberg',
             'iceberg.catalog.type' = 'hadoop',
             'warehouse' = 'hdfs://${externalEnvIp}:8520/tmp/iceberg/catalog',
-            "hadoop.security.authentication" = "kerberos",
+            "hdfs.authentication.type" = "kerberos",
             "hadoop.security.auth_to_local" = "RULE:[2:\$1@\$0](.*@LABS.TERADATA.COM)s/@.*//
                                                RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
                                                RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
                                                DEFAULT",
-            "hadoop.kerberos.principal" = "hive/presto-master.docker.cluster@LABS.TERADATA.COM",
+            "hdfs.authentication.kerberos.principal" = "hive/presto-master.docker.cluster@LABS.TERADATA.COM",
             "hadoop.kerberos.min.seconds.before.relogin" = "5",
             "hadoop.kerberos.keytab.login.autorenewal.enabled" = "false",
-              "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
+              "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab",
             "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
             "dfs.namenode.kerberos.principal" = "hdfs/hadoop-master@LABS.TERADATA.COM",
             "dfs.client.use.datanode.hostname" = "true",

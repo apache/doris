@@ -154,11 +154,9 @@ paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& c
         // Preserve a safe prefix of the conjunct order: a later pushed
         // predicate (e.g. an arrived IN runtime filter) could otherwise prune
         // rows on which an earlier error-preserving conjunct —
-        // assert_true(...), a failing cast, ... — must still raise. The v1
-        // partition-pruning path (FileScanner::_init_runtime_filter_partition_
-        // prune_ctxs) stops at is_safe_to_execute_on_selected_rows() for the
-        // same reason, so a convertible predicate after an unsafe conjunct
-        // must not be pushed. Safe conjuncts that cannot be converted keep
+        // assert_true(...), a failing cast, ... — must still raise. A convertible
+        // predicate after an unsafe conjunct must not be pushed. Safe conjuncts
+        // that cannot be converted keep
         // the old skip: they cannot raise, so pruning rows before they are
         // evaluated as the residual never loses an error.
         if (!_is_safe_to_push(root)) {

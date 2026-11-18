@@ -56,6 +56,29 @@ public class HiveConnectorPartitionViewCacheTest {
     }
 
     @Test
+    public void disabledPartitionNameCacheAlsoDisablesDerivedView() {
+        for (String ttlKey : new String[] {
+                "partition.cache.ttl-second", "meta.cache.hive.partition_names.ttl-second"}) {
+            Map<String, String> catalogProperties = props();
+            catalogProperties.put(ttlKey, "0");
+            HiveConnector connector = new HiveConnector(catalogProperties, new FakeConnectorContext());
+            ConnectorMetadataCache<List<ConnectorPartitionInfo>> cache = connector.partitionViewCacheForTest();
+            Assertions.assertFalse(cache.isEnabled(), ttlKey);
+            int[] loads = {0};
+            ConnectorTableKey key = new ConnectorTableKey("db", "table", -1L, -1L);
+            cache.get(key, () -> {
+                loads[0]++;
+                return Collections.emptyList();
+            });
+            cache.get(key, () -> {
+                loads[0]++;
+                return Collections.emptyList();
+            });
+            Assertions.assertEquals(2, loads[0], ttlKey + " must not keep a stale partition view");
+        }
+    }
+
+    @Test
     public void refreshHooksInvalidatePartitionViewCache() {
         // The REFRESH hooks must clear cache A too (else external DDL/writes stay invisible beyond the TTL):
         // REFRESH TABLE drops that table's entry, REFRESH DATABASE that db's, REFRESH CATALOG everything.

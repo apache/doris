@@ -18,6 +18,7 @@
 #pragma once
 
 #include <algorithm>
+#include <atomic>
 
 #include "common/config.h"
 #include "core/custom_allocator.h"
@@ -40,14 +41,14 @@ public:
      * Get the next scan range. has_next should be to true to fetch the next scan range.
      * @param has_next whether exists the next scan range
      * @param range the obtained next scan range
+     * @param scanner_stop the caller's local stop signal, which can be set without query cancellation
      */
-    virtual Status get_next(bool* has_next, TFileRangeDesc* range) = 0;
+    virtual Status get_next(bool* has_next, TFileRangeDesc* range,
+                            const std::atomic_bool* scanner_stop) = 0;
 
     virtual int num_scan_ranges() = 0;
 
     virtual TFileScanRangeParams* get_params() = 0;
-
-    virtual bool all_ranges_have_table_level_row_count() const { return false; }
 
 protected:
     template <typename T, typename V1 = std::vector<T>, typename V2 = std::vector<T>>
@@ -116,7 +117,8 @@ public:
         _merge_ranges<TScanRangeParams>(_scan_ranges, scan_ranges);
     }
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override;
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* scanner_stop) override;
 
     int num_scan_ranges() override { return static_cast<int>(_scan_ranges.size()); }
 
@@ -128,19 +130,6 @@ public:
         }
         throw Exception(
                 Status::FatalError("Unreachable, params is got by file_scan_range_params_map"));
-    }
-
-    bool all_ranges_have_table_level_row_count() const override {
-        // Every assigned range must carry a proven count; one fallback range would still require
-        // decoding the projected carrier through the selected scanner.
-        return !_scan_ranges.empty() && std::ranges::all_of(_scan_ranges, [](const auto& params) {
-            const auto& ranges = params.scan_range.ext_scan_range.file_scan_range.ranges;
-            return !ranges.empty() && std::ranges::all_of(ranges, [](const auto& range) {
-                return range.__isset.table_format_params &&
-                       range.table_format_params.__isset.table_level_row_count &&
-                       range.table_format_params.table_level_row_count >= 0;
-            });
-        });
     }
 };
 
@@ -174,7 +163,8 @@ public:
         _max_scanners = max_scanners;
     }
 
-    Status get_next(bool* has_next, TFileRangeDesc* range) override;
+    Status get_next(bool* has_next, TFileRangeDesc* range,
+                    const std::atomic_bool* scanner_stop) override;
 
     /*
      * Remote split source is fetched in batch mode, and the splits are generated while scanning,

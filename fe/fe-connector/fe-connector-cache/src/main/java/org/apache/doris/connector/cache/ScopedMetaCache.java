@@ -183,7 +183,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
     public V getWithPublicationAction(K key, ScopePath path, Function<K, V> loader,
             BiConsumer<V, Consumer<Runnable>> publicationCoordinator) {
         return getWithPublicationAction(key, path, loader, publicationCoordinator,
-                Function.identity(), this::awaitLoad);
+                Function.identity(), this::awaitLoad, null);
     }
 
     /**
@@ -193,12 +193,21 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
      */
     public CompletionStage<V> getOrLoadFuture(K key, ScopePath path, Function<K, V> loader) {
         return getWithPublicationAction(key, path, loader, (loaded, commit) -> commit.accept(NO_OP),
-                CompletableFuture::completedFuture, CompletableFuture::minimalCompletionStage);
+                CompletableFuture::completedFuture, CompletableFuture::minimalCompletionStage, null);
+    }
+
+    public V getForLoadScope(K key, ScopePath path, Object loadScope, Function<K, V> loader) {
+        Objects.requireNonNull(loadScope, "loadScope can not be null");
+        if (refreshAfterWriteNanos != 0) {
+            throw new IllegalStateException("Request-owned loads require a cache without automatic refresh");
+        }
+        return getWithPublicationAction(key, path, loader, (loaded, commit) -> commit.accept(NO_OP),
+                Function.identity(), this::awaitLoad, loadScope);
     }
 
     private <R> R getWithPublicationAction(K key, ScopePath path, Function<K, V> loader,
             BiConsumer<V, Consumer<Runnable>> publicationCoordinator, Function<V, R> loadedResult,
-            Function<CompletableFuture<V>, R> sharedResult) {
+            Function<CompletableFuture<V>, R> sharedResult, Object loadScope) {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(path, "path can not be null");
         Function<K, V> loadFunction = Objects.requireNonNull(loader, "loader can not be null");
@@ -235,7 +244,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         }
         recordAccess(false);
         try (PublicationLease<K, V> lease = acquirePublicationLease(key, path, true)) {
-            LoadAddress<K> loadAddress = new LoadAddress<>(key, path, lease);
+            LoadAddress<K> loadAddress = new LoadAddress<>(key, path, lease, loadScope);
             CompletableFuture<V> ownLoad = new CompletableFuture<>();
             CompletableFuture<V> existingLoad = inFlightLoads.putIfAbsent(loadAddress, ownLoad);
             if (existingLoad != null) {
@@ -577,16 +586,21 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(actualScope, "actualScope can not be null");
         Objects.requireNonNull(value, "value can not be null");
-        checkOpen();
         handle.checkOwner(this);
         if (!handle.parentScope.contains(actualScope)) {
             throw new IllegalArgumentException(
                     "Actual scope " + actualScope + " is outside bulk-load parent " + handle.parentScope);
         }
-        if (!effectiveEnabled) {
+        if (!effectiveEnabled || closed.get()) {
             return false;
         }
-        try (PublicationLease<K, V> lease = acquirePublicationLease(key, actualScope, false)) {
+        // Retirement can race scope acquisition as well as the final commit. Both decline retention;
+        // the caller already owns its successfully loaded value and need not fail with the cache.
+        try (PublicationLease<K, V> lease = acquirePublicationLease(
+                key, () -> registry.tryAcquire(actualScope), false)) {
+            if (lease == null) {
+                return false;
+            }
             VersionedValue<K, V> staged = prepareVersionedValue(lease, key, value);
             if (staged == null) {
                 return false;
@@ -725,8 +739,16 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     private PublicationLease<K, V> acquirePublicationLease(
             K key, ScopePath path, boolean fenceAgainstDirectPublication) {
+        return acquirePublicationLease(key, () -> registry.acquire(path), fenceAgainstDirectPublication);
+    }
+
+    private PublicationLease<K, V> acquirePublicationLease(
+            K key, Supplier<ScopeLease> acquireScope, boolean fenceAgainstDirectPublication) {
         while (true) {
-            ScopeLease scopeLease = registry.acquire(path);
+            ScopeLease scopeLease = acquireScope.get();
+            if (scopeLease == null) {
+                return null;
+            }
             KeyNode<K, V> keyNode = keyNodes.computeIfAbsent(key, ignored -> new KeyNode<>());
             keyNode.activeLoads.incrementAndGet();
             KeyState keyState = keyNode.current.get();
@@ -1691,6 +1713,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
 
     private static final class LoadAddress<K> {
         private final K key;
+        private final Object loadScope;
         private final ScopePath path;
         private final ScopeSnapshot scopeSnapshot;
         private final KeyNode<?, ?> keyNode;
@@ -1698,14 +1721,16 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
         private final Object loadPublicationState;
         private final int hashCode;
 
-        private LoadAddress(K key, ScopePath path, PublicationLease<K, ?> lease) {
+        private LoadAddress(K key, ScopePath path, PublicationLease<K, ?> lease, Object loadScope) {
+            this.loadScope = loadScope;
             this.key = key;
             this.path = path;
             this.scopeSnapshot = lease.scopeLease.snapshot();
             this.keyNode = lease.keyNode;
             this.keyState = lease.keyState;
             this.loadPublicationState = lease.loadPublicationState;
-            this.hashCode = 31 * key.hashCode() + scopeSnapshot.pathHashCode();
+            this.hashCode = 31 * (31 * key.hashCode() + scopeSnapshot.pathHashCode())
+                    + System.identityHashCode(loadScope);
         }
 
         @Override
@@ -1717,7 +1742,7 @@ public final class ScopedMetaCache<K, V> implements AutoCloseable {
                 return false;
             }
             LoadAddress<?> other = (LoadAddress<?>) obj;
-            return key.equals(other.key)
+            return loadScope == other.loadScope && key.equals(other.key)
                     && path.equals(other.path)
                     && scopeSnapshot.sameGeneration(other.scopeSnapshot)
                     && keyNode == other.keyNode

@@ -17,6 +17,7 @@
 import groovy.json.JsonSlurper
 import groovy.json.JsonOutput
 import org.apache.doris.regression.suite.ClusterOptions
+import java.util.concurrent.TimeUnit
 
 suite("cloud_decommission", 'p0, docker') {
     if (!isCloudMode()) {
@@ -51,7 +52,7 @@ suite("cloud_decommission", 'p0, docker') {
         }
     }
 
-    def check = { Closure beforeDecommissionActionSupplier, Closure afterDecommissionActionSupplier, int beNum ->
+    def checkDecommission = { Closure beforeDecommissionActionSupplier, Closure afterDecommissionActionSupplier, int beNum ->
         def begin = System.currentTimeMillis()
         setFeConfig("cloud_balance_tablet_percent_per_run", 0.5)
 
@@ -160,7 +161,7 @@ suite("cloud_decommission", 'p0, docker') {
 
     def checkDifferentAction = { Closure beforeDecommissionActionSupplier, Closure afterDecommissionActionSupplier, int atLeastCost, int waitTime, int beNum ->
         def begin = System.currentTimeMillis()
-        def cost = check.call(beforeDecommissionActionSupplier, afterDecommissionActionSupplier, beNum)
+        def cost = checkDecommission.call(beforeDecommissionActionSupplier, afterDecommissionActionSupplier, beNum)
         log.info("in check, inner cost {}", cost)
         cost = System.currentTimeMillis() - begin
         log.info("in check, outter cost {}", cost)
@@ -251,6 +252,114 @@ suite("cloud_decommission", 'p0, docker') {
         assertEquals(2, ret.size())
     }
 
+    // Keep the target RPC in flight while a node-state update is published.
+    // Both builds use the same gates: the old one publishes a missing node,
+    // while the fixed one publishes the same node with its new status.
+    for (String operation : ["decommission_node", "notify_decommissioned"]) {
+        def atomicOptions = new ClusterOptions()
+        atomicOptions.setFeNum(1)
+        atomicOptions.setBeNum(1)
+        atomicOptions.cloudMode = true
+        atomicOptions.feConfigs += ['cloud_tablet_rebalancer_interval_second=3600']
+        docker(atomicOptions) {
+            sql "USE @compute_cluster"
+            sql "DROP TABLE IF EXISTS decommission_atomic_table"
+            sql """CREATE TABLE decommission_atomic_table (id INT)
+                   DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num"="1")"""
+            // Wait for the automatic decommission checker to finish its first round.
+            // Its next round is an hour away, so only this test changes node status.
+            def feLog = new File(cluster.getFeByIndex(1).getLogFilePath())
+            awaitUntil(60) { feLog.text.contains("rebalancer sche interval 3600 s") }
+
+            def be = (sql_return_maparray("SHOW BACKENDS"))[0]
+            def tag = new JsonSlurper().parseText(be.Tag as String)
+            def ms = cluster.getAllMetaservices().get(0)
+            def msLog = new File(ms.getLogFilePath())
+            def nodePoint = "ResourceManager::node_update:after_refresh"
+            def commitPoint = "commit_rowset::before_get_instance_id:${tag.cloud_unique_id}"
+            def inject = { String action, String point = "" ->
+                httpTest {
+                    op "get"
+                    endpoint "${ms.host}:${ms.httpPort}"
+                    uri "/MetaService/http/v1/injection_point?token=${token}&op=${action}&name=${point}&behavior=wait"
+                    check { code, response ->
+                        assertEquals(200, code)
+                        assertEquals("OK", parseJson(response).code)
+                    }
+                }
+            }
+            def waitForPoint = { String point, long offset ->
+                awaitUntil(60) {
+                    def log = new RandomAccessFile(msLog, "r")
+                    try {
+                        log.seek(offset)
+                        byte[] bytes = new byte[(int) (log.length() - offset)]
+                        log.readFully(bytes)
+                        new String(bytes, "UTF-8").contains("injection point waiting, point=${point}")
+                    } finally {
+                        log.close()
+                    }
+                }
+                logger.info("Reached MS injection point {}", point)
+            }
+            def alterStatus = { String action ->
+                httpTest {
+                    endpoint "${ms.host}:${ms.httpPort}"
+                    uri "/MetaService/http/${action}?token=${token}"
+                    body JsonOutput.toJson([
+                        instance_id: context.config.instanceId,
+                        cluster: [
+                            type: "COMPUTE",
+                            cluster_id: tag.compute_group_id,
+                            cluster_name: tag.compute_group_name,
+                            nodes: [[cloud_unique_id: tag.cloud_unique_id,
+                                     ip: be.Host, heartbeat_port: be.HeartbeatPort as int]]
+                        ]
+                    ])
+                    check { code, response ->
+                        assertEquals(200, code)
+                        assertEquals("OK", parseJson(response).code)
+                    }
+                }
+            }
+            def load = null
+            def alter = null
+            inject("enable")
+            try {
+                long loadOffset = msLog.length()
+                inject("set", commitPoint)
+                load = thread { sql "INSERT INTO decommission_atomic_table VALUES (1)" }
+                waitForPoint(commitPoint, loadOffset)
+                if (operation == "notify_decommissioned") {
+                    alterStatus("decommission_node")
+                }
+
+                long updateOffset = msLog.length()
+                inject("set", nodePoint)
+                alter = thread { alterStatus(operation) }
+                waitForPoint(nodePoint, updateOffset)
+                // The node-state request stays blocked until the load finishes.
+                inject("clear", commitPoint)
+                load.get(60, TimeUnit.SECONDS)
+                if (operation == "decommission_node") {
+                    qt_decommission_atomic "SELECT count(*), sum(id) FROM decommission_atomic_table"
+                } else {
+                    qt_decommissioned_atomic "SELECT count(*), sum(id) FROM decommission_atomic_table"
+                }
+            } finally {
+                inject("clear", commitPoint)
+                inject("clear", nodePoint)
+                inject("disable")
+                if (load != null && !load.isDone()) {
+                    load.get(60, TimeUnit.SECONDS)
+                }
+                if (alter != null) {
+                    alter.get(60, TimeUnit.SECONDS)
+                }
+            }
+        }
+    }
+
     def clusterOptions = [
         new ClusterOptions(),
         new ClusterOptions(),
@@ -279,7 +388,7 @@ suite("cloud_decommission", 'p0, docker') {
         def noWalCheckCost = 0
         docker(clusterOptions[i]) {
             createTestTable.call()
-            noWalCheckCost = check(null, null, beNum)
+            noWalCheckCost = checkDecommission(null, null, beNum)
             checkFENormalAfterRestart.call()
         }
         log.info("no wal check cost {}", noWalCheckCost)

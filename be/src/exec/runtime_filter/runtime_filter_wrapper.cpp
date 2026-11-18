@@ -561,8 +561,7 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         int64_t max_val = minmax_filter.max_val().longval();
         return _minmax_func->assign(&min_val, &max_val);
     }
-    case TYPE_DATETIME:
-    case TYPE_DATE: {
+    case TYPE_DATETIME: {
         const auto& min_val_ref = minmax_filter.min_val().stringval();
         const auto& max_val_ref = minmax_filter.max_val().stringval();
         VecDateTimeValue min_val;
@@ -571,6 +570,19 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
                 {min_val_ref.c_str(), min_val_ref.length()}, min_val, nullptr, params);
         CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                {max_val_ref.c_str(), max_val_ref.length()}, max_val, nullptr, params);
+        return _minmax_func->assign(&min_val, &max_val);
+    }
+    case TYPE_DATE: {
+        const auto& min_val_ref = minmax_filter.min_val().stringval();
+        const auto& max_val_ref = minmax_filter.max_val().stringval();
+        VecDateTimeValue min_val;
+        VecDateTimeValue max_val;
+        CastParameters params;
+        // Preserve the DATE tag so the consumer creates DATE literals for DATE scan predicates.
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                {min_val_ref.c_str(), min_val_ref.length()}, min_val, nullptr, params);
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
                 {max_val_ref.c_str(), max_val_ref.length()}, max_val, nullptr, params);
         return _minmax_func->assign(&min_val, &max_val);
     }

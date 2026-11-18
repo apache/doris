@@ -36,7 +36,6 @@
 #include "core/types.h"
 #include "format/column_type_convert.h"
 #include "format/format_common.h"
-#include "format/parquet/decoder.h"
 #include "format/parquet/parquet_common.h"
 #include "format/parquet/schema_desc.h"
 #include "util/timezone_utils.h"

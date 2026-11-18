@@ -57,6 +57,10 @@ Status MemoryScratchSinkLocalState::close(RuntimeState* state, Status exec_statu
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_queue != nullptr) {
+        // The nullptr sentinel alone reads as a complete result. Record a failed execution (a scan
+        // error, a rejected Arrow batch, a cancellation) first, so the external scanner reports it
+        // instead of ending with the batches queued so far. update_status() ignores OK.
+        _queue->update_status(exec_status);
         _queue->blocking_put(nullptr);
     }
     RETURN_IF_ERROR(Base::close(state, exec_status));

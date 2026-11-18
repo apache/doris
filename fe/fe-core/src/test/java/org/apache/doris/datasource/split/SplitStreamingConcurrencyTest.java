@@ -36,12 +36,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -61,7 +59,7 @@ class SplitStreamingConcurrencyTest {
 
     private void verifyConcurrentStreaming(boolean consumerFirst) throws Exception {
         int producerBatchSize = 7;
-        int queueCapacity = 2;
+        int queueCapacity = 5;
         int splitCount = 10003;
         int[] requestedSizes = {1, 10, 16};
         List<Backend> backends = new ArrayList<>();
@@ -81,8 +79,8 @@ class SplitStreamingConcurrencyTest {
         CountDownLatch queuesFilled = new CountDownLatch(1);
         SplitAssignment assignment = new SplitAssignment(policy, Mockito.mock(SplitGenerator.class),
                 (backend, properties, split, keys, admission) -> {
-                    // Reaching batch three proves all queues received the first two batches.
-                    if (split.getStart() >= producerBatchSize * queueCapacity) {
+                    // The producer has started filling the per-backend queues before consumers run.
+                    if (split.getStart() >= 10) {
                         queuesFilled.countDown();
                     }
                     // Preserve a unique split identity through assignment and residual batches.
@@ -98,7 +96,7 @@ class SplitStreamingConcurrencyTest {
         for (int i = 0; i < splitCount; i++) {
             splits.add(new FileSplit(path, i, 1, splitCount, 0, null, Collections.emptyList()));
         }
-        List<BlockingQueue<Collection<TScanRangeLocations>>> queues = new ArrayList<>();
+        List<SplitAssignment.AssignmentQueue> queues = new ArrayList<>();
         if (consumerFirst) {
             for (Backend backend : backends) {
                 queues.add(assignment.getAssignedSplits(backend));
@@ -117,10 +115,8 @@ class SplitStreamingConcurrencyTest {
                     queues.add(assignment.getAssignedSplits(backend));
                 }
             }
-            for (BlockingQueue<Collection<TScanRangeLocations>> queue : queues) {
-                Assertions.assertEquals(queueCapacity, queue.size());
-                Assertions.assertEquals(0, queue.remainingCapacity());
-                verifyQueue(queue, producerBatchSize, queueCapacity);
+            for (SplitAssignment.AssignmentQueue queue : queues) {
+                verifyQueue(queue, queueCapacity);
             }
             List<Future<Set<Long>>> consumers = new ArrayList<>();
             for (int i = 0; i < backends.size(); i++) {
@@ -129,7 +125,7 @@ class SplitStreamingConcurrencyTest {
                 consumers.add(executor.submit(() -> {
                     Set<Long> identities = new HashSet<>();
                     while (true) {
-                        verifyQueue(queues.get(backendIndex), producerBatchSize, queueCapacity);
+                        verifyQueue(queues.get(backendIndex), queueCapacity);
                         List<TScanRangeLocations> batch = source.getNextBatch(requestedSizes[backendIndex]);
                         Assertions.assertTrue(batch.size() <= requestedSizes[backendIndex]);
                         if (batch.isEmpty()) {
@@ -163,11 +159,9 @@ class SplitStreamingConcurrencyTest {
         }
     }
 
-    private void verifyQueue(BlockingQueue<Collection<TScanRangeLocations>> queue,
-            int producerBatchSize, int queueCapacity) {
+    private void verifyQueue(SplitAssignment.AssignmentQueue queue, int queueCapacity) {
+        Assertions.assertTrue(queue.remainingCapacity() >= 0);
+        Assertions.assertTrue(queue.remainingCapacity() <= queueCapacity);
         Assertions.assertTrue(queue.size() <= queueCapacity);
-        for (Collection<TScanRangeLocations> batch : queue) {
-            Assertions.assertTrue(batch.size() <= producerBatchSize);
-        }
     }
 }

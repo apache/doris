@@ -338,7 +338,8 @@ Status create_index_searcher(IndexSearcherBuilder* index_searcher_builder,
 }
 
 Status run_clucene_leaf(const IndexQueryContextPtr& context, std::wstring field,
-                        const logical::Node& leaf, const roaring::Roaring* candidates, bool scoring,
+                        const std::wstring& statistics_field, const logical::Node& leaf,
+                        const roaring::Roaring* candidates, bool scoring,
                         const FulltextIndexSearcherPtr& searcher,
                         const std::shared_ptr<roaring::Roaring>& result) {
     auto* reader = searcher->getReader();
@@ -350,8 +351,7 @@ Status run_clucene_leaf(const IndexQueryContextPtr& context, std::wstring field,
         auto source =
                 clucene_index_source(std::shared_ptr<lucene::index::IndexReader>(searcher, reader),
                                      std::move(field), context->io_ctx);
-        const auto& source_field = source->field();
-        RETURN_IF_ERROR(run_leaf(context, source_field, leaf, candidates, scoring,
+        RETURN_IF_ERROR(run_leaf(context, statistics_field, leaf, candidates, scoring,
                                  std::move(source), reader->maxDoc(), result));
     } catch (const CLuceneError& e) {
         return clucene_error_status(fmt::format("CLuceneError occurred: {}", e.what()));
@@ -413,15 +413,26 @@ Status CluceneTextIndexReader::_term_document_frequency(const std::string& colum
     return Status::OK();
 }
 
+Status run_clucene_leaf(const IndexQueryContextPtr& context, std::wstring field,
+                        const logical::Node& leaf, const roaring::Roaring* candidates, bool scoring,
+                        const FulltextIndexSearcherPtr& searcher,
+                        const std::shared_ptr<roaring::Roaring>& result) {
+    const std::wstring statistics_field = field;
+    return run_clucene_leaf(context, std::move(field), statistics_field, leaf, candidates, scoring,
+                            searcher, result);
+}
+
 Status CluceneTextIndexReader::_run_leaf(const IndexQueryContextPtr& context,
                                          const std::string& column_name, OpenedIndex& index,
                                          const logical::Node& leaf,
                                          const roaring::Roaring* candidates, bool scoring,
                                          std::shared_ptr<roaring::Roaring>* out) {
     auto result = std::make_shared<roaring::Roaring>();
-    RETURN_IF_ERROR(run_clucene_leaf(context, StringUtil::string_to_wstring(column_name), leaf,
-                                     candidates, scoring,
-                                     static_cast<CluceneOpenedIndex&>(index).searcher, result));
+    auto field = StringUtil::string_to_wstring(column_name);
+    auto statistics_field = _statistics_field(field);
+    RETURN_IF_ERROR(run_clucene_leaf(context, std::move(field), statistics_field, leaf, candidates,
+                                     scoring, static_cast<CluceneOpenedIndex&>(index).searcher,
+                                     result));
     result->runOptimize();
     *out = std::move(result);
     return Status::OK();
