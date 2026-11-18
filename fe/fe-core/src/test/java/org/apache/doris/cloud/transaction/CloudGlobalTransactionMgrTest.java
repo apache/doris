@@ -95,6 +95,7 @@ import org.mockito.AdditionalAnswers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.mockito.stubbing.OngoingStubbing;
 
 import java.lang.reflect.Method;
 import java.util.List;
@@ -109,8 +110,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Function;
 
 public class CloudGlobalTransactionMgrTest {
+
+    private static final String RPC_ERROR = "rpc_error";
 
     private static FakeEditLog fakeEditLog;
     private static FakeEnv fakeEnv;
@@ -1336,42 +1340,30 @@ public class CloudGlobalTransactionMgrTest {
     // A failed lookup must not be reported as a missing label: SHOW TRANSACTION would say "does not exist"
     // for a transaction that exists.
     @ParameterizedTest
-    @ValueSource(strings = {"KV_TXN_GET_ERR", "MAX_QPS_LIMIT", "INVALID_ARGUMENT", "UNDEFINED_ERR", "rpc_error"})
+    @ValueSource(strings = {"KV_TXN_GET_ERR", "MAX_QPS_LIMIT", "INVALID_ARGUMENT", "UNDEFINED_ERR", RPC_ERROR})
     public void testGetTransactionIdFailsOnLookupError(String error) throws Exception {
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            if (error.equals("rpc_error")) {
-                Mockito.when(proxy.getTxn(Mockito.any())).thenThrow(new RpcException("MS", "unavailable"));
-            } else {
-                Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(Cloud.GetTxnResponse.newBuilder()
-                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                                .setCode(MetaServiceCode.valueOf(error)).setMsg("lookup failed"))
-                        .build());
-            }
+            stubLookupFailure(Mockito.when(proxy.getTxn(Mockito.any())), error,
+                    status -> Cloud.GetTxnResponse.newBuilder().setStatus(status).build());
 
             AnalysisException e = Assertions.assertThrows(AnalysisException.class, () -> masterTransMgr
                     .getTransactionId(CatalogTestUtil.testDbId1, CatalogTestUtil.testTxnLabel1));
-            Assertions.assertTrue(e.getMessage().contains(error.equals("rpc_error") ? "unavailable" : "lookup failed"),
+            Assertions.assertTrue(e.getMessage().contains(error.equals(RPC_ERROR) ? "unavailable" : "lookup failed"),
                     e.getMessage());
             Mockito.verify(proxy, Mockito.never()).getTxnId(Mockito.any());
         }
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"TXN_ID_NOT_FOUND", "KV_TXN_GET_ERR", "MAX_QPS_LIMIT", "rpc_error"})
+    @ValueSource(strings = {"TXN_ID_NOT_FOUND", "KV_TXN_GET_ERR", "MAX_QPS_LIMIT", RPC_ERROR})
     public void testGetTransactionIdByLabelWithStatusReportsOnlyMissingAsNotFound(String code) throws Exception {
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            if (code.equals("rpc_error")) {
-                Mockito.when(proxy.getTxnId(Mockito.any())).thenThrow(new RpcException("MS", "unavailable"));
-            } else {
-                Mockito.when(proxy.getTxnId(Mockito.any())).thenReturn(Cloud.GetTxnIdResponse.newBuilder()
-                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                                .setCode(MetaServiceCode.valueOf(code)).setMsg("lookup failed"))
-                        .build());
-            }
+            stubLookupFailure(Mockito.when(proxy.getTxnId(Mockito.any())), code,
+                    status -> Cloud.GetTxnIdResponse.newBuilder().setStatus(status).build());
 
             UserException e = Assertions.assertThrows(UserException.class,
                     () -> masterTransMgr.getTransactionIdByLabel(CatalogTestUtil.testDbId1,
@@ -1380,9 +1372,19 @@ public class CloudGlobalTransactionMgrTest {
                 Assertions.assertInstanceOf(TransactionNotFoundException.class, e);
             } else {
                 Assertions.assertFalse(e instanceof TransactionNotFoundException, e.getMessage());
-                Assertions.assertTrue(e.getMessage().contains(code.equals("rpc_error") ? "unavailable"
+                Assertions.assertTrue(e.getMessage().contains(code.equals(RPC_ERROR) ? "unavailable"
                         : "lookup failed"), e.getMessage());
             }
+        }
+    }
+
+    private static <T> void stubLookupFailure(OngoingStubbing<T> lookup, String code,
+            Function<Cloud.MetaServiceResponseStatus, T> buildResponse) {
+        if (code.equals(RPC_ERROR)) {
+            lookup.thenThrow(new RpcException("MS", "unavailable"));
+        } else {
+            lookup.thenReturn(buildResponse.apply(Cloud.MetaServiceResponseStatus.newBuilder()
+                    .setCode(MetaServiceCode.valueOf(code)).setMsg("lookup failed").build()));
         }
     }
 

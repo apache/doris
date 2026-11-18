@@ -2561,12 +2561,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (getTxnResponse.getStatus().getCode() == MetaServiceCode.TXN_ID_NOT_FOUND) {
             return null;
         }
-        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK || !getTxnResponse.hasTxnInfo()) {
+        if (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK) {
             LOG.warn("get transaction id by label failed, dbId:{} label:{} getTxnResponse:{}",
                     dbId, label, getTxnResponse);
             throw new AnalysisException("get transaction id by label " + label + " failed, errMsg:"
-                    + (getTxnResponse.getStatus().getCode() != MetaServiceCode.OK
-                            ? getTxnResponse.getStatus().getMsg() : "no txn_info in response"));
+                    + getTxnResponse.getStatus().getMsg());
         }
         return getTxnResponse.getTxnInfo().getTxnId();
     }
