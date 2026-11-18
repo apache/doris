@@ -30,44 +30,36 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 public class PublishVersionTask extends AgentTask {
     private static final Logger LOG = LogManager.getLogger(PublishVersionTask.class);
 
-    /** Partition and immutable write snapshot captured together while processing a tablet report. */
+    /** Partitions reported by one backend for one actual write transaction (including a child). */
     public static final class RepublishInfo {
-        private final TPartitionVersionInfo partitionVersionInfo;
+        private final Set<TPartitionVersionInfo> partitions = new LinkedHashSet<>();
         private final Map<Long, ChangelogWriteMapping> mappings;
 
-        public RepublishInfo(TPartitionVersionInfo partitionVersionInfo, Map<Long, ChangelogWriteMapping> mappings) {
-            this.partitionVersionInfo = partitionVersionInfo.deepCopy();
+        public RepublishInfo(Map<Long, ChangelogWriteMapping> mappings) {
             this.mappings = ImmutableMap.copyOf(mappings);
         }
 
-        public TPartitionVersionInfo getPartitionVersionInfo() {
-            return partitionVersionInfo.deepCopy();
+        public void addPartition(TPartitionVersionInfo partition) {
+            partitions.add(partition);
         }
 
-        public Map<Long, ChangelogWriteMapping> getMappings() {
-            return mappings;
+        public int partitionCount() {
+            return partitions.size();
         }
 
-        @Override
-        public boolean equals(Object other) {
-            if (!(other instanceof RepublishInfo)) {
-                return false;
-            }
-            RepublishInfo info = (RepublishInfo) other;
-            return partitionVersionInfo.equals(info.partitionVersionInfo) && mappings.equals(info.mappings);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(partitionVersionInfo, mappings);
+        public PublishVersionTask createTask(long backendId, long txnId, long dbId, long createTime) {
+            PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId, new ArrayList<>(partitions),
+                    createTime);
+            task.setChangelogWriteMappings(mappings);
+            return task;
         }
     }
 

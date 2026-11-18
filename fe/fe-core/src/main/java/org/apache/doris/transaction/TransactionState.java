@@ -17,9 +17,7 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
@@ -31,6 +29,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.TxnWriteSchemaSnapshot.PartialUpdateSchema;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -54,7 +53,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CountDownLatch;
@@ -298,19 +296,9 @@ public class TransactionState implements Writable, GsonPostProcessable {
     // no need to persist.
     private String errMsg = "";
 
-    public class SchemaInfo {
-        public List<Column> schema;
-        public int schemaVersion;
-
-        private SchemaInfo(List<Column> schema, int schemaVersion) {
-            this.schema = schema;
-            this.schemaVersion = schemaVersion;
-        }
-    }
-
     private boolean isPartialUpdate = false;
     // table id -> schema info
-    private transient Map<Long, SchemaInfo> txnSchemas = new HashMap<>();
+    private transient Map<Long, PartialUpdateSchema> txnSchemas = new HashMap<>();
 
     @Getter
     @SerializedName(value = "sti")
@@ -337,8 +325,6 @@ public class TransactionState implements Writable, GsonPostProcessable {
     // Actual write transaction id (including subtransactions) -> table -> prepared schema.
     @SerializedName("writeSchemas")
     private volatile Map<Long, Map<Long, TxnWriteSchemaSnapshot>> writeSchemas = ImmutableMap.of();
-    @SerializedName("remoteWriteSchemasInstalled")
-    private boolean remoteWriteSchemasInstalled;
 
     public boolean hasChangelogWriteMappings() {
         return writeSchemas.values().stream().flatMap(tables -> tables.values().stream())
@@ -364,52 +350,21 @@ public class TransactionState implements Writable, GsonPostProcessable {
                     "Write schema changed for transaction %s, table %s", writeTxnId, snapshot.getTableId());
             return;
         }
-        Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE && !remoteWriteSchemasInstalled,
+        Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE,
                 "Write schemas frozen for transaction %s (%s)", writeTxnId, transactionStatus);
         Map<Long, TxnWriteSchemaSnapshot> tables = new TreeMap<>(
                 writeSchemas.getOrDefault(writeTxnId, ImmutableMap.of()));
         tables.put(snapshot.getTableId(), snapshot.persistentIdentity());
         Map<Long, Map<Long, TxnWriteSchemaSnapshot>> all = new TreeMap<>(writeSchemas);
         all.put(writeTxnId, ImmutableMap.copyOf(tables));
-        Map<Long, Map<Long, TxnWriteSchemaSnapshot>> updated = ImmutableMap.copyOf(all);
-        Set<Long> indexes = Sets.newHashSet(snapshot.getIndexIds());
-        SchemaInfo partialSchema = partialSchemaOf(snapshot);
-        writeSchemas = updated;
-        installCommitSchema(snapshot, indexes, partialSchema);
-    }
-
-    private SchemaInfo partialSchemaOf(TxnWriteSchemaSnapshot snapshot) {
-        List<Column> schema = snapshot.getPartialSchema();
-        return schema == null ? null : new SchemaInfo(schema, snapshot.getPartialSchemaVersion());
-    }
-
-    private void installCommitSchema(TxnWriteSchemaSnapshot snapshot, Set<Long> indexes, SchemaInfo partialSchema) {
-        loadedTblIndexes.putIfAbsent(snapshot.getTableId(), indexes);
+        writeSchemas = ImmutableMap.copyOf(all);
+        loadedTblIndexes.computeIfAbsent(snapshot.getTableId(), id -> Sets.newHashSet(snapshot.getIndexIds()));
         if (snapshot.isPartialUpdate()) {
             isPartialUpdate = true;
-            // Remote/replayed snapshots intentionally contain no full column schema.
-            if (partialSchema != null) {
-                txnSchemas.put(snapshot.getTableId(), partialSchema);
+            if (snapshot.getPartialSchema() != null) {
+                txnSchemas.put(snapshot.getTableId(), snapshot.getPartialSchema());
             }
         }
-    }
-
-    public synchronized void installRemoteWriteSchema(TxnWriteSchemaSnapshot snapshot) {
-        checkWriteSchemaRegistrationStatus();
-        if (remoteWriteSchemasInstalled) {
-            Preconditions.checkState(snapshot.equals(getWriteSchema(transactionId, snapshot.getTableId())),
-                    "Remote write schema changed for transaction %s", transactionId);
-            return;
-        }
-        Preconditions.checkState(transactionStatus == TransactionStatus.PREPARE && writeSchemas.isEmpty(),
-                "Cannot install remote write schema for transaction %s (%s)", transactionId, transactionStatus);
-        Map<Long, Map<Long, TxnWriteSchemaSnapshot>> updated =
-                ImmutableMap.of(transactionId, ImmutableMap.of(snapshot.getTableId(), snapshot.persistentIdentity()));
-        Set<Long> indexes = Sets.newHashSet(snapshot.getIndexIds());
-        SchemaInfo partialSchema = partialSchemaOf(snapshot);
-        writeSchemas = updated;
-        installCommitSchema(snapshot, indexes, partialSchema);
-        remoteWriteSchemasInstalled = true;
     }
 
     private void checkWriteSchemaRegistrationStatus() {
@@ -909,37 +864,17 @@ public class TransactionState implements Writable, GsonPostProcessable {
         return isPartialUpdate;
     }
 
-    public SchemaInfo getTxnSchema(long id) {
+    PartialUpdateSchema getTxnSchema(long id) {
         return txnSchemas.get(id);
     }
 
     public boolean checkSchemaCompatibility(OlapTable olapTable) {
-        SchemaInfo txnSchemaInfo = txnSchemas.get(olapTable.getId());
-        if (txnSchemaInfo == null) {
+        PartialUpdateSchema schema = txnSchemas.get(olapTable.getId());
+        if (schema == null || schema.isCompatibleWith(olapTable.getIndexMetaByIndexId(olapTable.getBaseIndexId()))) {
             return true;
         }
-        MaterializedIndexMeta currentSchema = olapTable.getIndexMetaByIndexId(olapTable.getBaseIndexId());
-        if (txnSchemaInfo.schemaVersion >= currentSchema.getSchemaVersion()) {
-            return true;
-        }
-        for (Column txnCol : txnSchemaInfo.schema) {
-            if (!txnCol.isVisible() || !txnCol.getType().isStringType()) {
-                continue;
-            }
-            int uniqueId = txnCol.getUniqueId();
-            Optional<Column> currentCol = currentSchema.getSchema().stream()
-                    .filter(col -> col.getUniqueId() == uniqueId).findFirst();
-            // for now Doris's light schema change only supports adding columns,
-            // dropping columns, and type conversions that increase the varchar length
-            if (currentCol.isPresent() && currentCol.get().getType().isStringType()) {
-                if (currentCol.get().getStrLen() != txnCol.getStrLen()) {
-                    LOG.warn("Check schema compatibility failed, txnId={}, table={}",
-                            transactionId, olapTable.getName());
-                    return false;
-                }
-            }
-        }
-        return true;
+        LOG.warn("Check schema compatibility failed, txnId={}, table={}", transactionId, olapTable.getName());
+        return false;
     }
 
     public void setSubTxnIds(List<Long> subTxnIds) {

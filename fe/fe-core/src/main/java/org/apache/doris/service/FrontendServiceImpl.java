@@ -96,6 +96,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.split.SplitSource;
 import org.apache.doris.encryption.EncryptionKey;
 import org.apache.doris.ha.FrontendNodeType;
@@ -337,8 +338,6 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
-import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
-import org.apache.doris.transaction.TxnWriteSchemaSnapshotCodec;
 import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
 
 import com.google.common.base.Joiner;
@@ -2410,6 +2409,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    private OlapTable getRemoteWriteTarget(Database db, String name, boolean hasExpectedId, long expectedId)
+            throws UserException {
+        if (StringUtils.isEmpty(name)) {
+            throw new AnalysisException("table name is empty");
+        }
+        OlapTable target = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
+        if (target.hasChangelog()) {
+            throw new AnalysisException(RemoteOlapTable.CHANGELOG_WRITE_ERROR);
+        }
+        if (hasExpectedId && target.getId() != expectedId) {
+            throw new AnalysisException("Remote write target changed: expected table ID " + expectedId
+                    + ", actual " + target.getId());
+        }
+        return target;
+    }
+
     private long beginRemoteTxnImpl(TBeginRemoteTxnRequest request)
             throws UserException {
 
@@ -2418,11 +2433,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db == null) {
             throw new MetaNotFoundException("unknown database, database=" + fullDbName);
         }
-        if (StringUtils.isEmpty(request.getTbl())) {
-            throw new AnalysisException("table name is empty");
-        }
-        TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        OlapTable table = (OlapTable) tableIf;
+        OlapTable table = getRemoteWriteTarget(db, request.getTbl(), request.isSetExpectedTableId(),
+                request.getExpectedTableId());
 
         long timeoutMs = request.getTimeoutMs();
         long timeoutSecond = timeoutMs > 0 ? TimeUnit.MILLISECONDS.toSeconds(timeoutMs)
@@ -2479,35 +2491,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (db == null) {
             throw new MetaNotFoundException("unknown database, database=" + dbName);
         }
-        if (StringUtils.isEmpty(request.getTbl())) {
-            throw new AnalysisException("table name is empty");
-        }
-        TableIf tableIf = db.getTableOrMetaException(request.getTbl(), TableType.OLAP);
-        OlapTable table = (OlapTable) tableIf;
-        // Ordinary tables accept legacy remote commits without a write schema.
-        // An explicitly supplied snapshot is always validated.
-        if (request.isSetWriteSchemas() || table.hasChangelog()) {
-            try {
-                if (!request.isSetWriteSchemas() || request.getWriteSchemasSize() != 1) {
-                    throw new UserException("Remote commit requires exactly one prepared table schema");
-                }
-                TxnWriteSchemaSnapshot snapshot = TxnWriteSchemaSnapshotCodec.fromThrift(
-                        request.getWriteSchemas().get(0), table.getId(), table.getBaseIndexId());
-                if (!Config.isCloudMode()) {
-                    TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(
-                            db.getId(), request.getTxnId());
-                    if (state == null) {
-                        throw new UserException("Missing remote transaction " + request.getTxnId());
-                    }
-                    if (!state.getTableIdList().contains(table.getId())) {
-                        throw new UserException("Remote transaction does not include the target table");
-                    }
-                    state.installRemoteWriteSchema(snapshot);
-                }
-            } catch (IllegalArgumentException | IllegalStateException e) {
-                throw new UserException("Invalid remote write schema: " + e.getMessage(), e);
+        OlapTable table = getRemoteWriteTarget(db, request.getTbl(), request.isSetExpectedTableId(),
+                request.getExpectedTableId());
+        if (request.isSetExpectedTableId() && !Config.isCloudMode()) {
+            TransactionState state = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(),
+                    request.getTxnId());
+            if (state == null || !state.getTableIdList().contains(table.getId())) {
+                throw new UserException("Remote transaction " + request.getTxnId()
+                        + " does not include the target table " + table.getId());
             }
         }
+        // The destination checks every local index. A sender's cached metadata can predate a completed rollup.
         return Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                 db, Lists.newArrayList(table),
                 request.getTxnId(),

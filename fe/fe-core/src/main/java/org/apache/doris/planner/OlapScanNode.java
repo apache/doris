@@ -190,6 +190,8 @@ public class OlapScanNode extends ScanNode {
     private String tableNameInPlan = null;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
+    // Fragment serialization may follow a DDL. Capture physical columns and final slot mappings together.
+    private ScanSchema plannedChangelogSchema;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
     private final Map<Long, Long> sqlCachePartitionVersions = Maps.newHashMap();
@@ -1406,20 +1408,25 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    @Override
-    protected void toThrift(TPlanNode msg) {
-        List<String> keyColumnNames = new ArrayList<String>();
-        List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
-        List<TColumn> columnsDesc = new ArrayList<TColumn>();
-        List<TOlapTableIndex> indexDesc = Lists.newArrayList();
+    private static final class ScanSchema {
+        private final List<String> keyColumnNames = new ArrayList<>();
+        private final List<TPrimitiveType> keyColumnTypes = new ArrayList<>();
+        private final List<TColumn> columnsDesc = new ArrayList<>();
+        private final List<TOlapTableIndex> indexDesc = new ArrayList<>();
+        private TChangelogReadColumnMappings changelogMappings;
+        private int schemaVersion;
+    }
+
+    private ScanSchema buildScanSchema() {
+        ScanSchema schema = new ScanSchema();
         if (isTopnLazyMaterialize) {
             Set<String> materializedColumnNames = topnLazyMaterializeOutputColumns.stream()
                     .map(Column::getName).collect(Collectors.toSet());
-            olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes,
+            olapTable.getColumnDesc(selectedIndexId, schema.columnsDesc, schema.keyColumnNames, schema.keyColumnTypes,
                     materializedColumnNames);
-            columnsDesc.add(ColumnToThrift.toThrift(globalRowIdColumn));
+            schema.columnsDesc.add(ColumnToThrift.toThrift(globalRowIdColumn));
         } else {
-            olapTable.getColumnDesc(selectedIndexId, columnsDesc, keyColumnNames, keyColumnTypes);
+            olapTable.getColumnDesc(selectedIndexId, schema.columnsDesc, schema.keyColumnNames, schema.keyColumnTypes);
         }
 
         // Add virtual column to ColumnsDesc so that backend could
@@ -1427,29 +1434,43 @@ public class OlapScanNode extends ScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             if (slot.getVirtualColumn() != null) {
                 TColumn tColumn = ColumnToThrift.toThrift(slot.getColumn());
-                columnsDesc.add(tColumn);
+                schema.columnsDesc.add(tColumn);
             }
         }
 
         for (Index index : olapTable.getIndexes()) {
             TOlapTableIndex tIndex = IndexToThriftConvertor.toThrift(index, olapTable.getBaseSchema());
-            indexDesc.add(tIndex);
+            schema.indexDesc.add(tIndex);
         }
 
-        msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
         if (olapTable.getBaseSchema().stream().anyMatch(Column::isClusterKey)) {
-            keyColumnNames.clear();
-            keyColumnTypes.clear();
+            schema.keyColumnNames.clear();
+            schema.keyColumnTypes.clear();
         }
-        msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
-        msg.olap_scan_node.setColumnsDesc(columnsDesc);
-        msg.olap_scan_node.setIndexesDesc(indexDesc);
         if (olapTable instanceof OlapChangelogTableWrapper) {
-            msg.olap_scan_node.setReadChangelog(true);
-            msg.olap_scan_node.setChangelogColumnMappings(buildChangelogReadColumnMappings());
+            schema.changelogMappings = buildChangelogReadColumnMappings();
         }
         if (selectedIndexId != -1) {
-            msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
+            schema.schemaVersion = olapTable.getIndexSchemaVersion(selectedIndexId);
+        }
+        return schema;
+    }
+
+    @Override
+    protected void toThrift(TPlanNode msg) {
+        ScanSchema schema = olapTable instanceof OlapChangelogTableWrapper
+                ? plannedChangelogSchema : buildScanSchema();
+        msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
+        msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), schema.keyColumnNames,
+                schema.keyColumnTypes, isPreAggregation);
+        msg.olap_scan_node.setColumnsDesc(schema.columnsDesc);
+        msg.olap_scan_node.setIndexesDesc(schema.indexDesc);
+        if (schema.changelogMappings != null) {
+            msg.olap_scan_node.setReadChangelog(true);
+            msg.olap_scan_node.setChangelogColumnMappings(schema.changelogMappings);
+        }
+        if (selectedIndexId != -1) {
+            msg.olap_scan_node.setSchemaVersion(schema.schemaVersion);
         }
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
@@ -1935,6 +1956,9 @@ public class OlapScanNode extends ScanNode {
                 column.setIsAllowNull(slot.getIsNullable());
                 slot.setColumn(column);
             }
+        }
+        if (olapTable instanceof OlapChangelogTableWrapper) {
+            plannedChangelogSchema = buildScanSchema();
         }
     }
 

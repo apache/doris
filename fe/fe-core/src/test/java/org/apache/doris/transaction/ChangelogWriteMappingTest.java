@@ -18,13 +18,18 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.ReportHandler;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
@@ -37,7 +42,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.SetMultimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -117,10 +121,9 @@ class ChangelogWriteMappingTest {
         state.setTransactionStatus(TransactionStatus.VISIBLE);
         TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(state), TransactionState.class);
         PublishVersionTask.RepublishInfo report = new PublishVersionTask.RepublishInfo(
-                new TPartitionVersionInfo(40, 2, 0), replay.getChangelogWriteMappings(102));
-        PublishVersionTask task = new PublishVersionTask(10, 102, 1,
-                Collections.singletonList(report.getPartitionVersionInfo()), 0);
-        task.setChangelogWriteMappings(report.getMappings());
+                replay.getChangelogWriteMappings(102));
+        report.addPartition(new TPartitionVersionInfo(40, 2, 0));
+        PublishVersionTask task = report.createTask(10, 102, 1, 0);
         TPublishVersionRequest request = task.toThrift();
         Assertions.assertEquals(102, request.getTransactionId());
         Assertions.assertEquals(5, request.getChangelogColumnMappings().get(0).getSourceIndexId());
@@ -133,7 +136,8 @@ class ChangelogWriteMappingTest {
 
     @Test
     void tabletReportRepublishCapturesChildMappingAndPartitionTogether() {
-        TransactionState state = new TransactionState();
+        TransactionState state = Mockito.spy(new TransactionState(1, Collections.singletonList(20L), 101,
+                "report", null, TransactionState.LoadJobSourceType.FRONTEND, null, -1, 1000));
         state.setSubTxnIds(Arrays.asList(101L, 102L));
         state.registerWriteSchema(101, snapshot(ImmutableMap.of(5L, mapping(true, entry(1, 11)))));
         state.registerWriteSchema(102, snapshot(ImmutableMap.of(5L, mapping(false, entry(1, 21)))));
@@ -141,13 +145,24 @@ class ChangelogWriteMappingTest {
         commit.addPartitionCommitInfo(new PartitionCommitInfo(30, "", 40, 0, false));
         state.getSubTxnIdToTableCommitInfo().put(102L, commit);
         state.setTransactionStatus(TransactionStatus.VISIBLE);
-        Map<Long, SetMultimap<Long, PublishVersionTask.RepublishInfo>> reports = new HashMap<>();
-        Deencapsulation.invoke(new LocalTabletInvertedIndex(), "publishPartition", state, 102L,
-                new TabletMeta(-1, 20, 30, 5, 0, TStorageMedium.HDD, false), 30L, reports);
-        try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
+        Map<Long, Map<Long, PublishVersionTask.RepublishInfo>> reports = new HashMap<>();
+        LocalTabletInvertedIndex index = new LocalTabletInvertedIndex();
+        TabletMeta tablet = new TabletMeta(1, 20, 30, 5, 0, TStorageMedium.HDD, false);
+        Deencapsulation.invoke(index, "publishPartition", state, 102L, tablet, 30L, reports);
+        Deencapsulation.invoke(index, "publishPartition", state, 102L, tablet, 30L, reports);
+        Mockito.verify(state).getChangelogWriteMappings(102L);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        SystemInfoService systemInfo = Mockito.mock(SystemInfoService.class);
+        Mockito.when(catalog.getDbNullable(1L)).thenReturn(new Database(1L, "report_db"));
+        Mockito.when(systemInfo.getBackend(9001L)).thenReturn(Mockito.mock(Backend.class));
+        try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class);
+                MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
+            env.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+            env.when(Env::getCurrentSystemInfo).thenReturn(systemInfo);
             Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", reports, 9001L);
             PublishVersionTask task = (PublishVersionTask) AgentTaskQueue.getTask(9001, TTaskType.PUBLISH_VERSION, 102);
             TPublishVersionRequest request = task.toThrift();
+            Assertions.assertEquals(1, request.getPartitionVersionInfosSize());
             Assertions.assertEquals(40, request.getPartitionVersionInfos().get(0).getVersion());
             Assertions.assertEquals(21, request.getChangelogColumnMappings().get(0).getMappings()
                     .getEntries().get(0).getCurrentColumnUniqueId());
@@ -227,24 +242,8 @@ class ChangelogWriteMappingTest {
     }
 
     @Test
-    void remoteSnapshotIsCompleteAndCannotBeInstalledAfterFreeze() {
-        TransactionState state = new TransactionState();
-        TxnWriteSchemaSnapshot snapshot = snapshot(ImmutableMap.of(5L, mapping(false, entry(1, 10))));
-        state.installRemoteWriteSchema(snapshot);
-        Assertions.assertEquals(snapshot, state.getWriteSchema(state.getTransactionId(), 20));
-        Assertions.assertEquals(Collections.singleton(5L), state.getLoadedTblIndexes().get(20L));
-        Assertions.assertThrows(IllegalStateException.class, () -> state.registerWriteSchema(100, ordinarySnapshot()));
-        state.setTransactionStatus(TransactionStatus.COMMITTED);
-        state.installRemoteWriteSchema(snapshot);
-        TransactionState replay = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(state), TransactionState.class);
-        replay.installRemoteWriteSchema(snapshot);
-        Assertions.assertThrows(IllegalStateException.class, () -> replay.installRemoteWriteSchema(
-                snapshot(ImmutableMap.of(5L, mapping(false, entry(1, 11))))));
-        Assertions.assertEquals(snapshot, replay.getWriteSchema(replay.getTransactionId(), 20));
+    void registrationRejectsUnknownAndAbortedStates() {
         TransactionState frozen = new TransactionState();
-        frozen.setTransactionStatus(TransactionStatus.PRECOMMITTED);
-        Assertions.assertThrows(IllegalStateException.class,
-                () -> frozen.installRemoteWriteSchema(snapshot));
         frozen.setTransactionStatus(TransactionStatus.UNKNOWN);
         Assertions.assertThrows(IllegalStateException.class,
                 () -> frozen.registerWriteSchema(100, ordinarySnapshot()));

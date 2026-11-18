@@ -76,6 +76,7 @@ import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TOlapScanNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TRuntimeFilterType;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -285,6 +286,51 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 .collect(Collectors.toSet());
         Assertions.assertTrue(dependencyUniqueIds.stream()
                 .noneMatch(thriftScanNode.olap_scan_node.getOutputColumnUniqueIds()::contains));
+    }
+
+    @Test
+    public void testChangelogScanSchemaSurvivesAddColumn() throws Exception {
+        createTable("create table test_db.changelog_plan_ddl(k int, v int) unique key(k)"
+                + " distributed by hash(k) buckets 1 properties ('replication_num' = '1',"
+                + "'light_schema_change' = 'true', 'enable_unique_key_merge_on_write' = 'true',"
+                + "'changelog.enable' = 'true', 'changelog.need_historical_value' = 'true')");
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db")
+                .getTableOrMetaException("changelog_plan_ddl");
+        bumpPartitionsAndReplicas(table, 2L, 100L);
+        List<OlapScanNode> scans = ImmutableList.of(
+                getFirstOlapScanNode("select k from test_db.changelog_plan_ddl@incr('incrementType'='DETAIL')"),
+                getFirstOlapScanNode("select v from test_db.changelog_plan_ddl@incr('incrementType'='MIN_DELTA')"));
+        List<TOlapScanNode> planned = scans.stream().map(scan -> scan.treeToThrift().getNodes().get(0).olap_scan_node)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(0, planned.get(0).getChangelogColumnMappings().getPairsSize());
+        Assertions.assertEquals(1, planned.get(1).getChangelogColumnMappings().getPairsSize());
+
+        alterTableSync("alter table test_db.changelog_plan_ddl add column added int null");
+        Assertions.assertTrue(table.getChangelogIndexMeta().getSchemaVersion() > planned.get(0).getSchemaVersion());
+        for (int i = 0; i < scans.size(); i++) {
+            TOlapScanNode serialized = scans.get(i).treeToThrift().getNodes().get(0).olap_scan_node;
+            Assertions.assertEquals(planned.get(i).getColumnsDesc(), serialized.getColumnsDesc());
+            Assertions.assertEquals(planned.get(i).getSchemaVersion(), serialized.getSchemaVersion());
+            Assertions.assertEquals(planned.get(i).getChangelogColumnMappings(),
+                    serialized.getChangelogColumnMappings());
+        }
+    }
+
+    @Test
+    public void testChangelogMatchProjectionUsesMergedRow() throws Exception {
+        createTable("create table test_db.changelog_match(k int, body string) unique key(k)"
+                + " distributed by hash(k) buckets 1 properties ('replication_num' = '1',"
+                + "'enable_unique_key_merge_on_write' = 'true',"
+                + "'changelog.enable' = 'true', 'changelog.need_historical_value' = 'true')");
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db")
+                .getTableOrMetaException("changelog_match");
+        bumpPartitionsAndReplicas(table, 2L, 100L);
+        for (String mode : ImmutableList.of("DETAIL", "MIN_DELTA", "APPEND_ONLY")) {
+            OlapScanNode scan = getFirstOlapScanNode("select body match_any 'hello' from test_db.changelog_match"
+                    + "@incr('incrementType'='" + mode + "')");
+            Assertions.assertEquals("APPEND_ONLY".equals(mode), scan.getTupleDesc().getSlots().stream()
+                    .anyMatch(slot -> slot.getVirtualColumn() != null), mode);
+        }
     }
 
     @Test

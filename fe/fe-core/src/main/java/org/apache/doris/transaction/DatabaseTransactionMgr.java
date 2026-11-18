@@ -225,18 +225,21 @@ public class DatabaseTransactionMgr {
     }
 
     private TransactionState unprotectedGetTransactionState(Long transactionId) {
+        TransactionState state = getDirectTransactionState(transactionId);
+        if (state != null) {
+            return state;
+        }
+        // A child points directly to its parent. During eviction the parent can already be gone.
+        Long parentId = subTxnIdToTxnId.get(transactionId);
+        return parentId == null ? null : getDirectTransactionState(parentId);
+    }
+
+    private TransactionState getDirectTransactionState(long transactionId) {
         TransactionState transactionState = idToRunningTransactionState.get(transactionId);
         if (transactionState != null) {
             return transactionState;
         }
-        transactionState = idToFinalStatusTransactionState.get(transactionId);
-        if (transactionState != null) {
-            return transactionState;
-        }
-        if (subTxnIdToTxnId.containsKey(transactionId)) {
-            return unprotectedGetTransactionState(subTxnIdToTxnId.get(transactionId));
-        }
-        return null;
+        return idToFinalStatusTransactionState.get(transactionId);
     }
 
     @VisibleForTesting
@@ -3252,7 +3255,10 @@ public class DatabaseTransactionMgr {
     }
 
     protected void addSubTransaction(long transactionId, long subTransactionId) {
-        subTxnIdToTxnId.put(subTransactionId, transactionId);
+        // The first write of an explicit transaction already has the parent ID.
+        if (subTransactionId != transactionId) {
+            subTxnIdToTxnId.put(subTransactionId, transactionId);
+        }
     }
 
     protected void removeSubTransaction(long subTransactionId) {

@@ -82,7 +82,6 @@ import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
 import org.apache.doris.thrift.TIndexPolicy;
 import org.apache.doris.thrift.TMasterResult;
-import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TReportRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -95,7 +94,6 @@ import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTabletRole;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.transaction.ChangelogWriteMapping;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.LinkedHashMultimap;
@@ -623,7 +621,7 @@ public class ReportHandler extends Daemon {
         Map<Long, Long> partitionVersionSyncMap = Maps.newConcurrentMap();
 
         // dbid -> txn id -> [partition info]
-        Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish = Maps.newHashMap();
+        Map<Long, Map<Long, RepublishInfo>> transactionsToPublish = Maps.newHashMap();
         SetMultimap<Long, Long> transactionsToClear = LinkedHashMultimap.create();
 
         // db id -> tablet id
@@ -1332,22 +1330,13 @@ public class ReportHandler extends Daemon {
     }
 
     private static void handleRepublishVersionInfo(
-            Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish, long backendId) {
+            Map<Long, Map<Long, RepublishInfo>> transactionsToPublish, long backendId) {
         AgentBatchTask batchTask = new AgentBatchTask();
         long createPublishVersionTaskTime = System.currentTimeMillis();
-        for (Long dbId : transactionsToPublish.keySet()) {
-            SetMultimap<Long, RepublishInfo> map = transactionsToPublish.get(dbId);
-            for (long txnId : map.keySet()) {
-                List<TPartitionVersionInfo> partitions = new ArrayList<>();
-                Map<Long, ChangelogWriteMapping> mappings = map.get(txnId).iterator().next().getMappings();
-                for (RepublishInfo info : map.get(txnId)) {
-                    Preconditions.checkState(mappings.equals(info.getMappings()),
-                            "Conflicting changelog snapshots for transaction %s", txnId);
-                    partitions.add(info.getPartitionVersionInfo());
-                }
-                PublishVersionTask task = new PublishVersionTask(backendId, txnId, dbId,
-                        partitions, createPublishVersionTaskTime);
-                task.setChangelogWriteMappings(mappings);
+        for (Map.Entry<Long, Map<Long, RepublishInfo>> db : transactionsToPublish.entrySet()) {
+            for (Map.Entry<Long, RepublishInfo> txn : db.getValue().entrySet()) {
+                PublishVersionTask task = txn.getValue().createTask(backendId, txn.getKey(), db.getKey(),
+                        createPublishVersionTaskTime);
                 // A duplicate signature can carry new partitions; only terminally aborted tasks are skipped.
                 AgentTaskQueue.addTask(task);
                 if (task.getErrorCode() != TStatusCode.ABORTED) {

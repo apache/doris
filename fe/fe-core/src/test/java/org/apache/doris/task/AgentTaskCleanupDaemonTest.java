@@ -35,8 +35,6 @@ import org.apache.doris.transaction.PublishVersionDaemon;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.SetMultimap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -206,7 +204,8 @@ public class AgentTaskCleanupDaemonTest {
     @Test
     public void testDropBackendReclaimsReportPublishAndOtherTasks() throws Exception {
         try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
-            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", republishInfo(), BACKEND_ID);
+            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", republishInfo(new TPartitionVersionInfo(2L, 3L, 0L)),
+                    BACKEND_ID);
         }
         PublishVersionTask task = (PublishVersionTask) AgentTaskQueue.getTask(
                 BACKEND_ID, TTaskType.PUBLISH_VERSION, TRANSACTION_ID);
@@ -282,7 +281,8 @@ public class AgentTaskCleanupDaemonTest {
         CountDownLatch reportPrepared = new CountDownLatch(1);
         CountDownLatch resumeReport = new CountDownLatch(1);
         ExecutorService worker = Executors.newSingleThreadExecutor();
-        Map<Long, SetMultimap<Long, TPartitionVersionInfo>> report = republishInfo();
+        Map<Long, Map<Long, PublishVersionTask.RepublishInfo>> report =
+                republishInfo(new TPartitionVersionInfo(2L, 3L, 0L));
         try {
             Future<?> future = worker.submit(() -> {
                 try (MockedStatic<Env> threadEnv = mockEnv();
@@ -372,11 +372,9 @@ public class AgentTaskCleanupDaemonTest {
         task.setErrorCode(TStatusCode.RUNTIME_ERROR);
         task.addErrorTablets(List.of(10L));
         AgentTaskQueue.addTask(task);
-        SetMultimap<Long, TPartitionVersionInfo> updates = HashMultimap.create();
-        updates.put(TRANSACTION_ID, failedPartition);
-        updates.put(TRANSACTION_ID, newPartition);
+        Map<Long, Map<Long, PublishVersionTask.RepublishInfo>> updates = republishInfo(failedPartition, newPartition);
         try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
-            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", Map.of(1L, updates), BACKEND_ID);
+            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", updates, BACKEND_ID);
             ArgumentCaptor<AgentBatchTask> batch = ArgumentCaptor.forClass(AgentBatchTask.class);
             executor.verify(() -> AgentTaskExecutor.submit(batch.capture()));
             Assertions.assertEquals(1, batch.getValue().getAllTasks().size());
@@ -428,10 +426,12 @@ public class AgentTaskCleanupDaemonTest {
         return result;
     }
 
-    private Map<Long, SetMultimap<Long, TPartitionVersionInfo>> republishInfo() {
-        SetMultimap<Long, TPartitionVersionInfo> transactions = HashMultimap.create();
-        transactions.put(TRANSACTION_ID, new TPartitionVersionInfo(2L, 3L, 0L));
-        return Map.of(1L, transactions);
+    private Map<Long, Map<Long, PublishVersionTask.RepublishInfo>> republishInfo(TPartitionVersionInfo... partitions) {
+        PublishVersionTask.RepublishInfo report = new PublishVersionTask.RepublishInfo(Collections.emptyMap());
+        for (TPartitionVersionInfo partition : partitions) {
+            report.addPartition(partition);
+        }
+        return Map.of(1L, Map.of(TRANSACTION_ID, report));
     }
 
     private PublishVersionTask newPublishTask(long backendId, long transactionId) {

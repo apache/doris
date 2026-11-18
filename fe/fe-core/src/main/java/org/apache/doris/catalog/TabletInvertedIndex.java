@@ -89,7 +89,7 @@ public abstract class TabletInvertedIndex {
                              Set<Long> tabletFoundInMeta,
                              ListMultimap<TStorageMedium, Long> tabletMigrationMap,
                              Map<Long, Long> partitionVersionSyncMap,
-                             Map<Long, SetMultimap<Long, RepublishInfo>> transactionsToPublish,
+                             Map<Long, Map<Long, RepublishInfo>> transactionsToPublish,
                              SetMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<TTabletMetaInfo> tabletToUpdate,

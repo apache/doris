@@ -22,7 +22,6 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TTxnWriteSchemaSnapshot;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -33,31 +32,7 @@ import java.util.Collections;
 
 class TxnWriteSchemaSnapshotTest {
     @Test
-    void remoteWireRejectsEmptyIndexSet() {
-        TTxnWriteSchemaSnapshot wire = new TTxnWriteSchemaSnapshot().setTableId(1)
-                .setIndexSchemaVersions(Collections.emptyMap()).setChangelogMappings(Collections.emptyList())
-                .setPartialUpdate(false);
-        Assertions.assertThrows(IllegalArgumentException.class, () -> TxnWriteSchemaSnapshotCodec.fromThrift(wire));
-    }
-
-    @Test
-    void remoteWireRoundTripPreservesSchemaIdentity() {
-        TxnWriteSchemaSnapshot snapshot = new TxnWriteSchemaSnapshot(1, ImmutableMap.of(2L, 3),
-                Collections.emptyMap(), false);
-        Assertions.assertEquals(snapshot, TxnWriteSchemaSnapshotCodec.fromThrift(
-                TxnWriteSchemaSnapshotCodec.toThrift(snapshot)));
-        IllegalArgumentException missingIndex = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> TxnWriteSchemaSnapshotCodec.fromThrift(
-                        TxnWriteSchemaSnapshotCodec.toThrift(snapshot), 1, 99));
-        Assertions.assertTrue(missingIndex.getMessage().contains("base index 99"));
-        IllegalArgumentException wrongTable = Assertions.assertThrows(IllegalArgumentException.class,
-                () -> TxnWriteSchemaSnapshotCodec.fromThrift(
-                        TxnWriteSchemaSnapshotCodec.toThrift(snapshot), 99, 2));
-        Assertions.assertTrue(wrongTable.getMessage().contains("table ID mismatch: expected 99, actual 1"));
-    }
-
-    @Test
-    void partialSchemaUsesBaseIndexAndDeepCopiesMutableTypes() {
+    void partialSchemaFreezesStringWidthsAndSharesThemWithCommit() {
         OlapTable table = Mockito.mock(OlapTable.class);
         MaterializedIndexMeta base = Mockito.mock(MaterializedIndexMeta.class);
         MaterializedIndexMeta rollup = Mockito.mock(MaterializedIndexMeta.class);
@@ -73,15 +48,19 @@ class TxnWriteSchemaSnapshotTest {
         TxnWriteSchemaSnapshot snapshot = TxnWriteSchemaSnapshot.capture(table, true);
         TransactionState state = new TransactionState();
         state.registerWriteSchema(100, snapshot);
-        ((ScalarType) column.getType()).setLength(20);
+        Assertions.assertSame(snapshot.getPartialSchema(), state.getTxnSchema(1));
         Mockito.when(base.getSchemaVersion()).thenReturn(4);
-        Assertions.assertEquals(10, snapshot.getPartialSchema().get(0).getStrLen());
+        Assertions.assertTrue(state.checkSchemaCompatibility(table));
+        ((ScalarType) column.getType()).setLength(20);
         Assertions.assertFalse(state.checkSchemaCompatibility(table));
-        Assertions.assertEquals(3, state.getTxnSchema(1).schemaVersion);
+        Mockito.when(base.getSchema()).thenReturn(Collections.emptyList());
+        Assertions.assertTrue(state.checkSchemaCompatibility(table));
+        Mockito.when(base.getSchema()).thenReturn(Collections.singletonList(column));
         Assertions.assertNull(state.getWriteSchema(100, 1).getPartialSchema());
         state.pruneAfterVisible();
         Assertions.assertNull(state.getTxnSchema(1));
-        Assertions.assertEquals(10, snapshot.getPartialSchema().get(0).getStrLen());
+        Assertions.assertTrue(state.checkSchemaCompatibility(table));
+        Assertions.assertFalse(snapshot.getPartialSchema().isCompatibleWith(base));
         String json = GsonUtils.GSON.toJson(snapshot);
         Assertions.assertFalse(json.contains("partialSchema"));
         Assertions.assertEquals(snapshot, GsonUtils.GSON.fromJson(json, TxnWriteSchemaSnapshot.class));
@@ -103,20 +82,5 @@ class TxnWriteSchemaSnapshotTest {
         replay.registerWriteSchema(100, first);
         Assertions.assertThrows(IllegalStateException.class, () -> replay.registerWriteSchema(102, first));
         Assertions.assertEquals(first, replay.getWriteSchema(100, 1));
-    }
-
-    @Test
-    void remoteInstallationRejectsExistingLocalSchemaWithoutMutation() {
-        TransactionState state = new TransactionState();
-        TxnWriteSchemaSnapshot local = new TxnWriteSchemaSnapshot(1, ImmutableMap.of(2L, 3),
-                Collections.emptyMap(), false);
-        state.registerWriteSchema(state.getTransactionId(), local);
-        TxnWriteSchemaSnapshot remote = new TxnWriteSchemaSnapshot(2, ImmutableMap.of(3L, 4),
-                Collections.emptyMap(), true);
-        Assertions.assertThrows(IllegalStateException.class, () -> state.installRemoteWriteSchema(remote));
-        Assertions.assertEquals(local, state.getWriteSchema(state.getTransactionId(), 1));
-        Assertions.assertNull(state.getWriteSchema(state.getTransactionId(), 2));
-        Assertions.assertFalse(state.isPartialUpdate());
-        Assertions.assertEquals(ImmutableMap.of(1L, Collections.singleton(2L)), state.getLoadedTblIndexes());
     }
 }

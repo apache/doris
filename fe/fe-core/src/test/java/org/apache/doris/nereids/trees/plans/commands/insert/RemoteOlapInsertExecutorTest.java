@@ -35,15 +35,12 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.transaction.TxnWriteSchemaSnapshot;
-import org.apache.doris.transaction.TxnWriteSchemaSnapshotCodec;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -80,10 +77,8 @@ class RemoteOlapInsertExecutorTest {
                 .thenReturn(coordinator);
         Mockito.when(client.commitRemoteTxn(Mockito.any())).thenAnswer(invocation -> {
             TCommitRemoteTxnRequest request = invocation.getArgument(0);
-            // Validate the actual outgoing request with the destination's identity checks.
-            TxnWriteSchemaSnapshot decoded = TxnWriteSchemaSnapshotCodec.fromThrift(
-                    request.getWriteSchemas().get(0), destination.getId(), destination.getBaseIndexId());
-            Assertions.assertEquals(Collections.singletonMap(202L, 3), decoded.getIndexSchemaVersions());
+            Assertions.assertTrue(request.isSetExpectedTableId());
+            Assertions.assertEquals(destination.getId(), request.getExpectedTableId());
             return new TCommitRemoteTxnResult().setStatus(new TStatus(TStatusCode.OK)).setTxnStatus(true);
         });
         try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class)) {
@@ -91,14 +86,9 @@ class RemoteOlapInsertExecutorTest {
             RemoteOlapInsertExecutor executor = new RemoteOlapInsertExecutor(ctx, remote, "label",
                     Mockito.mock(NereidsPlanner.class), Optional.empty(), false, 1L);
             executor.txnId = 7L;
-            TxnWriteSchemaSnapshot localSnapshot = TxnWriteSchemaSnapshot.capture(remote, false);
-            Field snapshotField = RemoteOlapInsertExecutor.class.getDeclaredField("writeSchemaSnapshot");
-            snapshotField.setAccessible(true);
-            snapshotField.set(executor, localSnapshot);
             executor.onComplete();
             Mockito.verify(client).commitRemoteTxn(Mockito.any());
             Assertions.assertEquals(TransactionStatus.VISIBLE, executor.txnStatus);
-            Assertions.assertEquals(901L, localSnapshot.getTableId());
             Assertions.assertEquals(901L, remote.getId());
             Assertions.assertEquals(101L, destination.getId());
         }

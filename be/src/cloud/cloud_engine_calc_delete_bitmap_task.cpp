@@ -359,8 +359,7 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
                                            transaction_id, _tablet_id);
         }
         RETURN_IF_ERROR(changelog::resolve_layout(
-                rowset->tablet_schema()->copy_without_variant_extracted_columns(),
-                attach_changelog.rowset->tablet_schema()->copy_without_variant_extracted_columns(),
+                rowset->tablet_schema(), attach_changelog.rowset->tablet_schema(),
                 *attach_changelog.column_mappings, &changelog_layout));
     }
 

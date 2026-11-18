@@ -1359,16 +1359,27 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 && hasSameScanParams(scanParams, that.scanParams);
     }
 
-    @Override
-    public boolean supportPruneNestedColumn() {
+    private boolean isChangelogMergeScan() {
         if (!scanParams.isPresent() || !scanParams.get().incrementalRead()) {
-            return true;
+            return false;
         }
         OlapTable source = table instanceof OlapChangelogTableWrapper
                 ? ((OlapChangelogTableWrapper) table).getOriginTable() : getTable();
-        // MIN_DELTA compares whole values. DETAIL swaps current/before values and therefore
-        // needs matching materialized types; APPEND_ONLY can still prune individual fields.
-        return OlapScanNode.parseChangelogScanType(scanParams.get(), source) == TChangelogScanType.APPEND_ONLY;
+        TChangelogScanType mode = OlapScanNode.parseChangelogScanType(scanParams.get(), source);
+        return mode == TChangelogScanType.DETAIL || mode == TChangelogScanType.MIN_DELTA;
+    }
+
+    public boolean canPushDownVirtualColumns() {
+        // Expressions on merged rows must see the emitted BEFORE or AFTER image.
+        OlapTable olapTable = getTable();
+        return !isChangelogMergeScan() && (olapTable.getKeysType() == KeysType.DUP_KEYS
+                || olapTable.getEnableUniqueKeyMergeOnWrite());
+    }
+
+    @Override
+    public boolean supportPruneNestedColumn() {
+        // MIN_DELTA compares whole values. DETAIL swaps current/before values and needs matching types.
+        return !isChangelogMergeScan();
     }
 
     public Optional<TableScanParams> getScanParams() {

@@ -21,20 +21,18 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.IOException;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 /** Schema identity captured under the table read lock while preparing a write. */
 public final class TxnWriteSchemaSnapshot implements GsonPostProcessable {
@@ -46,8 +44,44 @@ public final class TxnWriteSchemaSnapshot implements GsonPostProcessable {
     private Map<Long, ChangelogWriteMapping> changelogMappings;
     @SerializedName("partialUpdate")
     private final boolean partialUpdate;
-    private transient List<Column> partialSchema;
-    private transient int partialSchemaVersion;
+    private transient PartialUpdateSchema partialSchema;
+
+    // Width checks are the only commit-time consumers of the original columns. Freeze the
+    // scalar values so a later change to a Column or its ScalarType cannot affect this write.
+    static final class PartialUpdateSchema {
+        private final int version;
+        private final ImmutableListMultimap<Integer, Integer> stringWidths;
+
+        private PartialUpdateSchema(MaterializedIndexMeta base) {
+            version = base.getSchemaVersion();
+            ImmutableListMultimap.Builder<Integer, Integer> widths = ImmutableListMultimap.builder();
+            for (Column column : base.getSchema()) {
+                if (column.isVisible() && column.getType().isStringType()) {
+                    widths.put(column.getUniqueId(), column.getStrLen());
+                }
+            }
+            stringWidths = widths.build();
+        }
+
+        boolean isCompatibleWith(MaterializedIndexMeta current) {
+            if (current.getSchemaVersion() <= version || stringWidths.isEmpty()) {
+                return true;
+            }
+            // Schemas without allocated UIDs can repeat an ID. Preserve the first-match
+            // lookup used by the commit check, including when that column is not a string.
+            Map<Integer, Column> columnsById = new HashMap<>();
+            for (Column column : current.getSchema()) {
+                columnsById.putIfAbsent(column.getUniqueId(), column);
+            }
+            for (Map.Entry<Integer, Integer> width : stringWidths.entries()) {
+                Column column = columnsById.get(width.getKey());
+                if (column != null && column.getType().isStringType() && column.getStrLen() != width.getValue()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
 
     public TxnWriteSchemaSnapshot(long tableId, Map<Long, Integer> indexSchemaVersions,
             Map<Long, ChangelogWriteMapping> changelogMappings, boolean partialUpdate) {
@@ -72,10 +106,7 @@ public final class TxnWriteSchemaSnapshot implements GsonPostProcessable {
         });
         TxnWriteSchemaSnapshot snapshot = new TxnWriteSchemaSnapshot(table.getId(), versions, mappings, partialUpdate);
         if (partialUpdate) {
-            MaterializedIndexMeta base = table.getIndexMetaByIndexId(table.getBaseIndexId());
-            snapshot.partialSchema = ImmutableList.copyOf(base.getSchema().stream()
-                    .map(TxnWriteSchemaSnapshot::copyColumn).collect(Collectors.toList()));
-            snapshot.partialSchemaVersion = base.getSchemaVersion();
+            snapshot.partialSchema = new PartialUpdateSchema(table.getIndexMetaByIndexId(table.getBaseIndexId()));
         }
         return snapshot;
     }
@@ -88,10 +119,6 @@ public final class TxnWriteSchemaSnapshot implements GsonPostProcessable {
 
     TxnWriteSchemaSnapshot persistentIdentity() {
         return new TxnWriteSchemaSnapshot(tableId, indexSchemaVersions, changelogMappings, partialUpdate);
-    }
-
-    static Column copyColumn(Column column) {
-        return GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(column), Column.class);
     }
 
     public long getTableId() {
@@ -114,13 +141,8 @@ public final class TxnWriteSchemaSnapshot implements GsonPostProcessable {
         return partialUpdate;
     }
 
-    List<Column> getPartialSchema() {
-        return partialSchema == null ? null : partialSchema.stream()
-                .map(TxnWriteSchemaSnapshot::copyColumn).collect(Collectors.toList());
-    }
-
-    int getPartialSchemaVersion() {
-        return partialSchemaVersion;
+    PartialUpdateSchema getPartialSchema() {
+        return partialSchema;
     }
 
     @Override

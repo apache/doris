@@ -39,6 +39,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class RemoteOlapTable extends OlapTable {
     private static final Logger LOG = LogManager.getLogger(RemoteOlapTable.class);
 
+    public static final String CHANGELOG_WRITE_ERROR = "Writing to a changelog-enabled table through a Doris catalog"
+            + " is not supported";
+
     // getId() is rewritten to a local catalog ID; commits must retain the destination identity.
     private final long remoteTableId;
     private RemoteDorisExternalCatalog catalog;

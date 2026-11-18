@@ -583,10 +583,9 @@ Status TxnManager::publish_txn(
             return Status::InvalidArgument("publish txn {} tablet {} misses changelog mappings",
                                            transaction_id, tablet_id);
         }
-        RETURN_IF_ERROR(changelog::resolve_layout(
-                rowset->tablet_schema()->copy_without_variant_extracted_columns(),
-                attached_changelog->tablet_schema()->copy_without_variant_extracted_columns(),
-                *column_mappings, &changelog_layout));
+        RETURN_IF_ERROR(changelog::resolve_layout(rowset->tablet_schema(),
+                                                  attached_changelog->tablet_schema(),
+                                                  *column_mappings, &changelog_layout));
     }
     const bool requires_commit_tso = rowset->tablet_schema()->is_tso_enabled() ||
                                      (attached_changelog != nullptr &&

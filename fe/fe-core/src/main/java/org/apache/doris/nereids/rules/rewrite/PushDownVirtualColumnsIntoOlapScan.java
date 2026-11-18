@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -161,37 +160,25 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
                 logicalProject(logicalFilter(logicalOlapScan()
-                        .when(s -> {
-                            // Only apply when session variable experimental_enable_virtual_slot_for_cse is enabled
-                            if (ConnectContext.get() == null
-                                    || !ConnectContext.get().getSessionVariable().experimentalEnableVirtualSlotForCse) {
-                                return false;
-                            }
-                            boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
-                                    || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
-                            return dupTblOrMOW && s.getVirtualColumns().isEmpty();
-                        })))
+                        .when(this::canPushDown)))
                         .then(project -> {
                             LogicalFilter<LogicalOlapScan> filter = project.child();
                             LogicalOlapScan scan = filter.child();
                             return pushDown(filter, scan, Optional.of(project));
                         }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN),
                 logicalFilter(logicalOlapScan()
-                        .when(s -> {
-                            // Only apply when session variable experimental_enable_virtual_slot_for_cse is enabled
-                            if (ConnectContext.get() == null
-                                    || !ConnectContext.get().getSessionVariable().experimentalEnableVirtualSlotForCse) {
-                                return false;
-                            }
-                            boolean dupTblOrMOW = s.getTable().getKeysType() == KeysType.DUP_KEYS
-                                    || s.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite();
-                            return dupTblOrMOW && s.getVirtualColumns().isEmpty();
-                        }))
+                        .when(this::canPushDown))
                         .then(filter -> {
                             LogicalOlapScan scan = filter.child();
                             return pushDown(filter, scan, Optional.empty());
                         }).toRule(RuleType.PUSH_DOWN_VIRTUAL_COLUMNS_INTO_OLAP_SCAN)
         );
+    }
+
+    private boolean canPushDown(LogicalOlapScan scan) {
+        return ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().experimentalEnableVirtualSlotForCse
+                && scan.canPushDownVirtualColumns() && scan.getVirtualColumns().isEmpty();
     }
 
     private Plan pushDown(LogicalFilter<LogicalOlapScan> filter, LogicalOlapScan logicalOlapScan,
