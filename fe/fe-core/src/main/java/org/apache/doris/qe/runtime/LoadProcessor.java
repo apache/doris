@@ -162,9 +162,25 @@ public class LoadProcessor extends AbstractJobProcessor {
         return latch.get().await(timeout, unit);
     }
 
+    private void updateLoadDiagnostics(TReportExecStatusParams params) {
+        if (params.isSetTrackingUrl()) {
+            loadContext.updateTrackingUrl(params.getTrackingUrl());
+        }
+        if (params.isSetFirstErrorMsg()) {
+            loadContext.updateFirstErrorMsg(params.getFirstErrorMsg());
+        }
+    }
 
     @Override
-    protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
+    protected void doProcessReportExecStatus(TReportExecStatusParams params,
+            SingleFragmentPipelineTask fragmentTask, Runnable updateStatus) {
+        boolean accepted = fragmentTask.processReportExecStatus(params, () -> acceptFinalReport(params, updateStatus));
+        if (!accepted) {
+            if (!params.isDone() && !new Status(params.status).ok()) {
+                updateLoadDiagnostics(params);
+            }
+            updateStatus.run();
+        }
         if (params.isSetLoadedRows() && jobId != -1) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("doProcessReportExecStatus: forwarding load progress to LoadManager, "
@@ -189,7 +205,7 @@ public class LoadProcessor extends AbstractJobProcessor {
             }
         }
 
-        if (!fragmentTask.processReportExecStatus(params, () -> acceptFinalReport(params))) {
+        if (!accepted) {
             if (CommitDataSerializer.hasCommitData(params) && !fragmentTask.isDone()) {
                 throw new IllegalStateException("External-file report was not a completed fragment report");
             }
@@ -218,34 +234,34 @@ public class LoadProcessor extends AbstractJobProcessor {
         }
     }
 
-    private void acceptFinalReport(TReportExecStatusParams params) {
+    private void acceptFinalReport(TReportExecStatusParams params, Runnable updateStatus) {
         LoadContext loadContext = coordinatorContext.asLoadProcessor().loadContext;
-        if (params.isSetDeltaUrls()) {
-            loadContext.updateDeltaUrls(params.getDeltaUrls());
-        }
-        if (params.isSetLoadCounters()) {
-            loadContext.updateLoadCounters(params.getLoadCounters());
-        }
-        if (params.isSetTrackingUrl()) {
-            loadContext.updateTrackingUrl(params.getTrackingUrl());
-        }
-        if (params.isSetFirstErrorMsg()) {
-            loadContext.updateFirstErrorMsg(params.getFirstErrorMsg());
-        }
-        if (params.isSetTxnId()) {
-            loadContext.updateTransactionId(params.getTxnId());
-        }
-        if (params.isSetLabel()) {
-            loadContext.updateLabel(params.getLabel());
-        }
-        if (params.isSetExportFiles()) {
-            loadContext.addExportFiles(params.getExportFiles());
-        }
-        if (params.isSetCommitInfos()) {
-            loadContext.updateCommitInfos(params.getCommitInfos());
-        }
-        if (params.isSetErrorTabletInfos()) {
-            loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
+        try {
+            if (params.isSetDeltaUrls()) {
+                loadContext.updateDeltaUrls(params.getDeltaUrls());
+            }
+            if (params.isSetLoadCounters()) {
+                loadContext.updateLoadCounters(params.getLoadCounters());
+            }
+            updateLoadDiagnostics(params);
+            if (params.isSetTxnId()) {
+                loadContext.updateTransactionId(params.getTxnId());
+            }
+            if (params.isSetLabel()) {
+                loadContext.updateLabel(params.getLabel());
+            }
+            if (params.isSetExportFiles()) {
+                loadContext.addExportFiles(params.getExportFiles());
+            }
+            if (params.isSetCommitInfos()) {
+                loadContext.updateCommitInfos(params.getCommitInfos());
+            }
+            if (params.isSetErrorTabletInfos()) {
+                loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
+            }
+        } finally {
+            // A failed aggregation must still publish the reported error and release load waiters.
+            updateStatus.run();
         }
         long txnId = loadContext.getTransactionId();
         if (CommitDataSerializer.hasCommitData(params)) {
