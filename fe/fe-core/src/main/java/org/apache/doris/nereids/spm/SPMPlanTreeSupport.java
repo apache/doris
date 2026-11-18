@@ -45,7 +45,9 @@ import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -62,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
@@ -4187,7 +4190,7 @@ public final class SPMPlanTreeSupport {
      */
     private static StarLabels qualifiedStarExpansion(Plan relation, List<String> qualifier,
             CteScope scope) {
-        if (relation instanceof LogicalJoin) {
+        if (relation instanceof LogicalJoin || relation instanceof LogicalUsingJoin) {
             for (Plan child : relation.children()) {
                 StarLabels side = qualifiedStarExpansion(child, qualifier, scope);
                 if (side != null) {
@@ -6642,7 +6645,9 @@ public final class SPMPlanTreeSupport {
      * names, literal VALUES) stays in the rendered text.
      */
     private static String boundaryPreservingDeepText(Expression expression) {
-        StringBuilder text = new StringBuilder(expression.toSql());
+        Expression rendered = expression.anyMatch(node -> node instanceof SubqueryExpr)
+                ? expression.rewriteUp(SPMPlanTreeSupport::renderSubqueryIdentity) : expression;
+        StringBuilder text = new StringBuilder(rendered.toSql());
         List<String> slots = new ArrayList<>();
         collectSlotEncodings(expression, slots);
         collectFunctionIdentities(expression, slots);
@@ -6651,6 +6656,23 @@ public final class SPMPlanTreeSupport {
             text.append(slot).append('\u0003');
         }
         return text.toString();
+    }
+
+    /**
+     * Renders the subquery kind, polarity and structure without parse-local plan ids.
+     * The topology comparison checks the nested plans separately, including literal values.
+     */
+    private static Expression renderSubqueryIdentity(Expression expression) {
+        if (!(expression instanceof SubqueryExpr)) {
+            return expression;
+        }
+        SubqueryExpr subquery = (SubqueryExpr) expression;
+        List<Expression> arguments = new ArrayList<>(expression.children());
+        arguments.add(new StringLiteral(subquery.getQueryPlan().toSpmDigest()));
+        boolean negated = expression instanceof InSubquery && ((InSubquery) expression).isNot()
+                || expression instanceof Exists && ((Exists) expression).isNot();
+        return new UnboundFunction("<" + expression.getClass().getSimpleName() + (negated ? ":not>" : ">"),
+                arguments);
     }
 
     /**

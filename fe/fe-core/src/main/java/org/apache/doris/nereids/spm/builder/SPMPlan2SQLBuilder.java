@@ -1042,7 +1042,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // captures them into the string.
             String sinkOrderBy = child.getOrderBy();
             String sinkLimit = child.getLimit();
-            if (!sinkOrderBy.isEmpty() || !sinkLimit.isEmpty()) {
+            // The order and cap belong to the input checked by ASSERT_ROWS.
+            if (!child.isAssertRows() && (!sinkOrderBy.isEmpty() || !sinkLimit.isEmpty())) {
                 // Independently of the LIMIT: "SELECT a FROM t ORDER BY b + 1"
                 // (no LIMIT at all) arrives here as a Sort under the final relabel wrapper,
                 // and leaving the ORDER BY inside the derived table was NOT safe - the
@@ -3671,7 +3672,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // needs their final names (see hoistableOrderBy).
         String childOrderBy = child.getOrderBy();
         String childLimit = child.getLimit();
-        if ((!childOrderBy.isEmpty() || !childLimit.isEmpty())
+        // ASSERT_ROWS must check the capped child before the outer projection.
+        if (!child.isAssertRows() && (!childOrderBy.isEmpty() || !childLimit.isEmpty())
                 && hoistableProjection(project)) {
             String hoisted = childOrderBy.isEmpty() ? ""
                     : hoistableOrderBy(child, childOrderBy, selects, embedsAsSubquery(child));

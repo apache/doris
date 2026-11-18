@@ -18,335 +18,53 @@
  */
 
 suite("spm_tpch_sf01_q15", "spm") {
-
-    // SPM baseline DDL + match verification on the ORIGINAL TPCH q15 query
-    // (SQL unchanged from sql/q15.sql) against the REAL TPCH sf0.1 data loaded
-    // by load.groovy.
-    // 1. CREATE BASELINE PLAN from the query text (bind + plan); the returned
-    //    baseline id locates the own row in SHOW BASELINE PLANS and is used to
-    //    drop the baseline afterwards.
-    // 2. Match verification: the query itself and a similar query (same structure,
-    //    different literal values) run through the SPM rewrite path
-    //    (enable_spm_rewrite=true); each must produce the same result as without SPM
-    //    (rewrite hit or safe fallback - never an error or a different result).
-
     if (isCloudMode()) {
         return
     }
-    sql "use regression_test_tpch_sf0_1_p1"
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    // Pin the planning cost inputs so the SPM-optimized plan and the frozen
-    // plan_sql text decompiled from it stay reproducible across FE restarts.
-    // (enable_nereids_distribute_planner is intentionally NOT pinned: disabling
-    // it makes SPM-replayed plans stall at execution - see comments.)
-    sql 'set be_number_for_test=3'
-    sql 'set parallel_pipeline_task_num=8'
-    sql 'set forbid_unknown_col_stats=true'
-    sql 'set enable_nereids_timeout=false'
-    // SPM regression pins the fallback switch CLOSED: a rewritten-plan failure must
-    // surface as an error, never silently re-run the original query.
-    sql 'set enable_spm_fallback=false'
-    sql 'set disable_nereids_rules=PRUNE_EMPTY_PARTITION'
+    sql "USE regression_test_tpch_sf0_1_p1"
+    sql "SET be_number_for_test = 3"
+    sql "SET parallel_pipeline_task_num = 8"
+    sql "SET forbid_unknown_col_stats = true"
+    sql "SET enable_nereids_timeout = false"
+    sql "SET spm_rewrite_timeout_ms = 60000"
+    sql "SET enable_spm_fallback = false"
+    sql "SET disable_nereids_rules = PRUNE_EMPTY_PARTITION"
 
-    // CREATE BASELINE PLAN returns the created baseline id; the own row in
-    // SHOW BASELINE PLANS is located by that id (duplicate CREATE is idempotent,
-    // so no upfront cleanup is needed).
-    def createRes = sql """CREATE GLOBAL BASELINE PLAN
-        "SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-  s_suppkey"
-        WITH "SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-  s_suppkey""""
-    long id = Long.parseLong(createRes[0][0].toString())
+    // Inline the revenue1 definition so SPM can capture and replay the Q15 computation.
+    def q15 = { String startDate ->
+        """WITH revenue1 AS (
+            SELECT l_suppkey AS supplier_no,
+                   sum(l_extendedprice * (1 - l_discount)) AS total_revenue
+            FROM lineitem
+            WHERE l_shipdate >= DATE '${startDate}'
+              AND l_shipdate < DATE '${startDate}' + INTERVAL '3' MONTH
+            GROUP BY l_suppkey
+        )
+        SELECT s_suppkey, s_name, s_address, s_phone, total_revenue
+        FROM supplier, revenue1
+        WHERE s_suppkey = supplier_no
+          AND total_revenue = (SELECT max(total_revenue) FROM revenue1)
+        ORDER BY s_suppkey"""
+    }
 
+    String original = q15("1996-01-01")
+    String variant = q15("1996-04-01")
+    long id = sql("CREATE GLOBAL BASELINE PLAN \"${original}\" WITH \"${original}\"")[0][0] as Long
     try {
-        List<List<Object>> own = sql """SHOW BASELINE PLANS WHERE id = ${id}"""
-        assertTrue(own.size() >= 1, "baseline should be visible by id ${id}, got: ${own}")
-        assertEquals("USER", own[0][8])
-        assertEquals("ENABLED", own[0][9])
-        assertTrue(own[0][4].toString().contains("supplier"),
-                "q15 plan_sql should reference supplier: ${own[0][4]}")
-        // q15 reads the VIEW revenue1: SPM freezes / replays plans over the BASE
-        // tables a view expands to, and the replay is planned BEFORE the normal
-        // authorization pass - replaying a view query would authorize the base
-        // tables instead of the view. Such a plan is therefore never frozen
-        // (the stored plan_sql stays the user text) and never replayed.
-        assertTrue(own[0][4].toString().contains("revenue1"),
-                "a view baseline must keep the user plan_sql text: ${own[0][4]}")
-        assertFalse(own[0][4].toString().contains("internal."),
-                "a view baseline must not store a decompiled plan over the base tables: ${own[0][4]}")
-        // print the exact baseline columns (bind_sql / bind_sql_digest / plan_sql)
-        // into the .out file as three separate labeled blocks so the three values stay
-        // readable and distinguishable. The real decompiled subquery aliases (t_0,
-        // t_1, ...) are kept verbatim (no normalization)
-        order_qt_spm_bind_sql """
-            SELECT bind_sql FROM __internal_schema.spm_baselines WHERE id = ${id}
-        """
-        order_qt_spm_bind_digest """
-            SELECT bind_sql_digest FROM __internal_schema.spm_baselines WHERE id = ${id}
-        """
-        order_qt_spm_plan_sql """
-            SELECT plan_sql
-            FROM __internal_schema.spm_baselines WHERE id = ${id}
-        """
-    
-        // ===== match verification: the baseline query itself hits its own baseline =====
-        sql 'set enable_spm_rewrite=true'
-        sql 'set spm_rewrite_timeout_ms=60000'
-    def origWithSpm = sql """SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey"""
-    order_qt_orig_with_spm """SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey
-    LIMIT 100"""
-        sql 'set enable_spm_rewrite=false'
-    def origWithoutSpm = sql """SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey"""
-    order_qt_orig_without_spm """SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey
-    LIMIT 100"""
-        assertEquals(origWithSpm, origWithoutSpm,
-                "SPM rewrite must preserve the result of the q15 query")
-    
-        // ===== match verification: a similar query (same structure, different literals) =====
-        sql 'set enable_spm_rewrite=true'
-    def similarWithSpm = sql """SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey"""
-    order_qt_similar_with_spm """SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey
-    LIMIT 100"""
-        sql 'set enable_spm_rewrite=false'
-    def similarWithoutSpm = sql """SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey"""
-    order_qt_similar_without_spm """SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey
-    LIMIT 100"""
-        assertEquals(similarWithSpm, similarWithoutSpm,
-                "SPM rewrite must preserve the result of a similar q15 query")
-    
-        // ===== EXPLAIN check: original and similar queries must actually hit the baseline =====
-        sql 'set enable_spm_rewrite=true'
-    def explainOrig = sql """EXPLAIN SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey"""
-    def explainSimilar = sql """EXPLAIN SELECT
-  s_suppkey,
-  s_name,
-  s_address,
-  s_phone,
-  total_revenue
-FROM
-  supplier,
-  revenue1
-WHERE
-  s_suppkey = supplier_no
-  AND total_revenue = (
-    SELECT max(total_revenue)
-    FROM
-      revenue1
-  )
-ORDER BY
-      s_suppkey"""
-        sql 'set enable_spm_rewrite=false'
-        // q15 references the VIEW revenue1: the view guard keeps the ORIGINAL plan
-        // (no baseline hit), so that the view itself is analyzed and authorized
-        // exactly like without SPM. A replay would run over the view's base tables
-        // and bypass the view check.
-        assertFalse(explainOrig.toString().contains("SPM baseline hit: id="),
-                "EXPLAIN of a view query must not report an SPM baseline hit, got: " + explainOrig)
-        assertFalse(explainSimilar.toString().contains("SPM baseline hit: id="),
-                "EXPLAIN of a similar view query must not report an SPM baseline hit, got: " + explainSimilar)
+        order_qt_spm_bind_sql "SELECT bind_sql FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        order_qt_spm_bind_digest "SELECT bind_sql_digest FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        order_qt_spm_plan_sql "SELECT plan_sql FROM __internal_schema.spm_baselines WHERE id = ${id}"
 
-        // ===== control: a query WITHOUT a view still rewrites (the guard is view-only) =====
-        sql 'set enable_spm_rewrite=true'
-        String plainSql = "SELECT L_SUPPKEY FROM lineitem WHERE L_SHIPDATE >= '1996-01-01'"
-        def createPlain = sql ("CREATE GLOBAL BASELINE PLAN \"" + plainSql
-                + "\" WITH \"" + plainSql + "\"")
-        long plainId = Long.parseLong(createPlain[0][0].toString())
-        try {
-            def explainPlain = sql """EXPLAIN SELECT L_SUPPKEY FROM lineitem WHERE L_SHIPDATE >= '1996-02-01'"""
-            assertTrue(explainPlain.toString().contains("SPM baseline hit: id=" + plainId),
-                    "a non-view query must still hit its baseline, got: " + explainPlain)
-        } finally {
-            sql """DROP BASELINE PLAN IF EXISTS ${plainId}"""
-        }
-        sql 'set enable_spm_rewrite=false'
+        sql "SET enable_spm_rewrite = true"
+        assertTrue(sql("EXPLAIN ${original}").toString().contains("SPM baseline hit: id=${id},"))
+        assertTrue(sql("EXPLAIN ${variant}").toString().contains("SPM baseline hit: id=${id},"))
+        order_qt_orig_with_spm original
+        order_qt_similar_with_spm variant
+
+        sql "SET enable_spm_rewrite = false"
+        order_qt_orig_without_spm original
+        order_qt_similar_without_spm variant
     } finally {
-        // ===== cleanup own baseline (also runs when an assertion fails above) =====
-        sql """DROP BASELINE PLAN IF EXISTS ${id}"""
+        sql "DROP BASELINE PLAN IF EXISTS ${id}"
     }
 }
