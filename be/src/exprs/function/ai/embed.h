@@ -27,6 +27,7 @@
 #include "exprs/function/ai/ai_functions.h"
 #include "util/defer_op.h"
 #include "util/jsonb_utils.h"
+#include "util/s3_client_registry.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -190,6 +191,9 @@ private:
                                      ColumnUInt8::MutablePtr result_null_map) const {
         auto col_result = ColumnArray::create(
                 ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()));
+        // Keep presigning clients through this block, including AI request batch
+        // boundaries, then release them when expression evaluation finishes.
+        S3ClientScope s3_clients;
         std::vector<MultimodalType> batch_media_types;
         std::vector<std::string> batch_media_content_types;
         std::vector<std::string> batch_media_urls;
@@ -219,7 +223,7 @@ private:
             RETURN_IF_ERROR(_infer_media_type(file_input, content_type, media_type));
 
             std::string media_url;
-            RETURN_IF_ERROR(_resolve_media_url(file_input, ttl_seconds, media_url));
+            RETURN_IF_ERROR(_resolve_media_url(file_input, ttl_seconds, media_url, s3_clients));
 
             if (!batch_media_urls.empty() &&
                 batch_media_urls.size() >= static_cast<size_t>(max_batch_size)) {
@@ -457,7 +461,7 @@ private:
     }
 
     Status _resolve_media_url(const rapidjson::Value& file_input, int64_t ttl_seconds,
-                              std::string& media_url) const {
+                              std::string& media_url, S3ClientScope& s3_clients) const {
         std::string uri;
         RETURN_IF_ERROR(_get_required_string_field(file_input, "uri", uri));
 
@@ -469,7 +473,7 @@ private:
 
         S3ClientConf s3_client_conf;
         RETURN_IF_ERROR(init_s3_client_conf_from_json(file_input, s3_client_conf));
-        auto s3_client = DORIS_TRY(S3ClientFactory::instance().create(s3_client_conf));
+        auto s3_client = DORIS_TRY(s3_clients.get_or_create(s3_client_conf));
 
         S3URI s3_uri(uri);
         RETURN_IF_ERROR(s3_uri.parse());

@@ -47,6 +47,7 @@
 #include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "util/s3_client_registry.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -75,12 +76,16 @@ ObjClientHolder::ObjClientHolder(S3ClientConf conf) : _conf(std::move(conf)) {}
 
 ObjClientHolder::~ObjClientHolder() = default;
 
-Status ObjClientHolder::init() {
-    _client = DORIS_TRY(S3ClientFactory::instance().create(_conf));
+Status ObjClientHolder::init(S3ClientScope* scope) {
+    _client = DORIS_TRY(scope ? scope->get_or_create(_conf)
+                              : S3ClientFactory::instance().create(_conf));
     return Status::OK();
 }
 
 Status ObjClientHolder::reset(const S3ClientConf& conf) {
+    // Two credential updates must not publish in SDK-construction completion
+    // order: a slow older update could otherwise replace the newer client.
+    std::unique_lock reset_lock(_reset_mtx);
     S3ClientConf reset_conf;
     {
         std::shared_lock lock(_mtx);
@@ -115,9 +120,12 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
 
     {
         std::lock_guard lock(_mtx);
-        _client = std::move(client);
+        // client takes the old owner; its possibly expensive final release is
+        // after both holder locks are released, never inside the publication lock.
+        _client.swap(client);
         _conf = std::move(reset_conf);
     }
+    reset_lock.unlock();
 
     return Status::OK();
 }
@@ -144,6 +152,7 @@ Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
 }
 
 std::string ObjClientHolder::full_s3_path(std::string_view bucket, std::string_view key) const {
+    std::shared_lock lock(_mtx);
     return fmt::format("{}/{}/{}", _conf.endpoint, bucket, key);
 }
 
@@ -450,12 +459,10 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
     std::string key =
             _prefix.empty() ? path.native() : fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
-    if (is_public_endpoint &&
-        _client->s3_client_conf().endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
-        auto new_s3_conf = _client->s3_client_conf();
-        new_s3_conf.endpoint.erase(
-                _client->s3_client_conf().endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
-                LEN_OF_OSS_PRIVATE_SUFFIX);
+    auto new_s3_conf = _client->s3_client_conf();
+    if (is_public_endpoint && new_s3_conf.endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
+        new_s3_conf.endpoint.erase(new_s3_conf.endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
+                                   LEN_OF_OSS_PRIVATE_SUFFIX);
         auto client_result = S3ClientFactory::instance().create(new_s3_conf);
         if (!client_result) {
             LOG(WARNING) << "failed to create S3 client for presigned URL: "

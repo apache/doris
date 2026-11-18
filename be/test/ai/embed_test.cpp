@@ -23,6 +23,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -37,6 +38,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
+#include "util/s3_client_registry.h"
 
 namespace doris {
 
@@ -761,6 +763,56 @@ TEST(EMBED_TEST, embed_function_text_batch_split_by_session_variable) {
     const auto& col_array =
             assert_cast<const ColumnArray&>(*block.get_by_position(result_idx).column);
     assert_mock_embedding_column(col_array, texts.size());
+}
+
+TEST(EMBED_TEST, embed_function_multimodal_s3_client_lifetime) {
+    constexpr size_t rows = 64;
+    TQueryOptions query_options = create_fake_query_options();
+    query_options.__set_embed_max_batch_size(16);
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+    auto col_resource = ColumnHelper::create_column<DataTypeString>(
+            std::vector<std::string>(rows, "mock_resource"));
+    auto col_file = create_jsonb_column(std::vector<std::string>(rows, R"({
+        "content_type":"image/png", "uri":"s3://test-bucket/image.png",
+        "endpoint":"http://127.0.0.1:19000", "region":"us-east-1",
+        "ak":"test-ak", "sk":"test-sk"
+    })"));
+    Block block;
+    block.insert({std::move(col_resource), std::make_shared<DataTypeString>(), "resource"});
+    block.insert({std::move(col_file), std::make_shared<DataTypeJsonb>(), "file"});
+    block.insert(
+            {nullptr,
+             std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeFloat32>())),
+             "result"});
+    TAIResource config;
+    config.provider_type = "MOCK";
+    auto counting_adapter = std::make_shared<CountingMultimodalMockAdapter>();
+    std::shared_ptr<AIAdapter> adapter = counting_adapter;
+    adapter->init(config);
+
+    // Exercise the real SDK factory and signer, without an object-storage request. The
+    // adapter is mocked so the test needs neither object storage nor an AI service.
+    auto& factory = S3ClientFactory::instance();
+    const auto before = factory._registry->stats();
+    const auto start = std::chrono::steady_clock::now();
+    const auto status = FunctionEmbed().execute(ctx.get(), block, {0, 1}, 2, rows, config, adapter);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - start);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto after = factory._registry->stats();
+    RecordProperty("s3_clients_created", std::to_string(after.created - before.created));
+    RecordProperty("elapsed_us", std::to_string(elapsed.count()));
+    EXPECT_EQ(after.created - before.created, 1);
+    EXPECT_EQ(after.destroyed - before.destroyed, 1);
+    EXPECT_EQ(after.live, before.live);
+    EXPECT_EQ(after.indexed, before.indexed);
+    EXPECT_THAT(counting_adapter->batch_sizes, ::testing::ElementsAre(16, 16, 16, 16));
+    assert_mock_embedding_column(assert_cast<const ColumnArray&>(*block.get_by_position(2).column),
+                                 rows);
 }
 
 TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {

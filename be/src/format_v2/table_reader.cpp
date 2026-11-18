@@ -57,6 +57,7 @@
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
 #include "util/hash_util.hpp"
+#include "util/s3_client_registry.h"
 #include "util/string_util.h"
 
 namespace doris::format {
@@ -612,6 +613,11 @@ std::shared_ptr<io::FileSystemProperties> create_system_properties(
         return system_properties;
     }
     system_properties->system_type = scan_params->file_type;
+    // This property holder spans all files of the TableReader, so sequential
+    // opens reuse their client even after the preceding file reader is closed.
+    if (system_properties->system_type == TFileType::FILE_S3) {
+        system_properties->s3_client_scope = std::make_shared<S3ClientScope>();
+    }
     system_properties->properties = scan_params->properties;
     system_properties->hdfs_params = scan_params->hdfs_params;
     if (scan_params->__isset.broker_addresses) {

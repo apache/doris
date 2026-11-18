@@ -83,3 +83,34 @@ declarations in `<subsystem>_fwd.h` (precedent:
 `exec/common/hash_table/phmap_fwd_decl.h`) and include the real headers only
 in `.cpp` files. Do not put function bodies, class bodies, or includes of
 non-fwd project headers into a `*_fwd.h`.
+
+## Object-storage client reuse
+
+The BE shares object-storage SDK clients by their complete connection and
+credential configuration. Two startup settings bound cross-query retention:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `s3_client_cache_capacity` | `64` | Maximum retained clients; `0` disables cross-query retention. |
+| `s3_client_cache_stale_sweep_time_sec` | `300` | Positive idle timeout, renewed when the factory acquires a client. |
+
+The cache uses LRU eviction and participates in CacheManager memory-pressure
+and periodic stale-entry pruning. Idle cleanup can lag the timeout by the GC
+sweep interval; it does not require another query. Disabling periodic memory
+GC disables that sweep, while capacity eviction remains active. Neither the
+capacity nor the timeout extends the validity of remote credentials.
+Memory pressure may reduce the capacity; increasing `mem_limit` does not raise
+the configured object-count ceiling.
+
+Eviction releases the cache's reference. Active readers, writers, iterators
+and asynchronous operations retain their own references and continue to work.
+An active client remains discoverable through the weak registry even after
+eviction. The retention limit therefore bounds cache ownership, not all active
+clients or their SDK-owned memory in bytes. Scan/block scopes also preserve
+reuse when global retention is disabled or evicted.
+
+When retention is enabled, the `s3_client_cached` bvar counts retained entries. `s3_client_created`,
+`s3_client_destroyed`, `s3_client_live` and `s3_client_indexed` expose object
+lifetime and weak-index cleanup. SDK/provider members are destroyed before
+the destruction counter advances. Cache memory accounting describes cache
+metadata and does not measure SDK/TLS allocations or process RSS.

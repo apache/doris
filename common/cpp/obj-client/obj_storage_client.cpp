@@ -24,6 +24,13 @@
 #include <chrono>
 
 namespace doris {
+
+void ObjStorageClient::set_lifetime_guard(std::shared_ptr<void> guard) {
+    CHECK(guard != nullptr);
+    CHECK(lifetime_guard_ == nullptr);
+    lifetime_guard_ = std::move(guard);
+}
+
 ObjStorageStatus obj_storage_status_from_http_code(int http_code, std::string message) {
     switch (http_code) {
     case 401:
