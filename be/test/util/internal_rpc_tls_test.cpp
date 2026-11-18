@@ -134,6 +134,12 @@ protected:
         return (certificates->path() / name).string();
     }
 
+    static void expect_file_encryption(const TFileEncryptionInfo& info, char key,
+                                       const std::string& aad) {
+        EXPECT_EQ(std::string(16, key), info.key);
+        EXPECT_EQ(aad, info.aad_prefix);
+    }
+
     static void expect_successful_split(FrontendServiceConnection& connection) {
         TFetchSplitBatchResult result;
         TFetchSplitBatchRequest request;
@@ -147,13 +153,12 @@ protected:
         ASSERT_EQ(1, ranges.size());
         EXPECT_EQ(TFileFormatType::FORMAT_PARQUET_PME, ranges[0].format_type);
         const auto& iceberg = ranges[0].table_format_params.iceberg_params;
-        EXPECT_EQ(std::string(16, 'd'), iceberg.encryption_info.key);
-        EXPECT_EQ(std::string("\0\xff", 2), iceberg.encryption_info.aad_prefix);
+        expect_file_encryption(iceberg.encryption_info, 'd', std::string("\0\xff", 2));
         ASSERT_EQ(2, iceberg.delete_files.size());
-        EXPECT_EQ(std::string(16, 'p'), iceberg.delete_files[0].encryption_info.key);
-        EXPECT_EQ(std::string(16, 'e'), iceberg.delete_files[1].encryption_info.key);
-        EXPECT_EQ(std::string("\0\xfe", 2), iceberg.delete_files[0].encryption_info.aad_prefix);
-        EXPECT_EQ(std::string("\0\xfd", 2), iceberg.delete_files[1].encryption_info.aad_prefix);
+        expect_file_encryption(iceberg.delete_files[0].encryption_info, 'p',
+                               std::string("\0\xfe", 2));
+        expect_file_encryption(iceberg.delete_files[1].encryption_info, 'e',
+                               std::string("\0\xfd", 2));
     }
 
     static void configure_test_channel(brpc::ChannelOptions* options, const std::string& mode) {
