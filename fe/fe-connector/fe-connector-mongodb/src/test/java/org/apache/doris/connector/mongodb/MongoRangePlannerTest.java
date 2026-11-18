@@ -563,4 +563,37 @@ class MongoRangePlannerTest {
         Assertions.assertEquals("snapshot_required", descriptor(ranges.get(0)).getSplit().getReason());
         Assertions.assertEquals(0, client.probes);
     }
+
+    @Test
+    void repeatedTimeseriesFallbacksAdmitTheirCompleteSnapshotPayload() throws Exception {
+        var columns = new ArrayList<Document>();
+        for (int i = 0; i < 900; i++) {
+            columns.add(new Document("name", String.format("c%04d", i)).append("path", List.of("v"))
+                    .append("bson_types", List.of("long")).append("doris_type", "BIGINT"));
+        }
+        var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
+                "mongodb.schema", new Document("sample.records", new Document("columns", columns)).toJson()));
+        var table = new MongoTableHandle("sample", new Document("name", "records").append("type", "timeseries")
+                .append("options", new Document("timeseries", new Document("timeField", "t".repeat(15000)))),
+                properties);
+        var session = session(new MongoSnapshotPlanTest.Scope(), options("auto"));
+        var request = ConnectorScanRequest.builder(table, List.of()).build();
+        var serializer = new org.apache.thrift.TSerializer(new org.apache.thrift.protocol.TBinaryProtocol.Factory());
+        long wireBytes = 0;
+        boolean limited = false;
+        for (int i = 0; i < 256; i++) {
+            try {
+                var ranges = new MongoScanPlanProvider(properties, Client::new).planScan(session, request);
+                wireBytes += serializer.serialize(descriptor(ranges.get(0))).length;
+                Assertions.assertTrue(wireBytes <= 32L * 1024 * 1024,
+                        "Serialized fallback descriptors exceeded the pinned-source byte budget");
+            } catch (org.apache.doris.connector.spi.DorisConnectorException limit) {
+                Assertions.assertTrue(limit.getMessage().contains("budget exhausted"));
+                limited = true;
+                break;
+            }
+        }
+        Assertions.assertTrue(limited);
+    }
+
 }
