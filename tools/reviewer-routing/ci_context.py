@@ -16,18 +16,20 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Prepare compact candidate evidence for CI without sending model requests."""
+"""Prepare module context and draw reviewers from configured candidate pools."""
 
 import argparse
 import collections
+import itertools
 import json
 from pathlib import Path
+import random
 
 from classify_paths import classify_pr
-from routing_config import load_routing
+from routing_config import load_routing, require
 
 
-def plan(pr, mapping):
+def path_context(pr, mapping):
     assert isinstance(pr["number"], int) and pr["number"] > 0
     assert isinstance(pr["author"], str) and pr["author"]
     files = [item if isinstance(item, dict) else {"path": item} for item in pr["files"]]
@@ -36,72 +38,63 @@ def plan(pr, mapping):
     if "changed_files" in pr:
         assert pr["changed_files"] == len(files), "Changed-file list is incomplete"
     classified = classify_pr([item["path"] for item in files], mapping["config"])
-    modules = {m["id"]: m for m in mapping["modules"]}
     wanted = set(classified["routing_modules"])
-    blocked = {pr["author"].lower(), *[login.lower() for login in pr.get("unavailable_reviewers", [])]}
-    disabled = {login.lower() for login in mapping["config"]["disabled_reviewers"]}
-    blocked.update(disabled)
     by_path = {item["path"]: item for item in files}
     weights = collections.Counter()
     for item in classified["evidence"]:
         if item["module"] in wanted and (not classified["primary_modules"] or item["kind"] == "production"):
             file = by_path[item["path"]]
             weights[item["module"]] += max(1, min(100, file.get("additions", 0) + file.get("deletions", 0)))
-    eligible = {mid: modules[mid]["candidates"] for mid in wanted}
-    uncovered = set(wanted)
-    choices = {}
-    for mid in wanted:
-        for s in eligible[mid][:5]:
-            if s["login"].lower() not in blocked:
-                choices.setdefault(s["login"], {})[mid] = s
-    chosen = []
-    for _ in range(2):
-        ranked = []
-        for login, evidence in choices.items():
-            covers = uncovered & evidence.keys()
-            benefit = sum(weights[mid] * evidence[mid]["preference_weight"] for mid in covers)
-            if covers:
-                ranked.append((benefit, len(covers), login, covers))
-        if not ranked:
-            break
-        _, _, login, covers = sorted(ranked, key=lambda x: (-x[0], -x[1], x[2].lower()))[0]
-        chosen.append({"login": login, "covers": sorted(covers)})
-        uncovered -= covers
-        del choices[login]
     return {"routing_modules": sorted(wanted), "test_modules": classified["test_modules"],
-            "reviewers": chosen, "uncovered_modules": sorted(uncovered)}
+            "module_weights": dict(sorted(weights.items()))}
 
 
-def candidate_summary(pr, mapping, module_ids=None, all_candidates=False):
+def eligible_pools(pr, mapping, module_ids):
+    modules = {module["id"]: module for module in mapping["modules"]}
+    blocked = {pr["author"].lower(), *[login.lower() for login in pr.get("unavailable_reviewers", [])]}
+    return {mid: [p["login"] for p in modules[mid]["candidates"] if p["login"].lower() not in blocked][:5]
+            for mid in module_ids}
+
+
+def sample_reviewers(selection, pr, mapping):
+    """Draw uniformly from valid pairs; names inside each five-person pool are peers."""
+    require(isinstance(selection, dict) and set(selection) == {"modules"},
+            "Codex must return an object containing only modules.")
+    selected = selection["modules"]
+    require(isinstance(selected, list) and len(selected) <= 2,
+            "Codex must select at most two modules.")
+    require(all(isinstance(mid, str) for mid in selected), "Module IDs must be strings.")
+    require(len(set(selected)) == len(selected), "Duplicate module IDs are not allowed.")
+    require(set(selected) <= mapping["config"]["modules"].keys(), "Unknown routing module.")
+    pools = [pool for pool in eligible_pools(pr, mapping, selected).values() if pool]
+    people = {login.lower(): login for pool in pools for login in pool}
+    if not people:
+        return []
+    covered = [{login.lower() for login in pool} for pool in pools]
+    pairs = [pair for pair in itertools.combinations(people, min(2, len(people)))
+             if all(set(pair) & pool for pool in covered)]
+    return [people[login] for login in random.SystemRandom().choice(pairs)]
+
+
+def candidate_summary(pr, mapping, module_ids=None):
     # CI's two-assignee budget is independent of existing formal reviewers.
-    routing = plan(pr, mapping)
+    routing = path_context(pr, mapping)
     modules = {module["id"]: module for module in mapping["modules"]}
     wanted = sorted(set(routing["routing_modules"] if module_ids is None else module_ids))
-    blocked = {pr["author"].lower(), *[p.lower() for p in pr.get("unavailable_reviewers", [])]}
+    pools = eligible_pools(pr, mapping, wanted)
     existing = {p.lower() for p in pr.get("existing_reviewers", [])}
     summaries = []
     for mid in wanted:
         module = modules[mid]
-        eligible = module["candidates"]
-        visible = eligible if all_candidates else eligible[:5]
-        people = []
-        for person in visible:
-            if person["login"].lower() in blocked:
-                continue
-            people.append({"login": person["login"],
-                           "preference_weight": round(person["preference_weight"], 6),
-                           "existing_reviewer": person["login"].lower() in existing})
+        people = [{"login": login, "existing_reviewer": login.lower() in existing} for login in pools[mid]]
         summaries.append({"id": mid, "label": module["label"],
-                          "configured_reviewers": module["reviewers"],
-                          "eligible_candidate_count": sum(p["login"].lower() not in blocked for p in eligible),
                           "candidates": people})
     result = {"path_routing_modules": routing["routing_modules"], "test_modules": routing["test_modules"],
               "existing_reviewers": pr.get("existing_reviewers", []), "modules": summaries,
               "fallback_reviewer": mapping["config"]["fallback_reviewer"],
               "disabled_reviewers": mapping["config"]["disabled_reviewers"]}
     if module_ids is None:
-        result.update(path_suggestion=routing["reviewers"],
-                      uncovered_path_modules=routing["uncovered_modules"])
+        result["path_module_weights"] = routing["module_weights"]
     return result
 
 
@@ -109,7 +102,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, nargs="?")
     parser.add_argument("--modules", nargs="+")
-    parser.add_argument("--all-candidates", action="store_true")
     parser.add_argument("--list-modules", action="store_true")
     args = parser.parse_args()
     mapping = load_routing()
@@ -118,7 +110,7 @@ def main():
     else:
         if args.input is None:
             parser.error("input is required unless --list-modules is used")
-        result = candidate_summary(json.loads(args.input.read_text()), mapping, args.modules, args.all_candidates)
+        result = candidate_summary(json.loads(args.input.read_text()), mapping, args.modules)
     print(json.dumps(result, separators=(",", ":")))
 
 

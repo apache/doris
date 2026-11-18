@@ -226,7 +226,7 @@ jobs:
           sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
           bwrap --unshare-user --ro-bind / / -- /usr/bin/true
 
-      - name: Ask Codex to select at most two reviewers
+      - name: Ask Codex to identify at most two modules
         id: codex
         if: steps.prepare.outputs.reuse_selection != 'true'
         timeout-minutes: 9
@@ -242,7 +242,7 @@ jobs:
               --cd "$ASSIGNMENT_WORKSPACE" --sandbox read-only --color never \
               --model gpt-6.1-sol --config 'model_reasoning_effort="medium"' \
               --output-schema "$ASSIGNMENT_WORKSPACE/schema.json" \
-              --output-last-message "$ASSIGNMENT_WORKSPACE/selection.json" \
+              --output-last-message "$ASSIGNMENT_WORKSPACE/module-selection.json" \
               - < "$ASSIGNMENT_WORKSPACE/prompt.txt" \
               > "$RUNNER_TEMP/reviewer-assignment-codex.jsonl" \
               2> "$RUNNER_TEMP/reviewer-assignment-codex.stderr"
@@ -334,7 +334,7 @@ jobs:
           fi
           echo "Uploaded refreshed Codex auth: ${CODEX_AUTH_OSS_OBJECT##*/}"
 
-      - name: Validate the selected IDs
+      - name: Randomly sample and validate reviewer IDs
         timeout-minutes: 1
         run: |
           python3 .github/scripts/reviewer_assignment.py validate --workspace "$ASSIGNMENT_WORKSPACE"

@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools/reviewer-routing"
 sys.path.append(str(TOOL))
 from routing_config import load_routing
-from ci_context import candidate_summary
+from ci_context import candidate_summary, sample_reviewers
 
 REQUEST_LABEL = "need-reviewers"
 DONE_LABEL = "reviewers-assigned"
@@ -87,10 +87,10 @@ def candidates(tool, mapping=None):
 
 def validate_selection(selection, author, allowed):
     require(isinstance(selection, dict) and set(selection) == {"reviewers"},
-            "Codex must return an object containing only reviewers.")
+            "The assignment plan must contain only reviewers.")
     people = selection["reviewers"]
     require(isinstance(people, list) and len(people) <= 2,
-            "Codex must select at most two reviewers; an empty result requests fallback triage.")
+            "The plan must select at most two reviewers; an empty result requests fallback triage.")
     require(all(isinstance(person, str) for person in people), "Reviewer IDs must be strings.")
     lowered = [person.lower() for person in people]
     require(len(set(lowered)) == len(lowered), "Duplicate reviewer IDs are not allowed.")
@@ -163,7 +163,6 @@ def prepare(api, event, repository, run_id, workspace, tool=TOOL):
     mapping = load_routing(tool)
     context["fallback_reviewer"] = mapping["config"]["fallback_reviewer"]
     allowed = candidates(tool, mapping)
-    nonauthors = sorted(person for key, person in allowed.items() if key != context["author"].lower())
     previous = checkpoint(api, context)
     workspace.mkdir(parents=True, exist_ok=True)
     write_json(workspace / "context.json", context)
@@ -171,6 +170,8 @@ def prepare(api, event, repository, run_id, workspace, tool=TOOL):
         people = validate_selection({"reviewers": previous[1]["reviewers"]}, context["author"], allowed)
         write_json(workspace / "selection.json", {"reviewers": people})
         return True
+    for name in ("selection.json", "module-selection.json"):
+        (workspace / name).unlink(missing_ok=True)
 
     endpoint = f"repos/{repository}/pulls/{number}"
     files = api.request("GET", endpoint + "/files?per_page=100", pages=True)
@@ -205,21 +206,34 @@ def prepare(api, event, repository, run_id, workspace, tool=TOOL):
         "assignees": [p["login"] for p in pr.get("assignees", [])],
         "requested_teams": [p["slug"] for p in pr.get("requested_teams", [])]})
     (workspace / "pr.diff").write_text(diff)
-    items = {"type": "string"}
-    if nonauthors:
-        items["enum"] = nonauthors
     write_json(workspace / "schema.json", {"type": "object", "additionalProperties": False,
-               "properties": {"reviewers": {"type": "array", "minItems": 0, "maxItems": 2 if nonauthors else 0,
-                              "items": items}},
-               "required": ["reviewers"]})
-    (workspace / "prompt.txt").write_text("""Select at most TWO reviewer GitHub logins for this PR.
+               "properties": {"modules": {"type": "array", "minItems": 0, "maxItems": 2,
+                              "items": {"type": "string", "enum": sorted(mapping["config"]["modules"])}}},
+               "required": ["modules"]})
+    (workspace / "prompt.txt").write_text("""Identify at most TWO relevant reviewer-routing modules for this PR.
 Read tools/reviewer-routing/CI_GUIDE.md and follow its rules.
 Read candidate-summary.json, pr.json, pr-details.json and the complete pr.diff.
 Use the trusted local ci_context.py queries when semantic reclassification is needed.
+Trusted Python will randomly draw at most two people from the selected modules' first five eligible candidates.
 The downstream job will ADD ASSIGNEES, post mentions and update labels.
 Make no GitHub changes. Return only the schema-conforming JSON object.
 """)
     return False
+
+
+def finalize_selection(workspace, tool=TOOL):
+    context = json.loads((workspace / "context.json").read_text())
+    mapping = load_routing(tool)
+    saved = workspace / "selection.json"
+    if saved.exists():
+        selection = json.loads(saved.read_text())
+    else:
+        modules = json.loads((workspace / "module-selection.json").read_text())
+        pr = json.loads((workspace / "pr.json").read_text())
+        selection = {"reviewers": sample_reviewers(modules, pr, mapping)}
+    people = validate_selection(selection, context["author"], candidates(tool, mapping))
+    write_json(saved, {"reviewers": people})
+    return people
 
 
 def apply(api, context, selection, tool=TOOL):
@@ -307,12 +321,11 @@ def main():
                 and context["run_id"] == os.environ["GITHUB_RUN_ID"]
                 and context["pr_number"] == event["pull_request"]["number"],
                 "Assignment artifact identity mismatch.")
-        selection = json.loads((args.workspace / "selection.json").read_text())
         if args.mode == "validate":
-            people = validate_selection(selection, context["author"], candidates(TOOL))
-            write_json(args.workspace / "selection.json", {"reviewers": people})
+            people = finalize_selection(args.workspace)
             print(json.dumps({"reviewers": people}))
         else:
+            selection = json.loads((args.workspace / "selection.json").read_text())
             print(json.dumps(apply(GitHub(), context, selection)))
 
 

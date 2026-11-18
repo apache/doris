@@ -12,11 +12,11 @@ README do not contain a second reviewer table.
 
 | Field | How to maintain it |
 |---|---|
-| `modules.<id>.reviewers` | Add, remove or reorder GitHub logins. Earlier names are preferred. An empty list leaves the module without candidates. |
+| `modules.<id>.reviewers` | Add, remove or reorder GitHub logins. After eligibility filtering, the first five form an equal-priority sampling pool. An empty list leaves the module without candidates. |
 | `modules.<id>.patterns` | Regexes for normalized source paths. Higher `priority` wins; equal priorities follow file order. |
 | `modules.<id>.label` | A short description used in the model context. |
 | `disabled_reviewers` | Exclude an account from every module, case insensitively, without editing each list. |
-| `fallback_reviewer` | The person who handles manual assignment when Codex returns no suitable candidates. |
+| `fallback_reviewer` | The person who handles manual assignment when no suitable module or eligible candidate is found. |
 | `test_routes` | Ordered regex-to-module rules for normalized test paths. First match wins. Ordinary unit tests also use source-path normalization. |
 
 Names have no `@` prefix. Lists remain authoritative until edited. New reviewers
@@ -63,9 +63,17 @@ workflow also uses Git, GitHub CLI and the Codex runtime/auth pool already used
 by Code Review Runner. It reuses `GITHUB_TOKEN`, `OSS_AK` and `OSS_SK`; selection
 has read permissions, while a separate assignment job has `issues: write`.
 
-`ci_context.py` prepares the affected modules and a path-based suggestion.
-Codex reads `CI_GUIDE.md`, that summary, PR metadata and the complete diff. It
-can query other configured modules when the diff shows a different specialty.
+`ci_context.py` prepares the affected modules, change weights and candidate
+pools. Codex reads `CI_GUIDE.md`, that summary, PR metadata and the complete
+diff, then returns at most two module IDs. It can query other configured
+modules when the diff shows a different specialty. Python excludes the author,
+unavailable and globally disabled people before taking each module's first
+five eligible names. For one module, it draws two distinct people uniformly,
+or one when only one is available. For two modules, it draws uniformly from
+pairs covering every nonempty pool, with shared people counted toward both.
+Names inside each pool have no preference weights. A new label event permits
+a fresh random draw; the same pair can occur again by chance. Saved selections
+and same-run assignment checkpoints are reused without another draw.
 No PR code is checked out or executed. API-limited diffs are reconstructed from
 verified pinned Git snapshots. Invalid output or infrastructure errors fail;
 an empty valid selection assigns `fallback_reviewer` with this comment:

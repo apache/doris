@@ -204,7 +204,9 @@ class AssignmentTest(unittest.TestCase):
         self.assertEqual((self.workspace / "pr.diff").read_text(),
                          "diff --git a/query.cpp b/query.cpp\n+fixed_query();\n")
         self.assertEqual(json.loads((self.workspace / "schema.json").read_text())[
-            "properties"]["reviewers"]["maxItems"], 2)
+            "properties"]["modules"]["maxItems"], 2)
+        self.assertEqual(json.loads((self.workspace / "schema.json").read_text())[
+            "properties"]["modules"]["items"]["enum"], sorted(self.config["modules"]))
         self.assertEqual(json.loads((self.workspace / "pr.json").read_text())["existing_reviewers"], ["Bob"])
 
     def test_relabeling_creates_a_new_assignment_despite_done_label(self):
@@ -230,6 +232,83 @@ class AssignmentTest(unittest.TestCase):
         self.assertEqual(len(self.mutations()), calls_before + 1)  # Idempotent label addition only.
         self.assertTrue(result["assigned"])
         self.assertEqual({p["login"] for p in self.api.pr["assignees"]}, {"Existing", "Alice", "Bob"})
+
+    def test_module_output_is_sampled_saved_and_applied_without_github_selection_writes(self):
+        self.prepare()
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        selected = assignment.finalize_selection(self.workspace, self.tool)
+        self.assertEqual(set(selected), {"Alice", "Bob"})
+        self.assertEqual(self.mutations(), [])
+        self.assertEqual(json.loads((self.workspace / "selection.json").read_text()), {"reviewers": selected})
+        result = self.apply(selected)
+        self.assertEqual(result["reviewers"], selected)
+        self.assertIn(", ".join("@" + p for p in selected) + ", please review this PR.", self.api.comments[0]["body"])
+
+    def test_finalizing_or_recovering_a_saved_pair_never_draws_again(self):
+        self.prepare()
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        chosen = assignment.finalize_selection(self.workspace, self.tool)
+        with patch.object(assignment, "sample_reviewers", side_effect=AssertionError("Unexpected second draw")):
+            self.assertEqual(assignment.finalize_selection(self.workspace, self.tool), chosen)
+            self.apply(chosen)
+            shutil.rmtree(self.workspace)
+            self.assertTrue(self.prepare())
+            self.assertEqual(assignment.finalize_selection(self.workspace, self.tool), chosen)
+
+    def test_new_label_event_discards_local_selection_and_permits_a_fresh_draw(self):
+        self.prepare()
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        assignment.finalize_selection(self.workspace, self.tool)
+        self.apply()
+        self.assertFalse(self.prepare(run="101"))
+        self.assertFalse((self.workspace / "selection.json").exists())
+        self.assertFalse((self.workspace / "module-selection.json").exists())
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        with patch.object(selector.random, "SystemRandom") as source:
+            source.return_value.choice.side_effect = lambda pairs: pairs[0]
+            self.assertEqual(set(assignment.finalize_selection(self.workspace, self.tool)), {"Alice", "Bob"})
+            source.return_value.choice.assert_called_once()
+
+    def test_invalid_module_output_is_not_saved_or_applied(self):
+        self.prepare()
+        for value in ({"modules": ["missing"]}, {"reviewers": ["Alice"]}, {"modules": ["search", "search"]}):
+            with self.subTest(value=value):
+                assignment.write_json(self.workspace / "module-selection.json", value)
+                with self.assertRaises(ValueError):
+                    assignment.finalize_selection(self.workspace, self.tool)
+                self.assertFalse((self.workspace / "selection.json").exists())
+        self.assertEqual(self.mutations(), [])
+
+    def test_empty_module_selection_uses_existing_manual_fallback(self):
+        self.prepare()
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": []})
+        selected = assignment.finalize_selection(self.workspace, self.tool)
+        self.assertEqual(selected, [])
+        result = self.apply(selected)
+        self.assertTrue(result["fallback"])
+        self.assertIn("No suitable reviewer was found. @morningman", self.api.comments[0]["body"])
+
+    def test_real_validation_cli_turns_model_modules_into_the_assignment_artifact(self):
+        self.prepare()
+        repository = self.root / "checkout"
+        scripts = repository / ".github/scripts"
+        scripts.mkdir(parents=True)
+        for name in ("reviewer_assignment.py", "reviewer_assignment_diff.py", "review_github_api.py"):
+            shutil.copy2(Path(assignment.__file__).parent / name, scripts / name)
+        shutil.copytree(assignment.TOOL, repository / "tools/reviewer-routing")
+        (repository / "tools/reviewer-routing/reviewer-routing.json").write_text(json.dumps(self.config))
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        event = self.root / "event.json"
+        assignment.write_json(event, self.event)
+        env = {**os.environ, "GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": "apache/doris",
+               "GITHUB_RUN_ID": "100", "PYTHONDONTWRITEBYTECODE": "1"}
+        command = [sys.executable, str(scripts / "reviewer_assignment.py"), "validate", "--workspace", str(self.workspace)]
+        result = subprocess.run(command, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        selected = json.loads(result.stdout)["reviewers"]
+        self.assertEqual(set(selected), {"Alice", "Bob"})
+        self.assertEqual(json.loads((self.workspace / "selection.json").read_text()), {"reviewers": selected})
+        self.assertTrue(self.apply(selected)["assigned"])
 
     def test_invalid_choices_do_not_mutate_github(self):
         self.prepare()
@@ -335,8 +414,9 @@ class AssignmentTest(unittest.TestCase):
         self.save_config()
         self.prepare()
         schema = json.loads((self.workspace / "schema.json").read_text())
-        self.assertEqual(schema["properties"]["reviewers"]["maxItems"], 0)
-        self.assertNotIn("enum", schema["properties"]["reviewers"]["items"])
+        self.assertEqual(schema["properties"]["modules"]["maxItems"], 2)
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        self.assertEqual(assignment.finalize_selection(self.workspace, self.tool), [])
         with self.assertRaisesRegex(ValueError, "active"):
             self.apply(("Alice",))
         self.assertTrue(self.apply(())["fallback"])
@@ -687,33 +767,101 @@ class ConfiguredReviewersTest(unittest.TestCase):
                 self.assertEqual(self.modules[module]["reviewers"], expected)
                 self.assertEqual([p["login"] for p in self.modules[module]["candidates"]], expected)
 
-    def test_each_module_selects_its_first_configured_reviewer(self):
+    def test_each_module_draws_two_distinct_configured_reviewers_when_available(self):
         for module, expected in self.EXPECTED.items():
             with self.subTest(module=module):
-                result = selector.plan(self.pr(module), self.mapping)
-                self.assertEqual([p["login"] for p in result["reviewers"]], expected[:1])
-                self.assertFalse(result["uncovered_modules"])
+                result = selector.sample_reviewers({"modules": [module]}, self.pr(module), self.mapping)
+                self.assertEqual(len(result), min(2, len(expected)))
+                self.assertEqual(len(set(result)), len(result))
+                self.assertLessEqual(set(result), set(expected))
 
-    def test_author_exclusion_uses_the_next_configured_person(self):
+    def test_author_exclusion_is_case_insensitive(self):
         for module, expected in self.EXPECTED.items():
             with self.subTest(module=module):
-                result = selector.plan(self.pr(module, author=expected[0].upper()), self.mapping)
-                self.assertEqual([p["login"] for p in result["reviewers"]], expected[1:2])
-                self.assertEqual(result["uncovered_modules"], [module] if len(expected) == 1 else [])
+                result = selector.sample_reviewers({"modules": [module]},
+                                                  self.pr(module, author=expected[0].upper()), self.mapping)
+                self.assertEqual(set(result), set(expected[1:]))
 
     def test_exhausted_pools_do_not_substitute_unlisted_people(self):
         for module, expected in self.EXPECTED.items():
             with self.subTest(module=module):
-                result = selector.plan(self.pr(module, unavailable=expected), self.mapping)
-                self.assertEqual(result["reviewers"], [])
-                self.assertEqual(result["uncovered_modules"], [module])
+                result = selector.sample_reviewers({"modules": [module]},
+                                                  self.pr(module, unavailable=expected), self.mapping)
+                self.assertEqual(result, [])
 
     def test_multi_module_coverage_can_reuse_a_configured_reviewer(self):
         pr = self.pr("connector.trino")
         pr["files"].append(self.PATHS["connector.mongodb"])
-        result = selector.plan(pr, self.mapping)
-        self.assertEqual([p["login"] for p in result["reviewers"]], ["Gabriel39"])
-        self.assertEqual(set(result["reviewers"][0]["covers"]), {"connector.trino", "connector.mongodb"})
+        result = selector.sample_reviewers({"modules": ["connector.trino", "connector.mongodb"]}, pr, self.mapping)
+        self.assertEqual(len(result), 2)
+        self.assertIn("Gabriel39", result)
+        self.assertLessEqual(set(result), set(self.EXPECTED["connector.trino"]))
+
+    def test_five_person_pool_has_exactly_ten_equally_selectable_pairs(self):
+        expected = {("SearchFirst", "SearchSecond"), ("SearchFirst", "SearchThird"),
+                    ("SearchFirst", "SearchFourth"), ("SearchFirst", "SearchFifth"),
+                    ("SearchSecond", "SearchThird"), ("SearchSecond", "SearchFourth"),
+                    ("SearchSecond", "SearchFifth"), ("SearchThird", "SearchFourth"),
+                    ("SearchThird", "SearchFifth"), ("SearchFourth", "SearchFifth")}
+        pr = {"number": 42, "author": "Contributor", "files": ["be/src/storage/index/inverted/query.cpp"]}
+        actual = set()
+        for index in range(10):
+            with patch.object(selector.random, "SystemRandom") as random_source:
+                choose = random_source.return_value.choice
+                choose.side_effect = lambda pairs: pairs[index]
+                actual.add(tuple(selector.sample_reviewers({"modules": ["search"]}, pr, self.mapping)))
+                choose.assert_called_once()
+                self.assertEqual(len(choose.call_args.args[0]), 10)
+        self.assertEqual(actual, expected)
+
+    def test_filtering_precedes_the_five_person_window(self):
+        self.config["modules"]["search"]["reviewers"] = ["Disabled", "Author", "Unavailable", "A", "B", "C", "D", "E"]
+        self.config["disabled_reviewers"] = ["DISABLED"]
+        self.save_config()
+        pr = {"number": 42, "author": "AUTHOR", "files": ["be/src/storage/index/inverted/query.cpp"],
+              "unavailable_reviewers": ["UNAVAILABLE"]}
+        self.assertEqual(selector.eligible_pools(pr, self.mapping, ["search"])["search"], ["A", "B", "C", "D", "E"])
+        for index in range(10):
+            with patch.object(selector.random, "SystemRandom") as source:
+                source.return_value.choice.side_effect = lambda pairs: pairs[index]
+                selected = selector.sample_reviewers({"modules": ["search"]}, pr, self.mapping)
+                self.assertEqual(len(selected), 2)
+                self.assertLessEqual(set(selected), {"A", "B", "C", "D", "E"})
+
+    def test_disjoint_modules_get_one_person_each(self):
+        pr = self.pr("connector.trino")
+        for index in range(6):
+            with patch.object(selector.random, "SystemRandom") as source:
+                source.return_value.choice.side_effect = lambda pairs: pairs[index]
+                result = selector.sample_reviewers({"modules": ["connector.trino", "runtime.memory"]}, pr, self.mapping)
+                self.assertEqual(len(set(result) & set(self.EXPECTED["connector.trino"])), 1)
+                self.assertEqual(len(set(result) & set(self.EXPECTED["runtime.memory"])), 1)
+
+    def test_shared_account_is_deduplicated_without_case_sensitivity(self):
+        self.config["modules"]["connector.trino"]["reviewers"] = ["GABRIEL39"]
+        self.save_config()
+        result = selector.sample_reviewers({"modules": ["connector.trino", "connector.mongodb"]},
+                                           self.pr("connector.trino"), self.mapping)
+        self.assertEqual([p.lower() for p in result], ["gabriel39"])
+
+    def test_empty_module_does_not_discard_the_other_modules_pool(self):
+        self.config["modules"]["connector.mongodb"]["reviewers"] = []
+        self.save_config()
+        result = selector.sample_reviewers({"modules": ["runtime.memory", "connector.mongodb"]},
+                                           self.pr("runtime.memory"), self.mapping)
+        self.assertEqual(set(result), {"yiguolei", "mrhhsg"})
+
+    def test_invalid_module_selections_fail_before_sampling(self):
+        invalid = (None, [], {"reviewers": []}, {"modules": "search"}, {"modules": [1]},
+                   {"modules": ["search", "search"]}, {"modules": ["missing"]},
+                   {"modules": ["search", "connector.trino", "runtime.memory"]},
+                   {"modules": ["search"], "reviewers": ["SearchFirst"]})
+        for value in invalid:
+            with self.subTest(value=value), patch.object(selector.random, "SystemRandom") as source:
+                with self.assertRaises(ValueError):
+                    selector.sample_reviewers(value, self.pr("connector.trino"), self.mapping)
+                source.assert_not_called()
+        self.assertEqual(selector.sample_reviewers({"modules": []}, self.pr("connector.trino"), self.mapping), [])
 
 
 class CandidateSummaryTest(unittest.TestCase):
@@ -726,17 +874,17 @@ class CandidateSummaryTest(unittest.TestCase):
     def test_summary_preserves_config_order_and_author_exclusion(self):
         result = candidate_summary(self.pr("connector.trino", author="MORNINGMAN"), self.mapping)
         module = result["modules"][0]
-        self.assertEqual(module["configured_reviewers"], self.EXPECTED["connector.trino"])
         self.assertEqual([p["login"] for p in module["candidates"]], ["Gabriel39", "924060929"])
-        self.assertEqual([p["preference_weight"] for p in module["candidates"]], [0.5, 0.333333])
+        self.assertTrue(all("preference_weight" not in p for p in module["candidates"]))
 
     def test_existing_reviewers_do_not_consume_ci_budget(self):
         pr = self.pr("connector.trino")
         pr["files"].append(self.PATHS["runtime.memory"])
         pr["existing_reviewers"] = ["morningman", "yiguolei", "SomeoneElse"]
         result = candidate_summary(pr, self.mapping)
-        self.assertEqual([p["login"] for p in result["path_suggestion"]], ["morningman", "yiguolei"])
-        self.assertFalse(result["uncovered_path_modules"])
+        self.assertEqual(result["path_module_weights"], {"connector.trino": 1, "runtime.memory": 1})
+        self.assertEqual(set(selector.sample_reviewers({"modules": ["runtime.memory"]}, pr, self.mapping)),
+                         {"yiguolei", "mrhhsg"})
         self.assertTrue(result["modules"][0]["candidates"][0]["existing_reviewer"])
 
     def test_summary_contains_only_active_configured_candidates(self):
@@ -745,24 +893,24 @@ class CandidateSummaryTest(unittest.TestCase):
         result = candidate_summary(pr, self.mapping)
         people = result["modules"][0]["candidates"]
         self.assertEqual([p["login"] for p in people], self.modules["search"]["reviewers"][:5])
-        self.assertTrue(all(set(p) == {"login", "preference_weight", "existing_reviewer"} for p in people))
+        self.assertTrue(all(set(p) == {"login", "existing_reviewer"} for p in people))
         self.assertNotIn("patterns", result["modules"][0])
 
-    def test_queries_can_reclassify_and_expand_configured_pools(self):
-        result = candidate_summary(self.pr("connector.trino"), self.mapping, ["search"], all_candidates=True)
+    def test_queries_can_reclassify_but_keep_the_five_person_window(self):
+        result = candidate_summary(self.pr("connector.trino"), self.mapping, ["search"])
         self.assertEqual([m["id"] for m in result["modules"]], ["search"])
-        self.assertEqual(len(result["modules"][0]["candidates"]), len(self.modules["search"]["candidates"]))
-        self.assertNotIn("path_suggestion", result)
+        self.assertEqual(len(result["modules"][0]["candidates"]), 5)
+        self.assertNotIn("path_module_weights", result)
         with self.assertRaises(KeyError):
             candidate_summary(self.pr("connector.trino"), self.mapping, ["not-a-module"])
 
     def test_unclassified_paths_and_exhausted_pools_do_not_invent_candidates(self):
         pr = {"number": 42, "author": "Contributor", "files": ["unknown/path.txt"]}
         result = candidate_summary(pr, self.mapping)
-        self.assertEqual(result["uncovered_path_modules"], ["other"])
+        self.assertEqual(result["path_routing_modules"], ["other"])
         self.assertEqual(result["modules"][0]["candidates"], [])
         result = candidate_summary(self.pr("connector.mongodb", author="Gabriel39"), self.mapping)
-        self.assertEqual(result["path_suggestion"], [])
+        self.assertEqual(result["modules"][0]["candidates"], [])
 
     def test_summary_does_not_modify_the_loaded_policy(self):
         original = copy.deepcopy(self.mapping)
@@ -804,31 +952,33 @@ class ConfigurationTest(unittest.TestCase):
             "patterns": ["^fe/fe-connector/fe-connector-new/"], "reviewers": ["NewMaintainer", "Backup"]}
         routing = self.routing()
         pr = {"number": 42, "author": "Contributor", "files": ["fe/fe-connector/fe-connector-new/New.java"]}
-        result = selector.plan(pr, routing)
+        result = selector.path_context(pr, routing)
         self.assertEqual(result["routing_modules"], ["connector.new"])
-        self.assertEqual(result["reviewers"], [{"login": "NewMaintainer", "covers": ["connector.new"]}])
+        self.assertEqual(set(selector.sample_reviewers({"modules": ["connector.new"]}, pr, routing)),
+                         {"NewMaintainer", "Backup"})
         self.assertEqual({p.name for p in self.tool.iterdir()}, {"reviewer-routing.json"})
 
-    def test_reordering_removing_and_pausing_reviewers_take_effect_immediately(self):
+    def test_reordering_removing_and_pausing_reviewers_change_the_sampling_pool(self):
         pr = {"number": 42, "author": "Contributor", "files": ["be/src/runtime/memory/mem_tracker.cpp"]}
         self.config["modules"]["runtime.memory"]["reviewers"] = ["Backup", "Primary"]
-        self.assertEqual(selector.plan(pr, self.routing())["reviewers"][0]["login"], "Backup")
+        self.assertEqual(selector.eligible_pools(pr, self.routing(), ["runtime.memory"])["runtime.memory"], ["Backup", "Primary"])
         self.config["modules"]["runtime.memory"]["reviewers"] = ["Primary", "Backup"]
-        self.assertEqual(selector.plan(pr, self.routing())["reviewers"][0]["login"], "Primary")
+        self.assertEqual(selector.eligible_pools(pr, self.routing(), ["runtime.memory"])["runtime.memory"], ["Primary", "Backup"])
         self.config["disabled_reviewers"] = ["PRIMARY"]
         active = self.routing()
-        self.assertEqual(selector.plan(pr, active)["reviewers"][0]["login"], "Backup")
+        self.assertEqual(selector.sample_reviewers({"modules": ["runtime.memory"]}, pr, active), ["Backup"])
         module = next(m for m in active["modules"] if m["id"] == "runtime.memory")
-        self.assertEqual(module["candidates"], [{"login": "Backup", "preference_weight": 1}])
+        self.assertEqual(module["candidates"], [{"login": "Backup"}])
         self.config["modules"]["runtime.memory"]["reviewers"] = []
-        self.assertEqual(selector.plan(pr, self.routing())["reviewers"], [])
+        self.assertEqual(selector.sample_reviewers({"modules": ["runtime.memory"]}, pr, self.routing()), [])
 
-    def test_disabled_people_do_not_cover_modules_or_consume_planner_budget(self):
+    def test_disabled_people_do_not_consume_the_five_person_window(self):
         self.config["disabled_reviewers"] = ["SearchFirst", "SearchSecond", "SearchThird"]
         pr = {"number": 42, "author": "Contributor", "files": ["be/src/storage/index/inverted/query.cpp"],
               "existing_reviewers": ["SearchFirst", "SearchSecond", "SearchThird"]}
-        result = selector.plan(pr, self.routing())
-        self.assertEqual(result["reviewers"][0]["login"], "SearchFourth")
+        result = selector.sample_reviewers({"modules": ["search"]}, pr, self.routing())
+        self.assertEqual(len(result), 2)
+        self.assertLessEqual(set(result), {"SearchFourth", "SearchFifth", "SearchSixth"})
 
     def test_test_routes_and_path_priorities_are_read_from_the_same_file(self):
         self.config["modules"]["new"] = {"label": "New", "priority": 500,
@@ -973,7 +1123,7 @@ sys.exit(code)
                        "FAKE_CODEX_EXIT": str(exit_code), "GITHUB_REPOSITORY": "apache/doris",
                        "GITHUB_RUN_ID": "100", "GITHUB_RUN_ATTEMPT": "1",
                        "GITHUB_STEP_SUMMARY": str(root / "summary")}
-                script = AuthPoolShellTest.step_script(self, "Ask Codex to select at most two reviewers")
+                script = AuthPoolShellTest.step_script(self, "Ask Codex to identify at most two modules")
                 result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, exit_code, result.stderr)
                 values = dict(line.split("=", 1) for line in output.read_text().splitlines())

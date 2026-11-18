@@ -101,7 +101,7 @@ def load_routing(tool=ROOT, config_path=None):
     modules = []
     for mid, rule in config["modules"].items():
         active = [login for login in rule["reviewers"] if login.lower() not in disabled]
-        candidates = [{"login": login, "preference_weight": 1 / (rank + 1)} for rank, login in enumerate(active)]
+        candidates = [{"login": login} for login in active]
         modules.append({"id": mid, "label": rule["label"], "reviewers": rule["reviewers"], "candidates": candidates})
     return {"config": config, "modules": modules}
 
