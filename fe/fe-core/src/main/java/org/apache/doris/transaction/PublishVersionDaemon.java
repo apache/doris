@@ -186,21 +186,17 @@ public class PublishVersionDaemon extends MasterDaemon {
 
     private void tryFinishOneTxn(TransactionState transactionState, SystemInfoService infoService,
             GlobalTransactionMgrIface globalTransactionMgr) {
-        // A publish executor is finishing this transaction with the delta rows set by an earlier round, and it holds
-        // the monitor of the transaction state while it serializes them for the edit log. Setting them again here
-        // would make this thread, and so the publish of every other transaction, wait for that monitor.
+        // In parallel mode the executor refreshes delta rows when its finish attempt runs. Leave that attempt
+        // to the worker so the daemon does not wait for the monitor used by commit and finish serialization.
         if (publishingTxnIds.contains(transactionState.getTransactionId())) {
             return;
         }
-        Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
         AtomicBoolean hasBackendAliveAndUnfinishedTask = new AtomicBoolean(false);
         Set<Long> notFinishTaskBe = Sets.newHashSet();
         transactionState.getPublishVersionTasks().forEach((key, tasks) -> {
             long beId = key;
             for (PublishVersionTask task : tasks) {
-                if (task.isFinished()) {
-                    calculateTaskUpdateRows(tableIdToTabletDeltaRows, task);
-                } else {
+                if (!task.isFinished()) {
                     if (infoService.checkBackendAlive(task.getBackendId())) {
                         hasBackendAliveAndUnfinishedTask.set(true);
                     }
@@ -209,7 +205,6 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
         });
 
-        transactionState.setTableIdToTabletDeltaRows(tableIdToTabletDeltaRows);
         if (LOG.isDebugEnabled()) {
             LOG.debug("notFinishTaskBe {}, trans {}", notFinishTaskBe, transactionState);
         }
@@ -282,6 +277,18 @@ public class PublishVersionDaemon extends MasterDaemon {
         }
 
         try {
+            // Collect responses here, including those received while this attempt was queued. Updating the
+            // state takes its monitor, which may still be held by a commit waiting for journal I/O; in parallel
+            // mode only this worker should wait, while the daemon continues publishing other transactions.
+            Map<Long, Map<Long, Long>> tableIdToTabletDeltaRows = Maps.newHashMap();
+            transactionState.getPublishVersionTasks().values().forEach(tasks -> {
+                for (PublishVersionTask task : tasks) {
+                    if (task.isFinished()) {
+                        calculateTaskUpdateRows(tableIdToTabletDeltaRows, task);
+                    }
+                }
+            });
+            transactionState.setTableIdToTabletDeltaRows(tableIdToTabletDeltaRows);
             Map<Long, Long> txnPartitionVersions = Maps.newHashMap();
             Map<Long, Set<Long>> txnBackendPartitions = Maps.newHashMap();
             // one transaction exception should not affect other transaction
