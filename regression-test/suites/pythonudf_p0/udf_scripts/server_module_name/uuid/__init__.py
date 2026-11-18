@@ -14,3 +14,20 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+
+import importlib
+import pkgutil
+from pkgutil import get_data
+
+
+RESOURCE_SUM = (
+    int(pkgutil.get_data("uuid", "data.txt"))
+    + int(get_data("uuid", "data.txt"))
+    + int(importlib.import_module("pkgutil").get_data("uuid", "data.txt"))
+)
+
+
+def evaluate_resources(x):
+    if x is None:
+        return None
+    return x + RESOURCE_SUM

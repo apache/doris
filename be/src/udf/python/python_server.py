@@ -32,6 +32,7 @@ import logging
 import time
 import threading
 import pickle
+import pkgutil
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Optional, Tuple, get_origin, Dict
@@ -978,6 +979,15 @@ class UDFModuleFinder(importlib.abc.MetaPathFinder):
         self.udf_importlib.__dict__.update(vars(importlib))
         self.udf_importlib.import_module = self.import_module_for_udf_code
         self.udf_importlib.__getattr__ = lambda name: getattr(importlib, name)
+        # get_data("uuid", ...) must resolve the same UDF package as an import.
+        self.udf_pkgutil = ModuleType("pkgutil")
+        self.udf_pkgutil.__dict__.update(vars(pkgutil))
+        self.udf_pkgutil.get_data = self.get_data_for_udf_code
+        self.udf_pkgutil.__getattr__ = lambda name: getattr(pkgutil, name)
+        self.udf_module_overrides = {
+            importlib: self.udf_importlib,
+            pkgutil: self.udf_pkgutil,
+        }
 
     @staticmethod
     def root_package_name(function_id: int) -> str:
@@ -1032,9 +1042,7 @@ class UDFModuleFinder(importlib.abc.MetaPathFinder):
         if udf_module_name != name and not fromlist:
             # "import pkg.child" binds pkg, not the root package.
             return sys.modules[self.root_package_prefix + name.partition(".")[0]]
-        if module is importlib:
-            return self.udf_importlib
-        return module
+        return self.udf_module_overrides.get(module, module)
 
     def import_module_for_udf_code(self, name: str, package: Optional[str] = None) -> ModuleType:
         if name.startswith("."):
@@ -1043,9 +1051,10 @@ class UDFModuleFinder(importlib.abc.MetaPathFinder):
             module = importlib.import_module(name, package)
         else:
             module = importlib.import_module(self.add_root_package_prefix(name))
-        if module is importlib:
-            return self.udf_importlib
-        return module
+        return self.udf_module_overrides.get(module, module)
+
+    def get_data_for_udf_code(self, package: str, resource: str) -> Optional[bytes]:
+        return pkgutil.get_data(self.add_root_package_prefix(package), resource)
 
 
 class ModuleUDFLoader(UDFLoader):

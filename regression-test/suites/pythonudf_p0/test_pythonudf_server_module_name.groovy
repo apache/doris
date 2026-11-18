@@ -30,6 +30,7 @@ suite("test_pythonudf_server_module_name") {
         [function: "py_server_name_threading", symbol: "threading.evaluate"],
         [function: "py_server_name_pkg_logging", symbol: "udfpkg.logging.evaluate"],
         [function: "py_server_name_uuid_pkg", symbol: "uuid.mod.evaluate"],
+        [function: "py_server_name_uuid_resources", symbol: "uuid.__init__.evaluate_resources"],
     ]
     log.info("Python Zip path: ${pyPath}".toString())
 
@@ -77,6 +78,7 @@ suite("test_pythonudf_server_module_name") {
         qt_threading """ SELECT py_server_name_threading(1) AS result; """
         qt_pkg_logging """ SELECT py_server_name_pkg_logging(10) AS result; """
         qt_uuid_pkg """ SELECT py_server_name_uuid_pkg(1) AS result; """
+        qt_uuid_resources """ SELECT py_server_name_uuid_resources(5) AS result; """
     } finally {
         functions.each { udf ->
             try_sql("DROP FUNCTION IF EXISTS ${udf.function}(INT);")
