@@ -40,6 +40,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.IndexSchemaProcNode;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.common.proc.RemoteIndexSchemaProcDir;
+import org.apache.doris.common.proc.RemoteIndexSchemaProcNode;
 import org.apache.doris.common.proc.TableProcDir;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -276,6 +278,7 @@ public class DescribeCommand extends ShowCommand {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
         DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
         TableIf table = db.getTableOrDdlException(dbTableName.getTbl());
+        RemoteIndexSchemaProcNode remoteSchema = null;
         table.readLock();
         try {
             if (!isAllTables) {
@@ -306,7 +309,13 @@ public class DescribeCommand extends ShowCommand {
                 if (node == null) {
                     throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
                 }
-                rows.addAll(getResultRows(node));
+                if (node instanceof RemoteIndexSchemaProcDir) {
+                    remoteSchema = ((RemoteIndexSchemaProcDir) node).snapshot();
+                } else if (node instanceof RemoteIndexSchemaProcNode) {
+                    remoteSchema = (RemoteIndexSchemaProcNode) node;
+                } else {
+                    rows.addAll(getResultRows(node));
+                }
             } else {
                 Util.prohibitExternalCatalog(dbTableName.getCtl(), this.getClass().getSimpleName() + " ALL");
                 if (table instanceof OlapTable) {
@@ -418,6 +427,10 @@ public class DescribeCommand extends ShowCommand {
             table.readUnlock();
         }
 
+        // Read the captured tablet schema without holding the table lock across the BE RPC.
+        if (remoteSchema != null) {
+            rows.addAll(getResultRows(remoteSchema));
+        }
         return new ShowResultSet(getMetaData(), rows);
     }
 

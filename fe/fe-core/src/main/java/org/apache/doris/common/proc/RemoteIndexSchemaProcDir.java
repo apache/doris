@@ -17,60 +17,45 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
 /*
- * SHOW PROC /dbs/dbId/tableId/index_schema/indexId"
+ * SHOW PROC /dbs/dbId/tableId/index_schema/indexId
  * show index schema
  */
 public class RemoteIndexSchemaProcDir implements ProcDirInterface {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Field").add("Type").add("Null").add("Key")
-            .add("Default").add("Extra")
-            .build();
+    private final OlapTable table;
+    private final ProcResult baseSchema;
+    private final Set<String> bfColumns;
 
-    private List<Column> schema;
-    private Set<String> bfColumns;
-    private TableIf table;
-
-    public RemoteIndexSchemaProcDir(TableIf table, List<Column> schema, Set<String> bfColumns) {
+    public RemoteIndexSchemaProcDir(OlapTable table, ProcResult baseSchema, Set<String> bfColumns) {
         this.table = table;
-        this.schema = schema;
+        this.baseSchema = baseSchema;
         this.bfColumns = bfColumns;
     }
 
     @Override
-    public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(table);
-        Preconditions.checkNotNull(schema);
-        List<Tablet> tablets = null;
+    public ProcResult fetchResult() {
+        return snapshot().fetchResult();
+    }
+
+    public RemoteIndexSchemaProcNode snapshot() {
         table.readLock();
         try {
-            OlapTable olapTable = (OlapTable) table;
-            // Get sample tablets for remote desc schema
-            tablets = olapTable.getSampleTablets(ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount);
+            int maxFetchCount = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
+            return new RemoteIndexSchemaProcNode(baseSchema, bfColumns, table.getSampleTablets(maxFetchCount));
         } finally {
             table.readUnlock();
         }
-        List<Column> remoteSchema = new FetchRemoteTabletSchemaUtil(tablets).fetch();
-        this.schema.addAll(remoteSchema);
-        return IndexSchemaProcNode.createResult(this.schema, this.bfColumns, Lists.newArrayList());
     }
 
     @Override
@@ -80,32 +65,28 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
 
     @Override
     public ProcNodeInterface lookup(String partitionString) throws AnalysisException {
-        Preconditions.checkNotNull(table);
-
-        List<String> partitionNameList = new ArrayList<String>(Arrays.asList(partitionString.split(",")));
-        if (partitionNameList == null || partitionNameList.isEmpty()) {
+        String[] partitionNames = partitionString.split(",");
+        if (partitionNames.length == 0) {
             throw new AnalysisException("Describe table[" + table.getName() + "] failed");
         }
-        List<Partition> partitions = Lists.newArrayList();
         table.readLock();
         try {
-            if (table.isManagedTable()) {
-                OlapTable olapTable = (OlapTable) table;
-                for (String partitionName : partitionNameList) {
-                    Partition partition = olapTable.getPartition(partitionName);
-                    if (partition == null) {
-                        throw new AnalysisException("Partition " + partitionName + " does not exist");
-                    }
-                    partitions.add(partition);
+            List<Tablet> tablets = new ArrayList<>();
+            for (String partitionName : partitionNames) {
+                Partition partition = table.getPartition(partitionName);
+                if (partition == null) {
+                    throw new AnalysisException("Describe table[" + table.getName() + "] failed");
                 }
-            } else {
-                throw new AnalysisException(table.getName() + " is not a OLAP table, describe table failed");
+                tablets.addAll(partition.getBaseIndex().getTablets());
             }
-        } catch (Throwable t) {
-            throw new AnalysisException("Describe table[" + table.getName() + "] failed");
+            int maxFetchCount = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
+            if (tablets.size() > maxFetchCount) {
+                Collections.shuffle(tablets);
+                tablets = tablets.subList(0, maxFetchCount);
+            }
+            return new RemoteIndexSchemaProcNode(baseSchema, bfColumns, tablets);
         } finally {
             table.readUnlock();
         }
-        return new RemoteIndexSchemaProcNode(partitions, this.schema, this.bfColumns);
     }
 }

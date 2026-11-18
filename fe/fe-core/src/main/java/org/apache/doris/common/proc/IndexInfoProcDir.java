@@ -32,6 +32,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -139,9 +140,10 @@ public class IndexInfoProcDir implements ProcDirInterface {
                 if (bfColumns.isEmpty()) {
                     bfColumns = null;
                 }
-                if (olapTable.hasVariantColumns()
-                                    && SessionVariable.enableDescribeExtendVariantColumn()) {
-                    return new RemoteIndexSchemaProcDir(table, schema, bfColumns);
+                if (olapTable.hasVariantColumns() && SessionVariable.enableDescribeExtendVariantColumn()) {
+                    ProcResult baseSchema = IndexSchemaProcNode.createResult(schema, bfColumns,
+                            Collections.emptyList());
+                    return new RemoteIndexSchemaProcDir(olapTable, baseSchema, bfColumns);
                 }
             } else {
                 schema = table.getBaseSchemaForDisplay();

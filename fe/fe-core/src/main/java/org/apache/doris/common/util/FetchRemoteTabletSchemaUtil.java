@@ -39,7 +39,6 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TStatusCode;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -62,12 +61,18 @@ import java.util.concurrent.TimeoutException;
 public class FetchRemoteTabletSchemaUtil {
     private static final Logger LOG = LogManager.getLogger(FetchRemoteTabletSchemaUtil.class);
 
-    private final List<Tablet> remoteTablets;
-    private final List<Column> tableColumns;
+    private final Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
 
     public FetchRemoteTabletSchemaUtil(List<Tablet> tablets) {
-        this.remoteTablets = tablets;
-        this.tableColumns = Lists.newArrayList();
+        // Snapshot tablet locations while the caller holds the table lock.
+        for (Tablet tablet : tablets) {
+            for (Replica replica : tablet.getReplicas()) {
+                if (replica.isAlive()) {
+                    beIdToTabletId.computeIfAbsent(replica.getBackendIdWithoutException(), id -> Sets.newHashSet())
+                            .add(tablet.getId());
+                }
+            }
+        }
     }
 
     private static final Map<String, Type> typeMap = new HashMap<>();
@@ -122,21 +127,7 @@ public class FetchRemoteTabletSchemaUtil {
     }
 
     public List<Column> fetch() {
-        // 1. Find which Backend (BE) servers the tablets are on
-        Preconditions.checkNotNull(remoteTablets);
-        Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
-        for (Tablet tablet : remoteTablets) {
-            for (Replica replica : tablet.getReplicas()) {
-                // only need alive replica
-                if (replica.isAlive()) {
-                    Set<Long> tabletIds = beIdToTabletId.computeIfAbsent(
-                                    replica.getBackendIdWithoutException(), k -> Sets.newHashSet());
-                    tabletIds.add(tablet.getId());
-                }
-            }
-        }
-
-        // 2. Randomly select 2 Backend (BE) servers to act as coordinators.
+        // Randomly select up to 2 Backend (BE) servers to act as coordinators.
         // Coordinator BE is responsible for collecting all table columns and returning to the FE.
         // Two BE provide a retry opportunity with the second one in case the first attempt fails.
         List<PTabletsLocation> locations = Lists.newArrayList();
@@ -145,12 +136,12 @@ public class FetchRemoteTabletSchemaUtil {
             Long backendId = entry.getKey();
             Set<Long> tabletIds = entry.getValue();
             Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(backendId);
-            LOG.debug("fetch schema from coord backend {}, sample tablets count {}",
-                            backend.getId(), tabletIds.size());
-            // only need alive be
-            if (!backend.isAlive()) {
+            // A backend can be removed after its tablet locations were captured.
+            if (backend == null || !backend.isAlive()) {
                 continue;
             }
+            LOG.debug("fetch schema from coord backend {}, sample tablets count {}",
+                            backend.getId(), tabletIds.size());
             coordinatorBackend.add(backend);
             PTabletsLocation.Builder locationBuilder = PTabletsLocation.newBuilder()
                                                         .setHost(backend.getHost())
@@ -167,7 +158,8 @@ public class FetchRemoteTabletSchemaUtil {
         PFetchRemoteSchemaRequest.Builder requestBuilder = PFetchRemoteSchemaRequest.newBuilder()
                                                                     .addAllTabletLocation(locations)
                                                                     .setIsCoordinator(true);
-        // 3. Send rpc to coordinatorBackend util succeed or retry
+        List<Column> tableColumns = Lists.newArrayList();
+        // Fetch the schema from a coordinator and retry with the alternate coordinator if needed.
         for (Backend be : coordinatorBackend) {
             try {
                 PFetchRemoteSchemaRequest request = requestBuilder.build();
@@ -175,6 +167,9 @@ public class FetchRemoteTabletSchemaUtil {
                                             .fetchRemoteTabletSchemaAsync(be.getBrpcAddress(), request);
                 PFetchRemoteSchemaResponse response = null;
                 try {
+                    while (DebugPointUtil.isEnable("FetchRemoteTabletSchemaUtil.fetch.waitForResponse")) {
+                        Thread.sleep(100);
+                    }
                     response = future.get(
                         ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds, TimeUnit.SECONDS);
                     TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
@@ -188,7 +183,7 @@ public class FetchRemoteTabletSchemaUtil {
                         }
                         throw new RpcException(be.getHost(), errMsg);
                     }
-                    fillColumns(response);
+                    fillColumns(response, tableColumns);
                     return tableColumns;
                 } catch (AnalysisException e) {
                     // continue to get result
@@ -210,7 +205,7 @@ public class FetchRemoteTabletSchemaUtil {
         return tableColumns;
     }
 
-    private void fillColumns(PFetchRemoteSchemaResponse response) throws AnalysisException {
+    private void fillColumns(PFetchRemoteSchemaResponse response, List<Column> tableColumns) throws AnalysisException {
         TabletSchemaPB schemaPB = response.getMergedSchema();
         for (ColumnPB columnPB : schemaPB.getColumnList()) {
             try {
