@@ -25,6 +25,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
@@ -132,6 +133,28 @@ public class PaimonRustWriteSupportTest {
     }
 
     @Test
+    public void testRestDataTokensSelectJniEvenWithCapturedS3Credentials() {
+        AppendOnlyFileStoreTable local = table("s3://bucket/rest-writer-test",
+                DataTypes.FIELD(0, "id", DataTypes.INT()));
+        Options options = Options.fromMap(Collections.singletonMap(RESTTokenFileIO.DATA_TOKEN_ENABLED.key(), "true"));
+        CatalogContext context = CatalogContext.create(options);
+        CatalogEnvironment environment = new CatalogEnvironment(new Identifier("db", "t"), null,
+                null, null, null, context, false, false);
+        Map<String, String> storage = new HashMap<>();
+        storage.put("s3.access-key", "current-access");
+        storage.put("s3.secret-key", "current-secret");
+        storage.put("s3.region", "us-east-1");
+        // The effective catalog option also detects a cached/wrapped REST FileIO.
+        for (org.apache.paimon.fs.FileIO fileIO : Arrays.asList(local.fileIO(),
+                new RESTTokenFileIO(context, null, environment.identifier(), local.location()))) {
+            AppendOnlyFileStoreTable rest = new AppendOnlyFileStoreTable(fileIO, local.location(),
+                    local.schema(), environment);
+            Assertions.assertEquals("rest_vended_credentials", PaimonRustWriteSupport.unsupportedReason(rest,
+                    Collections.singletonList("id"), storage).get());
+        }
+    }
+
+    @Test
     public void testDescriptorCarriesHadoopOverridesWithoutBuiltInDefaults() {
         AppendOnlyFileStoreTable table = table("file:/tmp/jni-writer-test",
                 DataTypes.FIELD(0, "id", DataTypes.INT()));
@@ -145,7 +168,8 @@ public class PaimonRustWriteSupportTest {
                 Collections.emptyMap(), false);
         Assertions.assertEquals("test-endpoint", desc.getCatalogContext().getHadoopConfig().get("fs.s3a.endpoint"));
         Assertions.assertEquals("12345", desc.getCatalogContext().getHadoopConfig().get("io.file.buffer.size"));
-        Assertions.assertFalse(desc.getCatalogContext().getHadoopConfig().containsKey("ipc.client.connect.max.retries"));
+        Assertions.assertFalse(desc.getCatalogContext().getHadoopConfig()
+                .containsKey("ipc.client.connect.max.retries"));
         Assertions.assertEquals("uuid-7", desc.getCatalogContext().getTableUuid());
         Assertions.assertEquals("RemoteDB", desc.getDatabaseName());
         Assertions.assertEquals("RemoteTable", desc.getTableName());

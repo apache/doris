@@ -49,6 +49,10 @@ public final class PaimonRustWriteSupport {
         if (!(table instanceof AppendOnlyFileStoreTable)) {
             return Optional.of("table_implementation");
         }
+        if (PaimonTableDescriptor.usesRestDataToken(table)) {
+            // A captured STS token can expire during an INSERT; only JNI preserves REST refresh.
+            return Optional.of("rest_vended_credentials");
+        }
         if (!table.partitionKeys().isEmpty()) {
             return Optional.of("partitioned_table");
         }

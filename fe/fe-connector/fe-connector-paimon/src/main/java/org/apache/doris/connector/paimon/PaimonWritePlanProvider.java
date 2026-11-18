@@ -171,8 +171,6 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
             storage.toBackendProperties().ifPresent(properties -> storageOptions.putAll(properties.toMap()));
         }
         storageOptions.putAll(table.options());
-        storageOptions.putAll(context.getStorageContext().vendStorageCredentials(
-                PaimonScanPlanProvider.extractVendedToken(table)));
         TPaimonWriteMode mode = writeMode(handle);
         String reason = writerSelectionReason(session, table, columns, storageOptions, mode);
         boolean rust = reason.equals("supported_append");
