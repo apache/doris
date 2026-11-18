@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 33 adds connector vector-search admission and per-scan search requests.
-        Assertions.assertEquals("33.0", version.getProperty("api.version"));
+        // Major 35 adds vector search after the upstream API 34 path-partition additions.
+        Assertions.assertEquals("35.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

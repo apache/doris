@@ -35,6 +35,7 @@ import org.apache.fluss.metadata.DatabaseDescriptor;
 import org.apache.fluss.metadata.PartitionSpec;
 import org.apache.fluss.metadata.Schema;
 import org.apache.fluss.metadata.TableDescriptor;
+import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.row.BinaryString;
 import org.apache.fluss.row.GenericRow;
@@ -52,6 +53,8 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Split planning against a real fluss cluster started in this JVM.
@@ -264,4 +267,40 @@ public class FlussLogScanPlanClusterTest {
         }
         return buckets;
     }
+
+    @Test
+    public void tableInfoCacheAvoidsRepeatedMetadataRoundTrips() {
+        TablePath table = TablePath.of(db, "log_table");
+        int repetitions = Boolean.getBoolean("fluss.cache.benchmark") ? 100 : 3;
+        for (int i = 0; i < 10; i++) {
+            admin.getTableInfo(table).join();
+        }
+        long started = System.nanoTime();
+        TableInfo live = null;
+        for (int i = 0; i < repetitions; i++) {
+            live = admin.getTableInfo(table).join();
+        }
+        long liveNanos = System.nanoTime() - started;
+        FlussTableInfoCache cache = new FlussTableInfoCache(600);
+        AtomicInteger requests = new AtomicInteger();
+        Supplier<TableInfo> load = () -> {
+            requests.incrementAndGet();
+            return admin.getTableInfo(table).join();
+        };
+        started = System.nanoTime();
+        for (int i = 0; i < repetitions; i++) {
+            Assertions.assertEquals(live.getTableId(), cache.get(table, load).getTableId());
+        }
+        long cachedNanos = System.nanoTime() - started;
+        Assertions.assertEquals(1, requests.get(), "one successful RPC serves all statements within the TTL");
+        cache.invalidate(table);
+        Assertions.assertEquals(live.getSchemaId(), cache.get(table, load).getSchemaId());
+        Assertions.assertEquals(2, requests.get(), "REFRESH must issue a new metadata RPC");
+        if (Boolean.getBoolean("fluss.cache.benchmark")) {
+            System.out.println("FlussMetadataCacheBenchmark repetitions=" + repetitions
+                    + " liveNanos=" + liveNanos + " cachedNanos=" + cachedNanos
+                    + " liveRequests=" + repetitions + " cachedRequests=1");
+        }
+    }
+
 }

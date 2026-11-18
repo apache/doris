@@ -335,6 +335,94 @@ class TimestampTzLiteralTest {
     }
 
     @Test
+    void testYearsUseLocalDate() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("+08:00");
+        context.setThreadLocalInfo();
+        try {
+            // One local leap day exposes the bug. The stored UTC date is February 28.
+            // A nonzero fraction also checks that year changes keep all six digits.
+            TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-02-29 00:00:00.123456 +08:00");
+            int[][] cases = {{1, 2025, 28}, {-1, 2023, 28}, {4, 2028, 29}, {-4, 2020, 29},
+                    {0, 2024, 29}, {76, 2100, 28}, {-124, 1900, 28}, {-24, 2000, 29}};
+            for (int[] test : cases) {
+                TimestampTzLiteral expected = new TimestampTzLiteral(TimeStampTzType.of(6),
+                        String.format("%04d-02-%02d 00:00:00.123456 +08:00", test[1], test[2]));
+                Assertions.assertEquals(expected, input.plusYears(test[0]), "years=" + test[0]);
+            }
+            // Local year 0 is valid, but local midnight converts to UTC year -1.
+            TimestampTzLiteral minimum = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0001-01-01 00:00:00 +08:00");
+            Assertions.assertThrows(AnalysisException.class, () -> minimum.plusYears(-1));
+            // A valid UTC input can have a local date in year 10000.
+            TimestampTzLiteral maximum = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "9999-12-31 20:00:00 +00:00");
+            Assertions.assertThrows(AnalysisException.class, () -> maximum.plusYears(-1));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testYearsClampYearZeroBeforeUtcConversion() {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : new String[] {"+08:00", "+00:00", "-08:00"}) {
+                context.getSessionVariable().setTimeZone(zone);
+                TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6),
+                        "2024-02-29 00:00:00.123456 " + zone);
+                TimestampTzLiteral expected = new TimestampTzLiteral(TimeStampTzType.of(6),
+                        "0000-02-28 00:00:00.123456 " + zone);
+                Assertions.assertEquals(expected, DateTimeArithmetic.yearsAdd(input, new IntegerLiteral(-2024)), zone);
+                Assertions.assertEquals(expected, DateTimeArithmetic.yearsSub(input, new IntegerLiteral(2024)), zone);
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testYearsRejectInvalidLocalLeapDay() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("-08:00");
+        context.setThreadLocalInfo();
+        try {
+            // Valid in UTC, but the local date is 0000-02-29, which Doris rejects.
+            TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0000-03-01 04:00:00 +00:00");
+            Assertions.assertThrows(AnalysisException.class, () -> input.plusYears(1));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testYearsKeepDstPolicy() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            // This is the second 01:30 in the repeated hour. Adding zero years
+            // must keep the -05:00 offset and the same UTC instant.
+            TimestampTzLiteral repeated = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-11-03 01:30:00.123456 -05:00");
+            Assertions.assertEquals(repeated, repeated.plusYears(0));
+
+            // The target 02:30 is in the DST gap. Match the BE rule: move forward
+            // by the one-hour gap to 03:30 and keep the fraction.
+            TimestampTzLiteral beforeGap = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2023-03-10 02:30:00.123456 -05:00");
+            TimestampTzLiteral expected = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-03-10 03:30:00.123456 -04:00");
+            Assertions.assertEquals(expected, beforeGap.plusYears(1));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     void testBasicArithmetic() {
         TimestampTzLiteral base1 = new TimestampTzLiteral("2025-12-31 23:59:59.999999");
         TimestampTzLiteral base2 = new TimestampTzLiteral("2024-2-29 0:0:0");

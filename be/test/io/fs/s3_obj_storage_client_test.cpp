@@ -15,25 +15,62 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cpp/obj-client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
 
 #include <gtest/gtest.h>
 
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/client/gcp_obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
+#include "cpp/obj-storage/client/oss_obj_storage_client.h"
 #include "io/fs/file_system.h"
-#include "util/s3_util.h"
 
 namespace doris {
 
 TEST(S3ObjStorageSignedUrlTest, DelegatesProviderSpecificSigning) {
-    S3ObjStorageClient client(nullptr, {}, [](const ObjStoragePath& path, int64_t expiration) {
-        EXPECT_EQ(path.bucket, "bucket");
-        EXPECT_EQ(path.key, "nested/key");
-        EXPECT_EQ(expiration, 300);
-        return std::string {"https://storage.googleapis.com/bucket/nested/key?signed"};
-    });
-    EXPECT_EQ(client.generate_presigned_url({.bucket = "bucket", .key = "nested/key"}, 300),
+    std::shared_ptr<ObjStorageClient> client = std::make_shared<GcpObjStorageClient>(
+            nullptr, ObjStorageEndpointInfo {}, [](const ObjStoragePath& path, int64_t expiration) {
+                EXPECT_EQ(path.bucket, "bucket");
+                EXPECT_EQ(path.key, "nested/key");
+                EXPECT_EQ(expiration, 300);
+                return std::string {"https://storage.googleapis.com/bucket/nested/key?signed"};
+            });
+    EXPECT_EQ(client->generate_presigned_url({.bucket = "bucket", .key = "nested/key"}, 300),
               "https://storage.googleapis.com/bucket/nested/key?signed");
+    EXPECT_EQ(client->generate_public_presigned_url({.bucket = "bucket", .key = "nested/key"}, 300),
+              "https://storage.googleapis.com/bucket/nested/key?signed");
+}
+
+TEST(S3ObjStorageSignedUrlTest, OssPublicSigningPreservesPrivateClientAndSigningOptions) {
+    for (bool path_style : {false, true}) {
+        OssObjStorageConfig config;
+        config.connection.endpoint = "https://oss-cn-beijing-internal.aliyuncs.com";
+        config.region = "cn-beijing";
+        config.auth = AccessKeyObjStorageAuth {"oss-test-ak", "oss-test-sk", "oss-test-token"};
+        config.use_path_style = path_style;
+        auto built = OssObjStorageClient::create(config);
+        ASSERT_TRUE(built.client) << built.error;
+        ObjStoragePath path {.bucket = "test-bucket", .key = "nested/key"};
+        const std::string public_prefix =
+                path_style ? "https://oss-cn-beijing.aliyuncs.com/test-bucket/nested/key?"
+                           : "https://test-bucket.oss-cn-beijing.aliyuncs.com/nested/key?";
+
+        auto private_url = built.client->generate_presigned_url(path, 300);
+        EXPECT_NE(private_url.find("-internal.aliyuncs.com"), std::string::npos);
+        auto public_url = built.client->generate_public_presigned_url(path, 300);
+        EXPECT_TRUE(public_url.starts_with(public_prefix)) << public_url;
+        EXPECT_NE(public_url.find("X-Amz-Credential=oss-test-ak%2F"), std::string::npos);
+        EXPECT_NE(public_url.find("X-Amz-Security-Token=oss-test-token"), std::string::npos);
+        EXPECT_NE(public_url.find("X-Amz-Expires=300"), std::string::npos);
+        EXPECT_NE(built.client->generate_presigned_url(path, 300).find("-internal.aliyuncs.com"),
+                  std::string::npos);
+
+        config.connection.endpoint = "https://oss-cn-beijing.aliyuncs.com";
+        auto public_client = OssObjStorageClient::create(config);
+        ASSERT_TRUE(public_client.client) << public_client.error;
+        EXPECT_TRUE(public_client.client->generate_public_presigned_url(path, 300).starts_with(
+                public_prefix));
+    }
 }
 
 class S3ObjStorageClientTest : public testing::Test {
@@ -53,20 +90,19 @@ protected:
 
         S3ObjStorageClientTest::bucket = std::getenv("AWS_BUCKET");
 
-        auto client_result = S3ClientFactory::instance().create({
-                .endpoint = endpoint,
-                .region = "dummy-region",
-                .ak = access_key,
-                .sk = secret_key,
-                .token = "",
-                .bucket = bucket,
-                .provider = ObjStorageProvider::AWS,
-                .use_virtual_addressing = false,
-                .role_arn = "",
-                .external_id = "",
-        });
-        ASSERT_TRUE(client_result.has_value()) << client_result.error();
-        S3ObjStorageClientTest::obj_storage_client = std::move(client_result).value();
+        AwsObjStorageConfig config;
+        config.connection.endpoint = endpoint;
+        config.region = "dummy-region";
+        config.auth.source = AccessKeyObjStorageAuth {access_key, secret_key, {}};
+        config.use_path_style = true;
+        auto client_result = ObjStorageClientFactory::instance().create(config);
+        ASSERT_NE(client_result.client, nullptr) << client_result.error;
+        S3ObjStorageClientTest::obj_storage_client = std::move(client_result.client);
+    }
+
+    static void TearDownTestSuite() {
+        // Do not retain an SDK client past exit-time destruction of AWS logging globals.
+        obj_storage_client.reset();
     }
 
     void SetUp() override {

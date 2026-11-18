@@ -33,7 +33,7 @@
 #include <sstream>
 
 #include "common/logging.h"
-#include "cpp/aws_common.h"
+#include "cpp/obj-storage/auth/aws/aws_credential_provider.h"
 
 namespace doris {
 
