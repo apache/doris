@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <bit>
 #include <filesystem>
 #include <fstream>
@@ -153,22 +154,25 @@ protected:
         return options;
     }
 
+    Block make_block() const {
+        return Block(
+                {ColumnWithTypeAndName(
+                         make_nullable(std::make_shared<DataTypeInt32>())->create_column(),
+                         make_nullable(std::make_shared<DataTypeInt32>()), "id"),
+                 ColumnWithTypeAndName(make_nullable(std::make_shared<DataTypeArray>(make_nullable(
+                                                             std::make_shared<DataTypeFloat32>())))
+                                               ->create_column(),
+                                       make_nullable(std::make_shared<DataTypeArray>(
+                                               make_nullable(std::make_shared<DataTypeFloat32>()))),
+                                       "embedding"),
+                 ColumnWithTypeAndName(std::make_shared<DataTypeFloat32>()->create_column(),
+                                       std::make_shared<DataTypeFloat32>(), _distance_name)});
+    }
+
     std::vector<std::pair<int64_t, float>> read_rows(PaimonRustTableReader& reader) {
         std::vector<std::pair<int64_t, float>> result;
         for (int batch = 0; batch <= kFixtureRows; ++batch) {
-            Block block(
-                    {ColumnWithTypeAndName(
-                             make_nullable(std::make_shared<DataTypeInt32>())->create_column(),
-                             make_nullable(std::make_shared<DataTypeInt32>()), "id"),
-                     ColumnWithTypeAndName(
-                             make_nullable(std::make_shared<DataTypeArray>(make_nullable(
-                                                   std::make_shared<DataTypeFloat32>())))
-                                     ->create_column(),
-                             make_nullable(std::make_shared<DataTypeArray>(
-                                     make_nullable(std::make_shared<DataTypeFloat32>()))),
-                             "embedding"),
-                     ColumnWithTypeAndName(std::make_shared<DataTypeFloat32>()->create_column(),
-                                           std::make_shared<DataTypeFloat32>(), _distance_name)});
+            Block block = make_block();
             bool eos = false;
             auto status = reader.get_block(&block, &eos);
             if (!status.ok()) {
@@ -221,6 +225,62 @@ TEST_F(PaimonRustVectorReaderTest, ExactReadMaterializesRowsAcrossCompactedFiles
         EXPECT_FLOAT_EQ(static_cast<float>(id), rows[id].second);
     }
     EXPECT_TRUE(read_rows(reader).empty()); // EOF is stable on repeated calls.
+    EXPECT_TRUE(is_ok(reader.close()));
+}
+
+TEST_F(PaimonRustVectorReaderTest, TopKRejectsZeroAndLimitsPositiveRequests) {
+    PaimonRustTableReader reader;
+    ASSERT_TRUE(is_ok(init(reader)));
+    // The Rust SDK requires a positive limit. A zero limit must return an error and
+    // leave the reader reusable for a subsequent valid request.
+    set_request(false, TVectorMetric::L2, 0);
+    auto status = reader.prepare_split(split());
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("limit must be positive")) << status;
+    ASSERT_TRUE(is_ok(reader.abort_split()));
+    for (int64_t top_k : {1, 2049}) {
+        SCOPED_TRACE(top_k);
+        set_request(false, TVectorMetric::L2, top_k);
+        ASSERT_TRUE(is_ok(reader.prepare_split(split())));
+        auto rows = read_rows(reader);
+        const auto expected = std::min(top_k, kFixtureRows);
+        ASSERT_EQ(expected, rows.size());
+        for (int64_t id = 0; id < expected; ++id) {
+            EXPECT_EQ(id, rows[id].first);
+            EXPECT_FLOAT_EQ(static_cast<float>(id), rows[id].second);
+        }
+        EXPECT_TRUE(read_rows(reader).empty());
+        ASSERT_TRUE(is_ok(reader.abort_split()));
+    }
+    EXPECT_TRUE(is_ok(reader.close()));
+}
+
+TEST_F(PaimonRustVectorReaderTest, AdaptiveBatchSizePreservesRowsWhenReusingBlock) {
+    PaimonRustTableReader reader;
+    ASSERT_TRUE(is_ok(init(reader)));
+    ASSERT_TRUE(is_ok(reader.prepare_split(split())));
+    Block block = make_block();
+    const std::vector<size_t> caps {128, 1, 17, 97};
+    size_t total = 0;
+    bool eos = false;
+    // A retained Rust batch is sliced repeatedly as the scanner changes its cap. Reusing the
+    // output block must neither retain old rows nor convert an earlier distance a second time.
+    for (size_t batch = 0; batch <= kFixtureRows && !eos; ++batch) {
+        size_t cap = caps[batch % caps.size()];
+        reader.set_batch_size(cap);
+        ASSERT_TRUE(is_ok(reader.get_block(&block, &eos)));
+        ASSERT_LE(block.rows(), cap);
+        for (size_t row = 0; row < block.rows(); ++row) {
+            Field id, distance;
+            block.get_by_position(0).column->get(row, id);
+            block.get_by_position(2).column->get(row, distance);
+            EXPECT_EQ(total + row, id.get<TYPE_INT>());
+            EXPECT_FLOAT_EQ(static_cast<float>(total + row), distance.get<TYPE_FLOAT>());
+        }
+        total += block.rows();
+    }
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(kFixtureRows, total);
     EXPECT_TRUE(is_ok(reader.close()));
 }
 

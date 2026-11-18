@@ -129,6 +129,7 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 'primary-key'='id', 'bucket'='1', 'file.format'='parquet',
                 'merge-engine'='partial-update', 'deletion-vectors.enabled'='true',
                 'deletion-vectors.merge-on-read'='false',
+                'vector-field'='embedding',
                 'field.embedding.vector-dim'='${dimension}', 'vector-index.search-mode'='full'
             );
             INSERT INTO paimon.${database}.ann_nullable
