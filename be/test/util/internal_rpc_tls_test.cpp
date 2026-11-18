@@ -54,6 +54,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/client_cache.h"
 #include "util/client_connection_provider.h"
+#include "util/debug/leakcheck_disabler.h"
 #include "util/defer_op.h"
 #include "util/dns_cache.h"
 #include "util/private_rpc_tls.h"
@@ -706,7 +707,11 @@ TEST_F(InternalRpcTlsTest, RemoteDorisStreamingWritesOpenPlaintextStreamsWithPri
     RemoteStreamService service;
     brpc::Server server;
     ASSERT_EQ(0, server.AddService(&service, brpc::SERVER_DOESNT_OWN_SERVICE));
-    ASSERT_EQ(0, server.Start("127.0.0.1:0", nullptr));
+    {
+        // BRPC 1.4 retains its bthread keytable pool after Join; keep stream/client allocations checked.
+        debug::ScopedLeakCheckDisabler disable_lsan;
+        ASSERT_EQ(0, server.Start("127.0.0.1:0", nullptr));
+    }
     Defer shutdown {[&] {
         server.Stop(0);
         server.Join();
