@@ -880,8 +880,7 @@ public abstract class DataType {
      * For example, floating-point grouping can merge signed zeros that SIGNBIT distinguishes.
      */
     public boolean supportsValuePreservingGrouping() {
-        return isBooleanType() || isIntegralType() || isDecimalLikeType()
-                || isStringLikeType() || isDateLikeType() || isIPType() || isUuidType();
+        return false;
     }
 
     public static List<DataType> trivialTypes() {

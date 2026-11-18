@@ -52,6 +52,11 @@ public class TimeStampTzType extends DateLikeType implements AdjustableScaleTime
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         if (target instanceof TimeStampTzType) {
             TimeStampTzType timeStampTzType = (TimeStampTzType) target;

@@ -49,6 +49,11 @@ public final class TimeStampNsType extends DateLikeType implements ScaleTimeType
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         return target instanceof TimeStampNsType || target instanceof CharacterType;
     }

@@ -50,6 +50,11 @@ public class DateTimeType extends DateLikeType {
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         // BE converts DATETIME to YYYYMMDDHHMMSS for numeric targets. This 14-digit integer fits
         // in BIGINT and remains exact in DOUBLE because it is below 2^53.

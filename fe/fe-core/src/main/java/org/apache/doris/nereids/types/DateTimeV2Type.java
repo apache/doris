@@ -134,6 +134,11 @@ public class DateTimeV2Type extends DateLikeType implements AdjustableScaleTimeT
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         if (target instanceof DateTimeV2Type) {
             DateTimeV2Type t2 = (DateTimeV2Type) target;
