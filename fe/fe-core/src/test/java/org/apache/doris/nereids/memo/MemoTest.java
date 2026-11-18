@@ -73,6 +73,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -277,6 +278,96 @@ class MemoTest implements MemoPatternMatchSupported {
                 for (Group child : expression.children()) {
                     Assertions.assertSame(child, memo.getGroup(child.getGroupId()));
                     Assertions.assertTrue(child.getParentGroupExpressions().stream().anyMatch(p -> p == expression));
+                }
+            }
+        }
+        memo.getGroupExpressions().forEach((key, value) ->
+                Assertions.assertSame(value, memo.getGroupExpressions().get(key)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void testRepeatedRecursiveMergeRefusalPreservesUniqueAlternatives(boolean physicalParents) {
+        // B = P(E1(Scan)), C = P(E2(Scan)), Q = {P(B), P(C), P(E3(Scan))}.
+        // Root contains P(P(Scan)) and reaches Q through E4(Q). Merging B and C into P(Scan)
+        // must deduplicate their parents in Q, even though the global match belongs to Root.
+        SlotReference slot = (SlotReference) scan.getOutput().get(0);
+        CascadesContext cascades = MemoTestUtils.createCascadesContext(connectContext,
+                new LogicalProject<>(ImmutableList.of(slot), new LogicalProject<>(ImmutableList.of(slot), scan)));
+        Memo memo = cascades.getMemo();
+        Group root = memo.getRoot();
+        Group a = root.getLogicalExpression().child(0);
+        Group scanGroup = a.getLogicalExpression().child(0);
+        List<Group> sources = Lists.newArrayList();
+        for (byte value : new byte[] {1, 2}) {
+            LogicalProject<?> extra = new LogicalProject<>(
+                    ImmutableList.of(slot, new Alias(new TinyIntLiteral(value))), new GroupPlan(scanGroup));
+            sources.add(memo.copyIn(new LogicalProject<>(ImmutableList.of(slot), extra), null, false)
+                    .correspondingExpression.getOwnerGroup());
+        }
+        Group d = memo.copyIn(new LogicalProject<>(ImmutableList.of(slot, new Alias(new TinyIntLiteral((byte) 3))),
+                new GroupPlan(scanGroup)), null, false).correspondingExpression.getOwnerGroup();
+        Group q = memo.copyIn(new LogicalProject<>(ImmutableList.of(slot), new GroupPlan(d)), null, false)
+                .correspondingExpression.getOwnerGroup();
+        List<GroupExpression> parents = Lists.newArrayList();
+        for (Group source : sources) {
+            Plan parentPlan = physicalParents
+                    ? new PhysicalProject<>(ImmutableList.of(slot), q.getLogicalProperties(), new GroupPlan(source))
+                    : new LogicalProject<>(ImmutableList.of(slot), new GroupPlan(source));
+            parents.add(memo.copyIn(parentPlan, q, false).correspondingExpression);
+        }
+        GroupExpression canonical = root.getFirstLogicalExpression();
+        if (physicalParents) {
+            canonical = memo.copyIn(new PhysicalProject<>(ImmutableList.of(slot), root.getLogicalProperties(),
+                    new GroupPlan(a)), root, false).correspondingExpression;
+            parents.get(1).updateLowestCostTable(PhysicalProperties.ANY,
+                    Lists.newArrayList(PhysicalProperties.ANY), Cost.zero());
+            parents.get(1).putOutputPropertiesMap(PhysicalProperties.ANY, PhysicalProperties.ANY);
+            q.setBestPlan(parents.get(1), Cost.zero(), PhysicalProperties.ANY);
+        }
+        LogicalProject<?> x = new LogicalProject<>(
+                ImmutableList.of(slot, new Alias(new TinyIntLiteral((byte) 4))), new GroupPlan(q));
+        memo.copyIn(new LogicalProject<>(ImmutableList.of(slot), x), root, false);
+        LogicalProject<?> extra = new LogicalProject<>(
+                ImmutableList.of(slot, new Alias(new TinyIntLiteral((byte) 5))), new GroupPlan(d));
+        Group z = memo.copyIn(new LogicalProject<>(ImmutableList.of(slot), extra), null, false)
+                .correspondingExpression.getOwnerGroup();
+        memo.copyIn(new LogicalProject<>(ImmutableList.of(slot), new GroupPlan(z)), root, false);
+        MemoValidator.validate(memo);
+
+        Rule rule = new MergeProjectsCBO().build();
+        for (Group source : sources) {
+            new ApplyRuleJob(source.getLogicalExpression(), rule, cascades.getCurrentJobContext()).execute();
+        }
+        // A subsequent permitted merge into Q must not fail while indexing its alternatives.
+        Assertions.assertDoesNotThrow(() ->
+                new ApplyRuleJob(z.getLogicalExpression(), rule, cascades.getCurrentJobContext()).execute());
+
+        Assertions.assertNull(memo.getGroup(z.getGroupId()));
+        Assertions.assertFalse(parents.get(0).isUnused());
+        Assertions.assertSame(q, parents.get(0).getOwnerGroup());
+        Assertions.assertSame(a, parents.get(0).child(0));
+        Assertions.assertTrue(parents.get(1).isUnused());
+        Assertions.assertSame(canonical, memo.getGroupExpressions().get(parents.get(0)));
+        if (physicalParents) {
+            Assertions.assertSame(parents.get(0), q.getBestPlan(PhysicalProperties.ANY));
+            Assertions.assertEquals(0, parents.get(0).getCostByProperties(PhysicalProperties.ANY));
+            Assertions.assertEquals(PhysicalProperties.ANY,
+                    parents.get(0).getOutputProperties(PhysicalProperties.ANY));
+        }
+        MemoValidator.validate(memo);
+        for (Group group : memo.getGroups()) {
+            for (List<GroupExpression> alternatives : ImmutableList.of(
+                    group.getLogicalExpressions(), group.getPhysicalExpressions())) {
+                Assertions.assertEquals(alternatives.size(), ImmutableSet.copyOf(alternatives).size());
+                for (GroupExpression expression : alternatives) {
+                    Assertions.assertFalse(expression.isUnused());
+                    Assertions.assertSame(group, expression.getOwnerGroup());
+                    Assertions.assertFalse(memo.getGroupExpressions().get(expression).isUnused());
+                    for (Group child : expression.children()) {
+                        Assertions.assertSame(child, memo.getGroup(child.getGroupId()));
+                        Assertions.assertTrue(child.getParentGroupExpressions().stream().anyMatch(p -> p == expression));
+                    }
                 }
             }
         }

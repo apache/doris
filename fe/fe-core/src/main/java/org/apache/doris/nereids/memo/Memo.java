@@ -686,14 +686,24 @@ public class Memo {
                 Preconditions.checkState(existGroupExpr.getOwnerGroup() != null);
                 if (existGroupExpr.getOwnerGroup().equals(reinsertGroupExpr.getOwnerGroup())) {
                     // reinsertGroupExpr & existGroupExpr are in same Group, so merge them.
-                    if (reinsertGroupExpr.getPlan() instanceof PhysicalPlan) {
-                        reinsertGroupExpr.getOwnerGroup().replaceBestPlanGroupExpr(reinsertGroupExpr, existGroupExpr);
-                    }
-                    // existingGroupExpression merge the state of reinsertGroupExpr
-                    reinsertGroupExpr.mergeTo(existGroupExpr);
+                    mergeDuplicateExpression(reinsertGroupExpr, existGroupExpr);
                 } else {
                     // reinsertGroupExpr & existGroupExpr aren't in same group, need to merge their OwnerGroup.
                     mergeGroup(reinsertGroupExpr.getOwnerGroup(), existGroupExpr.getOwnerGroup(), planTable);
+                    if (!reinsertGroupExpr.isUnused()) {
+                        // A refused owner-group merge can retain equal alternatives in this group,
+                        // even though the global canonical expression belongs to another group.
+                        Group owner = reinsertGroupExpr.getOwnerGroup();
+                        List<GroupExpression> alternatives = reinsertGroupExpr.getPlan() instanceof LogicalPlan
+                                ? owner.getLogicalExpressions() : owner.getPhysicalExpressions();
+                        GroupExpression duplicate = alternatives.stream()
+                                .filter(expression -> expression != reinsertGroupExpr
+                                        && expression.equals(reinsertGroupExpr))
+                                .findFirst().orElse(null);
+                        if (duplicate != null) {
+                            mergeDuplicateExpression(reinsertGroupExpr, duplicate);
+                        }
+                    }
                 }
             } else {
                 groupExpressions.put(reinsertGroupExpr, reinsertGroupExpr);
@@ -713,6 +723,13 @@ public class Memo {
             root = destination;
         }
         groups.remove(source.getGroupId());
+    }
+
+    private static void mergeDuplicateExpression(GroupExpression source, GroupExpression target) {
+        if (source.getPlan() instanceof PhysicalPlan) {
+            source.getOwnerGroup().replaceBestPlanGroupExpr(source, target);
+        }
+        source.mergeTo(target);
     }
 
     private static boolean isReachable(Group from, Group target) {
