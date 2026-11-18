@@ -67,4 +67,15 @@ public class VectorSearchPredicateConverterTest {
         // The write-conflict converter has a different NULL contract and must remain unchanged.
         Assertions.assertNull(NereidsToConnectorExpressionConverter.convertStrict(new Not(new EqualTo(ID, SEVEN))));
     }
+
+    @Test
+    public void negatedNullSafeEqualityCannotDropMatchingNullRows() {
+        Assertions.assertNull(VectorSearchPredicateConverter.convert(new Not(new NullSafeEqual(ID, SEVEN))));
+        Assertions.assertNull(VectorSearchPredicateConverter.convert(new Not(new NullSafeEqual(SEVEN, ID))));
+        Assertions.assertNull(VectorSearchPredicateConverter.convert(new Not(
+                new NullSafeEqual(ID, new NullLiteral(BigIntType.INSTANCE)))));
+        Assertions.assertNull(VectorSearchPredicateConverter.convert(new And(
+                new GreaterThan(ID, SEVEN), new Not(new NullSafeEqual(ID, SEVEN)))));
+    }
+
 }

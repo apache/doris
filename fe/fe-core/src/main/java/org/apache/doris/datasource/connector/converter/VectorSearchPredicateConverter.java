@@ -66,6 +66,10 @@ public final class VectorSearchPredicateConverter {
             return null;
         }
         if (expression instanceof Not) {
+            // NOT(NULL <=> value) is true, whereas ordinary != discards NULL rows.
+            if (expression.child(0) instanceof NullSafeEqual) {
+                return null;
+            }
             ConnectorExpression child = convert(expression.child(0));
             if (child instanceof ConnectorComparison
                     && ((ConnectorComparison) child).getOperator() == ConnectorComparison.Operator.EQ) {

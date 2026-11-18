@@ -519,6 +519,44 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 from ${tvf("ann_l2_part", "l2", 5,
                 ", 'filter'='dt = \"2026-01-01\" and id = 8', 'prefilter'='true'")}"""
 
+        // Negated null-safe equality must never become ordinary != while pruning NULL partitions.
+        for (String table : ["ann_null_partition", "ann_mixed_partition"]) {
+            spark_paimon_multi """
+                DROP TABLE IF EXISTS paimon.${database}.${table};
+                CREATE TABLE paimon.${database}.${table} (
+                    p INT, id INT, embedding ARRAY<FLOAT> NOT NULL
+                ) USING paimon PARTITIONED BY (p) TBLPROPERTIES (
+                    'primary-key'='p,id', 'primary-key.nullable'='true', 'bucket'='1',
+                    'merge-engine'='partial-update', 'changelog-producer'='none',
+                    'deletion-vectors.enabled'='true', 'deletion-vectors.merge-on-read'='false',
+                    'vector-field'='embedding', 'field.embedding.vector-dim'='${dimension}'
+                );
+            """
+            String partitionValue = table == "ann_null_partition" ? "CAST(NULL AS INT)"
+                    : "IF(id % 3 = 0, CAST(NULL AS INT), IF(id % 3 = 1, 7, 8))"
+            for (int parity : [0, 1]) {
+                spark_paimon_multi """INSERT INTO paimon.${database}.${table}
+                    SELECT ${partitionValue}, CAST(id AS INT), array_repeat(CAST(id AS FLOAT), ${dimension})
+                    FROM (SELECT explode(sequence(0, 7)) AS id) WHERE id % 2 = ${parity}"""
+            }
+            spark_paimon_multi """CALL paimon.sys.compact(
+                    table => '${database}.${table}', compact_strategy => 'full')"""
+            spark_paimon_multi """ALTER TABLE paimon.${database}.${table} SET TBLPROPERTIES (
+                    'pk-vector.index.columns'='embedding', 'fields.embedding.pk-vector.index.type'='ivf-rq',
+                    'fields.embedding.pk-vector.distance.metric'='l2')"""
+        }
+        sql "set enable_paimon_rust_reader=false"
+        qt_nullable_partition_sources """select 'all_null', count(*) from ann_null_partition where NOT(p <=> 7)
+                union all select 'mixed', count(*) from ann_mixed_partition where NOT(p <=> 7) order by 1"""
+        sql "set enable_paimon_rust_reader=true"
+        for (String table : ["ann_null_partition", "ann_mixed_partition"]) {
+            test {
+                sql """select id from ${tvf(table, "l2", 1,
+                        ", 'filter'='NOT(p <=> 7)', 'prefilter'='true', 'use_index'='false'")}"""
+                exception "prefilter requires supported scalar predicates"
+            }
+        }
+
         // ---------------------------------------------- NULL query-vector element
         // A NULL element inside the query vector must not become a zero coordinate:
         // the ordinary function rejects it, and the rewrite must decline so both

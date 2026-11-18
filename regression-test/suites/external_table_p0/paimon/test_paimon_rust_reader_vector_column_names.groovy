@@ -38,6 +38,13 @@ suite("test_paimon_rust_reader_vector_column_names", "p0,external,paimon") {
         ) USING paimon TBLPROPERTIES ('file.format'='parquet');
         INSERT INTO paimon.test_paimon_vector_names_db.vector_column_names VALUES
             (1, 11.0, 21.0, 31.0), (2, NULL, 22.0, NULL), (3, 13.0, NULL, 33.0);
+        DROP TABLE IF EXISTS paimon.test_paimon_vector_names_db.vector_column_predicate;
+        CREATE TABLE paimon.test_paimon_vector_names_db.vector_column_predicate (
+            id INT, __paimon_search_score_to_dis INT
+        ) USING paimon TBLPROPERTIES ('file.format'='parquet');
+        INSERT INTO paimon.test_paimon_vector_names_db.vector_column_predicate
+            SELECT CAST(id AS INT), CAST(id % 128 AS INT)
+            FROM (SELECT explode(sequence(1, 4096)) AS id);
     """
     sql "DROP CATALOG IF EXISTS test_paimon_vector_names"
     sql """
@@ -89,6 +96,17 @@ suite("test_paimon_rust_reader_vector_column_names", "p0,external,paimon") {
         qt_rust_filter """select id, __paimon_search_score, __paimon_search_score_to_dis
                 from vector_column_names where __paimon_search_score >= 12
                     or __paimon_search_score_to_dis is null order by id"""
+        // A legal lowercase physical name must retain native row filtering as well as values.
+        def selective = """select count(*), min(id), max(id), sum(id)
+                from vector_column_predicate where __paimon_search_score_to_dis = 42"""
+        sql selective
+        def predicateQueryId = sql("select last_query_id()")[0][0]
+        def predicateProfile = profileAction.getProfile(predicateQueryId.toString(),
+                ["PaimonRustReader", "RustPredicatesConverted:", "RustPredicatesApplied:",
+                 "Profile Completion State: COMPLETE"])
+        assertTrue((predicateProfile =~ /RustPredicatesConverted:\s*[1-9]/).find(), predicateProfile)
+        assertTrue((predicateProfile =~ /RustPredicatesApplied:\s*[1-9]/).find(), predicateProfile)
+        qt_lowercase_physical_predicate selective
     } finally {
         sql "set force_jni_scanner=${originalForceJni}"
         sql "set enable_paimon_rust_reader=${originalRust}"

@@ -1086,13 +1086,14 @@ Status PaimonRustTableReader::_apply_predicate() {
     VLOG_DEBUG << "paimon-rust predicate pushdown: " << _conjuncts.size() << " conjunct(s) input";
     // The conjunct VSlotRefs carry table global indices (positions), so the v2
     // converter mode resolves fields by the projected column names; partition
-    // keys are excluded because the rust reader does not read them.
+    // keys are excluded because the rust reader does not read them. Vector splits use
+    // their own registry; distance-like physical names remain valid in this ordinary path.
     std::vector<std::string> names;
     std::vector<DataTypePtr> types;
     names.reserve(_projected_columns.size());
     types.reserve(_projected_columns.size());
     for (const auto& col : _projected_columns) {
-        if (col.is_partition_key || col.name == kPaimonSearchDistanceColumn) {
+        if (col.is_partition_key) {
             continue;
         }
         names.push_back(col.name);
