@@ -49,6 +49,7 @@ import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.types.TimestampType;
+import io.delta.kernel.types.TypeChange;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -69,13 +70,17 @@ final class DeltaLakePredicateConverter {
 
     private static final SignedZeros FLOAT_ZEROS = new SignedZeros(Literal.ofFloat(-0.0f), Literal.ofFloat(0.0f));
     private static final SignedZeros DOUBLE_ZEROS = new SignedZeros(Literal.ofDouble(-0.0), Literal.ofDouble(0.0));
+    private static final TypeChange FLOAT_TO_DOUBLE = new TypeChange(FloatType.FLOAT, DoubleType.DOUBLE);
     private final StructType schema;
     private final ZoneId zone;
+    private final Collection<String> partitionColumns;
     private final Collection<String> possibleEmptyDatePartitions;
 
-    DeltaLakePredicateConverter(StructType schema, ZoneId zone, Collection<String> possibleEmptyDatePartitions) {
+    DeltaLakePredicateConverter(StructType schema, ZoneId zone, Collection<String> partitionColumns,
+            Collection<String> possibleEmptyDatePartitions) {
         this.schema = schema;
         this.zone = zone;
+        this.partitionColumns = partitionColumns;
         this.possibleEmptyDatePartitions = possibleEmptyDatePartitions;
     }
 
@@ -121,7 +126,7 @@ final class DeltaLakePredicateConverter {
         if (expression instanceof ConnectorIn) {
             ConnectorIn in = (ConnectorIn) expression;
             StructField field = field(in.getValue());
-            if (field == null || in.getInList().isEmpty()) {
+            if (field == null || in.getInList().isEmpty() || hasRoundedFloatBounds(field)) {
                 return null;
             }
             List<Expression> values = new ArrayList<>();
@@ -152,13 +157,18 @@ final class DeltaLakePredicateConverter {
             if (value == null) {
                 return null;
             }
+            ConnectorComparison.Operator op = comparison.getOperator();
+            // Kernel rewrites null-safe equality to a NULL literal as IS_NULL, which uses nullCount.
+            boolean usesMinMax = op != ConnectorComparison.Operator.EQ_FOR_NULL || value.getValue() != null;
+            if (usesMinMax && hasRoundedFloatBounds(field)) {
+                return null;
+            }
             Column column = new Column(field.getName());
-            String operator = comparison.getOperator().getSymbol();
-            if (comparison.getOperator() == ConnectorComparison.Operator.EQ_FOR_NULL) {
+            String operator = op.getSymbol();
+            if (op == ConnectorComparison.Operator.EQ_FOR_NULL) {
                 // Keep null-safe semantics even beneath NOT; '=' would turn null into UNKNOWN.
                 operator = "IS NOT DISTINCT FROM";
             }
-            ConnectorComparison.Operator op = comparison.getOperator();
             SignedZeros zeros = signedZeros(value);
             if (zeros != null) {
                 // Kernel orders -0.0 below +0.0. Doris treats them as one value, including inside NOT.
@@ -190,6 +200,13 @@ final class DeltaLakePredicateConverter {
             return FLOAT_ZEROS;
         }
         return null;
+    }
+
+    private boolean hasRoundedFloatBounds(StructField field) {
+        // An old FLOAT bound written as JSON 0.1 can represent 0.10000000149011612 after widening.
+        // Kernel parses bounds as the current DOUBLE type. Partition filters use AddFile partition values.
+        return field.getTypeChanges().contains(FLOAT_TO_DOUBLE)
+                && partitionColumns.stream().noneMatch(field.getName()::equalsIgnoreCase);
     }
 
     private StructField field(ConnectorExpression expression) {
