@@ -1585,10 +1585,14 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
                 if (other.type() != GeoShapeType::GEO_SHAPE_LINE_STRING) {
                     return false;
                 }
-                if ((name == "st_intersects" || name == "st_disjoint") &&
-                    geography_has_polygon_intersection_witness(polygon_raw, polygon_index,
-                                                               other_raw, nodes)) {
-                    return false;
+                if (name == "st_intersects" || name == "st_disjoint") {
+                    // Test indexed ambiguity first. An exterior line has no interior witness, so
+                    // looking for one first would scan every polygon edge at each line vertex.
+                    // An ambiguous vertex matters only if no other vertex proves contact.
+                    return geography_polygon_line_has_ambiguous_vertex(polygon_raw, polygon_index,
+                                                                       other_raw, nodes) &&
+                           !geography_has_polygon_intersection_witness(polygon_raw, polygon_index,
+                                                                       other_raw, nodes);
                 }
                 if (containment) {
                     return geography_polygon_line_has_ambiguous_vertex(polygon_raw, polygon_index,

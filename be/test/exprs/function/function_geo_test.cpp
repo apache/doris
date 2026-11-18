@@ -1975,6 +1975,49 @@ TEST(VGeoFunctionsTest, GeographyPolygonLineContainmentBoundsAdmissionWork) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyDisjointPolygonLineBoundsAdmissionWork) {
+    struct Case {
+        const char* name;
+        bool reverse;
+        bool expected;
+    };
+    const Case cases[] = {
+            {.name = "st_intersects", .reverse = false, .expected = false},
+            {.name = "st_intersects", .reverse = true, .expected = false},
+            {.name = "st_disjoint", .reverse = false, .expected = true},
+            {.name = "st_disjoint", .reverse = true, .expected = true},
+    };
+    for (const int count : {32, 64, 128, 256}) {
+        SCOPED_TRACE(count);
+        std::ostringstream polygon;
+        std::ostringstream line;
+        polygon << std::setprecision(17) << "POLYGON ((";
+        line << std::setprecision(17) << "LINESTRING (";
+        for (int i = 0; i < count; ++i) {
+            polygon << -10.0 + 20.0 * i / count << " -10,";
+            line << (i == 0 ? "" : ",") << "0 " << -21.0 + 1.0 * i / (count - 1);
+        }
+        polygon << "10 -10,0 10,-10 -10))";
+        line << ")";
+        const auto area = spatial_test_wkb(geography_test_hex(polygon.str()));
+        const auto outside = spatial_test_wkb(geography_test_hex(line.str()));
+        for (const auto& [name, reverse, expected] : cases) {
+            SCOPED_TRACE(name);
+            SCOPED_TRACE(reverse);
+            bool result = false;
+            size_t checks = 0;
+            const auto status = geography_polygon_line_admission_for_test(
+                    name, reverse ? outside : area, reverse ? area : outside, &result, &checks);
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(result, expected);
+            EXPECT_LE(checks, 4 * count);
+            RecordProperty(std::string(name) + "_" + std::to_string(count) +
+                                   (reverse ? "_line_first" : "_polygon_first"),
+                           checks);
+        }
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyBearingUsesOriginalNearAntipodalDirections) {
     struct Case {
         std::string from;
