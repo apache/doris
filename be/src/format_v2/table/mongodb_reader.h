@@ -42,6 +42,8 @@ public:
     virtual ~MongoCursorStream() = default;
     // Open the logical namespace with a private client lease. The callback stays valid until close;
     // callers must close even after a partially successful open returns an error.
+    // NEED_SEND_AGAIN means no lease is available: retry the same descriptor cooperatively.
+    // It retains the original deadline and never starts a cursor before checkout succeeds.
     virtual Status open(const TMongoScanDesc& descriptor, std::function<bool()> cancelled) = 0;
     // On success, either return one borrowed document with eof=false, or eof=true with no document.
     // A command/cancellation error is a failing Status, never normal EOF.
@@ -101,12 +103,14 @@ private:
     // Append whole rows until the row/BSON-byte budget is reached, then evaluate localized filters.
     // SerDes roll back partial cells; this method also rolls back earlier columns in a failed row.
     Status _read_block(Block* block, size_t* rows, bool* eof);
+    Status _open_stream();
     const TFileRangeDesc _range;
     const std::vector<SlotDescriptor*> _slots;
     MongoStreamFactory _factory;
     RuntimeState* _state = nullptr;
     size_t _batch_size = 1024;
     std::unique_ptr<MongoCursorStream> _stream;
+    bool _open_pending = false;
     // Owned by the reader and immutable after init, keeping _read_bindings pointers stable.
     std::vector<BsonBinding> _bindings;
     // Parallel vectors indexed by projected field: binding, file-local block position and target SerDe.

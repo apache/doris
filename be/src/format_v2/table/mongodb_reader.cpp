@@ -261,18 +261,27 @@ class NativeMongoStream final : public MongoCursorStream {
 public:
     ~NativeMongoStream() override { close(); }
     Status open(const TMongoScanDesc& d, std::function<bool()> cancelled) override {
-        _cancelled = std::move(cancelled);
-        _deadline = Clock::now() + std::chrono::milliseconds(d.timeout_ms);
-        RETURN_IF_ERROR(check_deadline());
-        RETURN_IF_ERROR(validate_pushdown_bson(d));
-        RETURN_IF_ERROR(validate_snapshot_descriptor(d));
-        RETURN_IF_ERROR(acquire_pool(d, &_pool));
-        // Pool setup and checkout can consume the remaining budget. Recheck cancellation/deadline
-        // before an available client starts a source identity command, not only while the pool is full.
-        RETURN_IF_ERROR(check_deadline());
-        while (!(_client = mongoc_client_pool_try_pop(_pool->pool.get()))) {
+        if (_client) {
+            return Status::InvalidArgument("MongoDB stream requires close before reopening");
+        }
+        if (!_pool) {
+            _cancelled = std::move(cancelled);
+            _deadline = Clock::now() + std::chrono::milliseconds(d.timeout_ms);
             RETURN_IF_ERROR(check_deadline());
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            RETURN_IF_ERROR(validate_pushdown_bson(d));
+            RETURN_IF_ERROR(validate_snapshot_descriptor(d));
+            RETURN_IF_ERROR(acquire_pool(d, &_pool));
+        }
+        // Preserve the first deadline across cooperative retries. Sleeping here can occupy a
+        // workload group's only scanner worker while the client holder is queued to resume.
+        RETURN_IF_ERROR(check_deadline());
+        _client = mongoc_client_pool_try_pop(_pool->pool.get());
+        if (!_client) {
+            // Bound polling overhead when a holder is doing network I/O on another worker.
+            // This single short backoff always returns the worker; it never waits for the lease.
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            RETURN_IF_ERROR(check_deadline());
+            return Status::NeedSendAgain("MongoDB client pool is busy");
         }
         RETURN_IF_ERROR(check_deadline());
         mongoc_client_set_sockettimeoutms(_client, static_cast<int32_t>(std::min<int64_t>(
@@ -818,20 +827,33 @@ Status MongoFileReader::open(std::shared_ptr<FileScanRequest> request) {
     _stream = _factory ? _factory() : make_native_mongo_stream();
     SCOPED_TIMER(_io_time);
     SCOPED_TIMER(_read_time);
+    Status status = _open_stream();
+    // TableReader can finish preparing this split without a lease. The first read retries on
+    // its scanner task and yields to the scheduler if another stream still owns the client.
+    return status.is<ErrorCode::NEED_SEND_AGAIN>() ? Status::OK() : status;
+}
+Status MongoFileReader::_open_stream() {
     Status status = _stream->open(_range.table_format_params.mongodb_params, [this] {
         return _state->is_cancelled() || (_io_ctx && _io_ctx->should_stop);
     });
-    if (!status.ok()) {
+    _open_pending = status.is<ErrorCode::NEED_SEND_AGAIN>();
+    if (!status.ok() && !_open_pending) {
         (void)close();
     }
     return status;
 }
+
 Status MongoFileReader::get_block(Block* block, size_t* rows, bool* eof) {
     SCOPED_TIMER(_total_time);
     *rows = 0;
     *eof = _eof;
     if (_eof) {
         return Status::OK();
+    }
+    if (_open_pending) {
+        SCOPED_TIMER(_io_time);
+        SCOPED_TIMER(_read_time);
+        RETURN_IF_ERROR(_open_stream());
     }
     Status status = _read_block(block, rows, eof);
     if (!status.ok() || *eof) {
@@ -919,6 +941,7 @@ Status MongoFileReader::close() {
         stream->close();
     }
     _request.reset();
+    _open_pending = false;
     _eof = true;
     return Status::OK();
 }

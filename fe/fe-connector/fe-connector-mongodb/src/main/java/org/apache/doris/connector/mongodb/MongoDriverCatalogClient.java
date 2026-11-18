@@ -18,7 +18,6 @@
 package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
-import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.thrift.TMongoSnapshot;
 
 import com.mongodb.ClientSessionOptions;
@@ -187,23 +186,24 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
 
     @Override
     public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
-            TMongoSnapshot snapshot, int rows, long timeoutMs, ConnectorScanContext context) {
+            TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         String index = null;
         long bytes = 0;
         try {
-            var collection = probeDatabase(table.getDatabase(), deadline, context).getCollection(table.getName());
+            var collection = probeDatabase(table.getDatabase(), deadline, checkCancelled)
+                    .getCollection(table.getName());
             try (MongoCursor<Document> indexes = collection.listIndexes().batchSize(1)
                     .timeoutMode(TimeoutMode.CURSOR_LIFETIME).iterator()) {
                 int count = 0;
                 while (true) {
                     // hasNext may issue getMore. Cancellation must be checked before that request,
                     // not only after it returns; the lifetime timeout also covers all cursor batches.
-                    checkProbe(deadline, context);
+                    checkProbe(deadline, checkCancelled);
                     if (!indexes.hasNext()) {
                         break;
                     }
-                    checkProbe(deadline, context);
+                    checkProbe(deadline, checkCancelled);
                     Document value = indexes.next();
                     bytes += MongoSplitPlan.encode(value.toBsonDocument()).length;
                     if (++count > 128 || bytes > 65536) {
@@ -218,7 +218,7 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
             if (index == null) {
                 return new MongoSplitProbe(List.of(), -1, bytes, false);
             }
-            Number size = probeDatabase(table.getDatabase(), deadline, context)
+            Number size = probeDatabase(table.getDatabase(), deadline, checkCancelled)
                     .runCommand(new Document("collStats", table.getName()).append("scale", 1))
                     .get("size", Number.class);
             long logicalBytes = size == null ? -1 : size.longValue();
@@ -235,20 +235,23 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
                     .causallyConsistent(false).snapshot(true).build())) {
                 session.setSnapshotTimestamp(new BsonTimestamp((int) snapshot.getTimestampSeconds(),
                         (int) snapshot.getTimestampIncrement()));
-                var data = probeDatabase(table.getDatabase(), deadline, context)
+                var data = probeDatabase(table.getDatabase(), deadline, checkCancelled)
                         .getCollection(table.getName(), BsonDocument.class)
                         .withReadPreference(properties.readPreferenceForSnapshot(preference));
+                // Negative batchSize requests singleBatch in the pinned driver. Fixed-width samples
+                // fit well below one BSON reply; no remote cursor survives cancellation/timeout.
+                // Driver 5.14 otherwise adds snapshot readConcern to killCursors, which MongoDB rejects.
                 try (MongoCursor<BsonDocument> cursor = data.find(session).hintString(index)
-                        .projection(projection).limit(rows).batchSize(Math.min(rows, 128))
+                        .projection(projection).limit(rows).batchSize(-rows)
                         .timeoutMode(TimeoutMode.CURSOR_LIFETIME).iterator()) {
                     while (true) {
                         // Do not let a per-iteration timeout reset or a late cancellation start
                         // another remote batch after the optional planning budget has ended.
-                        checkProbe(deadline, context);
+                        checkProbe(deadline, checkCancelled);
                         if (!cursor.hasNext()) {
                             break;
                         }
-                        checkProbe(deadline, context);
+                        checkProbe(deadline, checkCancelled);
                         BsonDocument value = cursor.next();
                         bytes += MongoSplitPlan.encode(value).length;
                         if (samples.size() >= rows || bytes > 1024 * 1024) {
@@ -258,10 +261,10 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
                     }
                 }
             }
-            checkProbe(deadline, context);
+            checkProbe(deadline, checkCancelled);
             return new MongoSplitProbe(samples, logicalBytes, bytes, true);
         } catch (MongoException error) {
-            context.checkCancelled();
+            checkCancelled.run();
             // Only the optional planning deadline can trigger auto fallback. Permission denial,
             // expired snapshot history, replacement, and transport errors must fail the statement.
             // A thread can resume after its deadline while handling an earlier BadValue/permission
@@ -285,14 +288,14 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
         return collation == null || "simple".equals(collation.getString("locale"));
     }
 
-    private MongoDatabase probeDatabase(String database, long deadline, ConnectorScanContext context) {
-        checkProbe(deadline, context);
+    private MongoDatabase probeDatabase(String database, long deadline, Runnable checkCancelled) {
+        checkProbe(deadline, checkCancelled);
         return metadataDatabase(database).withTimeout(Math.max(1,
                 TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())), TimeUnit.MILLISECONDS);
     }
 
-    private static void checkProbe(long deadline, ConnectorScanContext context) {
-        context.checkCancelled();
+    private static void checkProbe(long deadline, Runnable checkCancelled) {
+        checkCancelled.run();
         if (Thread.currentThread().isInterrupted()) {
             throw new java.util.concurrent.CancellationException("MongoDB split planning interrupted");
         }

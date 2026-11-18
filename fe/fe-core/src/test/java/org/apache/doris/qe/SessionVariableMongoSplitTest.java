@@ -40,8 +40,10 @@ class SessionVariableMongoSplitTest {
         var before = ConnectorSessionBuilder.from(context).build();
         Assertions.assertEquals("single", before.getSessionProperties().get("mongodb_split_strategy"));
         var settings = Map.of("mongodb_split_strategy", "range", "mongodb_split_field", "sequence",
-                "mongodb_split_count", "8", "mongodb_split_max_count", "32", "mongodb_split_sample_rows", "512",
-                "mongodb_split_target_bytes", "1048576", "mongodb_split_plan_timeout_ms", "2000");
+                "file_split_size", "1048576", "max_initial_file_split_size", "33554432",
+                "max_file_split_size", "67108864", "max_initial_file_split_num", "200",
+                "max_file_split_num", "32", "max_file_scanners_concurrency", "2",
+                "min_file_scanners_concurrency", "1");
         for (var setting : settings.entrySet()) {
             set(context.getSessionVariable(), setting.getKey(), setting.getValue());
         }
@@ -59,19 +61,8 @@ class SessionVariableMongoSplitTest {
         var variables = new SessionVariable();
         for (String name : List.of("mongodb_split_count", "mongodb_split_max_count", "mongodb_split_sample_rows",
                 "mongodb_split_target_bytes", "mongodb_split_plan_timeout_ms")) {
-            for (String value : List.of("-1", "2147483648", "invalid")) {
-                Assertions.assertThrows(DdlException.class, () -> set(variables, name, value));
-            }
-            if (!"mongodb_split_count".equals(name)) {
-                Assertions.assertThrows(DdlException.class, () -> set(variables, name, "0"));
-            }
+            Assertions.assertThrows(DdlException.class, () -> set(variables, name, "1"));
         }
-        for (String value : List.of("257", "4096")) {
-            Assertions.assertThrows(DdlException.class, () -> set(variables, "mongodb_split_count", value));
-            Assertions.assertThrows(DdlException.class, () -> set(variables, "mongodb_split_max_count", value));
-        }
-        Assertions.assertThrows(DdlException.class, () -> set(variables, "mongodb_split_sample_rows", "4097"));
-        Assertions.assertThrows(DdlException.class, () -> set(variables, "mongodb_split_plan_timeout_ms", "300001"));
         for (String value : List.of("a.b", "$a", "a$b", "a\0b")) {
             Assertions.assertThrows(DdlException.class, () -> set(variables, "mongodb_split_field", value));
         }

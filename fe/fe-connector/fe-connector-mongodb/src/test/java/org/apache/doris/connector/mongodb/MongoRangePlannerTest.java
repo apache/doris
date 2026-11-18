@@ -56,10 +56,10 @@ class MongoRangePlannerTest {
 
         @Override
         public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
-                TMongoSnapshot snapshot, int rows, long timeoutMs, ConnectorScanContext context) {
+                TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
             probes++;
             sampledSnapshot = snapshot.deepCopy();
-            context.checkCancelled();
+            checkCancelled.run();
             if (failure != null) {
                 throw failure;
             }
@@ -67,7 +67,7 @@ class MongoRangePlannerTest {
         }
     }
 
-    private static MongoScanPlanTest.Session session(MongoSnapshotPlanTest.Scope scope, Map<String, String> options) {
+    private static MongoScanPlanTest.Session session(ConnectorStatementScope scope, Map<String, String> options) {
         return new MongoScanPlanTest.Session(options) {
             @Override
             public ConnectorStatementScope getStatementScope() {
@@ -87,7 +87,7 @@ class MongoRangePlannerTest {
 
     private static Map<String, String> options(String strategy) {
         return Map.of("mongodb_read_concern", "snapshot", "mongodb_split_strategy", strategy,
-                "mongodb_split_count", "8");
+                "file_split_size", "536870912", "max_file_split_num", "8");
     }
 
     private static TMongoScanDesc descriptor(org.apache.doris.connector.spi.scan.ConnectorScanRange range) {
@@ -246,7 +246,7 @@ class MongoRangePlannerTest {
         var client = new Client();
         var scope = new MongoSnapshotPlanTest.Scope();
         var session = session(scope, Map.of("mongodb_read_concern", "snapshot", "mongodb_split_strategy", "range",
-                "mongodb_split_count", "8", "mongodb_split_field", "sequence"));
+                "max_file_split_num", "8", "mongodb_split_field", "sequence"));
         var request = ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build();
         var first = new MongoScanPlanProvider(properties, () -> client);
         first.planScan(session, request);
@@ -259,11 +259,15 @@ class MongoRangePlannerTest {
         var properties = properties();
         var client = new Client();
         var request = ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build();
-        for (var setting : Map.of("mongodb_split_count", "257", "mongodb_split_max_count", "0",
-                "mongodb_split_sample_rows", "4097", "mongodb_split_plan_timeout_ms", "-1",
+        for (var setting : Map.of("file_split_size", "invalid", "max_file_split_size", "0",
+                "max_file_split_num", "not-a-number", "max_initial_file_split_size", "-1",
                 "mongodb_split_field", "nested.value", "mongodb_split_strategy", "invalid").entrySet()) {
             var options = new java.util.HashMap<>(options("range"));
             options.put(setting.getKey(), setting.getValue());
+            if (setting.getKey().equals("max_file_split_size")
+                    || setting.getKey().equals("max_initial_file_split_size")) {
+                options.put("file_split_size", "0");
+            }
             Assertions.assertThrows(IllegalArgumentException.class, () -> new MongoScanPlanProvider(properties,
                     () -> client).planScan(session(new MongoSnapshotPlanTest.Scope(), options), request));
         }
@@ -292,7 +296,7 @@ class MongoRangePlannerTest {
         var blocked = new Client() {
             @Override
             public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
-                    TMongoSnapshot snapshot, int rows, long timeoutMs, ConnectorScanContext context) {
+                    TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
                 entered.countDown();
                 try {
                     if (!release.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
@@ -302,7 +306,7 @@ class MongoRangePlannerTest {
                     Thread.currentThread().interrupt();
                     throw new CancellationException();
                 }
-                return super.probeSplits(table, field, preference, snapshot, rows, timeoutMs, context);
+                return super.probeSplits(table, field, preference, snapshot, rows, timeoutMs, checkCancelled);
             }
         };
         var scope = new MongoSnapshotPlanTest.Scope();
@@ -315,7 +319,7 @@ class MongoRangePlannerTest {
                     .planScan(session(scope, options("range")), request));
             Assertions.assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
             var policy = new java.util.HashMap<>(options("auto"));
-            policy.put("mongodb_split_plan_timeout_ms", "20");
+            // The optional probe budget is internal; waiting for a probe slot consumes it too.
             var plan = new MongoScanPlanProvider(properties, Client::new).planScan(session(scope, policy), request);
             Assertions.assertEquals("probe_budget", descriptor(plan.get(0)).getSplit().getReason());
             release.countDown();
@@ -333,7 +337,7 @@ class MongoRangePlannerTest {
         var properties = properties();
         var scope = new MongoSnapshotPlanTest.Scope();
         var session = session(scope, Map.of("mongodb_read_concern", "majority", "mongodb_split_strategy", "auto",
-                "mongodb_split_count", "8", "mongodb_split_field", "sequence"));
+                "max_file_split_num", "8", "mongodb_split_field", "sequence"));
         new MongoScanPlanProvider(properties, Client::new).planScan(session,
                 ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build());
         Assertions.assertThrows(IllegalArgumentException.class,
@@ -347,7 +351,8 @@ class MongoRangePlannerTest {
                 "mongodb.username", "fixture_reader", "mongodb.password", "fixture测".repeat(200000)));
         var client = new Client();
         var policy = new java.util.HashMap<>(options("range"));
-        policy.put("mongodb_split_count", "256");
+        policy.put("max_file_split_num", "256");
+        policy.put("file_split_size", "1");
         var ranges = new MongoScanPlanProvider(properties, () -> client).planScan(
                 session(new MongoSnapshotPlanTest.Scope(), policy),
                 ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build());
@@ -377,7 +382,7 @@ class MongoRangePlannerTest {
     }
 
     @Test
-    void metadataGrowthAfterFreezeFailsInsteadOfBypassingAdmissionOrReplanning() {
+    void candidateGrowthAfterPublicationFailsInsteadOfBypassingAdmissionOrReplanning() {
         var column = new Document("name", "text").append("path", List.of("text"))
                 .append("doris_type", "STRING").append("bson_types", List.of("string"));
         var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
@@ -386,10 +391,11 @@ class MongoRangePlannerTest {
         var client = new Client();
         var provider = new MongoScanPlanProvider(properties, () -> client);
         var policy = new java.util.HashMap<>(options("range"));
-        policy.put("mongodb_split_count", "32");
+        policy.put("max_file_split_num", "32");
+        policy.put("file_split_size", "1");
         var session = session(new MongoSnapshotPlanTest.Scope(), policy);
         var table = table(properties, "collection");
-        provider.getScanNodeProperties(session, table, List.of(), Optional.empty());
+        provider.planScan(session, ConnectorScanRequest.builder(table, List.of()).build()).get(0);
         var filter = new org.apache.doris.connector.spi.pushdown.ConnectorComparison(
                 org.apache.doris.connector.spi.pushdown.ConnectorComparison.Operator.EQ,
                 new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef("text",
@@ -414,6 +420,147 @@ class MongoRangePlannerTest {
                 .scanContext(context).build();
         Assertions.assertThrows(CancellationException.class, () -> provider.planScan(
                 session(new MongoSnapshotPlanTest.Scope(), options("range")), request));
+        Assertions.assertEquals(0, client.probes);
+    }
+
+    @Test
+    void commonSplitSizeAndNumberLimitDriveRangePlanning() {
+        var properties = properties();
+        var client = new Client();
+        var policy = Map.of("mongodb_read_concern", "snapshot", "mongodb_split_strategy", "range",
+                "file_split_size", "536870912", "max_file_split_num", "3");
+        var ranges = new MongoScanPlanProvider(properties, () -> client).planScan(
+                session(new MongoSnapshotPlanTest.Scope(), policy),
+                ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build());
+        Assertions.assertEquals(3, ranges.size());
+        Assertions.assertEquals(3, descriptor(ranges.get(0)).getSplit().getRequested());
+    }
+
+    @Test
+    void propertiesDoNotSelectSnapshotOrProbeBeforeTheFinalRequest() {
+        var properties = properties();
+        var client = new Client();
+        var provider = new MongoScanPlanProvider(properties, () -> client);
+        var session = session(new MongoSnapshotPlanTest.Scope(), options("range"));
+        var table = table(properties, "collection");
+        var explanation = provider.getScanNodePropertiesResult(session, table, List.of(), Optional.empty())
+                .getProperties();
+        Assertions.assertEquals(0, client.identities);
+        Assertions.assertEquals(0, client.selections);
+        Assertions.assertEquals(0, client.probes);
+        provider.planScan(session, ConnectorScanRequest.builder(table, List.of()).build()).get(0);
+        Assertions.assertEquals("1700000000:7", explanation.get("snapshot"));
+        Assertions.assertEquals(1, client.probes);
+    }
+
+    @Test
+    void ordinaryLargePredicateIsAdmittedAfterEarlyProperties() {
+        var column = new Document("name", "text").append("path", List.of("text"))
+                .append("doris_type", "STRING").append("bson_types", List.of("string"));
+        var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
+                "mongodb.type_mismatch", "null", "mongodb.schema",
+                new Document("sample.records", new Document("columns", List.of(column))).toJson()));
+        var client = new Client();
+        var provider = new MongoScanPlanProvider(properties, () -> client);
+        var session = session(new MongoSnapshotPlanTest.Scope(), options("range"));
+        var table = table(properties, "collection");
+        provider.getScanNodeProperties(session, table, List.of(), Optional.empty());
+        var filter = new org.apache.doris.connector.spi.pushdown.ConnectorComparison(
+                org.apache.doris.connector.spi.pushdown.ConnectorComparison.Operator.EQ,
+                new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef("text",
+                        org.apache.doris.connector.spi.ConnectorType.of("STRING")),
+                org.apache.doris.connector.spi.pushdown.ConnectorLiteral.ofString("v".repeat(60000)));
+        Assertions.assertEquals(MongoPredicateTranslator.Kind.SUPERSET,
+                new MongoPredicateTranslator(table.getSchema(), true).translate(filter).kind());
+        var ranges = provider.planScan(session,
+                ConnectorScanRequest.builder(table, List.of()).filter(Optional.of(filter)).build());
+        Assertions.assertTrue(descriptor(ranges.get(0)).getFilterBson().length > 60000);
+        Assertions.assertEquals(1, client.probes);
+    }
+
+    @Test
+    void emptySampleFallbacksCannotEscapePinnedSourcePartitionLimit() {
+        var properties = properties();
+        var client = new Client();
+        client.samples.clear();
+        var session = session(new MongoSnapshotPlanTest.Scope(), options("range"));
+        var request = ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build();
+        for (int index = 0; index < 256; index++) {
+            var ranges = new MongoScanPlanProvider(properties, () -> client).planScan(session, request);
+            Assertions.assertEquals(1, ranges.size());
+        }
+        Assertions.assertThrows(org.apache.doris.connector.spi.DorisConnectorException.class,
+                () -> new MongoScanPlanProvider(properties, () -> client).planScan(session, request));
+    }
+
+    @Test
+    void successfulFallbackDescriptorsStillConsumeSourceByteBudget() {
+        var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
+                "mongodb.username", "fixture_reader", "mongodb.password", "p".repeat(1024 * 1024)));
+        var client = new Client();
+        client.samples.clear();
+        var session = session(new MongoSnapshotPlanTest.Scope(), options("range"));
+        var request = ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build();
+        for (int index = 0; index < 31; index++) {
+            Assertions.assertEquals(1, new MongoScanPlanProvider(properties, () -> client)
+                    .planScan(session, request).size());
+        }
+        Assertions.assertThrows(org.apache.doris.connector.spi.DorisConnectorException.class,
+                () -> new MongoScanPlanProvider(properties, () -> client).planScan(session, request));
+    }
+
+    @Test
+    void sharedSizeHeuristicsAndNonpositiveUserCapsKeepTheirExistingMeaning() {
+        var scope = new MongoSnapshotPlanTest.Scope();
+        var defaults = session(scope, Map.of());
+        Assertions.assertEquals(32L * 1024 * 1024, MongoRangePlanner.targetBytes(defaults, 1024));
+        Assertions.assertEquals(64L * 1024 * 1024,
+                MongoRangePlanner.targetBytes(defaults, 64L * 1024 * 1024 * 200));
+        Assertions.assertEquals(64L * 1024 * 1024, MongoRangePlanner.targetBytes(defaults, -1));
+        Assertions.assertEquals(256, MongoRangePlanner.splitLimit(defaults));
+        for (String unlimited : List.of("0", "-1")) {
+            Assertions.assertEquals(256, MongoRangePlanner.splitLimit(
+                    session(scope, Map.of("max_file_split_num", unlimited))));
+        }
+        var huge = session(scope, Map.of("file_split_size", Long.toString(Long.MAX_VALUE)));
+        Assertions.assertEquals(Long.MAX_VALUE, MongoRangePlanner.targetBytes(huge, Long.MAX_VALUE));
+        var threshold = session(scope, Map.of("max_file_split_size", Long.toString(Long.MAX_VALUE),
+                "max_initial_file_split_size", "1048576", "max_initial_file_split_num", "200"));
+        Assertions.assertEquals(1048576, MongoRangePlanner.targetBytes(threshold, Long.MAX_VALUE));
+    }
+
+    @Test
+    void singleStrategyRemainsExemptButEveryAutoFallbackIsAdmitted() {
+        var properties = properties();
+        var client = new Client();
+        var scope = new MongoSnapshotPlanTest.Scope();
+        var single = session(scope, Map.of("mongodb_split_strategy", "single"));
+        var request = ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build();
+        for (int index = 0; index < 300; index++) {
+            Assertions.assertEquals(1, new MongoScanPlanProvider(properties, () -> client)
+                    .planScan(single, request).size());
+        }
+        var auto = session(scope, Map.of("mongodb_split_strategy", "auto", "mongodb_read_concern", "majority"));
+        for (int index = 0; index < 256; index++) {
+            Assertions.assertEquals(1, new MongoScanPlanProvider(properties, () -> client)
+                    .planScan(auto, request).size());
+        }
+        Assertions.assertThrows(org.apache.doris.connector.spi.DorisConnectorException.class,
+                () -> new MongoScanPlanProvider(properties, () -> client).planScan(auto, request));
+        Assertions.assertEquals(0, client.probes);
+    }
+
+    @Test
+    void offlineAutoFallbackNeedsNoPinnedSnapshotOrQueryDeadline() {
+        var properties = properties();
+        var client = new Client();
+        var provider = new MongoScanPlanProvider(properties, () -> client);
+        var session = session(ConnectorStatementScope.NONE,
+                Map.of("mongodb_split_strategy", "auto", "mongodb_read_concern", "majority"));
+        var ranges = provider.planScan(session,
+                ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build());
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals("snapshot_required", descriptor(ranges.get(0)).getSplit().getReason());
         Assertions.assertEquals(0, client.probes);
     }
 }

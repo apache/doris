@@ -55,11 +55,14 @@ class MongoSplitProbeTest {
         String hint;
         BsonTimestamp pin;
         int limit;
+        int batchSize;
         int dataHasNext;
         int cursorsClosed;
         int sessionsClosed;
         boolean cancelAfterFirst;
         boolean sourceFailure;
+        boolean closeQueryAfterFirst;
+        final java.util.concurrent.atomic.AtomicBoolean queryClosed = new java.util.concurrent.atomic.AtomicBoolean();
 
         @SuppressWarnings("unchecked")
         <T> T proxy(Class<T> type, java.lang.reflect.InvocationHandler handler) {
@@ -102,6 +105,9 @@ class MongoSplitProbeTest {
                                     .append("errmsg", "fixture-secret").toBsonDocument(), new ServerAddress());
                         }
                         position[0]++;
+                        if (closeQueryAfterFirst) {
+                            queryClosed.set(true);
+                        }
                         if (cancelAfterFirst) {
                             context.cancel();
                         }
@@ -133,6 +139,9 @@ class MongoSplitProbeTest {
                         break;
                     case "limit":
                         limit = (int) args[0];
+                        break;
+                    case "batchSize":
+                        batchSize = (int) args[0];
                         break;
                     case "timeoutMode":
                         modes.add((TimeoutMode) args[0]);
@@ -181,7 +190,21 @@ class MongoSplitProbeTest {
         snapshot.setTimestampSeconds(123);
         snapshot.setTimestampIncrement(456);
         try (var catalog = new MongoDriverCatalogClient(driver.client(), properties)) {
-            return catalog.probeSplits(table, "sequence", "primary", snapshot, 16, 1000, driver.context);
+            var session = new MongoScanPlanTest.Session() {
+                @Override
+                public org.apache.doris.connector.spi.ConnectorTaskScheduler getTaskScheduler(
+                        org.apache.doris.connector.spi.ConnectorTaskScheduler.Stage stage) {
+                    return driver.proxy(org.apache.doris.connector.spi.ConnectorTaskScheduler.class,
+                            (proxy, method, args) -> {
+                                if ("isClosed".equals(method.getName())) {
+                                    return driver.queryClosed.get();
+                                }
+                                throw new UnsupportedOperationException(method.getName());
+                            });
+                }
+            };
+            return catalog.probeSplits(table, "sequence", "primary", snapshot, 16, 1000,
+                    () -> MongoRangePlanner.checkCancelled(session, driver.context));
         }
     }
 
@@ -195,6 +218,7 @@ class MongoSplitProbeTest {
         Assertions.assertEquals(new BsonTimestamp(123, 456), driver.pin);
         Assertions.assertEquals(List.of(TimeoutMode.CURSOR_LIFETIME, TimeoutMode.CURSOR_LIFETIME), driver.modes);
         Assertions.assertEquals(16, driver.limit);
+        Assertions.assertEquals(-16, driver.batchSize);
         Assertions.assertEquals("sequence_1", driver.hint);
         Assertions.assertEquals(0, driver.projection.getInteger("_id"));
         Assertions.assertTrue(driver.projection.get("value", Document.class).containsKey("$cond"));
@@ -208,6 +232,17 @@ class MongoSplitProbeTest {
         var driver = new Driver();
         driver.cancelAfterFirst = true;
         Assertions.assertThrows(CancellationException.class, () -> run(driver));
+        Assertions.assertEquals(1, driver.dataHasNext);
+        Assertions.assertEquals(2, driver.cursorsClosed);
+        Assertions.assertEquals(1, driver.sessionsClosed);
+    }
+
+    @Test
+    void queryTaskGroupClosureStopsBeforeAnotherSampleBatchEvenWithAnUnregisteredContext() {
+        var driver = new Driver();
+        driver.closeQueryAfterFirst = true;
+        Assertions.assertThrows(CancellationException.class, () -> run(driver));
+        Assertions.assertFalse(driver.context.isCancelled());
         Assertions.assertEquals(1, driver.dataHasNext);
         Assertions.assertEquals(2, driver.cursorsClosed);
         Assertions.assertEquals(1, driver.sessionsClosed);

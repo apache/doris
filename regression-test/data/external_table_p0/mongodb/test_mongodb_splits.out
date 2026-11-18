@@ -37,6 +37,9 @@
 -- !auto_no_index_records --
 601	180300
 
+-- !large_final_predicate --
+2	3
+
 -- !statement_restored --
 single	0
 

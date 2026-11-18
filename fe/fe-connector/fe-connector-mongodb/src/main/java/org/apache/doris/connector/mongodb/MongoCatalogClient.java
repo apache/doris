@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.mongodb;
 
-import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.thrift.TMongoSnapshot;
 
 import org.bson.BsonTimestamp;
@@ -45,7 +44,7 @@ interface MongoCatalogClient extends AutoCloseable {
     }
 
     default MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
-            TMongoSnapshot snapshot, int rows, long timeoutMs, ConnectorScanContext context) {
+            TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
         throw new UnsupportedOperationException("MongoDB range planning is unavailable");
     }
 

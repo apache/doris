@@ -43,6 +43,7 @@ import verify_native_snapshot as snapshot_checks
 DATABASE = "doris_mongodb_splits"
 ROWS = 601
 APPLICATION = "doris-native-splits"
+POOL_ROWS = 32769
 COLLECTIONS = ["integer_records", "date_records", "oid_records", "duplicate_records", "empty_records",
                "decimal_records", "string_records", "double_records", "no_index_records", "transaction_records"]
 
@@ -58,8 +59,12 @@ def schema():
     for precision, scale in [(1, 0), (9, 0), (9, 9), (18, 0), (18, 6), (18, 18), (38, 0), (38, 4), (38, 38)]:
         columns.append(field("decimal_p" + str(precision) + "s" + str(scale),
                              f"DECIMAL({precision},{scale})", ["decimal"], ["amount"]))
-    return json.dumps({DATABASE + "." + name: {"columns": columns}
-                       for name in COLLECTIONS + ["record_view", "measurements"]})
+    manifest = {DATABASE + "." + name: {"columns": columns}
+                for name in COLLECTIONS + ["record_view", "measurements"]}
+    manifest[DATABASE + ".pool_records"] = {"columns": [field("seq", "BIGINT", ["long"])]}
+    manifest[DATABASE + ".predicate_records"] = {"columns": [
+        field("seq", "BIGINT", ["long"]), field("text", "STRING", ["string"])]}
+    return json.dumps(manifest)
 
 
 def initialize(source, shards=None):
@@ -114,6 +119,12 @@ def initialize(source, shards=None):
             source.admin.command("split", namespace, middle={"_id": Int64(300)})
             source.admin.command("moveChunk", namespace, find={"_id": Int64(ROWS - 1)}, to=shards[1],
                                  _waitForDelete=True)
+    database.pool_records.insert_many([{"_id": Int64(index), "seq": Int64(index)}
+                                       for index in range(POOL_ROWS)])
+    database.predicate_records.insert_many([
+        {"_id": Int64(1), "seq": Int64(1), "text": "v" * 60000},
+        {"_id": Int64(2), "seq": Int64(2), "text": "v" * 60000},
+        {"_id": Int64(3), "seq": Int64(3), "text": "other"}])
     database.command("create", "record_view", viewOn="integer_records", pipeline=[])
     database.create_collection("measurements", timeseries={"timeField": "observed"})
     database.measurements.insert_many([dict(seq=Int64(index), epoch=Int64(0), observed=dates[index % len(dates)],
@@ -145,7 +156,7 @@ def create_catalog(name, uri, pool=8, policy="null"):
 
 
 def query(catalog, name, strategy="range", split_field="split_key", count=8, columns="*", condition="", connection=None):
-    hints = "mongodb_split_strategy='" + strategy + "',mongodb_split_count=" + str(count)
+    hints = "mongodb_split_strategy='" + strategy + "',file_split_size=1,max_file_split_num=" + str(count)
     hints += ",mongodb_split_field='" + split_field + "'"
     return snapshot_checks.sql("SELECT /*+ SET_VAR(" + hints + ") */ " + columns + " FROM " + catalog + "."
                                + DATABASE + "." + name + " " + condition + " ORDER BY seq", connection)
@@ -197,7 +208,7 @@ def coverage_commands(source, catalog):
     database.command("profile", 2)
     token = "mongodb_range_coverage_" + uuid.uuid4().hex
     try:
-        statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_count=8,"
+        statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,"
                      "mongodb_split_field='split_key',batch_size=16,enable_profile=true,profile_level=2,"
                          "use_consistent_hash_for_external_scan=true,external_scan_consistent_hash_spread_num=0) */ "
                      "/* " + token + " */ seq FROM " + catalog + "." + DATABASE + ".integer_records ORDER BY seq")
@@ -210,6 +221,7 @@ def coverage_commands(source, catalog):
             partition = command.get("filter", {})
             if command.get("find") == "integer_records" and "value" in command.get("projection", {}):
                 assert command["readConcern"]["atClusterTime"] == timestamp
+                assert command.get("singleBatch") is True, "A snapshot sample must leave no remote cursor"
                 sampled_at_pin = True
             if command.get("find") == "integer_records" and partition:
                 key = repr(partition)
@@ -272,7 +284,7 @@ def precision_oracle(source, catalog):
         for zone in ["UTC", "+08:00", "America/Los_Angeles", "Asia/Kathmandu"]:
             snapshot_checks.sql("SET time_zone=" + snapshot_checks.sql_quote(zone), connection)
             token = "mongodb_range_precision_" + uuid.uuid4().hex
-            statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_count=8,"
+            statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,"
                          "mongodb_split_field='split_key',enable_profile=true,profile_level=2) */ /* " + token
                          + " */ * FROM " + catalog + "." + DATABASE + ".integer_records ORDER BY seq")
             observed = snapshot_checks.sql(statement, connection)
@@ -346,7 +358,7 @@ def concurrent_oracle(source, catalog, iterations, require_cross_backend=False, 
         for iteration in range(iterations):
             token = "mongodb_ranges_" + uuid.uuid4().hex
             joined = iteration % 2 == 1
-            hints = ("mongodb_split_strategy='range',mongodb_split_count=8,batch_size=16,"
+            hints = ("mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,batch_size=16,"
                      "enable_profile=true,profile_level=2,use_consistent_hash_for_external_scan=true,"
                      "external_scan_consistent_hash_spread_num=0")
             if joined:
@@ -398,10 +410,9 @@ def cursors_closed(sources):
 
 
 def range_fault_cases(source, catalog):
-    # A small sample of indexed _id needs no metadata/data getMore. The injected getMore
-    # therefore belongs to a native published partition, after FE has completely frozen the plan.
-    statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_count=8,"
-                 "mongodb_split_sample_rows=16,batch_size=8) */ sum(seq) FROM " + catalog + "."
+    # The bounded FE sample uses singleBatch, so every getMore belongs to a native partition.
+    statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,"
+                 "batch_size=8) */ sum(seq) FROM " + catalog + "."
                  + DATABASE + ".integer_records")
     expected = ((ROWS * (ROWS - 1) // 2,),)
     database = source[DATABASE]
@@ -485,6 +496,92 @@ def range_fault_cases(source, catalog):
     print("PASS: genuine history expiration after range publication returns SnapshotTooOld without reselection", flush=True)
 
 
+def planning_regressions(source, catalog):
+    namespace = catalog + "." + DATABASE
+    literal = snapshot_checks.sql_quote("v" * 60000)
+    for streaming in [False, True]:
+        statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,"
+                     "max_file_split_num=8,enable_external_table_batch_mode=" + str(streaming).lower()
+                     + ") */ count(*),sum(seq) FROM " + namespace + ".predicate_records WHERE text=" + literal)
+        assert snapshot_checks.sql(statement) == ((2, 3),)
+    print("PASS: normal large predicates are admitted after early properties in sync and streaming plans", flush=True)
+
+    # Cancel the single-batch sample after timestamp selection. The synchronous request has no
+    # registered ConnectorScanContext, so it must observe the query task-group lifetime too.
+    for streaming in [False, True]:
+        database = source[DATABASE]
+        database.command("profile", 0)
+        database["system.profile"].drop()
+        database.command("profile", 2)
+        # Stay below the probe's lifetime deadline so this isolates query cancellation
+        # from a socket timeout while the artificial server delay is active.
+        entered = snapshot_checks.failpoint(source, {"failCommands": ["find"], "blockConnection": True,
+                                                     "blockTimeMS": 400, "appName": APPLICATION}, {"skip": 1})
+        try:
+            with snapshot_checks.connect() as connection, ThreadPoolExecutor(max_workers=1) as executor:
+                connection_id = snapshot_checks.sql("SELECT connection_id()", connection)[0][0]
+                statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,"
+                             "max_file_split_num=8,enable_external_table_batch_mode=" + str(streaming).lower()
+                             + ") */ sum(seq) FROM " + namespace + ".integer_records")
+                future = executor.submit(snapshot_checks.expect_error, statement,
+                                         ("cancel", "killed", "stopped", "interrupted", "task groups are closed"), connection)
+                snapshot_checks.wait_entered(source, entered)
+                snapshot_checks.sql("KILL QUERY " + str(connection_id))
+                future.result(timeout=15)
+            # Streaming cancellation can return before its producer finishes the blocked command.
+            # Wait for that command's profile record before asserting its wire/cleanup contract.
+            deadline = time.monotonic() + 10
+            sample_filter = {"appName": APPLICATION, "command.find": "integer_records",
+                             "command.projection.value": {"$exists": True}}
+            while not database["system.profile"].find_one(sample_filter):
+                assert time.monotonic() < deadline, "The cancelled sample did not finish"
+                time.sleep(0.05)
+        finally:
+            snapshot_checks.off(source)
+            database.command("profile", 0)
+        sampled_getmores = [entry for entry in database["system.profile"].find({"appName": APPLICATION})
+                           if entry.get("command", {}).get("getMore")
+                           and entry.get("originatingCommand", {}).get("projection", {}).get("value")]
+        samples = list(database["system.profile"].find(sample_filter))
+        assert len(samples) == 1 and samples[0]["command"].get("singleBatch") is True
+        assert not sampled_getmores, "The cancelled FE probe advanced to another sample batch"
+        cursors_closed([source])
+    print("PASS: KILL during the FE sample stops sync/streaming probes without getMore or retained cursors", flush=True)
+
+    branches = " UNION ALL ".join("SELECT count(*) n FROM " + namespace + ".empty_records" for _ in range(257))
+    statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,"
+                 "enable_external_scan_task_reuse=false) */ sum(n) FROM (" + branches + ") u")
+    snapshot_checks.expect_error(statement, ("statement/source split budget exhausted",))
+    cursors_closed([source])
+    print("PASS: 257 empty fallback scans cannot bypass the pinned-source partition budget", flush=True)
+
+
+def worker_pool_case(uri, catalog):
+    create_catalog(catalog, uri, pool=1)
+    group = catalog + "_workers"
+    snapshot_checks.sql("DROP WORKLOAD GROUP IF EXISTS " + group)
+    snapshot_checks.sql("CREATE WORKLOAD GROUP " + group + " PROPERTIES "
+                        "('min_remote_scan_thread_num'='1','max_remote_scan_thread_num'='1')")
+    expected = ((POOL_ROWS, POOL_ROWS * (POOL_ROWS - 1) // 2),)
+    with snapshot_checks.connect() as connection:
+        snapshot_checks.sql("SET workload_group=" + snapshot_checks.sql_quote(group), connection)
+        for streaming in [False, True]:
+            token = "mongodb_pool_worker_" + uuid.uuid4().hex
+            # More than one output batch per partition is essential: otherwise a reader can
+            # reach EOF and return its lease before the sole worker switches to its sibling.
+            statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,"
+                         "max_file_split_num=8,batch_size=8,max_file_scanners_concurrency=2,"
+                         "min_file_scanners_concurrency=2,enable_adaptive_scan=false,"
+                         "parallel_pipeline_task_num=1,query_timeout=30,enable_profile=true,profile_level=2,"
+                         "enable_external_table_batch_mode=" + str(streaming).lower()
+                         + ") */ /* " + token + " */ count(*),sum(seq) FROM " + catalog + "." + DATABASE + ".pool_records")
+            assert snapshot_checks.sql(statement, connection) == expected
+            _, text = profile(token)
+            counts = re.findall(r"NumScanners:\s*(\d+)", text)
+            assert counts and max(map(int, counts)) >= 2, "The fixture did not run competing file scanners"
+    print("PASS: a one-worker group and one-client pool finish multi-batch range scans in both planning modes", flush=True)
+
+
 def pool_case(source, uri, catalog):
     create_catalog(catalog, uri, pool=1)
     statement = "SELECT /*+ SET_VAR(batch_size=16) */ sum(seq) FROM " + catalog + "." + DATABASE + ".integer_records"
@@ -555,6 +652,8 @@ def main():
             precision_oracle(source, catalog)
             concurrent_oracle(source, catalog, args.iterations, args.require_cross_backend, alternate_catalog)
         if not args.oracle_only:
+            planning_regressions(sources[0], args.catalog_prefix + "_rs")
+            worker_pool_case(readers[0], args.catalog_prefix + "_worker")
             range_fault_cases(sources[0], args.catalog_prefix + "_rs")
             pool_case(sources[0], readers[0], args.catalog_prefix + "_pool")
         cursors_closed(sources)
