@@ -93,6 +93,7 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -223,6 +224,7 @@ import org.apache.doris.tablefunction.HttpTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TPartitionType;
@@ -260,6 +262,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -847,6 +850,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Forward the pruned partitions so the connector reads only the surviving partitions
             // (mirrors the legacy MaxCompute / Hive branches below).
             pluginScanNode.setSelectedPartitions(fileScan.getSelectedPartitions());
+            fileScan.getVectorSearch().ifPresent(pluginScanNode::setVectorSearch);
             // Forward TABLESAMPLE (mirrors the legacy Hive branch below). Whether it is actually applied
             // is decided in PluginDrivenScanNode by the connector's supportsTableSample() capability: a
             // connector whose split ranges carry byte lengths (Hive) samples; the others no-op with a
@@ -1154,12 +1158,28 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return exprs;
     }
 
+    // A simplified-away SQL filter may still be required by the TVF's captured candidate prefilter.
+    // Give descriptor-only slots fresh ExprIds: CTE copies can share a bound TVF function instance.
+    static List<Slot> withVectorSearchPrefilterSlots(List<Slot> output, TableValuedFunctionIf function) {
+        if (!(function instanceof VectorSearchTableValuedFunction)) {
+            return output;
+        }
+        List<Slot> slots = new ArrayList<>(output);
+        Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        output.forEach(slot -> names.add(slot.getName()));
+        for (Slot required : ((VectorSearchTableValuedFunction) function).getPrefilterSlots()) {
+            if (names.add(required.getName())) {
+                slots.add(((SlotReference) required).withExprId(StatementScopeIdGenerator.newExprId()));
+            }
+        }
+        return slots;
+    }
+
     @Override
     public PlanFragment visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, PlanTranslatorContext context) {
-        List<Slot> slots = tvfRelation.getOutput();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getFunction().getTable(), context);
-
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
+        List<Slot> slots = withVectorSearchPrefilterSlots(tvfRelation.getOutput(), catalogFunction);
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getFunction().getTable(), context);
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
         if (context.getRelationPushAggOp(tvfRelation.getRelationId()) == TPushAggOp.COUNT) {
@@ -2906,10 +2926,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalLazyMaterializeTVFScan(PhysicalLazyMaterializeTVFScan tvfRelation,
             PlanTranslatorContext context) {
-        List<Slot> slots = tvfRelation.getOutput();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getFunction().getTable(), context);
-
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
+        List<Slot> slots = withVectorSearchPrefilterSlots(tvfRelation.getOutput(), catalogFunction);
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, tvfRelation.getFunction().getTable(), context);
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
         scanNode.setEnableConditionCache(true);

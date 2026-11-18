@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.ConnectorType;
 
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
@@ -37,6 +38,16 @@ import java.util.Arrays;
  * {@code PaimonUtil.paimonPrimitiveTypeToDorisType}.
  */
 public class PaimonTypeMappingReadTest {
+
+    @Test
+    public void vectorMapsToArrayForBothNullabilities() {
+        for (boolean nullable : new boolean[] {false, true}) {
+            ConnectorType vector = PaimonTypeMapping.toConnectorType(
+                    DataTypes.VECTOR(3, DataTypes.FLOAT()).copy(nullable), PaimonTypeMapping.Options.DEFAULT);
+            Assertions.assertEquals("ARRAY", vector.getTypeName());
+            Assertions.assertEquals("FLOAT", vector.getChildren().get(0).getTypeName());
+        }
+    }
 
     private static ConnectorType mapVarchar(int len) {
         return PaimonTypeMapping.toConnectorType(new VarCharType(len), PaimonTypeMapping.Options.DEFAULT);

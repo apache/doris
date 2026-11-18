@@ -33,9 +33,11 @@ import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorVectorSearch;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TColumnType;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
@@ -61,8 +63,10 @@ import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataOutputSerializer;
 import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.partition.PartitionPredicate;
 import org.apache.paimon.rest.RESTToken;
 import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.SchemaManager;
@@ -73,6 +77,7 @@ import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.BucketVectorSearchSplit;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.DeletionFile;
 import org.apache.paimon.table.source.InnerTableScan;
@@ -81,6 +86,7 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.ScanMode;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.source.TableScan;
+import org.apache.paimon.table.source.VectorSearchSplit;
 import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.table.system.ReadOptimizedTable;
 import org.apache.paimon.table.system.SystemTableLoader;
@@ -551,6 +557,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
         PaimonTableHandle paimonHandle = (PaimonTableHandle) request.getTableHandle();
+        if (request.getVectorSearch().isPresent()) {
+            return planVectorScan(session, request, paimonHandle);
+        }
         if (session == null || !session.isExternalScanTaskReuseEnabled()) {
             return planScanInternal(session, request.getTableHandle(), request.getColumns(),
                     request.getFilter(), request.getLimit(), request.isCountPushdown(),
@@ -589,6 +598,146 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                         request.getLimit(), request.isCountPushdown(), request.isAggregatePushdown(),
                         request.allBackendsSupport(PaimonRustReaderSelector.BACKEND_CAPABILITY),
                         request.getCoarseSplitSize(), table)));
+    }
+
+    @Override
+    public Optional<ConnectorVectorSearch> prepareVectorSearch(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorVectorSearch search, Set<String> backendCapabilities) {
+        PaimonTableHandle paimonHandle = (PaimonTableHandle) handle;
+        Map<String, String> scanOptions = effectiveScanOptions(paimonHandle);
+        if (paimonHandle.isSystemTable() || paimonHandle.isForceJni()
+                || scanOptions.containsKey("incremental-between")
+                || scanOptions.containsKey("incremental-between-timestamp")
+                || scanOptions.containsKey(CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS.key())
+                || scanOptions.containsKey(CoreOptions.SCAN_CREATION_TIME_MILLIS.key())
+                || PaimonScanParams.getPinnedFileCreationTime(scanOptions).isPresent()) {
+            return Optional.empty();
+        }
+        Table resolved = resolveScanTableConsistent(session, paimonHandle);
+        if (!(resolved instanceof FileStoreTable)) {
+            return Optional.empty();
+        }
+        FileStoreTable table = (FileStoreTable) resolved;
+        PaimonRustReaderSelector selector = new PaimonRustReaderSelector(session,
+                backendCapabilities.contains(PaimonRustReaderSelector.BACKEND_CAPABILITY), table,
+                Collections.emptyList(), backendStorageProperties(),
+                usesFallbackRead(table, paimonHandle), false, false);
+        if (!selector.canPlanVectorSearch()) {
+            return Optional.empty();
+        }
+        if ("true".equalsIgnoreCase(catalogProps.getRaw().get("paimon.resolving-file-io.enabled"))
+                || "true".equalsIgnoreCase(table.options().get("resolving-file-io.enabled"))) {
+            return Optional.empty();
+        }
+        return withSchemaHistoryAuthentication(() -> PaimonVectorSearch.prepare(table, search).filter(prepared -> {
+            if (prepared.isTableFunction() || PaimonScanParams.isPinnedEmptyScan(effectiveScanOptions(paimonHandle))) {
+                return true;
+            }
+            String column = prepared.getRequest().getSearchQuery().getVectorSearch().getColumn();
+            int fieldId = table.rowType().getFields().get(table.rowType().getFieldIndex(column)).id();
+            return PaimonVectorSearch.hasSqlCoverage(fieldId, table.coreOptions().primaryKeyVectorIndexType(column),
+                    vectorBuckets(session, paimonHandle, table, prepared));
+        }));
+    }
+
+    @Override
+    public void populateVectorSearchParams(TFileScanRangeParams params, ConnectorVectorSearch search,
+            List<TExpr> prefilter) {
+        org.apache.doris.thrift.TExternalSearchRequest wire = search.getRequest();
+        if (search.isTableFunction()) {
+            wire.getPaimonOptions().setPrefilter(prefilter);
+        }
+        params.setExternalSearchRequest(wire);
+    }
+
+    private List<ConnectorScanRange> planVectorScan(ConnectorSession session, ConnectorScanRequest request,
+            PaimonTableHandle handle) {
+        ConnectorVectorSearch search = prepareVectorSearch(session, handle, request.getVectorSearch().get(),
+                request.getBackendCapabilities()).orElseThrow(() ->
+                        new IllegalArgumentException("Paimon vector search is not supported for this scan"));
+        if (PaimonScanParams.isPinnedEmptyScan(effectiveScanOptions(handle))) {
+            return Collections.emptyList();
+        }
+        FileStoreTable table = (FileStoreTable) resolveScanTableConsistent(session, handle);
+        return readVectorRanges(session, handle, table, search);
+    }
+
+    private List<BucketVectorSearchSplit> vectorBuckets(ConnectorSession session, PaimonTableHandle handle,
+            FileStoreTable table, ConnectorVectorSearch search) {
+        Supplier<List<BucketVectorSearchSplit>> plan = () -> withSchemaHistoryAuthentication(() -> {
+            List<org.apache.paimon.predicate.Predicate> predicates = search.getFilter()
+                    .map(filter -> new PaimonPredicateConverter(table.rowType()).convert(filter))
+                    .orElse(Collections.emptyList());
+            PartitionPredicate partitionFilter = PartitionPredicate.splitPartitionPredicatesAndDataPredicates(
+                    predicates, table.rowType(), table.partitionKeys()).getLeft().orElse(null);
+            List<BucketVectorSearchSplit> buckets = new ArrayList<>();
+            for (VectorSearchSplit split : table.newBatchVectorSearchBuilder()
+                    .withVectorColumn(search.getRequest().getSearchQuery().getVectorSearch().getColumn())
+                    .withPartitionFilter(partitionFilter).newVectorScan().scan().splits()) {
+                if (!(split instanceof BucketVectorSearchSplit)) {
+                    throw new IllegalArgumentException("Unexpected Paimon vector split: " + split.getClass());
+                }
+                buckets.add((BucketVectorSearchSplit) split);
+            }
+            return Collections.unmodifiableList(buckets);
+        });
+        if (session.getStatementScope() == null || session.getStatementScope() == ConnectorStatementScope.NONE) {
+            return plan.get();
+        }
+        // Admission and execution must inspect the same pinned bucket plan. Reuse only within this
+        // statement, independently of the optional ordinary-scan task cache.
+        String memoKey = SCAN_REUSE_NAMESPACE + ":vector-buckets:"
+                + session.getCatalogId() + ":" + session.getQueryId();
+        Map<PaimonVectorPlanKey, List<BucketVectorSearchSplit>> plans = session.getStatementScope()
+                .computeIfAbsentForPlanning(memoKey, () -> new ConcurrentHashMap<>());
+        PaimonVectorPlanKey key = new PaimonVectorPlanKey(
+                new PaimonTableResolutionKey(handle, effectiveScanOptions(handle)),
+                resolvePaimonGeneration(handle, table), table.schema().id(),
+                search.getRequest().getSearchQuery().getVectorSearch().getColumn(), search.getFilter());
+        return plans.computeIfAbsent(key, ignored -> plan.get());
+    }
+
+    private record PaimonVectorPlanKey(PaimonTableResolutionKey table, long snapshotId, long schemaId,
+            String column, Optional<ConnectorExpression> filter) {
+    }
+
+    private List<ConnectorScanRange> readVectorRanges(ConnectorSession session, PaimonTableHandle handle,
+            FileStoreTable table, ConnectorVectorSearch search) {
+        return withSchemaHistoryAuthentication(() -> {
+            List<ConnectorScanRange> ranges = new ArrayList<>();
+            boolean useIndex = !search.getRequest().isSetVectorSearchOptions()
+                    || !search.getRequest().getVectorSearchOptions().isSetUseIndex()
+                    || search.getRequest().getVectorSearchOptions().isUseIndex();
+            RustScanMetadata metadata = RustScanMetadata.from(table, !useIndex);
+            for (BucketVectorSearchSplit planned : vectorBuckets(session, handle, table, search)) {
+                BucketVectorSearchSplit bucket = planned;
+                if (!useIndex) {
+                    bucket = new BucketVectorSearchSplit(bucket.dataSplit(), Collections.emptyList(),
+                            bucket.rowRangesByFile());
+                }
+                DataOutputSerializer out = new DataOutputSerializer(256);
+                try {
+                    bucket.serialize(out);
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to serialize Paimon vector split", e);
+                }
+                DataSplit data = bucket.dataSplit();
+                if (PaimonRustReaderSelector.splitHasExternalFiles(data)
+                        || (PaimonRustReaderSelector.splitHasOrcFile(data) && table.schema().fields().stream()
+                                .anyMatch(field -> PaimonRustReaderSelector.containsTimestampLtz(field.type())))) {
+                    throw new IllegalArgumentException("Unsupported storage layout for Paimon vector search");
+                }
+                ranges.add(new PaimonScanRange.Builder()
+                        .fileFormat(dataSplitFileFormat(data,
+                                table.options().getOrDefault(CoreOptions.FILE_FORMAT.key(), "orc")))
+                        .vectorSplit(out.getCopyOfBuffer(), metadata.tableLocation, handle.getDatabaseName(),
+                                handle.getTableName(), metadata.schemaJson, metadata.branch)
+                        .partitionValues(getPartitionInfoMap(table, data.partition(), session.getTimeZone()))
+                        .selfSplitWeight(computeSplitWeight(data))
+                        .targetSplitSize(resolveSplitWeightDenominator(session)).bucket(data.bucket()).build());
+            }
+            return ranges;
+        });
     }
 
     private long resolvePaimonGeneration(PaimonTableHandle handle, Table table) {
@@ -1964,7 +2113,18 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         }
 
         static RustScanMetadata from(FileStoreTable table) {
+            return from(table, false);
+        }
+
+        static RustScanMetadata from(FileStoreTable table, boolean exactVectorRead) {
             TableSchema schema = PaimonScanParams.withoutTimeTravelSelectors(table.schema());
+            if (exactVectorRead) {
+                // The SDK resolves FULL/FAST from the table schema, not vector builder options.
+                // Disabling ANN sources alone would make FAST return no candidates.
+                Map<String, String> options = new HashMap<>(schema.options());
+                options.put("vector-index.search-mode", "full");
+                schema = schema.copy(options);
+            }
             String branch = CoreOptions.branch(schema.options());
             return new RustScanMetadata(table.location().toString(), encodeTableSchema(schema),
                     Identifier.DEFAULT_MAIN_BRANCH.equals(branch) ? null : branch);

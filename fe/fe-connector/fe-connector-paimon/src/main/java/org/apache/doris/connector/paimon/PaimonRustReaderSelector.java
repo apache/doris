@@ -111,6 +111,10 @@ final class PaimonRustReaderSelector {
         capabilities = new PaimonRustReaderCapabilities(table, columns);
     }
 
+    boolean canPlanVectorSearch() {
+        return scanCompatible;
+    }
+
     boolean canRead(DataSplit split) {
         if (!scanCompatible || splitHasExternalFiles(split)) {
             return false;

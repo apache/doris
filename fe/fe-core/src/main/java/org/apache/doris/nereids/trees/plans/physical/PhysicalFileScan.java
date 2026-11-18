@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.connector.spi.scan.ConnectorVectorSearch;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
@@ -49,6 +50,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
     protected final Optional<TableSample> tableSample;
     protected final Optional<TableSnapshot> tableSnapshot;
     protected final Optional<TableScanParams> scanParams;
+    protected final Optional<ConnectorVectorSearch> vectorSearch;
 
     /**
      * Constructor for PhysicalFileScan.
@@ -94,6 +96,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
         this.scanParams = scanParams;
+        this.vectorSearch = Optional.empty();
     }
 
     protected PhysicalFileScan(RelationId id, PlanType type, ExternalTable table, List<String> qualifier,
@@ -109,6 +112,29 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
         this.tableSample = tableSample;
         this.tableSnapshot = tableSnapshot;
         this.scanParams = scanParams;
+        this.vectorSearch = Optional.empty();
+    }
+
+    /** Construct a connector scan with its admitted search, preserved across physical plan copies. */
+    public PhysicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+            DistributionSpec distributionSpec, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+            Statistics statistics, SelectedPartitions selectedPartitions,
+            Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
+            Collection<Slot> operativeSlots, Optional<TableScanParams> scanParams,
+            Optional<ConnectorVectorSearch> vectorSearch) {
+        super(id, PlanType.PHYSICAL_FILE_SCAN, table, qualifier, groupExpression, logicalProperties,
+                physicalProperties, statistics, operativeSlots);
+        this.distributionSpec = distributionSpec;
+        this.selectedPartitions = selectedPartitions;
+        this.tableSample = tableSample;
+        this.tableSnapshot = tableSnapshot;
+        this.scanParams = scanParams;
+        this.vectorSearch = vectorSearch;
+    }
+
+    public Optional<ConnectorVectorSearch> getVectorSearch() {
+        return vectorSearch;
     }
 
     public DistributionSpec getDistributionSpec() {
@@ -160,16 +186,16 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
     @Override
     public PhysicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileScan(relationId, getTable(), qualifier,
-                distributionSpec, groupExpression, getLogicalProperties(), selectedPartitions, tableSample,
-                tableSnapshot, operativeSlots, scanParams));
+                distributionSpec, groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams, vectorSearch));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileScan(relationId, getTable(), qualifier,
-                distributionSpec, groupExpression, logicalProperties.get(), selectedPartitions, tableSample,
-                tableSnapshot, operativeSlots, scanParams));
+                distributionSpec, groupExpression, logicalProperties.get(), physicalProperties, statistics,
+                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams, vectorSearch));
     }
 
     @Override
@@ -182,7 +208,7 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
                                                        Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileScan(relationId, getTable(), qualifier,
                 distributionSpec, groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams));
+                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams, vectorSearch));
     }
 
     @Override

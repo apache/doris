@@ -211,6 +211,9 @@ private:
     // reader-produced distance column (__paimon_search_score_to_dis, converted
     // from paimon-rust's __paimon_search_score field).
     Status _open_vector_split_reader(const TFileRangeDesc& range);
+    Status _prepare_vector_filters(VExprContextSPtrs* filters);
+    Status _prune_vector_partition_filters(VExprContextSPtrs* filters);
+    Status _open_arrow_reader(size_t num_splits);
     // Drop the per-split pipeline (read_builder .. record batch reader), keeping
     // the cached table handle for the next split of the same table.
     void _close_split_reader();
@@ -227,6 +230,9 @@ private:
     // which Doris' Arrow SerDes intentionally reject.
     Status _fill_block_from_record_batch(const std::shared_ptr<arrow::RecordBatch>& batch,
                                          Block* block, size_t start, size_t rows);
+    Status _fill_arrow_columns(const std::shared_ptr<arrow::RecordBatch>& batch, Block* block,
+                               size_t start, size_t rows, std::optional<size_t> distance_output_idx,
+                               std::unordered_set<size_t>& materialized_indices);
     // Materialize projected columns the arrow batch did not contain: partition
     // constants, default expressions, or a default/NULL fill as a last resort.
     Status _fill_non_arrow_columns(Block* block, size_t rows,

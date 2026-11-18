@@ -247,6 +247,25 @@ public class PaimonRustReaderSelectorTest {
         Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_MODE.key()));
     }
 
+    @Test
+    public void exactVectorReadOverridesFastOnlyInTheTransportedSchema() throws Exception {
+        Map<String, String> options = new HashMap<>();
+        options.put("vector-index.search-mode", "fast");
+        options.put(CoreOptions.BRANCH.key(), "audit");
+        options.put(CoreOptions.SCAN_SNAPSHOT_ID.key(), "7");
+        FileStoreTable table = table(fileLocation("exact-vector-metadata"), options, DataTypes.INT());
+        PaimonScanPlanProvider.RustScanMetadata exact = PaimonScanPlanProvider.RustScanMetadata.from(table, true);
+        TableSchema schema = org.apache.paimon.utils.JsonSerdeUtil.fromJson(exact.schemaJson, TableSchema.class);
+        Assertions.assertEquals("full", schema.options().get("vector-index.search-mode"));
+        Assertions.assertEquals("audit", exact.branch);
+        Assertions.assertEquals(table.schema().id(), schema.id());
+        Assertions.assertFalse(schema.options().containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key()));
+        Assertions.assertEquals("fast", table.options().get("vector-index.search-mode"));
+        TableSchema ordinary = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                PaimonScanPlanProvider.RustScanMetadata.from(table).schemaJson, TableSchema.class);
+        Assertions.assertEquals("fast", ordinary.options().get("vector-index.search-mode"));
+    }
+
     private String fileLocation(String name) throws Exception {
         java.nio.file.Path path = Files.createDirectories(tempDir.resolve(name));
         return path.toUri().toString();

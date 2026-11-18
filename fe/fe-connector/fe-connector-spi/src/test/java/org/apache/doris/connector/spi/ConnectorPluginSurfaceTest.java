@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Native encryption requires a new major after API 36 added connector file formats.
-        Assertions.assertEquals("37.0", version.getProperty("api.version"));
+        // Major 38 adds vector-search admission and requests after API 37 introduced native encryption.
+        Assertions.assertEquals("38.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -116,6 +116,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorScanPlanProvider.class,
             org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
             ConnectorScanRequest.class,
+            org.apache.doris.connector.spi.scan.ConnectorVectorSearch.class,
             ConnectorScanRequest.Builder.class,
             org.apache.doris.connector.spi.scan.ConnectorScanContext.class,
             ConnectorWriteHandle.class,

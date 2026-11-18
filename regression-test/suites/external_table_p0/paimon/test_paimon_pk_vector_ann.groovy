@@ -16,7 +16,7 @@
 // under the License.
 
 // End-to-end regression for the Paimon PK-vector (ANN) search path: the
-// PushDownVectorTopNIntoPaimonScan rewrite, the shared rust eligibility gate
+// PushDownVectorTopNIntoFileScan rewrite, the shared rust eligibility gate
 // and the BE paimon-rust vector reader, compared against the exact brute-force
 // answer the same SQL computes with the rust reader disabled.
 //
@@ -24,11 +24,10 @@
 // by the suite itself through the Spark ThriftServer's paimon catalog: 512
 // deterministic 16-dim vectors derived from the row id (unique: the generator
 // is mod 521, a prime above the row count), an ivf-rq PK-vector index with
-// nlist = nprobe = 4 — exhaustive recall, so ANN must equal brute force by
-// construction. Doris DDL cannot build this fixture: Doris has no VECTOR
-// column type in either direction of the type mapping, and the ivf-rq index
-// build needs the vindex factory jars that only the Spark server carries
-// (paimon-vector + paimon-vector-index-java; see regression.md).
+// nlist = nprobe = 4 and deterministic reference neighbors. Results are checked
+// against a scalar scan. Doris exposes VECTOR as ARRAY<FLOAT> on read; Spark DDL
+// declares the physical VECTOR column and builds its index using paimon-vector
+// and paimon-vector-index-java (see the Iceberg Docker environment README).
 //
 // Float precision note: the ANN distances are computed in f32 by paimon-rust
 // while the brute-force leg computes in Doris doubles, so near-tied neighbors
@@ -197,7 +196,7 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 "ANN query must run through the paimon-rust vector reader")
 
         // Non-index-only projection: the raw vector column is still readable
-        // alongside the distance; tag = (id - 1) % 7 by the fixture generator.
+        // alongside the distance; tag = id % 7 by the fixture generator.
         def annTagged = sql("""select id, tag from ann_l2
                 order by l2_distance_approximate(embedding, ${probe}) limit 5""")
         annTagged.each { row ->
@@ -276,6 +275,9 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         // Write the data before configuring PK-vector indexing, leaving every data file
         // uncovered. FAST is a positive control: indexed search returns no candidates,
         // while use_index=false must scan the raw files despite the persisted FAST mode.
+        // Interleaved writes force a rewrite. A single-file compaction can only raise its
+        // level and retain APPEND provenance, which PK vector search does not read.
+        // Compact before enabling the index to retain a searchable, unindexed data file.
         spark_paimon_multi """
             DROP TABLE IF EXISTS paimon.${database}.ann_l2_unindexed;
             CREATE TABLE paimon.${database}.ann_l2_unindexed (
@@ -286,7 +288,9 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 'changelog-producer'='none', 'vector-field'='embedding',
                 'field.embedding.vector-dim'='${dimension}', 'vector-index.search-mode'='fast'
             );
-            INSERT INTO paimon.${database}.ann_l2_unindexed ${generatedRows};
+            INSERT INTO paimon.${database}.ann_l2_unindexed ${generatedRows} WHERE id % 2 = 0;
+            INSERT INTO paimon.${database}.ann_l2_unindexed ${generatedRows} WHERE id % 2 = 1;
+            CALL paimon.sys.compact(table => '${database}.ann_l2_unindexed', compact_strategy => 'full');
             ALTER TABLE paimon.${database}.ann_l2_unindexed SET TBLPROPERTIES (
                 'pk-vector.index.columns'='embedding',
                 'fields.embedding.pk-vector.index.type'='ivf-rq',
@@ -303,6 +307,14 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         def unindexedFlat = idsOf(sql("""select id from ${tvf("ann_l2_unindexed", "l2", 5,
                 ", 'use_index'='false'")} order by _distance, id""")).sort()
         assertEquals(unindexedExpected, unindexedFlat, "flat search must include uncovered data files")
+        explain {
+            sql """select id from ann_l2_unindexed
+                order by l2_distance_approximate(embedding, ${probe}) limit 5"""
+            notContains "annSortColumnName="
+        }
+        def unindexedSql = idsOf(sql("""select id from ann_l2_unindexed
+                order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
+        assertEquals(unindexedExpected, unindexedSql, "SQL must compute distances when no ANN index covers the data")
         def tvfFiltered = idsOf(sql("""select id from ${tvf("ann_l2", "l2", 5,
                 ", 'filter'='tag < 3', 'prefilter'='true'")} order by _distance, id""")).sort()
         assertEquals(bruteFiltered, tvfFiltered, "TVF prefilter must restrict candidate generation")
@@ -339,6 +351,15 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
                 ", 'filter'='id <> 7', 'prefilter'='true'")}""")
         assertEquals(1, prefiltered.size(), "explicit prefilter searches among matching rows")
         assertTrue(prefiltered[0][0] != 7L)
+
+        // With two buckets, moving a postfilter below the merge can refill from the other bucket
+        // even when neither native search refills. The exact probe is uniquely id=7.
+        qt_global_outer_postfilter """select count(*) from ${tvf("ann_l2", "l2", 1,
+                ", 'use_index'='false'")} where id <> 7"""
+        qt_global_explicit_postfilter """select count(*) from ${tvf("ann_l2", "l2", 1,
+                ", 'use_index'='false', 'filter'='id <> 7', 'prefilter'='false'")}"""
+        qt_global_prefilter """select count(*) from ${tvf("ann_l2", "l2", 1,
+                ", 'use_index'='false', 'filter'='id <> 7', 'prefilter'='true'")}"""
 
         // ------------------------------------------------------------------
         // Bounded-search soundness (review feedback on the rewrite):
@@ -411,7 +432,8 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         // splits must carry the derived partition values or every scan fails with
         // "Missing partition values").
         spark_paimon_multi """
-            CREATE TABLE IF NOT EXISTS paimon.${database}.ann_l2_nodv (
+            DROP TABLE IF EXISTS paimon.${database}.ann_l2_nodv;
+            CREATE TABLE paimon.${database}.ann_l2_nodv (
                 id BIGINT, tag INT, embedding ARRAY<FLOAT> NOT NULL
             ) USING paimon TBLPROPERTIES (
                 'primary-key' = 'id', 'bucket' = '2',
@@ -486,6 +508,16 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
         def annPart = idsOf(sql("""select id from ann_l2_part
                 order by l2_distance_approximate(embedding, ${probe}) limit 5""")).sort()
         assertEquals(brutePart, annPart, "partitioned ANN must match brute force")
+        qt_partition_prefilter """select count(*), min(dt), max(dt)
+                from ${tvf("ann_l2_part", "l2", 5,
+                ", 'filter'='dt = \"2026-01-01\"', 'prefilter'='true'")}"""
+
+        qt_partition_prefilter_empty """select count(*)
+                from ${tvf("ann_l2_part", "l2", 5,
+                ", 'filter'='dt = \"2027-01-01\"', 'prefilter'='true'")}"""
+        qt_partition_data_prefilter """select count(*), min(dt), max(dt), min(id), max(id)
+                from ${tvf("ann_l2_part", "l2", 5,
+                ", 'filter'='dt = \"2026-01-01\" and id = 8', 'prefilter'='true'")}"""
 
         // ---------------------------------------------- NULL query-vector element
         // A NULL element inside the query vector must not become a zero coordinate:
@@ -542,6 +574,19 @@ suite("test_paimon_pk_vector_ann", "p0,external") {
 
         // -------------------------------------------------------- inner product
         compareTopN("ann_ip", true, 5)
+
+        // Rebuild the indexed source after deleting the exact nearest row. Neither FAST
+        // nor exact search may resurrect a row removed from the current snapshot.
+        spark_paimon_multi """
+            DELETE FROM paimon.${database}.ann_l2 WHERE id = 7;
+            CALL paimon.sys.compact(table => '${database}.ann_l2', compact_strategy => 'full');
+        """
+        sql "REFRESH TABLE ann_l2"
+        qt_deleted_source "select count(*) from ann_l2 where id = 7"
+        qt_deleted_fast """select count(*), sum(if(id = 7, 1, 0))
+                from ${tvf("ann_l2", "l2", 4, "")}"""
+        qt_deleted_exact """select count(*), count(distinct id), sum(id)
+                from ${tvf("ann_l2", "l2", rows + 1, ", 'use_index'='false'")}"""
     } finally {
         sql "set enable_paimon_rust_reader=${originalRustReader}"
         sql "set enable_file_scanner_v2=${originalV2}"

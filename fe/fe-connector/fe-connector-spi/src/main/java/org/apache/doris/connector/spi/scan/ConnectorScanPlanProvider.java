@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -42,6 +43,22 @@ import java.util.Set;
  * which are then converted to Thrift structures and dispatched to BE.</p>
  */
 public interface ConnectorScanPlanProvider {
+
+    /**
+     * Admit a vector search against this handle's pinned schema and snapshot. Empty keeps ordinary SQL
+     * evaluation; an explicit search TVF reports an unsupported-search error. Other connectors opt out.
+     * The returned request owns any source-specific options and the synthesized distance column name.
+     */
+    default Optional<ConnectorVectorSearch> prepareVectorSearch(ConnectorSession session,
+            ConnectorTableHandle handle, ConnectorVectorSearch search, Set<String> backendCapabilities) {
+        return Optional.empty();
+    }
+
+    /** Attach the search and its analyzed prefilter without coupling the engine to source-specific Thrift. */
+    default void populateVectorSearchParams(TFileScanRangeParams params, ConnectorVectorSearch search,
+            List<TExpr> prefilter) {
+        params.setExternalSearchRequest(search.getRequest());
+    }
 
     /**
      * Whether this connector is PREDICATE-DRIVEN and therefore opts out of the FE prune-to-zero

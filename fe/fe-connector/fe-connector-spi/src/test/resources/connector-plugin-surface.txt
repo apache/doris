@@ -246,6 +246,8 @@ org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#partitionBatchSize
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#planScan(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.scan.ConnectorScanRequest):java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#planScanForPartitionBatch(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.scan.ConnectorScanRequest,java.util.List):java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#populateScanLevelParams(org.apache.doris.thrift.TFileScanRangeParams,java.util.Map):void
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#populateVectorSearchParams(org.apache.doris.thrift.TFileScanRangeParams,org.apache.doris.connector.spi.scan.ConnectorVectorSearch,java.util.List):void
+org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#prepareVectorSearch(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.scan.ConnectorVectorSearch,java.util.Set):java.util.Optional
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#releaseReadTransaction(java.lang.String):void
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#scannedPartitionCount(java.util.List):java.util.OptionalLong
 org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider#streamPartitionSources(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.scan.ConnectorScanRequest,int,int):java.util.Optional
@@ -287,6 +289,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanRequest#getLimit():long
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getRequiredPartitions():java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getScanContext():org.apache.doris.connector.spi.scan.ConnectorScanContext
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getTableHandle():org.apache.doris.connector.spi.handle.ConnectorTableHandle
+org.apache.doris.connector.spi.scan.ConnectorScanRequest#getVectorSearch():java.util.Optional
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#isAggregatePushdown():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#isCountPushdown():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#isExplainOnly():boolean
@@ -303,11 +306,18 @@ org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#limit(long):org
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#partitionsPrunedToEmpty(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#requiredPartitions(java.util.List):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#scanContext(org.apache.doris.connector.spi.scan.ConnectorScanContext):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
+org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#vectorSearch(java.util.Optional):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#close():void
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#hasNext():boolean
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#isBlocked():java.util.concurrent.CompletableFuture
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#next():org.apache.doris.connector.spi.scan.ConnectorScanRange
 org.apache.doris.connector.spi.scan.ConnectorSplitSource#onMoreSplitsRequested():void
+org.apache.doris.connector.spi.scan.ConnectorVectorSearch#equals(java.lang.Object):boolean
+org.apache.doris.connector.spi.scan.ConnectorVectorSearch#getDistanceColumn():java.lang.String
+org.apache.doris.connector.spi.scan.ConnectorVectorSearch#getFilter():java.util.Optional
+org.apache.doris.connector.spi.scan.ConnectorVectorSearch#getRequest():org.apache.doris.thrift.TExternalSearchRequest
+org.apache.doris.connector.spi.scan.ConnectorVectorSearch#hashCode():int
+org.apache.doris.connector.spi.scan.ConnectorVectorSearch#isTableFunction():boolean
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:FILE_FORMAT_TYPE:java.lang.String=file_format_type
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:LOCATION_PREFIX:java.lang.String=location.
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:PATH_PARTITION_KEYS:java.lang.String=path_partition_keys
