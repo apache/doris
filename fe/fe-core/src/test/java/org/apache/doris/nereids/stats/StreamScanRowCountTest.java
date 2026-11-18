@@ -414,6 +414,26 @@ public class StreamScanRowCountTest extends TestWithFeService {
     }
 
     @Test
+    public void testLargeInjectedFallbackKeepsMowScanEstimatePositive() throws Exception {
+        createTable("CREATE TABLE stream_large_stats (k INT NOT NULL, v INT) UNIQUE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1', "
+                + "'enable_unique_key_merge_on_write'='true', 'changelog.enable'='true', "
+                + "'changelog.need_historical_value'='true')");
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException("stream_large_stats");
+        Partition partition = table.getPartitions().iterator().next();
+        partition.setVisibleVersionAndTime(2, System.currentTimeMillis(), START_TSO);
+        injectRowCount("stream_large_stats", 5_000_000_000_000_000_000L);
+        createStream("CREATE STREAM large_stats_detail ON TABLE stream_large_stats "
+                + "PROPERTIES ('show_initial_rows'='false', 'type'='DETAIL')");
+        partition.setVisibleVersionAndTime(3, System.currentTimeMillis(), END_TSO);
+        advanceReplicaVersions(partition);
+
+        Assertions.assertEquals(Long.MAX_VALUE,
+                streamScanRowCount("select * from large_stats_detail", "stream_large_stats"));
+    }
+
+    @Test
     public void testAllUnknownExplicitEstimatesPreserveJoinReorderInput() throws Exception {
         OlapTable table = createUnknownPartitionedTable("stream_unknown_stats");
         List<Long> ids = table.getPartitionIds();

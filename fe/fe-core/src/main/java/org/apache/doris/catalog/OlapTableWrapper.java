@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.common.math.LongMath;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -235,7 +236,7 @@ public class OlapTableWrapper extends OlapTable {
             if (rows < 0) {
                 unknown++;
             } else {
-                total += rows;
+                total = LongMath.saturatedAdd(total, rows);
             }
         }
         if (unknown > 0) {
@@ -246,7 +247,8 @@ public class OlapTableWrapper extends OlapTable {
             if (tableRows < 0 && unknown == estimatedPartitionCount) {
                 return TableIf.UNKNOWN_ROW_COUNT;
             }
-            total += tableRows < 0 ? unknown : Math.max(unknown, tableRows * unknown / tablePartitions);
+            long fallback = tableRows < 0 ? unknown : Math.max(unknown, tableRows * unknown / tablePartitions);
+            total = LongMath.saturatedAdd(total, fallback);
         }
         return total;
     }

@@ -277,6 +277,10 @@ public class OlapTableWrapperTest {
                 partitionId, new PartitionScanState(null, null, 3L),
                 otherPartitionId, new PartitionScanState(null, null, -1L)));
         Assertions.assertEquals(45L, partial.getRowCountForIndex(table.getBaseIndexId(), true));
+        OlapTableWrapper large = new OlapTableWrapper(table, Map.of(
+                partitionId, new PartitionScanState(null, null, Long.MAX_VALUE),
+                otherPartitionId, new PartitionScanState(null, null, 42L)));
+        Assertions.assertEquals(Long.MAX_VALUE, large.getRowCountEstimate());
         // An estimate for the base index must not be applied to another selected index.
         MaterializedIndex rollup = new MaterializedIndex(99L, null);
         rollup.setRowCount(5L);

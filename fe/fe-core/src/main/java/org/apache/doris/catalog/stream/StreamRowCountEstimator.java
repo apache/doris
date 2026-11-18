@@ -20,6 +20,8 @@ package org.apache.doris.catalog.stream;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 
+import com.google.common.math.LongMath;
+
 import java.util.function.LongSupplier;
 
 /** Row-count formulas shared by consumption snapshots and stream reads. */
@@ -82,7 +84,7 @@ public final class StreamRowCountEstimator {
         if (records < 0) {
             return UNKNOWN_ROW_COUNT;
         }
-        return unique && type != BaseTableStream.StreamScanType.APPEND_ONLY ? records * 2 : records;
+        return unique && type != StreamScanType.APPEND_ONLY ? LongMath.saturatedMultiply(records, 2) : records;
     }
 
     /** Complete snapshot scale; UNIQUE reconstruction instead estimates its branches separately. */
