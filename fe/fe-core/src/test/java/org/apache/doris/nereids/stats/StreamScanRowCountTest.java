@@ -27,9 +27,6 @@ import org.apache.doris.catalog.OlapTableWrapper.PartitionScanState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
-import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
-import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
-import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
@@ -49,6 +46,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -210,49 +208,68 @@ public class StreamScanRowCountTest extends TestWithFeService {
         OlapTable base = (OlapTable) db.getTableOrMetaException("stream_base");
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("stream_on_base");
         long id = base.getPartitionIds().get(0);
-        for (long offset : new long[] {START_TSO, START_TSO + 50}) {
-            OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(stream, base, base.getPartitionIds());
+        OlapTableStream restored = new OlapTableStream(stream.getId(), stream.getName(), base);
+        Cloud.TableStreamSourceEpochPB epoch = stream.getPartitionState(id).cloudSourceEpoch();
+        for (boolean validEpoch : new boolean[] {true, false}) {
+            OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(restored, base, base.getPartitionIds());
             wrapper.installCloudReadStates(ImmutableMap.of(id, Cloud.TableStreamPartitionReadStatePB.newBuilder()
                     .setPartitionId(id)
                     .setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
-                    .setOffsetTso(offset).setEndTso(END_TSO).setVisibleVersion(3L)
-                    .setBaseRowCount(BASE_TABLE_ROW_COUNT).setChangelogRowCount(1000L).build()));
-            // TTL has moved the scan start, but validity is checked against the MS consumption offset.
-            Assertions.assertEquals(offset == START_TSO ? 700L : 1200L,
-                    wrapper.estimateChangelogRead(base.getPartitionIds(), ImmutableMap.of(id, Pair.of(START_TSO + 80, END_TSO + 1)),
-                            BaseTableStream.StreamScanType.APPEND_ONLY).get(id));
+                    .setOffsetTso(START_TSO + 50).setEndTso(END_TSO).setVisibleVersion(3L)
+                    .setBaseRowCount(BASE_TABLE_ROW_COUNT).setChangelogRowCount(1000L)
+                    .setSourceEpoch(validEpoch ? epoch : epoch.toBuilder()
+                            .setPartitionEpoch(epoch.getPartitionEpoch() + 1).build()).build()));
+            // The plan uses MS's baseline even without local stream state; TTL clipping only changes the scan range.
+            Map<Long, Pair<Long, Long>> ranges = ImmutableMap.of(id, Pair.of(START_TSO + 80, END_TSO + 1));
+            long rows = wrapper.estimateChangelogRead(base.getPartitionIds(), ranges,
+                    BaseTableStream.StreamScanType.APPEND_ONLY).get(id);
+            LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+                    new OlapChangelogTableWrapper(base, Map.of(id,
+                            new PartitionScanState(ranges.get(id), 3L, rows))));
+            Assertions.assertEquals(validEpoch ? 700L : 1200L, new StatsCalculator(null).computeOlapScan(scan)
+                    .getRowCount());
         }
     }
 
     @Test
-    public void testRestoreDiscardsBaselineAndLateCallbacksCannotOverwrite() throws Exception {
+    public void testRecoveredCatalogPreservesIncrementalScanEstimate() throws Exception {
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable base = (OlapTable) db.getTableOrMetaException("stream_base");
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("stream_on_base");
         OlapTableStream restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(stream), OlapTableStream.class);
+        OlapTable restoredBase = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(base), OlapTable.class);
         long id = base.getPartitionIds().get(0);
-        Assertions.assertNotNull(restored.getPartitionState(id));
-        Assertions.assertEquals(BASE_TABLE_ROW_COUNT, restored.getPartitionState(id).getBaseRowCount());
-        Assertions.assertFalse(restored.getPartitionState(id).matches(base, id, START_TSO));
-        restored.writeLock();
-        try {
-            OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(
-                    id, new PartitionUpdate(START_TSO, PartitionStreamState.initial().atOffset(START_TSO + 300))));
-            restored.unprotectedPrepareStreamUpdate(update);
-            restored.unprotectedUpdateStreamUpdate(update, 1000L, true);
-            Assertions.assertEquals(START_TSO + 300, restored.getPartitionState(id).getOffset());
-            Assertions.assertFalse(restored.getPartitionState(id).matches(base, id, START_TSO + 300));
-            update = new OlapTableStreamUpdate(Map.of(
-                    id, new PartitionUpdate(START_TSO + 300, PartitionStreamState.initial().atOffset(START_TSO + 400))));
-            restored.unprotectedPrepareStreamUpdate(update);
-            restored.unprotectedUpdateStreamUpdate(update, 2000L);
-            Assertions.assertEquals(START_TSO + 400, restored.getPartitionState(id).getBaselineOffset());
-            Assertions.assertTrue(restored.getPartitionState(id).matches(base, id, START_TSO + 400));
-        } finally {
-            restored.writeUnlock();
-        }
-        Assertions.assertEquals(START_TSO, stream.getPartitionState(id).getBaselineOffset(),
-                "independent streams must retain independent baselines");
+        Assertions.assertTrue(restored.getPartitionState(id).matches(restoredBase, id, START_TSO));
+        OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(restored, restoredBase, List.of(id));
+        Map<Long, Pair<Long, Long>> ranges = Map.of(id, Pair.of(START_TSO + 1, END_TSO + 1));
+        long rows = wrapper.estimateChangelogRead(List.of(id), ranges, BaseTableStream.StreamScanType.APPEND_ONLY)
+                .get(id);
+        LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+                new OlapChangelogTableWrapper(restoredBase, Map.of(id,
+                        new PartitionScanState(ranges.get(id), null, rows))));
+        Assertions.assertEquals(700L, new StatsCalculator(null).computeOlapScan(scan).getRowCount());
+    }
+
+    @Test
+    public void testKnownPartitionEstimatesSkipWholeTableCounts() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable base = Mockito.spy((OlapTable) db.getTableOrMetaException("stream_base"));
+        OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("stream_on_base");
+        long id = base.getPartitionIds().get(0);
+        OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(stream, base, List.of(id));
+        Map<Long, Pair<Long, Long>> ranges = Map.of(id, Pair.of(START_TSO + 1, END_TSO + 1));
+        Assertions.assertEquals(700L, wrapper.estimateChangelogRead(List.of(id), ranges,
+                BaseTableStream.StreamScanType.APPEND_ONLY).get(id));
+        Assertions.assertEquals(BASE_TABLE_ROW_COUNT, wrapper.estimateSnapshotRead(List.of(id)).get(id));
+        Mockito.verify(base, Mockito.never()).getPartitions();
+
+        OlapTable ordinary = Mockito.spy(createUnknownPartitionedTable("stream_no_whole_index_stats"));
+        long partitionId = ordinary.getPartitionIds().get(0);
+        LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
+                new OlapTableWrapper(ordinary, Map.of(partitionId, new PartitionScanState(null, null, 25L))))
+                .withSelectedPartitionIds(List.of(partitionId));
+        Assertions.assertEquals(25L, new StatsCalculator(null).computeOlapScan(scan).getRowCount());
+        Mockito.verify(ordinary, Mockito.never()).getRowCountForIndex(Mockito.anyLong(), Mockito.anyBoolean());
     }
 
     @Test

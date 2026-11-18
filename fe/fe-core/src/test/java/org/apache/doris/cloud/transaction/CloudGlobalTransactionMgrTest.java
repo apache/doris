@@ -35,10 +35,10 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStream;
-import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
-import org.apache.doris.catalog.stream.TableStreamManager;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudFEVersionSynchronizer;
@@ -61,6 +61,7 @@ import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -552,9 +553,8 @@ public class CloudGlobalTransactionMgrTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"success", "failure", "replace", "duplicate", "late", "initial"})
-    public void testStreamBaselinesFollowCloudCommitOutcome(String outcome) throws Exception {
+    @Test
+    public void testStreamBaselineUsesAcceptedCountsAfterLostCommitResponse() throws Exception {
         Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
         Column key = new Column("k", PrimitiveType.INT);
         key.setIsKey(true);
@@ -580,55 +580,32 @@ public class CloudGlobalTransactionMgrTest {
         db.registerTable(source);
         OlapTableStream stream = new OlapTableStream(1004L, "row_count_stream", source);
         db.registerTable(stream);
-        TableStreamManager manager = masterEnv.getTableStreamManager();
-        boolean previouslyPublished = outcome.equals("duplicate") || outcome.equals("late");
-        if (previouslyPublished) {
-            manager.recordCommittedStreamUpdate(new TableStreamUpdateInfo(db.getId(), stream.getId(),
-                    manager.prepareStreamUpdate(db.getId(), stream.getId(), Map.of(1003L, 300L))), 10L);
-            base.setRowCount(60L);
-            changelog.setRowCount(110L);
-        }
-        if (outcome.equals("initial")) {
-            stream.unprotectedPublishPartitionState(1003L,
-                    PartitionStreamState.restored(null, -1, 100L, -1L, -1L).withRowCounts(source, 1003L));
-        }
-        PartitionStreamState previous = stream.getPartitionState(1003L);
-        long nextOffset = outcome.equals("initial") ? 100L : outcome.equals("duplicate") ? 300L : 200L;
         Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
                 .setBaseDbId(db.getId()).setBaseTableId(source.getId())
                 .setStreamDbId(db.getId()).setStreamId(stream.getId()).build();
         Cloud.TableStreamPartitionUpdatePB offset = Cloud.TableStreamPartitionUpdatePB.newBuilder()
                 .setPartitionId(1003L).setExpectedState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
-                .setExpectedOffsetTso(100L).setNextOffsetTso(nextOffset).build();
+                .setExpectedOffsetTso(100L).setNextOffsetTso(200L).build();
         TableStreamUpdateInfo update = new TableStreamUpdateInfo(db.getId(), stream.getId(),
                 new CloudOlapTableStreamUpdate(identity, Map.of(1003L, offset)));
         Table sink = db.getTableOrMetaException(CatalogTestUtil.testTableId1);
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        AtomicReference<Cloud.TableStreamPartitionUpdatePB> accepted = new AtomicReference<>();
         Mockito.when(proxy.commitTxn(Mockito.any())).thenAnswer(invocation -> {
-            Assertions.assertSame(previous, stream.getPartitionState(1003L),
-                    "sampling must not publish before the commit RPC succeeds");
             CommitTxnRequest request = invocation.getArgument(0);
-            Assertions.assertEquals(outcome.equals("late") ? 60L : 50L,
-                    request.getTableStreamUpdates(0).getPartitionUpdates(0).getBaseRowCount());
-            Assertions.assertEquals(outcome.equals("late") ? 110L : 100L,
-                    request.getTableStreamUpdates(0).getPartitionUpdates(0).getChangelogRowCount());
-            // A report arriving during the RPC must not replace the pre-RPC consumption sample.
-            base.setRowCount(70L);
-            changelog.setRowCount(130L);
-            if (outcome.equals("replace")) {
-                source.writeLock();
-                try {
-                    source.dropPartitionAndReserveTablet("p1");
-                    source.addPartition(new CloudPartition(1003L, "p1",
-                            new MaterializedIndex(1001L, MaterializedIndex.IndexState.NORMAL),
-                            new RandomDistributionInfo(1), db.getId(), source.getId()));
-                } finally {
-                    source.writeUnlock();
-                }
+            Cloud.TableStreamPartitionUpdatePB sample = request.getTableStreamUpdates(0).getPartitionUpdates(0);
+            Assertions.assertTrue(sample.hasSourceEpoch());
+            if (accepted.compareAndSet(null, sample)) {
+                Assertions.assertEquals(50L, sample.getBaseRowCount());
+                Assertions.assertEquals(100L, sample.getChangelogRowCount());
+                base.setRowCount(70L);
+                changelog.setRowCount(130L);
+                throw new RpcException("MS", "response lost after commit");
             }
+            Assertions.assertEquals(70L, sample.getBaseRowCount());
+            Assertions.assertEquals(130L, sample.getChangelogRowCount());
             return CommitTxnResponse.newBuilder()
-                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(outcome.equals("failure")
-                            ? MetaServiceCode.TXN_ALREADY_ABORTED : MetaServiceCode.OK))
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
                     .setTxnInfo(TxnInfoPB.newBuilder().setDbId(db.getId()).addTableIds(sink.getId())
                             .setTxnId(123533L).setListenerId(-1)).build();
         });
@@ -636,29 +613,21 @@ public class CloudGlobalTransactionMgrTest {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
             Executable commit = () -> masterTransMgr.commitAndPublishTransaction(db, List.of(sink), 123533L,
                     List.of(), 10_000L, null, List.of(update));
-            if (outcome.equals("failure")) {
-                Assertions.assertThrows(UserException.class, commit);
-            } else {
-                Assertions.assertDoesNotThrow(commit);
-            }
+            Assertions.assertThrows(UserException.class, commit);
+            Assertions.assertDoesNotThrow(commit);
         }
-        Mockito.verify(proxy).commitTxn(Mockito.any());
-        PartitionStreamState published = stream.getPartitionState(1003L);
-        if (outcome.equals("success") || outcome.equals("initial")) {
-            Assertions.assertNotNull(published);
-            Assertions.assertEquals(nextOffset, published.getOffset());
-            Assertions.assertNull(published.getHistoricalTso());
-            Assertions.assertEquals(50L, published.getBaseRowCount());
-            Assertions.assertEquals(100L, published.getChangelogRowCount());
-        } else if (outcome.equals("replace")) {
-            Assertions.assertNotNull(published);
-            Assertions.assertEquals(200L, published.getOffset());
-            Assertions.assertEquals(50L, published.getBaseRowCount());
-            Assertions.assertFalse(published.matches(source, 1003L, 200L));
-        } else {
-            Assertions.assertSame(previous, published,
-                    "failure and duplicate/late callbacks must not replace the committed tuple");
-        }
+        Mockito.verify(proxy, Mockito.times(2)).commitTxn(Mockito.any());
+        Assertions.assertNull(stream.getPartitionState(1003L));
+        Cloud.TableStreamPartitionUpdatePB first = accepted.get();
+        Cloud.TableStreamPartitionReadStatePB read = Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                .setPartitionId(1003L).setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                .setOffsetTso(200L).setEndTso(300L).setVisibleVersion(3L)
+                .setBaseRowCount(first.getBaseRowCount()).setChangelogRowCount(first.getChangelogRowCount())
+                .setSourceEpoch(first.getSourceEpoch()).build();
+        OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(stream, source, List.of());
+        wrapper.installCloudReadStates(Map.of(1003L, read));
+        Assertions.assertEquals(30L, wrapper.estimateChangelogRead(List.of(1003L),
+                Map.of(1003L, Pair.of(201L, 301L)), BaseTableStream.StreamScanType.APPEND_ONLY).get(1003L));
     }
 
     @Test

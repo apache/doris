@@ -76,6 +76,9 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     // this is for keeping tablet order
     private volatile List<Tablet> tablets;
 
+    @SerializedName("de")
+    private volatile long dataEpoch;
+
     // for push after rollup index finished
     @SerializedName(value = "rollupIndexId")
     private long rollupIndexId;
@@ -116,11 +119,10 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     /**
-     * Local data identity, replaced on every tablet-set mutation (including same-ID restore).
-     * Writes, compaction and TTL do not replace this immutable topology snapshot.
+     * Durable tablet-set generation. Writes, compaction and TTL leave the generation unchanged.
      */
-    public Object getDataEpoch() {
-        return tablets;
+    public long getDataEpoch() {
+        return dataEpoch;
     }
 
     public List<Tablet> getTablets() {
@@ -143,6 +145,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
     }
 
     public synchronized void clearTabletsForRestore() {
+        dataEpoch++;
         // Drop the list first so iteration stops seeing tablets before
         // lookup-by-id drops them. Maintains tablets ⊆ idToTablets.
         tablets = new ArrayList<>();
@@ -181,6 +184,7 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
             nextMap.put(tablet.getId(), tablet);
             nextList.add(tablet);
         }
+        dataEpoch++;
         // Publish the map first, then the list — so any id that appears in the
         // visible `tablets` snapshot is already present in `idToTablets`.
         idToTablets = nextMap;

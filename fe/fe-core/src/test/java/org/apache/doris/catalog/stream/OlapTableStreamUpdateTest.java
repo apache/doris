@@ -143,8 +143,10 @@ public class OlapTableStreamUpdateTest {
         try (CountsFixture fixture = new CountsFixture()) {
             fixture.base.setRowCount(5L);
             fixture.changelog.setRowCount(10L);
-            fixture.stream.unprotectedPublishPartitionState(10L,
-                    PartitionStreamState.restored(100L, 1L, null, -1L, -1L).withRowCounts(fixture.source, 10L));
+            PartitionStreamState initial = PartitionStreamState.initial().atOffset(100L)
+                    .withRowCounts(fixture.source, 10L);
+            fixture.stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(
+                    Map.of(10L, new PartitionUpdate(null, initial))), 1L);
             PartitionStreamState previous = fixture.stream.getPartitionState(10L);
             fixture.base.setRowCount(50L);
             fixture.changelog.setRowCount(100L);
@@ -174,7 +176,7 @@ public class OlapTableStreamUpdateTest {
     }
 
     @Test
-    public void testUpdateAndImagePersistTheSameTupleAndReplayClearsOnlyBinding() throws Exception {
+    public void testUpdateAndImagePersistTheSameTupleAndReplayPreservesBinding() throws Exception {
         try (CountsFixture fixture = new CountsFixture()) {
             fixture.base.setRowCount(50L);
             fixture.changelog.setRowCount(100L);
@@ -189,15 +191,16 @@ public class OlapTableStreamUpdateTest {
             Assertions.assertEquals(update.getPartitionUpdates(), restoredUpdate.getPartitionUpdates());
             fixture.base.setRowCount(70L);
             fixture.changelog.setRowCount(130L);
-            fixture.stream.unprotectedUpdateStreamUpdate(restoredUpdate, 2L, true);
+            fixture.stream.unprotectedUpdateStreamUpdate(restoredUpdate, 2L);
             PartitionStreamState replayed = fixture.stream.getPartitionState(10L);
             Assertions.assertEquals(200L, replayed.getOffset());
             Assertions.assertEquals(50L, replayed.getBaseRowCount());
             Assertions.assertEquals(100L, replayed.getChangelogRowCount());
-            Assertions.assertFalse(replayed.matches(fixture.source, 10L, 200L));
-            OlapTableStream image = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(fixture.stream), OlapTableStream.class);
+            Assertions.assertTrue(replayed.matches(fixture.source, 10L, 200L));
+            OlapTableStream image = GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(fixture.stream), OlapTableStream.class);
             Assertions.assertEquals(replayed, image.getPartitionState(10L));
-            Assertions.assertFalse(image.getPartitionState(10L).matches(fixture.source, 10L, 200L));
+            Assertions.assertTrue(image.getPartitionState(10L).matches(fixture.source, 10L, 200L));
         }
     }
 

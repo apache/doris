@@ -590,6 +590,15 @@ enum TableStreamOffsetStatePB {
     TABLE_STREAM_OFFSET_CONSUMED = 2;
 }
 
+// Catalog identity of the data from which a row-count baseline was sampled.
+message TableStreamSourceEpochPB {
+    optional int64 partition_epoch = 1;
+    optional int64 base_index_id = 2;
+    optional int64 base_index_epoch = 3;
+    optional int64 changelog_index_id = 4;
+    optional int64 changelog_index_epoch = 5;
+}
+
 message TableStreamOffsetPB {
     optional int64 partition_id = 1;
     optional TableStreamOffsetStatePB state = 2;
@@ -598,6 +607,7 @@ message TableStreamOffsetPB {
     // FE-sampled counts belonging to this consumption offset; -1 means unavailable.
     optional int64 base_row_count = 5;
     optional int64 changelog_row_count = 6;
+    optional TableStreamSourceEpochPB source_epoch = 7;
 }
 
 message TableStreamPartitionSetPB {
@@ -613,6 +623,7 @@ message TableStreamPartitionUpdatePB {
     // FE-sampled counts belonging to this consumption offset; -1 means unavailable.
     optional int64 base_row_count = 5;
     optional int64 changelog_row_count = 6;
+    optional TableStreamSourceEpochPB source_epoch = 7;
 }
 
 message TableStreamUpdatePB {
@@ -1586,6 +1597,7 @@ message TableStreamPartitionReadStatePB {
     // FE-sampled counts belonging to this consumption offset; -1 means unavailable.
     optional int64 base_row_count = 7;
     optional int64 changelog_row_count = 8;
+    optional TableStreamSourceEpochPB source_epoch = 9;
 }
 
 message TableStreamReadBindingResultPB {

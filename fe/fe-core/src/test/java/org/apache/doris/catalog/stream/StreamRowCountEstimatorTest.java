@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog.stream;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -27,14 +26,13 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 public class StreamRowCountEstimatorTest {
     private static final long UNKNOWN = StreamRowCountEstimator.UNKNOWN_ROW_COUNT;
 
     private long records(long c0, long b0, long c1, long b1, long fallback) {
-        return StreamRowCountEstimator.estimateChangeRecords(100L, 200L, c0, b0, c1, b1, fallback);
+        return StreamRowCountEstimator.estimateChangeRecords(100L, 200L, c0, b0, c1, b1, () -> fallback);
     }
 
     @Test
@@ -60,13 +58,13 @@ public class StreamRowCountEstimatorTest {
     @Test
     public void testOnlyResolvedOffsetsProveEmpty() {
         Assertions.assertEquals(0,
-                StreamRowCountEstimator.estimateChangeRecords(100L, 100L, 0, 0, 800, 800, 9999));
+                StreamRowCountEstimator.estimateChangeRecords(100L, 100L, 0, 0, 800, 800, () -> 9999));
         Assertions.assertEquals(0,
-                StreamRowCountEstimator.estimateChangeRecords(110L, 100L, 0, 0, 800, 800, 9999));
+                StreamRowCountEstimator.estimateChangeRecords(110L, 100L, 0, 0, 800, 800, () -> 9999));
         Assertions.assertEquals(800,
-                StreamRowCountEstimator.estimateChangeRecords(null, 200L, 100, 100, 800, 900, 9999));
+                StreamRowCountEstimator.estimateChangeRecords(null, 200L, 100, 100, 800, 900, () -> 9999));
         Assertions.assertEquals(800,
-                StreamRowCountEstimator.estimateChangeRecords(100L, null, 100, 100, 800, 900, 9999));
+                StreamRowCountEstimator.estimateChangeRecords(100L, null, 100, 100, 800, 900, () -> 9999));
     }
 
     @Test
@@ -82,16 +80,18 @@ public class StreamRowCountEstimatorTest {
 
     @Test
     public void testSnapshotPrefersConsumptionBaselineIncludingZero() {
-        Assertions.assertEquals(500, StreamRowCountEstimator.estimateSnapshotRead(true, 500, 700, 300, 9999));
-        Assertions.assertEquals(800, StreamRowCountEstimator.estimateSnapshotRead(false, 800, 700, 300, 9999));
-        Assertions.assertEquals(0, StreamRowCountEstimator.estimateSnapshotRead(true, 0, 700, 300, 9999));
-        Assertions.assertEquals(700, StreamRowCountEstimator.estimateSnapshotRead(true, UNKNOWN, 700, 300, 9999));
-        Assertions.assertEquals(1000, StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, 700, 300, 9999));
-        Assertions.assertEquals(700, StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, 700, UNKNOWN, 9999));
+        Assertions.assertEquals(500, StreamRowCountEstimator.estimateSnapshotRead(true, 500, 700, 300, () -> 9999));
+        Assertions.assertEquals(800, StreamRowCountEstimator.estimateSnapshotRead(false, 800, 700, 300, () -> 9999));
+        Assertions.assertEquals(0, StreamRowCountEstimator.estimateSnapshotRead(true, 0, 700, 300, () -> 9999));
+        Assertions.assertEquals(700, StreamRowCountEstimator.estimateSnapshotRead(true, UNKNOWN, 700, 300, () -> 9999));
+        Assertions.assertEquals(1000,
+                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, 700, 300, () -> 9999));
+        Assertions.assertEquals(700,
+                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, 700, UNKNOWN, () -> 9999));
         Assertions.assertEquals(9999,
-                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, 9999));
+                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, () -> 9999));
         Assertions.assertEquals(UNKNOWN,
-                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, UNKNOWN));
+                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, () -> UNKNOWN));
     }
 
     @Test
@@ -119,30 +119,22 @@ public class StreamRowCountEstimatorTest {
         Partition partition = new Partition(10L, "p", index, new RandomDistributionInfo(1));
         Mockito.when(table.getBaseIndexId()).thenReturn(1L);
         Mockito.when(table.getPartition(10L)).thenReturn(partition);
-        Env env = Mockito.mock(Env.class);
-        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
-            mocked.when(Env::getCurrentEnv).thenReturn(env);
-            Mockito.when(env.getEpoch()).thenReturn(1L);
-            PartitionStreamState state = PartitionStreamState.restored(
-                    100L, -1, null, -1L, -1L).withRowCounts(table, 10);
-            Assertions.assertEquals(50, state.getBaseRowCount());
-            Assertions.assertTrue(state.matches(table, 10, 100L));
-            Assertions.assertFalse(state.matches(table, 10, 200L));
-            // Reports and compaction do not change topology identity.
-            index.setRowCount(70);
-            Assertions.assertTrue(state.matches(table, 10, 100L));
-            index.clearTabletsForRestore();
-            Assertions.assertFalse(state.matches(table, 10, 100L));
-            state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
-            partition.updateVersionForRestore(3L);
-            Assertions.assertFalse(state.matches(table, 10, 100L));
-            state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
-            Mockito.when(env.getEpoch()).thenReturn(2L);
-            Assertions.assertFalse(state.matches(table, 10, 100L));
-            state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
-            Mockito.when(table.getPartition(10L)).thenReturn(Mockito.mock(Partition.class));
-            Assertions.assertFalse(state.matches(table, 10, 100L));
-        }
+        PartitionStreamState state = PartitionStreamState.restored(
+                100L, -1, null, -1L, -1L).withRowCounts(table, 10);
+        Assertions.assertEquals(50, state.getBaseRowCount());
+        Assertions.assertTrue(state.matches(table, 10, 100L));
+        Assertions.assertFalse(state.matches(table, 10, 200L));
+        // Reports and compaction do not change topology identity.
+        index.setRowCount(70);
+        Assertions.assertTrue(state.matches(table, 10, 100L));
+        index.clearTabletsForRestore();
+        Assertions.assertFalse(state.matches(table, 10, 100L));
+        state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
+        partition.updateVersionForRestore(3L);
+        Assertions.assertFalse(state.matches(table, 10, 100L));
+        state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
+        Mockito.when(table.getPartition(10L)).thenReturn(Mockito.mock(Partition.class));
+        Assertions.assertFalse(state.matches(table, 10, 100L));
     }
 
     @Test
@@ -153,19 +145,15 @@ public class StreamRowCountEstimatorTest {
         Partition partition = new CloudPartition(10L, "p", index, new RandomDistributionInfo(1), 2L, 3L);
         Mockito.when(table.getBaseIndexId()).thenReturn(1L);
         Mockito.when(table.getPartition(10L)).thenReturn(partition);
-        Env env = Mockito.mock(Env.class);
-        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
-            mocked.when(Env::getCurrentEnv).thenReturn(env);
-            PartitionStreamState state = PartitionStreamState.restored(
-                    100L, -1, null, -1L, -1L).withRowCounts(table, 10);
-            Assertions.assertTrue(state.matches(table, 10, 100L));
-            Object topology = index.getDataEpoch();
-            partition.updateVersionForRestore(3L);
-            Assertions.assertSame(topology, index.getDataEpoch());
-            Assertions.assertFalse(state.matches(table, 10, 100L));
-            Assertions.assertTrue(PartitionStreamState.restored(
-                    200L, -1, null, -1L, -1L).withRowCounts(table, 10).matches(table, 10, 200L));
-        }
+        PartitionStreamState state = PartitionStreamState.restored(
+                100L, -1, null, -1L, -1L).withRowCounts(table, 10);
+        Assertions.assertTrue(state.matches(table, 10, 100L));
+        long topology = index.getDataEpoch();
+        partition.updateVersionForRestore(3L);
+        Assertions.assertEquals(topology, index.getDataEpoch());
+        Assertions.assertFalse(state.matches(table, 10, 100L));
+        Assertions.assertTrue(PartitionStreamState.restored(
+                200L, -1, null, -1L, -1L).withRowCounts(table, 10).matches(table, 10, 200L));
     }
 
 }

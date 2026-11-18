@@ -19,6 +19,8 @@ package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.MaterializedIndex;
 
+import java.util.function.LongSupplier;
+
 /** Row-count formulas shared by consumption snapshots and stream reads. */
 public final class StreamRowCountEstimator {
     public static final long UNKNOWN_ROW_COUNT = -1L;
@@ -37,7 +39,7 @@ public final class StreamRowCountEstimator {
 
     /** Record scale before changelog scan-type expansion. Only offsets can prove an empty range. */
     public static long estimateChangeRecords(Long start, Long end, long storedChangelog, long storedBase,
-            long currentChangelog, long currentBase, long tableFallback) {
+            long currentChangelog, long currentBase, LongSupplier tableFallback) {
         if (start != null && end != null) {
             if (end <= start) {
                 return 0;
@@ -57,7 +59,8 @@ public final class StreamRowCountEstimator {
         if (currentBase > 0) {
             return currentBase;
         }
-        return tableFallback > 0 ? tableFallback : UNKNOWN_ROW_COUNT;
+        long fallback = tableFallback.getAsLong();
+        return fallback > 0 ? fallback : UNKNOWN_ROW_COUNT;
     }
 
     public static long outputRows(long records, boolean unique, BaseTableStream.StreamScanType type) {
@@ -69,13 +72,13 @@ public final class StreamRowCountEstimator {
 
     /** Complete snapshot scale; UNIQUE reconstruction instead estimates its branches separately. */
     public static long estimateSnapshotRead(boolean appendOnly, long storedBaseRowCount,
-            long currentBaseRowCount, long changeRecords, long tableRowCount) {
+            long currentBaseRowCount, long changeRecords, LongSupplier tableRowCount) {
         if (storedBaseRowCount >= 0) {
             return storedBaseRowCount;
         }
         if (currentBaseRowCount >= 0) {
             return !appendOnly && changeRecords >= 0 ? currentBaseRowCount + changeRecords : currentBaseRowCount;
         }
-        return tableRowCount;
+        return tableRowCount.getAsLong();
     }
 }

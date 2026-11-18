@@ -115,6 +115,9 @@ TableStreamReadResult fill_partition_read_state(const TableStreamIdentityPB& ide
     state->set_base_row_count(offset->has_base_row_count() ? offset->base_row_count() : -1);
     state->set_changelog_row_count(offset->has_changelog_row_count() ? offset->changelog_row_count()
                                                                      : -1);
+    if (offset->has_source_epoch()) {
+        state->mutable_source_epoch()->CopyFrom(offset->source_epoch());
+    }
     if (offset->has_last_consumption_time_ms()) {
         state->set_last_consumption_time_ms(offset->last_consumption_time_ms());
     }

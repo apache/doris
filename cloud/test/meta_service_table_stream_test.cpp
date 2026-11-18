@@ -1046,6 +1046,8 @@ TEST_F(MetaServiceTableStreamTest, CommitUpdatesLatestOffsetAndIsIdempotent) {
     auto* update = request.mutable_table_stream_updates(0)->mutable_partition_updates(0);
     update->set_base_row_count(50);
     update->set_changelog_row_count(100);
+    update->mutable_source_epoch()->set_partition_epoch(3);
+    update->mutable_source_epoch()->set_base_index_id(2000);
     CommitTxnResponse response = commit_transaction(request);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
     TableStreamOffsetPB offset = get_latest_offset(2001);
@@ -1054,24 +1056,31 @@ TEST_F(MetaServiceTableStreamTest, CommitUpdatesLatestOffsetAndIsIdempotent) {
     EXPECT_GT(offset.last_consumption_time_ms(), 0);
     EXPECT_EQ(offset.base_row_count(), 50);
     EXPECT_EQ(offset.changelog_row_count(), 100);
+    EXPECT_EQ(offset.source_epoch().SerializeAsString(),
+              update->source_epoch().SerializeAsString());
     auto read = get_read_state({2001});
     ASSERT_EQ(read.status().code(), MetaServiceCode::OK);
     EXPECT_EQ(read.bindings(0).partition_states(0).base_row_count(), 50);
     EXPECT_EQ(read.bindings(0).partition_states(0).changelog_row_count(), 100);
+    EXPECT_EQ(read.bindings(0).partition_states(0).source_epoch().SerializeAsString(),
+              offset.source_epoch().SerializeAsString());
 
     update->set_base_row_count(999);
     update->set_changelog_row_count(999);
+    update->mutable_source_epoch()->set_partition_epoch(4);
     response = commit_transaction(request);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
     EXPECT_EQ(get_latest_offset(2001).offset_tso(), 120);
     EXPECT_EQ(get_latest_offset(2001).base_row_count(), 50);
     EXPECT_EQ(get_latest_offset(2001).changelog_row_count(), 100);
+    EXPECT_EQ(get_latest_offset(2001).source_epoch().partition_epoch(), 3);
     request = make_consume_request(begin_target_transaction("consume-unchanged-offset"), 2001,
                                    TABLE_STREAM_OFFSET_CONSUMED, 120, 120);
     request.mutable_table_stream_updates(0)->mutable_partition_updates(0)->set_base_row_count(999);
     ASSERT_EQ(commit_transaction(request).status().code(), MetaServiceCode::OK);
     EXPECT_EQ(get_latest_offset(2001).base_row_count(), 50);
     EXPECT_EQ(get_latest_offset(2001).changelog_row_count(), 100);
+    EXPECT_EQ(get_latest_offset(2001).source_epoch().partition_epoch(), 3);
 
     txn_id = begin_target_transaction("consume-unknown-offset");
     response = consume_partition(txn_id, 2002, TABLE_STREAM_OFFSET_UNKNOWN, 0, 140);

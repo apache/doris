@@ -169,6 +169,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.DoubleSupplier;
 import java.util.stream.Collectors;
 
 /**
@@ -410,7 +411,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
     }
 
-    private double getSelectedPartitionRowCount(OlapScan olapScan, double tableRowCount) {
+    private double getSelectedPartitionRowCount(OlapScan olapScan, DoubleSupplier tableFallback) {
         // the number of partitions whose row count is not available
         double unknownPartitionCount = 0;
         double partRowCountSum = 0;
@@ -423,13 +424,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 partRowCountSum += partRowCount;
             }
         }
-        // Preserve unknown when neither any selected partition nor the ordinary table can size this scan.
-        if (hasScanRowCountEstimates(olapScan) && tableRowCount < 0
-                && unknownPartitionCount == olapScan.getSelectedPartitionIds().size()) {
-            return -1;
-        }
         // estimate row count for unknownPartitionCount
         if (unknownPartitionCount > 0) {
+            double tableRowCount = tableFallback.getAsDouble();
+            // Preserve unknown when neither any selected partition nor the ordinary table can size this scan.
+            if (hasScanRowCountEstimates(olapScan) && tableRowCount < 0
+                    && unknownPartitionCount == olapScan.getSelectedPartitionIds().size()) {
+                return -1;
+            }
             // each selected partition has at least one row
             partRowCountSum += Math.max(unknownPartitionCount,
                     tableRowCount * unknownPartitionCount / olapScan.getTable().getPartitionNum());
@@ -480,6 +482,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * if the table is not analyzed and BE does not report row count, return -1
      */
     private double getOlapTableRowCount(OlapScan olapScan) {
+        // Explicit estimates are scoped to the selected partitions; only unknown partitions need a table-wide count.
+        return hasScanRowCountEstimates(olapScan)
+                ? getSelectedPartitionRowCount(olapScan, () -> getOrdinaryOlapTableRowCount(olapScan))
+                : getOrdinaryOlapTableRowCount(olapScan);
+    }
+
+    private double getOrdinaryOlapTableRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         OlapTable statisticsTable = olapTable instanceof OlapTableWrapper
                 ? ((OlapTableWrapper) olapTable).getOriginTable() : olapTable;
@@ -498,9 +507,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
             }
         }
-        // Explicit range estimates take precedence over injected base statistics, and are already
-        // scoped to the selected partitions. Keep known partitions when others need ordinary fallback.
-        return hasScanRowCountEstimates(olapScan) ? getSelectedPartitionRowCount(olapScan, rowCount) : rowCount;
+        return rowCount;
     }
 
     // check validation of ndv.
@@ -525,8 +532,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     public Statistics computeOlapScan(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
-        double tableRowCount = getOlapTableRowCount(olapScan);
-        tableRowCount = Math.max(1, tableRowCount);
+        double tableRowCount = Math.max(1, getOlapTableRowCount(olapScan));
 
         OlapTableStatistics olapTableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(olapScan);
 
@@ -539,7 +545,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}, table name is {}",
                     optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
             if (optStats.isPresent()) {
-                double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
+                double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, () -> tableRowCount);
                 if (isRegisteredRowCount(olapScan)) {
                     // If a row count is injected for the materialized view, use it to fix the issue where
                     // the materialized view cannot be selected by cbo stable due to selectedPartitionsRowCount being 0,
@@ -607,7 +613,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = hasScanRowCountEstimates(olapScan)
-                        ? tableRowCount : getSelectedPartitionRowCount(olapScan, tableRowCount);
+                        ? tableRowCount : getSelectedPartitionRowCount(olapScan, () -> tableRowCount);
             List<String> selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
             olapScan.getSelectedPartitionIds().forEach(id -> {
                 selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());

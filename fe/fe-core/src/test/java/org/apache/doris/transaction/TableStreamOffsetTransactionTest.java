@@ -126,7 +126,7 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         Deencapsulation.invoke(dbTxnMgr, "checkStreamOffset", transactionState);
 
         long commitTime = System.currentTimeMillis();
-        Deencapsulation.invoke(dbTxnMgr, "updateStreamOffset", transactionState, commitTime, false);
+        Deencapsulation.invoke(dbTxnMgr, "updateStreamOffset", transactionState, commitTime);
 
         for (Long pid : partitionIds) {
             PartitionStreamState state = partitionStates.get(pid);
@@ -182,8 +182,9 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         db.registerTable(stream);
         source.getPartition(pid).getBaseIndex().setRowCount(5L);
         source.getPartition(pid).getIndex(source.getChangelogIndexMeta().getIndexId()).setRowCount(10L);
-        stream.unprotectedPublishPartitionState(pid,
-                PartitionStreamState.restored(100L, 1L, null, -1L, -1L).withRowCounts(source, pid));
+        stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(Map.of(
+                pid, new PartitionUpdate(null,
+                        PartitionStreamState.restored(100L, 1L, null, -1L, -1L).withRowCounts(source, pid)))), 1L);
         PartitionStreamState previous = stream.getPartitionState(pid);
         GlobalTransactionMgr mgr = (GlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr();
         long id = mgr.beginTransaction(db.getId(), List.of(target.getId()), "counts_log_transaction",
@@ -212,12 +213,12 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
             Assertions.assertEquals(100L, pending.getChangelogRowCount());
             source.getPartition(pid).getBaseIndex().setRowCount(70L);
             source.getPartition(pid).getIndex(source.getChangelogIndexMeta().getIndexId()).setRowCount(130L);
-            Deencapsulation.invoke(dbTxnMgr, "updateStreamOffset", journaled, 2L, true);
+            Deencapsulation.invoke(dbTxnMgr, "updateStreamOffset", journaled, 2L);
             PartitionStreamState recovered = stream.getPartitionState(pid);
             Assertions.assertEquals(200L, recovered.getOffset());
             Assertions.assertEquals(50L, recovered.getBaseRowCount());
             Assertions.assertEquals(100L, recovered.getChangelogRowCount());
-            Assertions.assertFalse(recovered.matches(source, pid, 200L));
+            Assertions.assertTrue(recovered.matches(source, pid, 200L));
         } finally {
             stream.writeUnlock();
         }
@@ -231,8 +232,9 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         long pid = source.getPartitionIds().get(0);
         OlapTableStream stream = new OlapTableStream(Env.getCurrentEnv().getNextId(), "counts_abort_stream", source);
         db.registerTable(stream);
-        stream.unprotectedPublishPartitionState(pid,
-                PartitionStreamState.restored(100L, 1L, null, -1L, -1L).withRowCounts(source, pid));
+        stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(Map.of(
+                pid, new PartitionUpdate(null,
+                        PartitionStreamState.restored(100L, 1L, null, -1L, -1L).withRowCounts(source, pid)))), 1L);
         PartitionStreamState previous = stream.getPartitionState(pid);
         GlobalTransactionMgr mgr = (GlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr();
         long id = mgr.beginTransaction(db.getId(), List.of(target.getId()), "counts_abort_transaction",

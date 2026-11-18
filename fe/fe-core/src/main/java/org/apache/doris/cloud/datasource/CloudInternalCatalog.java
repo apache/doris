@@ -143,9 +143,13 @@ public class CloudInternalCatalog extends InternalCatalog {
                 olapStream, olapBaseTable, basePartitionIds);
         initialOffsets = initialOffsets.stream().map(offset -> {
             PartitionStreamState sample = initialRowCounts.get(offset.getPartitionId());
+            if (sample == null) {
+                return offset;
+            }
             return offset.toBuilder()
-                    .setBaseRowCount(sample == null ? -1 : sample.getBaseRowCount())
-                    .setChangelogRowCount(sample == null ? -1 : sample.getChangelogRowCount()).build();
+                    .setBaseRowCount(sample.getBaseRowCount())
+                    .setChangelogRowCount(sample.getChangelogRowCount())
+                    .setSourceEpoch(sample.cloudSourceEpoch()).build();
         }).collect(Collectors.toList());
         Set<Long> basePartitionIdSet = new HashSet<>(basePartitionIds);
         Set<Long> offsetPartitionIds = initialOffsets.stream()
@@ -166,20 +170,6 @@ public class CloudInternalCatalog extends InternalCatalog {
             int end = Math.min(start + batchSize, initialOffsets.size());
             commitTableStreamPartitions(baseDbId, olapBaseTable.getId(), streamDb.getId(),
                     olapStream.getId(), initialOffsets.subList(start, end));
-        }
-        olapBaseTable.readLock();
-        try {
-            for (Cloud.TableStreamOffsetPB offset : initialOffsets) {
-                PartitionStreamState sample = initialRowCounts.get(offset.getPartitionId());
-                if (sample != null) {
-                    PartitionStreamState state = offset.getState()
-                            == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING
-                            ? sample.atHistoricalTso(offset.getOffsetTso()) : sample.atOffset(offset.getOffsetTso());
-                    olapStream.unprotectedPublishPartitionState(offset.getPartitionId(), state);
-                }
-            }
-        } finally {
-            olapBaseTable.readUnlock();
         }
     }
 

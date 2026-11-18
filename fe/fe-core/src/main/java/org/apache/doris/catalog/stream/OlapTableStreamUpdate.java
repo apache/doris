@@ -103,13 +103,6 @@ public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
                 && Objects.equals(current.getOffset(), nextState.getOffset());
     }
 
-    public OlapTableStreamUpdate committedAt(long timestamp) {
-        OlapTableStreamUpdate committed = new OlapTableStreamUpdate(partitionUpdates.size());
-        partitionUpdates.forEach((id, update) -> committed.partitionUpdates.put(id,
-                update.withNextState(update.nextState.committedAt(timestamp, false))));
-        return committed;
-    }
-
     @Override
     public void merge(AbstractTableStreamUpdate other) {
         Preconditions.checkArgument(other instanceof OlapTableStreamUpdate);

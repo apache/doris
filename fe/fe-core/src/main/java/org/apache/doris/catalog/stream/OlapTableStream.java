@@ -18,12 +18,12 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -39,7 +39,6 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -68,8 +67,8 @@ public class OlapTableStream extends BaseTableStream {
         @SerializedName("crc")
         private final long changelogRowCount;
 
-        // Persisted numbers survive recovery, but their source binding is FE-instance local.
-        private final transient SourceEpoch sourceEpoch;
+        @SerializedName("se")
+        private final SourceEpoch sourceEpoch;
 
         private static final PartitionStreamState INITIAL_STATE = new PartitionStreamState(
                 null, -1, null, StreamRowCountEstimator.UNKNOWN_ROW_COUNT,
@@ -79,7 +78,7 @@ public class OlapTableStream extends BaseTableStream {
             return INITIAL_STATE;
         }
 
-        /** Restore persisted fields without re-establishing an FE-local source binding. */
+        /** Build a state whose row counts have no source generation. */
         public static PartitionStreamState restored(Long offset, long consumptionTime, Long historicalTso,
                 long baseRowCount, long changelogRowCount) {
             return new PartitionStreamState(offset, consumptionTime, historicalTso,
@@ -120,6 +119,22 @@ public class OlapTableStream extends BaseTableStream {
             return changelogRowCount;
         }
 
+        static PartitionStreamState fromCloudReadState(Cloud.TableStreamPartitionReadStatePB state) {
+            boolean history = state.getOffsetState()
+                    == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING;
+            return new PartitionStreamState(history ? null : state.getOffsetTso(),
+                    state.hasLastConsumptionTimeMs() ? state.getLastConsumptionTimeMs() : -1,
+                    history ? state.getOffsetTso() : null,
+                    state.hasBaseRowCount() ? state.getBaseRowCount() : StreamRowCountEstimator.UNKNOWN_ROW_COUNT,
+                    state.hasChangelogRowCount() ? state.getChangelogRowCount()
+                            : StreamRowCountEstimator.UNKNOWN_ROW_COUNT,
+                    state.hasSourceEpoch() ? SourceEpoch.fromProto(state.getSourceEpoch()) : null);
+        }
+
+        public Cloud.TableStreamSourceEpochPB cloudSourceEpoch() {
+            return sourceEpoch == null ? null : sourceEpoch.toProto();
+        }
+
         /** Sample while holding the source read lock, before journaling the pending update. */
         public PartitionStreamState withRowCounts(OlapTable table, long partitionId) {
             Partition partition = table.getPartition(partitionId);
@@ -141,9 +156,9 @@ public class OlapTableStream extends BaseTableStream {
                     baseRowCount, changelogRowCount, sourceEpoch);
         }
 
-        public PartitionStreamState committedAt(long timestamp, boolean isReplay) {
+        public PartitionStreamState committedAt(long timestamp) {
             return new PartitionStreamState(offset, timestamp, historicalTso,
-                    baseRowCount, changelogRowCount, isReplay ? null : sourceEpoch);
+                    baseRowCount, changelogRowCount, sourceEpoch);
         }
 
         public boolean matches(OlapTable table, long partitionId, Long expectedOffset) {
@@ -159,41 +174,86 @@ public class OlapTableStream extends BaseTableStream {
             PartitionStreamState state = (PartitionStreamState) other;
             return Objects.equals(offset, state.offset) && consumptionTime == state.consumptionTime
                     && Objects.equals(historicalTso, state.historicalTso)
-                    && baseRowCount == state.baseRowCount && changelogRowCount == state.changelogRowCount;
+                    && baseRowCount == state.baseRowCount && changelogRowCount == state.changelogRowCount
+                    && Objects.equals(sourceEpoch, state.sourceEpoch);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(offset, consumptionTime, historicalTso, baseRowCount, changelogRowCount);
+            return Objects.hash(offset, consumptionTime, historicalTso, baseRowCount, changelogRowCount, sourceEpoch);
         }
     }
 
-    private static class SourceEpoch {
-        private final WeakReference<Partition> partition;
-        private final WeakReference<Object> baseEpoch;
-        private final WeakReference<Object> changelogEpoch;
-        private final long feEpoch;
+    private static final class SourceEpoch {
+        @SerializedName("p")
         private final long partitionEpoch;
+        @SerializedName("bi")
+        private final long baseIndexId;
+        @SerializedName("be")
+        private final long baseIndexEpoch;
+        @SerializedName("ci")
+        private final long changelogIndexId;
+        @SerializedName("ce")
+        private final long changelogIndexEpoch;
 
         private SourceEpoch(Partition partition, MaterializedIndex base, MaterializedIndex changelog) {
-            this.partition = new WeakReference<>(partition);
-            this.baseEpoch = new WeakReference<>(dataEpoch(base));
-            this.changelogEpoch = new WeakReference<>(dataEpoch(changelog));
-            this.feEpoch = Env.getCurrentEnv().getEpoch();
-            this.partitionEpoch = partition.getDataEpoch();
+            this(partition.getDataEpoch(), indexId(base), dataEpoch(base), indexId(changelog), dataEpoch(changelog));
+        }
+
+        private SourceEpoch(long partitionEpoch, long baseIndexId, long baseIndexEpoch,
+                long changelogIndexId, long changelogIndexEpoch) {
+            this.partitionEpoch = partitionEpoch;
+            this.baseIndexId = baseIndexId;
+            this.baseIndexEpoch = baseIndexEpoch;
+            this.changelogIndexId = changelogIndexId;
+            this.changelogIndexEpoch = changelogIndexEpoch;
         }
 
         private boolean matches(OlapTable table, long partitionId) {
             Partition current = table.getPartition(partitionId);
-            return current != null && current == partition.get()
-                    && feEpoch == Env.getCurrentEnv().getEpoch() && partitionEpoch == current.getDataEpoch()
-                    && baseEpoch.get() == dataEpoch(current.getIndex(table.getBaseIndexId()))
-                    && changelogEpoch.get() == dataEpoch(table.hasChangelog()
-                            ? current.getIndex(table.getChangelogIndexMeta().getIndexId()) : null);
+            if (current == null || partitionEpoch != current.getDataEpoch()) {
+                return false;
+            }
+            MaterializedIndex base = current.getIndex(table.getBaseIndexId());
+            MaterializedIndex changelog = table.hasChangelog()
+                    ? current.getIndex(table.getChangelogIndexMeta().getIndexId()) : null;
+            return baseIndexId == indexId(base) && baseIndexEpoch == dataEpoch(base)
+                    && changelogIndexId == indexId(changelog) && changelogIndexEpoch == dataEpoch(changelog);
         }
 
-        private static Object dataEpoch(MaterializedIndex index) {
-            return index == null ? null : index.getDataEpoch();
+        private static long indexId(MaterializedIndex index) {
+            return index == null ? -1 : index.getId();
+        }
+
+        private static long dataEpoch(MaterializedIndex index) {
+            return index == null ? -1 : index.getDataEpoch();
+        }
+
+        private Cloud.TableStreamSourceEpochPB toProto() {
+            return Cloud.TableStreamSourceEpochPB.newBuilder().setPartitionEpoch(partitionEpoch)
+                    .setBaseIndexId(baseIndexId).setBaseIndexEpoch(baseIndexEpoch)
+                    .setChangelogIndexId(changelogIndexId).setChangelogIndexEpoch(changelogIndexEpoch).build();
+        }
+
+        private static SourceEpoch fromProto(Cloud.TableStreamSourceEpochPB epoch) {
+            return new SourceEpoch(epoch.getPartitionEpoch(), epoch.getBaseIndexId(), epoch.getBaseIndexEpoch(),
+                    epoch.getChangelogIndexId(), epoch.getChangelogIndexEpoch());
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof SourceEpoch)) {
+                return false;
+            }
+            SourceEpoch epoch = (SourceEpoch) other;
+            return partitionEpoch == epoch.partitionEpoch && baseIndexId == epoch.baseIndexId
+                    && baseIndexEpoch == epoch.baseIndexEpoch && changelogIndexId == epoch.changelogIndexId
+                    && changelogIndexEpoch == epoch.changelogIndexEpoch;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(partitionEpoch, baseIndexId, baseIndexEpoch, changelogIndexId, changelogIndexEpoch);
         }
     }
 
@@ -224,20 +284,6 @@ public class OlapTableStream extends BaseTableStream {
         } finally {
             readUnlock();
         }
-    }
-
-    /** Only used for a new Cloud stream or a successful, journaled Cloud consumption. */
-    public boolean unprotectedPublishPartitionState(long partitionId, PartitionStreamState state) {
-        PartitionStreamState previous = partitionStates.get(partitionId);
-        if (previous != null && previous.getBaselineOffset() != null) {
-            long previousOffset = previous.getBaselineOffset();
-            long nextOffset = state.getBaselineOffset();
-            if (previousOffset > nextOffset || (previousOffset == nextOffset && previous.getOffset() != null)) {
-                return false;
-            }
-        }
-        partitionStates.put(partitionId, state);
-        return true;
     }
 
     // for persist
@@ -480,12 +526,8 @@ public class OlapTableStream extends BaseTableStream {
 
     @Override
     public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts) {
-        unprotectedUpdateStreamUpdate(update, ts, false);
-    }
-
-    public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts, boolean isReplay) {
         ((OlapTableStreamUpdate) update).getPartitionUpdates().forEach((id, state) ->
-                partitionStates.put(id, state.getNextState().committedAt(ts, isReplay)));
+                partitionStates.put(id, state.getNextState().committedAt(ts)));
     }
 
     Set<Long> unprotectedCollectStalePartitionOffsetIds(Set<Long> validPartitionIds) {

@@ -332,11 +332,17 @@ private:
                     previous->has_base_row_count() ? previous->base_row_count() : -1);
             next_offset.set_changelog_row_count(
                     previous->has_changelog_row_count() ? previous->changelog_row_count() : -1);
+            if (previous->has_source_epoch()) {
+                next_offset.mutable_source_epoch()->CopyFrom(previous->source_epoch());
+            }
         } else {
             next_offset.set_base_row_count(update.has_base_row_count() ? update.base_row_count()
                                                                        : -1);
             next_offset.set_changelog_row_count(
                     update.has_changelog_row_count() ? update.changelog_row_count() : -1);
+            if (update.has_source_epoch()) {
+                next_offset.mutable_source_epoch()->CopyFrom(update.source_epoch());
+            }
         }
         std::string value;
         if (!next_offset.SerializeToString(&value)) {

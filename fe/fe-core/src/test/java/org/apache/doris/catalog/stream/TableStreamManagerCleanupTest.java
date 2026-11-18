@@ -424,31 +424,6 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         Assertions.assertNull(context.baseTable.getPartition(partitionId));
     }
 
-    @Test
-    public void testCloudPublicationDoesNotAcquireSourceMetadataLocks() throws Exception {
-        StreamContext context = createStreamContext("baseline_cloud_locks");
-        long id = context.baseTable.getPartition("p1").getId();
-        long dbId = context.stream.getDatabase().getId();
-        TableStreamManager manager = Env.getCurrentEnv().getTableStreamManager();
-        TableStreamUpdateInfo info = new TableStreamUpdateInfo(dbId, context.stream.getId(),
-                manager.prepareStreamUpdate(dbId, context.stream.getId(), Map.of(id, 100L)));
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        context.baseTable.writeLock();
-        context.stream.readLock();
-        try {
-            // A source writer and stream reader cannot make the post-commit callback wait.
-            executor.submit(() -> manager.recordCommittedStreamUpdate(info, 10L)).get(2, TimeUnit.SECONDS);
-            Assertions.assertNull(context.stream.getPartitionState(id));
-        } finally {
-            context.stream.readUnlock();
-            context.baseTable.writeUnlock();
-            executor.shutdown();
-            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
-        }
-        manager.recordCommittedStreamUpdate(info, 10L);
-        Assertions.assertEquals(100L, context.stream.getPartitionState(id).getOffset());
-    }
-
     private StreamContext createStreamContext(String suffix) throws Exception {
         String tableName = "tbl_" + suffix;
         String streamName = "s_" + suffix;
