@@ -87,10 +87,6 @@ private:
      * Unzip the python udf user file.
      */
     Status _unzip_lib(const std::string& file);
-    /**
-     * Check if the cache file is python udf.
-     */
-    Status _check_cache_is_python_udf(const std::string& dir, const std::string& file);
     Status _load_cache_entry_internal(std::shared_ptr<UserFunctionCacheEntry> entry);
 
     std::string _make_lib_file(int64_t function_id, const std::string& checksum, LibType type,

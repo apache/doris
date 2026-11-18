@@ -409,61 +409,6 @@ TEST_F(UserFunctionCacheTest, UnzipLibMultipleFilesInSameDirectory) {
     }
 }
 
-// _check_cache_is_python_udf
-TEST_F(UserFunctionCacheTest, CheckCacheIsPythonUdfSuccess) {
-    // Create a zip file with Python files
-    std::string zip_name = "python_udf.zip";
-    std::string zip_path = test_dir_ + "/" + zip_name;
-    std::vector<std::pair<std::string, std::string>> files = {{"main.py", "def udf(): pass"},
-                                                              {"helper.py", "def helper(): pass"}};
-
-    ASSERT_TRUE(create_zip_file(zip_path, files));
-
-    Status status = ufc._check_cache_is_python_udf(test_dir_, zip_name);
-    EXPECT_TRUE(status.ok()) << status.to_string();
-}
-
-TEST_F(UserFunctionCacheTest, CheckCacheIsPythonUdfFailsNoPythonFile) {
-    // Create a zip file without Python files
-    std::string zip_name = "no_python.zip";
-    std::string zip_path = test_dir_ + "/" + zip_name;
-    std::vector<std::pair<std::string, std::string>> files = {
-            {"config.txt", "config=value"}, {"data.json", "{\"key\": \"value\"}"}};
-
-    ASSERT_TRUE(create_zip_file(zip_path, files));
-
-    Status status = ufc._check_cache_is_python_udf(test_dir_, zip_name);
-    EXPECT_FALSE(status.ok());
-    EXPECT_TRUE(status.to_string().find("No Python file found") != std::string::npos);
-}
-
-TEST_F(UserFunctionCacheTest, CheckCacheIsPythonUdfWithNestedPythonFile) {
-    // Create a zip file with Python file in nested directory
-    std::string zip_name = "nested_py.zip";
-    std::string zip_path = test_dir_ + "/" + zip_name;
-    std::vector<std::pair<std::string, std::string>> files = {
-            {"subdir/", ""}, {"subdir/module.py", "x = 1"}, {"readme.txt", "readme"}};
-
-    ASSERT_TRUE(create_zip_file(zip_path, files));
-
-    // Note: The current implementation only checks top-level directory
-    // This test documents the current behavior
-    Status status = ufc._check_cache_is_python_udf(test_dir_, zip_name);
-    EXPECT_FALSE(status.ok());
-    EXPECT_EQ(status.to_string(),
-              "[INTERNAL_ERROR]No Python file found in the unzipped directory.");
-}
-
-TEST_F(UserFunctionCacheTest, CheckCacheIsPythonUdfInvalidZip) {
-    // Create an invalid zip file
-    std::string zip_name = "invalid_py.zip";
-    std::string zip_path = test_dir_ + "/" + zip_name;
-    create_text_file(zip_path, "not a zip file");
-
-    Status status = ufc._check_cache_is_python_udf(test_dir_, zip_name);
-    EXPECT_FALSE(status.ok());
-}
-
 // _make_lib_file
 TEST_F(UserFunctionCacheTest, MakeLibFilePyZip) {
     // Initialize the cache with a lib dir
@@ -524,7 +469,7 @@ TEST_F(UserFunctionCacheTest, LoadEntryFromLibPyZip) {
 }
 
 TEST_F(UserFunctionCacheTest, LoadEntryFromLibZipWithoutPython) {
-    // Create a zip file without Python files - should fail
+    // Startup registration only needs the cache file name.
     std::string sub_dir = test_dir_ + "/1";
     std::filesystem::create_directories(sub_dir);
 
@@ -535,8 +480,57 @@ TEST_F(UserFunctionCacheTest, LoadEntryFromLibZipWithoutPython) {
     ASSERT_TRUE(create_zip_file(zip_path, files));
 
     Status status = ufc._load_entry_from_lib(sub_dir, zip_name);
-    // Should fail because no Python file found
-    EXPECT_FALSE(status.ok());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(ufc.collect_pyudf_ids(), std::set<int64_t>({67890}));
+    EXPECT_FALSE(std::filesystem::exists(zip_path.substr(0, zip_path.size() - 4)));
+}
+
+TEST_F(UserFunctionCacheTest, RestorePythonPackageAndDropWithoutLoading) {
+    const std::string source_zip = test_dir_ + "/package.zip";
+    ASSERT_TRUE(create_zip_file(source_zip, {{"mypkg/", ""}, {"mypkg/mod.py", "value = 7"}}));
+    const auto checksum = file_md5(source_zip);
+    const auto cache_dir = test_dir_ + "/cache";
+    std::string local_path;
+    {
+        UserFunctionCache cache;
+        ASSERT_TRUE(cache.init(cache_dir).ok());
+        ASSERT_TRUE(cache.get_pypath(2005, "file://" + source_zip, checksum, &local_path).ok());
+    }
+
+    ASSERT_TRUE(ufc.init(cache_dir).ok());
+    EXPECT_EQ(ufc.collect_pyudf_ids(), std::set<int64_t>({2005}));
+    EXPECT_TRUE(std::filesystem::exists(local_path + "/mypkg/mod.py"));
+    ufc.drop_function_cache(2005);
+    EXPECT_TRUE(ufc.collect_pyudf_ids().empty());
+    EXPECT_FALSE(std::filesystem::exists(local_path));
+    EXPECT_FALSE(std::filesystem::exists(local_path + ".zip"));
+}
+
+TEST_F(UserFunctionCacheTest, RestorePythonZipAndExtractOnFirstUse) {
+    const std::string source_zip = test_dir_ + "/package.zip";
+    ASSERT_TRUE(create_zip_file(source_zip, {{"mypkg/", ""}, {"mypkg/mod.py", "value = 7"}}));
+    const auto checksum = file_md5(source_zip);
+    const auto cache_dir = test_dir_ + "/cache";
+    std::string local_path;
+    {
+        UserFunctionCache cache;
+        ASSERT_TRUE(cache.init(cache_dir).ok());
+        ASSERT_TRUE(cache.get_pypath(2006, "file://" + source_zip, checksum, &local_path).ok());
+    }
+    std::filesystem::remove_all(local_path);
+
+    ASSERT_TRUE(ufc.init(cache_dir).ok());
+    EXPECT_EQ(ufc.collect_pyudf_ids(), std::set<int64_t>({2006}));
+    EXPECT_FALSE(std::filesystem::exists(local_path));
+    std::string restored_path;
+    ASSERT_TRUE(ufc.get_pypath(2006, "file://" + source_zip, checksum, &restored_path).ok());
+    EXPECT_EQ(restored_path, local_path);
+    std::ifstream module(restored_path + "/mypkg/mod.py");
+    std::string content((std::istreambuf_iterator<char>(module)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content, "value = 7");
+    ufc.drop_function_cache(2006);
+    EXPECT_FALSE(std::filesystem::exists(local_path));
+    EXPECT_FALSE(std::filesystem::exists(local_path + ".zip"));
 }
 
 TEST_F(UserFunctionCacheTest, LoadEntryFromLibInvalidFileName) {

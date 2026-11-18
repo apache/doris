@@ -121,12 +121,16 @@ UserFunctionCacheEntry::~UserFunctionCacheEntry() {
     }
 
     if (should_delete_library.load()) {
-        WARN_IF_ERROR(
-                io::global_local_filesystem()->delete_directory_or_file(lib_file),
-                "failed to delete unzipped directory of python udf library, lib_file=" + lib_file);
+        // Restored ZIP entries keep the archive path until their first use.
+        const auto cache_path = type == LibType::PY_ZIP && !is_unziped
+                                        ? lib_file.substr(0, lib_file.size() - 4)
+                                        : lib_file;
+        WARN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(cache_path),
+                      "failed to delete unzipped directory of python udf library, lib_file=" +
+                              cache_path);
 
         if (type == LibType::PY_ZIP) {
-            std::string zip_file = lib_file + ".zip";
+            std::string zip_file = cache_path + ".zip";
             WARN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(zip_file),
                           "failed to delete zip file of python udf library, lib_file=" + zip_file);
             std::scoped_lock lock(tombstones->mutex);
@@ -173,7 +177,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
         lib_type = LibType::SO;
     } else if (ends_with(file, ".jar")) {
         lib_type = LibType::JAR;
-    } else if (ends_with(file, ".zip") && _check_cache_is_python_udf(dir, file)) {
+    } else if (ends_with(file, ".zip")) {
         lib_type = LibType::PY_ZIP;
     } else {
         return Status::InternalError(
@@ -204,13 +208,6 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
     std::shared_ptr<UserFunctionCacheEntry> entry = UserFunctionCacheEntry::create_shared(
             function_id, checksum, full_path, lib_type, _tombstones);
     entry->is_downloaded = true;
-
-    // For Python UDF, _check_cache_is_python_udf has already unzipped the file.
-    // Set lib_file to the unzipped directory.
-    if (lib_type == LibType::PY_ZIP) {
-        entry->lib_file = full_path.substr(0, full_path.size() - 4);
-        entry->is_unziped = true;
-    }
 
     _entry_map[function_id] = entry;
 
@@ -312,28 +309,6 @@ Status UserFunctionCache::_load_cache_entry(const std::string& url,
         return Status::InvalidArgument(
                 "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar' and "
                 "python 'zip'!");
-    }
-    return Status::OK();
-}
-
-Status UserFunctionCache::_check_cache_is_python_udf(const std::string& dir,
-                                                     const std::string& file) {
-    const std::string& full_path = dir + "/" + file;
-    RETURN_IF_ERROR(_unzip_lib(full_path));
-    std::string unzip_dir = full_path.substr(0, full_path.size() - 4);
-
-    bool has_python_file = false;
-
-    auto scan_cb = [&has_python_file](const io::FileInfo& file) {
-        if (file.is_file && ends_with(file.file_name, ".py")) {
-            has_python_file = true;
-            return false; // Stop iteration once we find a Python file
-        }
-        return true;
-    };
-    RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(unzip_dir, scan_cb));
-    if (!has_python_file) {
-        return Status::InternalError("No Python file found in the unzipped directory.");
     }
     return Status::OK();
 }
