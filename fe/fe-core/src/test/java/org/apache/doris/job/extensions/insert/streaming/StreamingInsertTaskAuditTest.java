@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.exception.JobException;
@@ -131,8 +132,7 @@ public class StreamingInsertTaskAuditTest {
 
         Assertions.assertEquals(AuditEvent.EventType.AFTER_QUERY, auditEvent.type);
         Assertions.assertEquals(StmtType.INSERT.name(), auditEvent.stmtType);
-        Assertions.assertFalse(auditEvent.stmt.contains(ORIGIN_URI));
-        Assertions.assertTrue(auditEvent.stmt.contains(RESOLVED_URI));
+        assertMaskedBatchUri(auditEvent.stmt);
         Assertions.assertFalse(auditEvent.stmt.contains("WITH LABEL"));
         Assertions.assertFalse(auditEvent.stmt.contains("private-value"));
         Assertions.assertEquals("OK", auditEvent.state);
@@ -163,7 +163,7 @@ public class StreamingInsertTaskAuditTest {
                     new S3SourceOffsetProvider(), new S3Offset(), true);
             Assertions.assertTrue(event.stmt.contains(target));
             Assertions.assertFalse(event.stmt.contains("WITH LABEL `1_2`"));
-            Assertions.assertTrue(event.stmt.contains(RESOLVED_URI));
+            assertMaskedBatchUri(event.stmt);
             Assertions.assertFalse(event.stmt.contains("private-value"));
         }
     }
@@ -303,8 +303,7 @@ public class StreamingInsertTaskAuditTest {
         Mockito.when(provider.getSourceType()).thenReturn("s3");
         AuditEvent event = runTask(null, S3_SQL, provider,
                 new S3EventOffset(List.of("input/1.csv", "input/2.csv"), batchFiles()), true);
-        Assertions.assertTrue(event.stmt.contains(RESOLVED_URI));
-        Assertions.assertFalse(event.stmt.contains(ORIGIN_URI));
+        assertMaskedBatchUri(event.stmt);
         Assertions.assertFalse(event.stmt.contains("private-value"));
     }
 
@@ -313,6 +312,13 @@ public class StreamingInsertTaskAuditTest {
                 "uri", RESOLVED_URI, "s3.secret_key", "private-value", "enclose", "\"");
         return new LogicalTVFRelation(new RelationId(1), S3.withFiles(new Properties(properties), batchFiles()),
                 ImmutableList.of());
+    }
+
+    private void assertMaskedBatchUri(String stmt) {
+        // The comma-containing batch URI is ambiguous to the shared address sanitizer and must stay hidden.
+        Assertions.assertTrue(stmt.contains("\"uri\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""), stmt);
+        Assertions.assertFalse(stmt.contains(RESOLVED_URI), stmt);
+        Assertions.assertFalse(stmt.contains(ORIGIN_URI), stmt);
     }
 
     private static List<TBrokerFileStatus> batchFiles() {
@@ -373,8 +379,11 @@ public class StreamingInsertTaskAuditTest {
             Deencapsulation.setField(task, "stmtExecutor", executor);
             Deencapsulation.setField(task, "runningOffset", offset);
             if (expectAudit) {
-                Deencapsulation.setField(task, "auditSql",
-                        Deencapsulation.invoke(task, "buildAuditSql"));
+                String preparedAuditSql = Deencapsulation.invoke(task, "buildAuditSql");
+                // Verify the exact execution batch before the final audit rendering masks its URI.
+                Assertions.assertTrue(preparedAuditSql.contains(RESOLVED_URI), preparedAuditSql);
+                Assertions.assertFalse(preparedAuditSql.contains(ORIGIN_URI), preparedAuditSql);
+                Deencapsulation.setField(task, "auditSql", preparedAuditSql);
             }
 
             if (commandFailure == null) {

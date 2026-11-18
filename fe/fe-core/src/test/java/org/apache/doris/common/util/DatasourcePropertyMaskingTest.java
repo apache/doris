@@ -113,6 +113,7 @@ class DatasourcePropertyMaskingTest {
         for (String value : List.of("https://fixture:fixture@api.example.com:bad/path", "https://[invalid/",
                 "https://api.example.com/?token=%GG", "fixture:password@host", "unknown:fixture-secret",
                 "unknown://fixture-secret@host/path", "host1:9000;password=fixture", "https://api.example.com/%GG",
+                "s3://invalid_bucket/object",
                 "host.example.com:65536", "host.example.com:999999999999999999999999")) {
             assertRendered("hosts", value, MASK);
         }
