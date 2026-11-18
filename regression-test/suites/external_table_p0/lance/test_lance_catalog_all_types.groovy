@@ -173,10 +173,12 @@ suite("test_lance_catalog_all_types", "p0,external") {
     }
 
     // Source keys for AssumeRole must never be used directly as the dataset identity.
+    // Select S3 explicitly so MinIO's HMAC-only validation does not preempt the Lance check.
     sql """DROP CATALOG IF EXISTS `test_lance_assume_role_not_supported`"""
     sql """
         CREATE CATALOG `test_lance_assume_role_not_supported` PROPERTIES (
             "type" = "lance",
+            "provider" = "S3",
             "warehouse" = "s3://warehouse/lance",
             "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
             "s3.access_key" = "admin",
