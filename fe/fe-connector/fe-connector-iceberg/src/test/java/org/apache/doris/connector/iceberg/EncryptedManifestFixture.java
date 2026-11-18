@@ -71,6 +71,12 @@ final class EncryptedManifestFixture implements TableOperations, AutoCloseable {
                         .withFileSizeInBytes(100).withRecordCount(1).build()).commit();
     }
 
+    void appendPlainFile(String name) {
+        new BaseTable(this, "writer").newFastAppend().appendFile(
+                DataFiles.builder(PartitionSpec.unpartitioned()).withPath(metadata.location() + "/" + name + ".parquet")
+                        .withFileSizeInBytes(100).withRecordCount(1).build()).commit();
+    }
+
     Table queryTable() {
         // Reparse so a query cannot inherit the writer's already-decrypted manifest-list descriptors.
         TableMetadata snapshot = TableMetadataParser.fromJson(TableMetadataParser.toJson(metadata));

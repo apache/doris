@@ -228,7 +228,14 @@ through a table lease. Catalog invalidation or close retires cache ownership;
 active statements release their owners when their final leases close. A later
 statement reloads the table and performs its own SDK/KMS authorization.
 
-Decoded manifests are also statement-owned when either the table or manifest
+Each statement resolves one manifest reader bound to its frozen table lease.
+Synchronous reads, future observers and cached-only probes for data and delete
+manifests use that reader. Its identity coalesces concurrent unclassified loads
+within the statement; different statements have separate in-flight reads.
+Encrypted tables and manifest descriptors bypass shared entries, including a
+plaintext entry previously published for the same path.
+
+Decoded manifests are private to current consumers when either the table or manifest
 is encrypted. This includes an encrypted manifest containing only plaintext data
 files: its decoded contents must not bypass the next caller's manifest-key
 validation. An otherwise plaintext manifest containing data, position-delete or
@@ -238,10 +245,14 @@ The adapter disables the SDK manifest byte cache for these reads; otherwise a
 path-only cache hit could reuse previously decrypted bytes with a missing current
 descriptor. Encrypted statement snapshots use the same uncached IO view for SDK
 planning. Failed reads are not cached, so correcting the current descriptor
-permits a fresh attempt.
+permits a fresh attempt. Completed in-flight registrations are removed before
+notifying consumers, so consumed private results do not accumulate until statement
+end. The existing query-wide admission and prefetch window bound active reads and
+queued results. Cancelled futures leave actual I/O leases held until the callable
+exits; statement teardown releases the reader's base lease after its active calls.
 
 Completed plaintext entries continue to use the configured caches. Concurrent
-cold table and manifest misses may perform independent loads before a plaintext
+cold misses from different statements may perform independent loads before a plaintext
 value has been published; warm cache hits are unchanged. Key-bearing table metadata is
 not weighed or serialized just to admit it to a shared cache. This bounds ownership;
 it does not promise deterministic zeroization of SDK or JVM memory.
@@ -251,6 +262,9 @@ and future loads, direct/bulk publication, replacement and refresh cleanup.
 `IcebergEncryptedCacheTest` uses real SDK encrypted manifests to verify that KMS
 revocation after a successful statement is observed, invalid current descriptors
 cannot reuse a warm result, and concurrent statements retain distinct managers
-through catalog retirement. These tests do not enable encrypted SQL admission;
+through catalog retirement. Manifest reader tests additionally cover concurrent
+data/delete coalescing, isolated observer cancellation, descriptor-key changes,
+plaintext cache hits, bounded private retention and losing reader-registration
+races. These tests do not enable encrypted SQL admission;
 transport, native reader lifetime and end-to-end acceptance remain separate
 requirements.

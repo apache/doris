@@ -46,7 +46,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -206,37 +205,17 @@ final class IcebergManifestCache {
                 ignored -> Collections.unmodifiableSet(new HashSet<>(loader.get())));
     }
 
-    /**
-     * Returns the parsed files for {@code manifest}, loading (and reading from storage) only on a miss. The
-     * loader runs OUTSIDE Caffeine's compute lock (manual miss-load; single-flight per key), so a same-key
-     * miss parses at most once.
-     */
+    /** One-shot callers own their table; planning uses the statement's retained reader instead. */
     ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table) {
-        if (requiresStatementRead(manifest, table)) {
-            return loadManifestCacheValue(manifest, table, manifest.content(), false);
-        }
-        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
-        // A plaintext manifest may reveal file keys only after loading; isolate unclassified misses too.
-        return entry.getForLoadScope(key, new Object(), k -> loadManifestCacheValue(
-                manifest, table, k.getContent(), entry.isWeightBounded()));
+        return getManifestCacheValue(manifest, table, null);
     }
 
-    /** Runs the elected read here; a shared in-flight read only registers a completion observer. */
+    /** The elected read completes here; the returned observer cannot cancel another consumer's I/O. */
     CompletionStage<ManifestCacheValue> getManifestCacheValueFuture(
             ManifestFile manifest, Table table, String queryId) {
-        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
-        boolean statementRead = requiresStatementRead(manifest, table);
-        recordAccess(key, queryId, !statementRead);
-        if (statementRead) {
-            try {
-                return CompletableFuture.completedFuture(
-                        loadManifestCacheValue(manifest, table, manifest.content(), false));
-            } catch (RuntimeException failure) {
-                return CompletableFuture.failedFuture(failure);
-            }
+        try (IcebergManifestReader reader = new IcebergManifestReader(this, table, queryId, () -> { })) {
+            return reader.readFuture(manifest);
         }
-        return entry.getOrLoadFutureForLoadScope(key, new Object(), k -> loadManifestCacheValue(
-                manifest, table, k.getContent(), entry.isWeightBounded()));
     }
 
     /** Cached-only probe: avoids futures and executor traffic on the warm planning path. */
@@ -258,20 +237,21 @@ final class IcebergManifestCache {
      * A blank queryId is not recorded.
      */
     ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table, String queryId) {
-        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
-        boolean statementRead = requiresStatementRead(manifest, table);
-        recordAccess(key, queryId, !statementRead);
-        if (statementRead) {
-            return loadManifestCacheValue(manifest, table, manifest.content(), false);
+        try (IcebergManifestReader reader = new IcebergManifestReader(this, table, queryId, () -> { })) {
+            return reader.read(manifest);
         }
-        return entry.getForLoadScope(key, new Object(), k -> loadManifestCacheValue(
-                manifest, table, k.getContent(), entry.isWeightBounded()));
     }
 
-    private static boolean requiresStatementRead(ManifestFile manifest, Table table) {
-        // An encrypted manifest can describe entirely plaintext data. Cached decoded contents would
-        // bypass the next statement's manifest key even if the cached data descriptors contain none.
-        return manifest.keyMetadata() != null || IcebergEncryptionRead.isEncrypted(table);
+    /** Uses one stable statement identity while retaining only values classified as plaintext. */
+    ManifestCacheValue readForStatement(ManifestFile manifest, Table table, Object loadScope, boolean privateRead) {
+        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
+        return privateRead ? loadManifestCacheValue(manifest, table, manifest.content(), false)
+                : entry.getForLoadScope(key, loadScope, k -> loadManifestCacheValue(
+                        manifest, table, k.getContent(), entry.isWeightBounded()));
+    }
+
+    void recordStatementAccess(ManifestFile manifest, String queryId, boolean allowCacheHit) {
+        recordAccess(IcebergManifestEntryKey.of(manifest), queryId, allowCacheHit);
     }
 
     private void recordAccess(IcebergManifestEntryKey key, String queryId, boolean allowCacheHit) {
