@@ -796,7 +796,7 @@ public class SPMPlanner {
                     SPMPlanTreeSupport.stripCheckPolicy(parameterizedPlan), planSql);
             frozen = decompileFrozenPlan(referencesView, foldedSessionSensitivePayload,
                     pinsExplicitIndex,
-                    parameterizeBuilder.hasParameterizedOrdinalTarget(),
+                    parameterizeBuilder.hasParameterizedGroupByOrdinalTarget(),
                     optimizeResult, planSql);
         } catch (UserException | RuntimeException e) {
             // When the parameterized tree cannot be planned (e.g. a placeholder cannot
@@ -1010,11 +1010,12 @@ public class SPMPlanner {
      * SPMPlanTreeSupport.containsFoldedSessionSensitivePayload), or when the statement
      * pins a materialized view / rollup with an explicit INDEX clause (the decompiled
      * text cannot carry the pin, and dropping it would read the base table instead of the
-     * pinned - possibly coarser - index; see SPMPlanTreeSupport.pinsExplicitIndex).
+     * pinned - possibly coarser - index; see SPMPlanTreeSupport.pinsExplicitIndex). A GROUP BY ordinal
+     * that references a parameterized SELECT item also keeps the original statement.
      */
     private static DecompiledPlan decompileFrozenPlan(boolean referencesView,
             boolean foldedSessionSensitivePayload, boolean pinsExplicitIndex,
-            boolean parameterizedOrdinal, SPMOptimizer.OptimizeResult optimizeResult,
+            boolean parameterizedGroupByOrdinal, SPMOptimizer.OptimizeResult optimizeResult,
             String planSql) {
         if (referencesView) {
             LOG.info("SPM freeze skipped: the plan references a view; keeping the user planSql"
@@ -1037,18 +1038,9 @@ public class SPMPlanner {
                     + " parameterized tree, whose analysis re-applies the pin");
             return new DecompiledPlan(planSql, false);
         }
-        if (parameterizedOrdinal) {
-            // SELECT 1 AS c, count(*)... GROUP BY 1: the ordinal is a POSITIONAL
-            // reference to the (parameterized) SELECT item, and the capture optimizer
-            // renders that group key as a CHILD COLUMN - the frozen replay would group by
-            // k while the user's own query groups by the constant (same value-dependent
-            // digest, different result). Keeping the user planSql lets the rewrite replay
-            // the parameterized tree, whose analysis resolves the ordinal exactly like the
-            // caller's statement. ORDER BY has the same risk when its target
-            // expression carries placeholders through optimization and decompilation.
-            LOG.info("SPM freeze skipped: a bare integer GROUP BY / ORDER BY ordinal references a"
-                    + " parameterized SELECT item; keeping the user planSql so the rewrite"
-                    + " replays the parameterized tree, which resolves the ordinal itself");
+        if (parameterizedGroupByOrdinal) {
+            LOG.info("SPM freeze skipped: a GROUP BY ordinal references a parameterized SELECT item;"
+                    + " the parameterized tree preserves the grouping");
             return new DecompiledPlan(planSql, false);
         }
         try {

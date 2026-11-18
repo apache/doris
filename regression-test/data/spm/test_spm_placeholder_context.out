@@ -191,6 +191,9 @@
 1	true
 2	true
 
+-- !sort_ordinal_frozen --
+true
+
 -- !sort_0_spm --
 -2
 -1
@@ -211,6 +214,9 @@
 0
 2
 
+-- !group_ordinal_frozen --
+false
+
 -- !group_0_spm --
 1	4
 
@@ -222,6 +228,9 @@
 
 -- !group_1_original --
 2	4
+
+-- !having_ordinal_frozen --
+true
 
 -- !having_0_spm --
 1	4
