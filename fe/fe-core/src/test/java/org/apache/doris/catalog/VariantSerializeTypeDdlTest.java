@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -138,5 +139,43 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
                         + "AS SELECT * FROM t_ctas_new_source");
         Assertions.assertEquals(TVariantSerializeType.V2, type.getVariantSerializeType());
         Assertions.assertEquals(0, type.getVariantMaxSubcolumnsCount());
+    }
+
+    private MTMV createMvOfOldColumn(String name) throws Exception {
+        createTableWithOldColumn(name + "_source");
+        createMvByNereids("CREATE MATERIALIZED VIEW " + name + " BUILD DEFERRED REFRESH COMPLETE ON MANUAL "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
+                + "AS SELECT k, v, v['a'] AS va, parse_to_variant(CAST(v AS STRING)) AS pv FROM " + name + "_source");
+        return (MTMV) Env.getCurrentInternalCatalog().getDbOrMetaException("variant_serialize_type")
+                .getTableOrMetaException(name);
+    }
+
+    @Test
+    public void testMvStoresComputedVariantAsV2() throws Exception {
+        MTMV mv = createMvOfOldColumn("mv_columns");
+        // a VARIANT column of a table keeps its type
+        Assertions.assertEquals(TVariantSerializeType.V1, mv.getColumn("v").getVariantSerializeType());
+        // a VARIANT the query computes is a new column, as in CTAS, and its count of 0 extracts no dynamic path
+        for (String name : new String[] {"va", "pv"}) {
+            Assertions.assertEquals(TVariantSerializeType.V2, mv.getColumn(name).getVariantSerializeType());
+            Assertions.assertEquals(0, ((VariantType) mv.getColumn(name).getType()).getVariantMaxSubcolumnsCount());
+        }
+    }
+
+    @Test
+    public void testRefreshAcceptsMvThatStoresComputedVariantAsV1() throws Exception {
+        MTMV mv = createMvOfOldColumn("mv_refresh");
+        // an older version stored the VARIANT the query computes as V1, and this version analyses it as V2
+        for (String name : new String[] {"va", "pv"}) {
+            Column column = mv.getColumn(name);
+            column.setType(((VariantType) column.getType()).withSerializeType(TVariantSerializeType.V1));
+        }
+        try {
+            Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mv,
+                    MTMVPlanUtil.createMTMVContext(mv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)));
+        } finally {
+            // the context of the MV replaced the one of this thread, which the other tests analyse with
+            connectContext.setThreadLocalInfo();
+        }
     }
 }
