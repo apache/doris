@@ -233,14 +233,10 @@ Status VariantExternalMetaReader::load_all_once(SubcolumnColumnMetaInfo* out_met
                                                 OlapReaderStatistics* stats,
                                                 const io::IOContext* source_io_ctx) {
     DCHECK(available());
-    return _load_once_call.call([this, out_meta_tree, out_stats, stats, source_io_ctx]() -> Status {
-        if (_loaded) {
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(load_all(out_meta_tree, out_stats, stats, source_io_ctx));
-        _loaded = true;
-        return Status::OK();
-    });
+    // A retry can reuse paths already merged by load_all.
+    return _load_once_call.call(
+            [&] { return load_all(out_meta_tree, out_stats, stats, source_io_ctx); },
+            [](const Status& status) { return status.is<ErrorCode::MEM_LIMIT_EXCEEDED>(); });
 }
 
 } // namespace doris::segment_v2

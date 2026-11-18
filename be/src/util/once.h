@@ -23,6 +23,7 @@
 #include <atomic>
 #include <mutex>
 #include <stdexcept>
+#include <utility>
 
 #include "common/exception.h"
 #include "storage/olap_common.h"
@@ -31,8 +32,7 @@ namespace doris {
 
 // Utility class for implementing thread-safe call-once semantics.
 //
-// call() will return stored result regardless of whether the first invocation
-// returns a success status or not.
+// By default, call() caches the first result, whether it succeeds or fails.
 //
 // Example:
 //   class Resource {
@@ -73,6 +73,13 @@ public:
     // occurred.
     template <typename Fn>
     ReturnType call(Fn fn) {
+        return call(fn, [](const ReturnType&) { return false; });
+    }
+
+    // A retryable result is returned to its caller without publishing it.
+    // The next caller can try again under the same lock.
+    template <typename Fn, typename ShouldRetry>
+    ReturnType call(Fn&& fn, ShouldRetry should_retry) {
         // Avoid lock to improve performance
         if (has_called()) {
             if (_eptr) {
@@ -89,7 +96,11 @@ public:
             return _status;
         }
         try {
-            _status = fn();
+            ReturnType result = fn();
+            if (should_retry(result)) {
+                return result;
+            }
+            _status = std::move(result);
         } catch (...) {
             // Save the exception for next call.
             _eptr = std::current_exception();

@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/field.h"
 #include "gtest/gtest.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
@@ -71,6 +72,7 @@ public:
 
     const std::vector<RecordedRead>& records() const { return _records; }
     void clear_records() { _records.clear(); }
+    void fail_next_read_with_allocation_error() { _fail_next_read = true; }
     void set_cache_key_suffix(std::string_view suffix) {
         _path = io::Path(_delegate->path().native() + std::string(suffix));
     }
@@ -87,6 +89,9 @@ protected:
             record.is_index_data = io_ctx->is_index_data;
         }
         _records.push_back(record);
+        if (std::exchange(_fail_next_read, false)) {
+            throw Exception(ErrorCode::MEM_ALLOC_FAILED, "injected page allocation failure");
+        }
         return _delegate->read_at(offset, result, bytes_read, io_ctx);
     }
 
@@ -94,6 +99,7 @@ private:
     io::FileReaderSPtr _delegate;
     io::Path _path;
     std::vector<RecordedRead> _records;
+    bool _fail_next_read = false;
 };
 
 // Helper to create a clean local test directory and return absolute path + filename.
@@ -442,7 +448,7 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     EXPECT_TRUE(has);
 }
 
-TEST(ExternalColMetaUtilTest, VariantExternalMetaReaderPassesCacheLimiterToIndexedColumnReads) {
+TEST(ExternalColMetaUtilTest, VariantExternalMetaReaderRetriesAfterPageAllocationFailure) {
     SegmentFooterPB footer;
     const int32_t root_uid = 1;
     ColumnMetaPB* root = footer.add_columns();
@@ -540,10 +546,20 @@ TEST(ExternalColMetaUtilTest, VariantExternalMetaReaderPassesCacheLimiterToIndex
     SubcolumnColumnMetaInfo meta_tree;
     VariantStatistics stats;
     reset_recording("#load_all_once");
+    recording_fr->fail_next_read_with_allocation_error();
+    st = reader.load_all_once(&meta_tree, &stats, &reader_stats, &io_ctx);
+    ASSERT_TRUE(st.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << st;
+    expect_recorded_reads_with_limiter("failed load_all_once");
+    EXPECT_TRUE(meta_tree.empty());
+
     st = reader.load_all_once(&meta_tree, &stats, &reader_stats, &io_ctx);
     ASSERT_TRUE(st.ok()) << st.to_json();
     expect_recorded_reads_with_limiter("load_all_once");
+    EXPECT_NE(meta_tree.find_leaf(PathInData("key0")), nullptr);
     EXPECT_EQ(stats.subcolumns_non_null_size.at("key0"), 123);
+
+    ASSERT_TRUE(reader.load_all_once(&meta_tree, &stats, &reader_stats, &io_ctx).ok());
+    EXPECT_TRUE(recording_fr->records().empty());
 
     bool has = false;
     reset_recording("#has_prefix");

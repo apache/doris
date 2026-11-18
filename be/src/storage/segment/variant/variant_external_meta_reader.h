@@ -64,7 +64,7 @@ public:
     Status has_prefix(const std::string& prefix, bool* out, OlapReaderStatistics* stats = nullptr,
                       const io::IOContext* source_io_ctx = nullptr) const;
 
-    // Ensure external metas are loaded exactly once and merged into provided structures.
+    // Load and merge external metas once. Memory limit failures can be retried.
     Status load_all_once(SubcolumnColumnMetaInfo* out_meta_tree, VariantStatistics* out_stats,
                          OlapReaderStatistics* stats = nullptr,
                          const io::IOContext* source_io_ctx = nullptr);
@@ -94,7 +94,6 @@ private:
 
     // call-once guard for bulk loading
     DorisCallOnce<Status> _load_once_call;
-    bool _loaded = false;
 };
 
 } // namespace doris::segment_v2
