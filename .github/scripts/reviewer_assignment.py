@@ -30,12 +30,13 @@ from urllib.parse import quote
 
 from review_github_api import decode_json, run_gh
 from reviewer_assignment_diff import git_changes
+from reviewer_assignment_model import response_modules, write_input
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools/reviewer-routing"
 sys.path.append(str(TOOL))
 from routing_config import load_routing
-from ci_context import candidate_summary, sample_reviewers
+from ci_context import candidate_summary, eligible_pools, sample_reviewers
 
 REQUEST_LABEL = "need-reviewers"
 DONE_LABEL = "reviewers-assigned"
@@ -148,6 +149,28 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
+def model_input(workspace, tool=TOOL, mapping=None):
+    mapping = load_routing(tool) if mapping is None else mapping
+    pr = json.loads((workspace / "pr.json").read_text())
+    details = json.loads((workspace / "pr-details.json").read_text())
+    summary = candidate_summary(pr, mapping)
+    write_json(workspace / "candidate-summary.json", summary)
+    catalog = candidate_summary(pr, mapping, list(mapping["config"]["modules"]))["modules"]
+    return write_input(workspace, (tool / "CI_GUIDE.md").read_text(), pr, details,
+                       (workspace / "pr.diff").read_text(), summary, catalog)
+
+
+def request_event(event, event_name):
+    if event_name == "workflow_dispatch":
+        number = event["inputs"]["pr_number"]
+        require(isinstance(number, str) and number.isdigit() and int(number) > 0,
+                "pr_number must be a positive integer.")
+        return {"action": "labeled", "label": {"name": REQUEST_LABEL},
+                "pull_request": {"number": int(number)}}
+    require(event_name == "pull_request_target", "Unsupported assignment event.")
+    return event
+
+
 def prepare(api, event, repository, run_id, workspace, tool=TOOL):
     require(event.get("action") == "labeled" and event.get("label", {}).get("name") == REQUEST_LABEL,
             "This helper only handles need-reviewers labeled events.")
@@ -170,7 +193,7 @@ def prepare(api, event, repository, run_id, workspace, tool=TOOL):
         people = validate_selection({"reviewers": previous[1]["reviewers"]}, context["author"], allowed)
         write_json(workspace / "selection.json", {"reviewers": people})
         return True
-    for name in ("selection.json", "module-selection.json", "selected-candidates.json"):
+    for name in ("selection.json", "module-selection.json", "selected-candidates.json", "validation.json"):
         (workspace / name).unlink(missing_ok=True)
 
     endpoint = f"repos/{repository}/pulls/{number}"
@@ -206,18 +229,7 @@ def prepare(api, event, repository, run_id, workspace, tool=TOOL):
         "assignees": [p["login"] for p in pr.get("assignees", [])],
         "requested_teams": [p["slug"] for p in pr.get("requested_teams", [])]})
     (workspace / "pr.diff").write_text(diff)
-    write_json(workspace / "schema.json", {"type": "object", "additionalProperties": False,
-               "properties": {"modules": {"type": "array", "minItems": 0, "maxItems": 2,
-                              "items": {"type": "string", "enum": sorted(mapping["config"]["modules"])}}},
-               "required": ["modules"]})
-    (workspace / "prompt.txt").write_text("""Identify at most TWO relevant reviewer-routing modules for this PR.
-Read tools/reviewer-routing/CI_GUIDE.md and follow its rules.
-Read candidate-summary.json, pr.json, pr-details.json and the complete pr.diff.
-Use the trusted local ci_context.py queries when semantic reclassification is needed.
-Trusted Python will randomly draw at most two people from the selected modules' first five eligible candidates.
-The downstream job will ADD ASSIGNEES, post mentions and update labels.
-Make no GitHub changes. Return only the schema-conforming JSON object.
-""")
+    model_input(workspace, tool, mapping)
     return False
 
 
@@ -228,10 +240,21 @@ def finalize_selection(workspace, tool=TOOL):
     if saved.exists():
         selection = json.loads(saved.read_text())
     else:
-        modules = json.loads((workspace / "module-selection.json").read_text())
-        pr = json.loads((workspace / "pr.json").read_text())
-        selection = {"reviewers": sample_reviewers(modules, pr, mapping)}
-        write_json(workspace / "selected-candidates.json", candidate_summary(pr, mapping, modules["modules"]))
+        try:
+            modules = json.loads((workspace / "module-selection.json").read_text())
+            pr = json.loads((workspace / "pr.json").read_text())
+            selection = {"reviewers": sample_reviewers(response_modules(modules), pr, mapping)}
+            write_json(workspace / "selected-candidates.json", candidate_summary(pr, mapping, modules["modules"]))
+            require(all(eligible_pools(pr, mapping, modules["modules"]).values()),
+                    "The classifier selected a module without eligible candidates.")
+            matched = [m["id"] for m in candidate_summary(pr, mapping)["modules"] if m["candidates"]]
+            require(selection["reviewers"] or not matched,
+                    f"Empty reviewer selection despite eligible path modules: {', '.join(matched)}")
+            write_json(workspace / "validation.json", {"status": "accepted", "modules": modules["modules"],
+                       "reason": modules["reason"], "eligible_path_modules": matched})
+        except ValueError as error:
+            write_json(workspace / "validation.json", {"status": "rejected", "error": str(error)})
+            raise
     people = validate_selection(selection, context["author"], candidates(tool, mapping))
     write_json(saved, {"reviewers": people})
     return people
@@ -310,14 +333,16 @@ def main():
     parser.add_argument("mode", choices=["prepare", "validate", "apply"])
     parser.add_argument("--workspace", type=Path, required=True)
     args = parser.parse_args()
+    event_name = os.environ.get("GITHUB_EVENT_NAME", "pull_request_target")
+    event = request_event(json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text()), event_name)
+    require(args.mode != "apply" or event_name == "pull_request_target", "Manual runs cannot mutate a PR.")
     if args.mode == "prepare":
-        reused = prepare(GitHub(), json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text()),
+        reused = prepare(GitHub(), event,
                          os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_RUN_ID"], args.workspace)
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
             output.write(f"reuse_selection={'true' if reused else 'false'}\n")
     else:
         context = json.loads((args.workspace / "context.json").read_text())
-        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         require(context["repository"] == os.environ["GITHUB_REPOSITORY"]
                 and context["run_id"] == os.environ["GITHUB_RUN_ID"]
                 and context["pr_number"] == event["pull_request"]["number"],

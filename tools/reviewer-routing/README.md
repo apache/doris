@@ -48,7 +48,7 @@ After editing, validate and inspect the effective lists:
 python3 tools/reviewer-routing/routing_config.py --check
 python3 tools/reviewer-routing/routing_config.py --list
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
-  -s .github/scripts -p test_reviewer_assignment.py
+  -s .github/scripts -p 'test_reviewer_assignment*.py'
 ```
 
 Validation rejects duplicate keys/logins, invalid login syntax or regexes,
@@ -59,14 +59,20 @@ new runs through the trusted default-branch checkout.
 ## Runtime
 
 Python 3.9+ and the standard library are sufficient for local helpers. The
+model runner and replay command support Linux and macOS. The
 workflow also uses Git, GitHub CLI and the Codex runtime/auth pool already used
 by Code Review Runner. It reuses `GITHUB_TOKEN`, `OSS_AK` and `OSS_SK`; selection
-has read permissions, while a separate assignment job has `issues: write`.
+has read permissions, while a separate assignment job has `issues: write` and
+`pull-requests: write`.
 
-`ci_context.py` prepares the affected modules, change weights and candidate
-pools. Codex reads `CI_GUIDE.md`, that summary, PR metadata and the complete
-diff, then returns at most two module IDs. It can query other configured
-modules when the diff shows a different specialty. Python excludes the author,
+Python collects authoritative PR metadata, changed files, reviews and the
+complete diff, computes the affected modules, change statistics and candidate
+pools, and places all of them directly in the model's stdin. The supplied
+catalog includes semantic alternatives outside the path matches. Codex returns
+at most two module IDs and a short classification reason. It does not gather
+input, invoke helpers or draw people. Shell, apps, plugins, web search and
+subagents are disabled; local user configuration and project instructions are
+excluded from this data-only classification. Python excludes the author,
 unavailable and globally disabled people before taking each module's first
 five eligible names. For one module, it draws two distinct people uniformly,
 or one when only one is available. For two modules, it draws uniformly from
@@ -76,7 +82,10 @@ a fresh random draw; the same pair can occur again by chance. Saved selections
 and same-run assignment checkpoints are reused without another draw.
 No PR code is checked out or executed. API-limited diffs are reconstructed from
 verified pinned Git snapshots. Invalid output or infrastructure errors fail;
-an empty valid selection assigns `fallback_reviewer` with this comment:
+an empty classification is rejected when path-matched modules have eligible
+candidates. Modules without an eligible pool cannot be selected. When no
+eligible path module is available, an empty valid selection assigns
+`fallback_reviewer` with this comment:
 
 ```text
 No suitable reviewer was found. @<fallback_reviewer>, please help assign reviewers for this PR.
@@ -86,3 +95,65 @@ Assignments and comments are read back before labels change. Actions Summary
 and the seven-day `reviewer-assignment-usage` artifact report Codex time and token
 counts. Cached input is included in input tokens; unavailable usage after a
 failure is not zero. Raw sessions, credentials and prompts are not uploaded.
+
+The separate seven-day diagnostics artifacts contain input byte counts and
+SHA256 fingerprints, implementation hashes, CLI/platform versions, the model's
+decision and reason, validation status, selected pools, event/item counts,
+filtered command/MCP errors and GitHub API failure metadata. Missing or partial
+model output remains visible. Diagnostic collection runs after failures and
+does not turn a failed classification into a successful assignment.
+
+## Local replay and checks before merge
+
+Run the same production prepare, model runner, validation and sampling code
+locally, without posting comments or changing assignees/labels:
+
+```bash
+python3 .github/scripts/replay_reviewer_assignment.py \
+  --repository apache/doris --pr 70665 \
+  --codex /path/to/pinned-codex/bin/codex \
+  --workspace /tmp/reviewer-70665-first
+```
+
+Use the same pinned CLI package as the workflow for an environment comparison.
+The command uses the CLI's saved authentication (or an explicit `CODEX_HOME`)
+but ignores user configuration. GitHub reads use `gh`; the replay wrapper
+rejects every non-GET request. The model receives no GitHub or OSS credentials.
+The workspace preserves the exact PR input, prompt, schema and fingerprints,
+plus diagnostics, validation, usage and the final selected reviewers. Use a new
+workspace for each run. To replay the captured PR data with the checked-out
+routing policy and implementation, without further GitHub reads:
+
+```bash
+python3 .github/scripts/replay_reviewer_assignment.py \
+  --snapshot /tmp/reviewer-70665-first \
+  --codex /path/to/pinned-codex/bin/codex \
+  --workspace /tmp/reviewer-70665-second
+```
+
+The `Reviewer Assignment Checks` workflow runs offline fixtures and the shared
+executable paths on Ubuntu 24.04 for PRs and pushes affecting this workflow.
+It uses a fake model binary, local Git/HTTP fixtures and no repository secrets;
+it verifies the input, validation, error handling and mutation boundaries.
+
+For a real hosted model run, manually dispatch the assignment workflow on a
+trusted branch. This runs selection only; both the job condition and Python
+entry point prohibit the assignment step for manual events:
+
+```bash
+gh workflow run reviewer-assignment.yml --repo apache/doris \
+  --ref <trusted-branch> -f pr_number=70665
+```
+
+GitHub must already know this workflow on the default branch before dispatch
+can target another branch. The branch must belong to the target repository;
+a fork's branch is not a target-repository ref. Once this entry point is
+available, branch revisions can be tested on the real hosted runner before
+merge, including the pinned Linux CLI, auth pool and artifact service.
+
+Local replay is not a full emulation of GitHub Actions. An Ubuntu container or
+`act` can exercise the scripts, but cannot prove hosted token permissions,
+secret injection, concurrency or artifact publication. Keep those checks on
+the read-only hosted dispatch path. In particular, `act` does not enforce
+`job.permissions` or workflow concurrency; see its
+[unsupported functionality](https://nektosact.com/not_supported.html).
