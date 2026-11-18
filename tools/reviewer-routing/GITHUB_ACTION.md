@@ -10,7 +10,11 @@ It uses this tool's guides and historical evidence to select reviewer candidates
 2. The read-only selection job reads trusted default-branch tools and obtains
    complete live PR metadata, file pages, submitted review pages and the diff.
    It never checks out or executes the PR's code.
-3. Codex reads `README.md`, `REVIEWER_RULES.md` and the PR context. It outputs only
+3. Python precomputes `candidate-summary.json` with the affected modules' qualified
+   candidates, preference weights, historical counts, dates and example PRs. It
+   uses the same policy and planner as the offline tool, with an independent
+   two-assignee budget. Codex reads `CI_GUIDE.md`, the summary and the complete
+   PR context instead of the long operator guides. It outputs only
    a JSON object such as `{"reviewers":["eldenmoon","csun5285"]}`. The schema
    permits at most two IDs from qualified historical candidates or explicit
    maintainer overrides. The helper rejects
@@ -42,6 +46,41 @@ An empty or invalid AI result fails without marking assignment complete. PR
 head/base changes, API file truncation, expired mapping, unavailable assignees
 and API failures also stop completion. Inspect the run and retry it, or reapply
 the label when a fresh selection is needed.
+
+The path suggestion is advisory. The summary includes the first five eligible
+historical candidates per affected module or the complete override list, and
+two example PRs per person. Codex still reads the complete diff and can query
+other modules or more candidates without loading the full mapping:
+
+```bash
+python3 tools/reviewer-routing/ci_context.py --list-modules
+python3 tools/reviewer-routing/ci_context.py pr.json --modules runtime.memory
+python3 tools/reviewer-routing/ci_context.py pr.json --modules search --all-candidates
+```
+
+## Usage and timing
+
+Every selection job attempts to publish an Actions Summary table and a separate
+`reviewer-assignment-usage` artifact containing `usage.json`, retained for seven
+days. It records the model, reasoning effort, outcome, Codex wall time, exit code,
+completed turns, input tokens, cached input tokens, uncached input tokens and
+output tokens. Reasoning output tokens appear when the CLI reports them.
+The existing validated plan artifact remains limited to context and selected IDs.
+
+Counts come from `turn.completed.usage` in the local Codex JSONL events and sum
+across completed turns. Cached input is already part of input tokens; reasoning
+output is not added to output tokens. These counters do not calculate a price
+or a ChatGPT plan's allowance. Codex wall time excludes installation, queuing,
+auth sync and GitHub writes; Actions shows those as separate step durations.
+
+Reporting and artifact upload run after model success, failure or timeout, and
+also when the model is skipped. A checkpoint reuse or a model that never started
+records known zero model usage. Missing completion events produce unavailable
+counts rather than zero; partial counters are marked `usage_complete: false`
+because interrupted requests can consume tokens without a completion event.
+Only numeric metadata and fixed status fields are retained. Raw events, PR text,
+prompts, command output, sessions and credentials are not uploaded. A telemetry
+failure is visible in its step but does not block an otherwise valid assignment.
 
 ## GitHub token and permissions
 

@@ -226,10 +226,12 @@ jobs:
           bwrap --unshare-user --ro-bind / / -- /usr/bin/true
 
       - name: Ask Codex to select at most two reviewers
+        id: codex
         if: steps.prepare.outputs.reuse_selection != 'true'
         timeout-minutes: 9
         run: |
           set -euo pipefail
+          codex_started=$SECONDS
           set +e
           timeout --signal=TERM --kill-after=20s 480s \
             env -u GH_TOKEN -u GITHUB_TOKEN -u OSS_AK -u OSS_SK \
@@ -245,6 +247,8 @@ jobs:
               2> "$RUNNER_TEMP/reviewer-assignment-codex.stderr"
           codex_status=$?
           set -e
+          printf 'elapsed_seconds=%s\nexit_code=%s\n' \
+            "$((SECONDS - codex_started))" "$codex_status" >> "$GITHUB_OUTPUT"
           if [ "$codex_status" -ne 0 ]; then
             echo "::error::Codex reviewer selection failed with exit status $codex_status. No GitHub writes were attempted."
             jq -r 'select(.type == "turn.failed" or .type == "error") |
@@ -252,6 +256,32 @@ jobs:
               "$RUNNER_TEMP/reviewer-assignment-codex.jsonl" | tail -n 2 || true
             exit "$codex_status"
           fi
+
+      - name: Summarize Codex usage
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CODEX_STEP_OUTCOME: ${{ steps.codex.outcome }}
+          CODEX_ELAPSED_SECONDS: ${{ steps.codex.outputs.elapsed_seconds }}
+          CODEX_EXIT_CODE: ${{ steps.codex.outputs.exit_code }}
+          REUSE_SELECTION: ${{ steps.prepare.outputs.reuse_selection }}
+        run: |
+          python3 .github/scripts/reviewer_assignment_usage.py \
+            --events "$RUNNER_TEMP/reviewer-assignment-codex.jsonl" \
+            --output "$RUNNER_TEMP/reviewer-assignment-metrics/usage.json" \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish Codex usage metrics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-assignment-usage
+          path: ${{ runner.temp }}/reviewer-assignment-metrics/usage.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Sync refreshed Codex auth
         if: always() && steps.auth.outcome == 'success'

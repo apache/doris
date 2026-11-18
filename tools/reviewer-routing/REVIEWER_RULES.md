@@ -6,7 +6,8 @@ complete module table below is derived from 4,645 PRs merged into `master` in
 experience. Explicit maintainer overrides provide the routing preferences listed
 below. Applicability to other base branches has not been validated.
 
-The `need-reviewers` workflow uses the [GitHub Action mode](GITHUB_ACTION.md).
+The `need-reviewers` workflow uses the [GitHub Action mode](GITHUB_ACTION.md),
+with [concise model instructions](CI_GUIDE.md) and precomputed candidate evidence.
 In that mode, an explicit label also routes draft PRs, the selection budget is
 at most two people independent of existing assignees, and the downstream script
 adds assignees and posts a mention comment instead of requesting formal reviews.

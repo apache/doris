@@ -20,6 +20,8 @@ adds them as assignees, posts a mention comment and updates labels.
 |---|---|---|
 | `REVIEWER_RULES.md` | Agent instructions and the complete module candidate table | Read this before choosing or inviting reviewers |
 | `GITHUB_ACTION.md` | Label-triggered assignee workflow, permissions and credentials | Read this for the `need-reviewers` automation mode |
+| `CI_GUIDE.md` | Concise model instructions for automatic assignment | The CI model reads this instead of the operator guides |
+| `ci_context.py` | Compact affected-module candidate evidence and semantic module queries | CI prepares a summary before invoking the model |
 | `select_reviewers.py` | Deterministic reviewer planning CLI | Execute it; it makes no network requests |
 | `reviewer_candidates.py` | Shared maintainer-override and historical eligibility policy | Used by the planner and GitHub Action validator |
 | `module-reviewers.json` | Ranked candidates, historical counts, activity and example PRs | The selector reads it; inspect specific modules for more evidence |
@@ -29,6 +31,11 @@ adds them as assignees, posts a mention comment and updates labels.
 
 All runtime dependencies are inside this directory. The tool does not require
 the research files, an installed Python package or a Doris build.
+
+In CI, Python writes `candidate-summary.json` before the model starts. The model
+reads `CI_GUIDE.md`, that summary and the complete PR context. It can query other
+modules through `ci_context.py` when the diff justifies semantic reclassification.
+The offline planner below retains its existing total-reviewer budget.
 
 ## Requirements
 

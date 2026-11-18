@@ -33,7 +33,9 @@ import unittest
 from unittest.mock import patch
 
 import reviewer_assignment as assignment
+import reviewer_assignment_usage as usage
 import select_reviewers as selector
+from ci_context import candidate_summary
 from reviewer_candidates import eligible_candidates
 
 NOW = dt.datetime(2026, 11, 17, 12, tzinfo=dt.timezone.utc)
@@ -139,11 +141,15 @@ class AssignmentTest(unittest.TestCase):
         self.tool.mkdir()
         self.workspace = self.root / "workspace"
         self.api = FakeGitHub()
-        self.mapping = {"as_of": "2026-11-17T09:26:38Z", "modules": [{"id": "search", "candidates": [
-            {"login": person, "auto_eligible": True, "last_review": "2026-11-10T00:00:00Z"}
+        self.mapping = {"repository": "apache/doris", "as_of": "2026-11-17T09:26:38Z", "modules": [
+            {"id": "search", "label": "Search", "candidates": [
+            {"login": person, "auto_eligible": True, "last_review": "2026-11-10T00:00:00Z",
+             "score": 10, "confidence": "high", "review_prs": 10, "approval_prs": 8,
+             "merge_prs": 1, "review_examples": [41, 40, 39]}
             for person in ("Author", "Alice", "Bob")]}]}
         self.save_mapping()
         (self.tool / "README.md").write_text("Trusted guide")
+        (self.tool / "CI_GUIDE.md").write_text((assignment.TOOL / "CI_GUIDE.md").read_text())
         self.event = {"action": "labeled", "label": {"name": "need-reviewers"},
                       "pull_request": {"number": 42}}
 
@@ -172,7 +178,15 @@ class AssignmentTest(unittest.TestCase):
         self.assertTrue((self.workspace / "tools/reviewer-routing/README.md").exists())
         prompt = (self.workspace / "prompt.txt").read_text()
         self.assertIn("ADD ASSIGNEES", prompt)
-        self.assertIn("REVIEWER_RULES.md", prompt)
+        self.assertIn("CI_GUIDE.md", prompt)
+        self.assertNotIn("REVIEWER_RULES.md", prompt)
+        self.assertNotIn("GITHUB_ACTION.md", prompt)
+        summary = json.loads((self.workspace / "candidate-summary.json").read_text())
+        self.assertEqual(summary["path_routing_modules"], ["search"])
+        self.assertEqual([p["login"] for p in summary["modules"][0]["candidates"]], ["Alice", "Bob"])
+        self.assertTrue(summary["modules"][0]["candidates"][1]["existing_reviewer"])
+        self.assertEqual((self.workspace / "pr.diff").read_text(),
+                         "diff --git a/query.cpp b/query.cpp\n+fixed_query();\n")
         self.assertEqual(json.loads((self.workspace / "schema.json").read_text())[
             "properties"]["reviewers"]["maxItems"], 2)
         self.assertEqual(json.loads((self.workspace / "pr.json").read_text())["existing_reviewers"], ["Bob"])
@@ -192,7 +206,9 @@ class AssignmentTest(unittest.TestCase):
         self.prepare()
         result = self.apply()
         calls_before = len(self.mutations())
+        shutil.rmtree(self.workspace)  # A rerun starts on a fresh runner.
         self.assertTrue(self.prepare())
+        self.assertFalse((self.workspace / "candidate-summary.json").exists())
         self.apply()
         self.assertEqual(len(self.api.comments), 1)
         self.assertEqual(len(self.mutations()), calls_before + 1)  # Idempotent label addition only.
@@ -461,6 +477,191 @@ class ReviewerOverrideTest(unittest.TestCase):
             selector.plan(self.pr("connector.trino"), self.mapping, NOW + dt.timedelta(days=91))
 
 
+class CandidateSummaryTest(unittest.TestCase):
+    EXPECTED = ReviewerOverrideTest.EXPECTED
+    PATHS = ReviewerOverrideTest.PATHS
+    setUp = ReviewerOverrideTest.setUp
+    pr = ReviewerOverrideTest.pr
+
+    def test_summary_preserves_override_order_and_author_exclusion(self):
+        result = candidate_summary(self.pr("connector.trino", author="MORNINGMAN"), self.mapping, NOW)
+        module = result["modules"][0]
+        self.assertEqual(module["reviewer_override"], self.EXPECTED["connector.trino"])
+        self.assertEqual([p["login"] for p in module["candidates"]], ["Gabriel39", "924060929"])
+        self.assertEqual([p["preference_weight"] for p in module["candidates"]], [0.5, 0.333333])
+        self.assertTrue(all(p["confidence"] == "maintainer" for p in module["candidates"]))
+
+    def test_existing_reviewers_do_not_consume_ci_budget(self):
+        pr = self.pr("connector.trino")
+        pr["files"].append(self.PATHS["runtime.memory"])
+        pr["existing_reviewers"] = ["morningman", "yiguolei", "SomeoneElse"]
+        result = candidate_summary(pr, self.mapping, NOW)
+        self.assertEqual([p["login"] for p in result["path_suggestion"]], ["morningman", "yiguolei"])
+        self.assertFalse(result["uncovered_path_modules"])
+        self.assertTrue(result["modules"][0]["candidates"][0]["existing_reviewer"])
+
+    def test_summary_uses_shared_history_filters_and_bounds_examples(self):
+        pr = {"number": 42, "author": "Contributor", "files": [
+            "be/src/storage/index/inverted/query/query.cpp"]}
+        result = candidate_summary(pr, self.mapping, NOW)
+        people = result["modules"][0]["candidates"]
+        self.assertEqual([p["login"] for p in people],
+                         [p["login"] for p in eligible_candidates(self.modules["search"], NOW)[:5]])
+        self.assertTrue(all(len(p["review_examples"]) <= 2 for p in people))
+        self.assertNotIn("patterns", result["modules"][0])
+        self.assertNotIn("score", people[0])
+
+    def test_queries_can_reclassify_and_expand_history_without_dumping_other_modules(self):
+        pr = self.pr("connector.trino")
+        result = candidate_summary(pr, self.mapping, NOW, ["search"], all_candidates=True)
+        self.assertEqual([m["id"] for m in result["modules"]], ["search"])
+        self.assertEqual(len(result["modules"][0]["candidates"]),
+                         len(eligible_candidates(self.modules["search"], NOW)))
+        self.assertNotIn("path_suggestion", result)
+        with self.assertRaises(KeyError):
+            candidate_summary(pr, self.mapping, NOW, ["not-a-module"])
+
+    def test_fallback_and_exhausted_override_do_not_invent_candidates(self):
+        pr = {"number": 42, "author": "Contributor", "files": ["unknown/path.txt"]}
+        result = candidate_summary(pr, self.mapping, NOW)
+        self.assertEqual(result["uncovered_path_modules"], ["other"])
+        self.assertEqual(result["modules"][0]["candidates"], [])
+        result = candidate_summary(self.pr("connector.mongodb", author="Gabriel39"), self.mapping, NOW)
+        self.assertEqual(result["modules"][0]["candidates"], [])
+        self.assertEqual(result["path_suggestion"], [])
+
+    def test_guide_is_smaller_and_full_evidence_is_unchanged(self):
+        original = copy.deepcopy(self.mapping)
+        candidate_summary(self.pr("connector.trino"), self.mapping, NOW)
+        self.assertEqual(self.mapping, original)
+        guide = (assignment.TOOL / "CI_GUIDE.md").read_text()
+        previous = sum(len((assignment.TOOL / name).read_text()) for name in (
+            "README.md", "REVIEWER_RULES.md", "GITHUB_ACTION.md"))
+        self.assertLess(len(guide), previous / 5)
+        self.assertIn("complete", guide)
+
+    def test_module_lookup_cli_works_outside_the_repository(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            pr = Path(temporary) / "pr.json"
+            pr.write_text(json.dumps(self.pr("connector.trino")))
+            command = [sys.executable, str(assignment.TOOL / "ci_context.py")]
+            listing = subprocess.run(command + ["--list-modules"], cwd=temporary,
+                                     capture_output=True, text=True, check=True)
+            self.assertEqual(json.loads(listing.stdout)["runtime.memory"], self.modules["runtime.memory"]["label"])
+            query = subprocess.run(command + [str(pr), "--modules", "runtime.memory"], cwd=temporary,
+                                   capture_output=True, text=True, check=True)
+            module = json.loads(query.stdout)["modules"][0]
+            self.assertEqual([p["login"] for p in module["candidates"]], ["yiguolei", "mrhhsg"])
+
+
+class UsageTest(unittest.TestCase):
+    def event(self, **counts):
+        return json.dumps({"type": "turn.completed", "usage": {
+            "input_tokens": 1000, "cached_input_tokens": 800, "output_tokens": 120, **counts}})
+
+    def test_sums_turns_without_double_counting_cached_or_reasoning_tokens(self):
+        events = "\n".join([self.event(reasoning_output_tokens=50),
+                            self.event(input_tokens=2000, cached_input_tokens=1700, reasoning_output_tokens=20)])
+        result = usage.usage_report(events, "success", 12, 0)
+        self.assertEqual(result["input_tokens"], 3000)
+        self.assertEqual(result["cached_input_tokens"], 2500)
+        self.assertEqual(result["uncached_input_tokens"], 500)
+        self.assertEqual(result["output_tokens"], 240)
+        self.assertEqual(result["reasoning_output_tokens"], 70)
+        self.assertEqual(result["completed_turns"], 2)
+        self.assertTrue(result["usage_complete"])
+
+    def test_absent_reasoning_field_does_not_invent_zero(self):
+        result = usage.usage_report(self.event(), "success", 12, 0)
+        self.assertTrue(result["usage_complete"])
+        self.assertIsNone(result["reasoning_output_tokens"])
+
+    def test_failure_with_no_completion_does_not_claim_zero(self):
+        result = usage.usage_report('{"type":"turn.failed","error":{"message":"secret"}}', "failure", 9, 1)
+        self.assertIsNone(result["input_tokens"])
+        self.assertFalse(result["usage_complete"])
+        self.assertNotIn("secret", json.dumps(result) + usage.markdown(result))
+        self.assertIn("not zero", usage.markdown(result))
+
+    def test_timeout_retains_partial_counts_and_marks_them_incomplete(self):
+        result = usage.usage_report(self.event() + '\n{"type":', "failure", 480, 124)
+        self.assertEqual(result["status"], "timed_out")
+        self.assertEqual(result["input_tokens"], 1000)
+        self.assertEqual(result["malformed_event_lines"], 1)
+        self.assertFalse(result["usage_complete"])
+
+    def test_checkpoint_reuse_and_skipped_model_are_known_zero_usage(self):
+        for kwargs, expected in (({"reused": True}, "reused"), ({}, "not_run")):
+            with self.subTest(expected=expected):
+                result = usage.usage_report("", "skipped", **kwargs)
+                self.assertEqual(result["status"], expected)
+                self.assertEqual(result["input_tokens"], 0)
+                self.assertEqual(result["elapsed_seconds"], 0)
+                self.assertTrue(result["usage_complete"])
+
+    def test_success_without_usage_is_unavailable_and_invalid_fields_are_not_summed(self):
+        result = usage.usage_report("", "success", 1, 0)
+        self.assertFalse(result["usage_complete"])
+        self.assertIsNone(result["input_tokens"])
+        for invalid in (True, -1, "1000", None):
+            with self.subTest(invalid=invalid):
+                result = usage.usage_report(self.event(input_tokens=invalid), "success", 1, 0)
+                self.assertFalse(result["usage_complete"])
+                self.assertIsNone(result["input_tokens"])
+
+    def test_inconsistent_cached_counts_are_reported_as_an_error(self):
+        with self.assertRaisesRegex(ValueError, "cannot exceed"):
+            usage.usage_report(self.event(cached_input_tokens=1001), "success", 1, 0)
+
+
+class ModelUsageShellTest(unittest.TestCase):
+    def test_actual_model_and_report_steps_record_success_and_failure_without_raw_events(self):
+        for exit_code in (0, 124):
+            with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                binary = root / "codex"
+                binary.write_text('#!' + sys.executable + '''
+import json, os, sys
+print(json.dumps({"type":"item.completed","item":{"text":"secret-context"}}))
+code = int(os.environ['FAKE_CODEX_EXIT'])
+if code == 0:
+    print(json.dumps({"type":"turn.completed","usage":{
+        "input_tokens":1000,"cached_input_tokens":800,"output_tokens":120}}))
+sys.exit(code)
+''')
+                binary.chmod(0o700)
+                timeout = root / "timeout"
+                timeout.write_text('#!/bin/sh\nshift 3\nexec "$@"\n')
+                timeout.chmod(0o700)
+                (root / "prompt.txt").write_text("test prompt")
+                output = root / "outputs"
+                env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                       "RUNNER_TEMP": str(root), "ASSIGNMENT_WORKSPACE": str(root),
+                       "CODEX_ASSIGNMENT_BIN": str(binary), "GITHUB_OUTPUT": str(output),
+                       "FAKE_CODEX_EXIT": str(exit_code), "GITHUB_REPOSITORY": "apache/doris",
+                       "GITHUB_RUN_ID": "100", "GITHUB_RUN_ATTEMPT": "1",
+                       "GITHUB_STEP_SUMMARY": str(root / "summary")}
+                script = AuthPoolShellTest.step_script(self, "Ask Codex to select at most two reviewers")
+                result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, exit_code, result.stderr)
+                values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual(int(values["exit_code"]), exit_code)
+                self.assertGreaterEqual(int(values["elapsed_seconds"]), 0)
+                env.update(CODEX_STEP_OUTCOME="success" if exit_code == 0 else "failure",
+                           CODEX_EXIT_CODE=values["exit_code"],
+                           CODEX_ELAPSED_SECONDS=values["elapsed_seconds"])
+                script = AuthPoolShellTest.step_script(self, "Summarize Codex usage")
+                result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                saved = (root / "reviewer-assignment-metrics/usage.json").read_text()
+                report = json.loads(saved)
+                self.assertEqual(report["status"], "success" if exit_code == 0 else "timed_out")
+                self.assertEqual(report["input_tokens"], 1000 if exit_code == 0 else None)
+                summary = (root / "summary").read_text()
+                self.assertNotIn("secret-context", saved + summary)
+                self.assertIn("Cached input", summary)
+
+
 class AuthPoolShellTest(unittest.TestCase):
     PREFIX = "oss://doris-community-ci/codex/"
 
@@ -712,6 +913,17 @@ class WorkflowTest(unittest.TestCase):
         self.assertNotIn("auth.json", upload)
         self.assertNotIn("codex.log", upload)
         self.assertNotIn("prompt.txt", upload)
+
+    def test_usage_reporting_survives_model_failure_and_uploads_only_numeric_metadata(self):
+        report = self.workflow.split("      - name: Summarize Codex usage\n", 1)[1]
+        report = report.split("      - name: Sync refreshed Codex auth\n", 1)[0]
+        self.assertEqual(report.count("if: always()"), 2)
+        self.assertEqual(report.count("continue-on-error: true"), 2)
+        upload = report.split("      - name: Publish Codex usage metrics\n", 1)[1]
+        self.assertIn("/reviewer-assignment-metrics/usage.json", upload)
+        self.assertNotIn("codex.jsonl", upload)
+        self.assertNotIn("auth.json", upload)
+        self.assertIn("retention-days: 7", upload)
 
 
 if __name__ == "__main__":
