@@ -74,12 +74,6 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
     private final Optional<String> labelName;
     private final Optional<LogicalPlan> cte;
 
-    // Planning does not hold this lock. Cancellation may interrupt planning, but must
-    // synchronize with the side effects and fragment dispatch before acknowledging it.
-    private final Object executionLock = new Object();
-    private final AtomicBoolean canceled = new AtomicBoolean();
-    private volatile Coordinator activeCoordinator;
-
     public InsertIntoTVFCommand(LogicalPlan logicalQuery, Optional<String> labelName,
             Optional<LogicalPlan> cte) {
         super(PlanType.INSERT_INTO_TVF_COMMAND);
@@ -127,36 +121,37 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        executor.registerQueryCancellationCallback(this::cancel);
-        checkCanceled();
+        ExecutionState execution = new ExecutionState();
+        executor.registerQueryCancellationCallback(execution::cancel);
+        execution.checkCanceled();
         NereidsPlanner planner = preparePlan(ctx, executor);
-        checkCanceled();
+        execution.checkCanceled();
 
         Coordinator coordinator = EnvFactory.getInstance().createCoordinator(
                 ctx, planner, ctx.getStatsErrorEstimator());
         TUniqueId queryId = ctx.queryId();
         boolean registered = false;
         try {
-            activeCoordinator = coordinator;
+            execution.activeCoordinator = coordinator;
             executor.setCoord(coordinator);
             QeProcessorImpl.INSTANCE.registerQuery(queryId,
                     new QueryInfo(ctx, "INSERT INTO TVF", coordinator));
             registered = true;
 
-            synchronized (executionLock) {
-                checkCanceled();
+            synchronized (execution.executionLock) {
+                execution.checkCanceled();
                 deleteExistingFiles(planner);
-                checkCanceled();
+                execution.checkCanceled();
                 if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
                     ctx.getMysqlChannel().reset();
                 }
                 coordinator.exec();
             }
-            checkCanceled();
+            execution.checkCanceled();
 
             // join(false) is a timeout. join(true) may also indicate a failed BE.
             boolean completed = coordinator.join(ctx.getExecTimeoutS());
-            checkCanceled();
+            execution.checkCanceled();
             Status executionStatus = coordinator.getExecStatus();
             if (!completed || !coordinator.isDone()) {
                 String error = executionStatus.ok() ? "Insert into TVF timeout" : executionStatus.getErrorMsg();
@@ -181,7 +176,8 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
             }
         } catch (Exception e) {
             String error = e.getMessage() == null ? "unknown error" : e.getMessage();
-            coordinator.cancel(new Status(canceled.get() ? TStatusCode.CANCELLED : TStatusCode.INTERNAL_ERROR, error));
+            coordinator.cancel(new Status(
+                    execution.canceled.get() ? TStatusCode.CANCELLED : TStatusCode.INTERNAL_ERROR, error));
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, error);
         } finally {
             try {
@@ -189,35 +185,44 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
                     QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
                 }
             } finally {
-                synchronized (executionLock) {
-                    activeCoordinator = null;
+                synchronized (execution.executionLock) {
+                    execution.activeCoordinator = null;
                 }
                 coordinator.close();
             }
         }
     }
 
-    /** Called by StmtExecutor even when cancellation arrives before a Coordinator exists. */
-    public void cancel() {
-        canceled.set(true);
-        Coordinator coordinator = activeCoordinator;
-        if (coordinator != null) {
-            // Wake a Coordinator that is waiting for workload admission during exec().
-            coordinator.cancel(new Status(TStatusCode.CANCELLED, "Insert into TVF canceled"));
-        }
-        synchronized (executionLock) {
-            // Dispatch may have installed new fragments after the first cancel. Do not
-            // acknowledge cancellation until startup has exited and those fragments are canceled.
-            coordinator = activeCoordinator;
+    // A prepared statement reuses this command. Each callback must retain only its own execution's state.
+    private static final class ExecutionState {
+        // Planning does not hold this lock. Cancellation may interrupt planning, but must
+        // synchronize with the side effects and fragment dispatch before acknowledging it.
+        private final Object executionLock = new Object();
+        private final AtomicBoolean canceled = new AtomicBoolean();
+        private volatile Coordinator activeCoordinator;
+
+        /** Called by StmtExecutor even when cancellation arrives before a Coordinator exists. */
+        private void cancel() {
+            canceled.set(true);
+            Coordinator coordinator = activeCoordinator;
             if (coordinator != null) {
+                // Wake a Coordinator that is waiting for workload admission during exec().
                 coordinator.cancel(new Status(TStatusCode.CANCELLED, "Insert into TVF canceled"));
             }
+            synchronized (executionLock) {
+                // Dispatch may have installed new fragments after the first cancel. Do not
+                // acknowledge cancellation until startup has exited and those fragments are canceled.
+                coordinator = activeCoordinator;
+                if (coordinator != null) {
+                    coordinator.cancel(new Status(TStatusCode.CANCELLED, "Insert into TVF canceled"));
+                }
+            }
         }
-    }
 
-    private void checkCanceled() throws UserException {
-        if (canceled.get()) {
-            throw new UserException("Insert into TVF canceled");
+        private void checkCanceled() throws UserException {
+            if (canceled.get()) {
+                throw new UserException("Insert into TVF canceled");
+            }
         }
     }
 
