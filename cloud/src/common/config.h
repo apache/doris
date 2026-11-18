@@ -321,6 +321,7 @@ CONF_mBool(enable_abort_txn_and_job_for_delete_rowset_before_recycle, "false");
 // this is a list in semicolon-delimited format, in CIDR notation,
 // e.g. 10.10.10.0/24
 // e.g. 10.10.10.0/24;192.168.0.1/24
+// e.g. 2001:db8::/64
 // If no IP match this rule, a random IP is used (usually it is the IP binded to hostname).
 CONF_String(priority_networks, "");
 

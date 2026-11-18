@@ -24,11 +24,27 @@ namespace doris::cloud {
 /**
  * Gets local IP with give CIDR mask.
  * * If the priority_networks is empty, the IP binded to hostname is returned
- * * If no IP fit the priority_networks CIDR mask, loop back IP is returned
+ * * With a non-empty priority_networks, a matching non-loopback address is preferred. A matching
+ *   loopback is used only when no non-loopback address matches; if no CIDR matches, a loopback
+ *   fallback is returned when available.
+ * Both IPv4 and IPv6 CIDRs are supported. When both loopback families are present, the IPv4
+ * loopback is preferred as the fallback.
  *
  * @param priority_networks CIDR mask, can be empty
  * @return the IP string
  */
 std::string get_local_ip(const std::string& priority_networks);
+
+/**
+ * Formats "host:port", bracketing the host when it is an IPv6 literal ("[fd00::1]:5000"), as
+ * required by brpc endpoint parsing.
+ */
+std::string get_host_port(const std::string& host, int port);
+
+/**
+ * Wildcard bind address for the brpc server: "[::0]" if get_local_ip() selects an IPv6 address
+ * for these networks, "0.0.0.0" otherwise.
+ */
+std::string get_service_bind_address(const std::string& priority_networks);
 
 } // namespace doris::cloud

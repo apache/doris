@@ -30,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -38,7 +39,25 @@ import java.util.stream.Collectors;
 public class MetaServiceListResolverProvider extends NameResolverProvider {
     public static final Logger LOG = LogManager.getLogger(MetaServiceClient.class);
     public static final String MS_LIST_SCHEME = "ms-list";
-    public static final String MS_LIST_SCHEME_PREFIX = MS_LIST_SCHEME + "://";
+
+    public static String toTarget(String address) {
+        try {
+            // URI authority does not support comma-separated multiple IP endpoints,
+            // so store the endpoint list in URI path.
+            return new URI(MS_LIST_SCHEME, "", "/" + address, null).toASCIIString();
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("Invalid meta service endpoint list: " + address, e);
+        }
+    }
+
+    static String getAddressList(URI targetUri) {
+        String authority = targetUri.getAuthority();
+        if (authority != null && !authority.isEmpty()) {
+            return authority;
+        }
+        String path = targetUri.getPath();
+        return path != null && path.startsWith("/") ? path.substring(1) : path;
+    }
 
     @Override
     protected boolean isAvailable() {
@@ -71,7 +90,7 @@ public class MetaServiceListResolverProvider extends NameResolverProvider {
         }
 
         private String getNamingResolverUrl() {
-            return uri.getAuthority();
+            return getAddressList(uri);
         }
 
         @Override
