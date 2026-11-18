@@ -377,7 +377,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         }
     }
 
-    private class LogicalSetOperationRewrite extends OneRewriteRuleFactory {
+    /** Rewrite set-operation inputs, including constant rows stored directly in a union. */
+    public class LogicalSetOperationRewrite extends OneRewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalSetOperation().thenApply(ctx -> {
