@@ -105,4 +105,26 @@ suite("regression_test_variant_mtmv"){
         CREATE MATERIALIZED VIEW tbl1_mv BUILD IMMEDIATE REFRESH AUTO ON MANUAL DISTRIBUTED BY RANDOM BUCKETS 10 PROPERTIES
 ('replication_num' = '1') AS SELECT * FROM tbl1;
     """
+
+    // a VARIANT the query computes is stored as a new column, as CTAS does: its count of 0 extracts no
+    // dynamic path, and the query is still rewritten to the MV
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv_parse_to_variant"""
+    sql """DROP TABLE IF EXISTS mv_parse_to_variant_src"""
+    sql """
+        CREATE TABLE mv_parse_to_variant_src (k int, s string) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_num" = "1");
+    """
+    sql """INSERT INTO mv_parse_to_variant_src VALUES (1, '{"a": 1, "b": "x"}'), (2, '{"a": 2, "b": "y"}')"""
+    sql """
+        CREATE MATERIALIZED VIEW mv_parse_to_variant BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+        DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num' = '1')
+        AS SELECT k, ${variantV2Function}(s) AS pv FROM mv_parse_to_variant_src;
+    """
+    def job_name_3 = getJobName(db, "mv_parse_to_variant")
+    waitingMTMVTaskFinished(job_name_3)
+    sql "set describe_extend_variant_column = true"
+    qt_desc_parse_to_variant_mv "desc mv_parse_to_variant"
+    def query_parse_to_variant = "SELECT k, ${variantV2Function}(s), ${variantV2Function}(s)['a'] FROM mv_parse_to_variant_src"
+    mv_rewrite_success_without_check_chosen(query_parse_to_variant, "mv_parse_to_variant")
+    order_qt_select_parse_to_variant_mv query_parse_to_variant
 }

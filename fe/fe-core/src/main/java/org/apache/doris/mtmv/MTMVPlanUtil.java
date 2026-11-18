@@ -87,6 +87,7 @@ import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -95,6 +96,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -519,6 +521,13 @@ public class MTMVPlanUtil {
     public static DataType getDataType(Slot s, int i, ConnectContext ctx, String partitionCol,
             Set<String> distributionColumnNames) {
         DataType dataType = s.getDataType().conversion();
+        boolean tableColumn = s instanceof SlotReference && ((SlotReference) s).getOriginalColumn().isPresent()
+                && ((SlotReference) s).getSubPath().isEmpty();
+        if (dataType instanceof VariantType && !tableColumn) {
+            // A VARIANT the query computes (parse_to_variant, a sub path, coalesce...) is a new value: store it as
+            // a new column, as CTAS does. A VARIANT column of a table keeps its type.
+            dataType = ((VariantType) dataType).withSerializeType(TVariantSerializeType.V2);
+        }
         // first column can not be TEXT, should transfer to varchar
         if (i == 0 && dataType.isStringType()) {
             dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
@@ -1223,6 +1232,12 @@ public class MTMVPlanUtil {
     private static boolean isTypeLike(Type type, Type typeOther) {
         if (type.isStringType()) {
             return typeOther.isStringType();
+        } else if (type instanceof org.apache.doris.catalog.VariantType
+                && typeOther instanceof org.apache.doris.catalog.VariantType) {
+            // An MV that an older version created stores a VARIANT the query computes as V1, and this version
+            // analyses it as V2: the serialize type is not a change of the base tables
+            TVariantSerializeType stored = ((org.apache.doris.catalog.VariantType) type).getVariantSerializeType();
+            return type.equals(((org.apache.doris.catalog.VariantType) typeOther).withSerializeType(stored));
         } else {
             return type.equals(typeOther);
         }
