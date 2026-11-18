@@ -46,7 +46,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -255,7 +254,7 @@ class IvmJoinDeltaHandler {
             Set<Slot> retainedInputs = deltaContext.isDeltaOnLeft
                     ? join.getRightConditionSlot() : join.getLeftConditionSlot();
             if (hasUniqueNullSideKeys(deltaContext, equiJoinKeys)
-                    && retainedInputs.stream().allMatch(slot -> isExactRepairKey(slot.getDataType()))
+                    && retainedInputs.stream().allMatch(slot -> slot.getDataType().supportsValuePreservingGrouping())
                     && isRepeatableRetainedInput(deltaContext)) {
                 return combineWithJoinedRows(deltaContext,
                         ImmutableList.of(buildMatchedTupleRepair(deltaContext, retainedInputs)));
@@ -307,13 +306,6 @@ class IvmJoinDeltaHandler {
         Plan retained = context.isDeltaOnLeft ? context.join.right() : context.join.left();
         return !retained.anyMatch(node -> ((Plan) node).getExpressions().stream()
                 .anyMatch(Expression::containsNondeterministic));
-    }
-
-    // Group equality must preserve everything a deterministic ON expression can observe. In
-    // particular, floating-point keys can compare equal while carrying different bit patterns.
-    private boolean isExactRepairKey(DataType type) {
-        return type.isBooleanType() || type.isIntegralType() || type.isDecimalLikeType()
-                || type.isStringLikeType() || type.isDateLikeType() || type.isIPType() || type.isUuidType();
     }
 
     /**

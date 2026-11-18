@@ -873,6 +873,17 @@ public abstract class DataType {
         return this.equals(target);
     }
 
+    /**
+     * Whether grouping and null-safe equality can be used to replace a value by its group
+     * representative in deterministic expressions. Both operations must identify the same
+     * values, and expressions must observe the same value for all members of a group.
+     * For example, floating-point grouping can merge signed zeros that SIGNBIT distinguishes.
+     */
+    public boolean supportsValuePreservingGrouping() {
+        return isBooleanType() || isIntegralType() || isDecimalLikeType()
+                || isStringLikeType() || isDateLikeType() || isIPType() || isUuidType();
+    }
+
     public static List<DataType> trivialTypes() {
         return Type.getTrivialTypes()
                 .stream()
