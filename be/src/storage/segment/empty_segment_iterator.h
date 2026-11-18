@@ -33,7 +33,6 @@ public:
     Status init(const StorageReadOptions& opts) override { return Status::OK(); }
     const ReadSchema& schema() const override { return _schema; }
     Status next_batch(Block* block) override;
-    bool empty() const override { return true; }
 
 private:
     const ReadSchema& _schema;

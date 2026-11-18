@@ -140,7 +140,7 @@ TEST_F(IndexStorageVariantReaderTest,
     ASSERT_TRUE(path_column.is_variant_type());
 
     IndexReadOptions read_options;
-    read_options.need_ordered_result = true;
+    read_options.key_ordered = true;
     read_options.return_columns = {0, static_cast<uint32_t>(root_column_id),
                                    static_cast<uint32_t>(path_column_id)};
     read_options.target_cast_type_for_variants[path_column.name()] = nullable_string_target_type();
@@ -220,7 +220,7 @@ TEST_F(IndexStorageVariantReaderTest, DocResidualRootStaysCorrectAfterIndexedPat
     ASSERT_TRUE(path_column.is_variant_type());
 
     IndexReadOptions read_options;
-    read_options.need_ordered_result = true;
+    read_options.key_ordered = true;
     read_options.return_columns = {0, static_cast<uint32_t>(root_column_id),
                                    static_cast<uint32_t>(path_column_id)};
     read_options.target_cast_type_for_variants[path_column.name()] = nullable_string_target_type();
@@ -292,7 +292,7 @@ TEST_F(IndexStorageVariantReaderTest, DocV3ExactPrefixDefaultAndNullMatrix) {
 
     auto read_column = [&](int32_t column_id) {
         IndexReadOptions read_options;
-        read_options.need_ordered_result = true;
+        read_options.key_ordered = true;
         read_options.return_columns = {0, static_cast<uint32_t>(column_id)};
         read_options.collect_variant_values = true;
         return read_rowsets(readable.value(), std::move(read_options));

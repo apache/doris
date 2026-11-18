@@ -472,7 +472,7 @@ TEST_F(IndexStorageLifecycleTest, PatchedSchemaAddDropTextColumnReadsDefaultsAnd
 
     IndexReadOptions read_options;
     read_options.collect_string_values = true;
-    read_options.need_ordered_result = true;
+    read_options.key_ordered = true;
     read_options.return_columns = {1, 2};
     auto read_result = read_rowsets(patched_rowsets.value(), read_options);
     ASSERT_TRUE(read_result.has_value()) << read_result.error();
@@ -499,7 +499,7 @@ TEST_F(IndexStorageLifecycleTest, PatchedSchemaAddDropTextColumnReadsDefaultsAnd
 
     IndexReadOptions compacted_read_options;
     compacted_read_options.collect_string_values = true;
-    compacted_read_options.need_ordered_result = true;
+    compacted_read_options.key_ordered = true;
     compacted_read_options.return_columns = {1, 2};
     auto compacted_read = read_rowsets({compacted.value()}, compacted_read_options);
     ASSERT_TRUE(compacted_read.has_value()) << compacted_read.error();

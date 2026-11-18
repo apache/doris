@@ -244,7 +244,7 @@ protected:
         static_cast<void>(read_schema->init_from_tablet_schema(*schema,
                                                                /*merge_by_sequence_mapping=*/false,
                                                                /*map_changelog_columns=*/false));
-        context.need_ordered_result = true;
+        context.merge.key_ordered = true;
         OlapReaderStatistics statistics;
         context.stats = &statistics;
 

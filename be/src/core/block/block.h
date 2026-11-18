@@ -756,7 +756,6 @@ struct IteratorRowRef {
     }
 };
 
-using BlockView = std::vector<IteratorRowRef>;
 using BlockUPtr = std::unique_ptr<Block>;
 
 } // namespace doris

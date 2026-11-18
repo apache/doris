@@ -21,6 +21,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <memory>
+#include <vector>
 
 #include "core/block/block.h"
 #include "storage/iterators.h"
@@ -48,23 +49,37 @@ struct RowSetSplits {
     RowSetSplits() = default;
 };
 
+// The reader of one rowset: turns the read's RowsetReaderContext into the read options of
+// every segment of the rowset (its delete predicates, its delete bitmap, the key ranges and
+// predicates to push down, ...) and creates the segment iterators. It never writes into the
+// context, which every rowset of the read shares.
+//
+// BlockReader merges or concatenates the segment iterators of all rowsets itself, through
+// get_segment_iterators(). A reader of a single rowset, like a schema change, reads the
+// rowset's rows through next_batch() instead, which is new_iterator() over the own segments.
 class RowsetReader {
 public:
     virtual ~RowsetReader() = default;
 
-    virtual Status init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits = {}) = 0;
+    virtual Status init(const RowsetReaderContext* read_context,
+                        const RowSetSplits& rs_splits = {}) = 0;
 
-    virtual Status get_segment_iterators(RowsetReaderContext* read_context,
+    // One iterator per segment of the read's segment range, in segment order; every segment
+    // iterator carries this rowset's read options.
+    virtual Status get_segment_iterators(const RowsetReaderContext* read_context,
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
                                          bool use_cache = false) = 0;
+
+    // The rows of this rowset as one key-ordered iterator when the read needs them ordered
+    // (a merge of the segments when they overlap on keys), the segments one after another
+    // otherwise. The caller initializes the iterator.
+    virtual Status new_iterator(const RowsetReaderContext* read_context,
+                                RowwiseIteratorUPtr* out_iter) = 0;
+
     virtual void reset_read_options() = 0;
 
+    // Read the rows of new_iterator(): see RowwiseIterator::next_batch() for the contract.
     virtual Status next_batch(Block* block) = 0;
-    virtual Status next_batch(BlockView* block_view) = 0;
-    virtual Status next_batch(BlockWithSameBit* block_view) = 0;
-    virtual bool is_merge_iterator() const { return false; }
-
-    virtual bool delete_flag() = 0;
 
     virtual Version version() = 0;
 
@@ -84,8 +99,6 @@ public:
     virtual void update_profile(RuntimeProfile* profile) = 0;
 
     virtual RowsetReaderSharedPtr clone() = 0;
-
-    virtual void set_topn_limit(size_t topn_limit) = 0;
 };
 
 } // namespace doris

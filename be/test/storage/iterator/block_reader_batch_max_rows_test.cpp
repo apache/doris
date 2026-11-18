@@ -28,6 +28,7 @@
 
 #include "common/config.h"
 #include "core/column/column_vector.h"
+#include "storage/iterator/tablet_block_iterator.h"
 
 namespace doris {
 
@@ -106,34 +107,56 @@ TEST_F(BlockReaderBatchMaxRowsTest, PreferredBlockSizeBytesWhenDisabled) {
 TEST_F(BlockReaderBatchMaxRowsTest, ReachedByteBudgetReturnsFalseWhenDisabled) {
     config::enable_adaptive_batch_size = false;
 
-    BlockReader reader;
-    reader._reader_context.preferred_block_size_bytes = kMinPublicBlockBudgetBytes;
-
+    const OutputBlockLimits limits {.max_rows = 1024,
+                                    .preferred_bytes = kMinPublicBlockBudgetBytes};
     auto columns = make_int64_columns(200000); // ~1.6MB > 1MB min public budget
 
-    EXPECT_FALSE(reader._reached_byte_budget(columns));
+    EXPECT_FALSE(limits.reached_byte_budget(columns));
 }
 
 TEST_F(BlockReaderBatchMaxRowsTest, ReachedByteBudgetReturnsTrueWhenExceeded) {
     config::enable_adaptive_batch_size = true;
 
-    BlockReader reader;
-    reader._reader_context.preferred_block_size_bytes = kMinPublicBlockBudgetBytes;
-
+    const OutputBlockLimits limits {.max_rows = 1024,
+                                    .preferred_bytes = kMinPublicBlockBudgetBytes};
     auto columns = make_int64_columns(200000); // ~1.6MB >= 1MB min public budget
 
-    EXPECT_TRUE(reader._reached_byte_budget(columns));
+    EXPECT_TRUE(limits.reached_byte_budget(columns));
 }
 
 TEST_F(BlockReaderBatchMaxRowsTest, ReachedByteBudgetReturnsFalseWhenUnderBudget) {
     config::enable_adaptive_batch_size = true;
 
-    BlockReader reader;
-    reader._reader_context.preferred_block_size_bytes = kMinPublicBlockBudgetBytes;
-
+    const OutputBlockLimits limits {.max_rows = 1024,
+                                    .preferred_bytes = kMinPublicBlockBudgetBytes};
     auto columns = make_int64_columns(10); // 80 bytes < 1MB min public budget
 
-    EXPECT_FALSE(reader._reached_byte_budget(columns));
+    EXPECT_FALSE(limits.reached_byte_budget(columns));
+}
+
+TEST_F(BlockReaderBatchMaxRowsTest, ReachedByteBudgetReturnsFalseWithoutBudget) {
+    config::enable_adaptive_batch_size = true;
+
+    const OutputBlockLimits limits {.max_rows = 1024, .preferred_bytes = 0};
+    auto columns = make_int64_columns(200000);
+
+    EXPECT_FALSE(limits.reached_byte_budget(columns));
+}
+
+// The budget is only measured every BYTE_BUDGET_CHECK_INTERVAL_ROWS rows.
+TEST_F(BlockReaderBatchMaxRowsTest, ReachedByteBudgetAtChecksOnlyAtIntervals) {
+    config::enable_adaptive_batch_size = true;
+
+    const OutputBlockLimits limits {.max_rows = 1024,
+                                    .preferred_bytes = kMinPublicBlockBudgetBytes};
+    auto columns = make_int64_columns(200000); // over budget
+
+    EXPECT_FALSE(limits.reached_byte_budget_at(
+            OutputBlockLimits::BYTE_BUDGET_CHECK_INTERVAL_ROWS - 1, columns));
+    EXPECT_TRUE(limits.reached_byte_budget_at(OutputBlockLimits::BYTE_BUDGET_CHECK_INTERVAL_ROWS,
+                                              columns));
+    EXPECT_TRUE(limits.reached_byte_budget_at(
+            2 * OutputBlockLimits::BYTE_BUDGET_CHECK_INTERVAL_ROWS, columns));
 }
 
 } // namespace doris

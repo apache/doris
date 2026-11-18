@@ -23,6 +23,7 @@
 #include <cstring>
 #include <utility>
 
+#include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"

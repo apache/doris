@@ -253,7 +253,7 @@ void IndexStorageVariantSparseStatsTest::run_sparse_stats_limit_boundary_case(
 
     auto read_path = [&](int32_t column_id) {
         IndexReadOptions read_options;
-        read_options.need_ordered_result = true;
+        read_options.key_ordered = true;
         read_options.return_columns = {0, static_cast<uint32_t>(column_id)};
         read_options.collect_variant_values = true;
         return read_rowsets(readable.value(), std::move(read_options));
