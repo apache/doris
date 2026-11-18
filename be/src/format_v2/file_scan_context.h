@@ -44,12 +44,16 @@ public:
 class SourceSplitProgress {
 public:
     void reset_for_children(size_t children) {
+        // DORIS_CHECK's streaming failure branch deliberately expands to an unbraced else.
+        // NOLINTNEXTLINE(readability-inconsistent-ifelse-braces)
         DORIS_CHECK(children > 0);
         _remaining.store(children, std::memory_order_release);
     }
 
     bool complete_one() {
         const size_t previous = _remaining.fetch_sub(1, std::memory_order_acq_rel);
+        // DORIS_CHECK's streaming failure branch deliberately expands to an unbraced else.
+        // NOLINTNEXTLINE(readability-inconsistent-ifelse-braces)
         DORIS_CHECK(previous > 0);
         return previous == 1;
     }
@@ -60,6 +64,8 @@ public:
     }
 
     bool update_adaptive_batch_bytes_per_row(double bytes_per_row) {
+        // DORIS_CHECK's streaming failure branch deliberately expands to an unbraced else.
+        // NOLINTNEXTLINE(readability-inconsistent-ifelse-braces)
         DORIS_CHECK(bytes_per_row > 0);
         std::scoped_lock lock(_adaptive_batch_lock);
         // Sibling scanners can finish probes concurrently. Merge their samples under the source
