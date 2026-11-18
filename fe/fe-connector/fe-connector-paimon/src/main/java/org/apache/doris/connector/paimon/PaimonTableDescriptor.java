@@ -22,7 +22,9 @@ import org.apache.doris.thrift.TPaimonCatalogContext;
 import org.apache.doris.thrift.TPaimonTableDesc;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FileStoreTable;
@@ -37,6 +39,13 @@ import java.util.Map;
 /** Portable table metadata pinned by FE for Paimon readers and writers. */
 public final class PaimonTableDescriptor {
     private PaimonTableDescriptor() {
+    }
+
+    static boolean usesRestDataToken(FileStoreTable table) {
+        CatalogContext context = table.catalogEnvironment().catalogContext();
+        // RESTCatalog can wrap RESTTokenFileIO in a cache, so retain its effective option too.
+        return table.fileIO() instanceof RESTTokenFileIO
+                || (context != null && context.options().get(RESTTokenFileIO.DATA_TOKEN_ENABLED));
     }
 
     public static TPaimonTableDesc describeForScan(FileStoreTable table, String database, String name,

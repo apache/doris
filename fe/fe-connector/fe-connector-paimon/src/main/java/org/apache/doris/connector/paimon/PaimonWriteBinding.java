@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.thrift.TPaimonTableDesc;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.CharType;
@@ -291,9 +292,20 @@ final class PaimonWriteBinding {
         if (rust) {
             options.put("write.parquet-buffer-size", "8 mb");
         }
-        return PaimonTableDescriptor.describe(backendTable, backendTable.schema().copy(options),
-                databaseName, simpleTableName, storageOptions,
-                false);
+        boolean restDataToken = PaimonTableDescriptor.usesRestDataToken(table);
+        TPaimonTableDesc descriptor = PaimonTableDescriptor.describe(restDataToken ? table : backendTable,
+                backendTable.schema().copy(options), databaseName, simpleTableName, storageOptions, false);
+        if (restDataToken) {
+            // The catalog-less table loses the REST endpoint/auth options needed to refresh tokens.
+            // Keep that context and remote identity, without restoring BE catalog metadata lookups.
+            Map<String, String> catalogOptions = new HashMap<>(descriptor.getCatalogContext().getOptions());
+            catalogOptions.put(RESTTokenFileIO.DATA_TOKEN_ENABLED.key(), "true");
+            descriptor.getCatalogContext().setOptions(catalogOptions);
+            descriptor.getCatalogContext().setCatalogLoaderEnabled(false);
+            descriptor.getCatalogContext().setSupportsVersionManagement(
+                    backendTable.catalogEnvironment().supportsVersionManagement());
+        }
+        return descriptor;
     }
 
     Map<String, String> getHadoopConfig() {

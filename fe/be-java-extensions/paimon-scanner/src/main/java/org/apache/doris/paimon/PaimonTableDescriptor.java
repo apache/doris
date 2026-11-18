@@ -29,6 +29,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
@@ -81,7 +82,10 @@ final class PaimonTableDescriptor {
             storageOptions.putAll(descriptor.getStorageOptions());
         }
         Path path = new Path(descriptor.getTablePath());
-        FileIO fileIO = FileIO.get(path, CatalogContext.create(Options.fromMap(storageOptions), configuration));
+        // A REST table needs its refreshable FileIO, not a client bound to the FE's current STS token.
+        FileIO fileIO = Options.fromMap(catalogOptions).get(RESTTokenFileIO.DATA_TOKEN_ENABLED)
+                ? new RESTTokenFileIO(catalogContext, null, environment.identifier(), path)
+                : FileIO.get(path, CatalogContext.create(Options.fromMap(storageOptions), configuration));
         try {
             // Write the pinned target itself. Read-only fallback branches and time-travel
             // options must not trigger another schema lookup during reconstruction.
