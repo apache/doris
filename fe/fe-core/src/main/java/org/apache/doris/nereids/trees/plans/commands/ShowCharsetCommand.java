@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -94,7 +96,7 @@ public class ShowCharsetCommand extends ShowCommand {
         return new ShowResultSet(getMetaData(), rows);
     }
 
-    private List<List<String>> filterRows(ConnectContext ctx, StmtExecutor executor) {
+    private List<List<String>> filterRows(ConnectContext ctx, StmtExecutor executor) throws UserException {
         try (AutoCloseConnectContext scope = new AutoCloseConnectContext(ctx.createInternalQueryContext());
                 StatementContext statementContext = ctx.getStatementContext()
                         .createShowQueryContext(scope.connectContext)) {
@@ -116,6 +118,11 @@ public class ShowCharsetCommand extends ShowCommand {
             StmtExecutor internalExecutor = new StmtExecutor(internalContext, adapter);
             internalContext.setExecutor(internalExecutor);
             executor.setCancelDelegate(internalExecutor::cancel);
+            // Publish the delegate before checking for cancellation that arrived before publication.
+            Status cancelReason = executor.getPendingCancelReason();
+            if (cancelReason != null) {
+                throw new UserException(cancelReason.getErrorMsg());
+            }
             return internalExecutor.executeInternalQuery().stream()
                     .map(ResultRow::getValues)
                     .collect(Collectors.toList());

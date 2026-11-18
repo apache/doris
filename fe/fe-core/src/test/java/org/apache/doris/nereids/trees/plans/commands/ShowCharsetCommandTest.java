@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -97,6 +100,20 @@ class ShowCharsetCommandTest extends TestWithFeService {
         Assertions.assertTrue(execute("SHOW CHARSET WHERE Charset = NULL").getResultRows().isEmpty());
         Assertions.assertEquals(EXPECTED_ROWS,
                 execute("SHOW CHARSET WHERE Charset IS NOT NULL").getResultRows());
+    }
+
+    @Test
+    void testCancelledBeforeFilterStarts() {
+        String sql = "SHOW CHARSET WHERE TRUE";
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        ShowCharsetCommand command = (ShowCharsetCommand) new NereidsParser().parseSingle(sql);
+        Status reason = new Status(TStatusCode.CANCELLED, "cancelled before SHOW filter starts");
+        executor.cancel(reason, false);
+
+        UserException exception = Assertions.assertThrows(UserException.class,
+                () -> command.doRun(connectContext, executor));
+        Assertions.assertEquals(reason.getErrorMsg(), exception.getDetailMessage());
+        Assertions.assertSame(connectContext, ConnectContext.get());
     }
 
     @Test

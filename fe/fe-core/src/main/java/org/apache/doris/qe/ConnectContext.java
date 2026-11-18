@@ -481,6 +481,7 @@ public class ConnectContext {
         currentUserIdentity = parent.currentUserIdentity;
         authenticatedPrincipal = parent.authenticatedPrincipal;
         authenticatedRoles = parent.authenticatedRoles;
+        sessionContext = parent.sessionContext;
         isTempUser = parent.isTempUser;
         remoteIP = parent.remoteIP;
         connectionId = parent.connectionId;
