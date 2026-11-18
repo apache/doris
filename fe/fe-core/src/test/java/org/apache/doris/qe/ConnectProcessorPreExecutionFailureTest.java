@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.arrowflight.DorisFlightSqlProducer;
+import org.apache.doris.arrowflight.FlightSqlConnectProcessor;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ConnectionException;
@@ -76,7 +77,6 @@ public class ConnectProcessorPreExecutionFailureTest extends TestWithFeService {
         Assertions.assertEquals("SELECT 1", processor.audits.get(0).stmt);
         Assertions.assertNotNull(processor.audits.get(0).parsedStmt, "audited as the statement that failed");
         Assertions.assertEquals(MysqlStateType.ERR, processor.audits.get(0).state, "audited with its error");
-        Assertions.assertNull(connectContext.queryId(), "must not carry another statement's query id");
     }
 
     @Test
@@ -134,6 +134,8 @@ public class ConnectProcessorPreExecutionFailureTest extends TestWithFeService {
         Assertions.assertFalse(processor.audits.get(1).stmt.contains("@pre_exec_a"), processor.audits.get(1).stmt);
         Assertions.assertEquals(MysqlStateType.ERR, processor.audits.get(1).state);
         Assertions.assertNull(connectContext.queryId(), "the failed statement must not take the first one's query id");
+        Assertions.assertNull(processor.audits.get(1).executor, "audited without the first statement's executor");
+        Assertions.assertNull(connectContext.getExecutor(), "the first statement's executor must not be left behind");
     }
 
     @Test
@@ -213,6 +215,26 @@ public class ConnectProcessorPreExecutionFailureTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testFlightMultiStatementSetupFailureClosesCleanly() throws Exception {
+        // The second statement fails before it executes, after the first one ran. Closing the request must
+        // not finalize the first statement's executor under the failed statement's unset query id.
+        ConnectContext flight = newFlightContext();
+        FailingFlightProcessor flightProcessor = new FailingFlightProcessor(flight);
+        try {
+            flightProcessor.handleQuery("SET @pre_exec_flight_a = 1; SET @pre_exec_flight_b = 2");
+            Assertions.assertEquals(MysqlStateType.ERR, flight.getState().getStateType());
+            Assertions.assertTrue(flight.getState().getErrorMessage().contains("second statement setup failed"),
+                    flight.getState().getErrorMessage());
+            Assertions.assertDoesNotThrow(flightProcessor::close);
+            Assertions.assertNull(flight.getExecutor());
+            Assertions.assertNull(ConnectContext.get(), "close must unbind the session from the thread");
+        } finally {
+            flight.getFlightSqlChannel().close();
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
     private ConnectContext newFlightContext() {
         ConnectContext flight = ConnectContext.forFlight("pre-exec-peer");
         flight.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
@@ -239,11 +261,31 @@ public class ConnectProcessorPreExecutionFailureTest extends TestWithFeService {
         final String stmt;
         final StatementBase parsedStmt;
         final MysqlStateType state;
+        final StmtExecutor executor;
 
-        Audit(String stmt, StatementBase parsedStmt, MysqlStateType state) {
+        Audit(String stmt, StatementBase parsedStmt, MysqlStateType state, StmtExecutor executor) {
             this.stmt = stmt;
             this.parsedStmt = parsedStmt;
             this.state = state;
+            this.executor = executor;
+        }
+    }
+
+    // A Flight processor whose second statement fails before it executes. Its handleQuery resolves the
+    // workload group once before the statement loop, and the loop once per statement.
+    private static class FailingFlightProcessor extends FlightSqlConnectProcessor {
+        private int resolveCalls;
+
+        FailingFlightProcessor(ConnectContext context) {
+            super(context);
+        }
+
+        @Override
+        protected void resolveWorkloadGroupName() {
+            if (++resolveCalls == 3) {
+                throw new IllegalStateException("second statement setup failed");
+            }
+            super.resolveWorkloadGroupName();
         }
     }
 
@@ -283,7 +325,7 @@ public class ConnectProcessorPreExecutionFailureTest extends TestWithFeService {
         @Override
         protected void auditAfterExec(String origStmt, StatementBase parsedStmt,
                 Data.PQueryStatistics statistics, boolean printFuzzyVariables) {
-            audits.add(new Audit(origStmt, parsedStmt, ctx.getState().getStateType()));
+            audits.add(new Audit(origStmt, parsedStmt, ctx.getState().getStateType(), ctx.getExecutor()));
             if (failCloseAfterAudit) {
                 ctx.getStatementContext().close();
                 StatementContext failingClose = Mockito.mock(StatementContext.class);

@@ -386,9 +386,14 @@ public abstract class ConnectProcessor {
                     }
                 } catch (Throwable throwable) {
                     // Thrown before this statement executed, e.g. while building its executor. Report it as
-                    // this statement, or the client is told it succeeded. The query id is assigned when a
-                    // statement executes, so it still names the request's previous statement.
+                    // this statement, or the client is told it succeeded.
                     LOG.warn("statement failed before execution, connection {}", ctx.getConnectionId(), throwable);
+                    // The executor is the previous statement's, or this one's that never ran, and the query id
+                    // still names the previous statement: the executor must neither describe this statement in
+                    // its audit record nor be finalized under this statement's unset query id, as a later
+                    // statement's executor would have replaced it anyway.
+                    executor = null;
+                    ctx.setExecutor(null);
                     ctx.resetQueryId();
                     handleQueryException(throwable, auditStmt, stmts.get(i), null);
                     throw throwable;
