@@ -413,7 +413,7 @@ public class OlapTableStreamWrapper extends OlapTable {
         });
         Map<Long, Long> estimates = Maps.newHashMapWithExpectedSize(partitionIds.size());
         for (Long partitionId : partitionIds) {
-            long records = estimatePartitionChangeRecords(partitionId, offsetMap.get(partitionId), fallback);
+            long records = estimatePartitionChangeRecords(partitionId, offsetMap.get(partitionId), scanType, fallback);
             long rows = StreamRowCountEstimator.outputRows(records, keysType == KeysType.UNIQUE_KEYS, scanType);
             estimates.put(partitionId, rows);
             LOG.debug("Stream {} partition {} actualType={} records={} factor={} outputRows={}",
@@ -467,6 +467,7 @@ public class OlapTableStreamWrapper extends OlapTable {
     }
 
     private long estimatePartitionChangeRecords(long partitionId, Pair<Long, Long> range,
+            BaseTableStream.StreamScanType scanType,
             Supplier<Pair<Long, String>> fallback) {
         PartitionStreamState recorded = getConsumptionState(partitionId);
         PartitionStreamState state = matchingBaseline(partitionId);
@@ -476,24 +477,16 @@ public class OlapTableStreamWrapper extends OlapTable {
         long currentB = getPartitionRowCount(partitionId, baseTable.getBaseIndexId());
         Long start = range == null ? null : range.first;
         Long end = range == null ? null : range.second;
-        long records = StreamRowCountEstimator.estimateChangeRecords(start, end, storedC, storedB,
-                currentC, currentB, () -> fallback.get().first);
+        StreamRowCountEstimator.ChangeEstimate estimate = StreamRowCountEstimator.estimateChangeRecords(
+                start, end, storedC, storedB, currentC, currentB,
+                baseTable.getEnableUniqueKeyMergeOnWrite(), scanType, () -> fallback.get().first);
         if (LOG.isDebugEnabled()) {
             Long baselineOffset = recorded == null ? null : recorded.getBaselineOffset();
             Long deltaC = storedC >= 0 && currentC >= 0 ? currentC - storedC : null;
             Long deltaB = storedB >= 0 && currentB >= 0 ? currentB - storedB : null;
-            String source;
+            String source = estimate.source();
             Long tableFallback = null;
-            if (start != null && end != null && end <= start) {
-                source = "empty-offset-range";
-            } else if (start != null && end != null
-                    && ((deltaC != null && deltaC > 0) || (deltaB != null && deltaB > 0))) {
-                source = "positive-delta";
-            } else if (currentC > 0) {
-                source = "changelog-index";
-            } else if (currentB > 0) {
-                source = "base-index";
-            } else {
+            if ("table-fallback".equals(source)) {
                 Pair<Long, String> table = fallback.get();
                 source = table.second;
                 tableFallback = table.first;
@@ -502,11 +495,11 @@ public class OlapTableStreamWrapper extends OlapTable {
                             + "matched={} C0={} B0={} C1={} B1={} deltaC={} deltaB={} tableFallback={} source={} "
                             + "records={} changelogReported={} baseReported={}", stream.getId(), partitionId,
                     getOutputUpdate(partitionId), range, baselineOffset, state != null, storedC, storedB,
-                    currentC, currentB, deltaC, deltaB, tableFallback, source, records,
+                    currentC, currentB, deltaC, deltaB, tableFallback, source, estimate.records(),
                     isRowCountReported(partitionId, baseTable.getChangelogIndexMeta().getIndexId()),
                     isRowCountReported(partitionId, baseTable.getBaseIndexId()));
         }
-        return records;
+        return estimate.records();
     }
 
     private boolean isRowCountReported(long partitionId, long indexId) {

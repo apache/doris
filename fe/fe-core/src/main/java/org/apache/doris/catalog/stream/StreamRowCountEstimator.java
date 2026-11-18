@@ -18,12 +18,16 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 
 import java.util.function.LongSupplier;
 
 /** Row-count formulas shared by consumption snapshots and stream reads. */
 public final class StreamRowCountEstimator {
     public static final long UNKNOWN_ROW_COUNT = -1L;
+
+    record ChangeEstimate(long records, String source) {
+    }
 
     private StreamRowCountEstimator() {
     }
@@ -38,29 +42,40 @@ public final class StreamRowCountEstimator {
     }
 
     /** Record scale before changelog scan-type expansion. Only offsets can prove an empty range. */
-    public static long estimateChangeRecords(Long start, Long end, long storedChangelog, long storedBase,
-            long currentChangelog, long currentBase, LongSupplier tableFallback) {
+    static ChangeEstimate estimateChangeRecords(Long start, Long end, long storedChangelog, long storedBase,
+            long currentChangelog, long currentBase, boolean mergeOnWrite, StreamScanType scanType,
+            LongSupplier tableFallback) {
         if (start != null && end != null) {
             if (end <= start) {
-                return 0;
+                return new ChangeEstimate(0, "empty-offset-range");
             }
-            long deltaC = storedChangelog >= 0 && currentChangelog >= 0
-                    ? currentChangelog - storedChangelog : UNKNOWN_ROW_COUNT;
-            long deltaB = storedBase >= 0 && currentBase >= 0
-                    ? currentBase - storedBase : UNKNOWN_ROW_COUNT;
-            long delta = Math.max(deltaC, deltaB);
-            if (delta > 0) {
-                return delta;
+            long changelogEstimate = currentChangelog >= 0 && storedChangelog >= 0
+                    ? currentChangelog - storedChangelog : currentChangelog;
+            // A known zero delta and a missing baseline with zero current rows have different fallbacks.
+            boolean changelogUnavailable = changelogEstimate < 0 || (storedChangelog < 0 && currentChangelog == 0);
+            long baseEstimate = UNKNOWN_ROW_COUNT;
+            boolean useBaseDecline = mergeOnWrite && changelogUnavailable
+                    && (scanType == StreamScanType.DETAIL || scanType == StreamScanType.MIN_DELTA);
+            if (storedBase >= 0 && currentBase >= 0) {
+                long deltaBase = currentBase - storedBase;
+                baseEstimate = useBaseDecline ? Math.abs(deltaBase) : deltaBase;
+            }
+            if (changelogEstimate > 0 && changelogEstimate >= baseEstimate) {
+                return new ChangeEstimate(changelogEstimate, storedChangelog >= 0
+                        ? "changelog-delta" : "changelog-index-without-baseline");
+            }
+            if (baseEstimate > 0) {
+                return new ChangeEstimate(baseEstimate, currentBase < storedBase ? "base-decline" : "base-growth");
             }
         }
         if (currentChangelog > 0) {
-            return currentChangelog;
+            return new ChangeEstimate(currentChangelog, "changelog-index");
         }
         if (currentBase > 0) {
-            return currentBase;
+            return new ChangeEstimate(currentBase, "base-index");
         }
         long fallback = tableFallback.getAsLong();
-        return fallback > 0 ? fallback : UNKNOWN_ROW_COUNT;
+        return new ChangeEstimate(fallback > 0 ? fallback : UNKNOWN_ROW_COUNT, "table-fallback");
     }
 
     public static long outputRows(long records, boolean unique, BaseTableStream.StreamScanType type) {

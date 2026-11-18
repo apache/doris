@@ -404,6 +404,13 @@ public class StreamScanRowCountTest extends TestWithFeService {
                         (long) scan.getStats().getRowCount());
             }
         });
+        // With a negative changelog delta, only scans that output deletes use the base decline.
+        partition.getBaseIndex().setRowCount(900L);
+        partition.getIndex(table.getChangelogIndexMeta().getIndexId()).setRowCount(400L);
+        for (String type : new String[] {"APPEND_ONLY", "DETAIL", "MIN_DELTA"}) {
+            Assertions.assertEquals(type.equals("APPEND_ONLY") ? 400L : 200L,
+                    streamScanRowCount("select * from unique_" + type, "stream_unique"));
+        }
     }
 
     @Test

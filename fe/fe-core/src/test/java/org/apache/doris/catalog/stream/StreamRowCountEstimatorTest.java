@@ -21,6 +21,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.cloud.catalog.CloudPartition;
 
@@ -32,16 +33,46 @@ public class StreamRowCountEstimatorTest {
     private static final long UNKNOWN = StreamRowCountEstimator.UNKNOWN_ROW_COUNT;
 
     private long records(long c0, long b0, long c1, long b1, long fallback) {
-        return StreamRowCountEstimator.estimateChangeRecords(100L, 200L, c0, b0, c1, b1, () -> fallback);
+        return records(c0, b0, c1, b1, false, StreamScanType.APPEND_ONLY, fallback);
+    }
+
+    private long records(long c0, long b0, long c1, long b1,
+            boolean mergeOnWrite, StreamScanType scanType, long fallback) {
+        return StreamRowCountEstimator.estimateChangeRecords(
+                100L, 200L, c0, b0, c1, b1, mergeOnWrite, scanType, () -> fallback).records();
     }
 
     @Test
     public void testBothDeltasAndTtlCompensation() {
         Assertions.assertEquals(700, records(1000, 1000, 1200, 1700, 9999));
         Assertions.assertEquals(900, records(1000, 1000, 1900, 1700, 9999));
-        Assertions.assertEquals(700, records(UNKNOWN, 1000, 1200, 1700, 9999));
+        Assertions.assertEquals(1200, records(UNKNOWN, 1000, 1200, 1700, 9999));
         Assertions.assertEquals(200, records(1000, UNKNOWN, 1200, 1700, 9999));
         Assertions.assertEquals(700, records(1000, 1000, 500, 1700, 9999));
+    }
+
+    @Test
+    public void testChangelogStockCompetesWithBaseGrowthWhenBaselineIsMissing() {
+        for (StreamScanType type : StreamScanType.values()) {
+            Assertions.assertEquals(1000, records(UNKNOWN, 1000, 1000, 1005, true, type, 9999));
+            Assertions.assertEquals(1200, records(UNKNOWN, 1000, 1000, 2200, true, type, 9999));
+            Assertions.assertEquals(20, records(UNKNOWN, 1000, 20, 900, true, type, 9999));
+        }
+    }
+
+    @Test
+    public void testBaseDeclineRequiresMowDeleteOutputAndUnavailableChangelogEstimate() {
+        for (StreamScanType type : StreamScanType.values()) {
+            boolean canUseDecline = type == StreamScanType.DETAIL || type == StreamScanType.MIN_DELTA;
+            Assertions.assertEquals(canUseDecline ? 100 : 400, records(500, 1000, 400, 900, true, type, 9999));
+            Assertions.assertEquals(canUseDecline ? 100 : 900, records(500, 1000, UNKNOWN, 900, true, type, 9999));
+            Assertions.assertEquals(canUseDecline ? 100 : 900, records(UNKNOWN, 1000, 0, 900, true, type, 9999));
+            Assertions.assertEquals(500, records(500, 1000, 500, 900, true, type, 9999));
+            Assertions.assertEquals(20, records(500, 1000, 520, 900, true, type, 9999));
+            Assertions.assertEquals(900, records(UNKNOWN, UNKNOWN, UNKNOWN, 900, true, type, 9999));
+            Assertions.assertEquals(400, records(500, 1000, 400, 1000, true, type, 9999));
+            Assertions.assertEquals(400, records(500, 1000, 400, 900, false, type, 9999));
+        }
     }
 
     @Test
@@ -58,13 +89,17 @@ public class StreamRowCountEstimatorTest {
     @Test
     public void testOnlyResolvedOffsetsProveEmpty() {
         Assertions.assertEquals(0,
-                StreamRowCountEstimator.estimateChangeRecords(100L, 100L, 0, 0, 800, 800, () -> 9999));
+                StreamRowCountEstimator.estimateChangeRecords(100L, 100L, UNKNOWN, 1000, 800, 800,
+                        true, StreamScanType.DETAIL, () -> 9999).records());
         Assertions.assertEquals(0,
-                StreamRowCountEstimator.estimateChangeRecords(110L, 100L, 0, 0, 800, 800, () -> 9999));
+                StreamRowCountEstimator.estimateChangeRecords(110L, 100L, 0, 0, 800, 800,
+                        false, StreamScanType.APPEND_ONLY, () -> 9999).records());
         Assertions.assertEquals(800,
-                StreamRowCountEstimator.estimateChangeRecords(null, 200L, 100, 100, 800, 900, () -> 9999));
+                StreamRowCountEstimator.estimateChangeRecords(null, 200L, 100, 100, 800, 900,
+                        false, StreamScanType.APPEND_ONLY, () -> 9999).records());
         Assertions.assertEquals(800,
-                StreamRowCountEstimator.estimateChangeRecords(100L, null, 100, 100, 800, 900, () -> 9999));
+                StreamRowCountEstimator.estimateChangeRecords(100L, null, 1000, 1000, 800, 900,
+                        true, StreamScanType.DETAIL, () -> 9999).records());
     }
 
     @Test
