@@ -866,9 +866,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         String computeGroupId = tryCreateComputeGroup(clusterName,
                 RandomIdentifierGenerator.generateRandomIdentifier(8));
-        String instanceId = Config.cluster_id == -1 ? ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId()
-                : String.valueOf(Config.cluster_id);
-
+        String instanceId = ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId();
         String cloudUniqueId = "1:" + instanceId + ":" + RandomIdentifierGenerator.generateRandomIdentifier(8);
 
         String publicEndpoint = tagMap.getOrDefault(Tag.PUBLIC_ENDPOINT, "");
@@ -1527,23 +1525,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new DdlException("unable to alter frontend due to invalid role");
         }
 
-        // Issue rpc to meta to add this node, then fe master would add this node to its frontends
-        Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
-                .setCloudUniqueId(cloudUnqiueID)
-                .setIp(host)
-                .setHost(host)
-                .setEditLogPort(editLogPort)
-                .setNodeType(nodeType)
-                .setCtime(System.currentTimeMillis() / 1000)
-                .build();
-
-        ClusterPB clusterPB = ClusterPB.newBuilder()
-                .setClusterId(Config.cloud_sql_server_cluster_id)
-                .setClusterName(Config.cloud_sql_server_cluster_name)
-                .setType(ClusterPB.Type.SQL)
-                .addNodes(nodeInfoPB)
-                .build();
-
+        ClusterPB clusterPB = buildFrontendCluster(nodeType, host, editLogPort, cloudUnqiueID);
         Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
                 .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached())
@@ -1563,6 +1545,34 @@ public class CloudSystemInfoService extends SystemInfoService {
         } catch (RpcException e) {
             throw new DdlException("failed to alter frontend", e);
         }
+    }
+
+    private ClusterPB buildFrontendCluster(Cloud.NodeInfoPB.NodeType type, String host, int editLogPort,
+            String cloudUniqueId) {
+        Cloud.NodeInfoPB node = Cloud.NodeInfoPB.newBuilder()
+                .setCloudUniqueId(cloudUniqueId)
+                .setIp(host)
+                .setHost(host)
+                .setEditLogPort(editLogPort)
+                .setNodeType(type)
+                .setCtime(System.currentTimeMillis() / 1000)
+                .build();
+        return ClusterPB.newBuilder()
+                .setClusterId(Config.cloud_sql_server_cluster_id)
+                .setClusterName(Config.cloud_sql_server_cluster_name)
+                .setType(ClusterPB.Type.SQL)
+                .addNodes(node)
+                .build();
+    }
+
+    public Cloud.MetaServiceResponseStatus bootstrapInstance(String instanceId, String host, int editLogPort)
+            throws RpcException {
+        Cloud.BootstrapInstanceRequest request = Cloud.BootstrapInstanceRequest.newBuilder()
+                .setInstanceId(instanceId)
+                .setInitialFeCluster(buildFrontendCluster(Cloud.NodeInfoPB.NodeType.FE_MASTER, host, editLogPort,
+                        Config.cloud_unique_id))
+                .build();
+        return MetaServiceProxy.getInstance().bootstrapInstance(request).getStatus();
     }
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
@@ -1918,31 +1928,6 @@ public class CloudSystemInfoService extends SystemInfoService {
         void run() throws DdlException;
     }
 
-
-    public void tryCreateInstance(String instanceId, String name, boolean sseEnabled) throws DdlException {
-        Cloud.CreateInstanceRequest.Builder builder = Cloud.CreateInstanceRequest.newBuilder();
-        builder.setInstanceId(instanceId);
-        builder.setName(name);
-        builder.setSseEnabled(sseEnabled);
-        builder.setRequestIp(FrontendOptions.getLocalHostAddressCached());
-
-        Cloud.CreateInstanceResponse response;
-        try {
-
-            Cloud.CreateInstanceRequest request = builder.build();
-            response = MetaServiceProxy.getInstance().createInstance(request);
-            LOG.info("create instance, request: {}, response: {}", request, response);
-            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK
-                    && response.getStatus().getCode() != Cloud.MetaServiceCode.ALREADY_EXISTED) {
-                LOG.warn("Failed to create instance {}, response: {}", instanceId, response);
-                throw new DdlException("Failed to create instance");
-            }
-            LOG.info("Successfully created instance {}, response: {}", instanceId, response);
-        } catch (RpcException e) {
-            LOG.warn("Failed to create instance {}", instanceId, e);
-            throw new DdlException("Failed to create instance");
-        }
-    }
 
     public String getInstanceId(String cloudUniqueId) throws IOException {
         Cloud.GetInstanceRequest.Builder builder = Cloud.GetInstanceRequest.newBuilder();

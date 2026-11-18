@@ -34,6 +34,7 @@
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/txn_kv.h"
+#include "scoped_legacy_instance_rpc.h"
 
 using namespace doris;
 
@@ -188,6 +189,7 @@ static std::string cloud_unique_id(const std::string& instance_id) {
 }
 
 static int create_instance(MetaService* service, const std::string& instance_id) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     CreateInstanceRequest req;
     CreateInstanceResponse resp;
     req.set_instance_id(instance_id);
@@ -228,6 +230,7 @@ static int create_instance(MetaService* service, const std::string& instance_id)
 }
 
 static int remove_instance(MetaService* service, const std::string& instance_id) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     AlterInstanceRequest req;
     AlterInstanceResponse resp;
     req.set_instance_id(instance_id);
@@ -256,6 +259,7 @@ static int remove_instance(MetaService* service, const std::string& instance_id)
 }
 
 static int add_cluster(MetaService* service, const std::string& instance_id) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     bool retry = false;
     while (true) {
         brpc::Controller ctrl;
@@ -310,6 +314,7 @@ static int add_cluster(MetaService* service, const std::string& instance_id) {
 }
 
 static int drop_cluster(MetaService* service, const std::string& instance_id) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     AlterClusterRequest req;
     AlterClusterResponse resp;
     req.set_instance_id(instance_id);
