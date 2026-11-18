@@ -4504,7 +4504,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     bool is_explicit_txn = (request->has_is_explicit_txn() && request->is_explicit_txn());
-    bool is_first_sub_txn = (is_explicit_txn && request->txn_id() == request->lock_id());
+    bool is_first_sub_txn = is_explicit_txn && (request->txn_id() == request->lock_id() ||
+                                                request->reset_pending_delete_bitmap());
     std::string log = ", update delete bitmap for tablet " + std::to_string(tablet_id);
     if (!without_lock) {
         // 1. Check whether the lock expires

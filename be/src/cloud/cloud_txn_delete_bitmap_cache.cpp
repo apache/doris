@@ -60,7 +60,8 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
         std::shared_ptr<PartialUpdateInfo>* partial_update_info,
         std::shared_ptr<PublishStatus>* publish_status, TxnPublishInfo* previous_publish_info,
-        ChangelogTxnInfo* attach_changelog) {
+        ChangelogTxnInfo* attach_changelog,
+        std::shared_ptr<const SequenceRetentionBitmapBaseline>* sequence_retention_baseline) {
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
@@ -85,13 +86,17 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         }
     }
 
-    auto st = get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr);
+    auto st = get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr,
+                                sequence_retention_baseline);
 
     if (st.is<ErrorCode::NOT_FOUND>()) {
         // Because of the rowset_ids become empty, all delete bitmap
         // will be recalculate in CalcDeleteBitmapTask
         if (delete_bitmap != nullptr) {
             *delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
+        }
+        if (sequence_retention_baseline != nullptr) {
+            sequence_retention_baseline->reset();
         }
         // to avoid to skip calculating
         **publish_status = PublishStatus::INIT;
@@ -143,7 +148,8 @@ CloudTxnDeleteBitmapCache::get_rowset_and_delete_bitmap(TTransactionId transacti
 
 Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
         TTransactionId transaction_id, int64_t tablet_id, DeleteBitmapPtr* delete_bitmap,
-        RowsetIdUnorderedSet* rowset_ids, std::shared_ptr<PublishStatus>* publish_status) {
+        RowsetIdUnorderedSet* rowset_ids, std::shared_ptr<PublishStatus>* publish_status,
+        std::shared_ptr<const SequenceRetentionBitmapBaseline>* sequence_retention_baseline) {
     if (publish_status) {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey txn_key(transaction_id, tablet_id);
@@ -173,6 +179,9 @@ Status CloudTxnDeleteBitmapCache::get_delete_bitmap(
         if (rowset_ids) {
             *rowset_ids = val->rowset_ids;
         }
+        if (sequence_retention_baseline != nullptr) {
+            *sequence_retention_baseline = val->sequence_retention_baseline;
+        }
         // must call release handle to reduce the reference count,
         // otherwise there will be memory leak
         release(handle);
@@ -191,7 +200,8 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, DeleteBitmapPtr delete_bitmap,
         const RowsetIdUnorderedSet& rowset_ids, RowsetSharedPtr rowset, int64_t txn_expiration,
         std::shared_ptr<PartialUpdateInfo> partial_update_info,
-        const ChangelogTxnInfo& attach_changelog) {
+        const ChangelogTxnInfo& attach_changelog,
+        std::shared_ptr<const SequenceRetentionBitmapBaseline> sequence_retention_baseline) {
     int64_t txn_expiration_min =
             duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
                     .count() +
@@ -209,10 +219,14 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
     std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
     CacheKey key(key_str);
 
-    auto val = new DeleteBitmapCacheValue(delete_bitmap, rowset_ids);
+    auto val = new DeleteBitmapCacheValue(delete_bitmap, rowset_ids,
+                                          std::move(sequence_retention_baseline));
     size_t charge = sizeof(DeleteBitmapCacheValue);
     for (auto& [k, v] : val->delete_bitmap->delete_bitmap) {
         charge += v.getSizeInBytes();
+    }
+    if (val->sequence_retention_baseline) {
+        charge += val->sequence_retention_baseline->intra_rowset_bitmap->get_size();
     }
     auto* handle = insert(key, val, charge, charge, CachePriority::NORMAL);
     // must call release handle to reduce the reference count,

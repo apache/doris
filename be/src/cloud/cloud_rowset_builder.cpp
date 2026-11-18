@@ -291,7 +291,8 @@ Status CloudRowsetBuilder::set_txn_related_info() {
         }
         _engine.txn_delete_bitmap_cache().set_tablet_txn_info(
                 _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
-                _req.txn_expiration, _partial_update_info, _attach_changelog);
+                _req.txn_expiration, _partial_update_info, _attach_changelog,
+                _sequence_retention_baseline);
     } else {
         // TSO-enabled rowsets must become visible from MS rowset meta.
         if (config::enable_cloud_make_rs_visible_on_be && !_tablet_schema->is_tso_enabled()) {

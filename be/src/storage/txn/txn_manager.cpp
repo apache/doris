@@ -290,7 +290,8 @@ void TxnManager::set_txn_related_delete_bitmap(
         TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
         TabletUid tablet_uid, bool unique_key_merge_on_write, DeleteBitmapPtr delete_bitmap,
         const RowsetIdUnorderedSet& rowset_ids,
-        std::shared_ptr<PartialUpdateInfo> partial_update_info) {
+        std::shared_ptr<PartialUpdateInfo> partial_update_info,
+        std::shared_ptr<const SequenceRetentionBitmapBaseline> sequence_retention_baseline) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, tablet_uid);
 
@@ -317,6 +318,7 @@ void TxnManager::set_txn_related_delete_bitmap(
         load_info->delete_bitmap = delete_bitmap;
         load_info->rowset_ids = rowset_ids;
         load_info->partial_update_info = partial_update_info;
+        load_info->sequence_retention_baseline = std::move(sequence_retention_baseline);
     }
 }
 
@@ -637,7 +639,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
         int64_t t2 = MonotonicMicros();
-        if (rowset->num_segments() > 1 &&
+        if (rowset->num_segments() > 1 && !rowset->rowset_meta()->requires_sequence_retention() &&
             !tablet_txn_info->delete_bitmap->has_calculated_for_multi_segments(
                     rowset->rowset_id())) {
             // delete bitmap is empty, should re-calculate delete bitmaps between segments

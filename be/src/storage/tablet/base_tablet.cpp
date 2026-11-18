@@ -51,6 +51,7 @@
 #include "storage/delete/delete_bitmap_calculator.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/iterators.h"
+#include "storage/mow/sequence_retention_finalize.h"
 #include "storage/partial_update_info.h"
 #include "storage/rowid_conversion.h"
 #include "storage/rowset/beta_rowset.h"
@@ -1805,6 +1806,10 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
                                         int64_t txn_id, int64_t txn_expiration,
                                         DeleteBitmapPtr tablet_delete_bitmap) {
     SCOPED_BVAR_LATENCY(g_tablet_update_delete_bitmap_latency);
+    if (txn_info->rowset->rowset_meta()->requires_sequence_retention()) {
+        return finalize_sequence_retention(self, txn_info, txn_id, txn_expiration,
+                                           std::move(tablet_delete_bitmap));
+    }
     RowsetIdUnorderedSet cur_rowset_ids;
     RowsetIdUnorderedSet rowset_ids_to_add;
     RowsetIdUnorderedSet rowset_ids_to_del;

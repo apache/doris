@@ -154,6 +154,15 @@ public:
 
     // Synchronize the tablet meta from meta service.
     Status sync_meta();
+    // Caller holds _sync_meta_lock; applies the entire policy under _meta_lock.
+    Status sync_meta_unlocked();
+    // Protected by _meta_lock. A refreshed activation must fetch its historical bitmap first.
+    int64_t sequence_retention_bitmap_ready_version_unlocked() const {
+        return _sequence_retention_bitmap_ready_version;
+    }
+    void set_sequence_retention_bitmap_ready_version_unlocked(int64_t version) {
+        _sequence_retention_bitmap_ready_version = version;
+    }
 
     // If `version_overlap` is true, function will delete rowsets with overlapped version in this tablet.
     // If 'warmup_delta_data' is true, download the new version rowset data in background.
@@ -326,7 +335,8 @@ public:
 
     Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                     DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                    int64_t next_visible_version, RowsetSharedPtr rowset);
+                                    int64_t next_visible_version, RowsetSharedPtr rowset,
+                                    bool reset_pending = false);
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
@@ -482,6 +492,7 @@ private:
     CloudStorageEngine& _engine;
 
     // this mutex MUST ONLY be used when sync meta
+    int64_t _sequence_retention_bitmap_ready_version = -1;
     bthread::Mutex _sync_meta_lock;
     // ATTENTION: lock order should be: _sync_meta_lock -> _meta_lock
 

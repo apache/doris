@@ -85,6 +85,8 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             auto tablet_id = partition.tablet_ids[i];
             auto tablet_calc_delete_bitmap_ptr = std::make_shared<CloudTabletCalcDeleteBitmapTask>(
                     _engine, tablet_id, transaction_id, version, partition.sub_txn_ids);
+            tablet_calc_delete_bitmap_ptr->set_sequence_retention_plan_version(
+                    partition.sequence_retention_plan_version);
             if (has_compaction_stats) {
                 tablet_calc_delete_bitmap_ptr->set_compaction_stats(
                         partition.base_compaction_cnts[i], partition.cumulative_compaction_cnts[i],
@@ -183,7 +185,9 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
         // some compaction jobs finished on other BEs during this load job
         // we should sync rowsets and their delete bitmaps produced by compaction jobs
         std::shared_lock rlock(tablet->get_header_lock());
-        return _ms_base_compaction_cnt > tablet->base_compaction_cnt() ||
+        return (tablet->tablet_meta()->sequence_retention_gap() > 0 &&
+                tablet->sequence_retention_bitmap_ready_version_unlocked() < _version - 1) ||
+               _ms_base_compaction_cnt > tablet->base_compaction_cnt() ||
                _ms_cumulative_compaction_cnt > tablet->cumulative_compaction_cnt() ||
                _ms_cumulative_point > tablet->cumulative_layer_point() ||
                (_ms_tablet_state.has_value() &&
@@ -207,7 +211,12 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     }
     auto sync_rowset_time_us = MonotonicMicros() - t2;
     max_version = tablet->max_version_unlocked();
-    if (_version != max_version + 1) {
+    const bool bitmap_not_ready = [&] {
+        std::shared_lock rlock(tablet->get_header_lock());
+        return tablet->tablet_meta()->sequence_retention_gap() > 0 &&
+               tablet->sequence_retention_bitmap_ready_version_unlocked() < _version - 1;
+    }();
+    if (_version != max_version + 1 || bitmap_not_ready) {
         bool need_log = (config::publish_version_gap_logging_threshold < 0 ||
                          max_version + config::publish_version_gap_logging_threshold >= _version);
         if (need_log) {
@@ -342,13 +351,22 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     int64_t txn_expiration;
     TxnPublishInfo previous_publish_info;
     ChangelogTxnInfo attach_changelog;
+    std::shared_ptr<const SequenceRetentionBitmapBaseline> sequence_retention_baseline;
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
-            &partial_update_info, &publish_status, &previous_publish_info, &attach_changelog);
+            &partial_update_info, &publish_status, &previous_publish_info, &attach_changelog,
+            &sequence_retention_baseline);
     if (status != Status::OK()) {
         LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id << ", " << txn_str
                      << ", status=" << status;
         return status;
+    }
+
+    const auto& meta = rowset->rowset_meta();
+    if (meta->requires_sequence_retention() != (_sequence_retention_plan_version > 0) ||
+        meta->sequence_retention_input().plan_version() != _sequence_retention_plan_version) {
+        return Status::InvalidArgument(
+                "sequence retention bitmap task does not match pending rowset planning version");
     }
 
     rowset->set_version(Version(version, version));
@@ -364,14 +382,21 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     txn_info.rowset = rowset;
     txn_info.delete_bitmap = delete_bitmap;
     txn_info.attach_changelog = attach_changelog;
-    txn_info.rowset_ids = rowset_ids;
+    txn_info.rowset_ids = std::move(rowset_ids);
+    txn_info.sequence_retention_baseline = std::move(sequence_retention_baseline);
     txn_info.partial_update_info = partial_update_info;
     txn_info.publish_status = publish_status;
     txn_info.publish_info = {.publish_version = version,
                              .base_compaction_cnt = _ms_base_compaction_cnt,
                              .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
                              .cumulative_point = _ms_cumulative_point};
-    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
+    // A sub-transaction depends on the preceding statements' pending bitmaps. For a
+    // changelog, both the source and history must be sent again if pending state was cleared.
+    const bool rebuild_retention_output =
+            _sequence_retention_plan_version > 0 &&
+            (invisible_rowsets != nullptr || attach_changelog.rowset != nullptr);
+    if (!rebuild_retention_output && txn_info.publish_status &&
+        (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
         version == previous_publish_info.publish_version &&
         _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
         _ms_cumulative_compaction_cnt == previous_publish_info.cumulative_compaction_cnt &&
@@ -391,7 +416,7 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         LOG(INFO) << "tablet=" << _tablet_id << ", " << txn_str
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";
     } else {
-        if (rowset->num_segments() > 1 &&
+        if (rowset->num_segments() > 1 && !rowset->rowset_meta()->requires_sequence_retention() &&
             !delete_bitmap->has_calculated_for_multi_segments(rowset->rowset_id())) {
             // delete bitmap cache missed, should re-calculate delete bitmaps between segments
             std::vector<segment_v2::SegmentSharedPtr> segments;
