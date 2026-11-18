@@ -229,16 +229,9 @@ public class FEOpExecutor {
             ctx.getSessionVariable().setSpmForwardedSessionBaselines("");
         }
         Map<String, String> forwardVariables = ctx.getSessionVariable().getForwardVariables();
-        // The forwarded statement's TEXT is re-parsed on the master, so it must travel with
-        // the sql_mode its text was written for. A SET_VAR(sql_mode=...) hint of the
-        // statement itself has ALREADY overwritten this session's mode while the statement
-        // was parsed (SelectHintSetVar#setVarOnceInSql, reverted only when the statement
-        // finishes), and forwarding that polluted value made the master read e.g. `||` as
-        // CONCAT although the observer had planned it as OR - and the SPM replay, whose
-        // frozen texts are parsed there too, would compute the same statement under a mode
-        // the origin never used. The value that was in force before the hint is the one the
-        // statement's text needs (see StatementContext#getSpmOriginSqlMode); without such a
-        // hint the session mode IS that value and nothing changes.
+        // The master re-parses this text under the mode captured by the originating parser. SET_VAR in this
+        // statement or an earlier statement of the same parsed batch may already have changed the live mode;
+        // forwarding that value could turn an originally parsed OR into CONCAT.
         long originSqlMode = ctx.getStatementContext() == null
                 ? -1 : ctx.getStatementContext().getSpmOriginSqlMode();
         if (originSqlMode >= 0) {

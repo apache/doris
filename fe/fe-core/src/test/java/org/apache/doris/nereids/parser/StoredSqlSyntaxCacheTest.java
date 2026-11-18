@@ -55,7 +55,7 @@ public class StoredSqlSyntaxCacheTest {
     }
 
     private static LogicalPlan reference(String sql, long mode) {
-        return SelectHintSetVar.runStoredTextParse(() -> SqlModeHelper.withSqlMode(mode,
+        return SelectHintSetVar.withoutParseTimeSetVar(() -> SqlModeHelper.withSqlMode(mode,
                 () -> new NereidsParser().parseSingle(sql)));
     }
 
@@ -77,7 +77,7 @@ public class StoredSqlSyntaxCacheTest {
                         List<String> expected = describe(reference(sql, mode));
                         for (int hit = 0; hit < 2; hit++) {
                             Assertions.assertEquals(expected,
-                                    describe(SPMPlanTreeSupport.parseStoredSqlIsolated(sql, mode)),
+                                    describe(SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(sql, mode)),
                                     "mode=" + mode + ", ansi=" + ansi + ": " + sql);
                         }
                     }
@@ -91,8 +91,8 @@ public class StoredSqlSyntaxCacheTest {
     @Test
     public void testPlansAndRelationIdsAreNeverShared() {
         String sql = "WITH c AS (SELECT k FROM t) SELECT k FROM c";
-        Plan first = SPMPlanTreeSupport.parseStoredSqlIsolated(sql, 0L);
-        Plan second = SPMPlanTreeSupport.parseStoredSqlIsolated(sql, 0L);
+        Plan first = SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(sql, 0L);
+        Plan second = SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(sql, 0L);
         first.setMutableState("spm_syntax_isolation", true);
         Assertions.assertTrue(second.getMutableState("spm_syntax_isolation").isEmpty());
         Set<Plan> firstNodes = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -125,7 +125,7 @@ public class StoredSqlSyntaxCacheTest {
         try {
             List<Callable<Plan>> tasks = new ArrayList<>();
             for (int i = 0; i < 32; i++) {
-                tasks.add(() -> SPMPlanTreeSupport.parseStoredSqlIsolated(sql, 0L));
+                tasks.add(() -> SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(sql, 0L));
             }
             Set<Plan> roots = Collections.newSetFromMap(new IdentityHashMap<>());
             for (Future<Plan> future : pool.invokeAll(tasks)) {

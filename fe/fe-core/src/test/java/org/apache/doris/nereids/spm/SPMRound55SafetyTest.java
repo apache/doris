@@ -69,7 +69,7 @@ public class SPMRound55SafetyTest {
     /**
      * #9: the subset key must be computed under the mode the statement's TEXT was written
      * for. The statement's own {@code SET_VAR(sql_mode=...)} hint writes the SESSION mode
-     * while it is being parsed (SelectHintSetVar#setVarOnceInSql, reverted only when the
+     * while it is being parsed (SelectHintSetVar#applyToStatement, reverted only when the
      * statement finishes), so reading the session mode here built the key under a mode the
      * text was never parsed with - a query whose hint turned PIPES_AS_CONCAT on produced a
      * different digest than the rewrite had matched (or no match at all), and the master,
@@ -87,7 +87,7 @@ public class SPMRound55SafetyTest {
         long preHint = SqlModeHelper.currentMode();
         SelectHintSetVar hint = new SelectHintSetVar("set_var",
                 ImmutableMap.of("sql_mode", Optional.of("PIPES_AS_CONCAT")));
-        Assertions.assertDoesNotThrow(() -> hint.setVarOnceInSql(statementContext));
+        Assertions.assertDoesNotThrow(() -> hint.applyToStatement(statementContext));
         Assertions.assertEquals(preHint, statementContext.getSpmOriginSqlMode(),
                 "the mode in force BEFORE the hint is the mode the text is parsed under");
         Assertions.assertEquals(preHint, SPMPlanner.originSqlMode(ctx),

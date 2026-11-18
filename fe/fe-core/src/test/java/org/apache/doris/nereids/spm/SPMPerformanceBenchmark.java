@@ -116,6 +116,6 @@ public final class SPMPerformanceBenchmark {
         }
         String sql = query(128, false);
         measure("stored_sql_parse", 128, 21,
-                () -> SPMPlanTreeSupport.parseStoredSqlIsolated(sql, 0L));
+                () -> SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(sql, 0L));
     }
 }

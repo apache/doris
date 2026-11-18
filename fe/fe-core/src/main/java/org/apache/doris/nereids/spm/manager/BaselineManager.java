@@ -8583,7 +8583,7 @@ public class BaselineManager {
             return false;
         }
         try {
-            Plan parsed = SPMPlanTreeSupport.parseStoredSqlIsolated(text,
+            Plan parsed = SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(text,
                     SqlModeHelper.MODE_DEFAULT);
             if (!(parsed instanceof LogicalPlan)) {
                 return false;

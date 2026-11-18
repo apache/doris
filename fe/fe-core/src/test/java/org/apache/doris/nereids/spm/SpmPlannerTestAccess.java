@@ -38,7 +38,8 @@ public final class SpmPlannerTestAccess {
         LogicalPlan bind = parse(mode, bindSql, "SPM bindSql must be a SELECT statement: ");
         LogicalPlan plan = bindSql.equals(planSql) ? bind
                 : parse(mode, planSql, "SPM planSql must be a SELECT statement: ");
-        return buildBaseline(planner, bind, plan, bindSql, planSql, 0.0);
+        return SqlModeHelper.withSqlMode(mode,
+                () -> buildBaseline(planner, bind, plan, bindSql, planSql, 0.0));
     }
 
     public static BaselinePlan buildBaseline(SPMPlanner planner, LogicalPlan bind, LogicalPlan plan,
@@ -69,7 +70,7 @@ public final class SpmPlannerTestAccess {
     }
 
     private static LogicalPlan parse(long mode, String sql, String message) throws UserException {
-        return invoke(null, "parseSelectIsolated", new Class<?>[] {long.class, String.class, String.class},
+        return invoke(null, "parseSelectWithSqlMode", new Class<?>[] {long.class, String.class, String.class},
                 mode, sql, message + sql);
     }
 

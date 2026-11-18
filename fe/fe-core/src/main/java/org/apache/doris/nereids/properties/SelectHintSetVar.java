@@ -35,20 +35,11 @@ import java.util.stream.Collectors;
  */
 public class SelectHintSetVar extends SelectHint {
     /**
-     * Thread-local guard: while a STORED SQL text (a persisted SPM baseline bind / plan
-     * text) is being parsed, its SET_VAR payloads must NOT be applied by the PARSE itself.
-     *
-     * The parser applies a text's SET_VAR at parse time for the statement AT HAND
-     * (setVarOnceInSql below, reverted by StmtExecutor at the statement's end). A stored
-     * text is FOREIGN to the current statement: parsing it on the caller's thread used to
-     * write the captured settings into the CALLER's session (a stored
-     * SET_VAR(time_zone='+08:00') changed the zone during a baseline reconstruction and
-     * returned different values even though the replayed tree had the hint stripped), and
-     * the post-plan fingerprint parse repeated the write on every warm replay. The hint
-     * node itself stays on the parsed tree, so a REPLAYED statement's own plan-time
-     * application (EliminateLogicalSelectHint) is unaffected.
+     * Suppresses only parse-time SET_VAR assignments. Stored SPM SQL must retain hint nodes for matching
+     * without applying another statement's settings to the current session. Planning a replay still applies
+     * the caller's own assignments through applyToStatement.
      */
-    private static final ThreadLocal<Boolean> STORED_TEXT_PARSE = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> PARSE_TIME_SET_VAR_SUPPRESSED = new ThreadLocal<>();
 
     // e.g. query_timeout='1800', exec_mem_limit='2147483648'
     private final Map<String, Optional<String>> parameters;
@@ -58,25 +49,25 @@ public class SelectHintSetVar extends SelectHint {
         this.parameters = parameters;
     }
 
-    /** Whether the CURRENT thread is parsing a stored SQL text (see runStoredTextParse). */
-    public static boolean isStoredTextParse() {
-        return Boolean.TRUE.equals(STORED_TEXT_PARSE.get());
+    /** Whether SET_VAR application is suppressed while the current thread builds parsed plans. */
+    public static boolean isParseTimeSetVarSuppressed() {
+        return Boolean.TRUE.equals(PARSE_TIME_SET_VAR_SUPPRESSED.get());
     }
 
     /**
-     * Runs one STORED SQL parse with the parse-time SET_VAR application suppressed (see
-     * STORED_TEXT_PARSE). Re-entrant; the marker is restored afterwards.
+     * Runs a parser callback without applying SET_VAR to the session. The parsed hint nodes remain
+     * available for matching and later planning. Nested calls restore the enclosing suppression state.
      */
-    public static <T> T runStoredTextParse(java.util.function.Supplier<T> action) {
-        Boolean previous = STORED_TEXT_PARSE.get();
-        STORED_TEXT_PARSE.set(Boolean.TRUE);
+    public static <T> T withoutParseTimeSetVar(java.util.function.Supplier<T> action) {
+        Boolean previous = PARSE_TIME_SET_VAR_SUPPRESSED.get();
+        PARSE_TIME_SET_VAR_SUPPRESSED.set(Boolean.TRUE);
         try {
             return action.get();
         } finally {
             if (previous == null) {
-                STORED_TEXT_PARSE.remove();
+                PARSE_TIME_SET_VAR_SUPPRESSED.remove();
             } else {
-                STORED_TEXT_PARSE.set(previous);
+                PARSE_TIME_SET_VAR_SUPPRESSED.set(previous);
             }
         }
     }
@@ -86,10 +77,11 @@ public class SelectHintSetVar extends SelectHint {
     }
 
     /**
-     * set session variable in sql level
-     * @param context statement context
+     * Applies these session-variable assignments for the current statement. Repeated calls apply the
+     * assignments again; VariableMgr retains each variable's original value only once for statement cleanup.
+     * Records the original parser mode before the first SQL-mode assignment.
      */
-    public void setVarOnceInSql(StatementContext context) {
+    public void applyToStatement(StatementContext context) {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);

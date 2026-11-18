@@ -119,15 +119,9 @@ public class SPMPlanner {
                     + " the original plan");
             return null;
         }
-        // A caller SET_VAR hint is applied by EliminateLogicalSelectHint while the
-        // statement is planned; the SPM replay replaces the whole tree BEFORE that pass
-        // and the frozen text carries no hint, so the replay would run under the
-        // session's ORIGINAL settings - a SET_VAR(time_zone='+08:00') caller matching an
-        // identical baseline evaluated from_unixtime(epoch_col) in its own zone and
-        // changed result values. The caller's SET_VAR hints are re-attached to the
-        // replayed tree at the return sites (see SPMPlanTreeSupport.carrySetVarHints);
-        // the hint writes a STATEMENT-scoped session variable, so its block does not
-        // matter.
+        // Matching includes the caller's hints against bindSql. Replay uses planSql, whose SET_VAR hints
+        // can differ or be absent after capture. Remove captured settings and attach the caller's own ones
+        // at both return sites so planning the replacement keeps the query's statement-scoped assignments.
         // Level 1/2 use the FULL-QUERY value-free digest (Plan.toSpmDigest renders every
         // literal as "?", so the digest is value-independent). The digest is computed on a
         // namespace-qualified COPY: "FROM t" is keyed as the CURRENT catalog/db's t, so a
@@ -295,11 +289,11 @@ public class SPMPlanner {
                 }
                 usedBaselineId = candidate.getId();
                 usedBaseline = candidate;
-                return SPMPlanTreeSupport.carrySetVarHints(replay, matchPlan);
+                return SPMPlanTreeSupport.attachCallerSetVarHints(replay, matchPlan);
             }
             LOG.info("SPM tryRewritePlan: baseline {} frozen planSql replay unavailable, "
                     + "falling back to parameterized plan tree", candidate.getId());
-            LogicalPlan planTree = stripSelectHints(candidate.getParameterizedPlanPlan());
+            LogicalPlan planTree = SPMPlanTreeSupport.stripSetVarHints(candidate.getParameterizedPlanPlan());
             if (planTree == null) {
                 continue;
             }
@@ -357,7 +351,7 @@ public class SPMPlanner {
             }
             usedBaselineId = candidate.getId();
             usedBaseline = candidate;
-            return SPMPlanTreeSupport.carrySetVarHints(replay, matchPlan);
+            return SPMPlanTreeSupport.attachCallerSetVarHints(replay, matchPlan);
         }
         return null;
     }
@@ -494,7 +488,7 @@ public class SPMPlanner {
             // mode for this re-parse: inheriting a NO_BACKSLASH_ESCAPES session would
             // decode the doubled backslashes to a different value and could select
             // another external ref.
-            Plan parsed = SPMPlanTreeSupport.parseStoredSqlIsolated(planSql,
+            Plan parsed = SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(planSql,
                     SqlModeHelper.MODE_DEFAULT);
             if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
                 return null;
@@ -537,12 +531,12 @@ public class SPMPlanner {
             // [SHUFFLE] join distribution) - that is what the frozen replay exists for - but
             // NOT the CREATOR's SET_VAR payload: a SET_VAR writes a STATEMENT-scoped session
             // variable, and the caller's own hints are re-attached from the CALLER's tree by
-            // carrySetVarHints at the return sites. An INDEX-pinned baseline
+            // attachCallerSetVarHints at the return sites. An INDEX-pinned baseline
             // used to replay the captured time_zone='+08:00' inside a nested scalar subquery
             // and change from_unixtime for a caller that carried no hint at all; the peel
             // reaches expression-owned subquery plans too (see
-            // SPMPlanTreeSupport.stripSelectHints).
-            LogicalPlan replayable = SPMPlanTreeSupport.stripSelectHints(rewritten);
+            // SPMPlanTreeSupport.stripSetVarHints).
+            LogicalPlan replayable = SPMPlanTreeSupport.stripSetVarHints(rewritten);
             return replayable == null ? rewritten : replayable;
         } catch (Throwable t) {
             // legacy "?" frozen text or any other re-parse failure -> fall back to the
@@ -566,14 +560,6 @@ public class SPMPlanner {
     /** The effective database of the creation / matching context (null when unknown). */
     private static String captureDatabaseName(ConnectContext ctx) {
         return ctx == null ? null : ctx.getDatabase();
-    }
-
-    /**
-     * Strips captured SELECT hint wrappers from the parameterized fallback tree, including nested blocks. The
-     * caller attaches the current query SET_VAR hints to the replay result.
-     */
-    private static LogicalPlan stripSelectHints(LogicalPlan plan) {
-        return SPMPlanTreeSupport.stripSelectHints(plan);
     }
 
     /**
@@ -720,31 +706,18 @@ public class SPMPlanner {
      */
     public BaselinePlan buildBaselineFromSql(ConnectContext ctx, String bindSql, String planSql,
             boolean globalScope) throws UserException {
-        // Capture the parser-relevant mode of the creating session BEFORE anything is
-        // parsed (the hint application below happens during optimization and must never
-        // decide what the persisted creatorSqlMode is): the parsers build expressions
-        // (including a || b) while this mode is in force, and the persisted value must
-        // describe exactly that parse. A statement that changes sql_mode through a
-        // /*+ SET_VAR(sql_mode=...) */ hint is parsed with the AMBIENT mode; reading the
-        // live session after parsing would persist the hint's mode, and after a
-        // refresh / restart the stored bindSql would rebuild under that mode while the
-        // frozen key was produced under the ambient one - no query could ever match both
-        // again and the durable baseline stayed dead.
+        // Save the mode before either input is parsed. Parsing applies SET_VAR to the live session,
+        // and planning applies it again, but neither assignment may decide the persisted parser mode.
+        // A later reload must build bind expressions such as a || b exactly as CREATE did.
         final long creatorMode = SqlModeHelper.currentMode();
-        // Each parse runs INSIDE a window that pins the captured mode: a SET_VAR(sql_mode=...)
-        // hint inside the bind text is applied to the creating session while that text is
-        // processed, so the SECOND parse (the plan text, parsed separately) would otherwise
-        // read the ALREADY-SWITCHED session mode - s1 || s2 built under OR in the bind
-        // text would then mean CONCAT in the plan text, and the frozen tree would carry an
-        // operator the persisted creatorSqlMode cannot express (every later re-parse of the
-        // stored bindSql under that mode would disagree with it). The window holds whatever
-        // the parse does to the session variable, so both texts are always read under ONE
-        // mode.
-        LogicalPlan bindPlan = parseSelectIsolated(creatorMode, bindSql,
+        // Pin both inputs to that mode. The bind hint can change the real session between these calls;
+        // without the override, identical a || b expressions could become OR in bind and CONCAT in plan.
+        // This controls parser reads only; SET_VAR assignments remain active until statement cleanup.
+        LogicalPlan bindPlan = parseSelectWithSqlMode(creatorMode, bindSql,
                 "SPM bindSql must be a SELECT statement: " + bindSql);
         LogicalPlan planPlan = bindSql.equals(planSql)
                 ? bindPlan
-                : parseSelectIsolated(creatorMode, planSql,
+                : parseSelectWithSqlMode(creatorMode, planSql,
                         "SPM planSql must be a SELECT statement: " + planSql);
         // The destination of SELECT... INTO OUTFILE lives outside the plan expressions:
         // the match cannot compare it and the rewritten tree keeps the captured sink, so
@@ -836,7 +809,7 @@ public class SPMPlanner {
             rawPlanOptimized = true;
             optimizeResult = SPMOptimizer.optimize(ctx,
                     SPMPlanTreeSupport.stripCheckPolicy(
-                            parseSelectIsolated(creatorMode, planSql,
+                            parseSelectWithSqlMode(creatorMode, planSql,
                                     "SPM planSql must be a SELECT statement: " + planSql)),
                     planSql);
             frozen = new DecompiledPlan(planSql, false);
@@ -958,8 +931,7 @@ public class SPMPlanner {
     private static DecompiledPlan validateFrozenTextReplannable(ConnectContext ctx,
             DecompiledPlan frozen, String planSql, Plan writePlan) {
         try {
-            LogicalPlan parsed = parseSelectIsolated(SqlModeHelper.MODE_DEFAULT, frozen.sql,
-                    "SPM planSql must be a SELECT statement: " + frozen.sql);
+            LogicalPlan parsed = parseStoredSelect(frozen.sql);
             // Substitute the placeholders with the WRITER plan's own literal payloads
             // before re-planning: the replay substitutes the caller's values by id, so
             // re-planning the raw marker calls can only fail ("Can not found function
@@ -1207,7 +1179,7 @@ public class SPMPlanner {
     public static String canonicalSchemaFingerprint(ConnectContext ctx, String bindSql) {
         try {
             final long creatorMode = SqlModeHelper.currentMode();
-            LogicalPlan plan = parseSelectIsolated(creatorMode, bindSql,
+            LogicalPlan plan = parseSelectWithSqlMode(creatorMode, bindSql,
                     "SPM bindSql must be a SELECT statement: " + bindSql);
             return SPMPlanTreeSupport.schemaFingerprint(ctx, plan);
         } catch (Throwable t) {
@@ -1268,7 +1240,7 @@ public class SPMPlanner {
      */
     public static Pair<String, Long> queryMatchKey(ConnectContext ctx, String sql) {
         try {
-            LogicalPlan plan = parseQueryIsolated(originSqlMode(ctx), sql,
+            LogicalPlan plan = parseQueryWithSqlMode(originSqlMode(ctx), sql,
                     "SPM query match key needs a query: " + sql);
             LogicalPlan matchPlan = SPMPlanTreeSupport.namespaceQualified(plan,
                     captureCatalogName(ctx), captureDatabaseName(ctx));
@@ -1282,14 +1254,9 @@ public class SPMPlanner {
     }
 
     /**
-     * The parser mode the statement's TEXT is parsed under: the value captured before the
-     * statement's own SET_VAR(sql_mode=...) hint wrote the session's (see
-     * StatementContext.recordSpmOriginSqlMode), or the session's current mode - which such
-     * a hint never changed - when no hint was captured / there is no context (tests, the
-     * CREATE-time paths).
-     *
-     * Parameter ctx: the statement's context, may be null
-     * Returns: the mode the statement text must be (re)parsed with
+     * Returns the statement's recorded parser mode. A direct/internal parse without a recorded mode uses
+     * the current mode instead. Batch parsing records a mode even for unhinted statements, because an earlier
+     * statement's SET_VAR can already have changed the live session.
      */
     public static long originSqlMode(ConnectContext ctx) {
         if (ctx == null) {
@@ -1303,7 +1270,7 @@ public class SPMPlanner {
     private static String canonicalSqlDigest(ConnectContext ctx, String sql, String side) {
         try {
             final long creatorMode = SqlModeHelper.currentMode();
-            LogicalPlan plan = parseSelectIsolated(creatorMode, sql,
+            LogicalPlan plan = parseSelectWithSqlMode(creatorMode, sql,
                     "SPM " + side + "Sql must be a SELECT statement: " + sql);
             return SPMPlanTreeSupport.canonicalSpmDigest(SPMPlanTreeSupport
                     .namespaceQualified(plan, captureCatalogName(ctx),
@@ -1344,12 +1311,10 @@ public class SPMPlanner {
     }
 
     /**
-     * parseQueryOrExplainedQuery under an EXPLICIT parser mode, isolated from the
-     * session's (see parseSelectIsolated): the SET_VAR(sql_mode=...) hint of the text may
-     * not leak into another parse of this thread, and the mode the caller captured decides
-     * how the text is read.
+     * Parses a query or explained query under the supplied SQL-mode read override. SET_VAR hints still
+     * update the real session; only mode reads during this parse are fixed.
      */
-    private static LogicalPlan parseQueryIsolated(long creatorMode, String sql,
+    private static LogicalPlan parseQueryWithSqlMode(long creatorMode, String sql,
             String errorMessage) throws UserException {
         final UserException[] failure = new UserException[1];
         final LogicalPlan[] result = new LogicalPlan[1];
@@ -1368,11 +1333,11 @@ public class SPMPlanner {
     }
 
     /**
-     * Parses one CREATE input under the captured creator mode (see buildBaselineFromSql):
-     * the mode window keeps a SET_VAR(sql_mode=...) hint of ANOTHER input from leaking into
-     * this parse, and keeps this parse's own hint from leaking into the next one.
+     * Parses one SELECT under the supplied SQL-mode read override. CREATE uses the same override for
+     * both inputs, even when the first input's SET_VAR changes the live session before the second parse.
+     * This method does not suppress SET_VAR assignments or restore session variables.
      */
-    private static LogicalPlan parseSelectIsolated(long creatorMode, String sql,
+    private static LogicalPlan parseSelectWithSqlMode(long creatorMode, String sql,
             String errorMessage) throws UserException {
         final UserException[] failure = new UserException[1];
         final LogicalPlan[] result = new LogicalPlan[1];
@@ -1515,18 +1480,13 @@ public class SPMPlanner {
     }
 
     /**
-     * Parses a STORED SQL text with an explicit parser mode (see
-     * parseStoredSelect(String)): SPM-authored texts are pinned to
-     * MODE_DEFAULT, a user-authored bindSql keeps the mode it was created with. The parse
-     * is ISOLATED from the live session (see SPMPlanTreeSupport.parseStoredSqlIsolated):
-     * a stored SET_VAR payload must never be applied to the CALLER's session by the parse
-     * itself - the new by-hash cache-miss reader reconstructs these texts on the query
-     * thread after its internal query restored the caller's ConnectContext.
+     * Parses stored SELECT text without applying SET_VAR assignments to the live session. Decompiled text
+     * uses MODE_DEFAULT; original bind and fallback plan text use their persisted creator mode.
      */
     private static LogicalPlan parseStoredSelect(String sql, long sqlMode) {
         long mode = (sqlMode & SqlModeHelper.MODE_ALLOWED_MASK) == 0
                 ? SqlModeHelper.MODE_DEFAULT : (sqlMode & SqlModeHelper.MODE_ALLOWED_MASK);
-        Plan parsed = SPMPlanTreeSupport.parseStoredSqlIsolated(sql, mode);
+        Plan parsed = SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(sql, mode);
         if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
             throw new RuntimeException("SPM stored SQL is not a SELECT statement: " + sql);
         }

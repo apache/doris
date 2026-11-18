@@ -165,19 +165,19 @@ public class SPMRound9SafetyTest {
         LogicalPlan rootHint = parse(
                 "SELECT /*+ SET_VAR(parallel_pipeline_task_num=4) */ k FROM t1");
         Assertions.assertTrue(countSelectHints(rootHint) >= 1);
-        Assertions.assertEquals(0, countSelectHints(SPMPlanTreeSupport.stripSelectHints(rootHint)),
+        Assertions.assertEquals(0, countSelectHints(SPMPlanTreeSupport.stripSetVarHints(rootHint)),
                 "the root hint must be removed");
 
         LogicalPlan nested = parse("SELECT * FROM (SELECT /*+ SET_VAR(time_zone='+08:00') */ k"
                 + " FROM t1) x JOIN t2 ON x.k = t2.k");
         Assertions.assertTrue(countSelectHints(nested) >= 1,
                 "a hint inside a nested query block must be present in the parsed tree");
-        Assertions.assertEquals(0, countSelectHints(SPMPlanTreeSupport.stripSelectHints(nested)),
+        Assertions.assertEquals(0, countSelectHints(SPMPlanTreeSupport.stripSetVarHints(nested)),
                 "every nested hint must be stripped (a root-only peel left the inner SET_VAR"
                         + " applied during replay analysis)");
 
         LogicalPlan plain = parse("SELECT k FROM t1");
-        Assertions.assertEquals(0, countSelectHints(SPMPlanTreeSupport.stripSelectHints(plain)));
+        Assertions.assertEquals(0, countSelectHints(SPMPlanTreeSupport.stripSetVarHints(plain)));
     }
 
     // ==================== #11: reserved identifiers are quoted ====================

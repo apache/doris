@@ -91,8 +91,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.MockedStatic;
-import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -1590,8 +1588,7 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser = new NereidsParser();
 
         // test on
-        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
-            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(true);
+        SqlModeHelper.withSqlMode(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES, () -> {
             if (onResult == null) {
                 Assertions.assertThrowsExactly(SyntaxParseException.class, () -> nereidsParser.parseExpression(sql),
                         "should failed when NO_BACKSLASH_ESCAPES = 1: " + sql);
@@ -1599,11 +1596,11 @@ public class NereidsParserTest extends ParserTestBase {
                 Assertions.assertEquals(onResult,
                         ((StringLikeLiteral) nereidsParser.parseExpression(sql)).getStringValue());
             }
-        }
+            return null;
+        });
 
         // test off
-        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
-            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+        SqlModeHelper.withSqlMode(0L, () -> {
             if (offResult == null) {
                 Assertions.assertThrowsExactly(SyntaxParseException.class, () -> nereidsParser.parseExpression(sql),
                         "should failed when NO_BACKSLASH_ESCAPES = 0: " + sql);
@@ -1611,7 +1608,8 @@ public class NereidsParserTest extends ParserTestBase {
                 Assertions.assertEquals(offResult,
                         ((StringLikeLiteral) nereidsParser.parseExpression(sql)).getStringValue());
             }
-        }
+            return null;
+        });
     }
 
     @Test
