@@ -62,17 +62,19 @@ public class SPMRound48SafetyTest {
     public void testSetVarHints() {
         LogicalPlan rootHint = parse(
                 "SELECT /*+ SET_VAR(time_zone='+08:00') */ k FROM t");
-        LogicalPlan carriedRoot = SPMPlanTreeSupport.carrySetVarHints(rootHint, rootHint);
+        LogicalPlan carriedRoot = SPMPlanTreeSupport.attachCallerSetVarHints(
+                SPMPlanTreeSupport.stripSetVarHints(rootHint), rootHint);
         Assertions.assertTrue(carriedRoot instanceof LogicalSelectHint,
                 "the replay must re-attach the caller's root SET_VAR hint: " + carriedRoot);
         LogicalPlan nestedHint = parse(
                 "SELECT k FROM (SELECT /*+ SET_VAR(time_zone='+08:00') */ k FROM t) s");
-        LogicalPlan carriedNested = SPMPlanTreeSupport.carrySetVarHints(nestedHint, nestedHint);
+        LogicalPlan strippedNested = SPMPlanTreeSupport.stripSetVarHints(nestedHint);
+        LogicalPlan carriedNested = SPMPlanTreeSupport.attachCallerSetVarHints(strippedNested, nestedHint);
         Assertions.assertTrue(carriedNested instanceof LogicalSelectHint,
                 "a nested SET_VAR writes the same STATEMENT-scoped session variable, so it"
                         + " must be carried as well: " + carriedNested);
-        Assertions.assertSame(nestedHint,
-                SPMPlanTreeSupport.carrySetVarHints(nestedHint, parse("SELECT k FROM t")),
+        Assertions.assertSame(strippedNested,
+                SPMPlanTreeSupport.attachCallerSetVarHints(strippedNested, parse("SELECT k FROM t")),
                 "a hint-free caller leaves the replay untouched");
     }
 

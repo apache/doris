@@ -205,7 +205,7 @@ public final class SPMPlanTreeSupport {
     }
 
     /** Re-descends into expression subquery plans so their hints are stripped as well. */
-    private static final ExprTransform HINT_STRIP_EXPR = SPMPlanTreeSupport::stripHintsInExpression;
+    private static final ExprTransform SET_VAR_HINT_STRIP_EXPR = SPMPlanTreeSupport::stripSetVarHintsInExpression;
 
     /**
      * Expression transform of stripCheckPolicy: strips the policy markers from
@@ -282,11 +282,11 @@ public final class SPMPlanTreeSupport {
      * Parameter expression: the expression to peel
      * Returns: the expression with every owned subquery plan stripped
      */
-    private static Expression stripHintsInExpression(Expression expression) {
+    private static Expression stripSetVarHintsInExpression(Expression expression) {
         Expression result = expression;
         if (expression instanceof SubqueryExpr) {
             LogicalPlan subPlan = ((SubqueryExpr) expression).getQueryPlan();
-            LogicalPlan stripped = stripSelectHints(subPlan);
+            LogicalPlan stripped = stripSetVarHints(subPlan);
             if (stripped != null && stripped != subPlan) {
                 result = ((SubqueryExpr) expression).withSubquery(stripped);
             }
@@ -301,7 +301,7 @@ public final class SPMPlanTreeSupport {
                 List<NamedExpression> newReplaced = new ArrayList<>(replaced.size());
                 boolean payloadChanged = false;
                 for (NamedExpression payload : replaced) {
-                    Expression newPayload = stripHintsInExpression(payload);
+                    Expression newPayload = stripSetVarHintsInExpression(payload);
                     newReplaced.add(newPayload instanceof NamedExpression
                             ? (NamedExpression) newPayload : payload);
                     payloadChanged |= newPayload != payload;
@@ -319,7 +319,7 @@ public final class SPMPlanTreeSupport {
         List<Expression> newChildren = new ArrayList<>(children.size());
         boolean changed = false;
         for (Expression child : children) {
-            Expression newChild = stripHintsInExpression(child);
+            Expression newChild = stripSetVarHintsInExpression(child);
             newChildren.add(newChild);
             changed |= newChild != child;
         }
@@ -2062,45 +2062,31 @@ public final class SPMPlanTreeSupport {
         return changed ? expr.withChildren(newChildren) : expr;
     }
 
-    // hint stripping (in-memory fallback tree).
-
     /**
-     * Strips the CAPTURED SET_VAR payloads from a plan tree: the root block, nested query
-     * blocks, CTE bodies and expression subqueries. The frozen-text replay path re-parses
-     * its planSql INCLUDING the hints deliberately; the in-memory fallback tree must not
-     * re-apply the BASELINE's captured SET_VAR on top of a user query that came with
-     * different session variables. A root-only peel let an INNER hint survive (e.g. a
-     * plan-side SET_VAR(time_zone='+08:00') inside a scalar subquery) and the hint was
-     * then applied during ordinary replay analysis, although the matching user query is
-     * hint-free and runs under -08:00 - from_unixtime returned different values.
+     * Removes only SET_VAR hints from a replay plan, including CTE bodies and expression subqueries.
+     * Both frozen-text replay and parameterized-tree fallback use this cleanup before attaching the caller's
+     * own settings. Matching compares the caller with bindSql; planSql may carry different SET_VAR payloads.
+     * Reading or replaying that captured text must not apply its settings to the caller.
      *
-     * PLAN-SELECTION hints are the opposite case and are KEPT: the baseline exists to
-     * pin the authored plan, and the non-frozen fallback replays the parameterized TREE -
-     * dropping an ORDERED or LEADING(...) hint here let the replay
-     * choose a different join order than the plan the baseline was created to enforce
-     * (the decompiler falls back to the authored SQL whenever the physical plan cannot
-     * be rendered, e.g. a PhysicalAssertNumRows produced by a scalar subquery). SET_VAR
-     * is the only hint class that carries the CREATOR's session state.
-     *
-     * Parameter plan: the parameterized fallback tree
-     * Returns: the tree without any SET_VAR payload (the original instance when there was none)
+     * Other hints, including ORDERED and LEADING, remain available to enforce plan choices. A wrapper with
+     * no remaining hints is removed. Scan selectors and join-distribution hints are preserved as well.
      */
-    public static LogicalPlan stripSelectHints(LogicalPlan plan) {
+    public static LogicalPlan stripSetVarHints(LogicalPlan plan) {
         if (plan == null) {
             return null;
         }
-        Plan result = plan.accept(new HintStripper(), HINT_STRIP_EXPR);
+        Plan result = plan.accept(new SetVarHintStripper(), SET_VAR_HINT_STRIP_EXPR);
         LogicalPlan stripped = result instanceof LogicalPlan ? (LogicalPlan) result : plan;
         // The plan-level stripper above rebuilds only PLAN children, and an expression-owned
         // scalar subquery (a projection item, a HAVING / filter predicate, a * REPLACE
         // payload) keeps its own query plan OUTSIDE children: the SET_VAR hint inside it
         // survived the peel, and the ordinary replay analysis then applied the BASELINE's
         // time_zone on top of a caller that came with no hint at all - from_unixtime
-        // returned the captured zone's values. HINT_STRIP_EXPR re-enters
+        // returned the captured zone's values. SET_VAR_HINT_STRIP_EXPR re-enters
         // those subquery plans (see its declaration), so one more rebuild pass reaches every
         // expression-owned plan. Both passes keep every NON-SET_VAR hint (INDEX / BROADCAST
         // / SHUFFLE), which is what the frozen replay exists for.
-        return transform(stripped, HINT_STRIP_EXPR);
+        return transform(stripped, SET_VAR_HINT_STRIP_EXPR);
     }
 
     /**
@@ -2109,7 +2095,7 @@ public final class SPMPlanTreeSupport {
      * wrapper left without hints is dropped entirely, so a hint-free subtree keeps its
      * original shape.
      */
-    private static class HintStripper extends TreeTransformer {
+    private static class SetVarHintStripper extends TreeTransformer {
         @Override
         public Plan visit(Plan plan, ExprTransform transform) {
             if (!(plan instanceof LogicalSelectHint)) {
@@ -3147,7 +3133,7 @@ public final class SPMPlanTreeSupport {
             }
             // The caller's SET_VAR hint wrapper is CALLER-SIDE ONLY: the frozen replay
             // carries no hint (and the parameterized fallback strips it), and
-            // carrySetVarHints re-attaches the settings AFTER this alignment. Walking past
+            // attachCallerSetVarHints re-attaches the settings AFTER this alignment. Walking past
             // it lets the alignment reach the caller's project instead of stopping at the
             // class mismatch and returning the captured header (a
             // SET_VAR(time_zone='+08:00') v + 1 baseline matching a v + 2 caller
@@ -4599,36 +4585,18 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Re-attaches the caller's SET_VAR hints to the replay. The hint is applied by
-     * EliminateLogicalSelectHint while the statement is planned, but the SPM replay
-     * replaces the whole tree BEFORE that pass and the frozen text carries no hint, so
-     * the replay would otherwise run under the session's ORIGINAL settings - a
-     * SET_VAR(time_zone='+08:00') caller evaluated from_unixtime(epoch_col) in its own
-     * zone and returned different values. The hint sets a STATEMENT-scoped session
-     * variable (SelectHintSetVar.setVarOnceInSql writes the SessionVariable and the
-     * value is reverted at the end of the statement), so the BLOCK a hint sits in does
-     * not scope its effect: collecting EVERY SET_VAR hint of the caller's tree and
-     * placing them on the replay's top re-establishes exactly the settings the original
-     * planning would have applied. (Placing them one by one on replayed sub-blocks was
-     * tried first, but the replay's wrapper shape - result sink, EXPLAIN, project over
-     * a subquery alias - is not stable enough to address them structurally, and a
-     * misclassified hint silently disabled the whole rewrite.) The hint payload is part
-     * of the match key (sameSelectHints), so the collected hints are the captured
-     * query's own settings.
+     * Attaches the matched caller's SET_VAR hints at the replay root. The replay must already have its
+     * captured SET_VAR hints removed by stripSetVarHints. Hint equality is checked against bindSql, whereas
+     * the replay comes from planSql, whose hints may differ or have been consumed during capture.
      *
-     * The hints are collected in the order the ORIGINAL planning applied them (see
-     * collectSetVarHintsInAnalysisOrder): a WITH node's DEFINITIONS are analyzed before
-     * the consuming query (AnalyzeCTE), while the generic walkPlans order (main child,
-     * then extraPlans) inverted the two blocks - the replayed statement ended in the
-     * CTE definition's settings (the identical query's value changed from
-     * 1970-01-01 00:00:00 to 08:00:00 for an inner +08 / outer UTC pair).
+     * SET_VAR changes statement-wide session variables. Collecting hints from every caller block retains
+     * their assignments after SPM replaces the original tree. Planning applies these assignments again;
+     * statement cleanup restores the original session values.
      *
-     * Parameter replay: the aligned replay tree
-     * Parameter caller: the caller's statement tree (the matched namespace copy)
-     * Returns: the replay with the caller's SET_VAR hints re-attached (unchanged when
-     *         there are none)
+     * Preserve planning order, including CTE definitions before the consuming query, so repeated assignments
+     * of one variable have the same final value as ordinary planning. Plan-selection hints stay on the replay.
      */
-    public static LogicalPlan carrySetVarHints(LogicalPlan replay, LogicalPlan caller) {
+    public static LogicalPlan attachCallerSetVarHints(LogicalPlan replay, LogicalPlan caller) {
         List<SelectHint> setVars = new ArrayList<>();
         collectSetVarHintsInAnalysisOrder(caller, setVars,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
@@ -7045,7 +7013,7 @@ public final class SPMPlanTreeSupport {
      * by LogicalFilter.extraPlans and by the node's own expressions) - and the plans
      * reachable through expression coercions. An inspection that walks only children
      * would not see a view (referencesView) or a SET_VAR hint
-     * (SPMOptimizer.checkProtectedSetVarHints) that lives in a CTE body / subquery.
+     * (SPMOptimizer.rejectProtectedSetVarHints) that lives in a CTE body / subquery.
      *
      * Parameter root: the plan to start from (may be null)
      * Parameter visitor: called once per reachable node; may throw
@@ -8089,26 +8057,13 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Parses one STORED SQL text (a frozen planSql, a persisted bindSql / planSql) with the
-     * LIVE SESSION isolated: parsing used to EXECUTE the text's SET_VAR payloads on
-     * whatever ConnectContext the thread carried (LogicalPlanBuilder.withHints ->
-     * SelectHintSetVar.setVarOnceInSql), so a baseline reconstructed on the query thread
-     * mutated the CALLER's session variables - a stored SET_VAR(time_zone='+08:00')
-     * changed the caller's zone during reconstruction and returned different values even
-     * though the fallback replay strips the hint, and the post-plan fingerprint parse
-     * repeated the write on warm replay.
-     *
-     * Every stored parse goes through SelectHintSetVar.runStoredTextParse, so the captured
-     * SET_VAR stays on the parsed LogicalSelectHint node (a REPLAYED statement's plan-time
-     * application of its own hints is unaffected) but the parse itself never writes the
-     * live session. The parser mode is pinned by the same window as before.
-     *
-     * Parameter sql: the stored text
-     * Parameter sqlMode: the parser mode the text was written for
-     * Returns: the parsed plan (unbound; the caller checks the shape it needs)
+     * Parses stored SQL under its recorded parser mode without applying SET_VAR assignments to the live
+     * session. Hint nodes remain in the result for matching and replay preparation. The caller removes the
+     * captured assignments before planning a replay and attaches the executing query's own SET_VAR hints.
+     * This prevents baseline reload and fingerprint parsing from changing the current query's settings.
      */
-    public static Plan parseStoredSqlIsolated(String sql, long sqlMode) {
-        return SelectHintSetVar.runStoredTextParse(() ->
+    public static Plan parseStoredSqlWithoutSetVarSideEffects(String sql, long sqlMode) {
+        return SelectHintSetVar.withoutParseTimeSetVar(() ->
                 org.apache.doris.qe.SqlModeHelper.withSqlMode(sqlMode,
                         () -> new org.apache.doris.nereids.parser.NereidsParser()
                                 .parseSingleCached(sql)));
@@ -8121,7 +8076,7 @@ public final class SPMPlanTreeSupport {
      * (which is also the mode a frozen text is re-parsed with, see
      * BaselinePlan.getPlanSqlMode), so a session that carries another mode
      * cannot produce a different name set. The parse is ISOLATED from the live session
-     * (see parseStoredSqlIsolated): without it this warm-replay parse applied the stored
+     * (see parseStoredSqlWithoutSetVarSideEffects): without it this warm-replay parse applied the stored
      * text's SET_VAR payload to the query's own session before the query globals were
      * built.
      */
@@ -8132,7 +8087,7 @@ public final class SPMPlanTreeSupport {
         }
         LogicalPlan plan;
         try {
-            Plan parsed = parseStoredSqlIsolated(planSql,
+            Plan parsed = parseStoredSqlWithoutSetVarSideEffects(planSql,
                     org.apache.doris.qe.SqlModeHelper.MODE_DEFAULT);
             if (!(parsed instanceof LogicalPlan)) {
                 return;

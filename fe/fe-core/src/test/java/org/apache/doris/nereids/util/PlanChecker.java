@@ -327,7 +327,7 @@ public class PlanChecker {
                 collectTableInfoAndInitHook(cascadesContext);
             });
         } finally {
-            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // revert Session Value, because applyToStatement will set some session variable, this would influence
             // other test cases
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -411,7 +411,7 @@ public class PlanChecker {
         try {
             planner.plan(parsedPlanAdaptor);
         } finally {
-            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // revert Session Value, because applyToStatement will set some session variable, this would influence
             // other test cases
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -750,7 +750,7 @@ public class PlanChecker {
         try {
             nereidsPlanner.plan(adapter);
         } finally {
-            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // revert Session Value, because applyToStatement will set some session variable, this would influence
             // other test cases
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -775,7 +775,7 @@ public class PlanChecker {
         try {
             nereidsPlanner.plan(LogicalPlanAdapter.of(parsed));
         } finally {
-            // revert Session Value, because setVarOnceInSql will set some session variable, this would influence
+            // revert Session Value, because applyToStatement will set some session variable, this would influence
             // other test cases
             try {
                 VariableMgr.revertSessionValue(sessionVariable);

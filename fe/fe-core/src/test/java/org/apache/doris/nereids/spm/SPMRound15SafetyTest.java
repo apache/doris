@@ -352,8 +352,7 @@ public class SPMRound15SafetyTest {
     @Test
     public void testCreateTextsParseUnderOneMode() {
         SPMPlanner planner = new SPMPlanner();
-        String bindWithHint = "SELECT a || b AS x FROM t1"
-                + " /*+ SET_VAR(sql_mode='PIPES_AS_CONCAT') */";
+        String bindWithHint = "SELECT /*+ SET_VAR(sql_mode='PIPES_AS_CONCAT') */ a || b AS x FROM t1";
         String planText = "SELECT a || b AS x FROM t1";
 
         BaselinePlan built = SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {

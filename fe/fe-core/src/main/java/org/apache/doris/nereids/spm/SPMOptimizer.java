@@ -198,14 +198,11 @@ public class SPMOptimizer {
     );
 
     /**
-     * SET_VAR keys that carry the SPM safety overrides (see optimize): a plan-SQL hint
-     * must never clear or weaken them for the nested statement, otherwise the frozen plan
-     * could be produced with state-sensitive rewrites re-enabled (e.g.
-     * SET_VAR(enable_nereids_rules='') re-enables FK join elimination, so a join could be
-     * frozen away and return different rows once constraint state changes) or with TopN
-     * lazy materialization / CTE inlining undoing the plan-serialization guards.
+     * Plan-SQL SET_VAR keys rejected during capture. TopN and CTE assignments can undo serialization
+     * settings installed by optimize. Rule selection is fixed from the session before planning, so plan hints
+     * may not replace enable_nereids_rules either; the separate statement rule mask remains in force.
      */
-    private static final Set<String> SPM_LOCKED_SET_VAR_KEYS = ImmutableSet.of(
+    private static final Set<String> SPM_PROTECTED_SET_VAR_KEYS = ImmutableSet.of(
             SessionVariable.ENABLE_NEREIDS_RULES,
             "topn_lazy_materialization_threshold",
             SessionVariable.ENABLE_CTE_MATERIALIZE,
@@ -355,16 +352,14 @@ public class SPMOptimizer {
     /**
      * Optimizes an already parsed logical plan with the nested statement rule mask and capture settings.
      * Parameterized marker nodes can survive into the physical plan, allowing frozen SQL to retain ids for replay
-     * substitution. Session settings and the outer context are restored when planning finishes or fails.
+     * substitution. SPM's temporary capture settings and the outer context are restored when planning finishes
+     * or fails. SET_VAR assignments remain statement-scoped and are restored by statement cleanup.
      */
     public static OptimizeResult optimize(ConnectContext ctx, LogicalPlan logicalPlan, String originSql)
             throws UserException {
-        // Plan-SQL hints are applied DURING analysis (after the SPM overrides below are
-        // installed): SelectHintSetVar writes the SAME SessionVariable object, so a hint
-        // such as SET_VAR(enable_nereids_rules='') would silently clear the whitelist and
-        // the TopN / CTE guards for the nested statement. Reject such hints up front -
-        // CREATE then keeps the user's planSql text instead of freezing an unguarded plan.
-        checkProtectedSetVarHints(logicalPlan);
+        // Planning applies the hints again after the capture settings below are installed. Reject assignments
+        // to protected settings before entering the planner. Raw fallback uses the same check, so it also fails.
+        rejectProtectedSetVarHints(logicalPlan);
         // The FUNCTION definitions the bind text resolves to, captured BEFORE the nested plan is
         // analyzed: analysis INLINES an alias-UDF body, so the frozen text keeps the OLD body
         // while a fingerprint derived afterwards would describe whatever definition the registry
@@ -526,19 +521,15 @@ public class SPMOptimizer {
     }
 
     /**
-     * Rejects SET_VAR hints that target an SPM-protected session variable. Public for
-     * tests (the hint objects are constructed directly there).
+     * Rejects SET_VAR assignments that would override SPM's capture settings.
      */
-    public static void rejectProtectedSetVarHints(List<SelectHint> hints) throws AnalysisException {
-        if (hints == null) {
-            return;
-        }
+    private static void rejectProtectedSetVarHints(List<SelectHint> hints) throws AnalysisException {
         for (SelectHint hint : hints) {
             if (!(hint instanceof SelectHintSetVar)) {
                 continue;
             }
             for (String key : ((SelectHintSetVar) hint).getParameters().keySet()) {
-                if (key != null && SPM_LOCKED_SET_VAR_KEYS.contains(key.toLowerCase(Locale.ROOT))) {
+                if (key != null && SPM_PROTECTED_SET_VAR_KEYS.contains(key.toLowerCase(Locale.ROOT))) {
                     throw new AnalysisException("SPM cannot freeze a plan whose SET_VAR hint targets the"
                             + " SPM-protected session variable '" + key + "'");
                 }
@@ -557,7 +548,7 @@ public class SPMOptimizer {
      *
      * Package-visible for tests.
      */
-    static void checkProtectedSetVarHints(Plan node) throws AnalysisException {
+    static void rejectProtectedSetVarHints(Plan node) throws AnalysisException {
         SPMPlanTreeSupport.<AnalysisException>walkPlans(node, (Plan current) -> {
             if (current instanceof LogicalSelectHint) {
                 rejectProtectedSetVarHints(((LogicalSelectHint<?>) current).getHints());

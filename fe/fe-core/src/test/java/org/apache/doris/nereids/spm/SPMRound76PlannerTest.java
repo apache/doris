@@ -193,7 +193,7 @@ public class SPMRound76PlannerTest {
         Assertions.assertTrue(hasSetVarHint(plan),
                 "precondition: the parsed tree carries the nested SET_VAR");
 
-        LogicalPlan stripped = SPMPlanTreeSupport.stripSelectHints(plan);
+        LogicalPlan stripped = SPMPlanTreeSupport.stripSetVarHints(plan);
         Assertions.assertFalse(hasSetVarHint(stripped),
                 "the peel must reach an expression-owned scalar subquery, got: "
                         + describeSetVars(stripped));
@@ -207,7 +207,7 @@ public class SPMRound76PlannerTest {
         Assertions.assertTrue(hasSetVarHint(plan),
                 "precondition: the parsed tree carries the nested SET_VAR");
 
-        LogicalPlan stripped = SPMPlanTreeSupport.stripSelectHints(plan);
+        LogicalPlan stripped = SPMPlanTreeSupport.stripSetVarHints(plan);
         Assertions.assertFalse(hasSetVarHint(stripped),
                 "the peel must reach a predicate-owned subquery, got: "
                         + describeSetVars(stripped));
@@ -219,7 +219,7 @@ public class SPMRound76PlannerTest {
         LogicalPlan plan = parse("SELECT /*+ SET_VAR(time_zone = '+08:00') */ k FROM t");
         Assertions.assertTrue(hasSetVarHint(plan), "precondition: the tree carries a SET_VAR");
 
-        LogicalPlan stripped = SPMPlanTreeSupport.stripSelectHints(plan);
+        LogicalPlan stripped = SPMPlanTreeSupport.stripSetVarHints(plan);
         Assertions.assertFalse(hasSetVarHint(stripped), "the SET_VAR payload is peeled");
         Assertions.assertEquals(describeSetVars(plan), "[SET_VAR:SelectHintSetVar]",
                 "precondition: the only hint is the SET_VAR");

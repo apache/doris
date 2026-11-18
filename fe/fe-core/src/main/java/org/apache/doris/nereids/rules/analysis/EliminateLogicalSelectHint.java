@@ -51,7 +51,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
             for (SelectHint hint : selectHintPlan.getHints()) {
                 String hintName = hint.getHintName();
                 if (hintName.equalsIgnoreCase("SET_VAR")) {
-                    ((SelectHintSetVar) hint).setVarOnceInSql(ctx.statementContext);
+                    ((SelectHintSetVar) hint).applyToStatement(ctx.statementContext);
                 } else if (hintName.equalsIgnoreCase("ORDERED")) {
                     if (!ctx.cascadesContext.getConnectContext().getSessionVariable()
                                 .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true")) {

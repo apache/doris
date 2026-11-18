@@ -44,7 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * The fallback-replay hint contract, the catalog-aware
  * bind-table lookup of the schema fingerprint and the linear subquery walk.
  *
- * - SPMPlanTreeSupport#stripSelectHints removed EVERY LogicalSelectHint from the
+ * - SPMPlanTreeSupport#stripSetVarHints removed EVERY LogicalSelectHint from the
  *   in-memory fallback tree, so a plan SQL with an ORDERED hint (stored as
  *   the authored fallback whenever the decompiler rejects a node) lost the join-order
  *   hint the baseline exists to enforce. Only the captured SET_VAR payloads may go.
@@ -79,7 +79,7 @@ public class SPMRound24SafetyTest {
     public void testPlanSelectionHintsSurviveTheSetVarStrip() {
         LogicalPlan plan = parse("SELECT /*+ SET_VAR(exec_mem_limit=1024) ORDERED */ k"
                 + " FROM internal.spm_db.t1 JOIN internal.spm_db.t2 ON t1.k = t2.k");
-        LogicalPlan stripped = SPMPlanTreeSupport.stripSelectHints(plan);
+        LogicalPlan stripped = SPMPlanTreeSupport.stripSetVarHints(plan);
         List<LogicalSelectHint<?>> hints = selectHints(stripped);
         Assertions.assertEquals(1, hints.size(),
                 "the ORDERED hint must stay wrapped: " + stripped.treeString());
@@ -90,7 +90,7 @@ public class SPMRound24SafetyTest {
                 "the captured SET_VAR payload belongs to the CREATOR's session and must go: "
                         + kept);
         // LEADING(...) is a plan-selection hint as well
-        LogicalPlan leading = SPMPlanTreeSupport.stripSelectHints(parse(
+        LogicalPlan leading = SPMPlanTreeSupport.stripSetVarHints(parse(
                 "SELECT /*+ LEADING(t2, t1) */ k FROM internal.spm_db.t1 JOIN internal.spm_db.t2"
                         + " ON t1.k = t2.k"));
         List<LogicalSelectHint<?>> leadingHints = selectHints(leading);
@@ -99,7 +99,7 @@ public class SPMRound24SafetyTest {
                         .anyMatch(h -> h instanceof SelectHintLeading),
                 "LEADING must survive too: " + leadingHints.get(0).getHints());
         // a SET_VAR-only tree keeps its original, hint-free shape
-        Assertions.assertTrue(selectHints(SPMPlanTreeSupport.stripSelectHints(parse(
+        Assertions.assertTrue(selectHints(SPMPlanTreeSupport.stripSetVarHints(parse(
                 "SELECT /*+ SET_VAR(exec_mem_limit=1024) */ k FROM internal.spm_db.t1")))
                 .isEmpty(), "a wrapper left without hints must be dropped entirely");
     }
@@ -109,7 +109,7 @@ public class SPMRound24SafetyTest {
         LogicalPlan nested = parse("SELECT /*+ ORDERED */ x.k FROM (SELECT /*+"
                 + " SET_VAR(time_zone='+08:00') */ k FROM internal.spm_db.t1) x"
                 + " JOIN internal.spm_db.t2 ON x.k = t2.k");
-        LogicalPlan stripped = SPMPlanTreeSupport.stripSelectHints(nested);
+        LogicalPlan stripped = SPMPlanTreeSupport.stripSetVarHints(nested);
         List<LogicalSelectHint<?>> hints = selectHints(stripped);
         Assertions.assertEquals(1, hints.size(),
                 "only the root's ORDERED wrapper may remain: " + stripped.treeString());

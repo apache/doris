@@ -42,10 +42,8 @@ import java.util.Set;
 /**
  * SPMOptimizer tests: the SPM excluded-rule set and the whitelist builder.
  *
- * Critical invariant: every rule name in SPM_EXCLUDED_RULE_NAMES and in the enumerated
- * MATERIALIZE_VIEW family must be a valid RuleType name - the whitelist is written into
- * enable_nereids_rules, which the engine resolves with RuleType.valueOf() and throws on
- * unknown names, which would break baseline planning.
+ * Rule names used to build the statement's capture mask must resolve to RuleType values.
+ * The mask is independent of the live enable_nereids_rules session variable.
  */
 public class SPMOptimizerTest {
 
@@ -258,7 +256,7 @@ public class SPMOptimizerTest {
                     "WITH c AS (SELECT /*+ SET_VAR(enable_nereids_rules='') */ k FROM t1)"
                             + " SELECT k FROM c");
             Assertions.assertThrows(AnalysisException.class,
-                    () -> SPMOptimizer.checkProtectedSetVarHints(ctePlan),
+                    () -> SPMOptimizer.rejectProtectedSetVarHints(ctePlan),
                     "a protected hint inside a CTE body must be rejected");
 
             LogicalPlan subqueryPlan = (LogicalPlan) new NereidsParser().parseSingle(
@@ -266,14 +264,14 @@ public class SPMOptimizerTest {
                             + " (SELECT /*+ SET_VAR(topn_lazy_materialization_threshold=1) */"
                             + " k FROM t2)");
             Assertions.assertThrows(AnalysisException.class,
-                    () -> SPMOptimizer.checkProtectedSetVarHints(subqueryPlan),
+                    () -> SPMOptimizer.rejectProtectedSetVarHints(subqueryPlan),
                     "a protected hint inside a subquery must be rejected");
 
             // a nested hint that targets an UNPROTECTED variable stays allowed
             LogicalPlan allowed = (LogicalPlan) new NereidsParser().parseSingle(
                     "WITH c AS (SELECT /*+ SET_VAR(parallel_pipeline_task_num=1) */ k FROM t1)"
                             + " SELECT k FROM c");
-            Assertions.assertDoesNotThrow(() -> SPMOptimizer.checkProtectedSetVarHints(allowed));
+            Assertions.assertDoesNotThrow(() -> SPMOptimizer.rejectProtectedSetVarHints(allowed));
         }
     }
 

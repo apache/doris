@@ -484,12 +484,9 @@ public class StatementContext implements Closeable {
      */
     private BaselinePlan spmUsedBaseline;
     /**
-     * The session's {@code sql_mode} BEFORE a {@code SET_VAR(sql_mode=...)} hint of this
-     * statement wrote it (-1 when the statement carries no such hint). The hint changes
-     * the SESSION variable for the rest of the statement (SelectHintSetVar
-     * #setVarOnceInSql, reverted when the statement finishes), so any consumer that
-     * re-parses this statement's TEXT - or forwards it to the master - must use THIS mode
-     * instead of the polluted session one (SPMPlanner#queryMatchKey, FEOpExecutor).
+     * The mode used to parse this statement, or -1 before a parser or SQL-mode hint records it.
+     * The live session can already contain a SET_VAR assignment from this statement or an earlier statement
+     * in the same parsed batch. Re-parsing and forwarding must use this captured mode instead.
      */
     private long spmOriginSqlMode = -1;
 
@@ -915,12 +912,8 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Records the mode the CURRENT statement's text is parsed under, ONCE, right before a
-     * {@code SET_VAR(sql_mode=...)} hint of the statement overwrites the session mode (see
-     * SelectHintSetVar#setVarOnceInSql). A second hint of the same statement must not
-     * re-record: it would capture the already polluted value.
-     *
-     * @param sqlMode the session mode in force just before the hint
+     * Records the actual parser mode once. Batch parsing records it before building each statement;
+     * direct parsing can record it before the first SQL-mode hint. Later assignments must not replace it.
      */
     public void recordSpmOriginSqlMode(long sqlMode) {
         if (spmOriginSqlMode < 0) {
@@ -929,12 +922,7 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * The session mode the statement's text was written for: the value captured before its
-     * first {@code SET_VAR(sql_mode=...)} hint, or -1 when the statement carries no such
-     * hint (the caller then uses the session's current mode, which the hint never
-     * changed).
-     *
-     * @return the captured origin mode, or -1
+     * Returns the captured parser mode, or -1 when no parser or SQL-mode hint recorded it.
      */
     public long getSpmOriginSqlMode() {
         return spmOriginSqlMode;

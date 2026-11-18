@@ -126,7 +126,7 @@ public class SPMRound65PlannerTest {
                 + "SELECT /*+ SET_VAR(time_zone='+00:00') */ from_unixtime(k) FROM c");
         LogicalPlan replay = parse("SELECT 1");
 
-        LogicalPlan carried = SPMPlanTreeSupport.carrySetVarHints(replay, caller);
+        LogicalPlan carried = SPMPlanTreeSupport.attachCallerSetVarHints(replay, caller);
         Assertions.assertTrue(carried instanceof LogicalSelectHint,
                 "the caller's SET_VAR payloads must be re-attached to the replay");
         List<String> zones = new ArrayList<>();

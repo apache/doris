@@ -241,15 +241,13 @@ public class SqlModeHelper {
     private static final ThreadLocal<Long> MODE_OVERRIDE = new ThreadLocal<>();
 
     /**
-     * Runs {@code parse} with this session's {@code sql_mode} temporarily replaced, and restores it after.
+     * Runs the callback with a thread-local SQL-mode read override. This method never writes or restores
+     * SessionVariable.sqlMode. A SET_VAR hint may still update the real session during the callback;
+     * statement cleanup owns restoring those changes.
      *
-     * <p>An override rather than a parameter because the mode is not threaded through the parser: the lexer
-     * reads it when it is built and the plan builder reads it again when it reaches a {@code ||}, both
-     * through {@link #hasNoBackSlashEscapes} and {@link #hasPipeAsConcat}. Those readers take the override
-     * ahead of any session, so the window holds whatever the parse does to the session variable - a
-     * {@code SET_VAR} hint in the text included - and holds on threads that have no connection.
-     *
-     * <p>Windows nest: an inner one restores the outer mode rather than dropping back to the session.
+     * The lexer and expression builder read this override ahead of the live session, so a hint cannot
+     * change how later parts of the same text are parsed. The override also works without a connection.
+     * Nested calls restore the enclosing override on success or failure.
      */
     public static <T> T withSqlMode(long sqlMode, Supplier<T> parse) {
         Long enclosing = MODE_OVERRIDE.get();

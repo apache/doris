@@ -1203,6 +1203,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     });
 
     private final Map<Integer, ParserRuleContext> selectHintMap;
+    private final Map<Integer, SelectClauseContext> selectHintOwners;
 
     // recursive cte is in form of union[all], and in visitSetOperation method, we try to reduceToLogicalPlanTree
     // for UNION. We should not do it for recursive cte, so this flag is to indicate if we meet recursive cte
@@ -1210,6 +1211,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     public LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap) {
         this.selectHintMap = selectHintMap;
+        this.selectHintOwners = selectHintMap == null || selectHintMap.isEmpty()
+                ? Collections.emptyMap() : new HashMap<>();
     }
 
     private static String requireNonEmptyColumnIdentifier(ParserRuleContext ctx, String identifier) {
@@ -2314,6 +2317,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = Lists.newArrayList();
         for (DorisParser.StatementContext statement : ctx.statement()) {
             StatementContext statementContext = new StatementContext();
+            // The parser pins one mode for the text. Earlier statements' hints can already have changed
+            // the live session, so even an unhinted statement must retain its actual mode for forwarding.
+            statementContext.recordSpmOriginSqlMode(SqlModeHelper.currentMode());
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
                 connectContext.setStatementContext(statementContext);
@@ -2804,7 +2810,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<ParserRuleContext> preAggOnHintContexts = Lists.newArrayList();
             for (Integer key : selectHintMap.keySet()) {
                 if (key > selectCtx.getStart().getStopIndex() && key < selectCtx.getStop().getStartIndex()) {
-                    selectHintContexts.add(selectHintMap.get(key));
+                    // A scalar subquery's SELECT clause lies inside the outer projection's token range.
+                    // Its block is built first and owns its hints. Re-visiting the same clause is allowed.
+                    SelectClauseContext owner = selectHintOwners.putIfAbsent(key, selectCtx);
+                    if (owner == null || owner == selectCtx) {
+                        selectHintContexts.add(selectHintMap.get(key));
+                    }
                 } else {
                     preAggOnHintContexts.add(selectHintMap.get(key));
                 }
@@ -5047,19 +5058,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 }
                             }
                             SelectHintSetVar setVar = new SelectHintSetVar(hintName, parameters);
-                            // Parsing WITHOUT a session (an FE-internal re-parse such as the
-                            // SPM baseline rebuild) must be side-effect free: the SET_VAR
-                            // hint is kept on the LogicalSelectHint node but must not be
-                            // applied to a session variable here - and there may be no
-                            // session at all, which previously threw an NPE and made the
-                            // caller drop the whole statement. A STORED SQL parse (a
-                            // persisted baseline text) is isolated even further: it runs
-                            // on the CALLER's thread but must never write the CALLER's
-                            // session (see SelectHintSetVar#runStoredTextParse).
+                            // Keep the hint for planning and matching. Apply assignments during ordinary
+                            // parsing only; stored-text parsing must not change the caller's session.
                             ConnectContext parseContext = ConnectContext.get();
                             if (parseContext != null && parseContext.getStatementContext() != null
-                                    && !SelectHintSetVar.isStoredTextParse()) {
-                                setVar.setVarOnceInSql(parseContext.getStatementContext());
+                                    && !SelectHintSetVar.isParseTimeSetVarSuppressed()) {
+                                setVar.applyToStatement(parseContext.getStatementContext());
                             }
                             hints.add(setVar);
                             break;
