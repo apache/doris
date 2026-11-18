@@ -15,8 +15,15 @@
 # specific language governing permissions and limitations
 # under the License.
 
+class State:
+    increment = 7
+
+
+StateType = __import__("types").State
+
+
 def evaluate(x):
     """An entry module named after types, which the server imports indirectly."""
     if x is None:
         return None
-    return x + 7
+    return x + StateType.increment

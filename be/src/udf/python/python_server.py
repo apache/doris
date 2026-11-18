@@ -1016,11 +1016,15 @@ class UDFModuleFinder(importlib.abc.MetaPathFinder):
 
     def import_for_udf_code(self, name, globals=None, locals=None, fromlist=(), level=0):
         """builtins.__import__ that adds the prefix to absolute imports in user code."""
-        if (
-            level != 0
-            or globals is None
-            or not (globals.get("__file__") or "").startswith(self.udf_file_prefix)
-        ):
+        if level != 0:
+            return self.original_import(name, globals, locals, fromlist, level)
+
+        # Direct __import__("types") omits globals; inspect its caller for UDF routing.
+        caller_globals = globals
+        if caller_globals is None:
+            caller_globals = sys._getframe(1).f_globals
+
+        if not (caller_globals.get("__file__") or "").startswith(self.udf_file_prefix):
             return self.original_import(name, globals, locals, fromlist, level)
 
         udf_module_name = self.add_root_package_prefix(name)
