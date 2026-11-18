@@ -19,9 +19,9 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.ArrayType;
@@ -139,12 +139,12 @@ public class SPMRound88PlannerTest {
 
     /** Every {@code SpmConstVar} marker the parameterization produced for one query. */
     private static List<SpmConstVar> markers(String sql) {
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(parse(sql), builder);
         List<SpmConstVar> markers = new ArrayList<>();
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (marker.getPlaceholderExpr() instanceof SpmConstVar) {
-                markers.add((SpmConstVar) marker.getPlaceholderExpr());
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (marker.placeholderExpr() instanceof SpmConstVar) {
+                markers.add((SpmConstVar) marker.placeholderExpr());
             }
         }
         return markers;

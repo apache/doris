@@ -19,6 +19,7 @@ package org.apache.doris.nereids.spm.placeholder;
 
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -32,6 +33,7 @@ import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Index equality must agree with the existing occurrence-matching contract. */
 public class PlaceholderIndexTest {
@@ -39,11 +41,11 @@ public class PlaceholderIndexTest {
     public void testIndependentOccurrencesDoNotRenderParentSignatures() {
         NereidsParser parser = new NereidsParser();
         Map<Expression, String> signatures = new IdentityHashMap<>();
-        Map<PlaceholderExpr.MatchKey, Integer> index = new HashMap<>();
+        Map<PlaceholderKey, Integer> index = new HashMap<>();
         Expression literal = new IntegerLiteral(1);
         for (int i = 0; i < 512; i++) {
             Expression parent = parser.parseExpression("a = 1");
-            PlaceholderExpr.MatchKey key = PlaceholderExpr.matchKey(literal, parent,
+            PlaceholderKey key = PlaceholderKey.of(literal, parent,
                     1, 0L, -1, i, "1", signatures);
             index.put(key, i);
         }
@@ -59,10 +61,10 @@ public class PlaceholderIndexTest {
                 parser.parseExpression("a IN (1, 2)"), parser.parseExpression("a IN (1, 3)"));
         Map<Expression, String> signatures = new IdentityHashMap<>();
         for (Expression left : expressions) {
-            PlaceholderExpr record = new PlaceholderExpr(left, left, null, 0, 0L, 0, 1L, "");
-            PlaceholderExpr.MatchKey key = PlaceholderExpr.matchKey(left, null, 0, 0L, 0, 1L, "", signatures);
+            LegacyIdentity record = new LegacyIdentity(left, null, 0, 0L, 0, 1L, "");
+            PlaceholderKey key = PlaceholderKey.of(left, null, 0, 0L, 0, 1L, "", signatures);
             for (Expression right : expressions) {
-                PlaceholderExpr.MatchKey other = PlaceholderExpr.matchKey(right, null,
+                PlaceholderKey other = PlaceholderKey.of(right, null,
                         1, 0L, 0, 1L, null, signatures);
                 Assertions.assertEquals(record.matches(right, null, 1, 0L, 0, 1L, null), key.equals(other));
                 if (key.equals(other)) {
@@ -81,9 +83,8 @@ public class PlaceholderIndexTest {
         Map<Expression, String> signatures = new IdentityHashMap<>();
         for (Expression parent : parents) {
             Expression literal = new IntegerLiteral(1);
-            PlaceholderExpr record = new PlaceholderExpr(literal, SpmConstVar.of(1, literal),
-                    parent, 0, 3L, 2, 7L, "0/1");
-            PlaceholderExpr.MatchKey expected = PlaceholderExpr.matchKey(literal, parent,
+            LegacyIdentity record = new LegacyIdentity(literal, parent, 0, 3L, 2, 7L, "0/1");
+            PlaceholderKey expected = PlaceholderKey.of(literal, parent,
                     0, 3L, 2, 7L, "0/1", signatures);
             for (Expression candidate : parents) {
                 for (int child : List.of(-1, 0, 1)) {
@@ -91,7 +92,7 @@ public class PlaceholderIndexTest {
                         for (long root : List.of(7L, 8L)) {
                             boolean matches = record.matches(literal, candidate, child,
                                     block, 2, root, "0/1");
-                            PlaceholderExpr.MatchKey key = PlaceholderExpr.matchKey(literal,
+                            PlaceholderKey key = PlaceholderKey.of(literal,
                                     candidate, child, block, 2, root, "0/1", signatures);
                             Assertions.assertEquals(matches, expected.equals(key));
                             if (matches) {
@@ -103,4 +104,54 @@ public class PlaceholderIndexTest {
             }
         }
     }
+
+    private record LegacyIdentity(Expression originalExpr, Expression parentExpr, int childIndex, long blockId, int projectItem,
+            long rootOrdinal, String occurrencePath) {
+        boolean matches(Expression expr, Expression parent, int childIndex, long blockId,
+                int projectItem, long rootOrdinal, String occurrencePath) {
+            if (this.blockId != blockId || this.projectItem != projectItem) {
+                // different query blocks (outer query vs subquery / derived table) or different
+                // SELECT-list items: never share one id, or a user query with different values
+                // in the two positions could never match
+                return false;
+            }
+            if (this.rootOrdinal != rootOrdinal
+                    || !Objects.equals(this.occurrencePath, occurrencePath == null ? ""
+                            : occurrencePath)) {
+                // different expression OCCURRENCES (see rootOrdinal / occurrencePath): the two
+                // literals are independent slots, and a query varying them separately must still
+                // match
+                return false;
+            }
+            if (!originalExpr.equals(expr)) {
+                return false;
+            }
+            // A literal with no parent (top-level expression, e.g. an ORDER BY key that is a
+            // bare literal) only reuses the id of another parent-less literal. Comparing a
+            // non-null parentExpr against a null parent (or vice versa) must not crash on
+            // parentSignature(null) and must not share an id across different nesting levels.
+            if (parentExpr == null || parent == null) {
+                return parentExpr == null && parent == null;
+            }
+            return this.childIndex == childIndex
+                    && parentSignature(parentExpr).equals(parentSignature(parent));
+        }
+
+        private static String parentSignature(Expression expr) {
+            if (expr instanceof SubqueryExpr) {
+                return "<subquery>";
+            }
+            List<Expression> children = expr.children();
+            if (children.isEmpty()) {
+                return expr.getClass().getSimpleName() + ":" + expr.toSql();
+            }
+            StringBuilder sb = new StringBuilder(expr.getClass().getSimpleName());
+            for (Expression child : children) {
+                sb.append('(').append(parentSignature(child)).append(')');
+            }
+            return sb.toString();
+        }
+
+    }
+
 }

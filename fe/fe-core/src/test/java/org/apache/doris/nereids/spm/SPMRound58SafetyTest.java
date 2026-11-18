@@ -19,8 +19,8 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -38,7 +38,7 @@ import java.util.Map;
 /**
  * Round-58 regression tests for the reviewer's findings.
  *
- * #1 (SPMPlaceholderBuilder#254): two equal literals in DIFFERENT ON clauses of ONE query
+ * #1 (TestSPMPlaceholderBuilder#254): two equal literals in DIFFERENT ON clauses of ONE query
  * block must get DISTINCT placeholder ids. The dedup key used to include the literal, its
  * direct parent, the child position, the block and the projection item - but no join or
  * expression occurrence - so two structurally identical ON predicates shared ONE id. A
@@ -59,7 +59,7 @@ public class SPMRound58SafetyTest {
     @Test
     public void testSeparateJoinPredicatesGetDistinctPlaceholders() {
         String bindSql = "SELECT a.k FROM a JOIN b ON b.k = 1 JOIN c ON b.k = 1";
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(parse(bindSql), builder);
 
         List<LogicalJoin<?, ?>> bindJoins = joins(parameterized);
@@ -113,7 +113,7 @@ public class SPMRound58SafetyTest {
     /** The ids of all join predicates of one parameterization, in join walk order. */
     private static List<Long> joinPredicateIds(String sql) {
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(parse(sql),
-                new SPMPlaceholderBuilder());
+                new TestSPMPlaceholderBuilder());
         List<Long> ids = new ArrayList<>();
         for (LogicalJoin<?, ?> join : joins(parameterized)) {
             for (Expression predicate : predicates(join)) {

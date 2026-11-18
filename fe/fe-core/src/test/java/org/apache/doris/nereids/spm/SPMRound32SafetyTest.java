@@ -21,8 +21,8 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.manager.SessionBaselineStore;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -46,7 +46,7 @@ import java.util.Map;
  *   an inner cap of a MANUAL plan (below a node the merge cannot align) kept the CAPTURED
  *   value and silently truncated the variant (the reviewer's DISTINCT over an inner
  *   ORDER BY ... LIMIT 1 case).
- * - #9 (SPMPlaceholderBuilder / PlaceholderExpr): the placeholder identity must include
+ * - #9 (TestSPMPlaceholderBuilder / PlaceholderSnapshot): the placeholder identity must include
  *   the SELECT-list item POSITION and the query BLOCK, or independent literals share one
  *   id - "SELECT 1 AS x, 1 AS y" (same value, same child position, same parent signature)
  *   and equal filter literals of an outer block and a derived table (both block 0) could
@@ -73,11 +73,11 @@ public class SPMRound32SafetyTest {
                 "SELECT DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s"
                         + " ORDER BY k LIMIT 2");
         LogicalPlan user = parse("SELECT k FROM t ORDER BY k LIMIT 2");
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsWithin(replayed, user),
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(replayed, user),
                 "the inner LIMIT 1 was inherited from the captured plan, not from the"
                         + " caller's LIMIT 2");
         // the same caps on BOTH sides are the caller's own contract
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(replayed, parse(
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(replayed, parse(
                 "SELECT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k LIMIT 2")),
                 "an inner cap the caller itself wrote is justified");
     }
@@ -87,7 +87,7 @@ public class SPMRound32SafetyTest {
     public void testTopLevelOnlyVariantIsStillAccepted() {
         LogicalPlan replayed = parse("SELECT k FROM t ORDER BY k LIMIT 2");
         LogicalPlan user = parse("SELECT k FROM t ORDER BY k LIMIT 2");
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(replayed, user));
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(replayed, user));
         Assertions.assertArrayEquals(new long[] {2L, 0L},
                 SPMPlanTreeSupport.topLevelLimitOf(replayed));
     }
@@ -102,7 +102,7 @@ public class SPMRound32SafetyTest {
      */
     @Test
     public void testIndependentProjectionLiteralsGetDistinctPlaceholderIds() {
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan bind = SPMPlanTreeSupport.transform(parse("SELECT 1 AS x, 1 AS y"), builder);
         Assertions.assertEquals(2, builder.getPlaceholderExprs().size(),
                 "the two SELECT-list literals must not share one placeholder id");
@@ -128,7 +128,7 @@ public class SPMRound32SafetyTest {
      */
     @Test
     public void testDerivedTableLiteralsGetTheirOwnBlock() {
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan bind = SPMPlanTreeSupport.transform(
                 parse("SELECT * FROM (SELECT k FROM t WHERE k = 1) s WHERE k = 1"), builder);
         Assertions.assertEquals(2, builder.getPlaceholderExprs().size(),
@@ -149,7 +149,7 @@ public class SPMRound32SafetyTest {
      */
     @Test
     public void testPositionedIdentityStaysAlignedAcrossTheTwoTrees() {
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan bind = SPMPlanTreeSupport.transform(parse("SELECT 1 AS x, 1 AS y"), builder);
         // production parameterizes each tree with its own walk run (see
         // SPMPlanner#parameterizeWholeTree -> startNewTree): the per-tree root ordinals of

@@ -39,14 +39,6 @@ import java.util.Map;
  */
 public class SPMPlaceholderReplacer extends ExpressionVisitor<Expression, Map<Long, Expression>> {
 
-    /**
-     * Applies available marker replacements. Missing mappings and unsupported child rebuilds can leave original
-     * expressions in the result; this method does not guarantee that every marker is removed.
-     */
-    public Expression replace(Expression expr, Map<Long, Expression> placeholderValues) {
-        return expr.accept(this, placeholderValues);
-    }
-
     @Override
     public Expression visit(Expression expr, Map<Long, Expression> placeholderValues) {
         // scalar placeholder -> user actual value.

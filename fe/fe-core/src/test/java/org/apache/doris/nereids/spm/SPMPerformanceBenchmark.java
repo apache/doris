@@ -89,10 +89,12 @@ public final class SPMPerformanceBenchmark {
                 expressions.add(parser.parseExpression("a = " + i));
             }
             measure("parameterize", size, 15,
-                    () -> new SPMPlaceholderBuilder().parameterizeExpressions(expressions));
+                    () -> org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder
+                            .parameterizeExpressions(new SPMPlaceholderBuilder(), expressions));
         }
         Method contract = SPMPlanner.class.getDeclaredMethod("limitContractPreserved",
-                LogicalPlan.class, LogicalPlan.class, LogicalPlan.class);
+                SPMPlanTreeSupport.ReplayContracts.class, SPMPlanTreeSupport.ReplayContracts.class,
+                LogicalPlan.class);
         contract.setAccessible(true);
         for (int depth : new int[] {8, 32, 64}) {
             String sql = "SELECT k FROM t LIMIT 1";
@@ -101,7 +103,9 @@ public final class SPMPerformanceBenchmark {
             }
             LogicalPlan user = (LogicalPlan) parser.parseSingle(sql);
             LogicalPlan replay = (LogicalPlan) parser.parseSingle(sql);
-            measure("limit_contract", depth, 15, () -> contract.invoke(null, replay, user, user));
+            measure("limit_contract", depth, 15, () -> contract.invoke(null,
+                    new SPMPlanTreeSupport.ReplayContracts(replay),
+                    new SPMPlanTreeSupport.ReplayContracts(user), user));
         }
         for (int size : new int[] {32, 128}) {
             LogicalPlan bind = SPMPlanTreeSupport.transform((LogicalPlan) parser.parseSingle(query(size, false)),

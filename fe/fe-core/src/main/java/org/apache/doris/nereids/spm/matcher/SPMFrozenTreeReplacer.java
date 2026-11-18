@@ -47,14 +47,6 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
     public static final String CONST_LIST_FUNC = "_spm_const_list";
 
     /**
-     * Applies available substitutions to a frozen-tree expression. Missing mappings and unsupported child rebuilds
-     * can leave marker calls in the result.
-     */
-    public Expression replace(Expression expr, Map<Long, Expression> placeholderValues) {
-        return expr.accept(this, placeholderValues);
-    }
-
-    /**
      * Returns whether the expression is a frozen-tree placeholder call
      * (_spm_const_var(id) / _spm_const_list(id)) that was NOT substituted
      * such an expression must never reach the analyzer (the function is not registered),

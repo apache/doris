@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -68,7 +68,7 @@ public class SPMRound68PlannerTest {
         Expression bind = new Or(new GreaterThan(k, new TinyIntLiteral((byte) 0)),
                 NullLiteral.INSTANCE);
 
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         Expression parameterized = builder.parameterizeExpressions(List.of(bind)).get(0);
 
         Assertions.assertTrue(parameterized instanceof Or,
@@ -87,7 +87,7 @@ public class SPMRound68PlannerTest {
                 "the frozen text must keep the placeholder call (its id is what a matching"
                         + " TRUE / FALSE variant is substituted into)");
         Assertions.assertEquals(1, builder.getPlaceholderExprs().stream()
-                .filter(record -> record.getPlaceholderExpr() == marker).count(),
+                .filter(record -> record.placeholderExpr() == marker).count(),
                 "exactly one placeholder record backs the marker");
     }
 

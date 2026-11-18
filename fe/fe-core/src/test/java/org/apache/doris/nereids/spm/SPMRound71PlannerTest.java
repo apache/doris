@@ -19,9 +19,9 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -132,19 +132,19 @@ public class SPMRound71PlannerTest {
     public void testAllNullCaseOperandParameterizesBooleanMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR CASE WHEN k = 0"
                 + " THEN NULL ELSE NULL END");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        List<PlaceholderExpr> markers = builder.getPlaceholderExprs();
+        List<PlaceholderSnapshot> markers = builder.getPlaceholderExprs();
         Assertions.assertEquals(4, markers.size(),
                 "both comparison literals and BOTH branch NULLs must stay markers: "
                         + markers);
         int nullMarkers = 0;
-        for (PlaceholderExpr marker : markers) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : markers) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar constVar = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar constVar = (SpmConstVar) marker.placeholderExpr();
             if (!(constVar.getValue() instanceof NullLiteral)) {
                 continue;
             }
@@ -168,12 +168,12 @@ public class SPMRound71PlannerTest {
     public void testCaseOutsideBooleanContextKeepsNullMarkers() {
         LogicalPlan plan = parse(
                 "SELECT (CASE WHEN k = 0 THEN NULL ELSE NULL END) + v AS c FROM t");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         boolean sawNullMarker = false;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 sawNullMarker = true;

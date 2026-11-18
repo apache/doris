@@ -23,13 +23,11 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
@@ -223,16 +221,6 @@ public class SPMOptimizer {
      */
     private static final ThreadLocal<Integer> CAPTURE_DEPTH = ThreadLocal.withInitial(() -> 0);
 
-    /**
-     * The nested-context factory (see createNestedStatementContext). A seam, not a
-     * configuration: the production value always builds a CaptureStatementContext,
-     * and a unit test substitutes a recording subclass to observe that the close in
-     * optimize's finally releases the context the plan actually used. A construction mock
-     * of StatementContext cannot see it - the allocation names the SUBCLASS.
-     */
-    private static volatile java.util.function.BiFunction<ConnectContext, String,
-            StatementContext> nestedContextFactory = CaptureStatementContext::new;
-
     private SPMOptimizer() {
     }
 
@@ -365,19 +353,6 @@ public class SPMOptimizer {
     }
 
     /**
-     * Parses plan SQL and optimizes the logical query through the SPM nested-context entry. Rejects commands and
-     * non-logical plans. The returned result contains the physical plan, estimated cost and captured metadata.
-     */
-    public static OptimizeResult optimize(ConnectContext ctx, String planSql) throws UserException {
-        Plan parsed = new NereidsParser().parseSingle(planSql);
-        // A SELECT statement is parsed as a logical plan; DDL/DML parse to a Command.
-        if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
-            throw new AnalysisException("SPM only supports SELECT statements: " + planSql);
-        }
-        return optimize(ctx, (LogicalPlan) parsed, planSql);
-    }
-
-    /**
      * Optimizes an already parsed logical plan with the nested statement rule mask and capture settings.
      * Parameterized marker nodes can survive into the physical plan, allowing frozen SQL to retain ids for replay
      * substitution. Session settings and the outer context are restored when planning finishes or fails.
@@ -418,7 +393,7 @@ public class SPMOptimizer {
         // leaves both snapshots identical while the expansion inlined the INTERMEDIATE body, so
         // CREATE also requires that the definitions did not MOVE at all.
         long functionRegistryVersionBefore = SPMPlanTreeSupport.functionRegistryVersion();
-        StatementContext statementContext = createNestedStatementContext(ctx, originSql);
+        CaptureStatementContext statementContext = createNestedStatementContext(ctx, originSql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
 
         SessionVariable sessionVar = ctx.getSessionVariable();
@@ -500,21 +475,13 @@ public class SPMOptimizer {
             // may have been produced without a guard - fail the freeze instead of
             // publishing it.
             verifySpmOverridesIntact(sessionVar);
-            // The bind-side tables of this plan were resolved UNDER the locks taken above
-            // and are read here, while the nested statement context that owns them is still
-            // open: a fingerprint computed later can only re-resolve the LIVE catalog (see
-            // OptimizeResult.tableSnapshot).
+            // Keep entries hashed under the planning locks; catalog table objects can change after unlock.
             return new OptimizeResult((PhysicalPlan) resultPlan,
                     extractCost((PhysicalPlan) resultPlan),
-                    snapshotTables(statementContext.getTables()),
-                    statementContext instanceof CaptureStatementContext
-                            ? ((CaptureStatementContext) statementContext).getTableFingerprints()
-                            : java.util.Map.of(),
+                    statementContext.getTableFingerprints(),
                     bindFunctionSnapshot,
                     functionRegistryVersionBefore,
-                    statementContext instanceof CaptureStatementContext
-                            ? ((CaptureStatementContext) statementContext).getPartitionNames()
-                            : java.util.Map.of());
+                    statementContext.getPartitionNames());
         } finally {
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
@@ -538,9 +505,9 @@ public class SPMOptimizer {
      * Creates the nested statement context of one baseline-plan optimization. The context
      * is closed in the caller's finally.
      */
-    private static StatementContext createNestedStatementContext(ConnectContext ctx,
+    private static CaptureStatementContext createNestedStatementContext(ConnectContext ctx,
             String originSql) {
-        StatementContext nested = nestedContextFactory.apply(ctx, originSql);
+        CaptureStatementContext nested = new CaptureStatementContext(ctx, originSql);
         // The plan tree handed to optimize was PARSED under the caller's statement context, and
         // parsing already allocates ExprIds: LogicalPlanBuilder builds a BOUND Alias for a literal
         // select item (SELECT 7 AS b), so such an item carries an id from the OUTER generator.
@@ -556,43 +523,6 @@ public class SPMOptimizer {
             nested.continueIdGeneratorsFrom(outer);
         }
         return nested;
-    }
-
-    /**
-     * Installs a nested-context factory for one test (see nestedContextFactory).
-     *
-     * Parameter factory: the factory, or null to restore the production one
-     */
-    static void setNestedContextFactoryForTest(java.util.function.BiFunction<ConnectContext,
-            String, StatementContext> factory) {
-        nestedContextFactory = factory == null ? CaptureStatementContext::new : factory;
-    }
-
-    /**
-     * The locked bind-side tables of one nested plan, keyed like
-     * SPMPlanTreeSupport.lockedTablesByQualifiedName (bare name and database-qualified
-     * name, lower case). MUST be read before the nested statement context is closed.
-     *
-     * Parameter tables: the nested statement's resolved tables (qualifier to TableIf)
-     * Returns: lowercase bare / db-qualified table name to the under-lock TableIf
-     */
-    private static java.util.Map<String, org.apache.doris.catalog.TableIf> snapshotTables(
-            java.util.Map<List<String>, org.apache.doris.catalog.TableIf> tables) {
-        if (tables == null || tables.isEmpty()) {
-            return java.util.Map.of();
-        }
-        java.util.Map<String, org.apache.doris.catalog.TableIf> snapshot = new java.util.HashMap<>();
-        for (org.apache.doris.catalog.TableIf table : tables.values()) {
-            if (table == null || table.getName() == null) {
-                continue;
-            }
-            snapshot.putIfAbsent(table.getName().toLowerCase(Locale.ROOT), table);
-            if (table.getDatabase() != null && table.getDatabase().getFullName() != null) {
-                snapshot.putIfAbsent((table.getDatabase().getFullName() + "." + table.getName())
-                        .toLowerCase(Locale.ROOT), table);
-            }
-        }
-        return snapshot;
     }
 
     /**
@@ -695,18 +625,6 @@ public class SPMOptimizer {
         private final PhysicalPlan physicalPlan;
         private final double cost;
         /**
-         * The under-lock metadata snapshot of the statement's catalog relations, keyed by
-         * bare / database-qualified lowercase table name (see
-         * SPMPlanTreeSupport.schemaFingerprintForCreate). The nested statement context
-         * that owns these TableIf objects is CLOSED when optimize returns, so a
-         * fingerprint computed afterwards could only re-resolve the tables from the LIVE
-         * catalog - hashing a schema a concurrent ALTER may already have changed while
-         * the frozen output slots still describe the older one (the CREATE-time
-         * fingerprint would then accept a replay of the stale frozen plan).
-         */
-        private final java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot;
-
-        /**
          * Table fingerprint entries hashed WHILE the planning locks were held (see
          * CaptureStatementContext): lower-case bare / db-qualified /
          * catalog-qualified table name to the entry. The TableIf objects are MUTABLE in
@@ -747,76 +665,27 @@ public class SPMOptimizer {
          */
         private final java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames;
 
-        public OptimizeResult(PhysicalPlan physicalPlan, double cost) {
-            this(physicalPlan, cost, java.util.Map.of(), java.util.Map.of(), null, null);
-        }
-
-        public OptimizeResult(PhysicalPlan physicalPlan, double cost,
-                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot) {
-            this(physicalPlan, cost, tableSnapshot, java.util.Map.of(), null, null);
-        }
-
-        public OptimizeResult(PhysicalPlan physicalPlan, double cost,
-                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
-                java.util.Map<String, String> tableFingerprints) {
-            this(physicalPlan, cost, tableSnapshot, tableFingerprints, null, null);
-        }
-
-        public OptimizeResult(PhysicalPlan physicalPlan, double cost,
-                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
-                java.util.Map<String, String> tableFingerprints,
-                java.util.Set<String> bindFunctionDependencies) {
-            this(physicalPlan, cost, tableSnapshot, tableFingerprints, bindFunctionDependencies,
-                    null);
-        }
-
-        /**
-         * The full result: the physical plan, its cost, the under-lock table snapshot, the
-         * fingerprint entries hashed under the locks, the bind-side FUNCTION entries captured
-         * before analysis and the UDF registry version read before analysis (see the field
-         * javadocs).
-         *
-         * Parameter physicalPlan: the optimized physical plan
-         * Parameter cost: its estimated cost
-         * Parameter tableSnapshot: the under-lock bind-side tables
-         * Parameter tableFingerprints: the under-lock table fingerprint entries
-         * Parameter bindFunctionDependencies: the pre-analysis function entries, or null
-         * Parameter functionRegistryVersion: the pre-analysis UDF registry version, or null
-         */
-        public OptimizeResult(PhysicalPlan physicalPlan, double cost,
-                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
-                java.util.Map<String, String> tableFingerprints,
-                java.util.Set<String> bindFunctionDependencies,
-                Long functionRegistryVersion) {
-            this(physicalPlan, cost, tableSnapshot, tableFingerprints, bindFunctionDependencies,
-                    functionRegistryVersion, java.util.Map.of());
-        }
-
         /**
          * The full result including the under-lock PARTITION NAMES (see the field javadoc).
          *
          * Parameter physicalPlan: the optimized physical plan
          * Parameter cost: its estimated cost
-         * Parameter tableSnapshot: the under-lock bind-side tables
          * Parameter tableFingerprints: the under-lock table fingerprint entries
          * Parameter bindFunctionDependencies: the pre-analysis function entries, or null
          * Parameter functionRegistryVersion: the pre-analysis UDF registry version, or null
          * Parameter partitionNames: table id to partition id to the ADMITTED name
          */
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
-                java.util.Map<String, org.apache.doris.catalog.TableIf> tableSnapshot,
                 java.util.Map<String, String> tableFingerprints,
                 java.util.Set<String> bindFunctionDependencies,
                 Long functionRegistryVersion,
                 java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames) {
             this.physicalPlan = physicalPlan;
             this.cost = cost;
-            this.tableSnapshot = tableSnapshot == null ? java.util.Map.of() : tableSnapshot;
-            this.tableFingerprints = tableFingerprints == null
-                    ? java.util.Map.of() : tableFingerprints;
+            this.tableFingerprints = tableFingerprints;
             this.bindFunctionDependencies = bindFunctionDependencies;
             this.functionRegistryVersion = functionRegistryVersion;
-            this.partitionNames = partitionNames == null ? java.util.Map.of() : partitionNames;
+            this.partitionNames = partitionNames;
         }
 
         public PhysicalPlan getPhysicalPlan() {
@@ -830,16 +699,6 @@ public class SPMOptimizer {
 
         public double getCost() {
             return cost;
-        }
-
-        /**
-         * The bind-side tables as they were resolved UNDER the planning locks (see the
-         * field javadoc); empty when unknown.
-         *
-         * Returns: lowercase bare / db-qualified table name to the locked TableIf
-         */
-        public java.util.Map<String, org.apache.doris.catalog.TableIf> getTableSnapshot() {
-            return tableSnapshot;
         }
 
         /**

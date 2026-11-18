@@ -17,16 +17,12 @@
 
 package org.apache.doris.nereids.spm;
 
-import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
-import org.apache.doris.nereids.spm.builder.SQLRelation;
-import org.apache.doris.nereids.trees.expressions.Expression;
-
 import org.apache.commons.codec.digest.DigestUtils;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 
-/** Expression rendering, digest hashing and timestamp helpers for SPM. */
+/** Digest hashing and timestamp helpers for SPM. */
 public final class SPMUtils {
 
     private SPMUtils() {
@@ -39,20 +35,6 @@ public final class SPMUtils {
      */
     public static long nowMicros() {
         return ChronoUnit.MICROS.between(Instant.EPOCH, Instant.now());
-    }
-
-    /**
-     * Renders a parameterized expression using SPMExprSqlBuilder. Scalar and list markers are printed with their
-     * ids and without their captured payloads. Ordinary literals retain their rendered values. This is an
-     * expression helper; whole-query matching builds its canonical digest from the plan.
-     */
-    public static String digest(Expression parameterized) {
-        return new SPMExprSqlBuilder().print(parameterized, new SQLRelation());
-    }
-
-    /** Hashes the rendered expression digest using hashOf. */
-    public static long hash(Expression parameterized) {
-        return hashOf(digest(parameterized));
     }
 
     /**

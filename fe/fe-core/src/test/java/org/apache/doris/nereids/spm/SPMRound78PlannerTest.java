@@ -18,9 +18,9 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -71,12 +71,12 @@ public class SPMRound78PlannerTest {
     private static void assertAllNullProducerMarkersAreBoolean(String function) {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR " + function
                 + "(NULL, NULL)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int nullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
@@ -103,12 +103,12 @@ public class SPMRound78PlannerTest {
     public void testConditionalNestedInAnotherConditionalKeepsBooleanMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR (CASE WHEN k = 0 THEN"
                 + " ifnull(NULL, NULL) ELSE NULL END)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int booleanNullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral
                     && ((SpmConstVar) placeholder).getDataType() instanceof BooleanType) {
@@ -124,14 +124,14 @@ public class SPMRound78PlannerTest {
     @Test
     public void testNonNullGreatestKeepsItsMarkerTypes() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR greatest(k, NULL) = 1");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (marker.getPlaceholderExpr() instanceof SpmConstVar
-                    && ((SpmConstVar) marker.getPlaceholderExpr()).getValue()
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (marker.placeholderExpr() instanceof SpmConstVar
+                    && ((SpmConstVar) marker.placeholderExpr()).getValue()
                             instanceof NullLiteral) {
-                Assertions.assertFalse(((SpmConstVar) marker.getPlaceholderExpr()).getDataType()
+                Assertions.assertFalse(((SpmConstVar) marker.placeholderExpr()).getDataType()
                                 instanceof BooleanType,
                         "only an ALL-NULL GREATEST is a NullType producer");
             }

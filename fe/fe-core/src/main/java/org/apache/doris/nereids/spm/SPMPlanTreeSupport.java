@@ -351,61 +351,10 @@ public final class SPMPlanTreeSupport {
         return null;
     }
 
-    /**
-     * Whether every row-limiting node of replayed is justified by the caller's own
-     * tree userPlan: the MULTISET of (limit, offset, INPUT-IDENTITY) keys the
-     * replay exposes must be contained in the caller's own - a LIMIT VARIANT replay
-     * transfers the caller's top-level value POSITIONALLY, so any other cap it still
-     * exposes was inherited from the CAPTURED plan (or a manual plan) and would silently
-     * truncate the result of the variant (the frozen
-     * SELECT DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k
-     * LIMIT 2 kept the inner cap at 1 while the caller asked for two keys).
-     *
-     * Comparing INPUT IDENTITIES rather than node paths is deliberate: the replay is a
-     * MANUAL frozen plan whose structure may legitimately differ from the caller's, so
-     * only what the caller itself asked for (values AND the input they truncate) can
-     * justify a cap. The input identity carries the OCCURRENCE of the relation it names
-     * two caps over the same table are only equivalent when they truncate
-     * the SAME occurrence, otherwise a cap moved between same-table occurrences passed
-     * the multiset check and truncated the wrong side of e.g. a self join. The occurrence
-     * is the relation's per-name ORDINAL in walk order - NOT its alias, because the
-     * frozen text of a baseline is the DECOMPILED plan and the decompiler renames every
-     * derived alias (an identical-text baseline must keep hitting its own query: the
-     * alias-based form rejected it because the caller's x became t_1).
-     *
-     * Parameter replayed: the replayed tree AFTER the limit merge
-     * Parameter userPlan: the caller's own tree
-     * Returns: whether every replayed cap is one the caller's tree also has
-     */
-    public static boolean rowLimitsWithin(Plan replayed, Plan userPlan) {
-        return rowLimitsWithin(new ReplayContracts(replayed), new ReplayContracts(userPlan));
-    }
-
     static boolean rowLimitsWithin(ReplayContracts replayed, ReplayContracts userPlan) {
         Map<String, Integer> allowed = userPlan.caps();
         Map<String, Integer> used = replayed.caps();
         return containsEveryCap(allowed, used);
-    }
-
-    /**
-     * Whether two trees carry the SAME row caps, ignoring which OCCURRENCE of an identical
-     * relation each cap truncates (see stripOccurrenceOrdinals).
-     *
-     * This is the equality form of the cap contract, used ONLY by the "the caller IS the
-     * statement the frozen plan was built from" exception in SPMPlanner: the strict checks stay
-     * untouched, because a cap moved between two occurrences of one table is exactly the hazard
-     * they exist for. What the equality form tolerates is the OPTIMIZER's own reordering - it may
-     * place a derived table on the other JOIN side, which flips the occurrence ordinal without
-     * moving the cap. Every cap VALUE, its ordered slice and the relation SET still have to
-     * match exactly, in both directions, so a caller that changed a LIMIT / OFFSET (or whose plan
-     * carries extra optimizer-generated input caps) never matches.
-     *
-     * Parameter left: one tree
-     * Parameter right: the other tree
-     * Returns: whether both trees expose the same cap multiset modulo occurrence ordinals
-     */
-    public static boolean rowLimitsEquivalentModuloOccurrence(Plan left, Plan right) {
-        return rowLimitsEquivalentModuloOccurrence(new ReplayContracts(left), new ReplayContracts(right));
     }
 
     static boolean rowLimitsEquivalentModuloOccurrence(ReplayContracts left, ReplayContracts right) {
@@ -424,25 +373,6 @@ public final class SPMPlanTreeSupport {
             stripped.merge(stripOccurrenceOrdinals(entry.getKey()), entry.getValue(), Integer::sum);
         }
         return stripped;
-    }
-
-    /**
-     * The REVERSE direction of rowLimitsWithin: every cap the
-     * CALLER's tree asks for must survive in the replayed tree with the SAME values,
-     * ordered slice and input placement. The one-directional check only rejected caps the
-     * replay ADDED; a replay that DROPPED a caller cap passed (bind
-     * SELECT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k LIMIT 2 vs
-     * manual plan SELECT k FROM t ORDER BY k LIMIT 2: the replay's sole outer cap
-     * is contained in the caller's {inner, outer} set, yet for t={1,2,3} the caller
-     * returns ONE row and the replay two). Positive logic: a cap can only be honored when
-     * the replay demonstrably carries it.
-     *
-     * Parameter replayed: the replayed tree AFTER the limit merge
-     * Parameter userPlan: the caller's own tree
-     * Returns: whether every caller cap exists in the replayed tree
-     */
-    public static boolean rowLimitsSurviveReplay(Plan replayed, Plan userPlan) {
-        return rowLimitsSurviveReplay(new ReplayContracts(replayed), new ReplayContracts(userPlan));
     }
 
     static boolean rowLimitsSurviveReplay(ReplayContracts replayed, ReplayContracts userPlan) {
@@ -468,29 +398,6 @@ public final class SPMPlanTreeSupport {
             }
         }
         return true;
-    }
-
-    /**
-     * The equal-top-limit acceptance for the OPTIMIZER-REDUCED caller tree: the RAW
-     * caller can contain MORE occurrences of one table than the frozen optimal plan,
-     * which collapses them (common-subexpression elimination folds three date_dim
-     * scans into one, tpcds q76), so the occurrence-tagged keys of the TOP-LEVEL cap
-     * differ although the cap truncates the same (ordered) result. Accept when the
-     * caller's and the replay's top-level cap agree on (limit, offset, ordered-slice)
-     * and on the occurrence-ordinal-FREE relation NAME set, while every OTHER cap on
-     * both sides keeps the strict two-way containment. The caller must already have
-     * established that the top-level (limit, offset) is unchanged from the stored
-     * bind tree (see SPMPlanner.limitContractPreserved): the value cannot come from a
-     * variant's positional transfer, and only the top cap - whose slice is the whole
-     * result, not one occurrence of a self-join - may ignore the ordinals.
-     *
-     * Parameter replayed: the replayed tree AFTER the limit merge
-     * Parameter userPlan: the caller's own tree
-     * Returns: whether the top caps agree modulo occurrence ordinals and everything
-     *         else stays strictly contained
-     */
-    static boolean topCapContractPreserved(Plan replayed, Plan userPlan) {
-        return topCapContractPreserved(new ReplayContracts(replayed), new ReplayContracts(userPlan));
     }
 
     static boolean topCapContractPreserved(ReplayContracts replayed, ReplayContracts userPlan) {
@@ -541,14 +448,6 @@ public final class SPMPlanTreeSupport {
         return found;
     }
 
-    /**
-     * Whether all collected caps share one distinct key whose limit and offset equal the exposed top-level cap.
-     * This key-count check does not require the key multiplicity to be one.
-     */
-    public static boolean onlyTopCap(Plan plan) {
-        return onlyTopCap(new ReplayContracts(plan));
-    }
-
     static boolean onlyTopCap(ReplayContracts plan) {
         long[] top = plan.topLimit();
         if (top == null) {
@@ -595,21 +494,6 @@ public final class SPMPlanTreeSupport {
             names.add(hash < 0 ? input : input.substring(0, hash));
         }
         return capKey.substring(0, third + 1) + String.join(",", names);
-    }
-
-    /**
-     * Whether every cap of the replayed tree is either one the CALLER's own tree carries
-     * (same value, offset and input identity, see rowLimitsWithin) or a pushdown OF THE
-     * CALLER's own top-level cap: the optimizer folds a top LIMIT n into the plan it
-     * plans (the tpcds q28 frozen plan carries one 100:0 cap per store_sales scan),
-     * so the frozen plan of the IDENTICAL query legitimately exposes caps the RAW
-     * caller tree has no node for. Only caps with EXACTLY the caller's top-level
-     * (limit, offset) qualify, and the caller must ask for NO order contract of its
-     * own: an equal-valued inner cap below an ordering-dependent slice truncates a
-     * DIFFERENT slice (see SPMPlanner.limitContractPreserved).
-     */
-    static boolean replayCapsJustifiedByCallerTopLimit(Plan replayed, Plan userPlan) {
-        return replayCapsJustifiedByCallerTopLimit(new ReplayContracts(replayed), new ReplayContracts(userPlan));
     }
 
     static boolean replayCapsJustifiedByCallerTopLimit(ReplayContracts replayed, ReplayContracts userPlan) {
@@ -3103,64 +2987,6 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * A canonical STRING identity of every SELECT hint the parsed statement carries: the
-     * structural matcher compares the hint lists exactly (see sameSelectHints), while the
-     * audit digest drops them (LogicalSelectHint.toDigest is empty), so a dedup gate that
-     * keys on the digest alone merges two rows that SPM would never match together -
-     * SET_VAR changes how the query is analyzed / planned and LEADING / ORDERED pin the
-     * join order. The rendering mirrors the STRUCTURAL comparison field by field, so two
-     * hints that match structurally render identically and two that do not never do; a
-     * hint type the comparison delegates to toString keeps its own rendering. Nested
-     * query blocks join as well (the walker reaches every LogicalSelectHint) in tree
-     * order.
-     *
-     * Parameter parsed: the parsed statement (may be null)
-     * Returns: the canonical identity ("" when the statement carries no SELECT hint)
-     */
-    public static String selectHintsFingerprint(Plan parsed) {
-        if (parsed == null) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(parsed, (Plan node) -> {
-            if (node instanceof LogicalSelectHint) {
-                for (SelectHint hint : ((LogicalSelectHint<?>) node).getHints()) {
-                    appendSelectHint(sb, hint);
-                }
-            }
-        });
-        return sb.toString();
-    }
-
-    /** Appends the canonical rendering of one SELECT hint (see selectHintsFingerprint). */
-    private static void appendSelectHint(StringBuilder sb, SelectHint hint) {
-        sb.append(hint.getClass().getSimpleName()).append('(')
-                .append(hint.getHintName().toLowerCase()).append('|');
-        if (hint instanceof SelectHintSetVar) {
-            // sorted case-insensitive name=value rendering: the structural comparison
-            // matches the map case-insensitively, so the rendering must not depend on
-            // the map's iteration order
-            List<String> rendered = new ArrayList<>();
-            for (Map.Entry<String, Optional<String>> entry
-                    : ((SelectHintSetVar) hint).getParameters().entrySet()) {
-                rendered.add(entry.getKey().toLowerCase() + '='
-                        + entry.getValue().orElse("null"));
-            }
-            Collections.sort(rendered);
-            sb.append(String.join(",", rendered));
-        } else if (hint instanceof SelectHintUseMv) {
-            SelectHintUseMv mv = (SelectHintUseMv) hint;
-            sb.append(mv.isUseMv()).append('|').append(mv.getTables());
-        } else if (hint instanceof SelectHintLeading) {
-            SelectHintLeading leading = (SelectHintLeading) hint;
-            sb.append(leading.getParameters()).append('|').append(leading.getStrToHint());
-        } else {
-            sb.append(hint);
-        }
-        sb.append(");");
-    }
-
-    /**
      * Compares the hint lists of one query block: same size, same position, same hint
      * class and the same payload. The lists are compared ELEMENT-WISE (not as a set):
      * LEADING / ORDERED spell out a join order, so the order inside one block is part of
@@ -4009,12 +3835,6 @@ public final class SPMPlanTreeSupport {
             List<String> labels, Plan relation, CteScope scope) {
         return applyReplacedAliases(star, applyExceptedLabels(star, labels, true, relation,
                 scope), true);
-    }
-
-    /** One slot name's last component (an EXCEPT column may be written qualified). */
-    private static String lastNamePart(String name) {
-        int dot = name.lastIndexOf('.');
-        return dot < 0 ? name : name.substring(dot + 1);
     }
 
     /**
@@ -5254,17 +5074,6 @@ public final class SPMPlanTreeSupport {
                 + ",seek:" + sample.seek;
     }
 
-    /** The scan-selector descriptions of every base-table relation in the plan. */
-    public static String scanSelectorFingerprint(Plan plan) {
-        StringBuilder sb = new StringBuilder();
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
-            if (node instanceof UnboundRelation) {
-                sb.append(describeScanSelector((UnboundRelation) node)).append('\u0002');
-            }
-        });
-        return sb.toString();
-    }
-
     /** The ids of every SPM placeholder reachable from the plan (subquery plans included). */
     public static Set<Long> collectPlaceholderIds(Plan plan) {
         Set<Long> ids = new HashSet<>();
@@ -5335,32 +5144,6 @@ public final class SPMPlanTreeSupport {
         return true;
     }
 
-    /**
-     * Rejects a manual plan whose SCAN SELECTORS diverge from the bind text's for any
-     * table both statements read.
-     *
-     * The bind text is the MATCHING KEY: a caller matching it carries the BIND's
-     * selection (sameScanIdentity), while the frozen plan scans the PLAN's. The pair
-     * CREATE... 'SELECT k FROM t' WITH 'SELECT k FROM t PARTITION(p1)' is
-     * initially equivalent (only p1 exists), but after ADD PARTITION p2 the
-     * unpinned caller still matches and the frozen plan silently reads only p1 - every
-     * row in p2 disappears from the result. The mirror case silently WIDENS the result,
-     * and the same holds for a plan-only TABLET / TABLESAMPLE / FOR TIMESTAMP AS OF
-     * / index selection. The schema fingerprint cannot catch any of this (it hashes the
-     * table identity and base columns, not the selectors), so such a pair is rejected
-     * here - write both statements with the same selection.
-     *
-     * Parameter bindPlan: the parsed (unbound) bind tree
-     * Parameter planPlan: the parsed (unbound) plan tree (may be the same object)
-     * Parameter bindSql: the bind text (for the error message)
-     */
-    public static void rejectScanSelectorMismatch(Plan bindPlan, Plan planPlan, String bindSql) {
-        if (bindPlan == planPlan) {
-            return; // one parse (bindSql == planSql): symmetric by construction
-        }
-        rejectScanSelectorMismatch(new ParsedPlanFacts(bindPlan), new ParsedPlanFacts(planPlan), bindSql);
-    }
-
     private static void rejectScanSelectorMismatch(ParsedPlanFacts bindFacts,
             ParsedPlanFacts planFacts, String bindSql) {
         Map<String, List<ScanSelectorOccurrence>> bindSelectors = bindFacts.selectors;
@@ -5419,8 +5202,8 @@ public final class SPMPlanTreeSupport {
     /**
      * Whether two occurrences of one table carry the SAME scan selector, attached to the
      * SAME occurrence. A table read ONCE per statement is compared by its selector alone
-     * (the alias cannot disambiguate anything, and a manual plan may name its relation
-     * differently). With SEVERAL occurrences of the same table the comparison is by the
+     * in this phase; the relational topology check separately validates its alias. With
+     * SEVERAL occurrences of the same table the comparison is by the
      * pair (alias, selector) in statement order: the reversed self join of
      * produced identical per-table selector lists while pinning them to swapped aliases,
      * and every replay then returned the other pairing.
@@ -5946,62 +5729,6 @@ public final class SPMPlanTreeSupport {
         ParsedPlanFacts planFacts = new ParsedPlanFacts(planPlan);
         rejectScanSelectorMismatch(bindFacts, planFacts, bindSql);
         rejectManualPlanDivergence(bindFacts, planFacts, bindSql);
-    }
-
-    /**
-     * Rejects a manual plan whose LOGICAL query diverges from the bind text.
-     * The bind text is the MATCHING KEY: any caller matching it gets the
-     * plan side replayed with the caller's values, so a plan that drops the caller's row
-     * filter, reads another table, changes the output columns / arity or re-orders the
-     * caller's uncapped result silently returns rows the caller never asked for - and
-     * neither the schema fingerprint nor the scan-selector guard can see it.
-     *
-     * The five contracts checked here:
-     *    sources: every table the plan reads is read by the bind text - bind
-     *       SELECT k FROM t with plan SELECT k FROM u makes a caller's
-     *       t-query return u's rows (t={1}, u={9} returns 9);
-     *    output: the two output lists have the same ARITY and, per position,
-     *       the same underlying expression (only the LABEL may differ - a manual plan may
-     *       render a bind column under another name and the replay restores the caller's
-     *       label). Bind k vs plan v otherwise exposes v's value under
-     *       the caller's name (k=1, v=9 returns 9), a wider plan changes the result
-     *       arity;
-     *    filters: every row filter conjunct of the bind text (WHERE / HAVING)
-     *       exists in the plan text - a dropped filter makes a caller restricted to
-     *       k = 2 receive every row (e.g. {1,2});
-     *    ordering: both trees expose the same TOP-LEVEL ORDER BY contract
-     *       (keys, direction, null placement, or none) - an uncapped caller keeps its
-     *       ordering contract, and a plan that flips the direction returns (2,1) for the
-     *       caller that asked for (1,2);
-     *    GROUP BY aliases: a group key that names no base column binds the block's
-     *       OUTPUT (MappingSlot), so GROUP BY x groups another expression after an
-     *       alias permutation - bind k AS x, v AS y... GROUP BY x groups k, the plan
-     *       k AS y, v AS x... GROUP BY x groups v (one group vs two); the GROUPING SETS
-     *       spelling reaches the same consumer through a REPEAT and is checked the same way;
-     *    HAVING aliases: an output label a HAVING predicate CONSUMES is semantic
-     *       (bind SELECT k AS x FROM t HAVING x > 0 vs a plan with k AS y): HAVING binds
-     *       the block's output names before the base columns, so the renamed plan filters
-     *       t.x while the bind filtered k, and the label restoration cannot repair the
-     *       predicate - both sides must consume the SAME aliases. The ORDER BY consumer is
-     *       checked the same way: ORDER BY abs(x) sorts the aliased value in the bind and
-     *       the base column in a plan that renamed the item, while both sort TEXTS agree.
-     * After those set-wise contracts the two trees are compared NODE BY NODE and input by
-     * input (see rejectRelationalTopologyDivergence): a predicate that MOVED to another
-     * input, an operator that was added / dropped (DISTINCT, a window, a join type) and a
-     * plan that shares only part of the bind's relations all pass the set-wise checks.
-     * The checks compare the two PARSED trees, so an equivalent plan written in another
-     * shape (requalified columns, reordered predicates) is rejected: write both
-     * statements with the same tables, filters and ordering.
-     *
-     * Parameter bindPlan: the parsed (unbound) bind tree
-     * Parameter planPlan: the parsed (unbound) plan tree (may be the same object)
-     * Parameter bindSql: the bind text (for the error message)
-     */
-    public static void rejectManualPlanDivergence(Plan bindPlan, Plan planPlan, String bindSql) {
-        if (bindPlan == planPlan) {
-            return; // one parse (bindSql == planSql): symmetric by construction
-        }
-        rejectManualPlanDivergence(new ParsedPlanFacts(bindPlan), new ParsedPlanFacts(planPlan), bindSql);
     }
 
     private static void rejectManualPlanDivergence(ParsedPlanFacts bindFacts,
@@ -7091,33 +6818,6 @@ public final class SPMPlanTreeSupport {
             return ((LogicalTopN<?>) node).getOrderKeys();
         }
         return null;
-    }
-
-    /**
-     * Whether the REPLAYED tree still exposes the caller's own top-level ORDER BY
-     * contract. rowLimitsWithin / rowLimitsSurviveReplay
-     * only compare ROW CAPS: a caller with an UNCAPPED sort - ORDER BY k ASC and
-     * no LIMIT - matched a bind that also had none, so the limit contract passed without
-     * ever comparing the sort and a manual / frozen plan ordering by DESC returned
-     * (2,1) for the caller that asked for (1,2).
-     *
-     * A caller WITHOUT a top-level sort passes: an unordered result has no visible
-     * ordering contract to preserve (a TopN the replay carries for a caller LIMIT is
-     * governed by the row-cap checks, not by this one).
-     *
-     * The caller's shape must be a PREFIX of the replay's: the frozen (decompiled)
-     * optimal plan appends deterministic TIE-BREAKER keys after the caller's own - the
-     * tpch q18 frozen TopN sorts by the caller's o_totalprice DESC,
-     * o_orderdate ASC PLUS c_name / c_custkey / o_orderkey - and those extra
-     * keys only refine ties the caller's ORDER BY left unspecified, while a caller key
-     * DROPPED from or FLIPPED in the replay breaks the visible ordering.
-     *
-     * Parameter replayed: the replayed tree (frozen text or parameterized fallback)
-     * Parameter userPlan: the caller's own tree
-     * Returns: whether the caller's visible ordering survives the replay
-     */
-    public static boolean orderContractPreserved(Plan replayed, Plan userPlan) {
-        return orderContractPreserved(new ReplayContracts(replayed), new ReplayContracts(userPlan));
     }
 
     static boolean orderContractPreserved(ReplayContracts replayed, ReplayContracts userPlan) {

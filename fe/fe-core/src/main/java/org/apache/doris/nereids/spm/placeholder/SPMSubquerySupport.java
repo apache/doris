@@ -29,9 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
-import java.util.function.Function;
 
 /**
  * Helpers for rebuilding supported subquery expressions and visiting filter predicates through ordinary plan
@@ -40,17 +38,6 @@ import java.util.function.Function;
 public final class SPMSubquerySupport {
 
     private SPMSubquerySupport() {
-    }
-
-    /**
-     * Transforms LogicalFilter and LogicalHaving predicates after visiting ordinary child plans. A child-rebuild
-     * failure retains the original node; expression-owned subqueries and CTE alias payloads are not traversed by
-     * this helper.
-     */
-    public static LogicalPlan transformFilters(LogicalPlan plan,
-            Function<Expression, Expression> transform) {
-        Plan result = plan.accept(new FilterTransformVisitor(transform), null);
-        return result instanceof LogicalPlan ? (LogicalPlan) result : plan;
     }
 
     /**
@@ -83,55 +70,6 @@ public final class SPMSubquerySupport {
         List<Expression> predicates = new ArrayList<>();
         plan.accept(new FilterCollectVisitor(predicates), null);
         return predicates;
-    }
-
-    /** Plan visitor that rebuilds filter/having predicates via an expression transform. */
-    private static class FilterTransformVisitor extends PlanVisitor<Plan, Void> {
-        private final Function<Expression, Expression> transform;
-
-        FilterTransformVisitor(Function<Expression, Expression> transform) {
-            this.transform = transform;
-        }
-
-        @Override
-        public Plan visit(Plan plan, Void context) {
-            // 1. rebuild children bottom-up
-            List<Plan> children = plan.children();
-            boolean childChanged = false;
-            List<Plan> newChildren = new ArrayList<>(children.size());
-            for (Plan child : children) {
-                Plan newChild = child.accept(this, context);
-                newChildren.add(newChild);
-                if (newChild != child) {
-                    childChanged = true;
-                }
-            }
-            Plan current = plan;
-            if (childChanged) {
-                try {
-                    current = plan.withChildren(newChildren);
-                } catch (RuntimeException e) {
-                    // plan type without withChildren -> keep original children
-                    current = plan;
-                }
-            }
-            // 2. transform the predicate of a filter/having node
-            if (current instanceof LogicalFilter) {
-                LogicalFilter<?> filter = (LogicalFilter<?>) current;
-                Expression newPredicate = transform.apply(filter.getPredicate());
-                if (newPredicate != filter.getPredicate()) {
-                    return new LogicalFilter(Collections.singleton(newPredicate), newPredicate,
-                            filter.child());
-                }
-            } else if (current instanceof LogicalHaving) {
-                LogicalHaving<?> having = (LogicalHaving<?>) current;
-                Expression newPredicate = transform.apply(having.getPredicate());
-                if (newPredicate != having.getPredicate()) {
-                    return new LogicalHaving(Collections.singleton(newPredicate), having.child());
-                }
-            }
-            return current;
-        }
     }
 
     /** Plan visitor that collects filter/having predicates in DFS order. */

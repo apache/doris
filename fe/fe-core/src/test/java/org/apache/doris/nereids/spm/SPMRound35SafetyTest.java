@@ -61,12 +61,12 @@ public class SPMRound35SafetyTest {
         LogicalPlan user = parse("SELECT t2.g FROM"
                 + " (SELECT k FROM t1 ORDER BY k LIMIT 1) a JOIN t2 ON a.k = t2.g"
                 + " ORDER BY t2.g LIMIT 2");
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsWithin(replayed, user),
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(replayed, user),
                 "the replayed cap truncates t2 while the caller's own cap sits on t1");
         // the same cap on the SAME input is the caller's own contract
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(user, user),
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(user, user),
                 "identical trees justify every cap");
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(parse(
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(parse(
                 "SELECT a.k FROM (SELECT k FROM t1 ORDER BY k LIMIT 1) a JOIN t2"
                         + " ON a.k = t2.g ORDER BY a.k LIMIT 2"), user),
                 "a replayed cap on the SAME input the caller caps is justified");
@@ -85,11 +85,11 @@ public class SPMRound35SafetyTest {
                 + " SELECT g FROM c ORDER BY g LIMIT 2");
         LogicalPlan user = parse("WITH c AS (SELECT g FROM t2)"
                 + " SELECT g FROM c ORDER BY g LIMIT 2");
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsWithin(replayed, user),
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(replayed, user),
                 "the CTE-body cap must be visible to the retained-limit check");
         LogicalPlan userWithOwnCap = parse("WITH c AS (SELECT g FROM t2 ORDER BY g LIMIT 1)"
                 + " SELECT g FROM c ORDER BY g LIMIT 2");
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(replayed, userWithOwnCap),
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(replayed, userWithOwnCap),
                 "a CTE-body cap the caller itself wrote is justified");
     }
 
@@ -100,9 +100,9 @@ public class SPMRound35SafetyTest {
                 + " (SELECT g FROM t2 ORDER BY g LIMIT 1) ORDER BY k LIMIT 2");
         LogicalPlan user = parse("SELECT k FROM t1 WHERE k IN (SELECT g FROM t2)"
                 + " ORDER BY k LIMIT 2");
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsWithin(replayed, user),
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(replayed, user),
                 "a cap inside an IN subquery must be visible to the retained-limit check");
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(replayed, parse(
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(replayed, parse(
                 "SELECT k AS k FROM t1 WHERE k IN (SELECT g FROM t2 ORDER BY g LIMIT 1)"
                         + " ORDER BY k LIMIT 2")),
                 "the caller's own subquery cap justifies the replayed one");

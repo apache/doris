@@ -27,9 +27,9 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
@@ -102,13 +102,13 @@ public class SPMRound81PlannerTest {
     public void testArraySortWithATypedPartKeepsItsMarkerType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0"
                 + " OR element_at(array_sort(array(NULL, 1)), 1)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
                 Assertions.fail("only an all-NULL array is retyped: "
                         + builder.getPlaceholderExprs());
@@ -184,7 +184,7 @@ public class SPMRound81PlannerTest {
     public void testGroupByMirrorKeyKeepsTheQualifiedFunction() {
         LogicalPlan plan = parse("SELECT db1.f(k, 1) AS x, count(*) AS n FROM t"
                 + " GROUP BY db1.f(k, 1), db2.f(k, 1)");
-        LogicalPlan transformed = SPMPlanTreeSupport.transform(plan, new SPMPlaceholderBuilder());
+        LogicalPlan transformed = SPMPlanTreeSupport.transform(plan, new TestSPMPlaceholderBuilder());
 
         LogicalAggregate<?> aggregate = findAggregate(transformed);
         // the unbound plan has no renderable text (UnboundException), so the messages stay
@@ -214,14 +214,14 @@ public class SPMRound81PlannerTest {
     /** One all-NULL array inside a Boolean consumer must leave BOOLEAN-typed NULL markers. */
     private static void assertBooleanNullMarkers(String sql) {
         LogicalPlan plan = parse(sql);
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
         int booleanNullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
                 booleanNullMarkers++;
             }

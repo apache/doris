@@ -382,12 +382,6 @@ public class SPMPlanner {
      * Parameter bindTree: the stored parameterized bind tree (captured limit values)
      * Returns: whether the replay may be used for this caller
      */
-    private static boolean limitContractPreserved(LogicalPlan replayed, LogicalPlan userPlan,
-            LogicalPlan bindTree) {
-        return limitContractPreserved(new SPMPlanTreeSupport.ReplayContracts(replayed),
-                new SPMPlanTreeSupport.ReplayContracts(userPlan), bindTree);
-    }
-
     private static boolean limitContractPreserved(SPMPlanTreeSupport.ReplayContracts replayed,
             SPMPlanTreeSupport.ReplayContracts userPlan, LogicalPlan bindTree) {
         long[] userLimit = userPlan.topLimit();
@@ -650,82 +644,6 @@ public class SPMPlanner {
     }
 
     // baseline creation.
-
-    /**
-     * Builds a baseline from SQL texts (in-memory engine, no optimization).
-     *
-     * UT-only convenience entry (the production path is
-     * buildBaselineFromSql). Parses bindSql and planSql (a single parse when
-     * the two texts are identical), parameterizes both whole trees with one shared
-     * SPMPlaceholderBuilder and stores the parameterized trees together with the
-     * value-free digest / hash of the bind tree.
-     *
-     * Parameter bindSql: the binding SQL (SELECT)
-     * Parameter planSql: the plan SQL (SELECT, may contain SET_VAR hints)
-     * Returns: the constructed BaselinePlan (not yet stored)
-     * Throws UserException: when a SQL cannot be parsed as a SELECT
-     */
-    private BaselinePlan buildBaselineFromSqlTexts(String bindSql, String planSql)
-            throws UserException {
-        // both CREATE inputs are read inside ONE mode window, exactly like the production
-        // entry (parseSelectIsolated): a SET_VAR(sql_mode=...) hint carried by the first
-        // text must not decide how the second text is read.
-        final long creatorMode = SqlModeHelper.currentMode();
-        LogicalPlan bindPlan = parseSelectIsolated(creatorMode, bindSql,
-                "SPM bindSql must be a SELECT statement: " + bindSql);
-        // bindSql == planSql: one parse is enough and the parameterized trees are the
-        // same by construction (ids trivially aligned)
-        LogicalPlan planPlan = bindSql.equals(planSql)
-                ? bindPlan
-                : parseSelectIsolated(creatorMode, planSql,
-                        "SPM planSql must be a SELECT statement: " + planSql);
-        return assembleBaselineFromPlans(bindPlan, planPlan, bindSql, planSql, 0.0);
-    }
-
-    /**
-     * Test-accessible construction path for parsed bind and plan trees. Validates supported correspondence,
-     * parameterizes both trees, and assembles a raw-SQL fallback baseline without physical-plan optimization.
-     * Marker ids are shared only for matching occurrence identities.
-     */
-    private BaselinePlan assembleBaselineFromPlans(LogicalPlan bindPlan, LogicalPlan planPlan,
-            String bindSql, String planSql, double cost) {
-        try {
-            rejectReplayContextExpressions(bindPlan, planPlan, bindSql);
-            // Collect shared facts once, then validate scan selectors and logical query equivalence.
-            SPMPlanTreeSupport.rejectManualPlanMismatch(bindPlan, planPlan, bindSql);
-        } catch (AnalysisException e) {
-            // the checked-exception entry point is buildBaselineFromSql; this entry
-            // overload keeps its signature and surfaces the rejection as-is
-            throw new RuntimeException(e.getMessage(), e);
-        }
-        // key(...) folds a named secret into a constant during optimization and the parsed
-        // form of KEY db.key is a bound EncryptKeyRef (not an UnboundFunction): reject on
-        // BOTH inputs before parameterizing / assembling anything.
-        SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan, planPlan);
-        Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan,
-                new SPMPlaceholderBuilder());
-        // the matching key is namespace-qualified like tryRewritePlan's user side, so the
-        // in-memory (UT) create / rewrite pair stays consistent in any context
-        ConnectContext ctx = ConnectContext.get();
-        BaselinePlan baseline = assembleBaseline(bindPlan, trees.first, trees.second, bindSql, planSql,
-                cost, captureCatalogName(ctx), captureDatabaseName(ctx), creatorSqlMode());
-        // no decompile happens on this in-memory path: the planSql is ordinary user text
-        // (never a frozen rendering), and it is re-parsed with the creator's own mode
-        baseline.setPlanFrozen(false);
-        baseline.setPlanSqlMode(baseline.getCreatorSqlMode());
-        baseline.setSchemaFingerprint(SPMPlanTreeSupport.schemaFingerprint(ctx, bindPlan));
-        return baseline;
-    }
-
-    /**
-     * The parser-relevant sql_mode bits of the CREATING session (see
-     * BaselinePlan.getCreatorSqlMode): re-parsing the stored bindSql under the default
-     * mode can change its meaning (PIPES_AS_CONCAT: a || b is concat(a, b), not
-     * a boolean Or).
-     */
-    private static long creatorSqlMode() {
-        return SqlModeHelper.currentMode();
-    }
 
     /**
      * Rejects statements whose frozen SQL would persist the CREATOR's session state: a

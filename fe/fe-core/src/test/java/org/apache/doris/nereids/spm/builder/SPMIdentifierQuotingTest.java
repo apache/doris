@@ -56,16 +56,15 @@ public class SPMIdentifierQuotingTest {
 
     @Test
     public void testQualifiedNameQuotesEveryComponent() {
-        Assertions.assertEquals("internal.db1.t1",
-                SPMPlan2SQLBuilder.quoteQualifiedName("internal.db1.t1"),
-                "plain components stay verbatim");
-        Assertions.assertEquals("internal.db1.`my-table`",
-                SPMPlan2SQLBuilder.quoteQualifiedName("internal.db1.my-table"));
-        Assertions.assertEquals("`my-cat`.`my-db`.`my-table`",
-                SPMPlan2SQLBuilder.quoteQualifiedName("my-cat.my-db.my-table"),
-                "every component is quoted independently");
-        Assertions.assertEquals("t1", SPMPlan2SQLBuilder.quoteQualifiedName("t1"));
-        Assertions.assertNull(SPMPlan2SQLBuilder.quoteQualifiedName(null));
-        Assertions.assertEquals("", SPMPlan2SQLBuilder.quoteQualifiedName(""));
+        Assertions.assertEquals("internal.db1.t1", quoteTableName("internal", "db1", "t1"));
+        Assertions.assertEquals("internal.db1.`my-table`", quoteTableName("internal", "db1", "my-table"));
+        Assertions.assertEquals("`my-cat`.`my-db`.`my-table`", quoteTableName("my-cat", "my-db", "my-table"));
+        Assertions.assertEquals("internal.db1.`t.a`", quoteTableName("internal", "db1", "t.a"));
+    }
+
+    private static String quoteTableName(String... parts) {
+        org.apache.doris.catalog.TableIf table = org.mockito.Mockito.mock(org.apache.doris.catalog.TableIf.class);
+        org.mockito.Mockito.when(table.getFullQualifiers()).thenReturn(java.util.List.of(parts));
+        return SPMPlan2SQLBuilder.quoteQualifiedTableName(table);
     }
 }

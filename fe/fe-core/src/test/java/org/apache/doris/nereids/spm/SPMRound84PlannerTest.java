@@ -26,9 +26,9 @@ import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -81,15 +81,15 @@ public class SPMRound84PlannerTest {
     @Test
     public void testAllNullMapLiteralContainerKeepsItsMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at({'x': NULL}, 'x')");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int booleanMaps = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getDataType() instanceof MapType
                     && ((MapType) var.getDataType()).getValueType() instanceof BooleanType) {
                 booleanMaps++;
@@ -104,13 +104,13 @@ public class SPMRound84PlannerTest {
     @Test
     public void testTypedMapLiteralKeepsItsValueType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at({'x': 1}, 'x')");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             Assertions.assertFalse(var.getDataType() instanceof MapType
                             && ((MapType) var.getDataType()).getValueType() instanceof BooleanType,
                     "only an all-NULL map is retyped: " + builder.getPlaceholderExprs());
@@ -133,7 +133,7 @@ public class SPMRound84PlannerTest {
         String plan = "SELECT k, row_number() OVER(ORDER BY k ASC) AS y,"
                 + " row_number() OVER(ORDER BY k DESC) AS x FROM t QUALIFY x = 1";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "two windows over the same key with opposite directions are different"
                         + " expressions");
     }
@@ -144,7 +144,7 @@ public class SPMRound84PlannerTest {
         String bind = "SELECT k, row_number() OVER(ORDER BY k ASC) AS x,"
                 + " row_number() OVER(ORDER BY k DESC) AS y FROM t QUALIFY x = 1";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     // ==================== #3: the function's written scope ====================
@@ -159,7 +159,7 @@ public class SPMRound84PlannerTest {
         String bind = "SELECT db1.f(k) AS x, db2.f(k) AS y FROM t HAVING x > 0";
         String plan = "SELECT db1.f(k) AS y, db2.f(k) AS x FROM t HAVING x > 0";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "the two qualified calls read different functions, so the permutation filters"
                         + " another value");
     }
@@ -169,7 +169,7 @@ public class SPMRound84PlannerTest {
     public void testIdenticalQualifiedFunctionAliasesAreAccepted() {
         String bind = "SELECT db1.f(k) AS x, db2.f(k) AS y FROM t HAVING x > 0";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     // ==================== #5: the resolved UDF scope in the fingerprint ====================
@@ -249,7 +249,7 @@ public class SPMRound84PlannerTest {
         String bind = "SELECT k AS x, v AS y, count(*) AS n FROM t GROUP BY x";
         String plan = "SELECT k AS y, v AS x, count(*) AS n FROM t GROUP BY x";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "a GROUP BY name that is not a base column groups the block's OUTPUT item, so"
                         + " the permutation groups another expression");
     }
@@ -259,7 +259,7 @@ public class SPMRound84PlannerTest {
     public void testIdenticalGroupByAliasesAreAccepted() {
         String bind = "SELECT k AS x, v AS y, count(*) AS n FROM t GROUP BY x";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     /** A GROUP BY over BASE columns keeps its meaning under a label swap. */
@@ -268,7 +268,7 @@ public class SPMRound84PlannerTest {
         String bind = "SELECT k AS x, v AS y, count(*) AS n FROM t GROUP BY k";
         String plan = "SELECT k AS y, v AS x, count(*) AS n FROM t GROUP BY k";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "both sides group the base column k");
     }
 

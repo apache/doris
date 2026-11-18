@@ -35,9 +35,9 @@ import org.apache.doris.nereids.spm.builder.SQLRelation;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.nereids.spm.manager.BaselineManagerTestAccess;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -992,8 +992,8 @@ public class SPMMatchingSafetyTest {
     public void testIndependentLiteralsInSeparateQueryBlocks() {
         LogicalPlan bindPlan = parse(
                 "SELECT * FROM t WHERE a = 1 AND EXISTS (SELECT 1 FROM u WHERE a = 1)");
-        org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder builder =
-                new org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder();
+        org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder builder =
+                new org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder();
         LogicalPlan parameterizedBind = SPMPlanTreeSupport.transform(
                 bindPlan, expr -> expr.accept(builder, null));
         Assertions.assertEquals(3, builder.getPlaceholderExprs().size(),
@@ -1483,7 +1483,7 @@ public class SPMMatchingSafetyTest {
     private static LogicalPlan param(String sql) {
         LogicalPlan plan = parse(sql);
         return SPMPlanTreeSupport.transform(plan,
-                expr -> expr.accept(new SPMPlaceholderBuilder(), null));
+                expr -> expr.accept(new TestSPMPlaceholderBuilder(), null));
     }
 
     /**

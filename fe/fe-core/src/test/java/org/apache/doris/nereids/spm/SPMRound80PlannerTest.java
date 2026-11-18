@@ -26,9 +26,9 @@ import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
@@ -92,12 +92,12 @@ public class SPMRound80PlannerTest {
     @Test
     public void testAllNullMapValueKeepsBooleanMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at(map('x', NULL), 'x')");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int booleanValueMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (!(placeholder instanceof SpmConstVar)) {
                 continue;
             }
@@ -118,16 +118,16 @@ public class SPMRound80PlannerTest {
     @Test
     public void testAllNullMapKeyKeepsItsMarkerType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at(map(NULL, NULL), 'x')");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int nullMarkers = 0;
         int booleanNullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (!var.getValue().isNullLiteral()) {
                 continue;
             }
@@ -146,11 +146,11 @@ public class SPMRound80PlannerTest {
     @Test
     public void testNonNullMapValueKeepsItsMarkerType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at(map('x', 1), 'x')");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (marker.getPlaceholderExpr() instanceof SpmConstVar
-                    && ((SpmConstVar) marker.getPlaceholderExpr()).getValue().isNullLiteral()) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (marker.placeholderExpr() instanceof SpmConstVar
+                    && ((SpmConstVar) marker.placeholderExpr()).getValue().isNullLiteral()) {
                 Assertions.fail("no NULL marker may be typed: " + builder.getPlaceholderExprs());
             }
         }
@@ -167,14 +167,14 @@ public class SPMRound80PlannerTest {
     @Test
     public void testBracketAllNullArrayMarkerKeepsItsMarker() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at([NULL], 1)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int booleanArrays = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (marker.getPlaceholderExpr() instanceof SpmConstVar
-                    && ((SpmConstVar) marker.getPlaceholderExpr()).getDataType() instanceof ArrayType) {
-                ArrayType type = (ArrayType) ((SpmConstVar) marker.getPlaceholderExpr()).getDataType();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (marker.placeholderExpr() instanceof SpmConstVar
+                    && ((SpmConstVar) marker.placeholderExpr()).getDataType() instanceof ArrayType) {
+                ArrayType type = (ArrayType) ((SpmConstVar) marker.placeholderExpr()).getDataType();
                 Assertions.assertTrue(type.getItemType() instanceof BooleanType,
                         "the all-NULL array container is retyped BOOLEAN, got: " + type);
                 booleanArrays++;
@@ -188,12 +188,12 @@ public class SPMRound80PlannerTest {
     @Test
     public void testBracketNonNullArrayMarkerKeepsItsElementType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at([1], 1)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (marker.getPlaceholderExpr() instanceof SpmConstVar
-                    && ((SpmConstVar) marker.getPlaceholderExpr()).getDataType() instanceof ArrayType) {
-                ArrayType type = (ArrayType) ((SpmConstVar) marker.getPlaceholderExpr()).getDataType();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (marker.placeholderExpr() instanceof SpmConstVar
+                    && ((SpmConstVar) marker.placeholderExpr()).getDataType() instanceof ArrayType) {
+                ArrayType type = (ArrayType) ((SpmConstVar) marker.placeholderExpr()).getDataType();
                 Assertions.assertFalse(type.getItemType() instanceof BooleanType,
                         "only an all-NULL array is retyped, got: " + type);
             }
@@ -212,7 +212,7 @@ public class SPMRound80PlannerTest {
         String bind = "SELECT k AS x FROM t ORDER BY abs(x) LIMIT 1";
         String plan = "SELECT k AS y FROM t ORDER BY abs(x) LIMIT 1";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "an ORDER BY name that addresses the block's output alias cannot be renamed");
     }
 
@@ -221,7 +221,7 @@ public class SPMRound80PlannerTest {
     public void testIdenticalOrderByAliasIsAccepted() {
         String bind = "SELECT k AS x FROM t ORDER BY abs(x) LIMIT 1";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     /** A sort over a BASE column keeps its meaning under a label change. */
@@ -230,7 +230,7 @@ public class SPMRound80PlannerTest {
         String bind = "SELECT k AS x FROM t ORDER BY abs(k) LIMIT 1";
         String plan = "SELECT k AS y FROM t ORDER BY abs(k) LIMIT 1";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "`k` addresses the base column on both sides");
     }
 
@@ -240,7 +240,7 @@ public class SPMRound80PlannerTest {
         String bind = "SELECT k AS x FROM t";
         String plan = "SELECT k AS y FROM t";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "a pure output label may differ between bind and plan");
     }
 
@@ -259,7 +259,7 @@ public class SPMRound80PlannerTest {
         String bind = "SELECT k AS x, row_number() OVER(ORDER BY k) AS y FROM t QUALIFY x > y";
         String plan = "SELECT k AS y, row_number() OVER(ORDER BY k) AS x FROM t QUALIFY x > y";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "a QUALIFY name binds the block's OUTPUT column first, so swapping the labels"
                         + " binds the predicate to the other expression");
     }
@@ -269,7 +269,7 @@ public class SPMRound80PlannerTest {
     public void testIdenticalQualifyAliasesAreAccepted() {
         String bind = "SELECT k AS x, row_number() OVER(ORDER BY k) AS y FROM t QUALIFY x > y";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     /** A QUALIFY over BASE columns keeps its meaning under a label swap (no alias is consumed). */
@@ -278,7 +278,7 @@ public class SPMRound80PlannerTest {
         String bind = "SELECT k AS x, v AS y FROM t QUALIFY k > 0";
         String plan = "SELECT k AS y, v AS x FROM t QUALIFY k > 0";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "both sides filter the base column k");
     }
 
@@ -294,7 +294,7 @@ public class SPMRound80PlannerTest {
         String bind = "SELECT k AS x, v AS y FROM t HAVING x > 0";
         String plan = "SELECT k AS y, v AS x FROM t HAVING x > 0";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "the consumed alias NAMES match while the resolved predicates do not");
     }
 
@@ -303,7 +303,7 @@ public class SPMRound80PlannerTest {
     public void testIdenticalHavingAliasesAreAccepted() {
         String bind = "SELECT k AS x, v AS y FROM t HAVING x > 0";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     // ==================== #13: ARRAY_CONCAT wrappers ====================
@@ -319,15 +319,15 @@ public class SPMRound80PlannerTest {
     public void testArrayConcatAllNullArrayKeepsBooleanMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0"
                 + " OR element_at(array_concat(array(NULL), array(NULL)), 1)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int booleanNullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (!var.getValue().isNullLiteral()) {
                 continue;
             }
@@ -345,12 +345,12 @@ public class SPMRound80PlannerTest {
     public void testArrayConcatWithATypedPartKeepsItsMarkerType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0"
                 + " OR element_at(array_concat(array(NULL), array(1)), 1)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (marker.getPlaceholderExpr() instanceof SpmConstVar
-                    && ((SpmConstVar) marker.getPlaceholderExpr()).getValue().isNullLiteral()
-                    && ((SpmConstVar) marker.getPlaceholderExpr()).getDataType()
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (marker.placeholderExpr() instanceof SpmConstVar
+                    && ((SpmConstVar) marker.placeholderExpr()).getValue().isNullLiteral()
+                    && ((SpmConstVar) marker.placeholderExpr()).getDataType()
                             instanceof BooleanType) {
                 Assertions.fail("only an all-NULL concatenation is retyped: "
                         + builder.getPlaceholderExprs());

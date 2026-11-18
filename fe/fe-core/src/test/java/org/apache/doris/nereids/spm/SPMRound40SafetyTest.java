@@ -85,7 +85,7 @@ public class SPMRound40SafetyTest {
         LogicalPlan manual = parse("SELECT a.k AS ak, b.k AS bk"
                 + " FROM (SELECT k FROM t) a"
                 + " CROSS JOIN (SELECT k FROM t ORDER BY k LIMIT 1) b ORDER BY ak, bk LIMIT 2");
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsWithin(manual, caller),
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(manual, caller),
                 "a cap on ANOTHER occurrence of the same table is not the caller's cap");
     }
 
@@ -99,7 +99,7 @@ public class SPMRound40SafetyTest {
         LogicalPlan same = parse("SELECT a.k AS ak, b.k AS bk"
                 + " FROM (SELECT k FROM t ORDER BY k LIMIT 1) a"
                 + " CROSS JOIN (SELECT k FROM t) b ORDER BY ak, bk LIMIT 2");
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(same, caller),
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(same, caller),
                 "a cap truncating the same occurrence is justified");
     }
 
@@ -115,7 +115,7 @@ public class SPMRound40SafetyTest {
                 + " UNION ALL SELECT k FROM t) x");
         LogicalPlan manual = parse("SELECT x.k FROM (SELECT k FROM t UNION ALL"
                 + " (SELECT k FROM t ORDER BY k LIMIT 1)) x");
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsWithin(manual, caller),
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(manual, caller),
                 "the cap of the OTHER set operand is a different occurrence");
     }
 
@@ -134,12 +134,12 @@ public class SPMRound40SafetyTest {
         LogicalPlan wrongValues = parse("SELECT a.k AS ak, b.k AS bk"
                 + " FROM (SELECT k FROM t ORDER BY k LIMIT 2) a"
                 + " CROSS JOIN (SELECT k FROM t ORDER BY k LIMIT 1) b ORDER BY ak, bk LIMIT 1");
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsWithin(wrongValues, caller),
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(wrongValues, caller),
                 "the cap VALUES still have to match per occurrence");
         LogicalPlan swapped = parse("SELECT b.k AS bk, a.k AS ak"
                 + " FROM (SELECT k FROM t ORDER BY k LIMIT 1) b"
                 + " CROSS JOIN (SELECT k FROM t ORDER BY k LIMIT 1) a ORDER BY ak, bk LIMIT 2");
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(swapped, caller),
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(swapped, caller),
                 "both occurrences are capped by the caller as well");
     }
 
@@ -151,9 +151,9 @@ public class SPMRound40SafetyTest {
         LogicalPlan same = parse("SELECT 1 AS v LIMIT 2");
         LogicalPlan extraCap = parse("SELECT 1 AS v LIMIT 1");
         LogicalPlan unboundedCaller = parse("SELECT 1 AS v");
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(same, caller),
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(same, caller),
                 "the identical from-less cap stays equivalent");
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsWithin(extraCap, unboundedCaller),
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(extraCap, unboundedCaller),
                 "a cap the caller does not have must be rejected, relations or not");
     }
 }
