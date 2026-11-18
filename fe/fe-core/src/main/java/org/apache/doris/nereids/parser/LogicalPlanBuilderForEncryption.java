@@ -232,6 +232,18 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitTableValuedFunction(ctx);
     }
 
+    @Override
+    public LogicalPlan visitInsertTable(DorisParser.InsertTableContext ctx) {
+        // Mask query properties without constructing an execution sink that requires a session.
+        // A CTE before INSERT is outside ctx.query(), so visit its queries explicitly.
+        if (ctx.cteContext != null) {
+            for (DorisParser.AliasQueryContext aliasQuery : ctx.cteContext.aliasQuery()) {
+                visit(aliasQuery.query());
+            }
+        }
+        return visitQuery(ctx.query());
+    }
+
     // INSERT INTO TVF has its own target properties, separate from source TVFs.
     @Override
     public LogicalPlan visitInsertIntoTVF(DorisParser.InsertIntoTVFContext ctx) {
