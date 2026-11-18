@@ -46,6 +46,8 @@
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/blob_message.h"
@@ -8980,12 +8982,43 @@ TEST(RecyclerTest, delete_rowset_data_without_inverted_index_storage_format) {
 }
 
 TEST(RecyclerTest, init_vault_accessor_failed_test) {
+    class FailingObjStorageClient final : public S3ObjStorageClient {
+    public:
+        FailingObjStorageClient() : S3ObjStorageClient(nullptr) {}
+
+        ObjStorageHeadResult head_object(const ObjStoragePath&) override {
+            return {.resp = {.status = {ObjStorageStatus::IO_ERROR, "injected head failure"},
+                             .http_code = 0}};
+        }
+
+        std::atomic<int> list_calls {0};
+
+    protected:
+        ObjStorageListPageResult list_objects_page(const ObjStoragePath&,
+                                                   std::string_view) override {
+            ++list_calls;
+            return {.resp = {.status = {ObjStorageStatus::IO_ERROR, "injected list failure"},
+                             .http_code = 0}};
+        }
+    };
+
     auto* sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
+        ObjStorageClientFactory::instance().clear_client_creator_for_test();
         sp->clear_all_call_backs();
         sp->clear_trace();
         sp->disable_processing();
     };
+
+    // Keep configuration validation and accessor initialization, but fail object I/O
+    // deterministically instead of relying on an incomplete vault or a network error.
+    auto failing_client = std::make_shared<FailingObjStorageClient>();
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [failing_client](const ObjStorageClientConfig&) { return failing_client; });
+    // Exercise both vaults even if the injected failure completes before the other task starts.
+    // Otherwise SyncExecutor may cancel the successful vault before it can delete its objects.
+    sp->set_call_back("SyncExecutor::Task::bypass_cancel",
+                      [](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
 
     auto txn_kv = std::make_shared<MemTxnKv>();
     EXPECT_EQ(txn_kv->init(), 0);
@@ -8998,7 +9031,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
     instance_key(key_info, &key);
     InstanceInfoPB instance;
     instance.set_instance_id("GetObjStoreInfoTestInstance");
-    // failed to init because S3Conf::from_obj_store_info() fails
+    // failed to init because parse_recycler_storage_config() fails
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;
@@ -9013,7 +9046,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         txn->put(storage_vault_key({instance.instance_id(), "1"}), vault.SerializeAsString());
     }
 
-    // succeed to init but unuseful
+    // Valid configuration initializes successfully; the client above fails object operations.
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;
@@ -9021,6 +9054,9 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
         obj_info.set_ak("ak");
         obj_info.set_sk("sk");
         obj_info.set_provider(ObjectStoreInfoPB_Provider_COS);
+        obj_info.set_bucket("test-bucket");
+        obj_info.set_endpoint("https://cos.example.com");
+        obj_info.set_region("ap-beijing");
         vault.mutable_obj_info()->MergeFrom(obj_info);
         vault.set_name("test_failed_s3_vault_2");
         vault.set_id("failed_s3_2");
@@ -9104,17 +9140,19 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
 
     InstanceRecycler recycler(txn_kv, instance, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
-    EXPECT_EQ(recycler.init(), 0);
-    EXPECT_EQ(recycler.accessor_map_.size(), 2);
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.accessor_map_.size(), 2);
+    ASSERT_TRUE(recycler.accessor_map_.contains("failed_s3_2"));
+    ASSERT_TRUE(recycler.accessor_map_.contains("success_vault"));
 
-    // unuseful obj accessor
+    // Object I/O fails even though the accessor initialized successfully.
     EXPECT_EQ(recycler.accessor_map_.at("failed_s3_2")->exists("data/0/rowset_id_test.csv"), -1);
     // useful mock accessor
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/rowset_id_test.csv"), 0);
 
-    // recycle tablet will fail because unuseful obj accessor can not connectted
+    // The failed vault must not prevent the other vault from recycling its objects.
     EXPECT_EQ(recycler.recycle_tablet(0, ctx), -1);
-    // however, useful mock accessor can recycle tablet
+    EXPECT_EQ(failing_client->list_calls.load(), 1);
     EXPECT_EQ(recycler.accessor_map_.at("success_vault")->exists("data/0/rowset_id_test.csv"), 1);
 }
 
@@ -9372,7 +9410,7 @@ TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
     instance_key(key_info, &key);
     InstanceInfoPB instance;
     instance.set_instance_id("GetObjStoreInfoTestInstance");
-    // failed to init because S3Conf::from_obj_store_info() fails
+    // failed to init because parse_recycler_storage_config() fails
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;
