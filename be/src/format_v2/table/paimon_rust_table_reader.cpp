@@ -699,7 +699,7 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
         return Status::InternalError("paimon-rust new vector search builder failed: {}",
                                      consume_error(vb_res.error));
     }
-    vector_search_builder_ptr vb(vb_res.builder);
+    rust_handles::vector_search_builder_ptr vb(vb_res.builder);
 
     // 3a. Target vector column.
     if (paimon_error* err =
@@ -780,8 +780,7 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
         if (request.paimon_options.__isset.prefilter) {
             RETURN_IF_ERROR(
                     VExpr::create_expr_trees(request.paimon_options.prefilter, search_filters));
-            RowDescriptor row_desc(_runtime_state->desc_tbl(), {_scan_params->dest_tuple_id},
-                                   {false});
+            RowDescriptor row_desc(_runtime_state->desc_tbl(), {_scan_params->dest_tuple_id});
             for (auto& filter : search_filters) {
                 RETURN_IF_ERROR(filter->prepare(_runtime_state, row_desc));
                 RETURN_IF_ERROR(filter->open(_runtime_state));
@@ -840,21 +839,21 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
         return Status::InternalError("paimon-rust deserialize vector split failed: {}",
                                      consume_error(split_result.error));
     }
-    bucket_vector_search_split_ptr split(split_result.split);
+    rust_handles::bucket_vector_search_split_ptr split(split_result.split);
 
     paimon_result_vector_scan scan_result = paimon_vector_search_builder_new_scan(vb.get());
     if (scan_result.error != nullptr) {
         return Status::InternalError("paimon-rust new vector scan failed: {}",
                                      consume_error(scan_result.error));
     }
-    vector_scan_ptr scan(scan_result.scan);
+    rust_handles::vector_scan_ptr scan(scan_result.scan);
 
     paimon_result_vector_read read_result = paimon_vector_search_builder_new_read(vb.get());
     if (read_result.error != nullptr) {
         return Status::InternalError("paimon-rust new vector read failed: {}",
                                      consume_error(read_result.error));
     }
-    vector_read_ptr read(read_result.read);
+    rust_handles::vector_read_ptr read(read_result.read);
 
     // Must use plan_from_bucket_splits: it plans from the FE-assigned split,
     // whereas paimon_vector_scan_plan / execute_read replan from the table and
@@ -866,7 +865,7 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
         return Status::InternalError("paimon-rust build vector plan failed: {}",
                                      consume_error(plan_result.error));
     }
-    vector_plan_ptr plan(plan_result.plan);
+    rust_handles::vector_plan_ptr plan(plan_result.plan);
 
     paimon_result_record_batch_reader rdr_res = paimon_vector_read_read(read.get(), plan.get());
     if (rdr_res.error != nullptr) {
