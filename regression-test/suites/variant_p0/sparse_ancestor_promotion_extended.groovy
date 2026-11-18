@@ -18,8 +18,11 @@
 import groovy.json.JsonOutput
 
 suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
-    // V2 execution keeps a JSON string as a string Variant value; V1 parsed it on insert.
-    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
+    // The expected output below characterizes V2 rendering: a string element is printed without
+    // JSON quotes, an empty array stays [] and a boolean CAST is printed as 1. V1 renders these
+    // differently, so pin the execution kernel instead of carrying a mode-dependent golden file.
+    setFeConfigTemporary([enable_variant_v2: true]) {
+        assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     sql "SET default_variant_enable_doc_mode = false"
     sql "SET describe_extend_variant_column = true"
     def backendIPs = [:]
@@ -70,7 +73,7 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
                 value['a-'] = batch + 200
                 value['a%2Eb'] = batch + 300
             }
-            rows.add("(${batch * 6 + row + 1}, ${variantV2Function}('${JsonOutput.toJson(value)}'))")
+            rows.add("(${batch * 6 + row + 1}, parse_to_variant('${JsonOutput.toJson(value)}'))")
         }
         sql "INSERT INTO sparse_ancestor_extended_deep VALUES ${rows.join(',')}"
     }
@@ -85,7 +88,7 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
         order_qt_promoted_layout "DESC sparse_ancestor_extended_deep"
         // Ten occurrences force the ancestor back into sparse storage.
         sql """INSERT INTO sparse_ancestor_extended_deep SELECT 100 + number,
-            ${variantV2Function}(concat('{"takeover":', number, '}'))
+            parse_to_variant(concat('{"takeover":', number, '}'))
             FROM numbers("number"="10")"""
         compact('sparse_ancestor_extended_deep')
         qt_demoted projection
@@ -101,7 +104,7 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
                 } else if (row == 4) {
                     value['p'] = wrap([child: [leaf: batch + 500]])
                 }
-                rows.add("(${200 + batch * 6 + row}, ${variantV2Function}('${JsonOutput.toJson(value)}'))")
+                rows.add("(${200 + batch * 6 + row}, parse_to_variant('${JsonOutput.toJson(value)}'))")
             }
             sql "INSERT INTO sparse_ancestor_extended_deep VALUES ${rows.join(',')}"
         }
@@ -121,22 +124,23 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
         "storage_format"="V3")"""
     for (int batch = 0; batch < 3; ++batch) {
         sql """INSERT INTO sparse_ancestor_extended_mow VALUES
-            (${batch*5+1},${variantV2Function}('{"p":{"a":${batch+10}},"hot_${batch}":1}')),
-            (${batch*5+2},${variantV2Function}('{"p":{"a":${batch+20}},"hot_${batch}":2}')),
-            (${batch*5+3},${variantV2Function}('{"p":{"a":{"b":${batch+30}}},"hot_${batch}":3}')),
-            (${batch*5+4},${variantV2Function}('{"hot_${batch}":4}')),
-            (${batch*5+5},${variantV2Function}('{"hot_${batch}":5}'))"""
+            (${batch*5+1},parse_to_variant('{"p":{"a":${batch+10}},"hot_${batch}":1}')),
+            (${batch*5+2},parse_to_variant('{"p":{"a":${batch+20}},"hot_${batch}":2}')),
+            (${batch*5+3},parse_to_variant('{"p":{"a":{"b":${batch+30}}},"hot_${batch}":3}')),
+            (${batch*5+4},parse_to_variant('{"hot_${batch}":4}')),
+            (${batch*5+5},parse_to_variant('{"hot_${batch}":5}'))"""
     }
     def mowProjection = """SELECT id, CAST(v['p'] AS STRING), CAST(v['p']['a'] AS STRING),
         v['p']['a']['b'], CAST(v AS STRING) FROM sparse_ancestor_extended_mow ORDER BY id"""
     compact('sparse_ancestor_extended_mow')
     sql """INSERT INTO sparse_ancestor_extended_mow VALUES
-        (1,${variantV2Function}('{"p":{"a":{"b":901}}}')),
-        (3,${variantV2Function}('{"p":{"a":903}}')),
-        (6,${variantV2Function}('{"p":{"a":[]}}')),
-        (8,${variantV2Function}('{"p":{"a":null}}'))"""
+        (1,parse_to_variant('{"p":{"a":{"b":901}}}')),
+        (3,parse_to_variant('{"p":{"a":903}}')),
+        (6,parse_to_variant('{"p":{"a":[]}}')),
+        (8,parse_to_variant('{"p":{"a":null}}'))"""
     sql "DELETE FROM sparse_ancestor_extended_mow WHERE id=2"
     qt_mow_before_second mowProjection
     compact('sparse_ancestor_extended_mow')
     qt_mow_second mowProjection
+    }
 }
