@@ -1188,6 +1188,12 @@ void OrcReader::_init_profile() {
             _profile, "OrcStripeStatisticsParses", TUnit::UNIT, orc_profile, 1);
     _orc_profile.stripe_statistics_evaluations = ADD_CHILD_COUNTER_WITH_LEVEL(
             _profile, "OrcStripeStatisticsEvaluations", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.file_tail_parses = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "OrcFileTailParses",
+                                                                 TUnit::UNIT, orc_profile, 1);
+    _orc_profile.stripe_directory_entries = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcStripeDirectoryEntries", TUnit::UNIT, orc_profile, 1);
+    _orc_profile.row_reader_stripe_visits = ADD_CHILD_COUNTER_WITH_LEVEL(
+            _profile, "OrcRowReaderStripeVisits", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_call =
             ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ReaderCall", TUnit::UNIT, orc_profile, 1);
     _orc_profile.reader_inclusive_latency_us = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -1240,6 +1246,12 @@ void OrcReader::_collect_profile() const {
     const auto& reader_metrics = _state->reader_metrics;
     const uint64_t read_row_count = orc_read_row_count(reader_metrics);
     if (_profile != nullptr) {
+        COUNTER_UPDATE(_orc_profile.file_tail_parses,
+                       orc_metric_value(reader_metrics.FileTailParseCount));
+        COUNTER_UPDATE(_orc_profile.stripe_directory_entries,
+                       orc_metric_value(reader_metrics.StripeDirectoryEntryCount));
+        COUNTER_UPDATE(_orc_profile.row_reader_stripe_visits,
+                       orc_metric_value(reader_metrics.RowReaderStripeVisitCount));
         COUNTER_UPDATE(_orc_profile.stripe_statistics_parses,
                        orc_metric_value(reader_metrics.MetadataParseCount));
         COUNTER_UPDATE(_orc_profile.stripe_statistics_evaluations,
@@ -1333,20 +1345,20 @@ Status OrcReader::init(RuntimeState* state) {
         input_stream_options.max_merge_distance_bytes =
                 state->query_options().orc_max_merge_distance_bytes;
     }
-    auto create_reader = [&](const std::string* serialized_file_tail,
+    auto create_reader = [&](const OrcSharedFileContext* shared_context,
                              std::unique_ptr<::orc::Reader>* reader) -> Status {
         DORIS_CHECK(reader != nullptr);
         ::orc::ReaderOptions options;
         ObjLRUCache::CacheHandle cache_handle;
-        const bool cache_hit = serialized_file_tail == nullptr && cache_enabled &&
+        const bool cache_hit = shared_context == nullptr && cache_enabled &&
                                meta_cache->lookup(cache_key, &cache_handle);
         options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
         options.setReaderMetrics(&_state->reader_metrics);
-        if (serialized_file_tail != nullptr) {
-            options.setSerializedFileTail(*serialized_file_tail);
-            // The SDK handle shares only lazily parsed immutable statistics. Each child keeps
-            // its own stream, metrics and SARG, including filters received after planning.
-            options.setSharedStripeStatistics(_state->file_context->stripe_statistics);
+        if (shared_context != nullptr) {
+            // Re-parsing a serialized tail in every one-stripe child turns file-wide SDK setup
+            // quadratic. Share parsed metadata and prefixes; streams, schema and SARG stay private.
+            options.setSharedFileTail(shared_context->file_tail);
+            options.setSharedStripeStatistics(shared_context->stripe_statistics);
         } else if (cache_hit) {
             options.setSerializedFileTail(*cache_handle.data<std::string>());
         }
@@ -1369,7 +1381,7 @@ Status OrcReader::init(RuntimeState* state) {
         }
         // Parent contexts retain the existing process-wide tail cache policy. A child uses its
         // parent's tail without reporting another physical footer read or process-cache lookup.
-        if (serialized_file_tail == nullptr) {
+        if (shared_context == nullptr) {
             if (cache_hit) {
                 ++_reader_statistics.file_footer_hit_cache;
                 ++_state->footer_cache_hits;
@@ -1404,12 +1416,8 @@ Status OrcReader::init(RuntimeState* state) {
         context->file_identity = file_identity;
         context->has_stable_identity = has_stable_identity;
         context->stripe_statistics = reader.getSharedStripeStatistics();
+        context->file_tail = reader.getSharedFileTail();
         try {
-            if (has_stable_identity) {
-                // Mutable files cannot publish children, so avoid serializing a tail that no other
-                // reader may safely consume.
-                context->serialized_file_tail = reader.getSerializedFileTail();
-            }
             const auto stripe_count = reader.getNumberOfStripes();
             context->stripes.reserve(stripe_count);
             uint64_t first_row = 0;
@@ -1447,12 +1455,11 @@ Status OrcReader::init(RuntimeState* state) {
             return Status::InvalidArgument("ORC split file context does not match file identity");
         }
         if (loaded_reader != nullptr) {
-            // The parent keeps the reader that produced the context. Generated children rebuild
-            // independent readers from the shared serialized tail.
+            // The parent keeps the reader that produced the context. Children retain the parsed
+            // tail without retaining the parent reader or its stream.
             _state->reader = std::move(loaded_reader);
         } else {
-            RETURN_IF_ERROR(
-                    create_reader(&_state->file_context->serialized_file_tail, &_state->reader));
+            RETURN_IF_ERROR(create_reader(_state->file_context.get(), &_state->reader));
         }
     }
     _state->root_type = &_state->reader->getType();

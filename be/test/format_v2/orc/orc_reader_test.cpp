@@ -5238,6 +5238,89 @@ TEST_F(NewOrcReaderTest, PhysicalStripeChildrenBoundSargDirectoryVisits) {
     }
 }
 
+TEST_F(NewOrcReaderTest, PhysicalChildrenBoundSdkSetupWithoutPredicates) {
+    const auto path = (_test_dir / "shared_sdk_setup.orc").string();
+    constexpr size_t STRIPES = 8;
+    constexpr int64_t ROWS_PER_STRIPE = 200;
+    std::vector<int64_t> first_values;
+    for (size_t stripe = 0; stripe < STRIPES; ++stripe) {
+        first_values.push_back(1 + stripe * ROWS_PER_STRIPE);
+    }
+    write_multi_stripe_orc_int_file(path, first_values);
+    const auto layout = get_orc_stripe_layout(path);
+    ASSERT_EQ(layout.size(), STRIPES);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    format::ColumnDefinition column;
+    column.identifier = Field::create_field<TYPE_STRING>("id");
+    column.name = "id";
+    column.type = make_nullable(std::make_shared<DataTypeInt32>());
+
+    // No SARG: statistics counters cannot detect repeated footer parsing or prefix construction.
+    // Target 0 preserves the legacy FE range and emits one child per stripe; positive targets
+    // also cover explicitly small and coalesced child intervals.
+    for (const int64_t target :
+         {int64_t {0}, int64_t {1}, cast_set<int64_t>(layout[0].length * 4)}) {
+        SCOPED_TRACE(target);
+        RuntimeProfile profile("shared_sdk_setup");
+        const auto init_reader = [&](format::TableReader* reader) {
+            return reader->init({.projected_columns = {column},
+                                 .format = format::FileFormat::ORC,
+                                 .runtime_state = &state,
+                                 .scanner_profile = &profile});
+        };
+        format::TableReader source_reader;
+        ASSERT_TRUE(init_reader(&source_reader).ok());
+        format::SplitReadOptions options;
+        options.current_split_format = format::FileFormat::ORC;
+        options.current_range.__set_path(path);
+        options.current_range.__set_file_size(std::filesystem::file_size(path));
+        options.current_range.__set_start_offset(0);
+        options.current_range.__set_size(std::filesystem::file_size(path));
+        options.current_range.__set_modification_time(19);
+        options.current_range.__set_target_split_size(target);
+        ASSERT_TRUE(source_reader.prepare_split(options).ok());
+        FileScanSplit source;
+        source.range = options.current_range;
+        source.is_source_split = true;
+        std::vector<FileScanSplit> children;
+        bool was_split = false;
+        ASSERT_TRUE(source_reader.build_physical_splits(source, &children, &was_split).ok());
+        ASSERT_TRUE(was_split);
+        ASSERT_GT(children.size(), 1);
+        // Children must retain parsed metadata even after their planning reader is closed.
+        ASSERT_TRUE(source_reader.close().ok());
+        size_t total_rows = 0;
+        for (const auto& child : children) {
+            format::TableReader reader;
+            ASSERT_TRUE(init_reader(&reader).ok());
+            options.current_range = child.materialize_range();
+            options.file_context = child.file_context;
+            options.format_split_id = child.format_split_id;
+            options.format_split_id_end = child.format_split_id_end;
+            ASSERT_TRUE(reader.prepare_split(options).ok());
+            bool eof = false;
+            ASSERT_TRUE(reader.create_next_reader(&eof).ok());
+            ASSERT_FALSE(eof);
+            while (!eof) {
+                auto block = build_file_block({column});
+                ASSERT_TRUE(reader.get_block(&block, &eof).ok());
+                const auto& ids = assert_cast<const ColumnInt32&>(
+                        assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                                .get_nested_column());
+                for (size_t row = 0; row < block.rows(); ++row) {
+                    EXPECT_EQ(ids.get_element(row), ++total_rows);
+                }
+            }
+            ASSERT_TRUE(reader.close().ok());
+        }
+        EXPECT_EQ(total_rows, STRIPES * ROWS_PER_STRIPE);
+        EXPECT_EQ(profile.get_counter("OrcFileTailParses")->value(), 1);
+        EXPECT_EQ(profile.get_counter("OrcStripeDirectoryEntries")->value(), STRIPES);
+        EXPECT_EQ(profile.get_counter("OrcRowReaderStripeVisits")->value(), 2 * STRIPES);
+        EXPECT_EQ(profile.get_counter("OrcStripeStatisticsParses")->value(), 0);
+    }
+}
+
 TEST_F(NewOrcReaderTest, OpenAcceptsDorisOffsetTimezone) {
     auto reader = create_reader();
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
