@@ -155,9 +155,9 @@ public:
 
     std::string debug_string() const { return _utc_dt.debug_string(); }
 
-    // Convert UTC time to local time based on the given timezone
-    void convert_utc_to_local(const cctz::time_zone& local_time_zone,
-                              DateV2Value<DateTimeV2ValueType>& dt) const;
+    // Convert UTC to local time and return the UTC offset in seconds from the same lookup.
+    int convert_utc_to_local(const cctz::time_zone& local_time_zone,
+                             DateV2Value<DateTimeV2ValueType>& dt) const;
 
     // Convert local time to UTC time based on the given timezone
     void convert_local_to_utc(const cctz::time_zone& local_time_zone,

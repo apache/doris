@@ -110,13 +110,13 @@ public class PluginApiVersionWiringTest {
     @Test
     public void connectorPluginWithoutSpatialContractIsRefused() throws IOException {
         ApiVersionGate gate = ApiVersionGate.forFamily("connector", ConnectorProvider.class);
-        Assertions.assertEquals(34, gate.getExpectedMajor());
+        Assertions.assertEquals(35, gate.getExpectedMajor());
         ConnectorPluginManager manager = new ConnectorPluginManager();
 
-        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("33.0")));
+        manager.loadPlugins(Collections.singletonList(connectorPluginRoot("34.0")));
 
         Assertions.assertFalse(manager.getRegisteredTypes().contains("version_probe"),
-                "an upstream API-33 plugin without the spatial contract must not load");
+                "an upstream API-34 plugin without the spatial contract must not load");
     }
 
     @Test

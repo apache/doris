@@ -137,6 +137,47 @@ TEST(TimeStampTzValueTest, AddLocalCalendarDaysAtUtcBoundaries) {
     EXPECT_EQ(result, make_timestamptz(0, 3, 2, 1, 0, 0, 123456));
 }
 
+TEST(TimeStampTzValueTest, ConvertUtcToLocalReturnsOffset) {
+    cctz::time_zone new_york;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &new_york));
+    const struct {
+        cctz::time_zone zone;
+        DateV2Value<DateTimeV2ValueType> local;
+        int utc_hour;
+        int offset;
+    } cases[] = {
+            {.zone = cctz::utc_time_zone(),
+             .local = make_datetime(2024, 11, 3, 5, 30, 0, 123456),
+             .utc_hour = 5,
+             .offset = 0},
+            {.zone = cctz::fixed_time_zone(std::chrono::seconds(8 * 3600 + 5 * 60 + 43)),
+             .local = make_datetime(2024, 11, 3, 13, 35, 43, 123456),
+             .utc_hour = 5,
+             .offset = 8 * 3600 + 5 * 60 + 43},
+            // Both instants are local 01:30, but have different offsets during the repeated hour.
+            {.zone = new_york,
+             .local = make_datetime(2024, 11, 3, 1, 30, 0, 123456),
+             .utc_hour = 5,
+             .offset = -4 * 3600},
+            {.zone = new_york,
+             .local = make_datetime(2024, 11, 3, 1, 30, 0, 123456),
+             .utc_hour = 6,
+             .offset = -5 * 3600},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(testing::Message() << test.zone.name() << ", utc_hour=" << test.utc_hour);
+        const auto input = make_timestamptz(2024, 11, 3, test.utc_hour, 30, 0, 123456);
+        DateV2Value<DateTimeV2ValueType> local;
+        const int offset = input.convert_utc_to_local(test.zone, local);
+        EXPECT_EQ(offset, test.offset);
+        EXPECT_EQ(local, test.local);
+
+        TimestampTzValue round_trip;
+        round_trip.convert_local_to_utc(test.zone, local, offset);
+        EXPECT_EQ(round_trip, input);
+    }
+}
+
 TEST(TimeStampTzValueTest, ToStringPreservesHistoricalOffsetSeconds) {
     TimezoneUtils::load_offsets_to_cache();
     const auto utc = cctz::utc_time_zone();
