@@ -20,8 +20,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <memory>
-#include <mutex>
-#include <optional>
 #include <string>
 
 #include "common/status.h"
@@ -29,7 +27,6 @@
 #include "storage/segment/external_col_meta_util.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/segment/variant/variant_statistics.h"
-#include "util/once.h"
 
 namespace doris::segment_v2 {
 
@@ -37,7 +34,7 @@ namespace doris::segment_v2 {
 // It discovers key/value indexed-columns from SegmentFooterPB, supports:
 // - availability check
 // - lookup ColumnMetaPB by relative path
-// - one-time bulk load of all metas into SubcolumnColumnMetaInfo and VariantStatistics
+// - bulk load of all metas into SubcolumnColumnMetaInfo and VariantStatistics
 class VariantExternalMetaReader {
 public:
     VariantExternalMetaReader() = default;
@@ -66,12 +63,7 @@ public:
     Status has_prefix(const std::string& prefix, bool* out, OlapReaderStatistics* stats = nullptr,
                       const io::IOContext* source_io_ctx = nullptr) const;
 
-    // Load and merge external metas once. Memory limit failures can be retried.
-    Status load_all_once(SubcolumnColumnMetaInfo* out_meta_tree, VariantStatistics* out_stats,
-                         OlapReaderStatistics* stats = nullptr,
-                         const io::IOContext* source_io_ctx = nullptr);
-
-    // Load and merge all external metas without call-once guard.
+    // Load all external metas, skipping paths already present in the output tree.
     Status load_all(SubcolumnColumnMetaInfo* out_meta_tree, VariantStatistics* out_stats,
                     OlapReaderStatistics* stats = nullptr,
                     const io::IOContext* source_io_ctx = nullptr);
@@ -93,10 +85,6 @@ private:
     // For its non-sparse subcolumns, their column_id is derived as:
     //   root_col_id + 1 + key_ordinal
     uint32_t _root_col_id = 0;
-
-    // Serializes bulk loads, including replacement of the guard after a retryable failure.
-    std::mutex _load_mutex;
-    std::optional<DorisCallOnce<Status>> _load_once_call {std::in_place};
 };
 
 } // namespace doris::segment_v2

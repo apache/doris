@@ -32,7 +32,9 @@
 #include "io/cache/remote_scan_cache_write_limiter.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/variant/variant_column_reader.h"
 #include "storage/segment/variant/variant_ext_meta_writer.h"
 #include "storage/segment/variant/variant_external_meta_reader.h"
 #include "storage/segment/vertical_segment_writer.h"
@@ -418,19 +420,15 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     EXPECT_EQ(loaded_meta_legacy.none_null_size(), 123);
     EXPECT_EQ(loaded_meta_legacy.column_path_info().parrent_column_unique_id(), root_uid);
 
-    // 8. Bulk load all external metas once and verify subcolumn tree and statistics.
+    // 8. Bulk load all external metas and verify subcolumn tree and statistics.
     SubcolumnColumnMetaInfo meta_tree;
     VariantStatistics stats;
-    st = reader_new.load_all_once(&meta_tree, &stats);
+    st = reader_new.load_all(&meta_tree, &stats);
     ASSERT_TRUE(st.ok()) << st.to_json();
     EXPECT_FALSE(meta_tree.empty());
     // Non-sparse subcolumn v1.key0 should be recorded as relative path "key0".
     ASSERT_EQ(stats.subcolumns_non_null_size.size(), 1);
     EXPECT_EQ(stats.subcolumns_non_null_size.at("key0"), 123);
-
-    // load_all_once should be idempotent.
-    st = reader_new.load_all_once(&meta_tree, &stats);
-    ASSERT_TRUE(st.ok()) << st.to_json();
 
     // 9. has_prefix should detect existing keys and non-existing prefixes.
     bool has = false;
@@ -448,12 +446,14 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     EXPECT_TRUE(has);
 }
 
-TEST(ExternalColMetaUtilTest, VariantExternalMetaReaderRetriesAfterPageAllocationFailure) {
+TEST(ExternalColMetaUtilTest, VariantColumnReaderRetriesExternalMetaAfterPageAllocationFailure) {
     SegmentFooterPB footer;
+    footer.set_version(SEGMENT_FOOTER_VERSION_V3_EXT_COL_META);
     const int32_t root_uid = 1;
     ColumnMetaPB* root = footer.add_columns();
     root->set_unique_id(root_uid);
     root->set_type(int(FieldType::OLAP_FIELD_TYPE_VARIANT));
+    root->set_encoding(PLAIN_ENCODING);
     {
         PathInData root_path("v1");
         root_path.to_protobuf(root->mutable_column_path_info(),
@@ -543,22 +543,35 @@ TEST(ExternalColMetaUtilTest, VariantExternalMetaReaderRetriesAfterPageAllocatio
     expect_recorded_reads_with_limiter("lookup_meta_by_path");
     EXPECT_EQ(loaded_meta.none_null_size(), 123);
 
-    SubcolumnColumnMetaInfo meta_tree;
-    VariantStatistics stats;
-    reset_recording("#load_all_once");
+    TabletColumn tablet_column;
+    tablet_column.set_name("v1");
+    tablet_column.set_unique_id(root_uid);
+    tablet_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    ColumnReaderOptions column_opts;
+    column_opts.tablet_schema = std::make_shared<TabletSchema>();
+    column_opts.tablet_schema->append_column(std::move(tablet_column));
+    ColumnMetaAccessor accessor;
+    ASSERT_TRUE(accessor.init(*footer_sp, recording_fr).ok());
+    VariantColumnReader variant_reader;
+    st = variant_reader.init(column_opts, &accessor, footer_sp, root_uid, footer.num_rows(),
+                             recording_fr, &reader_stats, &io_ctx);
+    ASSERT_TRUE(st.ok()) << st;
+
+    reset_recording("#load_external_meta_once");
+    const PathInData key_path("key0");
     recording_fr->fail_next_read_with_allocation_error();
-    st = reader.load_all_once(&meta_tree, &stats, &reader_stats, &io_ctx);
+    st = variant_reader.load_external_meta_once(&reader_stats, &io_ctx);
     ASSERT_TRUE(st.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << st;
-    expect_recorded_reads_with_limiter("failed load_all_once");
-    EXPECT_TRUE(meta_tree.empty());
+    expect_recorded_reads_with_limiter("failed load_external_meta_once");
+    EXPECT_EQ(variant_reader.get_subcolumn_meta_by_path(key_path), nullptr);
 
-    st = reader.load_all_once(&meta_tree, &stats, &reader_stats, &io_ctx);
+    st = variant_reader.load_external_meta_once(&reader_stats, &io_ctx);
     ASSERT_TRUE(st.ok()) << st.to_json();
-    expect_recorded_reads_with_limiter("load_all_once");
-    EXPECT_NE(meta_tree.find_leaf(PathInData("key0")), nullptr);
-    EXPECT_EQ(stats.subcolumns_non_null_size.at("key0"), 123);
+    expect_recorded_reads_with_limiter("load_external_meta_once");
+    EXPECT_NE(variant_reader.get_subcolumn_meta_by_path(key_path), nullptr);
+    EXPECT_EQ(variant_reader.get_stats()->subcolumns_non_null_size.at("key0"), 123);
 
-    ASSERT_TRUE(reader.load_all_once(&meta_tree, &stats, &reader_stats, &io_ctx).ok());
+    ASSERT_TRUE(variant_reader.load_external_meta_once(&reader_stats, &io_ctx).ok());
     EXPECT_TRUE(recording_fr->records().empty());
 
     bool has = false;
