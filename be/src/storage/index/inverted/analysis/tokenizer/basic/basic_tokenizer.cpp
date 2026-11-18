@@ -43,10 +43,7 @@ bool is_chinese_char(UChar32 c) {
            in_range(c, 0x30000, 0x3134A);
 }
 
-// The character that starts at `position` of the value, as a token when it is in one of the
-// Chinese ranges. Decoded from the value: the next block of the lowered copy is not written yet.
-// Called once per lead byte, so every character of Chinese or Japanese text; out of line, the
-// call made those corpora 5-8% slower.
+// Decode each lead byte from the source. CJK characters do not need ASCII case folding.
 ALWAYS_INLINE inline void push_chinese_char(TokenBatch& batch, const char* src, int64_t position,
                                             size_t size) {
     auto next = static_cast<int32_t>(position);
@@ -58,9 +55,17 @@ ALWAYS_INLINE inline void push_chinese_char(TokenBatch& batch, const char* src, 
 }
 
 // The run [start, end), cut to MAX_WORD_LEN bytes.
-void push_run(TokenBatch& batch, const char* base, int64_t start, int64_t end) {
-    batch.push({base + start, static_cast<size_t>(std::min<int64_t>(end - start, MAX_WORD_LEN))},
-               1);
+template <bool kLower>
+void push_run(TokenBatch& batch, const char* src, int64_t start, int64_t end) {
+    const auto length = static_cast<size_t>(std::min<int64_t>(end - start, MAX_WORD_LEN));
+    // Lower only the retained prefix; separators and a long run's discarded suffix need no copy.
+    if constexpr (kLower) {
+        char* lowered = batch.allocate_term(length);
+        ascii_lower(src + start, lowered, length);
+        batch.push({lowered, length}, 1);
+    } else {
+        batch.push({src + start, length}, 1);
+    }
 }
 
 } // namespace
@@ -89,13 +94,6 @@ void BasicTokenizer::reset(std::string_view text) {
     _block = 0;
     _carry = 0;
     _run_start = -1;
-    if (_lowercase) {
-        release_oversized_scratch(_lowered);
-        // The copy only grows, so a shorter value writes over the head of it without a resize.
-        if (_lowered.size() < text.size()) {
-            _lowered.resize(text.size());
-        }
-    }
 }
 
 bool BasicTokenizer::next_batch(TokenBatch& batch) {
@@ -110,21 +108,18 @@ bool BasicTokenizer::scan(TokenBatch& batch) {
     batch.clear();
     const size_t size = _text.size();
     const char* const src = _text.data();
-    char* const lowered = kLower ? _lowered.data() : nullptr;
-    const char* const base = kLower ? lowered : src;
     const size_t blocks = (size + BYTE_CLASS_BLOCK - 1) / BYTE_CLASS_BLOCK;
     while (_block < blocks && batch.size() < kBatchTokens) {
         const size_t offset = _block * BYTE_CLASS_BLOCK;
-        char* const block_lowered = kLower ? lowered + offset : nullptr;
         const ByteClasses classes =
                 offset + BYTE_CLASS_BLOCK <= size
-                        ? classify_block<kLower>(src + offset, block_lowered)
-                        : classify_tail<kLower>(src + offset, size - offset, block_lowered);
+                        ? classify_block<false>(src + offset, nullptr)
+                        : classify_tail<false>(src + offset, size - offset, nullptr);
         const uint64_t alnum = classes.alnum;
         // A bit where a run starts or where the byte after a run is.
         const uint64_t edges = alnum ^ ((alnum << 1) | _carry);
         _carry = alnum >> 63;
-        // In order: in "abc中" the run ends at the byte that starts 中, and "abc" comes first.
+        // Visit events in byte order so an ASCII run precedes a following CJK token.
         uint64_t events = edges | classes.lead;
         while (events != 0) {
             const int bit = __builtin_ctzll(events);
@@ -135,7 +130,7 @@ bool BasicTokenizer::scan(TokenBatch& batch) {
                 if (_run_start < 0) {
                     _run_start = position;
                 } else {
-                    push_run(batch, base, _run_start, position);
+                    push_run<kLower>(batch, src, _run_start, position);
                     _run_start = -1;
                 }
             }
@@ -147,7 +142,7 @@ bool BasicTokenizer::scan(TokenBatch& batch) {
     }
     // A run that reaches the end of a value of whole blocks has its end edge in no block.
     if (_block == blocks && _run_start >= 0) {
-        push_run(batch, base, _run_start, static_cast<int64_t>(size));
+        push_run<kLower>(batch, src, _run_start, static_cast<int64_t>(size));
         _run_start = -1;
     }
     return batch.size() != 0;

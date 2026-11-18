@@ -22,6 +22,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <random>
@@ -119,6 +120,43 @@ TEST(EnglishTokenizerTest, ALongRunIsCutEveryMaxWordLenBytes) {
     const std::vector<std::string> terms =
             collect_terms(*english_analyzer(true), std::string(300, 'a'));
     EXPECT_EQ(terms, (std::vector<std::string> {std::string(255, 'a'), std::string(45, 'a')}));
+}
+
+TEST(EnglishTokenizerTest, LongRunsUseBoundedBatches) {
+    const std::string value(10 * 1024 * 1024, 'A');
+    for (bool lowercase : {true, false}) {
+        SCOPED_TRACE(lowercase);
+        EnglishTokenizer tokenizer(lowercase);
+        tokenizer.reset(value);
+        TokenBatch batch;
+        size_t bytes = 0;
+        size_t tokens = 0;
+        while (tokenizer.next_batch(batch)) {
+            ASSERT_LE(batch.size(), TextTokenStream::kBatchTokens + 64);
+            for (const TokenRef& token : batch.tokens()) {
+                const size_t length = std::min<size_t>(MAX_WORD_LEN, value.size() - bytes);
+                ASSERT_EQ(token.term(), std::string(length, lowercase ? 'a' : 'A'));
+                EXPECT_EQ(token.position_increment, 1);
+                bytes += length;
+                ++tokens;
+            }
+        }
+        EXPECT_EQ(bytes, value.size());
+        EXPECT_EQ(tokens, (value.size() + MAX_WORD_LEN - 1) / MAX_WORD_LEN);
+    }
+}
+
+TEST(EnglishTokenizerTest, LongRunsResumeAcrossBatchAndRunBoundaries) {
+    const size_t boundary = TextTokenStream::kBatchTokens * MAX_WORD_LEN;
+    for (bool lowercase : {true, false}) {
+        auto oracle = clucene_english(lowercase);
+        auto candidate = golden::make_text_driver(english_analyzer(lowercase));
+        for (size_t length : {boundary - 1, boundary, boundary + 1, boundary + 64}) {
+            SCOPED_TRACE(length);
+            expect_same_as_clucene("Lead " + std::string(length, 'Z') + " Tail", *candidate,
+                                   *oracle);
+        }
+    }
 }
 
 TEST(EnglishTokenizerTest, BatchesLoseNoTokenAroundTheBatchSize) {

@@ -180,7 +180,7 @@ TEST(BasicTokenizerTest, WithoutLowercaseTheTermsAreViewsOfTheValue) {
             ++count;
         }
     }
-    EXPECT_EQ(count, 6); // Mixed CASE 中 文 words 123
+    EXPECT_EQ(count, 6); // Mixed, CASE, two CJK characters, words, and 123.
     EXPECT_EQ(tokenizer.reserved_bytes(), 0);
 }
 
@@ -195,7 +195,7 @@ TEST(BasicTokenizerTest, ReadsNothingPastTheValue) {
         tokenizer.initialize();
         for (size_t size = 1; size <= 200; ++size) {
             char* const value = page + page_size - size;
-            // A cut-short 中 at the very end: decoding it must stop at the end of the value.
+            // A truncated UTF-8 character must not read past the value.
             std::memset(value, 'K', size);
             value[size - 1] = '\xE4';
             const std::string_view text(value, size);

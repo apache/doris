@@ -48,12 +48,15 @@ inline char ascii_lower(char c) {
     return static_cast<char>(byte + (static_cast<uint8_t>(is_ascii_upper(byte)) << 5));
 }
 
-// Folds A-Z in `text` to a-z and leaves every other byte as it is, as the analyzers that only
-// lowercase ASCII do.
-inline void ascii_lower(std::string& text) {
-    for (char& c : text) {
-        c = ascii_lower(c);
+// Fold A-Z to a-z while copying the bytes. The source and destination may be the same buffer.
+inline void ascii_lower(const char* src, char* dst, size_t size) {
+    for (size_t i = 0; i < size; ++i) {
+        dst[i] = ascii_lower(src[i]);
     }
+}
+
+inline void ascii_lower(std::string& text) {
+    ascii_lower(text.data(), text.data(), text.size());
 }
 
 namespace byte_classifier_detail {

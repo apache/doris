@@ -20,7 +20,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <string>
 #include <string_view>
 
 #include "storage/index/inverted/analysis/text_token_stream.h"
@@ -35,16 +34,15 @@ namespace doris::segment_v2::inverted_index {
 //
 // It classifies the value a block of BYTE_CLASS_BLOCK bytes at a time and cuts at the edges of the
 // letter-and-digit bits. A batch is handed over at the end of the block that fills it, so it may
-// hold a few dozen tokens more than kBatchTokens. The terms are views of the value, or of its
-// lowered copy, which keeps the offsets of the value.
+// hold a few dozen tokens more than kBatchTokens. The terms are views of the value or of the
+// batch's storage for lowercased tokens.
 class EnglishTokenizer final : public TextTokenizer {
 public:
     explicit EnglishTokenizer(bool lowercase) : _lowercase(lowercase) {}
 
     void reset(std::string_view text) override;
     bool next_batch(TokenBatch& batch) override;
-    // The lowered copy of the value, which only a lowercasing tokenizer has.
-    size_t reserved_bytes() const override { return _lowercase ? _lowered.capacity() : 0; }
+    size_t reserved_bytes() const override { return 0; }
 
 private:
     template <bool kLower>
@@ -52,11 +50,9 @@ private:
 
     const bool _lowercase;
     std::string_view _text;
-    // The value with A-Z folded, byte for byte at the offsets of the value; only with _lowercase.
-    std::string _lowered;
     size_t _block = 0;       // the next block to classify
     uint64_t _carry = 0;     // 1 when the last byte of the previous block is a letter or digit
-    int64_t _run_start = -1; // the offset of the run being read, or -1 between runs
+    int64_t _run_start = -1; // the next run fragment's offset, or -1 between runs
 };
 
 // The tokenizer of the builtin english parser; english is no custom tokenizer.

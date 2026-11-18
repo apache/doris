@@ -35,10 +35,9 @@ namespace doris::segment_v2::inverted_index {
 //
 // Without extra chars it classifies the value a block of BYTE_CLASS_BLOCK bytes at a time, cuts the
 // runs at the edges of the letter-and-digit bits and decodes a character only at a byte that can
-// start one: of the three bytes of 中 only the first is visited. A batch is handed over at the end
+// start one: only the lead byte is visited. A batch is handed over at the end
 // of the block that fills it. With extra chars it runs the scalar loop, which has no performance
-// target. The terms are views of the value or of its lowered copy, which keeps the offsets of the
-// value.
+// target. The terms are views of the value or of the batch's storage for lowercased tokens.
 class BasicTokenizer final : public TextTokenizer {
 public:
     explicit BasicTokenizer(bool lowercase = false) : _lowercase(lowercase) {}
@@ -48,11 +47,9 @@ public:
 
     void reset(std::string_view text) override;
     bool next_batch(TokenBatch& batch) override;
-    // The lowered copy of the value, which only a lowercasing tokenizer has, and the token list
-    // of the scalar loop.
+    // The token list of the scalar loop; lowercased terms live in the output batch.
     size_t reserved_bytes() const override {
-        return (_lowercase ? _lowered.capacity() : 0) +
-               _tokens_text.capacity() * sizeof(std::string_view);
+        return _tokens_text.capacity() * sizeof(std::string_view);
     }
 
 private:
@@ -63,8 +60,6 @@ private:
 
     const bool _lowercase;
     std::string_view _text;
-    // The value with A-Z folded, byte for byte at the offsets of the value; only with _lowercase.
-    std::string _lowered;
     size_t _block = 0;       // the next block to classify
     uint64_t _carry = 0;     // 1 when the last byte of the previous block is a letter or digit
     int64_t _run_start = -1; // the offset of the run being read, or -1 between runs

@@ -223,8 +223,30 @@ TEST(ComponentStreamTest, CharGroupTokenizerKeepsNothing) {
 }
 
 size_t basic_member_bytes(const BasicTokenizer& basic) {
-    return (basic._lowercase ? basic._lowered.capacity() : 0) +
-           basic._tokens_text.capacity() * sizeof(std::string_view);
+    return basic._tokens_text.capacity() * sizeof(std::string_view);
+}
+
+TEST(ComponentStreamTest, LowercaseTokenizersBoundScratchWithinRow) {
+    std::vector<std::unique_ptr<TextTokenStream>> streams;
+    streams.push_back(std::make_unique<EnglishTokenizer>(true));
+    streams.push_back(std::make_unique<BasicTokenizer>(true));
+    constexpr size_t kMaxScratchBytes = 256 * 1024;
+    for (auto& stream : streams) {
+        for (char fill : {' ', 'A'}) {
+            SCOPED_TRACE(fill);
+            const std::string row(10 * 1024 * 1024, fill);
+            stream->reset(row);
+            ASSERT_LE(stream->reserved_bytes(), kMaxScratchBytes);
+            TokenBatch batch;
+            size_t tokens = 0;
+            while (stream->next_batch(batch)) {
+                ASSERT_LE(stream->reserved_bytes() + batch.capacity_bytes(), kMaxScratchBytes);
+                tokens += batch.size();
+            }
+            EXPECT_EQ(tokens == 0, fill == ' ');
+            EXPECT_LE(stream->reserved_bytes() + batch.capacity_bytes(), kMaxScratchBytes);
+        }
+    }
 }
 
 TEST(ComponentStreamTest, BasicTokenizerReleasesItsBuffers) {
@@ -240,24 +262,24 @@ TEST(ComponentStreamTest, BasicTokenizerReleasesItsBuffers) {
                                     basic._has_extra_chars,
                                     [&] { return basic_member_bytes(basic); });
     }
-    // The builtin basic parser lowercases into a copy of the value.
+    // The builtin basic parser keeps lowercased terms in the output batch.
     expect_text_stream_contract([] { return std::make_unique<BasicTokenizer>(true); },
                                 contract_texts());
     BasicTokenizer lowering(true);
     lowering.initialize();
-    expect_released_at_next_row(lowering, repeat_to("Ab ", kLongRowBytes), "short", true,
+    expect_released_at_next_row(lowering, repeat_to("Ab ", kLongRowBytes), "short", false,
                                 [&] { return basic_member_bytes(lowering); });
 }
 
-TEST(ComponentStreamTest, EnglishTokenizerReleasesItsLoweredCopy) {
+TEST(ComponentStreamTest, EnglishTokenizerKeepsNoRowSizedScratch) {
     for (bool lowercase : {true, false}) {
         SCOPED_TRACE(lowercase);
         expect_text_stream_contract(
                 [lowercase] { return std::make_unique<EnglishTokenizer>(lowercase); },
                 contract_texts());
         EnglishTokenizer english(lowercase);
-        expect_released_at_next_row(english, repeat_to("Ab ", kLongRowBytes), "short", lowercase,
-                                    [&] { return lowercase ? english._lowered.capacity() : 0; });
+        expect_released_at_next_row(english, repeat_to("Ab ", kLongRowBytes), "short", false,
+                                    [] { return size_t {0}; });
     }
 }
 
