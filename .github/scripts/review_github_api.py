@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 LIMIT = 65536
 HEADERS = {
     "content-type", "content-length", "date", "x-github-request-id",
-    "retry-after", "x-ratelimit-limit", "x-ratelimit-remaining",
+    "retry-after", "x-accepted-github-permissions", "x-ratelimit-limit", "x-ratelimit-remaining",
     "x-ratelimit-reset", "x-ratelimit-resource",
 }
 

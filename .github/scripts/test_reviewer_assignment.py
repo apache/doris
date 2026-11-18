@@ -33,6 +33,7 @@ import unittest
 from unittest.mock import patch
 
 import reviewer_assignment as assignment
+import reviewer_assignment_diagnostics as diagnostics
 import reviewer_assignment_usage as usage
 from reviewer_assignment_diff import git_changes, parse_numstat
 import ci_context as selector
@@ -240,6 +241,9 @@ class AssignmentTest(unittest.TestCase):
         self.assertEqual(set(selected), {"Alice", "Bob"})
         self.assertEqual(self.mutations(), [])
         self.assertEqual(json.loads((self.workspace / "selection.json").read_text()), {"reviewers": selected})
+        pools = json.loads((self.workspace / "selected-candidates.json").read_text())["modules"]
+        self.assertEqual(pools[0]["id"], "search")
+        self.assertEqual([p["login"] for p in pools[0]["candidates"]], ["Alice", "Bob"])
         result = self.apply(selected)
         self.assertEqual(result["reviewers"], selected)
         self.assertIn(", ".join("@" + p for p in selected) + ", please review this PR.", self.api.comments[0]["body"])
@@ -263,6 +267,7 @@ class AssignmentTest(unittest.TestCase):
         self.assertFalse(self.prepare(run="101"))
         self.assertFalse((self.workspace / "selection.json").exists())
         self.assertFalse((self.workspace / "module-selection.json").exists())
+        self.assertFalse((self.workspace / "selected-candidates.json").exists())
         assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
         with patch.object(selector.random, "SystemRandom") as source:
             source.return_value.choice.side_effect = lambda pairs: pairs[0]
@@ -284,9 +289,25 @@ class AssignmentTest(unittest.TestCase):
         assignment.write_json(self.workspace / "module-selection.json", {"modules": []})
         selected = assignment.finalize_selection(self.workspace, self.tool)
         self.assertEqual(selected, [])
+        report = diagnostics.diagnostics_report(self.workspace, "", "")
+        self.assertEqual(report["files"]["module-selection.json"]["value"], {"modules": []})
+        self.assertEqual(report["files"]["candidate-summary.json"]["value"]["path_routing_modules"], ["search"])
+        self.assertEqual(report["files"]["selected-candidates.json"]["value"]["modules"], [])
         result = self.apply(selected)
         self.assertTrue(result["fallback"])
         self.assertIn("No suitable reviewer was found. @morningman", self.api.comments[0]["body"])
+
+    def test_diagnostics_distinguish_an_empty_selected_pool_from_no_selected_modules(self):
+        self.config["modules"]["search"]["reviewers"] = []
+        self.save_config()
+        self.prepare()
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        self.assertEqual(assignment.finalize_selection(self.workspace, self.tool), [])
+        report = diagnostics.diagnostics_report(self.workspace, "", "")
+        self.assertEqual(report["files"]["module-selection.json"]["value"], {"modules": ["search"]})
+        pools = report["files"]["selected-candidates.json"]["value"]["modules"]
+        self.assertEqual(pools[0]["id"], "search")
+        self.assertEqual(pools[0]["candidates"], [])
 
     def test_real_validation_cli_turns_model_modules_into_the_assignment_artifact(self):
         self.prepare()
@@ -1036,6 +1057,75 @@ class ConfigurationTest(unittest.TestCase):
         self.assertIn("invalid GitHub login", result.stderr)
 
 
+class DiagnosticsTest(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.workspace = Path(temp.name)
+
+    def test_filtered_trace_keeps_failed_and_unfinished_commands_without_raw_session_content(self):
+        events = [
+            {"type": "item.started", "item": {"id": "ok", "type": "command_execution",
+             "command": "cat pr.diff", "status": "in_progress"}},
+            {"type": "item.completed", "item": {"id": "ok", "type": "command_execution",
+             "command": "cat pr.diff", "status": "completed", "exit_code": 0,
+             "aggregated_output": "successful-private-output"}},
+            {"type": "item.completed", "item": {"id": "fail", "type": "command_execution",
+             "command": "python3 ci_context.py --token=ghp_commandsecret", "status": "failed", "exit_code": 127,
+             "aggregated_output": "x" * 5000 + "\npython3: command not found; ghp_outputsecret"}},
+            {"type": "item.started", "item": {"id": "pending", "type": "command_execution",
+             "command": "cat candidate-summary.json", "status": "in_progress"}},
+            {"type": "item.completed", "item": {"type": "reasoning", "text": "private-reasoning"}},
+            {"type": "item.completed", "item": {"type": "agent_message", "text": "private-message"}},
+            {"type": "turn.failed", "error": {"message": "request failed: ghp_errorsecret"}},
+        ]
+        with patch.dict(os.environ, {"TEST_TOKEN": "environment-secret"}):
+            report = diagnostics.diagnostics_report(
+                self.workspace, "\n".join(json.dumps(e) for e in events),
+                "startup failed: environment-secret " + "x" * 4100 + " ghp_stderrsecret")
+        self.assertEqual(len(report["commands"]), 3)
+        self.assertEqual(report["commands"][0]["exit_code"], 0)
+        self.assertNotIn("output_tail", report["commands"][0])
+        self.assertEqual(report["commands"][1]["exit_code"], 127)
+        self.assertIn("python3: command not found", report["commands"][1]["output_tail"])
+        self.assertLessEqual(len(report["commands"][1]["output_tail"]), diagnostics.LIMIT)
+        self.assertEqual(report["commands"][2]["status"], "in_progress")
+        self.assertIsNone(report["commands"][2]["exit_code"])
+        self.assertIn("request failed", report["model_errors"][0])
+        saved = json.dumps(report)
+        for secret in ("successful-private-output", "private-reasoning", "private-message",
+                       "environment-secret", "commandsecret", "outputsecret", "errorsecret", "stderrsecret"):
+            self.assertNotIn(secret, saved)
+
+    def test_missing_malformed_and_redacted_documents_are_reported_without_auth_or_prompts(self):
+        (self.workspace / "module-selection.json").write_text('{"modules":[')
+        (self.workspace / "selection.json").write_text('{"token":"ghp_documentsecret"}')
+        (self.workspace / "auth.json").write_text("private-auth")
+        (self.workspace / "prompt.txt").write_text("private-prompt")
+        report = diagnostics.diagnostics_report(self.workspace, '{"type":', "")
+        self.assertEqual(report["files"]["context.json"]["status"], "missing")
+        self.assertEqual(report["files"]["module-selection.json"]["status"], "unparsed")
+        self.assertEqual(report["files"]["selection.json"]["value"]["token"], "[REDACTED]")
+        self.assertEqual(report["malformed_event_lines"], 1)
+        for secret in ("private-auth", "private-prompt", "documentsecret"):
+            self.assertNotIn(secret, json.dumps(report))
+
+    def test_real_diagnostics_cli_records_checkpoint_reuse_without_model_events(self):
+        assignment.write_json(self.workspace / "selection.json", {"reviewers": ["Alice", "Bob"]})
+        output = self.workspace / "diagnostics/result.json"
+        command = [sys.executable, str(Path(diagnostics.__file__)), "--workspace", str(self.workspace),
+                   "--events", str(self.workspace / "missing-events"), "--stderr", str(self.workspace / "missing-stderr"),
+                   "--version", str(self.workspace / "missing-version"), "--output", str(output)]
+        result = subprocess.run(command, env={**os.environ, "REUSE_SELECTION": "true"},
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(output.read_text())
+        self.assertEqual(json.loads(result.stdout), report)
+        self.assertTrue(report["reused_selection"])
+        self.assertEqual(report["files"]["selection.json"]["value"]["reviewers"], ["Alice", "Bob"])
+        self.assertEqual(report["files"]["module-selection.json"]["status"], "missing")
+
+
 class UsageTest(unittest.TestCase):
     def event(self, **counts):
         return json.dumps({"type": "turn.completed", "usage": {
@@ -1104,6 +1194,9 @@ class ModelUsageShellTest(unittest.TestCase):
                 binary = root / "codex"
                 binary.write_text('#!' + sys.executable + '''
 import json, os, sys
+if sys.argv[1:] == ['--version']:
+    print('codex-cli test')
+    sys.exit(0)
 print(json.dumps({"type":"item.completed","item":{"text":"secret-context"}}))
 code = int(os.environ['FAKE_CODEX_EXIT'])
 if code == 0:
@@ -1142,6 +1235,12 @@ sys.exit(code)
                 summary = (root / "summary").read_text()
                 self.assertNotIn("secret-context", saved + summary)
                 self.assertIn("Cached input", summary)
+                script = AuthPoolShellTest.step_script(self, "Collect reviewer selection diagnostics")
+                result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                saved = (root / "reviewer-assignment-diagnostics/selection.json").read_text()
+                self.assertEqual(json.loads(saved)["cli_version"], "codex-cli test")
+                self.assertNotIn("secret-context", saved + result.stdout)
 
 
 class AuthPoolShellTest(unittest.TestCase):
@@ -1347,7 +1446,8 @@ class WorkflowTest(unittest.TestCase):
     def test_write_permissions_are_limited_to_the_final_job(self):
         select, assign = self.workflow.split("\n  assign:\n", 1)
         self.assertNotIn("issues: write", select)
-        self.assertNotIn("pull-requests: write", self.workflow)
+        self.assertNotIn("pull-requests: write", select)
+        self.assertIn("pull-requests: write", assign)
         self.assertIn("issues: write", assign)
         self.assertNotIn("secrets.OSS_", assign)
         self.assertIn("needs: select", assign)
@@ -1406,6 +1506,24 @@ class WorkflowTest(unittest.TestCase):
         self.assertNotIn("codex.jsonl", upload)
         self.assertNotIn("auth.json", upload)
         self.assertIn("retention-days: 7", upload)
+
+    def test_debug_artifacts_survive_failures_without_uploading_raw_events(self):
+        select, assign = self.workflow.split("\n  assign:\n", 1)
+        collect = select.split("      - name: Collect reviewer selection diagnostics\n", 1)[1]
+        collect = collect.split("      - name: Publish the validated assignment plan\n", 1)[0]
+        self.assertEqual(collect.count("if: always()"), 2)
+        self.assertEqual(collect.count("continue-on-error: true"), 2)
+        upload = collect.split("      - name: Publish reviewer selection diagnostics\n", 1)[1]
+        self.assertIn("path: ${{ runner.temp }}/reviewer-assignment-diagnostics/", upload)
+        self.assertNotIn("codex.jsonl", upload)
+        self.assertNotIn("auth.json", upload)
+        self.assertIn("retention-days: 7", upload)
+        self.assertIn("REVIEW_GITHUB_DIAGNOSTICS_DIR:", select)
+        self.assertIn("REVIEW_GITHUB_DIAGNOSTICS_DIR:", assign)
+        upload = assign.split("      - name: Publish assignment API diagnostics\n", 1)[1]
+        self.assertIn("if: always()", upload)
+        self.assertIn("continue-on-error: true", upload)
+        self.assertIn("/reviewer-assignment-diagnostics/github/*.json", upload)
 
 
 if __name__ == "__main__":

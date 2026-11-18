@@ -170,7 +170,7 @@ def prepare(api, event, repository, run_id, workspace, tool=TOOL):
         people = validate_selection({"reviewers": previous[1]["reviewers"]}, context["author"], allowed)
         write_json(workspace / "selection.json", {"reviewers": people})
         return True
-    for name in ("selection.json", "module-selection.json"):
+    for name in ("selection.json", "module-selection.json", "selected-candidates.json"):
         (workspace / name).unlink(missing_ok=True)
 
     endpoint = f"repos/{repository}/pulls/{number}"
@@ -231,6 +231,7 @@ def finalize_selection(workspace, tool=TOOL):
         modules = json.loads((workspace / "module-selection.json").read_text())
         pr = json.loads((workspace / "pr.json").read_text())
         selection = {"reviewers": sample_reviewers(modules, pr, mapping)}
+        write_json(workspace / "selected-candidates.json", candidate_summary(pr, mapping, modules["modules"]))
     people = validate_selection(selection, context["author"], candidates(tool, mapping))
     write_json(saved, {"reviewers": people})
     return people
