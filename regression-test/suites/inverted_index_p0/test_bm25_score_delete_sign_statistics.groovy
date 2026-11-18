@@ -158,6 +158,23 @@ suite("test_bm25_score_delete_sign_statistics", "p0") {
             SELECT /*+ SET_VAR(skip_delete_sign = true, enable_inverted_index_query = false) */
                 count(*) FROM ${keyword} WHERE tag = 'gone'
         """
+        // For the same reason != answered by the index returns them all, whatever their value,
+        // while on the column it returns only those whose value differs. Their segment holds two
+        // values, so that its zone map does not answer != either.
+        sql "SET show_hidden_columns = true"
+        sql """
+            INSERT INTO ${keyword} (id, tag, __DORIS_DELETE_SIGN__)
+            SELECT number + 2000, if(number % 2 = 0, 'gone', 'spare'), 1 FROM numbers('number' = '20')
+        """
+        sql "SET show_hidden_columns = false"
+        qt_keyword_not_equal_by_index """
+            SELECT /*+ SET_VAR(skip_delete_sign = true) */ count(*) FROM ${keyword}
+            WHERE tag != 'gone' AND id >= 2000
+        """
+        qt_keyword_not_equal_by_column """
+            SELECT /*+ SET_VAR(skip_delete_sign = true, enable_inverted_index_query = false) */
+                count(*) FROM ${keyword} WHERE tag != 'gone' AND id >= 2000
+        """
 
         assertSameScores(scores(visible), scores(mow), "${format}, after the loads")
         trigger_and_wait_compaction(mow, "cumulative")
