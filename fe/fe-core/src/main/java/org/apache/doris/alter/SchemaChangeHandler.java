@@ -3379,15 +3379,18 @@ public class SchemaChangeHandler extends AlterHandler {
             AnnIndexPropertiesChecker.checkProperties(indexDef.getProperties());
         }
 
+        TInvertedIndexFileStorageFormat indexStorageFormat = olapTable.getInvertedIndexFileStorageFormat();
         if (indexDef.getIndexType() == IndexType.INVERTED
-                && olapTable.getInvertedIndexFileStorageFormat() == TInvertedIndexFileStorageFormat.V1) {
+                && indexStorageFormat == TInvertedIndexFileStorageFormat.V1) {
             throw new DdlException("Inverted index V1 is deprecated and no longer allowed for new index creation."
                     + " Upgrading inverted_index_storage_format via ALTER TABLE is not supported;"
                     + " recreate the table with inverted_index_storage_format = V2.");
         }
 
         if (indexDef.isVariantValuesIndex() && Config.isCloudMode()) {
-            if (olapTable.getPartitionInvertedIndexFileStorageFormat() != TInvertedIndexFileStorageFormat.SNII
+            // Match CREATE TABLE by validating the index against the effective partition format.
+            indexStorageFormat = olapTable.getPartitionInvertedIndexFileStorageFormat();
+            if (indexStorageFormat != TInvertedIndexFileStorageFormat.SNII
                     || olapTable.getPartitions().stream().anyMatch(partition ->
                             olapTable.getInvertedIndexFileStorageFormatForPartition(partition.getId())
                                     != TInvertedIndexFileStorageFormat.SNII)) {
@@ -3399,8 +3402,7 @@ public class SchemaChangeHandler extends AlterHandler {
             Column column = olapTable.getColumn(col);
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
-                        olapTable.getEnableUniqueKeyMergeOnWrite(),
-                        olapTable.getInvertedIndexFileStorageFormat());
+                        olapTable.getEnableUniqueKeyMergeOnWrite(), indexStorageFormat);
                 if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
                     throw new DdlException("Can not create index with field pattern");
                 }

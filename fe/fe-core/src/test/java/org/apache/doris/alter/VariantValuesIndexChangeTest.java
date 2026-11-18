@@ -27,6 +27,8 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -140,6 +142,41 @@ public class VariantValuesIndexChangeTest extends TestWithFeService {
             Config.enable_partition_inverted_index_storage_format_rollout = original;
         }
         Assertions.assertTrue(table.getIndexes().isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"V2", "V3"})
+    public void testCloudAddAndReaddUseEffectiveSniiFormat(String format) throws Exception {
+        String name = "cloud_formats_" + format;
+        String qualifiedName = "values_index_change." + name;
+        createTable("CREATE TABLE " + qualifiedName + " (id INT, v VARIANT) "
+                + "DUPLICATE KEY(id) PARTITION BY RANGE(id)(PARTITION p1 VALUES LESS THAN(100)) "
+                + "DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','inverted_index_storage_format'='" + format + "')");
+        OlapTable table = table(name);
+        table.setPartitionInvertedIndexFileStorageFormat(TInvertedIndexFileStorageFormat.SNII);
+        table.getPartitionInfo().setInvertedIndexFileStorageFormat(table.getPartition("p1").getId(),
+                TInvertedIndexFileStorageFormat.SNII);
+        String add = "ALTER TABLE " + qualifiedName + " ADD INDEX root_idx(v) USING INVERTED "
+                + "PROPERTIES('variant_index_scope'='values','parser'='english')";
+        boolean original = Config.enable_partition_inverted_index_storage_format_rollout;
+        String originalCloudCluster = connectContext.getSessionVariable().getCloudCluster();
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS)) {
+            config.when(Config::isCloudMode).thenReturn(true);
+            Config.enable_partition_inverted_index_storage_format_rollout = true;
+            // Cloud DROP requires a compute group to submit the index deletion.
+            connectContext.setCloudCluster("test_group");
+            executeNereidsSql(add);
+            Index first = table.getIndexes().get(0);
+            Assertions.assertTrue(first.isVariantValuesIndex());
+            executeNereidsSql("DROP INDEX root_idx ON " + qualifiedName);
+            Assertions.assertTrue(table.getIndexes().isEmpty());
+            executeNereidsSql(add);
+            Assertions.assertNotEquals(first.getIndexId(), table.getIndexes().get(0).getIndexId());
+        } finally {
+            connectContext.getSessionVariable().setCloudCluster(originalCloudCluster);
+            Config.enable_partition_inverted_index_storage_format_rollout = original;
+        }
     }
 
     @Test
