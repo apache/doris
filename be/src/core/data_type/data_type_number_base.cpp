@@ -24,6 +24,7 @@
 #include <glog/logging.h>
 #include <streamvbyte.h>
 
+#include <bit>
 #include <cstddef>
 #include <cstring>
 #include <limits>
@@ -95,8 +96,12 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
                 typename PrimitiveTypeTraits<T>::CppType(node.int_literal.value));
     }
     if constexpr (is_float_or_double(T) || T == TYPE_TIMEV2) {
-        return Field::create_field<T>(
-                typename PrimitiveTypeTraits<T>::CppType(node.float_literal.value));
+        // Java Thrift changes -NaN to +NaN in value. Restore its bits before FLOAT narrowing.
+        // Old senders omit raw_bits, so their literals still use value.
+        const double value = node.float_literal.__isset.raw_bits
+                                     ? std::bit_cast<double>(node.float_literal.raw_bits)
+                                     : node.float_literal.value;
+        return Field::create_field<T>(typename PrimitiveTypeTraits<T>::CppType(value));
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
 }

@@ -57,7 +57,16 @@ public class FloatLiteral extends FractionalLiteral {
 
     @Override
     public LiteralExpr toLegacyLiteral() {
-        return new org.apache.doris.analysis.FloatLiteral(getDouble(), Type.FLOAT);
+        return new org.apache.doris.analysis.FloatLiteral(toDoubleValue(), Type.FLOAT);
+    }
+
+    private double toDoubleValue() {
+        // Text such as "NaN" has no sign. Keep the sign for casts and legacy literals.
+        // For example, a negative FLOAT NaN must remain negative in the legacy double value.
+        if (Float.isNaN(value)) {
+            return Math.copySign(Double.NaN, Float.floatToRawIntBits(value) < 0 ? -1.0 : 1.0);
+        }
+        return Double.parseDouble(String.valueOf(value));
     }
 
     @Override
@@ -66,11 +75,7 @@ public class FloatLiteral extends FractionalLiteral {
             return this;
         }
         if (targetType.isDoubleType()) {
-            if (Float.isNaN(value)) {
-                // widening on BE keeps the sign of a NaN, which signbit() can observe
-                return new DoubleLiteral(Math.copySign(Double.NaN, Float.floatToRawIntBits(value) < 0 ? -1.0 : 1.0));
-            }
-            return new DoubleLiteral(Double.parseDouble(String.valueOf(value)));
+            return new DoubleLiteral(toDoubleValue());
         } else if (targetType.isDecimalV2Type() || targetType.isDecimalV3Type()) {
             if (Float.isInfinite(value) || Float.isNaN(value)) {
                 throw new CastException(String.format("%s can't cast to %s in strict mode.", getValue(), targetType));
