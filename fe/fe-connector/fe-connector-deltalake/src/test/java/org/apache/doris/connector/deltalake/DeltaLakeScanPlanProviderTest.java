@@ -50,6 +50,7 @@ import io.delta.kernel.types.FloatType;
 import io.delta.kernel.types.LongType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructType;
+import io.delta.kernel.types.TimestampType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -58,6 +59,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -425,6 +427,47 @@ class DeltaLakeScanPlanProviderTest {
                     .build());
             Assertions.assertEquals(2, nullFiles.size());
             Assertions.assertTrue(nullFiles.stream().allMatch(file -> file.getPartitionValues().get("p") == null));
+        }
+    }
+
+    @Test
+    void listingAndCountDoNotPinLegacyTimestampValuesToTheFirstSessionZone() throws Exception {
+        DeltaLakeTestTables.commit(warehouse.resolve("db/table"), 0, "table-id",
+                new StructType().add("id", LongType.LONG).add("p", TimestampType.TIMESTAMP), List.of("p"));
+        appendStatsFile("legacy.parquet", "2024-01-15 12:00:00", 1, 1);
+        appendStatsFile("utc.parquet", "2024-01-15T20:00:00Z", 2, 2);
+        TestingConnectorSession utc = new TestingConnectorSession("zone");
+        TestingConnectorSession losAngeles = new TestingConnectorSession("zone") {
+            @Override
+            public String getTimeZone() {
+                return "America/Los_Angeles";
+            }
+
+            @Override
+            public ConnectorStatementScope getStatementScope() {
+                return utc.getStatementScope();
+            }
+        };
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(utc)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(utc, "db", "table").orElseThrow();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            Assertions.assertEquals(2, metadata.listPartitions(utc, handle, Optional.empty()).size());
+            ConnectorType type = ConnectorType.of("TIMESTAMPTZ", 6, 0);
+            ConnectorScanRequest fixed = request(handle).filter(Optional.of(new ConnectorComparison(
+                    ConnectorComparison.Operator.EQ, new ConnectorColumnRef("p", type),
+                    new ConnectorLiteral(type, LocalDateTime.of(2024, 1, 15, 20, 0))))).build();
+            Assertions.assertEquals(2, provider.planScan(losAngeles, fixed).size());
+            Assertions.assertEquals(1, provider.planScan(utc, fixed).size());
+            Assertions.assertEquals(1, metadata.listPartitions(losAngeles, handle, Optional.empty()).size());
+            Assertions.assertEquals(2, metadata.listPartitions(utc, handle, Optional.empty()).size());
+
+            ConnectorScanRequest count = request(handle).countPushdown(true).build();
+            Assertions.assertEquals(2, provider.planScan(utc, count).get(0).getPushDownRowCount());
+            Assertions.assertEquals("2", provider.collectScanProfiles(utc).get(0).getMetrics()
+                    .get("SelectedPartitions"));
+            Assertions.assertEquals(2, provider.planScan(losAngeles, count).get(0).getPushDownRowCount());
+            Assertions.assertEquals("1", provider.collectScanProfiles(losAngeles).get(0).getMetrics()
+                    .get("SelectedPartitions"));
         }
     }
 

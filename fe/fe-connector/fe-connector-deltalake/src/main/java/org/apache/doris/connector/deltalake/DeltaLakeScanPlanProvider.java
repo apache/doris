@@ -112,6 +112,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         private final ConnectorSession session;
         private final DeltaLakeTableHandle handle;
         private final Snapshot snapshot;
+        private final ZoneId zone;
         private final ScanFilter filter;
         private final long targetSize;
         private final boolean mapped;
@@ -131,7 +132,8 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             this.session = session;
             handle = (DeltaLakeTableHandle) request.getTableHandle();
             snapshot = handle.snapshot(runtime);
-            filter = scanFilter(session, snapshot, request);
+            zone = DeltaLakePartitionValues.sessionZone(session);
+            filter = scanFilter(zone, snapshot, request);
             targetSize = targetSplitSize(session);
             mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
             scanContext = request.getScanContext();
@@ -192,7 +194,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                         }
                         Row row = files.next();
                         Map<String, String> partitions = DeltaLakePartitionValues.normalize(
-                                snapshot, DeltaKernelCompat.partitionValues(row));
+                                snapshot, DeltaKernelCompat.partitionValues(row), zone);
                         if (!filter.partitionPredicate().test(partitions)) {
                             continue;
                         }
@@ -307,12 +309,13 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        ScanFilter filter = scanFilter(session, snapshot, request);
+        ZoneId zone = DeltaLakePartitionValues.sessionZone(session);
+        ScanFilter filter = scanFilter(zone, snapshot, request);
         Engine engine = metrics.engine(runtime.engine(handle.reference()));
         DeltaLakeScanFiles.forEach(snapshot, engine, false, filter.kernelPredicate(), row -> {
             DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
             Map<String, String> partitions = DeltaLakePartitionValues.normalize(
-                    snapshot, DeltaKernelCompat.partitionValues(row));
+                    snapshot, DeltaKernelCompat.partitionValues(row), zone);
             if (!filter.partitionPredicate().test(partitions)) {
                 return;
             }
@@ -350,7 +353,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                 targetSize, partitions, descriptor);
     }
 
-    private ScanFilter scanFilter(ConnectorSession session, Snapshot snapshot, ConnectorScanRequest request) {
+    private ScanFilter scanFilter(ZoneId zone, Snapshot snapshot, ConnectorScanRequest request) {
         Set<String> required = new HashSet<>(request.getRequiredPartitions());
         java.util.function.Predicate<Map<String, String>> selected = values -> required.isEmpty()
                 || required.contains(DeltaLakePartitionValues.partitionName(values));
@@ -358,9 +361,8 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             return new ScanFilter(Optional.empty(), selected);
         }
         ConnectorExpression expression = request.getFilter().get();
-        DeltaLakePredicateConverter converter = new DeltaLakePredicateConverter(snapshot.getSchema(),
-                ZoneId.of(session.getTimeZone()), snapshot.getPartitionColumnNames(),
-                runtime.possibleEmptyPartitionColumns(snapshot));
+        DeltaLakePredicateConverter converter = new DeltaLakePredicateConverter(snapshot.getSchema(), zone,
+                snapshot.getPartitionColumnNames(), runtime.partitionColumnsToNormalize(snapshot));
         return new ScanFilter(converter.convert(expression),
                 converter.normalizedPartitionFilter(expression, runtime.engine).map(selected::and).orElse(selected));
     }
@@ -374,8 +376,10 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
 
     private CountSummary countSummary(ConnectorSession session, DeltaLakeTableHandle handle) {
         DeltaLakeStatementScope.FileCount observedCount = DeltaLakeStatementScope.fileCount(session, handle);
+        ZoneId zone = DeltaLakePartitionValues.sessionZone(session);
         return ConnectorStatementScopes.resolveInStatement(session, "deltalake.count", handle.getDatabase(),
-                handle.getTable() + ":" + handle.getTableId() + ":" + handle.getVersion(), () -> runtime.execute(() -> {
+                handle.getTable() + ":" + handle.getTableId() + ":" + handle.getVersion() + ":" + zone.getId(),
+                () -> runtime.execute(() -> {
                     Snapshot snapshot = handle.snapshot(runtime);
                     boolean partitioned = !snapshot.getPartitionColumnNames().isEmpty();
                     DeltaLakeRowCount count = new DeltaLakeRowCount();
@@ -385,7 +389,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                     DeltaLakeScanFiles.forEach(snapshot, runtime.engine(handle.reference()), true, row -> {
                         fileCount[0]++;
                         Map<String, String> values = partitioned ? DeltaLakePartitionValues.normalize(
-                                snapshot, DeltaKernelCompat.partitionValues(row)) : Collections.emptyMap();
+                                snapshot, DeltaKernelCompat.partitionValues(row), zone) : Collections.emptyMap();
                         if (!values.isEmpty()) {
                             partitions.add(values);
                         }

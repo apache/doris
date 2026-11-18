@@ -40,6 +40,7 @@ import io.delta.kernel.types.DoubleType;
 import io.delta.kernel.types.FloatType;
 import io.delta.kernel.types.StructType;
 
+import java.time.ZoneId;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -47,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
@@ -149,20 +151,22 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
             }
             StructType schema = snapshot.getSchema();
             boolean mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
-            Set<String> emptyPartitionColumns = new HashSet<>();
+            ZoneId zone = DeltaLakePartitionValues.sessionZone(session);
+            Set<String> normalizedPartitionColumns = new HashSet<>();
+            Consumer<String> requireNormalizedFilter = normalizedPartitionColumns::add;
             Map<String, ConnectorPartitionInfo> partitions = new LinkedHashMap<>();
             long[] files = {0};
             DeltaLakeScanFiles.forEach(snapshot, runtime.engine(delta.reference()), false, row -> {
                 files[0]++;
                 Map<String, String> values = DeltaLakePartitionValues.normalize(
-                        schema, columns, mapped, DeltaKernelCompat.partitionValues(row), emptyPartitionColumns);
+                        schema, columns, mapped, DeltaKernelCompat.partitionValues(row), zone, requireNormalizedFilter);
                 String name = DeltaLakePartitionValues.partitionName(values);
                 partitions.computeIfAbsent(name, ignored -> new ConnectorPartitionInfo(name, values,
                         Collections.emptyMap(), values.values().stream().map(value -> value == null ? "" : value)
                                 .collect(Collectors.toList()),
                         values.values().stream().map(value -> value == null).collect(Collectors.toList())));
             });
-            runtime.recordEmptyPartitionColumns(snapshot, emptyPartitionColumns);
+            runtime.recordNormalizedPartitionColumns(snapshot, normalizedPartitionColumns);
             DeltaLakeStatementScope.fileCount(session, (DeltaLakeTableHandle) handle).value = files[0];
             return List.copyOf(partitions.values());
         });

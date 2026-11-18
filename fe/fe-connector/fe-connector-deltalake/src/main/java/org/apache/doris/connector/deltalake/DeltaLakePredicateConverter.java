@@ -78,14 +78,14 @@ final class DeltaLakePredicateConverter {
     private final StructType schema;
     private final ZoneId zone;
     private final Collection<String> partitionColumns;
-    private final Collection<String> possibleEmptyPartitionColumns;
+    private final Collection<String> partitionColumnsToNormalize;
 
     DeltaLakePredicateConverter(StructType schema, ZoneId zone, Collection<String> partitionColumns,
-            Collection<String> possibleEmptyPartitionColumns) {
+            Collection<String> partitionColumnsToNormalize) {
         this.schema = schema;
         this.zone = zone;
         this.partitionColumns = partitionColumns;
-        this.possibleEmptyPartitionColumns = possibleEmptyPartitionColumns;
+        this.partitionColumnsToNormalize = partitionColumnsToNormalize;
     }
 
     Optional<Predicate> convert(ConnectorExpression expression) {
@@ -104,7 +104,7 @@ final class DeltaLakePredicateConverter {
 
     Optional<java.util.function.Predicate<Map<String, String>>> normalizedPartitionFilter(
             ConnectorExpression expression, Engine engine) {
-        if (possibleEmptyPartitionColumns.isEmpty()) {
+        if (partitionColumnsToNormalize.isEmpty()) {
             return Optional.empty();
         }
         Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -129,7 +129,7 @@ final class DeltaLakePredicateConverter {
 
     private boolean requiresNormalizedPartitionValue(StructField field) {
         return DeltaLakePartitionValues.emptyStringIsNull(field.getDataType())
-                && possibleEmptyPartitionColumns.contains(field.getName());
+                && partitionColumnsToNormalize.contains(field.getName());
     }
 
     private Predicate exact(ConnectorExpression expression) {
@@ -251,7 +251,7 @@ final class DeltaLakePredicateConverter {
         for (StructField field : schema.fields()) {
             if (field.getName().equalsIgnoreCase(name)) {
                 DataType type = field.getDataType();
-                // Kernel tests the raw null bit. It also parses an empty BOOLEAN as false.
+                // Kernel uses raw null bits and UTC for legacy TIMESTAMPs. Evaluate these after normalization.
                 if (requiresNormalizedPartitionValue(field)) {
                     return null;
                 }

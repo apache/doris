@@ -40,6 +40,8 @@ import io.delta.kernel.types.TypeChange;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -50,42 +52,65 @@ import java.util.Set;
 import java.util.TimeZone;
 
 class DeltaLakePartitionValuesTest {
+    private static String normalizeValue(DataType type, String value) {
+        return DeltaLakePartitionValues.normalizeValue(new StructField("p", type, true), value,
+                ZoneOffset.UTC, name -> { });
+    }
+
+    private static Map<String, String> normalize(StructType schema, List<String> columns, boolean mapped,
+            Map<String, String> values) {
+        return DeltaLakePartitionValues.normalize(schema, columns, mapped, values, ZoneOffset.UTC, name -> { });
+    }
+
     @Test
     void normalizesNumericDateAndBooleanValues() {
-        Assertions.assertEquals("-128", DeltaLakePartitionValues.normalizeValue(ByteType.BYTE, "-128"));
-        Assertions.assertEquals("32767", DeltaLakePartitionValues.normalizeValue(ShortType.SHORT, "32767"));
-        Assertions.assertEquals("42", DeltaLakePartitionValues.normalizeValue(IntegerType.INTEGER, "0042"));
-        Assertions.assertEquals("9223372036854775807", DeltaLakePartitionValues.normalizeValue(
+        Assertions.assertEquals("-128", normalizeValue(ByteType.BYTE, "-128"));
+        Assertions.assertEquals("32767", normalizeValue(ShortType.SHORT, "32767"));
+        Assertions.assertEquals("42", normalizeValue(IntegerType.INTEGER, "0042"));
+        Assertions.assertEquals("9223372036854775807", normalizeValue(
                 LongType.LONG, "9223372036854775807"));
-        Assertions.assertEquals("1.25", DeltaLakePartitionValues.normalizeValue(FloatType.FLOAT, "1.25"));
-        Assertions.assertEquals("1.25", DeltaLakePartitionValues.normalizeValue(DoubleType.DOUBLE, "1.25"));
-        Assertions.assertEquals("100.00", DeltaLakePartitionValues.normalizeValue(new DecimalType(10, 2), "1.0000E2"));
-        Assertions.assertEquals("true", DeltaLakePartitionValues.normalizeValue(BooleanType.BOOLEAN, "TRUE"));
-        Assertions.assertEquals("2024-02-29", DeltaLakePartitionValues.normalizeValue(DateType.DATE, "2024-02-29"));
+        Assertions.assertEquals("1.25", normalizeValue(FloatType.FLOAT, "1.25"));
+        Assertions.assertEquals("1.25", normalizeValue(DoubleType.DOUBLE, "1.25"));
+        Assertions.assertEquals("100.00", normalizeValue(new DecimalType(10, 2), "1.0000E2"));
+        Assertions.assertEquals("true", normalizeValue(BooleanType.BOOLEAN, "TRUE"));
+        Assertions.assertEquals("2024-02-29", normalizeValue(DateType.DATE, "2024-02-29"));
     }
 
     @Test
     void preservesNullEmptyBinaryAndPathCharacters() {
         for (String value : Arrays.asList(null, "", "__HIVE_DEFAULT_PARTITION__", "a/b=c%20+d 中文\n")) {
-            Assertions.assertEquals(value, DeltaLakePartitionValues.normalizeValue(StringType.STRING, value));
-            Assertions.assertEquals(value, DeltaLakePartitionValues.normalizeValue(BinaryType.BINARY, value));
+            Assertions.assertEquals(value, normalizeValue(StringType.STRING, value));
+            Assertions.assertEquals(value, normalizeValue(BinaryType.BINARY, value));
         }
-        Assertions.assertNull(DeltaLakePartitionValues.normalizeValue(IntegerType.INTEGER, null));
+        Assertions.assertNull(normalizeValue(IntegerType.INTEGER, null));
     }
 
     @Test
-    void instantAndWallClockRenderingIgnoreJvmDefaultTimezone() {
+    void legacyTimestampsUseTheSessionZoneAcrossGapsAndOverlaps() {
         TimeZone previous = TimeZone.getDefault();
+        StructField instant = new StructField("p", TimestampType.TIMESTAMP, true);
+        StructField wall = new StructField("wall", TimestampNTZType.TIMESTAMP_NTZ, true);
+        ZoneId losAngeles = ZoneId.of("America/Los_Angeles");
         try {
-            for (String zone : Arrays.asList("UTC", "Asia/Shanghai", "America/Los_Angeles")) {
-                TimeZone.setDefault(TimeZone.getTimeZone(zone));
-                for (String input : Arrays.asList("2024-03-10 02:30:00.123456", "2024-03-10T02:30:00.123456Z",
-                        "2024-03-10T10:30:00.123456+08:00")) {
+            for (String jvmZone : List.of("UTC", "Asia/Shanghai", "America/Los_Angeles")) {
+                TimeZone.setDefault(TimeZone.getTimeZone(jvmZone));
+                Set<String> observed = new HashSet<>();
+                for (String input : List.of("2024-03-10T02:30:00.123456Z", "2024-03-10T10:30:00.123456+08:00")) {
                     Assertions.assertEquals("2024-03-10T02:30:00.123456Z",
-                            DeltaLakePartitionValues.normalizeValue(TimestampType.TIMESTAMP, input), zone);
+                            DeltaLakePartitionValues.normalizeValue(instant, input, losAngeles, observed::add));
                 }
                 Assertions.assertEquals("2024-03-10T02:30:00.123456", DeltaLakePartitionValues.normalizeValue(
-                        TimestampNTZType.TIMESTAMP_NTZ, "2024-03-10 02:30:00.123456"), zone);
+                        wall, "2024-03-10 02:30:00.123456", losAngeles, observed::add));
+                Assertions.assertTrue(observed.isEmpty());
+                Assertions.assertEquals("2024-03-10T10:30:00.123456Z", DeltaLakePartitionValues.normalizeValue(
+                        instant, "2024-03-10 02:30:00.123456", losAngeles, observed::add));
+                Assertions.assertEquals("2024-11-03T08:30:00Z", DeltaLakePartitionValues.normalizeValue(
+                        instant, "2024-11-03T01:30:00", losAngeles, observed::add));
+                Assertions.assertEquals(Set.of("p"), observed);
+                observed.clear();
+                Assertions.assertEquals("2024-11-03T01:30:00Z", DeltaLakePartitionValues.normalizeValue(
+                        instant, "2024-11-03T01:30:00", ZoneOffset.UTC, observed::add));
+                Assertions.assertEquals(Set.of("p"), observed);
             }
         } finally {
             TimeZone.setDefault(previous);
@@ -101,17 +126,17 @@ class DeltaLakePartitionValuesTest {
         String date = "2024-02-29";
         String midnight = "2024-02-29 00:00:00";
         String timestamp = "2024-03-01 12:34:56.123456";
-        Map<String, String> partition = DeltaLakePartitionValues.normalize(schema, columns, false,
+        Map<String, String> partition = normalize(schema, columns, false,
                 Map.of("p", date, "native_ntz", timestamp));
         Assertions.assertEquals(Map.of("p", "2024-02-29T00:00:00", "native_ntz", "2024-03-01T12:34:56.123456"),
                 partition);
-        Assertions.assertEquals(partition, DeltaLakePartitionValues.normalize(schema, columns, false,
+        Assertions.assertEquals(partition, normalize(schema, columns, false,
                 Map.of("p", midnight, "native_ntz", timestamp)));
-        Assertions.assertEquals("2024-03-01T12:34:56.123456", DeltaLakePartitionValues.normalize(schema,
+        Assertions.assertEquals("2024-03-01T12:34:56.123456", normalize(schema,
                 List.of("p"), false, Map.of("p", timestamp)).get("p"));
-        Assertions.assertThrows(DorisConnectorException.class, () -> DeltaLakePartitionValues.normalize(
+        Assertions.assertThrows(DorisConnectorException.class, () -> normalize(
                 schema, columns, false, Map.of("p", date, "native_ntz", date)));
-        Assertions.assertThrows(DorisConnectorException.class, () -> DeltaLakePartitionValues.normalize(
+        Assertions.assertThrows(DorisConnectorException.class, () -> normalize(
                 schema, List.of("p"), false, Map.of("p", "2023-02-29")));
     }
 
@@ -126,12 +151,12 @@ class DeltaLakePartitionValuesTest {
         Map<String, String> raw = new LinkedHashMap<>();
         raw.put("other-uuid", null);
         raw.put("col-uuid", "0042");
-        Map<String, String> normalized = DeltaLakePartitionValues.normalize(schema,
+        Map<String, String> normalized = normalize(schema,
                 Arrays.asList("Renamed", "Other"), true, raw);
         Assertions.assertEquals(Arrays.asList("Renamed", "Other"), Arrays.asList(normalized.keySet().toArray()));
         Assertions.assertEquals("42", normalized.get("Renamed"));
         Assertions.assertNull(normalized.get("Other"));
-        Assertions.assertThrows(DorisConnectorException.class, () -> DeltaLakePartitionValues.normalize(schema,
+        Assertions.assertThrows(DorisConnectorException.class, () -> normalize(schema,
                 Collections.singletonList("Renamed"), true, Collections.emptyMap()));
     }
 
@@ -149,17 +174,19 @@ class DeltaLakePartitionValuesTest {
             Map<String, String> raw = new LinkedHashMap<>();
             raw.put("old_key", null);
             raw.put("old_label", "");
-            Map<String, String> jsonNull = DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyColumns);
+            Map<String, String> jsonNull = DeltaLakePartitionValues.normalize(
+                    schema, names, true, raw, ZoneOffset.UTC, emptyColumns::add);
             Assertions.assertTrue(emptyColumns.isEmpty());
             Assertions.assertNull(jsonNull.get("Key"));
             Assertions.assertEquals("", jsonNull.get("label"));
             raw.put("old_key", "");
             Assertions.assertEquals(jsonNull,
-                    DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyColumns));
+                    DeltaLakePartitionValues.normalize(schema, names, true, raw, ZoneOffset.UTC, emptyColumns::add));
             Assertions.assertEquals(Set.of("Key"), emptyColumns);
             raw.put("old_key", " ");
             Assertions.assertThrows(DorisConnectorException.class,
-                    () -> DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyColumns));
+                    () -> DeltaLakePartitionValues.normalize(
+                            schema, names, true, raw, ZoneOffset.UTC, emptyColumns::add));
         }
     }
 
@@ -167,12 +194,12 @@ class DeltaLakePartitionValuesTest {
     void rejectsInvalidTypedValuesInsteadOfCoercingThem() {
         for (String value : Arrays.asList("128", "", "null")) {
             Assertions.assertThrows(IllegalArgumentException.class,
-                    () -> DeltaLakePartitionValues.normalizeValue(ByteType.BYTE, value));
+                    () -> normalizeValue(ByteType.BYTE, value));
         }
         StructType schema = new StructType().add("flag", BooleanType.BOOLEAN);
-        Assertions.assertThrows(DorisConnectorException.class, () -> DeltaLakePartitionValues.normalize(schema,
+        Assertions.assertThrows(DorisConnectorException.class, () -> normalize(schema,
                 Collections.singletonList("flag"), false, Collections.singletonMap("flag", "garbage")));
         Assertions.assertThrows(java.time.DateTimeException.class,
-                () -> DeltaLakePartitionValues.normalizeValue(DateType.DATE, "2023-02-29"));
+                () -> normalizeValue(DateType.DATE, "2023-02-29"));
     }
 }

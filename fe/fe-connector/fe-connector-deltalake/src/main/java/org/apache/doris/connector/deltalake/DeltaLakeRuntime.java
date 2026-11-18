@@ -46,9 +46,10 @@ final class DeltaLakeRuntime implements AutoCloseable {
     final DeltaLakeTableResolver resolver;
     final ConnectorContext storageContext;
     private final DeltaLakeFileIO fileIO;
-    // A completed listing identifies which partition columns contain empty strings decoded as NULL.
+    // Record raw encodings, never session-resolved instants: every reader of this snapshot must normalize
+    // columns with empty null markers or offsetless TIMESTAMPs before applying their predicates.
     // Weak keys give the observation the same lifetime as the cached or in-flight Kernel snapshot.
-    private final Cache<Snapshot, Set<String>> emptyPartitionColumns = Caffeine.newBuilder().weakKeys().build();
+    private final Cache<Snapshot, Set<String>> normalizedPartitionColumns = Caffeine.newBuilder().weakKeys().build();
 
     DeltaLakeRuntime(DeltaLakeCatalogProperties properties, ConnectorContext context) {
         HmsConfHelper.initializeHadoopConfigDir(context);
@@ -96,12 +97,12 @@ final class DeltaLakeRuntime implements AutoCloseable {
                 : engine;
     }
 
-    void recordEmptyPartitionColumns(Snapshot snapshot, Set<String> columns) {
-        emptyPartitionColumns.put(snapshot, Set.copyOf(columns));
+    void recordNormalizedPartitionColumns(Snapshot snapshot, Set<String> columns) {
+        normalizedPartitionColumns.put(snapshot, Set.copyOf(columns));
     }
 
-    Collection<String> possibleEmptyPartitionColumns(Snapshot snapshot) {
-        Set<String> observed = emptyPartitionColumns.getIfPresent(snapshot);
+    Collection<String> partitionColumnsToNormalize(Snapshot snapshot) {
+        Set<String> observed = normalizedPartitionColumns.getIfPresent(snapshot);
         return observed != null ? observed : snapshot.getPartitionColumnNames();
     }
 

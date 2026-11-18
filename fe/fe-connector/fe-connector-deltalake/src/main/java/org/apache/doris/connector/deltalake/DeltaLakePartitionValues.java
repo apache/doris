@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.deltalake;
 
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 
@@ -39,6 +40,7 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAccessor;
@@ -46,7 +48,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /** Log partition values, in declaration order, with genuine nulls kept distinct from string values. */
@@ -72,18 +74,18 @@ final class DeltaLakePartitionValues {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
-    static Map<String, String> normalize(Snapshot snapshot, Map<String, String> rawValues) {
+    static ZoneId sessionZone(ConnectorSession session) {
+        return session == null ? ZoneOffset.UTC : ZoneId.of(session.getTimeZone());
+    }
+
+    static Map<String, String> normalize(Snapshot snapshot, Map<String, String> rawValues, ZoneId zone) {
         boolean mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
-        return normalize(snapshot.getSchema(), snapshot.getPartitionColumnNames(), mapped, rawValues);
+        return normalize(snapshot.getSchema(), snapshot.getPartitionColumnNames(), mapped, rawValues, zone,
+                name -> { });
     }
 
     static Map<String, String> normalize(StructType schema, List<String> partitions,
-            boolean mapped, Map<String, String> rawValues) {
-        return normalize(schema, partitions, mapped, rawValues, null);
-    }
-
-    static Map<String, String> normalize(StructType schema, List<String> partitions,
-            boolean mapped, Map<String, String> rawValues, Set<String> emptyPartitionColumns) {
+            boolean mapped, Map<String, String> rawValues, ZoneId zone, Consumer<String> requireNormalizedFilter) {
         Map<String, String> result = new LinkedHashMap<>();
         for (String name : partitions) {
             StructField field = schema.get(name);
@@ -92,12 +94,7 @@ final class DeltaLakePartitionValues {
                 throw new DorisConnectorException("Delta file has no partition value for column " + name);
             }
             try {
-                String raw = rawValues.get(key);
-                String value = normalizeValue(field, raw);
-                result.put(name, value);
-                if (emptyPartitionColumns != null && "".equals(raw) && value == null) {
-                    emptyPartitionColumns.add(name);
-                }
+                result.put(name, normalizeValue(field, rawValues.get(key), zone, requireNormalizedFilter));
             } catch (IllegalArgumentException | DateTimeException e) {
                 throw new DorisConnectorException("Invalid Delta partition value for column " + name
                         + " of type " + field.getDataType(), e);
@@ -106,40 +103,42 @@ final class DeltaLakePartitionValues {
         return Collections.unmodifiableMap(result);
     }
 
-    private static String normalizeValue(StructField field, String value) {
-        if (field.getDataType() instanceof TimestampNTZType && value != null && value.indexOf(':') < 0
-                && field.getTypeChanges().contains(DeltaLakeFeatureCheck.DATE_TO_TIMESTAMP_NTZ)) {
-            // Old AddFiles keep their DATE partition string after widening. NTZ midnight has no time zone.
-            return LocalDate.parse(value).atStartOfDay().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
-        }
-        return normalizeValue(field.getDataType(), value);
-    }
-
     static boolean emptyStringIsNull(DataType type) {
         return type instanceof DateType || type instanceof IntegerType
                 || type instanceof BooleanType || type instanceof TimestampType;
     }
 
-    static String normalizeValue(DataType type, String value) {
+    static String normalizeValue(StructField field, String value, ZoneId zone,
+            Consumer<String> requireNormalizedFilter) {
+        DataType type = field.getDataType();
         if (value == null || type instanceof StringType || type instanceof BinaryType) {
             // Delta serializes binary partition values as UTF-8 strings, not base64. Do not
             // path-decode either type: percent signs, slashes, empty strings and sentinels are data.
             return value;
         }
         if (value.isEmpty() && emptyStringIsNull(type)) {
+            requireNormalizedFilter.accept(field.getName());
             return null;
         }
         if (type instanceof TimestampType) {
-            // The protocol's space-separated timestamps also mean UTC. java.sql.Timestamp's
-            // JVM-default-zone parsing can normalize a DST gap, so use java.time directly.
             TemporalAccessor parsed = DateTimeFormatter.ISO_DATE_TIME.parseBest(value.replace(' ', 'T'),
                     OffsetDateTime::from, LocalDateTime::from);
-            OffsetDateTime instant = parsed instanceof OffsetDateTime
-                    ? ((OffsetDateTime) parsed).withOffsetSameInstant(ZoneOffset.UTC)
-                    : ((LocalDateTime) parsed).atOffset(ZoneOffset.UTC);
-            return instant.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
+            OffsetDateTime timestamp;
+            if (parsed instanceof OffsetDateTime) {
+                timestamp = (OffsetDateTime) parsed;
+            } else {
+                // Spark interprets legacy wall-clock strings in the reader's session zone. Kernel uses UTC.
+                requireNormalizedFilter.accept(field.getName());
+                timestamp = ((LocalDateTime) parsed).atZone(zone).toOffsetDateTime();
+            }
+            return timestamp.withOffsetSameInstant(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
         }
         if (type instanceof TimestampNTZType) {
+            if (value.indexOf(':') < 0
+                    && field.getTypeChanges().contains(DeltaLakeFeatureCheck.DATE_TO_TIMESTAMP_NTZ)) {
+                // Old AddFiles keep their DATE partition string after widening. NTZ midnight has no time zone.
+                return LocalDate.parse(value).atStartOfDay().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            }
             return LocalDateTime.parse(value.replace(' ', 'T'), DateTimeFormatter.ISO_LOCAL_DATE_TIME)
                     .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         }
