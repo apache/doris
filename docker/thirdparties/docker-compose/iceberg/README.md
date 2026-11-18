@@ -315,10 +315,10 @@ Their Parquet footers distinguish an old, missing, or matching field ID under th
 physical name. The partition fixtures cover an empty string and JSON null, a logical
 column named `p,q`, and a Spark 4.0.1 / Delta 4.4.1 table whose partition type changed
 from DATE to TIMESTAMP_NTZ between writes. The comma and plain-name controls contain
-identical Parquet bytes. For the empty string, the expected value follows the
-[Delta partition serialization rule](https://github.com/delta-io/delta/blob/v4.4.1/PROTOCOL.md#partition-value-serialization).
-Spark 4.0.1 with Delta 4.4.1 preserves the empty STRING on this fixture and converts
-the empty DATE to null.
+identical Parquet bytes. On the STRING fixture, `p = ''` selects id 1 and
+`p IS NULL` selects id 2, matching Spark 4.0.1 with Delta 4.4.1. On the DATE
+fixture, `p IS NULL` selects id 1. See the connector's
+[STRING partition value semantics](../../../../fe/fe-connector/fe-connector-deltalake/README.md#string-partition-values).
 
 The Delta storage initializer copies these fixtures to `warehouse/delta_reader_edges`
 in MinIO, including when it reuses the existing Spark fixtures. To expose the same

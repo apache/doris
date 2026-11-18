@@ -5,6 +5,15 @@ and plan native BE Parquet scans. It fixes one snapshot for a statement's schema
 partitions, files and metadata COUNT. Kernel internal API use stays in
 `DeltaKernelCompat`.
 
+## STRING partition values
+
+For a STRING partition column, Doris follows the Spark Delta reader. In an
+AddFile's `partitionValues`, `{"p":""}` matches `p = ''` and `{"p":null}`
+matches `p IS NULL`. If a writer encodes a null STRING partition as `""`
+under the published Delta protocol, Doris reads that partition as an empty string.
+See [Delta partition value serialization](https://github.com/delta-io/delta/blob/v4.4.1/PROTOCOL.md#partition-value-serialization)
+and the [upstream discussion](https://github.com/delta-io/delta/pull/7091).
+
 ## Basic table statistics
 
 `getTableStatistics` reports logical rows and the sum of active data-file sizes.

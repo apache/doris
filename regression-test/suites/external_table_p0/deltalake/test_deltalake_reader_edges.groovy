@@ -96,11 +96,14 @@ suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
             compare("widen_microsecond", """select count(*) from ${db}.date_widen
                     where p = cast('2024-02-29 00:00:00.000001' as datetimev2(6))""", "select 0")
 
-            // In partitionValues, the empty string encodes a null partition for every type.
+            // Spark reads an explicit empty STRING partition as '' and JSON null as SQL NULL (delta-io/delta#7091).
             compare("string_values", "select id, p from ${db}.empty_string order by id",
-                    """select 1 as id, cast(null as string) union all select 2, null
+                    """select 1 as id, cast('' as string) union all select 2, null
                        union all select 3, 'known' order by id""")
-            compare("string_is_null", "select id from ${db}.empty_string where p is null order by id", bothIds)
+            compare("string_is_null", "select id from ${db}.empty_string where p is null order by id", "select 2")
+            compare("string_eq_empty", "select id from ${db}.empty_string where p = '' order by id", "select 1")
+            compare("string_is_not_null", "select id from ${db}.empty_string where p is not null order by id",
+                    "select 1 as id union all select 3 order by id")
             String dates = "select 1 as id, cast(null as date) union all select 2, date '2024-02-29' order by id"
             compare("json_null_date", "select id, p from ${db}.date_control order by id", dates)
             compare("empty_date", "select id, p from ${db}.empty_date order by id", dates)
