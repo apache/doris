@@ -313,7 +313,7 @@ public class CreateJobInfo {
                 ((InsertIntoTVFCommand) logicalPlan).validateForJob(
                         ConnectContext.get(), ConnectContext.get().getExecutor());
             } else {
-                throw new AnalysisException("Unsupported INSERT JOB command: " + logicalPlan.getClass().getName());
+                throw new AnalysisException("Not support this sql : " + logicalPlan.getClass().getName());
             }
             return new InsertJob(labelNameOptional.get(),
                     JobStatus.RUNNING,
