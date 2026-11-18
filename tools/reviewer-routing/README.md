@@ -13,6 +13,9 @@ and send review requests when the task authorizes invitations.
 For automatic routing after a `need-reviewers` label event, see
 [the GitHub Action guide](GITHUB_ACTION.md). That mode selects at most two people,
 adds them as assignees, posts a mention comment and updates labels.
+If no suitable reviewer is selected, that mode assigns `morningman` for manual
+triage and posts an explanatory comment. Large API-limited diffs are rebuilt
+from verified Git snapshots without checking out PR code.
 
 ## Files and reading order
 

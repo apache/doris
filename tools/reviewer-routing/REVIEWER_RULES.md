@@ -13,6 +13,9 @@ at most two people independent of existing assignees, and the downstream script
 adds assignees and posts a mention comment instead of requesting formal reviews.
 The candidate policy below, author exclusion and global mapping freshness rules
 still apply.
+An empty selection in that CI mode assigns `morningman` for manual triage with
+an explanatory comment. This is separate from qualified-reviewer selection;
+the offline invitation rules below do not add a global reviewer automatically.
 
 Start with this file and the PR diff. Use `select_reviewers.py` for a repeatable
 plan. Candidate statistics and representative PRs are in `module-reviewers.json`;

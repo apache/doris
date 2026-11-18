@@ -34,6 +34,7 @@ from unittest.mock import patch
 
 import reviewer_assignment as assignment
 import reviewer_assignment_usage as usage
+from reviewer_assignment_diff import git_changes, parse_numstat
 import select_reviewers as selector
 from ci_context import candidate_summary
 from reviewer_candidates import eligible_candidates
@@ -217,7 +218,7 @@ class AssignmentTest(unittest.TestCase):
 
     def test_invalid_choices_do_not_mutate_github(self):
         self.prepare()
-        for selected in ([], ["Alice", "Bob", "Author"], ["Author"], ["Mallory"], ["Alice", "ALICE"], [1]):
+        for selected in (["Alice", "Bob", "Author"], ["Author"], ["Mallory"], ["Alice", "ALICE"], [1]):
             with self.subTest(selected=selected), self.assertRaises(ValueError):
                 self.apply(selected)
         self.assertEqual(self.mutations(), [])
@@ -306,18 +307,25 @@ class AssignmentTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "head changed"):
             self.prepare()
 
-    def test_truncated_files_fail_before_codex(self):
+    def test_truncated_files_require_verified_git_reconstruction(self):
         self.api.pr["changed_files"] = 3228
-        with self.assertRaisesRegex(ValueError, "Incomplete PR file"):
-            self.prepare()
+        with patch.object(assignment, "git_changes", side_effect=ValueError("Reconstructed PR file count mismatch")) as git:
+            with self.assertRaisesRegex(ValueError, "file count mismatch"):
+                self.prepare()
+        git.assert_called_once()
         self.assertFalse((self.workspace / "prompt.txt").exists())
 
     def test_stale_or_unqualified_candidates_are_rejected(self):
         self.mapping["modules"][0]["candidates"][1]["auto_eligible"] = False
         self.mapping["modules"][0]["candidates"][2]["last_review"] = "2025-01-01T00:00:00Z"
         self.save_mapping()
-        with self.assertRaisesRegex(ValueError, "non-author"):
-            self.prepare()
+        self.prepare()
+        schema = json.loads((self.workspace / "schema.json").read_text())
+        self.assertEqual(schema["properties"]["reviewers"]["maxItems"], 0)
+        self.assertNotIn("enum", schema["properties"]["reviewers"]["items"])
+        with self.assertRaisesRegex(ValueError, "qualified"):
+            self.apply(("Alice",))
+        self.assertTrue(self.apply(())["fallback"])
         self.mapping["as_of"] = "2026-01-01T00:00:00Z"
         self.save_mapping()
         with self.assertRaisesRegex(ValueError, "expired"):
@@ -359,6 +367,236 @@ class AssignmentTest(unittest.TestCase):
         self.api.request = request
         self.assertTrue(self.apply()["assigned"])
         self.assertEqual(self.api.labels, {"bug", "reviewers-assigned"})
+
+    def test_diff_406_uses_git_reconstruction(self):
+        request = self.api.request
+        def limited(method, endpoint, payload=None, **kwargs):
+            if kwargs.get("raw"):
+                raise assignment.GitHubError(406, "Diff exceeded 20000 lines")
+            return request(method, endpoint, payload, **kwargs)
+        self.api.request = limited
+        complete = "diff --git a/complete.cpp b/complete.cpp\n+complete_change();\n"
+        with patch.object(assignment, "git_changes", create=True,
+                          return_value=(self.api.files, complete, "e" * 40)) as git:
+            self.prepare()
+        git.assert_called_once()
+        self.assertEqual((self.workspace / "pr.diff").read_text(), complete)
+        self.assertEqual(self.context()["diff_source"], "git")
+        self.assertEqual(self.context()["merge_base_sha"], "e" * 40)
+        self.assertEqual(self.mutations(), [])
+
+    def test_api_file_cap_uses_reconstructed_complete_file_list(self):
+        self.api.pr["changed_files"] = 2
+        files = self.api.files + [{"filename": "be/src/runtime/memory/mem_tracker.cpp", "additions": 2, "deletions": 0}]
+        memory = {"id": "runtime.memory", "label": "Memory", "candidates": [], "reviewer_override": ["Alice"]}
+        self.mapping["modules"].append(memory)
+        self.save_mapping()
+        with patch.object(assignment, "git_changes", return_value=(files, "complete diff", "e" * 40)):
+            self.prepare()
+        pr = json.loads((self.workspace / "pr.json").read_text())
+        self.assertEqual(pr["changed_files"], 2)
+        self.assertEqual({f["path"] for f in pr["files"]}, {f["filename"] for f in files})
+        self.assertEqual(self.context()["diff_source"], "git")
+
+    def test_diff_permission_error_is_not_treated_as_a_size_limit(self):
+        request = self.api.request
+        def forbidden(method, endpoint, payload=None, **kwargs):
+            if kwargs.get("raw"):
+                raise assignment.GitHubError(403, "Forbidden")
+            return request(method, endpoint, payload, **kwargs)
+        self.api.request = forbidden
+        with patch.object(assignment, "git_changes") as git:
+            with self.assertRaises(assignment.GitHubError):
+                self.prepare()
+        git.assert_not_called()
+        self.assertEqual(self.mutations(), [])
+
+    def test_empty_selection_assigns_fallback_and_explains_triage(self):
+        self.prepare()
+        result = self.apply(())
+        self.assertEqual(result["reviewers"], ["morningman"])
+        self.assertTrue(result["fallback"])
+        self.assertEqual({p["login"] for p in self.api.pr["assignees"]}, {"Existing", "morningman"})
+        self.assertEqual(self.api.labels, {"bug", "reviewers-assigned"})
+        self.assertIn("No suitable reviewer was found. @morningman, please help assign reviewers for this PR.",
+                      self.api.comments[0]["body"])
+        self.assertEqual(assignment.checkpoint(self.api, self.context())[1]["reviewers"], [])
+
+    def test_fallback_retry_on_fresh_runner_preserves_empty_selection_and_comment(self):
+        self.prepare()
+        self.api.fail_once[("POST", ISSUE + "/labels")] = 403
+        with self.assertRaises(assignment.GitHubError):
+            self.apply(())
+        shutil.rmtree(self.workspace)
+        self.assertTrue(self.prepare())
+        self.assertEqual(json.loads((self.workspace / "selection.json").read_text()), {"reviewers": []})
+        self.apply(())
+        self.assertEqual(len(self.api.comments), 1)
+        self.assertEqual(len([c for c in self.api.calls if c[0] == "PATCH"]), 1)
+        with self.assertRaisesRegex(ValueError, "cannot change"):
+            self.apply(("Alice",))
+
+    def test_fallback_can_assign_the_author_for_manual_triage(self):
+        self.api.pr["user"] = user("morningman")
+        self.prepare()
+        self.assertTrue(self.apply(())["fallback"])
+        self.assertIn("help assign reviewers", self.api.comments[0]["body"])
+
+    def test_no_eligible_history_can_still_request_fallback(self):
+        for person in self.mapping["modules"][0]["candidates"]:
+            person["auto_eligible"] = False
+        self.save_mapping()
+        self.prepare()
+        self.assertEqual(assignment.candidates(self.tool, NOW), {})
+        self.assertTrue(self.apply(())["fallback"])
+
+    def test_qualified_morningman_is_a_normal_review_request(self):
+        self.mapping["modules"][0]["reviewer_override"] = ["morningman"]
+        self.save_mapping()
+        self.prepare()
+        self.assertFalse(self.apply(("morningman",))["fallback"])
+        self.assertIn("@morningman, please review this PR.", self.api.comments[0]["body"])
+        self.assertNotIn("No suitable reviewer", self.api.comments[0]["body"])
+
+    def test_unassignable_fallback_does_not_complete_the_request(self):
+        self.prepare()
+        self.api.unassignable.add("morningman")
+        with self.assertRaises(assignment.GitHubError):
+            self.apply(())
+        self.assertEqual(self.mutations(), [])
+        self.assertIn("need-reviewers", self.api.labels)
+
+    def test_retry_cannot_switch_the_fallback_login(self):
+        self.prepare()
+        self.apply(())
+        with patch.object(assignment, "FALLBACK_REVIEWER", "Alice"):
+            with self.assertRaisesRegex(ValueError, "fallback reviewer changed"):
+                self.prepare()
+
+    def test_silent_fallback_assignment_failure_recovers_without_a_second_comment(self):
+        self.prepare()
+        self.api.silently_ignore.add("morningman")
+        with self.assertRaisesRegex(ValueError, "did not assign"):
+            self.apply(())
+        self.assertIn("need-reviewers", self.api.labels)
+        self.assertNotIn("No suitable reviewer", self.api.comments[0]["body"])
+        self.api.silently_ignore.clear()
+        self.assertTrue(self.prepare())
+        self.apply(())
+        self.assertEqual(len(self.api.comments), 1)
+        self.assertIn("No suitable reviewer", self.api.comments[0]["body"])
+
+
+class GitChangesTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.repo = self.root / "source"
+        self.repo.mkdir()
+        self.git("init", "--quiet")
+        self.git("config", "user.email", "routing-test@example.org")
+        self.git("config", "user.name", "Routing Test")
+        (self.repo / "renamed-old.txt").write_text("unchanged\n" * 20)
+        (self.repo / "removed.txt").write_text("removed\n")
+        (self.repo / "binary.bin").write_bytes(b"\0before\0")
+        (self.repo / "tab\tpath.txt").write_text("old\n")
+        self.merge_base = self.commit("Common ancestor")
+        self.git("mv", "renamed-old.txt", "renamed-new.txt")
+        (self.repo / "removed.txt").unlink()
+        (self.repo / "new.txt").write_text("first\nsecond\n")
+        (self.repo / "binary.bin").write_bytes(b"\0after\0")
+        (self.repo / "tab\tpath.txt").write_text("new\n")
+        head = self.commit("PR changes")
+        self.git("checkout", "--quiet", "--detach", self.merge_base)
+        (self.repo / "target-only.txt").write_text("Must not appear in the PR diff\n")
+        base = self.commit("Target branch advances")
+        self.pr = {"head": {"sha": head}, "base": {"sha": base},
+                   "changed_files": 5, "additions": 3, "deletions": 2}
+        self.files = [
+            {"filename": "binary.bin", "additions": 0, "deletions": 0},
+            {"filename": "new.txt", "additions": 2, "deletions": 0},
+            {"filename": "removed.txt", "additions": 0, "deletions": 1},
+            {"filename": "renamed-new.txt", "previous_filename": "renamed-old.txt", "additions": 0, "deletions": 0},
+            {"filename": "tab\tpath.txt", "additions": 1, "deletions": 1},
+        ]
+        self.api = self
+        self.compare_calls = []
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def commit(self, message):
+        self.git("add", "--all")
+        self.git("commit", "--quiet", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def request(self, method, endpoint):
+        self.assertEqual(method, "GET")
+        self.assertEqual(endpoint, f"{PREFIX}/compare/{self.pr['base']['sha']}...{self.pr['head']['sha']}?per_page=1")
+        self.compare_calls.append(endpoint)
+        return {"merge_base_commit": {"sha": self.merge_base}}
+
+    def reconstruct(self, api_files=None):
+        return git_changes(self.api, "apache/doris", self.pr,
+                           self.files if api_files is None else api_files, self.root, self.repo.as_uri())
+
+    def test_actual_git_diff_uses_merge_base_and_handles_renames_binary_and_tabs(self):
+        files, diff, merge_base = self.reconstruct()
+        self.assertEqual(files, self.files)
+        self.assertEqual(merge_base, self.merge_base)
+        self.assertIn("+first\n+second", diff)
+        self.assertIn("rename from renamed-old.txt", diff)
+        self.assertNotIn("target-only.txt", diff)
+        self.assertEqual(len(self.compare_calls), 1)
+        self.assertEqual(list(self.root.glob("reviewer-assignment-git-*")), [])
+
+    def test_reconstructs_more_than_the_3000_file_api_cap(self):
+        self.git("checkout", "--quiet", "--detach", self.merge_base)
+        directory = self.repo / "many"
+        directory.mkdir()
+        files = []
+        for number in range(3001):
+            filename = f"many/f{number:04}.txt"
+            (self.repo / filename).write_text("added\n")
+            files.append({"filename": filename, "additions": 1, "deletions": 0})
+        self.pr.update(changed_files=3001, additions=3001, deletions=0)
+        self.pr["head"]["sha"] = self.commit("Many files")
+        result, diff, _ = self.reconstruct(files[:3000])
+        self.assertEqual(result, files)
+        self.assertIn("many/f3000.txt", diff)
+
+    def test_mismatched_api_counts_or_records_stop_reconstruction(self):
+        for key in ("changed_files", "additions", "deletions"):
+            with self.subTest(key=key):
+                self.pr[key] += 1
+                with self.assertRaisesRegex(ValueError, "count.*mismatch"):
+                    self.reconstruct()
+                self.pr[key] -= 1
+        incorrect = copy.deepcopy(self.files)
+        incorrect[1]["filename"] = "not-in-this-pr.txt"
+        with self.assertRaisesRegex(ValueError, "disagree"):
+            self.reconstruct(incorrect)
+        self.assertEqual(list(self.root.glob("reviewer-assignment-git-*")), [])
+
+    def test_unfetchable_snapshot_fails_and_cleans_temporary_git_objects(self):
+        self.pr["head"]["sha"] = "f" * 40
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.reconstruct()
+        self.assertEqual(list(self.root.glob("reviewer-assignment-git-*")), [])
+
+    def test_invalid_sha_is_rejected_before_fetch(self):
+        self.pr["head"]["sha"] = "--upload-pack=untrusted"
+        with self.assertRaisesRegex(ValueError, "Invalid PR commit"):
+            self.reconstruct()
+        self.assertEqual(self.compare_calls, [])
+
+    def test_numstat_preserves_newlines_and_tabs_in_paths(self):
+        result = parse_numstat("2\t1\tline\nwith\ttab.txt\0" + "0\t0\t\0old\tname\0new\nname\0")
+        self.assertEqual(result, [
+            {"filename": "line\nwith\ttab.txt", "additions": 2, "deletions": 1},
+            {"filename": "new\nname", "previous_filename": "old\tname", "additions": 0, "deletions": 0}])
 
 
 class TransportTest(unittest.TestCase):

@@ -9,7 +9,8 @@ It uses this tool's guides and historical evidence to select reviewer candidates
    starts a run for an open PR, including a draft explicitly labeled for routing.
 2. The read-only selection job reads trusted default-branch tools and obtains
    complete live PR metadata, file pages, submitted review pages and the diff.
-   It never checks out or executes the PR's code.
+   A diff API HTTP 406 or an incomplete API file list triggers verified Git
+   reconstruction described below. It never checks out or executes PR code.
 3. Python precomputes `candidate-summary.json` with the affected modules' qualified
    candidates, preference weights, historical counts, dates and example PRs. It
    uses the same policy and planner as the offline tool, with an independent
@@ -17,8 +18,8 @@ It uses this tool's guides and historical evidence to select reviewer candidates
    PR context instead of the long operator guides. It outputs only
    a JSON object such as `{"reviewers":["eldenmoon","csun5285"]}`. The schema
    permits at most two IDs from qualified historical candidates or explicit
-   maintainer overrides. The helper rejects
-   the author, duplicate IDs, unqualified people and an empty result.
+   maintainer overrides. The helper rejects the author, duplicate IDs and
+   unqualified people. An empty array requests the manual-triage fallback.
 4. A separate write job verifies the selection again, checks that both accounts
    are human and assignable, and preserves every existing assignee.
 5. The helper creates a checkpoint comment, adds the selected assignees, reads
@@ -32,6 +33,20 @@ It uses this tool's guides and historical evidence to select reviewer candidates
    removes `need-reviewers`, preserving unrelated labels. It creates the
    `reviewers-assigned` repository label if necessary.
 
+When Codex returns `{"reviewers":[]}`, the write job assigns `morningman` and
+posts this comment instead of requesting an expert review:
+
+```text
+No suitable reviewer was found. @morningman, please help assign reviewers for this PR.
+```
+
+This fallback is a manual-triage assignment and does not claim module expertise.
+It also applies when the author is `morningman`; normal reviewer choices still
+exclude the author. Existing assignees are preserved. The selected-ID artifact
+keeps its empty array, and the checkpoint freezes both that decision and the
+fallback login, so a retry cannot silently switch to different reviewers. Labels
+switch only after the fallback assignment and explanatory comment are verified.
+
 The existing `reviewers-assigned` label never suppresses a new request. Removing
 and reapplying `need-reviewers` creates a new event and run ID, so Codex selects
 again and a new mention comment is posted. A queued label event is processed
@@ -42,10 +57,30 @@ pair. It repairs incomplete assignments, comments or label updates without
 selecting additional people or posting another mention. The temporary checkpoint
 comment says assignment is in progress until all selected assignees are confirmed.
 
-An empty or invalid AI result fails without marking assignment complete. PR
-head/base changes, API file truncation, expired mapping, unavailable assignees
-and API failures also stop completion. Inspect the run and retry it, or reapply
-the label when a fresh selection is needed.
+Malformed or invalid AI output, PR head/base changes, unverifiable reconstructed
+changes, expired mapping, unavailable assignees and API failures stop completion.
+These failures do not trigger fallback triage. Inspect the run and retry it, or
+reapply the label when a fresh selection is needed. A nonempty qualified
+selection does not add a fallback for any remaining uncovered modules.
+
+## Large PRs
+
+Ordinary PRs use the REST diff and complete file pages. If the diff endpoint
+returns HTTP 406 for its line limit, or the file pages do not match `changed_files`
+(including the 3,000-file cap), the helper obtains the merge-base SHA from a
+comparison of the pinned base/head SHAs. It fetches shallow, blob-filtered
+snapshots into a temporary bare Git repository and generates the merge-base to
+head diff and NUL-delimited file statistics there. No PR branch is checked out,
+no submodules are initialized and no PR code, external diff or text conversion
+driver runs.
+
+The reconstructed file count, addition/deletion totals and available API file
+records must agree. Renames, binary files and paths containing whitespace are
+handled explicitly. Live head/base verification still runs after preparation.
+The temporary Git repository is removed before the model starts; `context.json`
+records `diff_source: git` and the merge-base SHA. Unverifiable data fails rather
+than being truncated. The preparation step allows up to 15 minutes for this path;
+ordinary PRs retain the REST fast path.
 
 The path suggestion is advisory. The summary includes the first five eligible
 historical candidates per affected module or the complete override list, and

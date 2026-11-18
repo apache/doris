@@ -2,9 +2,11 @@
 
 Select one or two qualified GitHub logins for this PR. Return only
 `{"reviewers":["login1","login2"]}` without `@` prefixes. Return an empty array
-when no justified selection is possible; the workflow then fails for manual
-routing. The downstream job adds assignees, posts a mention and switches labels.
-Do not make GitHub requests or changes yourself.
+when no justified selection is possible. The downstream job then assigns
+`morningman` for manual triage and explains that no suitable reviewer was found.
+Do not choose an unqualified fallback yourself. The downstream job adds
+assignees, posts a mention and switches labels. Do not make GitHub requests or
+changes yourself.
 
 ## Read and decide
 

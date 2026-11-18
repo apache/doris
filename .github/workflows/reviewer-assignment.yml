@@ -43,7 +43,7 @@ jobs:
 
       - name: Prepare authoritative PR data
         id: prepare
-        timeout-minutes: 8
+        timeout-minutes: 15
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
