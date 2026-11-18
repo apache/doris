@@ -141,6 +141,9 @@ public final class SPMForwardedSession {
         row.put("planSql", plan.getPlanSql() == null ? "" : plan.getPlanSql());
         row.put("bindSqlDigest",
                 plan.getBindSqlDigest() == null ? "" : plan.getBindSqlDigest());
+        if (plan.getPlanSqlDigest() != null) {
+            row.put("planSqlDigest", plan.getPlanSqlDigest());
+        }
         row.put("bindSqlHash", String.valueOf(plan.getBindSqlHash()));
         row.put("creatorSqlMode", String.valueOf(plan.getCreatorSqlMode()));
         row.put("planSqlMode",
@@ -214,6 +217,7 @@ public final class SPMForwardedSession {
         plan.setBindSql(bindSql);
         plan.setPlanSql(planSql);
         plan.setBindSqlDigest(row.getOrDefault("bindSqlDigest", ""));
+        plan.setPlanSqlDigest(row.get("planSqlDigest"));
         plan.setBindSqlHash(parseLong(row.get("bindSqlHash")));
         plan.setCreatorSqlMode(parseLong(row.get("creatorSqlMode")));
         plan.setPlanSqlMode(parseLongOrNull(row.get("planSqlMode")));

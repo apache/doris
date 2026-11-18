@@ -175,6 +175,36 @@ public class SPMRound18SafetyTest {
         SPMPlanner.verifyReplayMetadata(ctx, 777L, plan);
     }
 
+    @Test
+    public void testForwardedCappedSelfJoinKeepsSubmittedPlanDigest() {
+        String query = "SELECT /*+ LEADING(b a) */ a.k, b.k"
+                + " FROM (SELECT k FROM t LIMIT 1) a CROSS JOIN t b";
+        LogicalPlan caller = parse(query);
+        LogicalPlan reordered = parse("SELECT a.k, b.k FROM t b CROSS JOIN (SELECT k FROM t LIMIT 1) a");
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsEquivalentModuloOccurrence(reordered, caller));
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(reordered, caller));
+
+        BaselinePlan baseline = new BaselinePlan();
+        baseline.setBindSql(query);
+        baseline.setPlanSql("SELECT a.k, b.k FROM t b CROSS JOIN (SELECT k FROM t LIMIT 1) a");
+        String digest = SPMPlanTreeSupport.canonicalSpmDigest(caller.toSpmDigest());
+        baseline.setBindSqlDigest(digest);
+        baseline.setPlanSqlDigest(digest);
+        baseline.setBindSqlHash(SPMUtils.hashOf(digest));
+        baseline.setPlanFrozen(true);
+        baseline.setStatus(BaselineStatus.ENABLED);
+        baseline.setSource(BaselineSource.USER);
+        SessionBaselineStore store = new SessionBaselineStore();
+        store.createBaseline(baseline);
+
+        ConnectContext master = new ConnectContext();
+        master.getSessionVariable().setEnableSpmRewrite(true);
+        SPMForwardedSession.importInto(master, SPMForwardedSession.serialize(store));
+        BaselinePlan restored = master.getSessionBaselineStore().getAllBaselines().get(0);
+        Assertions.assertEquals(digest, restored.getPlanSqlDigest(),
+                "identical callers need the submitted plan digest to allow self-join occurrence reordering");
+    }
+
     /**
      * The observer attaches the ENABLED rows of its session store to the forwarded
      * request; the master rebuilds them (parameterized trees included) into its context's

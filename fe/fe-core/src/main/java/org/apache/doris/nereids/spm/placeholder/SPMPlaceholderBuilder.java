@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
@@ -452,6 +453,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
             return true;
         }
+        if (isArgumentTypedAggregate(expr)) {
+            return children.size() == 1 && producesNullType(children.get(0));
+        }
         if (isElementAtCall(expr)) {
             // element_at(array(NULL), 1) takes its type from the ARRAY's element type and
             // element_at(map('x', NULL), 'x') from the MAP's VALUE type (CreateMap derives
@@ -474,6 +478,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return !children.isEmpty() && isAllNullArray(children.get(0));
         }
         return false;
+    }
+
+    /** MIN and MAX derive their result type from the aggregate argument. */
+    private static boolean isArgumentTypedAggregate(Expression expression) {
+        if (!(expression instanceof Function)) {
+            return false;
+        }
+        String name = ((Function) expression).getName();
+        return "min".equalsIgnoreCase(name) || "max".equalsIgnoreCase(name);
     }
 
     /**
@@ -585,6 +598,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             // a NULL literal is untyped ARRAY<NULL_TYPE> in an array position
             return true;
         }
+        if (isArrayMapCall(expr)) {
+            return !expr.children().isEmpty() && expr.child(0) instanceof Lambda
+                    && producesNullType(((Lambda) expr.child(0)).getLambdaFunction());
+        }
         int elementIndex = elementTypeArgumentIndex(expr);
         if (elementIndex >= 0) {
             // An ARRAY-FROM-ELEMENT producer (array_repeat(NULL, 1) declares
@@ -639,6 +656,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
         }
         return true;
+    }
+
+    /** ARRAY_MAP derives its element type from the lambda body at argument zero. */
+    private static boolean isArrayMapCall(Expression expr) {
+        return expr instanceof Function && "array_map".equalsIgnoreCase(((Function) expr).getName());
     }
 
     /**
@@ -921,7 +943,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (isIfConditional(parent)) {
             return childIndex == 1 || childIndex == 2;
         }
-        return isCoalesceConditional(parent);
+        return isCoalesceConditional(parent) || isArgumentTypedAggregate(parent) && childIndex == 0;
     }
 
     @Override
@@ -1095,6 +1117,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         if ((parent instanceof WhenClause || isIfConditional(parent))
                 && !isConditionalResultPosition(parent)) {
+            return false;
+        }
+        if ((isArrayMapCall(parent) || parent instanceof Lambda) && currentChildIndex() != 0) {
             return false;
         }
         // Counts and other non-element arguments do not determine the array's element type.
@@ -1389,51 +1414,17 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         boolean changed = false;
         List<Expression> newChildren = new ArrayList<>(children.size());
-        // A CONDITIONAL (CASE / IF / COALESCE) that IS a Boolean operand (OR / AND / NOT)
-        // contributes BOOLEAN-typed markers: an all-NULL conditional has NullType, and the
-        // analyzer then replaces the WHOLE operand with a typed constant NULL - deleting every
-        // placeholder inside it (k > 0 OR CASE WHEN k = 0 THEN NULL ELSE NULL END lost both
-        // ids and a TRUE variant had nothing to substitute).
-        //
-        // A PROJECTED conditional (the expression of a SELECT item,... AS n) reaches its
-        // Boolean consumer through a DERIVED / CTE OUTPUT SLOT, i.e. across the
-        // producer/consumer query-block boundary: SELECT k > 0 OR n FROM
-        // (SELECT k, CASE WHEN k = 0 THEN NULL ELSE NULL END AS n FROM t) s. The conditional
-        // has no direct Boolean parent here, so the guard above left its markers NullType,
-        // the derived slot n stayed NullType, and the CONSUMER's ExpressionAnalyzer.visitOr
-        // replaced that entire slot with a typed constant NULL while the frozen plan was
-        // optimized - the frozen projection became k > _spm_const_var(A) OR NULL and the
-        // matching ELSE TRUE variant returned NULL instead of TRUE. Typing the conditional's
-        // NULL markers BOOLEAN makes the projected column BOOLEAN, so the slot (and the
-        // markers inside it) survive any later binding; a NULL value stays NULL through any
-        // coercion. Same rule the projected NULL literal already follows (see markerPayload).
-        //
-        // The CASE-only repair left the SAME defect for every other all-NULL conditional: a
-        // projected IF(k = 0, NULL, NULL) consumed by OR is replaced the same way, so the
-        // family is recognised structurally (see producesNullType) instead of by
-        // node class.
-        boolean projectedConditional = producesNullType(expr)
-                && currentProjectItem() >= 0
-                && (parent == null
-                        || parent instanceof org.apache.doris.nereids.trees.expressions.Alias
+        // A projected value can reach a Boolean consumer through a derived-table or CTE slot.
+        // Retype NULL-producing expressions and containers before binding can erase their markers.
+        boolean projectedValue = currentProjectItem() >= 0
+                && (parent == null || parent instanceof org.apache.doris.nereids.trees.expressions.Alias
                         || parent instanceof org.apache.doris.nereids.analyzer.UnboundAlias);
-        boolean booleanConditionalOperand = producesNullType(expr)
-                && (parent instanceof And || parent instanceof Or || parent instanceof Not
-                        || projectedConditional);
-
-        // A CONTAINER CONSTRUCTOR in a recognized container position builds its container from
-        // its ELEMENTS, so an all-NULL element list is exactly what makes the container NullType.
-        // array(NULL) is such a constructor: the NULL marker is a CHILD of the constructor, not
-        // the container itself, so the container-position repair that retypes [NULL] (whose
-        // marker IS the container) never reached it. k > 0 OR element_at(array_reverse_sort(
-        // array(NULL)), 1) therefore froze as k > _spm_const_var(A) OR NULL: the chain was
-        // NullType, the Boolean consumer replaced the whole call and every marker inside it,
-        // and the array(TRUE) variant had no id left to substitute.
-        // Keeping the element markers BOOLEAN makes the constructor ARRAY<BOOLEAN>, which removes
-        // the NullType from the chain without changing any value (a NULL is NULL whatever its
-        // type).
-        boolean containerElementOperand = isAllNullContainer(expr) && booleanConditionalDepth > 0
-                && isNullTypeContainerPosition(parent);
+        boolean booleanConditionalOperand = (projectedValue
+                || parent instanceof And || parent instanceof Or || parent instanceof Not)
+                && producesNullType(expr);
+        boolean containerElementOperand = (projectedValue
+                || booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent))
+                && isAllNullContainer(expr);
 
         if (booleanConditionalOperand) {
             booleanConditionalDepth++;
