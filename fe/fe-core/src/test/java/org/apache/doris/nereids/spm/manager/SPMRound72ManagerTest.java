@@ -94,6 +94,11 @@ public class SPMRound72ManagerTest {
         }
 
         @Override
+        public long readHwmRecord() {
+            return sequenceWatermark;
+        }
+
+        @Override
         public long tableWatermark() {
             return tableWatermark;
         }
@@ -301,6 +306,8 @@ public class SPMRound72ManagerTest {
         store.rows.put(40L, row(40L, BaselineStatus.ENABLED));
         store.rows.put(41L, row(41L, BaselineStatus.ENABLED));
         store.rows.put(42L, row(42L, BaselineStatus.ENABLED));
+        store.sequenceWatermark = 42L;
+        store.tableWatermark = 42L;
         store.failDeletesForId = 42L;
 
         Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(41L));
