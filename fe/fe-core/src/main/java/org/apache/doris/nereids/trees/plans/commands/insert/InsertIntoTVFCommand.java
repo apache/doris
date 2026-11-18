@@ -137,9 +137,9 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
                     new QueryInfo(ctx, "INSERT INTO TVF", coordinator));
             registered = true;
 
+            execution.checkCanceled();
+            deleteExistingFiles(planner);
             synchronized (execution.executionLock) {
-                execution.checkCanceled();
-                deleteExistingFiles(planner);
                 execution.checkCanceled();
                 if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
                     ctx.getMysqlChannel().reset();
@@ -197,8 +197,8 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
 
     // A prepared statement reuses this command. Each callback must retain only its own execution's state.
     private static final class ExecutionState {
-        // Planning does not hold this lock. Cancellation may interrupt planning, but must
-        // synchronize with the side effects and fragment dispatch before acknowledging it.
+        // Cancellation waits for fragment startup so it can cancel newly dispatched fragments.
+        // Planning and remote deletion, including FileSystem cleanup, must not hold this lock.
         private final Object executionLock = new Object();
         private volatile Status cancelReason;
         private volatile Coordinator activeCoordinator;
