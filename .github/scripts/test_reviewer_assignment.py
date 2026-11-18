@@ -1347,7 +1347,8 @@ class WorkflowTest(unittest.TestCase):
     def test_write_permissions_are_limited_to_the_final_job(self):
         select, assign = self.workflow.split("\n  assign:\n", 1)
         self.assertNotIn("issues: write", select)
-        self.assertNotIn("pull-requests: write", self.workflow)
+        self.assertNotIn("pull-requests: write", select)
+        self.assertIn("pull-requests: write", assign)
         self.assertIn("issues: write", assign)
         self.assertNotIn("secrets.OSS_", assign)
         self.assertIn("needs: select", assign)
