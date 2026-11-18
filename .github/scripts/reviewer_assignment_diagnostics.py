@@ -19,6 +19,7 @@
 """Publish routing decisions and filtered execution diagnostics, never raw sessions."""
 
 import argparse
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -26,7 +27,7 @@ from pathlib import Path
 from review_github_api import redact
 
 FILES = ("context.json", "candidate-summary.json", "module-selection.json",
-         "selected-candidates.json", "selection.json")
+         "selected-candidates.json", "selection.json", "input-manifest.json", "model-run.json", "validation.json")
 LIMIT = 4096
 
 
@@ -46,9 +47,11 @@ def document(path):
 
 def diagnostics_report(workspace, events, stderr):
     commands = {}
+    tools = {}
+    event_types, item_types = Counter(), Counter()
     report = {"schema_version": 1,
               "files": {name: document(workspace / name) for name in FILES},
-              "commands": [], "model_errors": [], "malformed_event_lines": 0,
+              "commands": [], "tool_calls": [], "model_errors": [], "malformed_event_lines": 0,
               "stderr_tail": redact(stderr)[-LIMIT:]}
     for line in events.splitlines():
         try:
@@ -59,9 +62,19 @@ def diagnostics_report(workspace, events, stderr):
             continue
         if not isinstance(event, dict):
             continue
+        event_types[event.get("type", "missing")] += 1
         if event.get("type") in {"error", "turn.failed"}:
             report["model_errors"].append(redact(json.dumps(event.get("error", event.get("message"))))[:LIMIT])
         item = event.get("item", {})
+        if item:
+            item_types[item.get("type", "missing")] += 1
+        if item.get("type") == "error":
+            report["model_errors"].append(redact(item["message"])[:LIMIT])
+        if item.get("type") == "mcp_tool_call":
+            tool = {"server": item["server"], "tool": item["tool"], "status": item["status"]}
+            if item.get("error"):
+                tool["error"] = redact(json.dumps(item["error"]))[:LIMIT]
+            tools[item["id"]] = tool
         if (event.get("type") not in {"item.started", "item.completed"}
                 or item.get("type") != "command_execution"):
             continue
@@ -71,6 +84,8 @@ def diagnostics_report(workspace, events, stderr):
             command["output_tail"] = redact(item.get("aggregated_output"))[-LIMIT:]
         commands[item["id"]] = command
     report["commands"] = list(commands.values())
+    report["tool_calls"] = list(tools.values())
+    report["event_types"], report["item_types"] = dict(event_types), dict(item_types)
     return report
 
 

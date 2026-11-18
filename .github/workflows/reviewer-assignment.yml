@@ -3,6 +3,12 @@ name: Assign Reviewer Candidates
 on:
   pull_request_target:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to classify without changing assignees, comments or labels
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -17,7 +23,9 @@ concurrency:
 
 jobs:
   select:
-    if: github.event.label.name == 'need-reviewers' && github.event.pull_request.state == 'open'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.label.name == 'need-reviewers' && github.event.pull_request.state == 'open')
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     permissions:
@@ -40,7 +48,7 @@ jobs:
         run: |
           python3 tools/reviewer-routing/routing_config.py --check
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
-            -s .github/scripts -p test_reviewer_assignment.py
+            -s .github/scripts -p 'test_reviewer_assignment*.py'
 
       - name: Prepare authoritative PR data
         id: prepare
@@ -232,33 +240,10 @@ jobs:
         if: steps.prepare.outputs.reuse_selection != 'true'
         timeout-minutes: 9
         run: |
-          set -euo pipefail
-          "$CODEX_ASSIGNMENT_BIN" --version > "$RUNNER_TEMP/reviewer-assignment-codex.version"
-          codex_started=$SECONDS
-          set +e
-          timeout --signal=TERM --kill-after=20s 480s \
-            env -u GH_TOKEN -u GITHUB_TOKEN -u OSS_AK -u OSS_SK \
-              -u ACTIONS_RUNTIME_TOKEN -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
-              PYTHONDONTWRITEBYTECODE=1 \
-              "$CODEX_ASSIGNMENT_BIN" exec --skip-git-repo-check --json \
-              --cd "$ASSIGNMENT_WORKSPACE" --sandbox read-only --color never \
-              --model gpt-6.1-sol --config 'model_reasoning_effort="medium"' \
-              --output-schema "$ASSIGNMENT_WORKSPACE/schema.json" \
-              --output-last-message "$ASSIGNMENT_WORKSPACE/module-selection.json" \
-              - < "$ASSIGNMENT_WORKSPACE/prompt.txt" \
-              > "$RUNNER_TEMP/reviewer-assignment-codex.jsonl" \
-              2> "$RUNNER_TEMP/reviewer-assignment-codex.stderr"
-          codex_status=$?
-          set -e
-          printf 'elapsed_seconds=%s\nexit_code=%s\n' \
-            "$((SECONDS - codex_started))" "$codex_status" >> "$GITHUB_OUTPUT"
-          if [ "$codex_status" -ne 0 ]; then
-            echo "::error::Codex reviewer selection failed with exit status $codex_status. No GitHub writes were attempted."
-            jq -r 'select(.type == "turn.failed" or .type == "error") |
-              .error.message // .message // empty' \
-              "$RUNNER_TEMP/reviewer-assignment-codex.jsonl" | tail -n 2 || true
-            exit "$codex_status"
-          fi
+          python3 .github/scripts/reviewer_assignment_model.py \
+            --workspace "$ASSIGNMENT_WORKSPACE" \
+            --codex "$CODEX_ASSIGNMENT_BIN" \
+            --output-dir "$RUNNER_TEMP"
 
       - name: Summarize Codex usage
         if: always()
@@ -379,6 +364,7 @@ jobs:
 
   assign:
     needs: select
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
