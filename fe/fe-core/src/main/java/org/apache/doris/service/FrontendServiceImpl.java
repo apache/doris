@@ -20,6 +20,7 @@ package org.apache.doris.service;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.FlightSqlQueryCancellation;
 import org.apache.doris.auth.certificate.CertificateAuthDecision;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
@@ -1125,6 +1126,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
         return QeProcessorImpl.INSTANCE.reportExecStatus(params, getClientAddr());
+    }
+
+    @Override
+    public TStatus cancelFlightQuery(TUniqueId resultId) throws TException {
+        return FlightSqlQueryCancellation.INSTANCE.cancel(resultId);
     }
 
     @Override

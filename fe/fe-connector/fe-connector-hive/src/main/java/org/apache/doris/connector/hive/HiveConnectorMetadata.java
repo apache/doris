@@ -2554,7 +2554,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
         } else if (expr instanceof ConnectorComparison) {
             ConnectorComparison cmp = (ConnectorComparison) expr;
-            if (cmp.getOperator() == ConnectorComparison.Operator.EQ) {
+            if (cmp.getOperator() == ConnectorComparison.Operator.EQ && isScalarLiteral(cmp.getRight())) {
                 String colName = extractColumnName(cmp.getLeft());
                 String value = extractLiteralValue(cmp.getRight());
                 if (colName != null && value != null && partKeySet.contains(colName)) {
@@ -2563,12 +2563,15 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
         } else if (expr instanceof ConnectorIn) {
             ConnectorIn inExpr = (ConnectorIn) expr;
-            if (!inExpr.isNegated()) {
+            // Skipping an item that is not a partition value would narrow the list and drop the partitions
+            // that item matches, so an IN prunes only when every item is a scalar literal.
+            if (!inExpr.isNegated() && inExpr.getInList().stream().allMatch(HiveConnectorMetadata::isScalarLiteral)) {
                 String colName = extractColumnName(inExpr.getValue());
                 if (colName != null && partKeySet.contains(colName)) {
                     List<String> values = new ArrayList<>();
                     for (ConnectorExpression item : inExpr.getInList()) {
                         String val = extractLiteralValue(item);
+                        // A NULL item matches no partition.
                         if (val != null) {
                             values.add(val);
                         }
@@ -2586,6 +2589,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return ((org.apache.doris.connector.spi.pushdown.ConnectorColumnRef) expr).getColumnName();
         }
         return null;
+    }
+
+    /**
+     * Whether {@code expr} is a literal that can stand for a partition value. A literal of type ARRAY, MAP or
+     * STRUCT arrives only as the operand of a CAST the engine stripped, as in {@code p = CAST([true] AS STRING)},
+     * and its value is not the text that cast yields (an ARRAY arrives as an element list), so it never prunes.
+     */
+    private static boolean isScalarLiteral(ConnectorExpression expr) {
+        if (!(expr instanceof ConnectorLiteral)) {
+            return false;
+        }
+        String typeName = ((ConnectorLiteral) expr).getType().getTypeName();
+        return !"ARRAY".equalsIgnoreCase(typeName) && !"MAP".equalsIgnoreCase(typeName)
+                && !"STRUCT".equalsIgnoreCase(typeName);
     }
 
     private String extractLiteralValue(ConnectorExpression expr) {

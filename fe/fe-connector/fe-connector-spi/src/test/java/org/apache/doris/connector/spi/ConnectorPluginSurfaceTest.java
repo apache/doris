@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 31 adds ConnectorFunctionCall#isBuiltin, which tells a UDF from a builtin of the same name.
-        Assertions.assertEquals("31.0", version.getProperty("api.version"));
+        // Endpoint composition extends the published major-32 surface and needs a distinct version.
+        Assertions.assertEquals("33.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

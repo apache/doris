@@ -1378,7 +1378,7 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = SQL_SELECT_LIMIT, needForward = true, affectQueryResultInExecution = true)
     private long sqlSelectLimit = Long.MAX_VALUE;
 
-    // this is used to make c3p0 library happy
+    // Maximum incoming MySQL logical packet and prepared-statement long-data size, in bytes.
     @VarAttrDef.VarAttr(name = MAX_ALLOWED_PACKET)
     public int maxAllowedPacket = 16777216;
 
@@ -3103,10 +3103,26 @@ public class SessionVariable implements Serializable, Writable {
     public String mongodbReadPreference = "inherit";
 
     @VarAttrDef.VarAttr(name = MONGODB_READ_CONCERN, needForward = true,
-            checker = "checkMongoDBReadConcern", options = {"inherit", "local", "majority", "available"},
+            checker = "checkMongoDBReadConcern", affectQueryResultInExecution = true,
+            options = {"inherit", "local", "majority", "available", "snapshot"},
             description = "MongoDB data-read visibility for this session or SET_VAR statement. "
-                    + "inherit follows the catalog policy; shared snapshots are not supported")
+                    + "inherit follows the catalog policy; snapshot pins a shared MongoDB cluster timestamp")
     public String mongodbReadConcern = "inherit";
+
+    @VarAttrDef.VarAttr(name = "enable_mongodb_predicate_pushdown", needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Enable verified MongoDB candidate predicates; strict errors and views remain local")
+    public boolean enableMongoDBPredicatePushdown = true;
+
+    @VarAttrDef.VarAttr(name = "enable_mongodb_like_pushdown", needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Enable conservative MongoDB LIKE candidates with local residual evaluation")
+    public boolean enableMongoDBLikePushdown = true;
+
+    @VarAttrDef.VarAttr(name = "enable_mongodb_projection_pushdown", needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Read only MongoDB roots required by projections and residual predicates")
+    public boolean enableMongoDBProjectionPushdown = true;
 
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
@@ -4603,9 +4619,9 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkMongoDBReadConcern(String value) {
-        if (!Set.of("inherit", "local", "majority", "available").contains(value.toLowerCase(Locale.ROOT))) {
+        if (!Set.of("inherit", "local", "majority", "available", "snapshot").contains(value.toLowerCase(Locale.ROOT))) {
             throw new UnsupportedOperationException("Invalid mongodb_read_concern; expected inherit, local, "
-                    + "majority or available");
+                    + "majority, available or snapshot");
         }
     }
 

@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -114,6 +115,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -1012,6 +1014,10 @@ public class StmtExecutorTest extends TestWithFeService {
             TQueryOptions options = new TQueryOptions();
             options.enable_profile = true;
             Mockito.when(coordinator.getQueryOptions()).thenReturn(options);
+            // A dispatched Flight query registers its cancellation route with these.
+            Mockito.when(coordinator.getQueryId()).thenReturn(queryId);
+            Mockito.when(coordinator.getBackendBrpcAddresses())
+                    .thenReturn(Collections.singletonList(new TNetworkAddress("127.0.0.1", 8060)));
             Mockito.when(coordinator.getExecutionProfile()).thenReturn(execution);
             Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
             Mockito.when(coordinator.mustOutliveDispatch()).thenReturn("FLIGHT_DEFERRED".equals(outcome));
@@ -1052,6 +1058,12 @@ public class StmtExecutorTest extends TestWithFeService {
                     }
                     throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
                 }
+                if (flight) {
+                    // As the coordinator does for a query whose results stay on the BEs.
+                    context.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(queryId,
+                            new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060),
+                            new ArrayList<>()));
+                }
                 return null;
             }).when(coordinator).exec();
         };
@@ -1083,6 +1095,8 @@ public class StmtExecutorTest extends TestWithFeService {
                     Assertions.assertSame(successful, manager.getExecutionProfile(successful.getQueryId()));
                     Assertions.assertSame(executor.getCoord(),
                             QeProcessorImpl.INSTANCE.getCoordinator(successful.getQueryId()));
+                    // The result stays on the BEs, so the query's cancellation route was registered.
+                    Mockito.verify(executor.getCoord()).getBackendBrpcAddresses();
                     Assertions.assertEquals("FLIGHT_DEFERRED".equals(outcome), executor.isDeferredForArrowFlight());
                     if (executor.isDeferredForArrowFlight()) {
                         JsonObject pending = JsonParser.parseString(profile.getSummaryProfile().getExecutionSummary()

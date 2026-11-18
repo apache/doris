@@ -43,6 +43,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_crypto.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/reader/native/block_split_bloom_filter.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
@@ -53,6 +54,7 @@
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
+#include "util/coding.h"
 #include "util/thrift_util.h"
 #include "util/unaligned.h"
 
@@ -145,11 +147,93 @@ enum class ParquetRowGroupPruneReason {
     BLOOM_FILTER, // excluded by bloom filter
 };
 
+Status read_encrypted_bloom_module(const io::FileReaderSPtr& file, io::IOContext* io_ctx,
+                                   size_t offset, size_t available, ParquetColumnCrypto* crypto,
+                                   ParquetMetadataModule module, DorisVector<uint8_t>* plaintext,
+                                   size_t* wire_size) {
+    if (available < 4) {
+        return Status::Corruption("File encryption [INVALID_MODULE_SIZE]");
+    }
+    uint8_t prefix[4];
+    size_t read = 0;
+    RETURN_IF_ERROR(file->read_at(offset, Slice(prefix, sizeof(prefix)), &read, io_ctx));
+    if (read != sizeof(prefix)) {
+        return Status::Corruption("File encryption [INVALID_MODULE_SIZE]");
+    }
+    const uint64_t length = static_cast<uint64_t>(decode_fixed32_le(prefix)) + 4;
+    if (length > available || length > MAX_ENCRYPTED_PARQUET_MODULE_BYTES) {
+        return Status::Corruption("File encryption [INVALID_MODULE_SIZE]");
+    }
+    DorisVector<uint8_t> bytes(static_cast<size_t>(length));
+    RETURN_IF_ERROR(file->read_at(offset, Slice(bytes.data(), bytes.size()), &read, io_ctx));
+    if (read != bytes.size()) {
+        return Status::Corruption("File encryption [INVALID_MODULE_SIZE]");
+    }
+    RETURN_IF_ERROR(crypto->decrypt_metadata(module, bytes, plaintext));
+    *wire_size = bytes.size();
+    return Status::OK();
+}
+
+Status read_encrypted_bloom_filter(const tparquet::ColumnMetaData& metadata,
+                                   const io::FileReaderSPtr& file, io::IOContext* io_ctx,
+                                   ParquetColumnCrypto* crypto,
+                                   std::unique_ptr<native::BlockSplitBloomFilter>* result) {
+    if (metadata.bloom_filter_offset < 0 ||
+        std::cmp_greater_equal(metadata.bloom_filter_offset, file->size())) {
+        return Status::Corruption("File encryption [INVALID_BLOOM_RANGE]");
+    }
+    const auto offset = static_cast<size_t>(metadata.bloom_filter_offset);
+    size_t available = file->size() - offset;
+    if (metadata.__isset.bloom_filter_length) {
+        if (metadata.bloom_filter_length <= 0 ||
+            std::cmp_greater(metadata.bloom_filter_length, available)) {
+            return Status::Corruption("File encryption [INVALID_BLOOM_RANGE]");
+        }
+        available = static_cast<size_t>(metadata.bloom_filter_length);
+    }
+    DorisVector<uint8_t> plaintext;
+    size_t header_wire_size = 0;
+    RETURN_IF_ERROR(read_encrypted_bloom_module(file, io_ctx, offset, available, crypto,
+                                                ParquetMetadataModule::BLOOM_FILTER_HEADER,
+                                                &plaintext, &header_wire_size));
+    tparquet::BloomFilterHeader header;
+    uint32_t consumed = 0;
+    RETURN_IF_ERROR(deserialize_crypto_metadata(plaintext, &consumed, &header));
+    RETURN_IF_ERROR(validate_crypto_metadata_padding(plaintext, consumed));
+    if (!header.algorithm.__isset.BLOCK || !header.compression.__isset.UNCOMPRESSED ||
+        !header.hash.__isset.XXHASH) {
+        return Status::NotSupported("Unsupported Parquet Bloom filter encoding");
+    }
+    if (std::cmp_less(header.numBytes, segment_v2::BloomFilter::MINIMUM_BYTES) ||
+        header.numBytes % 32 != 0 ||
+        std::cmp_greater(header.numBytes, MAX_ENCRYPTED_PARQUET_MODULE_BYTES - 32)) {
+        return Status::Corruption("File encryption [INVALID_BLOOM_SIZE]");
+    }
+    size_t bitset_wire_size = 0;
+    // Header and bitset are independently framed/authenticated. Never interpret the encrypted
+    // header's byte length as its decoded Thrift length when locating the following bitset.
+    RETURN_IF_ERROR(read_encrypted_bloom_module(
+            file, io_ctx, offset + header_wire_size, available - header_wire_size, crypto,
+            ParquetMetadataModule::BLOOM_FILTER_BITSET, &plaintext, &bitset_wire_size));
+    if (std::cmp_not_equal(plaintext.size(), header.numBytes)) {
+        return Status::Corruption("File encryption [INVALID_BLOOM_SIZE]");
+    }
+    auto bloom = std::make_unique<native::BlockSplitBloomFilter>();
+    RETURN_IF_ERROR(bloom->init(reinterpret_cast<const char*>(plaintext.data()), plaintext.size(),
+                                segment_v2::HashStrategyPB::XX_HASH_64));
+    *result = std::move(bloom);
+    return Status::OK();
+}
+
 Status read_native_bloom_filter(const tparquet::ColumnMetaData& metadata,
                                 const io::FileReaderSPtr& file, io::IOContext* io_ctx,
-                                std::unique_ptr<native::BlockSplitBloomFilter>* result) {
+                                std::unique_ptr<native::BlockSplitBloomFilter>* result,
+                                ParquetColumnCrypto* crypto = nullptr) {
     if (result == nullptr || file == nullptr || !metadata.__isset.bloom_filter_offset) {
         return Status::NotSupported("Parquet Bloom filter is unavailable");
+    }
+    if (crypto != nullptr) {
+        return read_encrypted_bloom_filter(metadata, file, io_ctx, crypto, result);
     }
     constexpr size_t MAX_BLOOM_HEADER_BYTES = 64;
     if (metadata.bloom_filter_offset < 0 ||
@@ -1370,8 +1454,58 @@ ParquetRowGroupPruneReason native_dictionary_prune_reason(
     return ParquetRowGroupPruneReason::NONE;
 }
 
-ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
-        const tparquet::RowGroup& row_group,
+Result<std::unique_ptr<native::BlockSplitBloomFilter>> read_row_group_bloom_filter(
+        const tparquet::ColumnChunk& chunk, int row_group_idx, int leaf_column_id,
+        ParquetFileContext* file_context, ParquetPruningStats* pruning_stats) {
+    if (!chunk.meta_data.__isset.bloom_filter_offset) {
+        // A missing Bloom filter is optional even in an encrypted file. Only a present module
+        // must authenticate successfully before it can participate in pruning.
+        if (pruning_stats != nullptr) {
+            ++pruning_stats->bloom_filter_conservative_fallbacks;
+        }
+        return std::unique_ptr<native::BlockSplitBloomFilter>();
+    }
+    std::shared_ptr<ParquetColumnCrypto> crypto;
+    if (file_context->native_metadata != nullptr &&
+        file_context->native_metadata->encryption() != nullptr) {
+        RETURN_IF_ERROR_RESULT(file_context->native_metadata->encryption()->column_crypto(
+                chunk, row_group_idx, leaf_column_id, &crypto));
+    }
+    std::unique_ptr<native::BlockSplitBloomFilter> bloom_filter;
+    Status bloom_status;
+    int64_t timer_sink = 0;
+    {
+        SCOPED_RAW_TIMER(pruning_stats == nullptr ? &timer_sink
+                                                  : &pruning_stats->bloom_filter_read_time);
+        bloom_status =
+                read_native_bloom_filter(chunk.meta_data, file_context->native_file,
+                                         file_context->native_io_ctx, &bloom_filter, crypto.get());
+        if (!bloom_status.ok()) {
+            bloom_filter.reset();
+        }
+    }
+    if (crypto != nullptr && !bloom_status.ok()) {
+        // Authentication failures are query failures, not optional-index misses. Retaining
+        // rows here would hide a swapped or modified Bloom module from the encrypted scan.
+        return unexpected(std::move(bloom_status));
+    }
+    if (bloom_filter == nullptr) {
+        if (pruning_stats != nullptr) {
+            ++pruning_stats->bloom_filter_conservative_fallbacks;
+            if (bloom_status.is<ErrorCode::CORRUPTION>()) {
+                ++pruning_stats->bloom_filter_corrupt_rejections;
+            }
+        }
+        return std::unique_ptr<native::BlockSplitBloomFilter>();
+    }
+    if (pruning_stats != nullptr) {
+        ++pruning_stats->bloom_filter_probe_successes;
+    }
+    return bloom_filter;
+}
+
+Result<ParquetRowGroupPruneReason> native_bloom_filter_prune_reason(
+        const tparquet::RowGroup& row_group, int row_group_idx,
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
         const format::FileScanRequest& request, ParquetFileContext* file_context,
         ParquetPruningStats* pruning_stats) {
@@ -1447,30 +1581,14 @@ ParquetRowGroupPruneReason native_bloom_filter_prune_reason(
             }
             continue;
         }
-        std::unique_ptr<native::BlockSplitBloomFilter> bloom_filter;
-        Status bloom_status;
-        int64_t timer_sink = 0;
-        {
-            SCOPED_RAW_TIMER(pruning_stats == nullptr ? &timer_sink
-                                                      : &pruning_stats->bloom_filter_read_time);
-            bloom_status = read_native_bloom_filter(row_group.columns[leaf_column_id].meta_data,
-                                                    file_context->native_file,
-                                                    file_context->native_io_ctx, &bloom_filter);
-            if (!bloom_status.ok()) {
-                bloom_filter.reset();
-            }
+        auto bloom_filter_result = read_row_group_bloom_filter(chunk, row_group_idx, leaf_column_id,
+                                                               file_context, pruning_stats);
+        if (!bloom_filter_result.has_value()) {
+            return unexpected(std::move(bloom_filter_result.error()));
         }
+        auto bloom_filter = std::move(*bloom_filter_result);
         if (bloom_filter == nullptr) {
-            if (pruning_stats != nullptr) {
-                ++pruning_stats->bloom_filter_conservative_fallbacks;
-                if (bloom_status.is<ErrorCode::CORRUPTION>()) {
-                    ++pruning_stats->bloom_filter_corrupt_rejections;
-                }
-            }
             continue;
-        }
-        if (pruning_stats != nullptr) {
-            ++pruning_stats->bloom_filter_probe_successes;
         }
         // Keep at most one decoded payload live while reusing it for every predicate on this leaf.
         for (const auto& probe : leaf_group.probes) {
@@ -1582,16 +1700,24 @@ Status select_row_groups_by_metadata(
                                                 null_count_trusted)))) {
             prune_reason = ParquetRowGroupPruneReason::STATISTICS;
         }
+        // Dictionary probes currently treat reader errors as optional misses. Keep encrypted
+        // dictionaries on the ordinary decode path, where an authentication error fails the scan.
         if (probe_mode != ParquetMetadataProbeMode::FOOTER_ONLY &&
-            prune_reason == ParquetRowGroupPruneReason::NONE) {
+            prune_reason == ParquetRowGroupPruneReason::NONE &&
+            (file_context == nullptr || file_context->native_metadata == nullptr ||
+             file_context->native_metadata->encryption() == nullptr)) {
             prune_reason =
                     native_dictionary_prune_reason(row_group, row_group_idx, file_schema, request,
                                                    timezone, file_context, column_reader_profile);
         }
         if (probe_mode != ParquetMetadataProbeMode::FOOTER_ONLY &&
             prune_reason == ParquetRowGroupPruneReason::NONE && enable_bloom_filter) {
-            prune_reason = native_bloom_filter_prune_reason(row_group, file_schema, request,
-                                                            file_context, pruning_stats);
+            auto bloom_reason = native_bloom_filter_prune_reason(
+                    row_group, row_group_idx, file_schema, request, file_context, pruning_stats);
+            if (!bloom_reason.has_value()) {
+                return std::move(bloom_reason).error();
+            }
+            prune_reason = *bloom_reason;
         }
         if (prune_reason == ParquetRowGroupPruneReason::NONE) {
             selected_row_groups->push_back(row_group_idx);

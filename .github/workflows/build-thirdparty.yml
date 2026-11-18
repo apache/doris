@@ -305,7 +305,7 @@ jobs:
     name: Build Third Party Libraries (macOS-arm64)
     needs: changes
     if: ${{ needs.changes.outputs.thirdparty_changes == 'true' }}
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       ENABLE_THIRDPARTY_CCACHE: 'ON'
       # thrift's configure finds the dotnet these images ship, so `make` runs
