@@ -21,6 +21,7 @@ import org.apache.doris.jni.spi.vec.ColumnType;
 import org.apache.doris.jni.spi.vec.ColumnValue;
 
 import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.data.BinaryVector;
 import org.apache.paimon.data.DataGetters;
 import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.GenericArray;
@@ -33,6 +34,7 @@ import org.apache.paimon.data.variant.GenericVariant;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.LocalZonedTimestampType;
@@ -57,6 +59,32 @@ import java.util.List;
 import java.util.Map;
 
 public class PaimonColumnValueTest {
+
+    @Test
+    public void vectorReadAsArrayPreservesValuesAndRowReuse() {
+        DataType vectorType = DataTypes.VECTOR(3, DataTypes.FLOAT());
+        ColumnType columnType = PaimonTypeUtils.fromPaimonType("embedding", vectorType);
+        Assertions.assertEquals(ColumnType.Type.ARRAY, columnType.getType());
+        Assertions.assertEquals(ColumnType.Type.FLOAT, columnType.getChildTypes().get(0).getType());
+        PaimonColumnValue value = new PaimonColumnValue(
+                GenericRow.of(BinaryVector.fromPrimitiveArray(new float[] {1.5F, -2F, 0F})),
+                0, columnType, vectorType, "UTC");
+        List<ColumnValue> elements = new ArrayList<>();
+        value.unpackArray(elements);
+        Assertions.assertEquals(3, elements.size());
+        Assertions.assertEquals(1.5F, elements.get(0).getFloat());
+        Assertions.assertEquals(-2F, elements.get(1).getFloat());
+        Assertions.assertEquals(0F, elements.get(2).getFloat());
+        value.setOffsetRow(GenericRow.of((Object) null));
+        Assertions.assertTrue(value.isNull());
+        value.setOffsetRow(GenericRow.of(BinaryVector.fromPrimitiveArray(new float[] {3F, 4F, 5F})));
+        elements.clear();
+        value.unpackArray(elements);
+        Assertions.assertEquals(3, elements.size());
+        Assertions.assertEquals(3F, elements.get(0).getFloat());
+        Assertions.assertEquals(5F, elements.get(2).getFloat());
+    }
+
     private final RowType paimonStructType = RowType.of(
             new DataType[] {new IntType(), new VarCharType(), new BigIntType()},
             new String[] {"a", "b", "c"});

@@ -209,3 +209,19 @@ bash docker/thirdparties/docker-compose/iceberg/encryption/test_restart.sh \
 
 The test requires the first reset after restart to succeed and then checks the
 SDK/Spark snapshot results and KMS failure cases again. It never retries reset.
+
+## Paimon vector regressions
+
+The Spark service uses Paimon 2.1.0, `paimon-vector` 2.1.0 and
+`paimon-vector-index-java` 0.5.0. `start_iceberg` downloads these released
+artifacts into `cache/paimon` and verifies their pinned SHA-256 checksums. Set
+`MAVEN_REPOSITORY_URL` to use a Maven mirror. The older Paimon jars in the
+fixture archive are not mounted.
+
+With this stack running and `enablePaimonTest=true`, run
+`test_paimon_pk_vector_ann` and `test_paimon_pk_vector_exact_read` under
+`external_table_p0/paimon`. The suites create and compact deterministic tables
+through Spark at runtime; no generated vector table data is checked in. The ANN
+suite builds real IVF-RQ indexes and compares them with ordinary scalar reads.
+The exact-read suite covers batches, projections, nullable vectors and empty
+results using `use_index=false`.

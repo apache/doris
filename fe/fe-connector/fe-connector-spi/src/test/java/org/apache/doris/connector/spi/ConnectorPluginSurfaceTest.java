@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 32 adds connector-declared secret catalog properties to the security surface.
-        Assertions.assertEquals("32.0", version.getProperty("api.version"));
+        // Major 33 adds connector vector-search admission and per-scan search requests.
+        Assertions.assertEquals("33.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -113,6 +113,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorScanPlanProvider.class,
             org.apache.doris.connector.spi.scan.ConnectorScanRange.class,
             ConnectorScanRequest.class,
+            org.apache.doris.connector.spi.scan.ConnectorVectorSearch.class,
             ConnectorScanRequest.Builder.class,
             org.apache.doris.connector.spi.scan.ConnectorScanContext.class,
             ConnectorWriteHandle.class,

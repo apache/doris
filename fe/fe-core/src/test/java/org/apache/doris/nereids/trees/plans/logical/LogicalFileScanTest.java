@@ -20,16 +20,23 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.connector.spi.scan.ConnectorVectorSearch;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.properties.DistributionSpecAny;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TExternalSearchRequest;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -159,5 +166,32 @@ public class LogicalFileScanTest {
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         Assertions.assertFalse(incapableScan.supportPruneNestedColumn(),
                 "a plugin table whose connector does not declare the capability must not prune nested columns");
+    }
+
+    @Test
+    public void vectorSearchAndPreloadIdentitySurviveScanCopies() {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(table.getName()).thenReturn("vector_table");
+        SlotReference distance = new SlotReference("distance", FloatType.INSTANCE);
+        ConnectorVectorSearch search = new ConnectorVectorSearch(new TExternalSearchRequest(),
+                "distance", false, Optional.empty());
+        LogicalFileScan original = new LogicalFileScan(new RelationId(11), table,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(Collections.emptyList()));
+        LogicalFileScan searched = original.withVectorSearch(distance, search);
+        LogicalFileScan copied = searched.withTableAlias("copy").withRelationId(new RelationId(12))
+                .withSelectedPartitions(SelectedPartitions.NOT_PRUNED).withOperativeSlots(searched.getOperativeSlots())
+                .withCachedOutput(searched.getOutput()).withGroupExpression(Optional.empty());
+        Assertions.assertEquals(Optional.of(search), copied.getVectorSearch());
+        Assertions.assertEquals(original.getPreloadRelationId(), copied.getPreloadRelationId());
+        Assertions.assertTrue(copied.getOutput().contains(distance));
+        Assertions.assertFalse(original.getVectorSearch().isPresent());
+        PhysicalFileScan physical = new PhysicalFileScan(copied.getRelationId(), table, copied.getQualifier(),
+                DistributionSpecAny.INSTANCE, Optional.empty(), copied.getLogicalProperties(), PhysicalProperties.ANY,
+                null, copied.getSelectedPartitions(), Optional.empty(), Optional.empty(),
+                copied.getOperativeSlots(), Optional.empty(), copied.getVectorSearch());
+        Assertions.assertEquals(Optional.of(search), physical.withGroupExpression(Optional.empty())
+                .withPhysicalPropertiesAndStats(PhysicalProperties.ANY, null).getVectorSearch());
     }
 }

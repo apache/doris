@@ -1440,6 +1440,7 @@ start_iceberg() {
             echo "${ICEBERG_DIR}/data exist, continue !"
         fi
 
+        bash "${ICEBERG_DIR}/prepare-paimon-jars.sh"
         bash "${ICEBERG_DIR}/encryption/prepare-jars.sh"
         compose_up_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" -d --wait
     fi

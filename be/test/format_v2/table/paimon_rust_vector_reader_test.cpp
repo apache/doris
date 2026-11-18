@@ -17,31 +17,29 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <bit>
-#include <filesystem>
-#include <fstream>
 #include <functional>
-#include <iterator>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "arrow/array/builder_primitive.h"
+#include "arrow/record_batch.h"
+#include "arrow/type.h"
 #include "core/block/block.h"
-#include "core/data_type/data_type_array.h"
-#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
-#include "core/field.h"
+#include "exprs/vectorized_fn_call.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/table/paimon_rust_predicate_converter.h"
 #include "format_v2/table/paimon_rust_table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "io/io_common.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::format::paimon {
 namespace {
-
-constexpr int64_t kFixtureRows = 2048;
 
 testing::AssertionResult is_ok(const Status& status) {
     if (status.ok()) {
@@ -50,22 +48,13 @@ testing::AssertionResult is_ok(const Status& status) {
     return testing::AssertionFailure() << status;
 }
 
-std::string read_fixture(const std::filesystem::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    EXPECT_TRUE(input.good()) << path;
-    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
-}
-
 class PaimonRustVectorReaderTest : public testing::Test {
 protected:
     void SetUp() override {
         TQueryOptions options;
         options.__set_batch_size(2);
         _state = RuntimeState::create_unique(options, TQueryGlobals {});
-        // run-be-ut.sh runs from the repository root; ccache can make __FILE__ relative
-        // to the build directory instead, so it is not a stable fixture location.
-        _fixture = std::filesystem::canonical("be/test/exec/test_data/paimon_rust_vector");
-        set_request(false, TVectorMetric::L2, kFixtureRows + 1);
+        set_request(false, TVectorMetric::L2, 4);
     }
 
     void set_request(bool tvf, TVectorMetric::type metric, int64_t top_k) {
@@ -74,7 +63,7 @@ protected:
         query.__set_dimension(2);
         std::string values;
         for (float value : {metric == TVectorMetric::DOT_PRODUCT ? 1.0F : 0.0F, 0.0F}) {
-            uint32_t bits = std::bit_cast<uint32_t>(value);
+            auto bits = std::bit_cast<uint32_t>(value);
             for (int byte = 0; byte < 4; ++byte) {
                 values.push_back(static_cast<char>(bits >> (8 * byte)));
             }
@@ -98,52 +87,39 @@ protected:
         _distance_name = tvf ? "_distance" : kPaimonSearchDistanceColumn;
     }
 
-    Status init(PaimonRustTableReader& reader, bool score_only = false) {
-        std::vector<ColumnDefinition> columns;
-        if (!score_only) {
-            columns.push_back({.identifier = Field {},
-                               .name = "id",
-                               .type = make_nullable(std::make_shared<DataTypeInt32>())});
-            columns.push_back({.identifier = Field {},
-                               .name = "embedding",
-                               .type = make_nullable(std::make_shared<DataTypeArray>(
-                                       make_nullable(std::make_shared<DataTypeFloat32>())))});
-        }
-        columns.push_back({.identifier = Field {},
-                           .name = _distance_name,
-                           .type = std::make_shared<DataTypeFloat32>()});
-        return reader.init({.projected_columns = std::move(columns),
+    Status init(PaimonRustTableReader& reader) {
+        return reader.init({.projected_columns = {{.identifier = Field {},
+                                                   .name = _distance_name,
+                                                   .type = std::make_shared<DataTypeFloat32>()}},
                             .conjuncts = {},
                             .format = FileFormat::JNI,
                             .scan_params = &_params,
-                            .io_ctx = _io_context,
+                            .io_ctx = nullptr,
                             .runtime_state = _state.get(),
                             .scanner_profile = nullptr});
     }
 
-    SplitReadOptions split(const std::string& name = "full", bool missing_bucket = false) const {
-        auto bytes = read_fixture(_fixture / (name + ".bin"));
-        auto placeholder = bytes.find("__BUCKET__");
-        EXPECT_NE(placeholder, std::string::npos);
-        EXPECT_GE(placeholder, 2);
-        std::string bucket = (_fixture / (missing_bucket ? "missing-bucket" : "bucket-0")).string();
-        const std::string length {static_cast<char>(bucket.size() >> 8),
-                                  static_cast<char>(bucket.size() & 0xff)};
-        bytes.replace(placeholder - 2, 2 + std::string("__BUCKET__").size(), length + bucket);
+    SplitReadOptions split() const {
         TPaimonVectorPayload payload;
         payload.__set_payload_type(TPaimonVectorPayloadType::BUCKET_SPLIT_BYTES);
-        payload.__set_bytes(bytes);
+        payload.__set_bytes("malformed-bucket");
         TPaimonFileDesc paimon;
         paimon.__set_reader_type(TPaimonReaderType::PAIMON_RUST);
         paimon.__set_paimon_split("");
         paimon.__set_vector_payload(payload);
-        paimon.__set_paimon_table(_fixture.string());
+        paimon.__set_paimon_table("/unused/paimon-vector-protocol-test");
         paimon.__set_db_name("db");
-        paimon.__set_table_name("vector_fixture");
-        bool dot = _params.external_search_request.search_query.vector_search.metric ==
-                   TVectorMetric::DOT_PRODUCT;
-        paimon.__set_paimon_table_schema_json(
-                read_fixture(_fixture / (dot ? "schema-dot.json" : "schema.json")));
+        paimon.__set_table_name("vector_protocol_test");
+        // Paimon 2.1 TableSchema input; no snapshot, manifest or data file is needed.
+        // The malformed requests/bucket fail before any data scan can open files.
+        paimon.__set_paimon_table_schema_json(R"({"version":3,"id":0,"fields":[
+            {"id":0,"name":"id","type":"INT NOT NULL"},
+            {"id":1,"name":"embedding","type":{"type":"VECTOR NOT NULL","element":"FLOAT","length":2}}],
+            "highestFieldId":1,"partitionKeys":[],"primaryKeys":["id"],"options":{
+            "bucket":"1","merge-engine":"first-row","file.format":"parquet",
+            "pk-vector.index.columns":"embedding","fields.embedding.pk-vector.index.type":"ivf-rq",
+            "fields.embedding.pk-vector.distance.metric":"l2","vector-index.search-mode":"full"},
+            "timeMillis":0})");
         TTableFormatFileDesc format;
         format.__set_table_format_type("paimon");
         format.__set_paimon_params(paimon);
@@ -154,246 +130,104 @@ protected:
         return options;
     }
 
-    Block make_block() const {
-        return Block(
-                {ColumnWithTypeAndName(
-                         make_nullable(std::make_shared<DataTypeInt32>())->create_column(),
-                         make_nullable(std::make_shared<DataTypeInt32>()), "id"),
-                 ColumnWithTypeAndName(make_nullable(std::make_shared<DataTypeArray>(make_nullable(
-                                                             std::make_shared<DataTypeFloat32>())))
-                                               ->create_column(),
-                                       make_nullable(std::make_shared<DataTypeArray>(
-                                               make_nullable(std::make_shared<DataTypeFloat32>()))),
-                                       "embedding"),
-                 ColumnWithTypeAndName(std::make_shared<DataTypeFloat32>()->create_column(),
-                                       std::make_shared<DataTypeFloat32>(), _distance_name)});
-    }
-
-    std::vector<std::pair<int64_t, float>> read_rows(PaimonRustTableReader& reader) {
-        std::vector<std::pair<int64_t, float>> result;
-        for (int batch = 0; batch <= kFixtureRows; ++batch) {
-            Block block = make_block();
-            bool eos = false;
-            auto status = reader.get_block(&block, &eos);
-            if (!status.ok()) {
-                ADD_FAILURE() << status;
-                return result;
-            }
-            for (size_t row = 0; row < block.rows(); ++row) {
-                Field id, vector, distance;
-                block.get_by_position(0).column->get(row, id);
-                block.get_by_position(1).column->get(row, vector);
-                block.get_by_position(2).column->get(row, distance);
-                EXPECT_FALSE(id.is_null());
-                EXPECT_FALSE(vector.is_null());
-                if (id.is_null() || vector.is_null()) {
-                    continue;
-                }
-                const auto& coordinates = vector.get<TYPE_ARRAY>();
-                EXPECT_EQ(2, coordinates.size());
-                if (coordinates.size() == 2) {
-                    EXPECT_FLOAT_EQ(static_cast<float>(id.get<TYPE_INT>()),
-                                    coordinates[0].get<TYPE_FLOAT>());
-                    EXPECT_FLOAT_EQ(0, coordinates[1].get<TYPE_FLOAT>());
-                }
-                result.emplace_back(id.get<TYPE_INT>(),
-                                    static_cast<float>(distance.get<TYPE_FLOAT>()));
-            }
-            if (eos) {
-                return result;
-            }
-        }
-        ADD_FAILURE() << "vector reader did not reach EOF";
-        return result;
-    }
-
-    std::shared_ptr<io::IOContext> _io_context = std::make_shared<io::IOContext>();
     std::unique_ptr<RuntimeState> _state;
-    std::filesystem::path _fixture;
     TFileScanRangeParams _params;
     std::string _distance_name;
 };
 
-TEST_F(PaimonRustVectorReaderTest, ExactReadMaterializesRowsAcrossCompactedFiles) {
+TEST_F(PaimonRustVectorReaderTest, FailedDecodeAndZeroLimitLeaveReaderReusable) {
     PaimonRustTableReader reader;
     ASSERT_TRUE(is_ok(init(reader)));
-    ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-    auto rows = read_rows(reader);
-    ASSERT_EQ(kFixtureRows, rows.size());
-    for (int64_t id = 0; id < kFixtureRows; ++id) {
-        EXPECT_EQ(id, rows[id].first);
-        EXPECT_FLOAT_EQ(static_cast<float>(id), rows[id].second);
-    }
-    EXPECT_TRUE(read_rows(reader).empty()); // EOF is stable on repeated calls.
-    EXPECT_TRUE(is_ok(reader.close()));
-}
-
-TEST_F(PaimonRustVectorReaderTest, TopKRejectsZeroAndLimitsPositiveRequests) {
-    PaimonRustTableReader reader;
-    ASSERT_TRUE(is_ok(init(reader)));
-    // The Rust SDK requires a positive limit. A zero limit must return an error and
-    // leave the reader reusable for a subsequent valid request.
-    set_request(false, TVectorMetric::L2, 0);
-    auto status = reader.prepare_split(split());
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(std::string::npos, status.to_string().find("limit must be positive")) << status;
-    ASSERT_TRUE(is_ok(reader.abort_split()));
-    for (int64_t top_k : {1, 2049}) {
-        SCOPED_TRACE(top_k);
-        set_request(false, TVectorMetric::L2, top_k);
-        ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-        auto rows = read_rows(reader);
-        const auto expected = std::min(top_k, kFixtureRows);
-        ASSERT_EQ(expected, rows.size());
-        for (int64_t id = 0; id < expected; ++id) {
-            EXPECT_EQ(id, rows[id].first);
-            EXPECT_FLOAT_EQ(static_cast<float>(id), rows[id].second);
-        }
-        EXPECT_TRUE(read_rows(reader).empty());
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        set_request(false, TVectorMetric::L2, 0);
+        auto status = reader.prepare_split(split());
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(std::string::npos, status.to_string().find("limit must be positive")) << status;
+        ASSERT_TRUE(is_ok(reader.abort_split()));
+        set_request(false, TVectorMetric::L2, 4);
+        status = reader.prepare_split(split());
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(std::string::npos, status.to_string().find("deserialize")) << status;
         ASSERT_TRUE(is_ok(reader.abort_split()));
     }
     EXPECT_TRUE(is_ok(reader.close()));
+    EXPECT_TRUE(is_ok(reader.close()));
 }
 
-TEST_F(PaimonRustVectorReaderTest, AdaptiveBatchSizePreservesRowsWhenReusingBlock) {
+TEST_F(PaimonRustVectorReaderTest, AbortAndCloseReleaseRetainedArrowBatch) {
     PaimonRustTableReader reader;
     ASSERT_TRUE(is_ok(init(reader)));
-    ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-    Block block = make_block();
-    const std::vector<size_t> caps {128, 1, 17, 97};
-    size_t total = 0;
-    bool eos = false;
-    // A retained Rust batch is sliced repeatedly as the scanner changes its cap. Reusing the
-    // output block must neither retain old rows nor convert an earlier distance a second time.
-    for (size_t batch = 0; batch <= kFixtureRows && !eos; ++batch) {
-        size_t cap = caps[batch % caps.size()];
-        reader.set_batch_size(cap);
-        ASSERT_TRUE(is_ok(reader.get_block(&block, &eos)));
-        ASSERT_LE(block.rows(), cap);
-        for (size_t row = 0; row < block.rows(); ++row) {
-            Field id, distance;
-            block.get_by_position(0).column->get(row, id);
-            block.get_by_position(2).column->get(row, distance);
-            EXPECT_EQ(total + row, id.get<TYPE_INT>());
-            EXPECT_FLOAT_EQ(static_cast<float>(total + row), distance.get<TYPE_FLOAT>());
-        }
-        total += block.rows();
-    }
-    EXPECT_TRUE(eos);
-    EXPECT_EQ(kFixtureRows, total);
-    EXPECT_TRUE(is_ok(reader.close()));
+    arrow::FloatBuilder builder;
+    ASSERT_TRUE(builder.AppendValues(std::vector<float>(8, 1.0F)).ok());
+    std::shared_ptr<arrow::Array> values;
+    ASSERT_TRUE(builder.Finish(&values).ok());
+    auto batch = arrow::RecordBatch::Make(arrow::schema({arrow::field("score", arrow::float32())}),
+                                          8, {values});
+    reader._pending_record_batch = batch;
+    reader._pending_record_batch_offset = 7;
+    reader._split_eof = true;
+    EXPECT_EQ(2, batch.use_count());
+    ASSERT_TRUE(is_ok(reader.abort_split()));
+    EXPECT_EQ(nullptr, reader._pending_record_batch);
+    EXPECT_EQ(0, reader._pending_record_batch_offset);
+    EXPECT_FALSE(reader._split_eof);
+    EXPECT_EQ(1, batch.use_count());
+    reader._pending_record_batch = batch;
+    ASSERT_TRUE(is_ok(reader.close()));
+    EXPECT_EQ(1, batch.use_count());
 }
 
-TEST_F(PaimonRustVectorReaderTest, SqlAndTvfMetricsRemainCorrectWhenReusingReader) {
-    // In each SQL/TVF mode, reuse the reader across metric/schema generations.
-    // A previous split's score transform must not leak into the next request.
-    for (bool tvf : {false, true}) {
-        PaimonRustTableReader reader;
-        set_request(tvf, TVectorMetric::L2, 4);
-        ASSERT_TRUE(is_ok(init(reader)));
-        for (auto metric : {TVectorMetric::L2, TVectorMetric::DOT_PRODUCT, TVectorMetric::L2}) {
-            set_request(tvf, metric, 4);
-            ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-            auto rows = read_rows(reader);
-            std::vector<int64_t> expected = metric == TVectorMetric::L2
-                                                    ? std::vector<int64_t> {0, 1, 2, 3}
-                                                    : std::vector<int64_t> {2047, 2046, 2045, 2044};
-            ASSERT_EQ(expected.size(), rows.size());
-            for (size_t i = 0; i < expected.size(); ++i) {
-                EXPECT_EQ(expected[i], rows[i].first);
-                float distance = static_cast<float>(expected[i]);
-                if (tvf) {
-                    distance = metric == TVectorMetric::L2 ? distance * distance : -distance;
-                }
-                EXPECT_FLOAT_EQ(distance, rows[i].second);
-            }
-            ASSERT_TRUE(is_ok(reader.abort_split()));
-        }
-        EXPECT_TRUE(is_ok(reader.close()));
-    }
+// Use the real comparison function so this checks typed partition-constant execution.
+VExprContextSPtr greater_than_filter(const std::string& name, int position, int value) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto bool_type = std::make_shared<DataTypeUInt8>();
+    TFunctionName function_name;
+    function_name.__set_function_name("gt");
+    TFunction function;
+    function.__set_name(function_name);
+    function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    function.__set_arg_types({int_type->to_thrift(), int_type->to_thrift()});
+    function.__set_ret_type(bool_type->to_thrift());
+    function.__set_has_var_args(false);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::BINARY_PRED);
+    node.__set_opcode(TExprOpcode::GT);
+    node.__set_type(bool_type->to_thrift());
+    node.__set_is_nullable(false);
+    node.__set_fn(function);
+    node.__set_num_children(2);
+    auto expr = VectorizedFnCall::create_shared(node);
+    expr->add_child(VSlotRef::create_shared(position, position, -1, int_type, name));
+    expr->add_child(VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(value)));
+    return VExprContext::create_shared(expr);
 }
 
-TEST_F(PaimonRustVectorReaderTest, RowRangesExcludeClosestRowsAndNullVectors) {
-    // Only the TVF contract skips NULL vectors; SQL nullability is guarded by FE.
-    _fixture /= "nullable";
-    set_request(true, TVectorMetric::L2, kFixtureRows + 1);
+TEST_F(PaimonRustVectorReaderTest, PartitionPrefilterEvaluatesConstantsAndPreservesDataFilters) {
     PaimonRustTableReader reader;
     ASSERT_TRUE(is_ok(init(reader)));
-    ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-    EXPECT_EQ(kFixtureRows - 1, read_rows(reader).size());
-    ASSERT_TRUE(is_ok(reader.abort_split()));
-    ASSERT_TRUE(is_ok(reader.prepare_split(split("ranges"))));
-    auto rows = read_rows(reader);
-    std::vector<int64_t> expected {4, 6, 1001, 1002, 1025, 1026, 2025, 2026};
-    ASSERT_EQ(expected.size(), rows.size());
-    for (size_t row = 0; row < expected.size(); ++row) {
-        EXPECT_EQ(expected[row], rows[row].first);
-        float value = static_cast<float>(expected[row]);
-        EXPECT_FLOAT_EQ(value * value, rows[row].second);
+    reader.TEST_set_projected_columns({{.identifier = Field::create_field<TYPE_STRING>("part"),
+                                        .name = "part",
+                                        .type = std::make_shared<DataTypeInt32>(),
+                                        .is_partition_key = true},
+                                       {.identifier = Field::create_field<TYPE_STRING>("id"),
+                                        .name = "id",
+                                        .type = std::make_shared<DataTypeInt32>()}});
+    auto data_filter = greater_than_filter("id", 1, 0);
+    for (int partition : {7, 11}) {
+        reader._split_eof = false;
+        reader.TEST_set_partition_values({{"part", Field::create_field<TYPE_INT>(partition)}});
+        VExprContextSPtrs filters {greater_than_filter("part", 0, 10), data_filter};
+        ASSERT_TRUE(is_ok(reader._prune_vector_partition_filters(&filters)));
+        EXPECT_EQ(partition == 7, reader._split_eof);
+        ASSERT_EQ(1, filters.size());
+        EXPECT_EQ(data_filter, filters[0]);
     }
-    ASSERT_TRUE(is_ok(reader.abort_split()));
-    ASSERT_TRUE(is_ok(reader.prepare_split(split("empty"))));
-    EXPECT_TRUE(read_rows(reader).empty());
-    EXPECT_TRUE(is_ok(reader.close()));
-}
-
-TEST_F(PaimonRustVectorReaderTest, FailedOpenDoesNotPoisonFollowingSplit) {
-    PaimonRustTableReader reader;
-    ASSERT_TRUE(is_ok(init(reader)));
-    auto truncated = split();
-    truncated.current_range.table_format_params.paimon_params.vector_payload.bytes.resize(4);
-    auto status = reader.prepare_split(truncated);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(std::string::npos, status.to_string().find("deserialize")) << status;
-    ASSERT_TRUE(is_ok(reader.abort_split()));
-    ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-    EXPECT_EQ(kFixtureRows, read_rows(reader).size());
-    ASSERT_TRUE(is_ok(reader.abort_split()));
-    status = reader.prepare_split(split("full", true));
-    EXPECT_FALSE(status.ok());
-    ASSERT_TRUE(is_ok(reader.abort_split()));
-    ASSERT_TRUE(is_ok(reader.abort_split()));
-    ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-    EXPECT_EQ(kFixtureRows, read_rows(reader).size());
-    EXPECT_TRUE(is_ok(reader.close()));
-    EXPECT_TRUE(is_ok(reader.close()));
-}
-
-TEST_F(PaimonRustVectorReaderTest, CancellationClosesStreamAndAllowsNextSplit) {
-    PaimonRustTableReader reader;
-    ASSERT_TRUE(is_ok(init(reader)));
-    ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-    _io_context->should_stop = true;
-    EXPECT_TRUE(read_rows(reader).empty());
-    EXPECT_TRUE(read_rows(reader).empty());
-    ASSERT_TRUE(is_ok(reader.abort_split()));
-    _io_context->should_stop = false;
-    ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-    EXPECT_EQ(kFixtureRows, read_rows(reader).size());
-    EXPECT_TRUE(is_ok(reader.close()));
-}
-
-TEST_F(PaimonRustVectorReaderTest, ScoreOnlyProjectionStillReturnsDistances) {
-    PaimonRustTableReader reader;
-    set_request(true, TVectorMetric::L2, 4);
-    ASSERT_TRUE(is_ok(init(reader, true)));
-    ASSERT_TRUE(is_ok(reader.prepare_split(split())));
-    std::vector<float> distances;
-    bool eos = false;
-    for (int batch = 0; batch <= kFixtureRows && !eos; ++batch) {
-        auto type = std::make_shared<DataTypeFloat32>();
-        Block block({ColumnWithTypeAndName(type->create_column(), type, "_distance")});
-        auto status = reader.get_block(&block, &eos);
-        ASSERT_TRUE(status.ok()) << status;
-        for (size_t row = 0; row < block.rows(); ++row) {
-            Field distance;
-            block.get_by_position(0).column->get(row, distance);
-            distances.push_back(static_cast<float>(distance.get<TYPE_FLOAT>()));
-        }
-    }
-    EXPECT_TRUE(eos);
-    EXPECT_EQ((std::vector<float> {0, 1, 4, 9}), distances);
-    EXPECT_TRUE(is_ok(reader.close()));
+    reader.TEST_set_partition_values({});
+    reader._split_eof = false;
+    VExprContextSPtrs filters {greater_than_filter("part", 0, 10)};
+    ASSERT_TRUE(is_ok(reader._prune_vector_partition_filters(&filters)));
+    EXPECT_EQ(1, filters.size());
+    EXPECT_FALSE(reader._split_eof);
 }
 
 TEST_F(PaimonRustVectorReaderTest, RejectsMalformedRequestsWithoutOpeningDataFiles) {
@@ -435,7 +269,7 @@ TEST_F(PaimonRustVectorReaderTest, RejectsMalformedRequestsWithoutOpeningDataFil
         SCOPED_TRACE(message);
         set_request(false, TVectorMetric::L2, 4);
         mutate(_params.external_search_request);
-        auto status = reader.prepare_split(split("full", true));
+        auto status = reader.prepare_split(split());
         EXPECT_FALSE(status.ok());
         EXPECT_NE(std::string::npos, status.to_string().find(message)) << status;
         ASSERT_TRUE(is_ok(reader.abort_split()));

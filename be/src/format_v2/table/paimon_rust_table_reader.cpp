@@ -42,6 +42,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/table/paimon_rust_predicate_converter.h"
 #include "runtime/descriptors.h"
@@ -153,6 +154,166 @@ std::string format_options(const std::map<std::string, std::string>& options) {
         out += kv.first;
     }
     return out;
+}
+
+std::vector<const char*> c_projection(const std::vector<std::string>& columns) {
+    std::vector<const char*> projection;
+    projection.reserve(columns.size() + 1);
+    for (const auto& column : columns) {
+        projection.push_back(column.c_str());
+    }
+    projection.push_back(nullptr);
+    return projection;
+}
+
+Status configure_vector_query(paimon_vector_search_builder* builder,
+                              const TExternalSearchRequest& request) {
+    const auto& vector = request.search_query.vector_search;
+    // 3a. Target vector column.
+    if (paimon_error* err =
+                paimon_vector_search_builder_with_vector_column(builder, vector.column.c_str())) {
+        return Status::InternalError("paimon-rust set vector column failed: {}",
+                                     consume_error(err));
+    }
+    // Decode the validated FLOAT32 little-endian wire vector.
+    const auto& search_vec = vector.query_vector;
+    const auto dimension = static_cast<size_t>(search_vec.dimension);
+    std::vector<float> query_vector(dimension);
+    const auto* bytes = search_vec.values.data();
+    for (size_t i = 0; i < dimension; ++i) {
+        query_vector[i] = std::bit_cast<float>(LittleEndian::Load32(
+                reinterpret_cast<const uint8_t*>(bytes + i * sizeof(uint32_t))));
+    }
+    if (paimon_error* err = paimon_vector_search_builder_with_query_vector(
+                builder, query_vector.data(), query_vector.size())) {
+        return Status::InternalError("paimon-rust set query vector failed: {}", consume_error(err));
+    }
+    // FE has folded the offset into the validated positive retrieval limit.
+    if (paimon_error* err = paimon_vector_search_builder_with_limit(
+                builder, static_cast<uintptr_t>(vector.top_k))) {
+        return Status::InternalError("paimon-rust set limit failed: {}", consume_error(err));
+    }
+    // 3d. Index/search options (refine_factor, ivf.nprobe, "<algo>.metric", ...).
+    if (request.__isset.paimon_options && request.paimon_options.__isset.options &&
+        !request.paimon_options.options.empty()) {
+        std::vector<paimon_option> c_search_options;
+        c_search_options.reserve(request.paimon_options.options.size());
+        for (const auto& kv : request.paimon_options.options) {
+            c_search_options.emplace_back(kv.first.c_str(), kv.second.c_str());
+        }
+        if (paimon_error* err = paimon_vector_search_builder_with_options(
+                    builder, c_search_options.data(), c_search_options.size())) {
+            return Status::InternalError("paimon-rust set search options failed: {}",
+                                         consume_error(err));
+        }
+    }
+    return Status::OK();
+}
+
+// TVF predicates arrive in tuple-slot order; the partition block uses projected-column order.
+Status map_vector_filter_slots(const VExprSPtr& expr,
+                               const std::unordered_map<std::string, size_t>& output_positions) {
+    if (expr->is_slot_ref()) {
+        auto* slot = assert_cast<VSlotRef*>(expr.get());
+        auto position = output_positions.find(slot->column_name());
+        if (position == output_positions.end()) {
+            position = output_positions.find(to_lower(slot->column_name()));
+        }
+        if (position == output_positions.end()) {
+            return Status::InvalidArgument("Paimon TVF prefilter column is not projected: {}",
+                                           slot->column_name());
+        }
+        slot->set_column_id(cast_set<int>(position->second));
+    }
+    for (const auto& child : expr->children()) {
+        RETURN_IF_ERROR(map_vector_filter_slots(child, output_positions));
+    }
+    return Status::OK();
+}
+
+Status apply_vector_filter(paimon_vector_search_builder* builder, paimon_table* table,
+                           const VExprContextSPtrs& search_filters,
+                           const std::vector<ColumnDefinition>& columns,
+                           const char* distance_column_name, bool require_complete) {
+    if (!search_filters.empty()) {
+        std::vector<std::string> names;
+        std::vector<DataTypePtr> types;
+        names.reserve(columns.size());
+        types.reserve(columns.size());
+        for (const auto& col : columns) {
+            if (col.is_partition_key || col.name == distance_column_name) {
+                continue;
+            }
+            names.push_back(col.name);
+            types.push_back(col.type);
+        }
+        PaimonRustPredicateConverter converter(names, types, table);
+        paimon_predicate* predicate = converter.build(search_filters);
+        if (require_complete && converter.converted_conjuncts() != search_filters.size()) {
+            if (predicate != nullptr) {
+                paimon_predicate_free(predicate);
+            }
+            return Status::NotSupported("Paimon TVF prefilter could not be fully converted");
+        }
+        if (predicate != nullptr) {
+            // with_filter consumes the predicate on every path.
+            if (paimon_error* err = paimon_vector_search_builder_with_filter(builder, predicate)) {
+                return Status::InternalError("paimon-rust set vector filter failed: {}",
+                                             consume_error(err));
+            }
+            LOG(INFO) << "paimon-rust vector search: applied residual filter";
+        }
+    }
+
+    return Status::OK();
+}
+
+// The eager API finishes search/refine/materialization before returning its independent
+// Arrow reader. All other vector handles can therefore remain local to this call.
+Status read_vector_bucket(paimon_vector_search_builder* builder, const std::string& split_bytes,
+                          rust_handles::record_batch_reader_ptr* output) {
+    paimon_result_bucket_vector_search_split split_result =
+            paimon_bucket_vector_search_split_deserialize(
+                    reinterpret_cast<const uint8_t*>(split_bytes.data()), split_bytes.size());
+    if (split_result.error != nullptr) {
+        return Status::InternalError("paimon-rust deserialize vector split failed: {}",
+                                     consume_error(split_result.error));
+    }
+    rust_handles::bucket_vector_search_split_ptr split(split_result.split);
+
+    paimon_result_vector_scan scan_result = paimon_vector_search_builder_new_scan(builder);
+    if (scan_result.error != nullptr) {
+        return Status::InternalError("paimon-rust new vector scan failed: {}",
+                                     consume_error(scan_result.error));
+    }
+    rust_handles::vector_scan_ptr scan(scan_result.scan);
+
+    paimon_result_vector_read read_result = paimon_vector_search_builder_new_read(builder);
+    if (read_result.error != nullptr) {
+        return Status::InternalError("paimon-rust new vector read failed: {}",
+                                     consume_error(read_result.error));
+    }
+    rust_handles::vector_read_ptr read(read_result.read);
+
+    // Must use plan_from_bucket_splits: it plans from the FE-assigned split,
+    // whereas paimon_vector_scan_plan / execute_read replan from the table and
+    // would ignore the split this scanner was given.
+    const paimon_bucket_vector_search_split* splits[] = {split.get()};
+    paimon_result_vector_plan plan_result =
+            paimon_vector_scan_plan_from_bucket_splits(scan.get(), splits, 1);
+    if (plan_result.error != nullptr) {
+        return Status::InternalError("paimon-rust build vector plan failed: {}",
+                                     consume_error(plan_result.error));
+    }
+    rust_handles::vector_plan_ptr plan(plan_result.plan);
+
+    paimon_result_record_batch_reader rdr_res = paimon_vector_read_read(read.get(), plan.get());
+    if (rdr_res.error != nullptr) {
+        return Status::InternalError("paimon-rust vector search read failed: {}",
+                                     consume_error(rdr_res.error));
+    }
+    output->reset(rdr_res.reader);
+    return Status::OK();
 }
 
 } // namespace
@@ -482,8 +643,9 @@ Status PaimonRustTableReader::_validate_external_search_request() const {
                 query_vector.values.size(), dimension, sizeof(float));
     }
     // top_k / offset
-    if (!vector.__isset.top_k || vector.top_k < 0) {
-        return Status::InvalidArgument("paimon-rust vector search top_k must be non-negative");
+    // The SDK requires a positive limit. Reject it before opening the table or decoding a bucket.
+    if (!vector.__isset.top_k || vector.top_k <= 0) {
+        return Status::InvalidArgument("paimon-rust vector search top_k limit must be positive");
     }
     if (!vector.__isset.offset || vector.offset < 0) {
         return Status::InvalidArgument("paimon-rust vector search offset must be non-negative");
@@ -600,12 +762,7 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
     // Partition keys are excluded: they are materialized from split metadata
     // (see _fill_non_arrow_columns), and paimon-rust does not emit them.
     auto read_columns = _build_read_columns();
-    std::vector<const char*> projection;
-    projection.reserve(read_columns.size() + 1);
-    for (const auto& col : read_columns) {
-        projection.push_back(col.c_str());
-    }
-    projection.push_back(nullptr);
+    auto projection = c_projection(read_columns);
     if (paimon_error* proj_err = paimon_read_builder_with_projection(_handles->read_builder.get(),
                                                                      projection.data())) {
         return Status::InternalError("paimon-rust set projection failed: {}",
@@ -633,6 +790,10 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
         return Status::OK();
     }
 
+    return _open_arrow_reader(num_splits);
+}
+
+Status PaimonRustTableReader::_open_arrow_reader(size_t num_splits) {
     // 6. Open the arrow stream over the plan.
     paimon_result_new_read read_res = paimon_read_builder_new_read(_handles->read_builder.get());
     if (read_res.error != nullptr) {
@@ -701,64 +862,13 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
     }
     rust_handles::vector_search_builder_ptr vb(vb_res.builder);
 
-    // 3a. Target vector column.
-    if (paimon_error* err =
-                paimon_vector_search_builder_with_vector_column(vb.get(), vector.column.c_str())) {
-        return Status::InternalError("paimon-rust set vector column failed: {}",
-                                     consume_error(err));
-    }
-    // 3b. Query vector. The wire form is a TSearchVector carrying a FLOAT32,
-    // little-endian binary blob; decode it into the f32 array the C API wants.
-    // v1 only supports FLOAT32 (paimon-rust's index backends operate on f32); any
-    // other element type was already rejected by validate. Dimension and
-    // byte-size were validated there too, so decode unchecked here.
-    const auto& search_vec = vector.query_vector;
-    const auto dimension = static_cast<size_t>(search_vec.dimension);
-    std::vector<float> query_vector(dimension);
-    const auto* bytes = search_vec.values.data();
-    for (size_t i = 0; i < dimension; ++i) {
-        query_vector[i] = std::bit_cast<float>(LittleEndian::Load32(
-                reinterpret_cast<const uint8_t*>(bytes + i * sizeof(uint32_t))));
-    }
-    if (paimon_error* err = paimon_vector_search_builder_with_query_vector(
-                vb.get(), query_vector.data(), query_vector.size())) {
-        return Status::InternalError("paimon-rust set query vector failed: {}", consume_error(err));
-    }
-    // 3c. Retrieval limit (user_limit + user_offset, folded on FE). A negative
-    // limit would wrap when cast to uintptr_t, so guard it.
-    if (vector.top_k < 0) {
-        return Status::InternalError("paimon-rust vector search limit is negative: {}",
-                                     vector.top_k);
-    }
-    if (paimon_error* err = paimon_vector_search_builder_with_limit(
-                vb.get(), static_cast<uintptr_t>(vector.top_k))) {
-        return Status::InternalError("paimon-rust set limit failed: {}", consume_error(err));
-    }
-    // 3d. Index/search options (refine_factor, ivf.nprobe, "<algo>.metric", ...).
-    if (request.__isset.paimon_options && request.paimon_options.__isset.options &&
-        !request.paimon_options.options.empty()) {
-        std::vector<paimon_option> c_search_options;
-        c_search_options.reserve(request.paimon_options.options.size());
-        for (const auto& kv : request.paimon_options.options) {
-            c_search_options.emplace_back(kv.first.c_str(), kv.second.c_str());
-        }
-        if (paimon_error* err = paimon_vector_search_builder_with_options(
-                    vb.get(), c_search_options.data(), c_search_options.size())) {
-            return Status::InternalError("paimon-rust set search options failed: {}",
-                                         consume_error(err));
-        }
-    }
+    RETURN_IF_ERROR(configure_vector_query(vb.get(), request));
     // 3e. Materialized user columns. The score field is always appended by
     // paimon-rust itself and must NOT be listed here. Empty projection = only the
     // score column (index-only scan). Log the user columns: an empty list is
     // legitimate, so it is logged as such rather than skipped.
     auto read_columns = _build_read_columns();
-    std::vector<const char*> projection;
-    projection.reserve(read_columns.size() + 1);
-    for (const auto& col : read_columns) {
-        projection.push_back(col.c_str());
-    }
-    projection.push_back(nullptr);
+    auto projection = c_projection(read_columns);
     LOG(INFO) << "paimon-rust vector search: projection=[" << join(read_columns, ", ") << "] ("
               << read_columns.size() << " column(s), distance column '" << _distance_column_name()
               << "' produced by the reader)";
@@ -768,111 +878,66 @@ Status PaimonRustTableReader::_open_vector_split_reader(const TFileRangeDesc& ra
                                      consume_error(err));
     }
 
-    // 3f. Optional residual scalar filter from the FE data-half push-down. The
-    // FE-side DV/merge-on-read interception is intentionally not done (see
-    // PushDownVectorTopNIntoPaimonScan): the Rust candidate search stage applies
-    // the filter together with deletion vectors, and a table shape Rust cannot
-    // handle correctly is Rust's responsibility to reject.
+    // FE admits only supported table modes and complete candidate predicates. A TVF
+    // contributes its explicit prefilter, while outer WHERE remains after global TopK.
     VExprContextSPtrs search_filters;
+    RETURN_IF_ERROR(_prepare_vector_filters(&search_filters));
+    if (_split_eof) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(apply_vector_filter(vb.get(), _handles->table.get(), search_filters,
+                                        _projected_columns, _distance_column_name(),
+                                        _is_tvf_search()));
+
+    return read_vector_bucket(vb.get(), split_bytes, &_handles->reader);
+}
+
+Status PaimonRustTableReader::_prepare_vector_filters(VExprContextSPtrs* filters) {
     if (_is_tvf_search()) {
         // A TVF's outer WHERE runs after candidate generation. Only its explicit prefilter
         // may enter the index; reusing scanner conjuncts here changes the relation's meaning.
-        if (request.paimon_options.__isset.prefilter) {
-            RETURN_IF_ERROR(
-                    VExpr::create_expr_trees(request.paimon_options.prefilter, search_filters));
+        if (_scan_params->external_search_request.paimon_options.__isset.prefilter) {
+            RETURN_IF_ERROR(VExpr::create_expr_trees(
+                    _scan_params->external_search_request.paimon_options.prefilter, *filters));
             RowDescriptor row_desc(_runtime_state->desc_tbl(), {_scan_params->dest_tuple_id});
-            for (auto& filter : search_filters) {
+            for (auto& filter : *filters) {
                 RETURN_IF_ERROR(filter->prepare(_runtime_state, row_desc));
+                RETURN_IF_ERROR(map_vector_filter_slots(filter->root(), _output_name_to_idx));
                 RETURN_IF_ERROR(filter->open(_runtime_state));
             }
+            RETURN_IF_ERROR(_prune_vector_partition_filters(filters));
         }
     } else {
-        search_filters = _conjuncts;
+        *filters = _conjuncts;
     }
-    if (!search_filters.empty()) {
-        std::vector<std::string> names;
-        std::vector<DataTypePtr> types;
-        names.reserve(_projected_columns.size());
-        types.reserve(_projected_columns.size());
-        for (const auto& col : _projected_columns) {
-            if (col.is_partition_key || col.name == _distance_column_name()) {
-                continue;
-            }
-            names.push_back(col.name);
-            types.push_back(col.type);
-        }
-        PaimonRustPredicateConverter converter(names, types, _handles->table.get());
-        paimon_predicate* predicate = converter.build(search_filters);
-        if (_is_tvf_search() && converter.converted_conjuncts() != search_filters.size()) {
-            if (predicate != nullptr) {
-                paimon_predicate_free(predicate);
-            }
-            return Status::NotSupported("Paimon TVF prefilter could not be fully converted");
-        }
-        if (predicate != nullptr) {
-            // with_filter consumes the predicate on every path.
-            if (paimon_error* err = paimon_vector_search_builder_with_filter(vb.get(), predicate)) {
-                return Status::InternalError("paimon-rust set vector filter failed: {}",
-                                             consume_error(err));
-            }
-            LOG(INFO) << "paimon-rust vector search: applied residual filter";
-        }
-    }
+    return Status::OK();
+}
 
-    // 4. Execute the search over the single FE-planned bucket split, via the
-    // eager Top-K chain (paimon-rust #822). Search, refine, local Top-K and
-    // materialization all happen in paimon_vector_read_read; the returned arrow
-    // stream is best-first and carries the __paimon_search_score column. The
-    // intermediate handles are locals: the migration contract (see
-    // doris-vector-search-api-migration.md) guarantees the record batch reader
-    // is independent once paimon_vector_read_read returns, so they are released
-    // when this function exits.
-    //
-    //   split:   the bytes only need to live until deserialize returns.
-    //   scan:    only needs to live until the plan is constructed.
-    //   builder: only needs to live until scan and read are created.
-    //   read/plan: only need to live until paimon_vector_read_read returns.
-    paimon_result_bucket_vector_search_split split_result =
-            paimon_bucket_vector_search_split_deserialize(
-                    reinterpret_cast<const uint8_t*>(split_bytes.data()), split_bytes.size());
-    if (split_result.error != nullptr) {
-        return Status::InternalError("paimon-rust deserialize vector split failed: {}",
-                                     consume_error(split_result.error));
+Status PaimonRustTableReader::_prune_vector_partition_filters(VExprContextSPtrs* filters) {
+    VExprContextSPtrs partition_filters;
+    VExprContextSPtrs data_filters;
+    bool safe_prefix = true;
+    for (const auto& filter : *filters) {
+        safe_prefix = safe_prefix && _is_safe_to_pre_execute(filter);
+        std::set<int> positions;
+        filter->root()->collect_slot_column_ids(positions);
+        const bool partition_only =
+                safe_prefix && !positions.empty() &&
+                std::ranges::all_of(positions, [&](int position) {
+                    if (position < 0 ||
+                        static_cast<size_t>(position) >= _projected_columns.size()) {
+                        return false;
+                    }
+                    const auto& column = _projected_columns[position];
+                    return column.is_partition_key &&
+                           find_partition_value(column, _partition_values) != nullptr;
+                });
+        (partition_only ? partition_filters : data_filters).push_back(filter);
     }
-    rust_handles::bucket_vector_search_split_ptr split(split_result.split);
-
-    paimon_result_vector_scan scan_result = paimon_vector_search_builder_new_scan(vb.get());
-    if (scan_result.error != nullptr) {
-        return Status::InternalError("paimon-rust new vector scan failed: {}",
-                                     consume_error(scan_result.error));
-    }
-    rust_handles::vector_scan_ptr scan(scan_result.scan);
-
-    paimon_result_vector_read read_result = paimon_vector_search_builder_new_read(vb.get());
-    if (read_result.error != nullptr) {
-        return Status::InternalError("paimon-rust new vector read failed: {}",
-                                     consume_error(read_result.error));
-    }
-    rust_handles::vector_read_ptr read(read_result.read);
-
-    // Must use plan_from_bucket_splits: it plans from the FE-assigned split,
-    // whereas paimon_vector_scan_plan / execute_read replan from the table and
-    // would ignore the split this scanner was given.
-    const paimon_bucket_vector_search_split* splits[] = {split.get()};
-    paimon_result_vector_plan plan_result =
-            paimon_vector_scan_plan_from_bucket_splits(scan.get(), splits, 1);
-    if (plan_result.error != nullptr) {
-        return Status::InternalError("paimon-rust build vector plan failed: {}",
-                                     consume_error(plan_result.error));
-    }
-    rust_handles::vector_plan_ptr plan(plan_result.plan);
-
-    paimon_result_record_batch_reader rdr_res = paimon_vector_read_read(read.get(), plan.get());
-    if (rdr_res.error != nullptr) {
-        return Status::InternalError("paimon-rust vector search read failed: {}",
-                                     consume_error(rdr_res.error));
-    }
-    _handles->reader.reset(rdr_res.reader);
+    // Partition fields are not emitted by the SDK. Evaluate them against this split's typed
+    // constants rather than dropping them from the strict native-conversion check.
+    RETURN_IF_ERROR(_evaluate_partition_prune_conjuncts(partition_filters, &_split_eof));
+    *filters = std::move(data_filters);
     return Status::OK();
 }
 
@@ -955,26 +1020,8 @@ void PaimonRustTableReader::_convert_score_to_distance(Block* block, uint32_t bl
             (*data)[i] = -score;
             continue;
         }
-        // score is in (0, 1] whenever d is finite and non-negative, and within that
-        // range the radicand is provably non-negative: a real value above 1 cannot
-        // round down to below 1.0F in f32, so 1/score >= 1. The useful range
-        // therefore never reaches either guard below -- they exist because the
-        // distances come straight out of the closed-source lumina kernel with no
-        // clamp, and computing the inverse on an illegal score would produce a
-        // non-finite distance (score <= 0 -> 1/score is inf; score > 1 -> negative
-        // radicand -> NaN), which makes the coordinator's Top-N comparisons
-        // ill-defined. Both emit kCorruptScoreDistance instead: +inf sorts last in
-        // an ASC Top-N, so these rows can never displace a valid closer row. A
-        // score of exactly 0 is REACHABLE from a genuine huge distance — the exact
-        // fallback (vector-index.search-mode=full) computes the squared L2 in f32,
-        // and norms above ~1.8e19 overflow to +inf, so 1/(1+d^2) rounds to 0;
-        // publishing a sentinel ahead of finite rows would invert the final TopN.
-        //
-        // A score slightly above 1 is NOT corruption: the kernel computes squared
-        // L2 as ||a||^2 + ||b||^2 - 2<a,b>, which can yield a small negative
-        // residual (catastrophic cancellation) when a ~= b -- a near-exact hit.
-        // Clamp those to distance 0; only scores past kScoreAboveOneTolerance are
-        // treated as genuinely corrupt.
+        // Zero can result from a huge finite vector overflowing squared L2. Values clearly
+        // outside (0,1] are invalid. A slight overshoot is cancellation at an exact hit.
         if (UNLIKELY(score <= 0.0F)) {
             LOG(WARNING) << "paimon-rust L2 score_to_distance: corrupt score " << score << " (row "
                          << i << ", expect score in (0, 1]), "
@@ -1082,8 +1129,6 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
     DORIS_CHECK(batch != nullptr);
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK_LE(start + rows, static_cast<size_t>(batch->num_rows()));
-    const auto arrow_start = static_cast<int64_t>(start);
-    const auto arrow_end = static_cast<int64_t>(start + rows);
     std::unordered_set<size_t> materialized_indices;
     materialized_indices.reserve(_projected_columns.size());
 
@@ -1092,13 +1137,13 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
     // the distance FE asked for (__paimon_search_score_to_dis) in place, after the
     // fill loop. Locate the output position up front: FE only adds the distance
     // column when it rewrote the query into a vector search (see
-    // PushDownVectorTopNIntoPaimonScan), so _score_transform being set implies the
+    // PushDownVectorTopNIntoFileScan), so _score_transform being set implies the
     // column is projected. Failing loudly here beats the alternative: the fill loop
     // would silently skip the lookup, leaving the column empty while every other
     // column holds `rows` -- an unattributable "sizes of columns don't match"
     // downstream.
     std::optional<size_t> distance_output_idx;
-    size_t distance_row_offset = 0;
+    size_t row_offset = 0;
     if (_score_transform.has_value()) {
         auto it = _output_name_to_idx.find(_distance_column_name());
         if (it == _output_name_to_idx.end()) {
@@ -1110,9 +1155,43 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
         distance_output_idx = it->second;
         // Must be read BEFORE the fill loop: read_column_from_arrow appends, and the
         // column may already hold converted rows from a previous batch of this split.
-        distance_row_offset = block->get_by_position(it->second).column->size();
+        row_offset = block->get_by_position(it->second).column->size();
     }
 
+    RETURN_IF_ERROR(_fill_arrow_columns(batch, block, start, rows, distance_output_idx,
+                                        materialized_indices));
+
+    if (distance_output_idx.has_value()) {
+        // Capture the offset before filling. Missing/renamed SDK score fields must fail
+        // rather than leave raw scores or an empty distance column in a well-formed result.
+        const size_t size_after = block->get_by_position(*distance_output_idx).column->size();
+        if (size_after != row_offset + rows) {
+            return Status::InternalError(
+                    "paimon-rust vector search: '{}' column grew from {} to {}, expected {} "
+                    "(batch has {} rows) -- either the row offset was captured after the fill "
+                    "loop, or the arrow batch is missing the '{}' field",
+                    _distance_column_name(), row_offset, size_after, row_offset + rows, rows,
+                    kPaimonRustScoreField);
+        }
+        _convert_score_to_distance(block, static_cast<uint32_t>(*distance_output_idx), row_offset,
+                                   rows, *_score_transform);
+    }
+    // Partition columns and other projected columns absent from the arrow batch
+    // are back-filled from split metadata / defaults.
+    RETURN_IF_ERROR(_fill_non_arrow_columns(block, rows, materialized_indices));
+    // This direct Arrow path bypasses TableReader::finalize_chunk, whose last
+    // step enforces truncate_char_or_varchar_columns — without it, a column
+    // narrowed by schema evolution returns untruncated historical values.
+    RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+    return Status::OK();
+}
+
+Status PaimonRustTableReader::_fill_arrow_columns(
+        const std::shared_ptr<arrow::RecordBatch>& batch, Block* block, size_t start, size_t rows,
+        std::optional<size_t> distance_output_idx,
+        std::unordered_set<size_t>& materialized_indices) {
+    const auto arrow_start = static_cast<int64_t>(start);
+    const auto arrow_end = static_cast<int64_t>(start + rows);
     {
         auto columns_guard = block->mutate_columns_scoped();
         auto& columns = columns_guard.mutable_columns();
@@ -1142,20 +1221,8 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
             }
             const auto output_idx = it->second;
             if (distance_output_idx.has_value() && output_idx == *distance_output_idx) {
-                // Check the Arrow width before the serde reinterprets the buffer. For
-                // numerics read_column_from_arrow does NOT validate the source type: it
-                // casts buffers[1] to the *destination* CppType and inserts `rows` of
-                // them. The destination is pinned to FLOAT by FE
-                // (PaimonVectorSearch.createDistanceColumn), so
-                //   - a wider field (Float64) yields `rows` garbage f32 values, each half
-                //     of a double's bits. The column still grows by exactly `rows`, so
-                //     the guard below passes and the query returns a wrongly-ordered
-                //     Top-K with no error anywhere.
-                //   - a narrower field (HALF_FLOAT) reads rows*4 bytes out of a
-                //     rows*2 byte buffer, i.e. past its end.
-                // paimon-rust builds this field as Float32 unconditionally
-                // (materialize_search_result), so this only fires if that changes --
-                // which is exactly when a loud failure beats either outcome above.
+                // Numeric Arrow deserialization reinterprets the source buffer as the destination
+                // type. A changed SDK score width must fail before that read.
                 if (batch->column(c)->type_id() != arrow::Type::FLOAT) {
                     return Status::InternalError(
                             "paimon-rust vector search: arrow field '{}' has type {}, expected "
@@ -1181,38 +1248,6 @@ Status PaimonRustTableReader::_fill_block_from_record_batch(
         }
     }
 
-    if (distance_output_idx.has_value()) {
-        // Guard the two assumptions _convert_score_to_distance depends on, both of
-        // which fail SILENTLY otherwise -- the block stays well-formed and the query
-        // returns a wrongly-ordered Top-K with no error anywhere:
-        //
-        //  - distance_row_offset was captured BEFORE the fill loop. If a refactor
-        //    moves that capture below the loop, the offset already includes this
-        //    batch, so `end = min(offset + rows, size)` collapses to `offset` and
-        //    the conversion loop runs zero times, leaving raw scores in the column.
-        //    Since a score is higher-is-better, an l2 ORDER BY then returns the LEAST
-        //    similar rows.
-        //  - the Arrow batch actually carried the score field. If paimon-rust renames
-        //    it, the fill loop's lookup misses and the column is never appended to.
-        const size_t size_after = block->get_by_position(*distance_output_idx).column->size();
-        if (size_after != distance_row_offset + rows) {
-            return Status::InternalError(
-                    "paimon-rust vector search: '{}' column grew from {} to {}, expected {} "
-                    "(batch has {} rows) -- either the row offset was captured after the fill "
-                    "loop, or the arrow batch is missing the '{}' field",
-                    _distance_column_name(), distance_row_offset, size_after,
-                    distance_row_offset + rows, rows, kPaimonRustScoreField);
-        }
-        _convert_score_to_distance(block, static_cast<uint32_t>(*distance_output_idx),
-                                   distance_row_offset, rows, *_score_transform);
-    }
-    // Partition columns and other projected columns absent from the arrow batch
-    // are back-filled from split metadata / defaults.
-    RETURN_IF_ERROR(_fill_non_arrow_columns(block, rows, materialized_indices));
-    // This direct Arrow path bypasses TableReader::finalize_chunk, whose last
-    // step enforces truncate_char_or_varchar_columns — without it, a column
-    // narrowed by schema evolution returns untruncated historical values.
-    RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
     return Status::OK();
 }
 
@@ -1383,7 +1418,7 @@ std::vector<std::string> PaimonRustTableReader::TEST_build_read_columns(
         const TFileRangeDesc& range) const {
     // _build_read_columns judges vector mode off _current_range; borrow it for the
     // test by reading the columns through the same member path.
-    TFileRangeDesc& current = const_cast<TFileRangeDesc&>(_current_range);
+    auto& current = const_cast<TFileRangeDesc&>(_current_range);
     TFileRangeDesc saved = current;
     current = range;
     std::vector<std::string> columns = _build_read_columns();

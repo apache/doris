@@ -117,7 +117,7 @@ final class PaimonRustReaderCapabilities {
         return schema.version() > TableSchema.PAIMON_07_VERSION;
     }
 
-    private static boolean hasRustCompatibleTimestamps(List<DataField> fields) {
+    static boolean hasRustCompatibleTimestamps(List<DataField> fields) {
         return fields.stream().allMatch(field -> hasRustCompatibleTimestamps(field.type()));
     }
 

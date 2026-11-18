@@ -33,6 +33,7 @@ import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
+import org.apache.paimon.types.VectorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -273,12 +274,14 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public void unpackArray(List<ColumnValue> values) {
-        InternalArray recordArray = record.getArray(idx);
+        boolean vector = dataType instanceof VectorType;
+        InternalArray recordArray = vector ? record.getVector(idx) : record.getArray(idx);
         if (arrayValues == null) {
             arrayValues = new ArrayList<>();
         }
         ColumnType elementDorisType = dorisType.getChildTypes().get(0);
-        DataType elementPaimonType = ((ArrayType) dataType).getElementType();
+        DataType elementPaimonType = vector ? ((VectorType) dataType).getElementType()
+                : ((ArrayType) dataType).getElementType();
         for (int i = 0; i < recordArray.size(); i++) {
             values.add(reuseColumnValue(arrayValues, i, (DataGetters) recordArray, i,
                     elementDorisType, elementPaimonType));

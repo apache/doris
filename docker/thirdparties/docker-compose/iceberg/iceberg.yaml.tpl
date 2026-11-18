@@ -35,8 +35,10 @@ services:
       - ./spark-defaults.conf:/opt/spark/conf/spark-defaults.conf
       - ./data/input/jars/iceberg-aws-bundle-1.10.1.jar:/opt/spark/jars/iceberg-aws-bundle-1.10.1.jar
       - ./data/input/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar:/opt/spark/jars/iceberg-spark-runtime-4.0_2.13-1.10.1.jar
-      - ./data/input/jars/paimon-s3-1.4.2.jar:/opt/spark/jars/paimon-s3-1.4.2.jar
-      - ./data/input/jars/paimon-spark-4.0_2.13-1.4.2.jar:/opt/spark/jars/paimon-spark-4.0_2.13-1.4.2.jar
+      - ./cache/paimon/paimon-s3-2.1.0.jar:/opt/spark/jars/paimon-s3-2.1.0.jar
+      - ./cache/paimon/paimon-spark-4.0_2.13-2.1.0.jar:/opt/spark/jars/paimon-spark-4.0_2.13-2.1.0.jar
+      - ./cache/paimon/paimon-vector-2.1.0.jar:/opt/spark/jars/paimon-vector-2.1.0.jar
+      - ./cache/paimon/paimon-vector-index-java-0.5.0.jar:/opt/spark/jars/paimon-vector-index-java-0.5.0.jar
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password

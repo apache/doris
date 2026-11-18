@@ -44,6 +44,7 @@ import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
+import org.apache.paimon.types.VectorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -185,6 +186,11 @@ public class PaimonTypeUtils {
         @Override
         public PaimonColumnType visit(MultisetType multisetType) {
             return this.defaultMethod(multisetType);
+        }
+
+        @Override
+        public PaimonColumnType visit(VectorType vectorType) {
+            return visit(new ArrayType(vectorType.getElementType()));
         }
 
         @Override
