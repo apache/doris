@@ -9,13 +9,16 @@ and [private RPC configuration](../../../docs/private-rpc-tls.md).
 ## Review-fix verification
 
 The review-fix candidate has a fresh FE package, 234 passing native ASAN tests
-in 14 suites, 145 passing FE tests across 21 selected classes and 3,242
+in 14 suites, 175 passing FE tests across 25 selected classes and 3,242
 reactor tests with zero failures/errors (including 2,394 connector
-cache/SPI/Iceberg tests, with 11 existing skips). FE Checkstyle, clang-format 16, header hygiene and scoped clang-tidy pass.
-The FE total combines the selected run and the corrected heartbeat schema test;
-the subsequent FE changes only reorder imports and rename a test method. Native
-static analysis combines the unchanged successful files with a recheck of the
-extracted per-file assertion helper.
+cache/SPI/Iceberg tests, with 11 existing skips). FE Checkstyle, clang-format 16,
+header hygiene and scoped clang-tidy pass.
+
+The refreshed FE run also covers plugin API loading, upstream path-partition
+keys, file formats and backend selection. It validates the combined connector
+SPI 35.0 after upstream 34.0, preserving both interface surfaces. Native static
+analysis checks every affected file against the PR's changed lines after the
+build has completed; independent files run in four workers.
 
 Real SDK tests reject all native write operations on encrypted targets, including
 concurrent encryption changes at transaction refresh/final CAS, and preserve
@@ -26,9 +29,11 @@ capability revocation without shortening the configured leader/follower liveness
 grace, followed by recovery.
 
 The opt-in `test_iceberg_encryption_native_read_guards` suite passes output
-generation and a normal replay, with eight generated result blocks. With both
-SQL cache settings enabled, a plaintext control reaches `PhysicalSqlCache` while
-encrypted COUNT/SUM remain ineligible. Same-endpoint mock KMS denial makes both
+generation and normal replay before the compatibility rebase, followed by a
+normal replay on the rebased candidate against the same eight generated result
+blocks. With both SQL cache settings enabled, a plaintext control reaches
+`PhysicalSqlCache` while encrypted COUNT/SUM remain ineligible. Same-endpoint mock
+KMS denial makes both
 encrypted queries fail twice; plaintext cache hits remain valid. Permission
 restoration recovers encrypted reads. Encrypted INSERT/OVERWRITE are rejected
 without changing the four existing rows, and plaintext INSERT adds the fifth row.
