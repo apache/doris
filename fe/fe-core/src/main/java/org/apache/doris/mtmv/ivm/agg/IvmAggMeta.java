@@ -20,9 +20,11 @@ package org.apache.doris.mtmv.ivm.agg;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Normalized aggregate MV metadata passed from IVM normalize to aggregate delta/apply rewrite.
@@ -36,13 +38,15 @@ public class IvmAggMeta {
     private final List<Slot> groupKeySlots;
     private final Slot groupCountSlot;
     private final List<IvmAggTarget> aggTargets;
+    private final Set<String> internalAggOutputNames;
 
     public IvmAggMeta(boolean scalarAgg, List<Slot> groupKeySlots,
-            Slot groupCountSlot, List<IvmAggTarget> aggTargets) {
+            Slot groupCountSlot, List<IvmAggTarget> aggTargets, Set<String> internalAggOutputNames) {
         this.scalarAgg = scalarAgg;
         this.groupKeySlots = ImmutableList.copyOf(groupKeySlots);
         this.groupCountSlot = Objects.requireNonNull(groupCountSlot);
         this.aggTargets = ImmutableList.copyOf(aggTargets);
+        this.internalAggOutputNames = ImmutableSet.copyOf(internalAggOutputNames);
     }
 
     /** True if this is a scalar aggregate (no GROUP BY). */
@@ -66,11 +70,20 @@ public class IvmAggMeta {
     }
 
     /**
+     * Aggregate output columns computed only to derive another state column. They stay in the
+     * normalized aggregate but are not part of the MV row.
+     */
+    public Set<String> getInternalAggOutputNames() {
+        return internalAggOutputNames;
+    }
+
+    /**
      * Returns a copy with the given aggregate targets, used by normalize to rebind targets to the
      * state columns it materialized for them after the aggregate output slots were resolved.
      */
     public IvmAggMeta withAggTargets(List<IvmAggTarget> newAggTargets) {
-        return new IvmAggMeta(scalarAgg, groupKeySlots, groupCountSlot, newAggTargets);
+        return new IvmAggMeta(scalarAgg, groupKeySlots, groupCountSlot, newAggTargets,
+                internalAggOutputNames);
     }
 
     @Override
