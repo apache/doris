@@ -1543,19 +1543,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public Partition getMaxVisiblePartition() {
         PartitionInfo partitionInfo = getPartitionInfo();
         PartitionType type = partitionInfo.getType();
-        // Cloud mode: prefetch all visible versions in one batch RPC so the loop below hits
-        // cache instead of firing N sequential meta-service RPCs under metadata locks.
+        Map<Long, Long> cloudVisibleVersions = Collections.emptyMap();
         if (Config.isCloudMode()) {
             try {
-                getVersionInBatchForCloudMode(nameToPartition.values().stream()
+                cloudVisibleVersions = getVersionInBatchForCloudMode(nameToPartition.values().stream()
                         .map(Partition::getId).collect(Collectors.toList()));
             } catch (RpcException e) {
-                LOG.warn("batch prefetch visible version failed, fallback to per-partition lookup", e);
+                LOG.warn("batch visible version lookup failed, fallback to per-partition lookup", e);
             }
         }
         if (type == PartitionType.UNPARTITIONED) {
             for (Partition partition : nameToPartition.values()) {
-                if (partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION) {
+                if (getPartitionVisibleVersion(partition, cloudVisibleVersions)
+                        > Partition.PARTITION_INIT_VERSION) {
                     return partition;
                 }
             }
@@ -1567,7 +1567,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         PartitionKey maxKey = null;
         Partition defaultFallback = null;
         for (Partition partition : nameToPartition.values()) {
-            if (partition.getVisibleVersion() <= Partition.PARTITION_INIT_VERSION) {
+            if (getPartitionVisibleVersion(partition, cloudVisibleVersions)
+                    <= Partition.PARTITION_INIT_VERSION) {
                 continue;
             }
             PartitionItem item = partitionInfo.getItem(partition.getId());
@@ -1584,6 +1585,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
         return result != null ? result : defaultFallback;
+    }
+
+    private long getPartitionVisibleVersion(Partition partition, Map<Long, Long> cloudVisibleVersions) {
+        Long visibleVersion = cloudVisibleVersions.get(partition.getId());
+        return visibleVersion == null ? partition.getVisibleVersion() : visibleVersion;
     }
 
     // Greatest partition key of an item: RANGE upper bound, or LIST max discrete key.
@@ -1672,16 +1678,23 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return partition;
     }
 
-    public void getVersionInBatchForCloudMode(Collection<Long> partitionIds) throws RpcException {
+    public Map<Long, Long> getVersionInBatchForCloudMode(Collection<Long> partitionIds) throws RpcException {
         if (Config.isNotCloudMode()) {
-            return;
+            return Collections.emptyMap();
         }
         List<CloudPartition> partitions = partitionIds.stream()
                 .sorted()
                 .map(this::getPartition)
                 .map(partition -> (CloudPartition) partition)
                 .collect(Collectors.toList());
-        CloudPartition.getSnapshotVisibleVersion(partitions);
+        List<Long> visibleVersions = CloudPartition.getSnapshotVisibleVersion(partitions);
+        Preconditions.checkState(partitions.size() == visibleVersions.size(),
+                "partition and visible version sizes do not match");
+        Map<Long, Long> partitionVisibleVersions = new HashMap<>(partitions.size());
+        for (int i = 0; i < partitions.size(); i++) {
+            partitionVisibleVersions.put(partitions.get(i).getId(), visibleVersions.get(i));
+        }
+        return partitionVisibleVersions;
     }
 
     // select the non-empty partition ids belonging to this table.

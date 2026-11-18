@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.VersionHelper;
@@ -57,6 +58,40 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class OlapTableTest {
+
+    @Test
+    public void testGetMaxVisiblePartitionUsesBatchVersionsWhenCloudCacheDisabled() throws Exception {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setSessionVariable(new SessionVariable());
+        context.getSessionVariable().cloudPartitionVersionCacheTtlMs = 0;
+        context.setThreadLocalInfo();
+
+        CloudPartition partition = Mockito.mock(CloudPartition.class);
+        Mockito.when(partition.getId()).thenReturn(10L);
+        Mockito.when(partition.getName()).thenReturn("p1");
+        OlapTable table = new OlapTable(1L, "tbl", Lists.newArrayList(), KeysType.DUP_KEYS,
+                new SinglePartitionInfo(), new RandomDistributionInfo(1));
+        table.addPartition(partition);
+
+        try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<CloudPartition> mockedPartition = Mockito.mockStatic(CloudPartition.class)) {
+            mockedConfig.when(Config::isCloudMode).thenReturn(true);
+            mockedConfig.when(Config::isNotCloudMode).thenReturn(false);
+            mockedPartition.when(() -> CloudPartition.getSnapshotVisibleVersion(List.of(partition)))
+                    .thenReturn(List.of(2L));
+
+            Assertions.assertSame(partition, table.getMaxVisiblePartition());
+            mockedPartition.verify(() -> CloudPartition.getSnapshotVisibleVersion(List.of(partition)));
+            Mockito.verify(partition, Mockito.never()).getVisibleVersion();
+        } finally {
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
 
     @Test
     public void testPartitionFormatChangeDoesNotChangeLogicalSchemaVersion() {
