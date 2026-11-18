@@ -2752,6 +2752,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     && PropertyAnalyzer.defaultVariantEscapeDotsInKeys(baseSchema)) {
                 // The activation switch selects the storage default for new Variant tables; an
                 // explicit property, including false, always wins.
+                PropertyAnalyzer.requireVariantV2ForDefaultEscape();
                 properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
             }
             olapTable.setVariantEscapeDotsInKeys(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));

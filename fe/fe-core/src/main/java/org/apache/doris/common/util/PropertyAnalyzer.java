@@ -2261,6 +2261,19 @@ public class PropertyAnalyzer {
         requireVariantEscapeStorageSupport(escaped);
     }
 
+    /**
+     * The creation default follows the activation switch, so its V2 failure must name the switch
+     * instead of the property the user never wrote.
+     */
+    public static void requireVariantV2ForDefaultEscape() throws AnalysisException {
+        if (!Config.enable_variant_v2) {
+            throw new AnalysisException("Variant tables default to escaped storage because "
+                    + "enable_variant_escape_dots_in_keys is enabled, but that requires "
+                    + "enable_variant_v2=true; either enable enable_variant_v2, or set "
+                    + "variant_escape_dots_in_keys=false explicitly to keep legacy storage");
+        }
+    }
+
     /** Physical restore needs storage-format support, independently of query execution types. */
     public static void requireVariantEscapeStorageSupport(boolean escaped) throws AnalysisException {
         if (escaped && !Config.enable_variant_escape_dots_in_keys) {

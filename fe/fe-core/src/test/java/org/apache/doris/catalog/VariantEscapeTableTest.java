@@ -195,6 +195,17 @@ public class VariantEscapeTableTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreationDefaultExplainsMissingV2() throws Exception {
+        org.apache.doris.common.Config.enable_variant_v2 = false;
+        Exception error = Assertions.assertThrows(Exception.class, () -> createTable(
+                "CREATE TABLE default_message(k INT, v VARIANT) DUPLICATE KEY(k) "
+                        + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')"));
+        // The user never wrote the property: name the switch and the opt-out, not the property.
+        Assertions.assertTrue(error.getMessage().contains("default to escaped storage"), error.getMessage());
+        Assertions.assertTrue(error.getMessage().contains("variant_escape_dots_in_keys=false"), error.getMessage());
+    }
+
+    @Test
     public void testColumnSyntaxAndAlterAreRejected() throws Exception {
         for (String value : new String[] {"true", "false"}) {
             Exception error = Assertions.assertThrows(Exception.class, () -> new NereidsParser().parseSingle(
