@@ -21,3 +21,6 @@
 
 -- !rust_filter --
 3	13.0	\N
+
+-- !lowercase_physical_predicate --
+32	42	4010	64832

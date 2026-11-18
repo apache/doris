@@ -17,6 +17,10 @@
 -- !partition_data_prefilter --
 1	2026-01-01	2026-01-01	8	8
 
+-- !nullable_partition_sources --
+all_null	8
+mixed	5
+
 -- !deleted_source --
 0
 
