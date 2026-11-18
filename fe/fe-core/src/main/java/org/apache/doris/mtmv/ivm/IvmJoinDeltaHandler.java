@@ -87,7 +87,7 @@ import java.util.Set;
  * <tr><td>Pure deterministic equality</td><td>Unproven</td>
  *     <td>Probe A with detail and pre/post ANTI events</td>
  *     <td>Outer detail + probe A with pre/post ANTI events</td></tr>
- * <tr><td>Deterministic equality with residual; exact scalar A inputs</td><td>Proven unique</td>
+ * <tr><td>Deterministic equality with residual; repeatable A with exact scalar ON inputs</td><td>Proven unique</td>
  *     <td>Inner detail + signed repair per A predicate tuple</td>
  *     <td>Outer detail + signed repair per A predicate tuple</td></tr>
  * <tr><td>Other conditions</td><td>No applicable proof</td>
@@ -255,7 +255,8 @@ class IvmJoinDeltaHandler {
             Set<Slot> retainedInputs = deltaContext.isDeltaOnLeft
                     ? join.getRightConditionSlot() : join.getLeftConditionSlot();
             if (hasUniqueNullSideKeys(deltaContext, equiJoinKeys)
-                    && retainedInputs.stream().allMatch(slot -> isExactRepairKey(slot.getDataType()))) {
+                    && retainedInputs.stream().allMatch(slot -> isExactRepairKey(slot.getDataType()))
+                    && isRepeatableRetainedInput(deltaContext)) {
                 return combineWithJoinedRows(deltaContext,
                         ImmutableList.of(buildMatchedTupleRepair(deltaContext, retainedInputs)));
             }
@@ -298,6 +299,14 @@ class IvmJoinDeltaHandler {
                         helper.findSlotByName(newJoin.getOutput(), Column.IVM_DML_FACTOR_COL),
                         helper.findSlotByName(newJoin.getOutput(), Column.SEQUENCE_COL),
                         deltaContext.deltaSideResult().maxDeltaIndex), slotMapping).plan;
+    }
+
+    private boolean isRepeatableRetainedInput(NullSideDeltaContext context) {
+        // ON may reference an alias such as UUID() AS tag. Its slot looks deterministic, but the
+        // match aggregate and the payload lookup evaluate the retained subtree independently.
+        Plan retained = context.isDeltaOnLeft ? context.join.right() : context.join.left();
+        return !retained.anyMatch(node -> ((Plan) node).getExpressions().stream()
+                .anyMatch(Expression::containsNondeterministic));
     }
 
     // Group equality must preserve everything a deterministic ON expression can observe. In

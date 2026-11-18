@@ -41,7 +41,9 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -550,6 +552,25 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(top,
                 newRefreshContext(top, deterministicRewriteResult(top)));
         Assertions.assertEquals(3, findOnlyUnion(result.plan).arity());
+    }
+
+    @Test
+    void testResidualOnVolatileRetainedAliasKeepsSnapshotRepair() {
+        Plan scan = rowIdProject(buildSnapshotScanForTable(1301, "volatile_retained"));
+        Alias tag = new Alias(new Uuid(), "tag");
+        Plan left = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                .addAll(scan.getOutput()).add(tag).build(), scan);
+        Plan right = rowIdProject(buildUniqueScan(1302, "volatile_unique_delta", false));
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(new EqualTo(firstUserSlot(left), firstUserSlot(right))),
+                ImmutableList.of(new GreaterThan(new Length(tag.toSlot()), firstUserSlot(right))),
+                left, right, JoinReorderContext.EMPTY);
+        LogicalProject<Plan> top = normalizedJoinProject(join);
+        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(top,
+                newRefreshContext(top, deterministicRewriteResult(top)));
+        Assertions.assertEquals(3, findOnlyUnion(result.plan).arity());
+        Assertions.assertEquals(2, result.plan.collectToList(node -> node instanceof LogicalJoin
+                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).size());
     }
 
     @Test
