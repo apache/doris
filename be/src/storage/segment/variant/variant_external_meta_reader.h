@@ -20,6 +20,8 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
 
 #include "common/status.h"
@@ -92,8 +94,9 @@ private:
     //   root_col_id + 1 + key_ordinal
     uint32_t _root_col_id = 0;
 
-    // call-once guard for bulk loading
-    DorisCallOnce<Status> _load_once_call;
+    // Serializes bulk loads, including replacement of the guard after a retryable failure.
+    std::mutex _load_mutex;
+    std::optional<DorisCallOnce<Status>> _load_once_call {std::in_place};
 };
 
 } // namespace doris::segment_v2

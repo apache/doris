@@ -233,10 +233,14 @@ Status VariantExternalMetaReader::load_all_once(SubcolumnColumnMetaInfo* out_met
                                                 OlapReaderStatistics* stats,
                                                 const io::IOContext* source_io_ctx) {
     DCHECK(available());
-    // A retry can reuse paths already merged by load_all.
-    return _load_once_call.call(
-            [&] { return load_all(out_meta_tree, out_stats, stats, source_io_ctx); },
-            [](const Status& status) { return status.is<ErrorCode::MEM_LIMIT_EXCEEDED>(); });
+    std::lock_guard lock(_load_mutex);
+    Status status = _load_once_call->call(
+            [&] { return load_all(out_meta_tree, out_stats, stats, source_io_ctx); });
+    if (status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+        // The next call retries the read and skips paths that were already merged.
+        _load_once_call.emplace();
+    }
+    return status;
 }
 
 } // namespace doris::segment_v2
