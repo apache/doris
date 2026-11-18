@@ -584,8 +584,8 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testFullOuterJoinLeftDeltaUsesLeftOuterJoinAndRepairsRightDanglingRows() {
-        LogicalOlapScan leftDelta = buildScanForTable(1, "t1");
-        LogicalOlapScan rightSnapshot = buildSnapshotScanForTable(2, "t2");
+        LogicalOlapScan leftDelta = buildScanForTable(1271, "full_left_delta");
+        LogicalOlapScan rightSnapshot = buildSnapshotScanForTable(1272, "full_right_snapshot");
         NormalizedOuterJoinPlan bundle = normalizedFullOuterJoin(rowIdProject(leftDelta), rowIdProject(rightSnapshot));
 
         TestableIvmJoinDeltaHandler handler = new TestableIvmJoinDeltaHandler();
@@ -596,11 +596,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalProject<?> joinOutputProject = (LogicalProject<?>) ((LogicalProject<?>) result.plan).child();
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
         LogicalUnion union = (LogicalUnion) joinOutputProject.child();
-        Assertions.assertEquals(3, union.children().size());
-        Assertions.assertTrue(union.child(0).collectToList(node -> node instanceof LogicalJoin
-                        && ((LogicalJoin<?, ?>) node).getJoinType().isOuterJoin()).size() >= 1);
-        assertLeftNullSideRowId((LogicalProject<?>) union.child(1), bundle.leftOutputSize, (byte) -1);
-        assertLeftNullSideRowId((LogicalProject<?>) union.child(2), bundle.leftOutputSize, (byte) 1);
+        assertFullOuterDetailAndRepair(union, JoinType.LEFT_OUTER_JOIN, 2);
         assertUnionChildrenAlign(union);
         assertNoDuplicateScanRelationIds(result.plan);
     }
@@ -619,12 +615,33 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalProject<?> joinOutputProject = (LogicalProject<?>) ((LogicalProject<?>) result.plan).child();
         Assertions.assertInstanceOf(LogicalUnion.class, joinOutputProject.child());
         LogicalUnion union = (LogicalUnion) joinOutputProject.child();
-        Assertions.assertEquals(3, union.children().size());
-        assertProjectedJoinBranch(union.child(0), JoinType.RIGHT_OUTER_JOIN);
-        assertRightNullSideRowId((LogicalProject<?>) union.child(1), bundle.leftOutputSize, (byte) -1);
-        assertRightNullSideRowId((LogicalProject<?>) union.child(2), bundle.leftOutputSize, (byte) 1);
+        assertFullOuterDetailAndRepair(union, JoinType.RIGHT_OUTER_JOIN, 2);
         assertUnionChildrenAlign(union);
         assertNoDuplicateScanRelationIds(result.plan);
+    }
+
+    @Test
+    void testFullOuterUniqueDeltaUsesOneNetRepair() {
+        for (boolean leftDelta : ImmutableList.of(true, false)) {
+            Plan delta = rowIdProject(buildUniqueScan(1262, "full_unique_delta", false));
+            Plan snapshot = rowIdProject(buildSnapshotScanForTable(1261, "full_retained"));
+            NormalizedOuterJoinPlan bundle = leftDelta ? normalizedFullOuterJoin(delta, snapshot)
+                    : normalizedFullOuterJoin(snapshot, delta);
+            IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(bundle.topProject,
+                    newRefreshContext(bundle.topProject, bundle.rewriteResult));
+            LogicalUnion union = findOnlyUnion(result.plan);
+            assertFullOuterDetailAndRepair(union, leftDelta ? JoinType.LEFT_OUTER_JOIN : JoinType.RIGHT_OUTER_JOIN, 0);
+            Assertions.assertEquals(1, union.child(1).collectToList(node -> node instanceof LogicalAggregate).size());
+            assertNoDuplicateScanRelationIds(result.plan);
+        }
+    }
+
+    private void assertFullOuterDetailAndRepair(LogicalUnion union, JoinType detailType, int expectedAntiJoins) {
+        Assertions.assertEquals(2, union.children().size());
+        assertProjectedJoinBranch(union.child(0), detailType);
+        assertProjectedJoinBranch(union.child(1), JoinType.INNER_JOIN);
+        Assertions.assertEquals(expectedAntiJoins, union.child(1).collectToList(node -> node instanceof LogicalJoin
+                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).size());
     }
 
     @Test

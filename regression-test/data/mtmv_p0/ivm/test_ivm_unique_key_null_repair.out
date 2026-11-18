@@ -15,6 +15,8 @@
 
 -- !order_baseline_difference_3 --
 
+-- !order_baseline_difference_4 --
+
 -- !order_first_match_values --
 1	1	10	first	20	2
 2	1	20	second	5	1
@@ -30,6 +32,8 @@
 -- !order_first_match_difference_2 --
 
 -- !order_first_match_difference_3 --
+
+-- !order_first_match_difference_4 --
 
 -- !order_same_key_updates_values --
 1	1	10	first	45	2
@@ -47,6 +51,8 @@
 
 -- !order_same_key_updates_difference_3 --
 
+-- !order_same_key_updates_difference_4 --
+
 -- !order_residual_loses_match_values --
 1	1	10	first	10	2
 2	1	20	second	5	1
@@ -62,6 +68,8 @@
 -- !order_residual_loses_match_difference_2 --
 
 -- !order_residual_loses_match_difference_3 --
+
+-- !order_residual_loses_match_difference_4 --
 
 -- !order_last_match_values --
 1	1	10	first	10	2
@@ -79,6 +87,8 @@
 
 -- !order_last_match_difference_3 --
 
+-- !order_last_match_difference_4 --
+
 -- !order_null_payload_match_values --
 1	1	10	first	10	2
 2	1	20	second	\N	1
@@ -94,6 +104,8 @@
 -- !order_null_payload_match_difference_2 --
 
 -- !order_null_payload_match_difference_3 --
+
+-- !order_null_payload_match_difference_4 --
 
 -- !order_key_migration_and_both_sides_values --
 1	1	10	first	\N	\N
@@ -112,6 +124,8 @@
 
 -- !order_key_migration_and_both_sides_difference_3 --
 
+-- !order_key_migration_and_both_sides_difference_4 --
+
 -- !order_batch_cancellation_values --
 1	1	10	first	\N	\N
 2	1	20	second	\N	1
@@ -128,4 +142,6 @@
 -- !order_batch_cancellation_difference_2 --
 
 -- !order_batch_cancellation_difference_3 --
+
+-- !order_batch_cancellation_difference_4 --
 

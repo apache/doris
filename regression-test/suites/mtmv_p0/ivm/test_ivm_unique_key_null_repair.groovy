@@ -24,7 +24,8 @@ suite("test_ivm_unique_key_null_repair") {
     sql "SET enable_dml_materialized_view_rewrite = false"
 
     def downstream = ["ivm_unique_repair_left", "ivm_unique_repair_right",
-                      "ivm_unique_repair_partial_key", "ivm_unique_repair_residual"]
+                      "ivm_unique_repair_partial_key", "ivm_unique_repair_residual",
+                      "ivm_unique_repair_full"]
     downstream.each { sql "DROP MATERIALIZED VIEW IF EXISTS ${it}" }
     sql "DROP MATERIALIZED VIEW IF EXISTS ivm_unique_repair_groups"
     sql "DROP TABLE IF EXISTS ivm_unique_repair_contacts"
@@ -116,19 +117,24 @@ suite("test_ivm_unique_key_null_repair") {
         // organisationid alone is not unique: a net positive change can be 1->2, not 0->1.
         (downstream[2]): 'a.organisationid = b.organisationid',
         // A value update may change matching despite an unchanged number of L1 rows.
-        (downstream[3]): "${fullKey} AND b.total > a.threshold_value"
+        (downstream[3]): "${fullKey} AND b.total > a.threshold_value",
+        (downstream[4]): fullKey
     ]
+    def fromClause = { mv, groups ->
+        if (mv == downstream[1]) {
+            return "${groups} b RIGHT JOIN ivm_unique_repair_contacts a"
+        }
+        def joinType = mv == downstream[4] ? 'FULL OUTER JOIN' : 'LEFT JOIN'
+        return "ivm_unique_repair_contacts a ${joinType} ${groups} b"
+    }
     downstream.each { mv ->
-        def from = mv == downstream[1]
-                ? 'ivm_unique_repair_groups b RIGHT JOIN ivm_unique_repair_contacts a'
-                : 'ivm_unique_repair_contacts a LEFT JOIN ivm_unique_repair_groups b'
         sql """
             CREATE MATERIALIZED VIEW ${mv}
             BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL
             DISTRIBUTED BY RANDOM BUCKETS 1
             PROPERTIES ("replication_num" = "1")
             AS SELECT a.id, a.organisationid, a.contactid, a.label, b.total, b.cnt
-            FROM ${from} ON ${conditions[mv]}
+            FROM ${fromClause(mv, "ivm_unique_repair_groups")} ON ${conditions[mv]}
         """
         refresh(mv, 'COMPLETE')
     }
@@ -148,7 +154,7 @@ suite("test_ivm_unique_key_null_repair") {
                     SELECT ${columns}, 1 AS weight FROM ${mv}
                     UNION ALL
                     SELECT a.id, a.organisationid, a.contactid, a.label, b.total, b.cnt, -1 AS weight
-                    FROM ivm_unique_repair_contacts a LEFT JOIN ${fullGroups} b
+                    FROM ${fromClause(mv, fullGroups)}
                       ON ${conditions[mv]}
                 ) differences
                 GROUP BY ${columns}

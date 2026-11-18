@@ -220,13 +220,12 @@ class IvmJoinDeltaHandler {
      * Delta from the null side may change both joined rows and null-side rows.
      *
      * <p>LEFT/RIGHT OUTER JOIN null-side delta can use the optimized event path for pure deterministic equality
-     * predicates. FULL OUTER JOIN uses the general three-branch path because the first branch must also keep
-     * unmatched delta-side rows with LEFT/RIGHT OUTER JOIN.
+     * predicates. FULL OUTER JOIN keeps unmatched delta rows in a separate outer-join branch
+     * and probes only the repair events.
      */
     private IvmDeltaRewriteResult rewriteNullSideDelta(NullSideDeltaContext deltaContext) {
         LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
-        boolean isFullOuterJoin = join.getJoinType().isFullOuterJoin();
-        EquiJoinKeys equiJoinKeys = isFullOuterJoin ? null : extractEquiJoinKeys(join);
+        EquiJoinKeys equiJoinKeys = extractEquiJoinKeys(join);
         if (equiJoinKeys != null) {
             return rewriteNullSideDeltaWithNullSideEvents(deltaContext, equiJoinKeys);
         } else {
@@ -353,54 +352,12 @@ class IvmJoinDeltaHandler {
     private IvmDeltaRewriteResult rewriteNullSideDeltaWithNullSideEvents(
             NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys) {
         LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
-        // Null-side delta for equi outer join can be reduced to one probe:
-        //   retained_snapshot INNER JOIN null_side_events
-        //
-        // The important point is that null_side_events is not just "null_side_delta with
-        // another name". It encodes every MV row change caused by the null side
-        // into rows that can be joined by key with the retained-side snapshot.
-        // After that encoding, retained_snapshot does not need to know whether an event
-        // is a real null-side row change or a NULL-row repair; it only probes once by
-        // the event key and projects the event payload.
-        //
-        // null_side_events has three parts:
-        //   1. Detail null-side delta rows:
-        //        null_side_delta
-        //      These rows keep the original null-side outputs and null-side delta dml_factor,
-        //      so the final join emits normal joined row changes.
-        //
-        //   2. Remove old null-side rows when null-side inserts create the first match:
-        //        affected null_side_insert_delta keys LEFT ANTI JOIN null_side_pre_snapshot
-        //      For those keys, the old MV contained one row with null-side columns filled
-        //      as NULL. The event carries the join keys, sets null-side outputs to NULL,
-        //      and uses dml_factor = -1.
-        //
-        //   3. Add new null-side rows when null-side deletes remove the last match:
-        //        affected null_side_delete_delta keys LEFT ANTI JOIN null_side_post_snapshot
-        //      For those keys, the new MV needs one null-side row. The event carries
-        //      the join keys, sets null-side outputs to NULL, and uses dml_factor = +1.
-        //
-        // When the null-side equality slots cover a proven unique key, the two existence checks above can
-        // instead be replaced by one signed key aggregate: pre/post counts are each 0 or 1, so the NULL-row
-        // change is -SUM(dml_factor). No null-side snapshot is needed to generate those repair events.
-        //
-        // By merging the bare join and NULL-row repair rows into null_side_events, the
-        // retained-side snapshot is scanned/probed once instead of three times.
-        //
-        // This requires pure deterministic equi keys. Expressions like
-        //   f(left_slots) = g(right_slots)
-        // are supported, because the null-side event relation can materialize
-        // the null-side key as event_key and the final probe can evaluate
-        // the retained-side key against event_key. Conditions such as
-        //   left.k = right.k AND left.v > right.v
-        // are not supported here, because the null side alone cannot decide which
-        // retained-side rows are affected by the non-hash predicate. Such joins fall back to
-        // the three repair branches. Unique functions such as random()/uuid() are
-        // also rejected before this path, because recomputing them in different
-        // event branches would produce unstable keys.
+        // A one-sided outer join probes detail and repair events together. FULL must also emit
+        // unmatched delta rows, so its detail branch uses an outer join and only repairs use this probe.
+        boolean fullOuter = join.getJoinType().isFullOuterJoin();
         List<Slot> targetOutputs = buildOuterDeltaOutputs(deltaContext);
         Pair<Plan, Map<Slot, Slot>> retainedSnapshot = freshSideInput(deltaContext.nonDeltaSideInput());
-        NullSideEventPlan nullSideEvents = buildNullSideEventPlan(deltaContext, equiJoinKeys);
+        NullSideEventPlan nullSideEvents = buildNullSideEventPlan(deltaContext, equiJoinKeys, fullOuter);
 
         // Join retained rows with the event relation by the extracted equality keys. A detail event produces a
         // normal joined-row change; a repair event produces the same retained row with null-side payloads set to NULL.
@@ -417,7 +374,12 @@ class IvmJoinDeltaHandler {
                 retainedSnapshot.first, nullSideEvents.plan, JoinReorderContext.EMPTY);
         LogicalProject<Plan> outputProject = projectEventJoinOutputs(targetOutputs,
                 eventJoin, retainedSnapshot.second, nullSideEvents.nullSideOutputMapping,
-                nullSideEvents.dmlFactorSlot, nullSideEvents.sequenceSlot);
+                nullSideEvents.dmlFactorSlot, nullSideEvents.sequenceSlot, fullOuter);
+        if (fullOuter) {
+            Plan detail = rewriteNullSideJoinedRowsDelta(deltaContext);
+            LogicalUnion union = helper.buildUnionAll(ImmutableList.of(detail, outputProject));
+            outputProject = helper.projectUnionOutputs(union, targetOutputs);
+        }
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequence = findSlotByName(outputProject.getOutput(), Column.SEQUENCE_COL);
         return new IvmDeltaRewriteResult(outputProject, dmlFactor, sequence,
@@ -521,9 +483,11 @@ class IvmJoinDeltaHandler {
      * retained snapshot after probing by the event keys.
      */
     private NullSideEventPlan buildNullSideEventPlan(
-            NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys) {
+            NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys, boolean repairsOnly) {
         ImmutableList.Builder<Plan> events = ImmutableList.builder();
-        events.add(buildNullSideDetailEvent(deltaContext, equiJoinKeys));
+        if (!repairsOnly) {
+            events.add(buildNullSideDetailEvent(deltaContext, equiJoinKeys));
+        }
         if (hasUniqueNullSideKeys(deltaContext, equiJoinKeys)) {
             events.add(buildUniqueKeyRepairEvent(deltaContext, equiJoinKeys));
         } else {
@@ -534,9 +498,10 @@ class IvmJoinDeltaHandler {
             events.add(preNullEvent);
             events.add(postNullEvent);
         }
-        LogicalUnion union = helper.buildUnionAll(events.build());
+        List<Plan> branches = events.build();
+        Plan eventPlan = branches.size() == 1 ? branches.get(0) : helper.buildUnionAll(branches);
 
-        List<Slot> unionOutputs = union.getOutput();
+        List<Slot> unionOutputs = eventPlan.getOutput();
         Map<Slot, Slot> nullSideOutputMapping = new HashMap<>();
         int nullSideOutputStart = deltaContext.deltaSideKeyExpressions(equiJoinKeys).size();
         int nullSideOutputIndex = 0;
@@ -547,7 +512,7 @@ class IvmJoinDeltaHandler {
         List<Slot> eventKeySlots = unionOutputs.subList(0, deltaContext.deltaSideKeyExpressions(equiJoinKeys).size());
         Slot dmlFactorSlot = unionOutputs.get(unionOutputs.size() - 2);
         Slot sequenceSlot = unionOutputs.get(unionOutputs.size() - 1);
-        return new NullSideEventPlan(union, nullSideOutputMapping, eventKeySlots,
+        return new NullSideEventPlan(eventPlan, nullSideOutputMapping, eventKeySlots,
                 dmlFactorSlot, sequenceSlot);
     }
 
@@ -703,7 +668,7 @@ class IvmJoinDeltaHandler {
      */
     private LogicalProject<Plan> projectEventJoinOutputs(List<Slot> targetOutputs, Plan source,
             Map<Slot, Slot> retainedOutputMapping, Map<Slot, Slot> nullSideOutputMapping,
-            Slot dmlFactorSlot, Slot sequenceSlot) {
+            Slot dmlFactorSlot, Slot sequenceSlot, boolean freshOutputs) {
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
                 targetOutputs.size());
         for (Slot target : targetOutputs) {
@@ -722,7 +687,8 @@ class IvmJoinDeltaHandler {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
                         "IVM outer join event rewrite lost output slot: " + target);
             }
-            projects.add(new Alias(target.getExprId(), expr, target.getName()));
+            projects.add(freshOutputs ? new Alias(expr, target.getName()) : new Alias(target.getExprId(), expr,
+                    target.getName()));
         }
         return new LogicalProject<>(projects.build(), source);
     }
