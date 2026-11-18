@@ -236,8 +236,8 @@ if [[ "${JEMALLOC_HOOK}" -eq 1 ]]; then
         ${CMAKE_USE_CCACHE_C:+${CMAKE_USE_CCACHE_C}}
     "${CMAKE_CMD}" --build "${JEMALLOC_TEST_BUILD_DIR}" --parallel "${PARALLEL}"
     if [[ "${RUN}" -eq 1 ]]; then
-        "${CMAKE_CMD}" -E env MALLOC_CONF=prof:true,prof_active:false \
-            JEMALLOC_CONF=prof:true,prof_active:false \
+        "${CMAKE_CMD}" -E env MALLOC_CONF=prof:true,prof_active:false,lg_prof_sample:0 \
+            JEMALLOC_CONF=prof:true,prof_active:false,lg_prof_sample:0 \
             "${JEMALLOC_TEST_BUILD_DIR}/jemalloc_hook_test" "${FILTER:---gtest_filter=*}" \
             "--gtest_output=xml:${JEMALLOC_TEST_BUILD_DIR}/gtest_output/jemalloc_hook_test.xml"
     fi

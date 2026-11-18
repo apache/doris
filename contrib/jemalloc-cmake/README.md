@@ -10,11 +10,10 @@ Linux GNU libunwind backend, and 64KiB allocator pages on ARM64. The local patch
 omits jemalloc_mangle.h from the generated public header for Doris's malloc hooks.
 macOS retains its previous profiler backend. ASAN/tcmalloc builds skip jemalloc.
 
-Sources are cached in `.dependency-downloads` at the checkout root. Set the CMake
-cache variable `DORIS_DEPENDENCY_DOWNLOAD_DIR` to share verified archives or to
-prepopulate `jemalloc-5.3.1.tar.bz2` for offline builds. Each build directory has
-its own sources, objects, installation, and completion stamps; incremental builds
-do not rebuild jemalloc. Compiler launchers (including ccache) are passed to
+ExternalProject keeps its downloaded archive, sources, objects, installation,
+and completion stamps inside each CMake build directory. Incremental builds
+reuse those files and do not rebuild jemalloc.
+Compiler launchers (including ccache) are passed to
 configure. `build.sh` and `run-be-ut.sh` pass their job count to
 `JEMALLOC_BUILD_JOBS`.
 

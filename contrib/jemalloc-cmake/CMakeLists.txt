@@ -23,8 +23,6 @@ endif()
 
 set(JEMALLOC_VERSION 5.3.1)
 set(JEMALLOC_SHA256 3826bc80232f22ed5c4662f3034f799ca316e819103bdc7bb99018a421706f92)
-set(DORIS_DEPENDENCY_DOWNLOAD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.dependency-downloads"
-    CACHE PATH "Directory for verified dependency source archives (may be prepopulated offline)")
 set(JEMALLOC_BUILD_JOBS 8 CACHE STRING "Parallel jobs for the jemalloc Makefile build")
 find_program(JEMALLOC_MAKE_EXECUTABLE NAMES gmake make REQUIRED)
 find_program(JEMALLOC_PATCH_EXECUTABLE NAMES patch REQUIRED)
@@ -75,7 +73,6 @@ endif()
 ExternalProject_Add(jemalloc_ep
     URL "https://github.com/jemalloc/jemalloc/releases/download/${JEMALLOC_VERSION}/jemalloc-${JEMALLOC_VERSION}.tar.bz2"
     URL_HASH "SHA256=${JEMALLOC_SHA256}"
-    DOWNLOAD_DIR "${DORIS_DEPENDENCY_DOWNLOAD_DIR}"
     PREFIX "${jemalloc_prefix}"
     PATCH_COMMAND "${JEMALLOC_PATCH_EXECUTABLE}" -p0 -i "${CMAKE_CURRENT_SOURCE_DIR}/jemalloc_hook.patch"
     CONFIGURE_COMMAND "${CMAKE_COMMAND}" -E env
