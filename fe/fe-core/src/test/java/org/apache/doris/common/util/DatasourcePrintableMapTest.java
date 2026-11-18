@@ -17,16 +17,65 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.connector.ConnectorPluginManager;
+import org.apache.doris.connector.maxcompute.MaxComputeConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.filesystem.ozone.OzoneFileSystemProvider;
+import org.apache.doris.fs.FileSystemPluginManager;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 public class DatasourcePrintableMapTest {
+
+    @Test
+    public void testProviderCredentialsAreMaskedAcrossCatalogAndAuditOutputs() {
+        new ConnectorPluginManager().registerProvider(new MaxComputeConnectorProvider());
+        new FileSystemPluginManager().registerProvider(new OzoneFileSystemProvider());
+        Map<String, String> properties = Map.of(
+                "mc.session_token", "fixture-session-token",
+                "MC.SESSION_TOKEN", "fixture-uppercase-token",
+                "ozone.access_key", "fixture-access-key",
+                "OZONE.ACCESS_KEY", "fixture-uppercase-access-key",
+                "ozone.endpoint", "https://storage.example.com");
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getProperties()).thenReturn(properties);
+
+        Map<String, String> shown = CatalogMgr.getCatalogPropertiesWithPrintable(catalog);
+        String ddlProperties = new DatasourcePrintableMap<>(properties, "=", true, true, true).toString();
+        properties.forEach((key, value) -> {
+            if ("ozone.endpoint".equals(key)) {
+                Assertions.assertEquals(value, shown.get(key));
+                Assertions.assertTrue(ddlProperties.contains(value), ddlProperties);
+            } else {
+                Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK, shown.get(key));
+                Assertions.assertFalse(ddlProperties.contains(value), ddlProperties);
+            }
+        });
+        NeedAuditEncryption audit = () -> true;
+        for (String sql : List.of(
+                "CREATE CATALOG masking_catalog PROPERTIES ('type' = 'max_compute', "
+                        + "'mc.session_token' = 'fixture-session-token', 'ozone.access_key' = 'fixture-access-key')",
+                "ALTER CATALOG masking_catalog SET PROPERTIES "
+                        + "('mc.session_token' = 'fixture-session-token', 'ozone.access_key' = 'fixture-access-key')")) {
+            String masked = audit.geneEncryptionSQL(sql);
+            Assertions.assertFalse(masked.contains("fixture-session-token"), masked);
+            Assertions.assertFalse(masked.contains("fixture-access-key"), masked);
+            Assertions.assertTrue(masked.contains("\"mc.session_token\" = \"*XXX\""), masked);
+            Assertions.assertTrue(masked.contains("\"ozone.access_key\" = \"*XXX\""), masked);
+        }
+        Assertions.assertEquals("fixture-session-token", properties.get("mc.session_token"));
+        Assertions.assertEquals("fixture-access-key", properties.get("ozone.access_key"));
+    }
 
     @Test
     public void testSensitiveKeysContainAliyunDLFProperties() {
