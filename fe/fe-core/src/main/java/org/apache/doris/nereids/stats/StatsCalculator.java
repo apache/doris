@@ -473,9 +473,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private boolean isRegisteredRowCount(OlapScan olapScan) {
+        return !hasScanRowCountEstimates(olapScan) && hasUserInjectedStats(olapScan);
+    }
+
+    private boolean hasUserInjectedStats(OlapScan olapScan) {
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
-        return !hasScanRowCountEstimates(olapScan) && tableMeta != null && tableMeta.userInjected;
+        return tableMeta != null && tableMeta.userInjected;
     }
 
     /**
@@ -513,12 +517,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     // check validation of ndv.
     private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
         OlapTableStatistics olapTableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(olapScan);
+        boolean explicitScanEstimate = hasScanRowCountEstimates(olapScan);
         for (Slot slot : ((Plan) olapScan).getOutput()) {
             if (isVisibleSlotReference(slot)) {
                 ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
                 if (!cache.isUnKnown) {
+                    // Stream scan estimates cover a window or selected partitions. Cached column stats
+                    // still describe the underlying index, so use the population stored with the NDV.
+                    double columnPopulation = explicitScanEstimate ? cache.count : rowCount;
                     if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
-                            || cache.ndv > rowCount * 10) {
+                            || cache.ndv > columnPopulation * 10) {
                         return Optional.of("slot " + slot.getName() + " has invalid column stats: " + cache);
                     }
                 }
@@ -608,7 +616,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
 
-        if (!isRegisteredRowCount(olapScan)
+        if (!hasUserInjectedStats(olapScan)
                 && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats

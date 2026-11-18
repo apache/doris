@@ -34,12 +34,14 @@ import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -53,6 +55,9 @@ public class OlapTableStream extends BaseTableStream {
 
     @SerializedName("ps")
     private Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
+
+    // This monitor protects only the state map. Never acquire a metadata lock or call MS while holding it.
+    private final transient Object partitionStatesLock = new Object();
 
     /** One committed consumption state; offsets and counts are persisted and replaced together. */
     public static class PartitionStreamState {
@@ -258,7 +263,22 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     public PartitionStreamState getPartitionState(long partitionId) {
-        return partitionStates.get(partitionId);
+        synchronized (partitionStatesLock) {
+            return partitionStates.get(partitionId);
+        }
+    }
+
+    Map<Long, PartitionStreamState> snapshotPartitionStates(Collection<Long> partitionIds) {
+        Map<Long, PartitionStreamState> snapshot = Maps.newHashMapWithExpectedSize(partitionIds.size());
+        synchronized (partitionStatesLock) {
+            for (long id : partitionIds) {
+                PartitionStreamState state = partitionStates.get(id);
+                if (state != null) {
+                    snapshot.put(id, state);
+                }
+            }
+        }
+        return snapshot;
     }
 
     /** Capture the next consumption state before its transaction is journaled. */
@@ -267,7 +287,8 @@ public class OlapTableStream extends BaseTableStream {
             return;
         }
         try {
-            update.retainUnchangedCounts(partitionStates);
+            Map<Long, PartitionStreamState> current = snapshotPartitionStates(update.getPartitionUpdates().keySet());
+            update.retainUnchangedCounts(current);
             OlapTable table = getBaseTableNullable();
             // The transaction may own sink/stream locks. Optional statistics cannot wait for source DDL.
             if (table == null || !table.tryReadLock(0, TimeUnit.MILLISECONDS)) {
@@ -277,7 +298,7 @@ public class OlapTableStream extends BaseTableStream {
                 if (table.isDropped) {
                     return;
                 }
-                update.captureRowCounts(table, partitionStates);
+                update.captureRowCounts(table, current);
             } finally {
                 table.readUnlock();
             }
@@ -361,18 +382,22 @@ public class OlapTableStream extends BaseTableStream {
         if (baseTable == null) {
             return;
         }
+        Map<Long, PartitionStreamState> initial = new HashMap<>();
         if (!showInitialRows) {
             // set partition offset
             baseTable.getPartitions()
-                    .forEach(p -> partitionStates.put(p.getId(), PartitionStreamState.initial().atOffset(p.getTso())));
+                    .forEach(p -> initial.put(p.getId(), PartitionStreamState.initial().atOffset(p.getTso())));
         } else {
             baseTable.getPartitions()
                     .stream()
                     .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
-                    .forEach(p -> partitionStates.put(p.getId(),
+                    .forEach(p -> initial.put(p.getId(),
                             PartitionStreamState.initial().atHistoricalTso(p.getTso())));
         }
-        partitionStates.replaceAll((id, state) -> state.withRowCounts(baseTable, id));
+        initial.replaceAll((id, state) -> state.withRowCounts(baseTable, id));
+        synchronized (partitionStatesLock) {
+            partitionStates.putAll(initial);
+        }
     }
 
     public static OlapTableStream read(DataInput in) throws IOException {
@@ -431,7 +456,7 @@ public class OlapTableStream extends BaseTableStream {
 
     private StreamConsumptionUnitSnapshot snapshotPartition(Partition partition) {
         long partitionId = partition.getId();
-        PartitionStreamState state = partitionStates.get(partitionId);
+        PartitionStreamState state = getPartitionState(partitionId);
         boolean hasOffset = state != null && state.getOffset() != null;
         return new StreamConsumptionUnitSnapshot(
                 partition.getName(), hasOffset,
@@ -491,26 +516,26 @@ public class OlapTableStream extends BaseTableStream {
 
     public boolean hasData(Partition partition) {
         // if all available visible data has been consumed, return false
-        PartitionStreamState state = partitionStates.get(partition.getId());
+        PartitionStreamState state = getPartitionState(partition.getId());
         return (state == null || state.getOffset() == null || !state.getOffset().equals(partition.getTso()))
                 && partition.hasData();
     }
 
     public boolean hasHistoricalData(long partitionId) {
-        PartitionStreamState state = partitionStates.get(partitionId);
+        PartitionStreamState state = getPartitionState(partitionId);
         return state != null && state.getHistoricalTso() != null;
     }
 
     public boolean hasConsumedData(long partitionId) {
         // An empty partition has the sentinel offset -1; only a positive committed TSO
         // counts as a consumption baseline for snapshot reads.
-        PartitionStreamState state = partitionStates.get(partitionId);
+        PartitionStreamState state = getPartitionState(partitionId);
         return state != null && state.getOffset() != null && state.getOffset() > 0;
     }
 
     public Pair<Long, Long> getStreamUpdate(Long partitionId) {
         // Historical data takes precedence over the consumed offset until it is consumed.
-        PartitionStreamState state = partitionStates.get(partitionId);
+        PartitionStreamState state = getPartitionState(partitionId);
         Long startTso = state == null ? null
                 : state.getHistoricalTso() != null ? state.getHistoricalTso() : state.getOffset();
         return Pair.of(startTso, getBaseTableNullable().getPartition(partitionId).getTso());
@@ -521,22 +546,28 @@ public class OlapTableStream extends BaseTableStream {
             throws UserException {
         Preconditions.checkArgument(update instanceof OlapTableStreamUpdate);
         // check valid
-        ((OlapTableStreamUpdate) update).checkPartitionOffset(getDBName(), getName(), partitionStates);
+        OlapTableStreamUpdate olapUpdate = (OlapTableStreamUpdate) update;
+        olapUpdate.checkPartitionOffset(getDBName(), getName(),
+                snapshotPartitionStates(olapUpdate.getPartitionUpdates().keySet()));
     }
 
     @Override
     public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts) {
-        ((OlapTableStreamUpdate) update).getPartitionUpdates().forEach((id, state) ->
-                partitionStates.put(id, state.getNextState().committedAt(ts)));
+        synchronized (partitionStatesLock) {
+            ((OlapTableStreamUpdate) update).getPartitionUpdates().forEach((id, state) ->
+                    partitionStates.put(id, state.getNextState().committedAt(ts)));
+        }
     }
 
     Set<Long> unprotectedCollectStalePartitionOffsetIds(Set<Long> validPartitionIds) {
         Preconditions.checkState(isWriteLockHeldByCurrentThread(),
                 "unprotectedCollectStalePartitionOffsetIds must be called with write lock held");
         Set<Long> stalePartitionIds = new HashSet<>();
-        for (Long partitionId : partitionStates.keySet()) {
-            if (!validPartitionIds.contains(partitionId)) {
-                stalePartitionIds.add(partitionId);
+        synchronized (partitionStatesLock) {
+            for (Long partitionId : partitionStates.keySet()) {
+                if (!validPartitionIds.contains(partitionId)) {
+                    stalePartitionIds.add(partitionId);
+                }
             }
         }
         return stalePartitionIds;
@@ -545,8 +576,8 @@ public class OlapTableStream extends BaseTableStream {
     void unprotectedPrunePartitionOffsets(Set<Long> partitionIds) {
         Preconditions.checkState(isWriteLockHeldByCurrentThread(),
                 "unprotectedPrunePartitionOffsets must be called with write lock held");
-        for (Long partitionId : partitionIds) {
-            partitionStates.remove(partitionId);
+        synchronized (partitionStatesLock) {
+            partitionIds.forEach(partitionStates::remove);
         }
     }
 }

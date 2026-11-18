@@ -349,15 +349,17 @@ public class BindRelation extends OneAnalysisRuleFactory {
             UnboundRelation unboundRelation, List<String> qualifier) {
         OlapTable baseTable = (OlapTable) olapTableStream.getBaseTableOrNereidsAnalysisException();
         checkNotLegacyChangelog(baseTable);
-        List<Long> partIds = getPartitionIds(baseTable, unboundRelation, qualifier);
-        List<Long> selectedPartitionIds = CollectionUtils.isEmpty(partIds) ? baseTable.getPartitionIds() : partIds;
+        List<Long> partIds = getPartitionIds(baseTable, unboundRelation, qualifier).stream()
+                .distinct().collect(ImmutableList.toImmutableList());
+        boolean hasSpecifiedPartitions = !partIds.isEmpty() && !unboundRelation.getIndexName().isPresent();
+        List<Long> selectedPartitionIds = hasSpecifiedPartitions ? partIds : baseTable.getPartitionIds();
         OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(olapTableStream, baseTable, selectedPartitionIds);
         LogicalOlapTableStreamScan scan;
         List<Long> tabletIds = unboundRelation.getTabletIds();
         if (!tabletIds.isEmpty()) {
             throw new AnalysisException("select tabletIds is not supported on olap table stream scan.");
         }
-        if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
+        if (hasSpecifiedPartitions) {
             scan = new LogicalOlapTableStreamScan(unboundRelation.getRelationId(),
                     wrapper, qualifier, partIds, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample(), ImmutableList.of());

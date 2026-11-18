@@ -27,6 +27,9 @@ import org.apache.doris.catalog.OlapTableWrapper.PartitionScanState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
@@ -51,6 +54,9 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A stream read is planned over a lightweight wrapper of its base table, and the row count it is
@@ -181,6 +187,44 @@ public class StreamScanRowCountTest extends TestWithFeService {
     @Test
     public void testIncrementalDeltaTakesPrecedenceOverInjectedBaseRows() {
         Assertions.assertEquals(700L, streamScanRowCount("select * from stream_on_base"));
+    }
+
+    @Test
+    public void testRepeatedExplicitPartitionKeepsOneStreamScanEstimate() {
+        Assertions.assertEquals(700L,
+                streamScanRowCount("select * from stream_on_base partition(stream_base, stream_base)"));
+    }
+
+    @Test
+    public void testBoundScanDoesNotWaitForMetadataWriterOrFollowLaterConsumption() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable base = (OlapTable) db.getTableOrMetaException("stream_base");
+        OlapTableStream original = (OlapTableStream) db.getTableOrMetaException("stream_on_base");
+        OlapTableStream stream = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(original), OlapTableStream.class);
+        long id = base.getPartitionIds().get(0);
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        stream.writeLock();
+        try {
+            OlapTableStreamWrapper wrapper = worker.submit(() -> {
+                base.readLock();
+                try {
+                    return new OlapTableStreamWrapper(stream, base, List.of(id));
+                } finally {
+                    base.readUnlock();
+                }
+            }).get(5, TimeUnit.SECONDS);
+            stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(Map.of(
+                    id, new PartitionUpdate(START_TSO, PartitionStreamState.initial().atOffset(END_TSO)))),
+                    System.currentTimeMillis());
+            Assertions.assertEquals(List.of(id), wrapper.filterIncrementalPartitionIds(List.of(id)));
+            Assertions.assertEquals(Pair.of(START_TSO, END_TSO), wrapper.getOutputUpdate(id));
+            Assertions.assertEquals(700L, wrapper.estimateChangelogRead(List.of(id),
+                    Map.of(id, Pair.of(START_TSO + 1, END_TSO + 1)),
+                    BaseTableStream.StreamScanType.APPEND_ONLY).get(id));
+        } finally {
+            stream.writeUnlock();
+            worker.shutdownNow();
+        }
     }
 
     @Test
@@ -331,7 +375,8 @@ public class StreamScanRowCountTest extends TestWithFeService {
             Assertions.assertEquals(type.equals("APPEND_ONLY") ? 700L : 1400L,
                     streamScanRowCount("select * from unique_" + type, "stream_unique"));
         }
-        PlanChecker.from(connectContext).checkExplain("select * from unique_MIN_DELTA@snapshot()", planner -> {
+        // The undo scan uses MIN_DELTA even when the stream's incremental mode is APPEND_ONLY.
+        PlanChecker.from(connectContext).checkExplain("select * from unique_APPEND_ONLY@snapshot()", planner -> {
             List<PhysicalOlapScan> scans = new ArrayList<>();
             collectScans(planner.getOptimizedPlan(), scans);
             Assertions.assertEquals(2, scans.size());

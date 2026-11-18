@@ -88,17 +88,18 @@ public class OlapTableStreamWrapper extends OlapTable {
         this.stream = stream;
         this.baseTable = baseTable;
         this.keysType = baseTable.getKeysType();
-        stream.readLock();
-        try {
-            ImmutableMap.Builder<Long, PartitionReadState> states = ImmutableMap.builder();
-            for (Long id : selectedPartitionIds) {
-                Pair<Long, Long> range = baseTable.getPartition(id).hasData() ? stream.getStreamUpdate(id) : null;
-                states.put(id, new PartitionReadState(range, stream.getPartitionState(id), null));
-            }
-            this.partitionReadStates = states.build();
-        } finally {
-            stream.readUnlock();
+        // Planning already holds the source lock. Snapshot only the selected stream state without
+        // taking the stream metadata lock, which status readers can hold while waiting for the source.
+        Map<Long, PartitionStreamState> consumption = stream.snapshotPartitionStates(selectedPartitionIds);
+        ImmutableMap.Builder<Long, PartitionReadState> states = ImmutableMap.builder();
+        for (long id : selectedPartitionIds) {
+            PartitionStreamState state = consumption.get(id);
+            Partition partition = baseTable.getPartition(id);
+            Pair<Long, Long> range = partition.hasData()
+                    ? Pair.of(state == null ? null : state.getBaselineOffset(), partition.getTso()) : null;
+            states.put(id, new PartitionReadState(range, state, null));
         }
+        this.partitionReadStates = states.build();
         this.getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(baseTable.getEnableUniqueKeyMergeOnWrite());
     }
 
@@ -312,7 +313,7 @@ public class OlapTableStreamWrapper extends OlapTable {
         }
         List<Long> nonEmptyIds = Lists.newArrayListWithCapacity(partitionIds.size());
         for (Long partitionId : partitionIds) {
-            if (stream.hasData(getPartition(partitionId))) {
+            if (hasUnconsumedData(partitionId)) {
                 nonEmptyIds.add(partitionId);
             }
         }
@@ -320,14 +321,8 @@ public class OlapTableStreamWrapper extends OlapTable {
     }
 
     public List<Long> filterHistoryPartitionIds(List<Long> partitionIds) {
-        if (hasCloudReadStates()) {
-            return partitionIds.stream()
-                    .filter(id -> getCloudReadState(id).getOffsetState()
-                            == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING)
-                    .collect(ImmutableList.toImmutableList());
-        }
         return partitionIds.stream()
-                .filter(partitionId -> stream.hasHistoricalData(partitionId))
+                .filter(this::isHistoryPartition)
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -343,8 +338,7 @@ public class OlapTableStreamWrapper extends OlapTable {
                     .collect(ImmutableList.toImmutableList());
         }
         return partitionIds.stream()
-                .filter(partitionId -> !stream.hasHistoricalData(partitionId)
-                        && stream.hasData(getPartition(partitionId)))
+                .filter(partitionId -> !isHistoryPartition(partitionId) && hasUnconsumedData(partitionId))
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -365,7 +359,10 @@ public class OlapTableStreamWrapper extends OlapTable {
                     .collect(ImmutableList.toImmutableList());
         }
         return partitionIds.stream()
-                .filter(partitionId -> stream.hasConsumedData(partitionId))
+                .filter(id -> {
+                    PartitionStreamState state = getConsumptionState(id);
+                    return state != null && state.getOffset() != null && state.getOffset() > 0;
+                })
                 .collect(ImmutableList.toImmutableList());
     }
 
@@ -595,7 +592,7 @@ public class OlapTableStreamWrapper extends OlapTable {
                     .collect(Collectors.toList());
         }
         return partitionIds.stream()
-                .filter(partitionId -> !stream.hasData(getPartition(partitionId)))
+                .filter(id -> !hasUnconsumedData(id))
                 .collect(Collectors.toList());
     }
 
@@ -604,6 +601,13 @@ public class OlapTableStreamWrapper extends OlapTable {
             return getCloudReadState(partitionId).getOffsetState()
                     == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING;
         }
-        return stream.hasHistoricalData(partitionId);
+        PartitionStreamState state = getConsumptionState(partitionId);
+        return state != null && state.getHistoricalTso() != null;
+    }
+
+    private boolean hasUnconsumedData(long partitionId) {
+        Pair<Long, Long> range = getOutputUpdate(partitionId);
+        PartitionStreamState state = getConsumptionState(partitionId);
+        return range != null && (state == null || state.getOffset() == null || !state.getOffset().equals(range.second));
     }
 }
