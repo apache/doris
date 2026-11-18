@@ -677,6 +677,10 @@ public class Memo {
             needReplaceChild.add(srcParent);
         }
         for (GroupExpression reinsertGroupExpr : needReplaceChild) {
+            // An earlier recursive merge can retire another parent in this snapshot.
+            if (reinsertGroupExpr.isUnused()) {
+                continue;
+            }
             // After change GroupExpression children, hashcode will change, so need to reinsert into map.
             groupExpressions.remove(reinsertGroupExpr);
             reinsertGroupExpr.replaceChild(source, destination);

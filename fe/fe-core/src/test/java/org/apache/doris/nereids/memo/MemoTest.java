@@ -62,6 +62,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Collections2;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -69,14 +70,18 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 
 class MemoTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -373,6 +378,123 @@ class MemoTest implements MemoPatternMatchSupported {
         }
         memo.getGroupExpressions().forEach((key, value) ->
                 Assertions.assertSame(value, memo.getGroupExpressions().get(key)));
+    }
+
+    @ParameterizedTest(name = "parent order {0}")
+    @MethodSource("pendingParentOrders")
+    void testRecursiveMergeRetiresPendingParent(List<Integer> parentOrder) {
+        // P(G) projects k, Ei(G) adds constant ci, and F(G) is the physical projection.
+        // S = P(E0(L)), D = P(L), B = P(E1(E0(L))), C = P(E2(E0(L))).
+        // Q = {P(B), F(S)}, R = {P(C), F(D)}, Root = {P(S), P(E4(Q)), P(E5(R))}.
+        SlotReference slot = (SlotReference) scan.getOutput().get(0);
+        LogicalProject<?> extra = new LogicalProject<>(
+                ImmutableList.of(slot, new Alias(new TinyIntLiteral((byte) 0))), scan);
+        CascadesContext cascades = MemoTestUtils.createCascadesContext(connectContext,
+                new LogicalProject<>(ImmutableList.of(slot), new LogicalProject<>(ImmutableList.of(slot), extra)));
+        Memo memo = cascades.getMemo();
+        Group root = memo.getRoot();
+        Group initialSource = root.getLogicalExpression().child(0);
+        Group extraGroup = initialSource.getLogicalExpression().child(0);
+        Group scanGroup = extraGroup.getLogicalExpression().child(0);
+        Map<GroupExpression, Integer> parentRanks = new IdentityHashMap<>();
+        // Change only the unspecified parent iteration order. Install an empty test group,
+        // then move the source into it through the normal merge operation.
+        Group empty = memo.newGroup(initialSource.getLogicalProperties());
+        Group source = new Group(empty.getGroupId(), empty.getLogicalProperties()) {
+            @Override
+            public List<GroupExpression> getParentGroupExpressions() {
+                List<GroupExpression> parents = Lists.newArrayList(super.getParentGroupExpressions());
+                parents.sort(Comparator.comparingInt(parentRanks::get));
+                return parents;
+            }
+        };
+        Map<GroupId, Group> groups = Deencapsulation.getField(memo, "groups");
+        groups.put(source.getGroupId(), source);
+        memo.mergeGroup(initialSource, source, null);
+        GroupExpression sourceExpression = source.getLogicalExpression();
+        Group destination = memo.copyIn(new LogicalProject<>(ImmutableList.of(slot), new GroupPlan(scanGroup)),
+                null, false).correspondingExpression.getOwnerGroup();
+
+        List<GroupExpression> ruleInputs = Lists.newArrayList();
+        List<GroupExpression> logicalParents = Lists.newArrayList();
+        for (byte value : new byte[] {1, 2}) {
+            LogicalProject<?> branch = new LogicalProject<>(
+                    ImmutableList.of(slot, new Alias(new TinyIntLiteral(value))), new GroupPlan(extraGroup));
+            GroupExpression input = memo.copyIn(new LogicalProject<>(ImmutableList.of(slot), branch), null, false)
+                    .correspondingExpression;
+            ruleInputs.add(input);
+            logicalParents.add(memo.copyIn(new LogicalProject<>(ImmutableList.of(slot),
+                    new GroupPlan(input.getOwnerGroup())), null, false).correspondingExpression);
+        }
+        Group left = logicalParents.get(0).getOwnerGroup();
+        Group right = logicalParents.get(1).getOwnerGroup();
+        GroupExpression physicalSource = memo.copyIn(new PhysicalProject<>(ImmutableList.of(slot),
+                left.getLogicalProperties(), new GroupPlan(source)), left, false).correspondingExpression;
+        GroupExpression physicalTarget = memo.copyIn(new PhysicalProject<>(ImmutableList.of(slot),
+                right.getLogicalProperties(), new GroupPlan(destination)), right, false).correspondingExpression;
+        physicalSource.updateLowestCostTable(PhysicalProperties.ANY,
+                Lists.newArrayList(PhysicalProperties.ANY), Cost.zero());
+        physicalSource.putOutputPropertiesMap(PhysicalProperties.ANY, PhysicalProperties.ANY);
+        left.setBestPlan(physicalSource, Cost.zero(), PhysicalProperties.ANY);
+        physicalTarget.updateLowestCostTable(PhysicalProperties.ANY,
+                Lists.newArrayList(PhysicalProperties.ANY), Cost.infinite());
+        physicalTarget.putOutputPropertiesMap(PhysicalProperties.ANY, PhysicalProperties.ANY);
+        right.setBestPlan(physicalTarget, Cost.infinite(), PhysicalProperties.ANY);
+        for (int i = 0; i < logicalParents.size(); i++) {
+            LogicalProject<?> bridge = new LogicalProject<>(
+                    ImmutableList.of(slot, new Alias(new TinyIntLiteral((byte) (4 + i)))),
+                    new GroupPlan(logicalParents.get(i).getOwnerGroup()));
+            memo.copyIn(new LogicalProject<>(ImmutableList.of(slot), bridge), root, false);
+        }
+        MemoValidator.validate(memo);
+        Rule rule = new MergeProjectsCBO().build();
+        for (GroupExpression input : ruleInputs) {
+            new ApplyRuleJob(input, rule, cascades.getCurrentJobContext()).execute();
+        }
+        // The physical parent can merge the two owners and retire a logical parent that
+        // has not yet been visited. Enumerate every order of physical/left/right/root parents.
+        List<GroupExpression> parents = ImmutableList.of(physicalSource,
+                logicalParents.get(0), logicalParents.get(1), root.getFirstLogicalExpression());
+        for (int i = 0; i < parentOrder.size(); i++) {
+            parentRanks.put(parents.get(parentOrder.get(i)), i);
+        }
+        Assertions.assertEquals(4, source.getParentGroupExpressions().size());
+        Assertions.assertDoesNotThrow(() ->
+                new ApplyRuleJob(sourceExpression, rule, cascades.getCurrentJobContext()).execute());
+
+        Assertions.assertNull(memo.getGroup(source.getGroupId()));
+        Assertions.assertTrue(source.getParentGroupExpressions().isEmpty());
+        Assertions.assertTrue(physicalSource.isUnused());
+        Assertions.assertFalse(physicalTarget.isUnused());
+        Assertions.assertSame(physicalTarget, physicalTarget.getOwnerGroup().getBestPlan(PhysicalProperties.ANY));
+        Assertions.assertEquals(0, physicalTarget.getCostByProperties(PhysicalProperties.ANY));
+        Assertions.assertNotEquals(logicalParents.get(0).isUnused(), logicalParents.get(1).isUnused());
+        MemoValidator.validate(memo);
+        for (Group group : memo.getGroups()) {
+            for (List<GroupExpression> alternatives : ImmutableList.of(
+                    group.getLogicalExpressions(), group.getPhysicalExpressions())) {
+                Assertions.assertEquals(alternatives.size(), ImmutableSet.copyOf(alternatives).size());
+                for (GroupExpression expression : alternatives) {
+                    Assertions.assertFalse(expression.isUnused());
+                    Assertions.assertSame(group, expression.getOwnerGroup());
+                    GroupExpression canonical = memo.getGroupExpressions().get(expression);
+                    Assertions.assertNotNull(canonical);
+                    Assertions.assertFalse(canonical.isUnused());
+                    for (Group child : expression.children()) {
+                        Assertions.assertSame(child, memo.getGroup(child.getGroupId()));
+                        Assertions.assertTrue(child.getParentGroupExpressions().stream().anyMatch(p -> p == expression));
+                    }
+                }
+            }
+        }
+        memo.getGroupExpressions().forEach((key, value) -> {
+            Assertions.assertFalse(value.isUnused());
+            Assertions.assertSame(value, memo.getGroupExpressions().get(key));
+        });
+    }
+
+    static Stream<List<Integer>> pendingParentOrders() {
+        return Collections2.permutations(ImmutableList.of(0, 1, 2, 3)).stream();
     }
 
     @Test
