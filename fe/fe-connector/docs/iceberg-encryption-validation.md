@@ -6,10 +6,47 @@ maintainer, QA, security and performance acceptance remain pending. Enabling the
 deployment switch still requires the [read contract](iceberg-encryption-read.md)
 and [private RPC configuration](../../../docs/private-rpc-tls.md).
 
-## Functional and failure coverage
+## Review-fix verification
+
+The review-fix candidate has a fresh FE package, 234 passing native ASAN tests
+in 14 suites, 145 passing FE tests across 21 selected classes and 3,242
+reactor tests with zero failures/errors (including 2,394 connector
+cache/SPI/Iceberg tests, with 11 existing skips). FE Checkstyle, clang-format 16, header hygiene and scoped clang-tidy pass.
+The FE total combines the selected run and the corrected heartbeat schema test;
+the subsequent FE changes only reorder imports and rename a test method. Native
+static analysis combines the unchanged successful files with a recheck of the
+extracted per-file assertion helper.
+
+Real SDK tests reject all native write operations on encrypted targets, including
+concurrent encryption changes at transaction refresh/final CAS, and preserve
+plaintext writes and existing OCC checks. SQL-cache tests reject encrypted
+eligibility before key unwrap and evict an already cached entry if the provider
+later refuses it. A serialized heartbeat-package sequence proves immediate
+capability revocation without shortening the configured leader/follower liveness
+grace, followed by recovery.
+
+The opt-in `test_iceberg_encryption_native_read_guards` suite passes output
+generation and a normal replay, with eight generated result blocks. With both
+SQL cache settings enabled, a plaintext control reaches `PhysicalSqlCache` while
+encrypted COUNT/SUM remain ineligible. Same-endpoint mock KMS denial makes both
+encrypted queries fail twice; plaintext cache hits remain valid. Permission
+restoration recovers encrypted reads. Encrypted INSERT/OVERWRITE are rejected
+without changing the four existing rows, and plaintext INSERT adds the fifth row.
+
+The new SQL checks use the fresh FE package with the earlier D10 RELEASE BE
+package. They validate the FE admission/cache fixes, not a fresh native RELEASE
+artifact or ABI audit. Current native changes are separately covered by the
+fresh ASAN build. The earlier broad SQL, compatibility, lifecycle and cost runs
+below have not been repeated for the latest statement-reader changes; they must
+not be interpreted as current-head acceptance.
+
+## Earlier functional and failure coverage
+
+The following records describe the earlier integration snapshot, before the
+current review fixes and statement-owned reader integration.
 
 - The complete RELEASE FE/BE build passes with zero FE Checkstyle violations.
-  The final ASAN native subset runs 181 tests in 13 suites. FE capability,
+  That snapshot's ASAN native subset runs 181 tests in 13 suites. FE capability,
   heartbeat, dispatch, split and provider coverage runs 125 tests; connector
   cache/SPI/Iceberg suites run 2,349 tests with zero failures/errors and 11
   existing skips (3,197 tests including reactor dependencies). Native formatting,
@@ -50,7 +87,7 @@ The separate `test_iceberg_encryption_delete_reader` and
 `test_iceberg_encrypted_hms_metadata` suites exercise the default-off deployment.
 Required services fail an enabled suite rather than silently skipping coverage.
 
-## Lifecycle and diagnostic checks
+## Earlier lifecycle and diagnostic checks
 
 Across the bounded stability phase, BE threads and file descriptors remain 590
 and 385. BE RSS changes from 7,474,960 to 7,444,976 KiB. After explicit GC and
@@ -66,7 +103,7 @@ logs, images and file-cache contents (580 files, 364,963,279 bytes). No keys or
 credential values are part of this report. This does not prove arbitrary
 transformed-key absence, deterministic JVM zeroization or protected crash dumps.
 
-## Compatibility
+## Earlier runtime compatibility
 
 A pre-capability BE participates in a plaintext aggregate alongside the new BE;
 encrypted planning is refused before descriptors leave FE. An old FE with the
@@ -152,7 +189,7 @@ addresses retained reader/key owners. After the final cost run, a full GC leaves
 about 212 MiB of used heap out of 8 GiB committed G1 heap; this is a separate
 observation from process RSS. The cost peaks still require review.
 
-### Final candidate encrypted-read cost
+### Earlier candidate encrypted-read cost
 
 Each row below represents twenty measured queries. RSS is sampled peak process
 RSS, not incremental query memory; S3 totals include catalog lifecycle for

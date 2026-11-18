@@ -28,11 +28,16 @@ import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -43,6 +48,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -154,6 +160,33 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         Assertions.assertNotEquals(v2.getVersion(), md.getSqlCacheVersion(rollback,
                 handle().withSnapshot(f.s1, null, f.table.schema().schemaId())).orElseThrow().getVersion());
         Assertions.assertTrue(ops.log.stream().noneMatch(entry -> entry.startsWith("listPartitions")), ops.log.toString());
+    }
+
+    @Test
+    public void encryptedSqlCacheVersionIsRejectedWithoutUnwrappingKeys() {
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            Table query = fixture.queryTable();
+            TableMetadata source = ((HasTableOperations) query).operations().current();
+            TableMetadata published = TableMetadataParser.fromJson("memory:///v3.metadata.json",
+                    TableMetadataParser.toJson(source));
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.table = new BaseTable(new StaticTableOperations(published, query.io()) {
+                @Override
+                public org.apache.iceberg.encryption.EncryptionManager encryption() {
+                    return query.encryption();
+                }
+            }, "db1.t1");
+            IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops,
+                    IcebergCatalogProperties.of(Map.of("iceberg.catalog.type", "hms")),
+                    EncryptedManifestFixture.verifiedContext(), new IcebergLatestSnapshotCache(0L, 1),
+                    null, null, null, mvccCache(), null);
+            RuntimeException error = Assertions.assertThrows(RuntimeException.class,
+                    () -> metadata.getSqlCacheVersion(null, handle()));
+            Assertions.assertTrue(error.getMessage().contains("Iceberg encryption [SQL_CACHE_UNAVAILABLE]"),
+                    error.getMessage());
+            Assertions.assertEquals(0, fixture.unwraps.get(),
+                    "Rejecting cache eligibility must not depend on initializing or unwrapping a KMS key");
+        }
     }
 
     private static List<String> mvccNames(Optional<ConnectorMvccPartitionView> view) {

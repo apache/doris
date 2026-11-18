@@ -1017,6 +1017,21 @@ public class Backend implements Writable {
         return isChanged;
     }
 
+    BackendHbResponse heartbeatForJournal(BackendHbResponse response) {
+        if (response.getStatus() == HbStatus.BAD && isAlive()) {
+            // BAD replay bypasses liveness grace, including on older FEs. Replicate the resulting alive
+            // state with capability zero; retain the original failure for leader-side eviction/diagnostics.
+            BackendHbResponse snapshot = new BackendHbResponse(id, bePort, httpPort, brpcPort,
+                    lastUpdateMs, lastStartTime, version, nodeRoleTag.value,
+                    backendStatus.currentFragmentNum, backendStatus.lastFragmentUpdateTime,
+                    backendStatus.isShutdown, arrowFlightSqlPort, beMemory);
+            snapshot.setPaimonRustReaderSupported(supportsPaimonRustReader);
+            snapshot.setNativeFileEncryptionVersion(0);
+            return snapshot;
+        }
+        return response;
+    }
+
     public void setTabletMaxCompactionScore(long compactionScore) {
         tabletMaxCompactionScore = compactionScore;
     }

@@ -23,12 +23,13 @@ The initial target matrix is:
 
 | Dimension | Initial target | Current admission |
 | --- | --- | --- |
-| Catalog | HMS or REST with the SDK standard encryption manager and an operator-configured KMS | Other catalogs are rejected |
+| Catalog | HMS with the SDK standard encryption manager and an operator-configured KMS | Native execution remains HMS-only; REST metadata wiring is described separately below |
 | Table format | Iceberg v3 | Other versions are rejected for encrypted reads |
 | Data and delete files | Native Parquet modular encryption, `AES_GCM_V1` | Independent data, position-delete and equality-delete keys |
 | Manifest/list files | SDK-managed encryption | No plaintext fallback is allowed |
 | Backend | Native encrypted reader and protected FE/BE key transport | Fresh runtime capability required on every selectable live BE |
-| Writes | Outside this read contract | The read switch grants no write capability |
+| Writes | Outside this read contract | Encrypted targets are rejected before native sink dispatch and through transaction refresh/commit |
+| SQL result cache | Plaintext tables retain existing behavior | Encrypted tables reject cache admission and replay, even with both SQL cache settings enabled |
 
 Table encryption is recognized from `encryption.key-id`, retained v3
 `encryption-keys`, or a non-plaintext SDK encryption manager. Retained keys matter
@@ -50,14 +51,17 @@ Errors contain a stable `Iceberg encryption [CLASSIFICATION]` prefix:
 | Classification | Meaning |
 | --- | --- |
 | `READ_DISABLED` | Encrypted reads were not enabled in the plugin configuration |
-| `UNSUPPORTED_CATALOG` | The catalog is outside the HMS/REST scope |
+| `UNSUPPORTED_CATALOG` | The catalog is outside the requested metadata or HMS-only native execution scope |
 | `UNSUPPORTED_TABLE_FORMAT` | The encrypted table is not v3 |
 | `UNSUPPORTED_ENCRYPTION_MANAGER` | Encryption detection observed a custom SDK encryption manager |
 | `BACKEND_CAPABILITY_UNAVAILABLE` | The engine cannot prove encrypted-read support |
 | `UNSUPPORTED_METADATA_TABLE` | The encrypted metadata table would use JNI outside the native key contract |
 | `UNSUPPORTED_FILE_FORMAT` | A keyed task does not use the supported native file format |
+| `WRITE_UNAVAILABLE` | The write target is encrypted; native sinks cannot produce encrypted physical objects |
+| `SQL_CACHE_UNAVAILABLE` | Stable table metadata cannot attest current file-key authorization |
 
-The first applicable failure is returned in this order. For a table with an
+Read admission returns the first applicable failure. The write and result-cache
+guards apply independently of the read switch. For a table with an
 encryption declaration, backend admission fails without initializing its KMS
 manager. After admission, the SDK manager and each physical descriptor are
 validated before use. A rejected read must
@@ -78,7 +82,9 @@ custom providers default to unavailable and must explicitly implement the
 capability contract. A running FE TLS split listener is required. Backends
 advertise protocol version 1 only with the native dependency and supported
 private transports. FE uses a fresh, process-local heartbeat lease; images,
-failed/missing capabilities and stale heartbeats cannot grant support. Admission
+failed/missing capabilities and stale heartbeats cannot grant support. Failed
+heartbeats revoke encryption support immediately while preserving the configured
+backend liveness tolerance on every FE. Admission
 conservatively requires every currently selectable live backend to be capable.
 
 Initial fragments use `FORMAT_PARQUET_PME` (wire value 22), including shared scan
@@ -306,6 +312,18 @@ multi-file/row-group scans and same-endpoint warm-cache KMS revocation/restorati
 Run the default-off admission suites in a separate deployment phase. The mock KMS
 validates protocol/error propagation and does not establish live AWS IAM policy
 acceptance. The read switch remains off by default and grants no encrypted writes.
+
+The separate `test_iceberg_encryption_native_read_guards` suite explicitly enables
+`enable_sql_cache` and `enable_hive_sql_cache`. It proves a plaintext query hits
+`PhysicalSqlCache`, while warmed encrypted COUNT/SUM queries must still contact
+KMS after permission revocation and recover after restoration. It also checks
+rejected encrypted INSERT/OVERWRITE and a successful plaintext write. Run it with
+the same native-read fixture and deployment settings:
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encryption_native_read_guards -g p0
+```
 
 V3 scan planning remains synchronous in this stage. Changing the external batch
 session setting does not enable V3 streaming. Lazy split caller checks are

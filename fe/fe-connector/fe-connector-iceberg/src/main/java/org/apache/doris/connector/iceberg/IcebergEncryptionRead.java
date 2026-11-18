@@ -29,7 +29,7 @@ import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.encryption.PlaintextEncryptionManager;
 import org.apache.iceberg.encryption.StandardEncryptionManager;
 
-/** Shared admission contract; encrypted ranges remain forbidden until the engine can prove BE support. */
+/** Read admission requires verified execution; native writes remain restricted to plaintext targets. */
 final class IcebergEncryptionRead {
     private IcebergEncryptionRead() {
     }
@@ -40,6 +40,22 @@ final class IcebergEncryptionRead {
         }
         EncryptionManager manager = table.encryption();
         return manager != null && !(manager instanceof PlaintextEncryptionManager);
+    }
+
+    static void checkWrite(Table table) {
+        checkWrite(isEncrypted(table));
+    }
+
+    static void checkWrite(TableMetadata metadata) {
+        checkWrite(metadata.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
+                || !metadata.encryptionKeys().isEmpty());
+    }
+
+    private static void checkWrite(boolean encrypted) {
+        // SDK manifest encryption does not encrypt the physical files emitted by native Doris sinks.
+        if (encrypted) {
+            throw failure("WRITE_UNAVAILABLE", "Native writes to encrypted Iceberg tables are not supported");
+        }
     }
 
     private static boolean hasEncryptionMetadata(Table table) {
