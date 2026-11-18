@@ -67,7 +67,7 @@ public:
     ObjStorageCapabilities capabilities() const override { return inner_->capabilities(); }
     std::string generate_presigned_url(const ObjStoragePath& opts,
                                        int64_t expiration_secs) override;
-    ObjStorageResponse get_lifecycle(const std::string& bucket, int64_t* expiration_days) override;
+    ObjStorageResponse get_lifecycle(const ObjStoragePath& path, int64_t* expiration_days) override;
     ObjStorageResponse check_versioning(const std::string& bucket) override;
     ObjStorageResponse abort_multipart_upload(const ObjStoragePath& opts,
                                               const std::string& upload_id) override;

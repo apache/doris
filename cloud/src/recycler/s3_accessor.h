@@ -95,6 +95,7 @@ struct S3Conf {
         S3,
         GCS,
         AZURE,
+        OSS,
     };
 
     Provider provider;

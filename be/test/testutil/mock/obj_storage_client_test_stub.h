@@ -29,7 +29,7 @@ class ObjStorageClientTestStub : public ObjStorageClient {
 public:
     ObjStorageCapabilities capabilities() const override { return {.max_delete_batch = 1}; }
 
-    ObjStorageResponse get_lifecycle(const std::string&, int64_t*) override {
+    ObjStorageResponse get_lifecycle(const ObjStoragePath&, int64_t*) override {
         return not_supported();
     }
 

@@ -117,7 +117,7 @@ public:
         return "url";
     }
 
-    ObjStorageResponse get_lifecycle(const std::string&, int64_t*) override {
+    ObjStorageResponse get_lifecycle(const ObjStoragePath&, int64_t*) override {
         ++calls;
         return ObjStorageResponse::OK();
     }

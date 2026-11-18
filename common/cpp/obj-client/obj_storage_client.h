@@ -222,8 +222,8 @@ public:
     virtual std::string generate_presigned_url(const ObjStoragePath& opts,
                                                int64_t expiration_secs) = 0;
 
-    // Get the objects' expiration time on the bucket
-    virtual ObjStorageResponse get_lifecycle(const std::string& bucket,
+    // Inspect noncurrent-version expiration for the checker. path.prefix is the vault key prefix.
+    virtual ObjStorageResponse get_lifecycle(const ObjStoragePath& path,
                                              int64_t* expiration_days) = 0;
 
     // Check if the objects' versioning is on or off

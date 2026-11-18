@@ -59,6 +59,7 @@ class ObjectStoreInfoPB;
 std::string hide_access_key(const std::string& ak);
 
 class S3URI;
+struct S3ClientBuildContext;
 struct S3ClientConf {
     std::string endpoint;
     std::string region;
@@ -181,7 +182,13 @@ private:
 #ifdef BE_TEST
     FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
 #endif
-    Result<std::shared_ptr<io::ObjStorageClient>> _create_s3_client(const S3ClientConf& s3_conf);
+    Result<std::shared_ptr<io::ObjStorageClient>> _create_provider_client(
+            const S3ClientConf& s3_conf);
+    Result<std::shared_ptr<io::ObjStorageClient>> _create_oss_client(const S3ClientConf& s3_conf);
+    Result<S3ClientBuildContext> _make_s3_client_context(const S3ClientConf& s3_conf);
+    Result<std::shared_ptr<io::ObjStorageClient>> _create_s3_client(
+            const S3ClientConf& s3_conf,
+            std::function<std::string(const ObjStoragePath&, int64_t)> signed_url_generator = {});
     Result<std::shared_ptr<io::ObjStorageClient>> _create_azure_client(const S3ClientConf& s3_conf);
     std::string _get_ca_cert_file_path();
     S3ClientFactory();

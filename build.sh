@@ -513,6 +513,14 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
     fi
 fi
 
+# Incrementally upgrade an otherwise complete third-party install.
+if [[ "${BUILD_BE}" -eq 1 || "${BUILD_CLOUD}" -eq 1 ]]; then
+    if [[ ! -s "${DORIS_THIRDPARTY}/installed/lib64/libalibabacloud-oss-cpp-sdk-v2.a" ||
+          ! -f "${DORIS_THIRDPARTY}/installed/include/alibabacloud/oss2/OSSClient.h" ]]; then
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" oss_sdk
+    fi
+fi
+
 update_submodule() {
     local submodule_path=$1
     local submodule_name=$2

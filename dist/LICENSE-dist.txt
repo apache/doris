@@ -1512,6 +1512,7 @@ Other dependencies:
     * concurrentqueue: 1.0.3  -- licenses/LICENSE-concurrentqueue.txt
     * FlameGraph -- licenses/LICENSE-CDDL-1.0.txt
     * icu 75.1 -- licenses/LICENSE-icu.txt
+    * Alibaba Cloud OSS C++ SDK V2 0.2.0 -- Apache License 2.0; bundled notices in licenses/LICENSE-oss-sdk-v2.txt
     * pugixml 1.15 -- licenses/LICENSE-pugixml.txt
     * darts-clone (double-array trie, compiled into the kuromoji dictionary) -- licenses/LICENSE-darts-clone.txt
     * mecab-ipadic (IPADIC) 2.7.0-20250920 (Japanese dictionary data shipped under be/dict/kuromoji) -- licenses/LICENSE-ipadic.txt

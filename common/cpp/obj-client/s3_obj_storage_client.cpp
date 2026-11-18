@@ -568,8 +568,9 @@ ObjStorageResponse S3ObjStorageClient::abort_multipart_upload(const ObjStoragePa
     return ObjStorageResponse::OK();
 }
 
-ObjStorageResponse S3ObjStorageClient::get_lifecycle(const std::string& bucket,
+ObjStorageResponse S3ObjStorageClient::get_lifecycle(const ObjStoragePath& path,
                                                      int64_t* expiration_days) {
+    const auto& bucket = path.bucket;
     Aws::S3::Model::GetBucketLifecycleConfigurationRequest request;
     request.SetBucket(bucket);
 

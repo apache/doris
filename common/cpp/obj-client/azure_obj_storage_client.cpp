@@ -520,7 +520,7 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjStoragePath& 
     return sasURL;
 }
 
-ObjStorageResponse AzureObjStorageClient::get_lifecycle(const std::string& /*bucket*/,
+ObjStorageResponse AzureObjStorageClient::get_lifecycle(const ObjStoragePath& /*path*/,
                                                         int64_t* expiration_days) {
     // TODO(plat1ko)
     *expiration_days = INT64_MAX;
