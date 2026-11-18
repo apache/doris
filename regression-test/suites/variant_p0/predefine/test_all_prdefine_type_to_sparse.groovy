@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_all_prdefine_type_to_sparse", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
+    setFeConfigTemporary([enable_variant_v2: false, enable_variant_escape_dots_in_keys: false]) {
     assertFalse(getFeConfig("enable_variant_v2").toBoolean())
     def variantV2Function = ""
 

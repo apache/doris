@@ -106,7 +106,8 @@ suite("dotted_key_escape_semantics", "p0,nonConcurrent") {
     sql """create table dotted_key_escape_legacy(id int,v variant<properties("variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",
             "variant_max_sparse_column_statistics_size"="10000",
             "variant_sparse_hash_shard_count"="3", "variant_enable_nested_group"="false")>)
-        duplicate key(id) distributed by hash(id) buckets 1 properties("replication_num"="1")"""
+        duplicate key(id) distributed by hash(id) buckets 1
+        properties("replication_num"="1","variant_escape_dots_in_keys"="false")"""
     test {
         sql """alter table dotted_key_escape_legacy modify column v variant<properties("variant_escape_dots_in_keys"="true",
             "variant_max_subcolumns_count"="0", "variant_enable_typed_paths_to_sparse"="false",

@@ -49,7 +49,8 @@ suite("dotted_key_escape_async_mv", "p0,nonConcurrent") {
     }
     sql "DROP TABLE IF EXISTS dotted_key_escape_async_legacy_variant"
     sql """CREATE TABLE dotted_key_escape_async_legacy_variant(k INT,v VARIANT)
-        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES("replication_num"="1")"""
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num"="1","variant_escape_dots_in_keys"="false")"""
     sql "DROP MATERIALIZED VIEW IF EXISTS dotted_key_escape_async_mixed"
     test {
         sql """CREATE MATERIALIZED VIEW dotted_key_escape_async_mixed

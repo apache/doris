@@ -22,7 +22,8 @@ suite("dotted_key_escape_ctas_template", "p0,nonConcurrent") {
     sql """CREATE TABLE dotted_ctas_template_legacy(k INT,
         v VARIANT<MATCH_NAME '50%':STRING, MATCH_NAME 'a%2Eb':STRING,
             PROPERTIES("variant_enable_nested_group"="false")>)
-        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES("replication_num"="1")"""
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num"="1","variant_escape_dots_in_keys"="false")"""
     sql """INSERT INTO dotted_ctas_template_legacy VALUES
         (1, parse_to_variant('{"50%":"percent","a%2Eb":"literal_percent","a":{"b":"nested"}}'))"""
     // Even an INT-only escaped source makes the inferred destination escaped.
