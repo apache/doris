@@ -21,8 +21,10 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * The security-sensitive property surface a connector exposes to the engine's CREATE / ALTER CATALOG
@@ -145,6 +147,14 @@ public final class ConnectorSecuritySurface {
                 Collections.unmodifiableList(new ArrayList<>(Arrays.asList(markers)))));
         return new ConnectorSecuritySurface(ssrfEndpointKeys, jdbcDriverUrlKeys, jdbcDriverUrlFlavorKey,
                 sensitiveKeys, Collections.unmodifiableList(merged));
+    }
+
+    /** Adds endpoint checks without dropping existing driver-url or secret-masking declarations. */
+    public ConnectorSecuritySurface withSsrfEndpoints(String... keys) {
+        Set<String> endpoints = new LinkedHashSet<>(ssrfEndpointKeys);
+        endpoints.addAll(Arrays.asList(keys));
+        return new ConnectorSecuritySurface(Collections.unmodifiableList(new ArrayList<>(endpoints)),
+                jdbcDriverUrlKeys, jdbcDriverUrlFlavorKey, sensitiveKeys, sensitiveKeyPrefixes);
     }
 
     /** The endpoint property keys to check against the SSRF policy; empty when none. */
