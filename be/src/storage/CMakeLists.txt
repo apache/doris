@@ -56,6 +56,9 @@ pch_reuse(Storage)
 # - the three heaviest template-instantiation TUs (predicate creators) which
 #   would dominate any batch they join
 set(STORAGE_UNITY_SKIP
+    # Keep this independent watchdog separate so existing storage unity batches
+    # retain their include order (PageDecoder relies on a preceding butil/macros.h).
+    ${CMAKE_CURRENT_SOURCE_DIR}/disk_health_check_watchdog.cpp
     # Keep storage batches stable: null_predicate's using directive makes
     # later CLucene sse_util references ambiguous.
     ${CMAKE_CURRENT_SOURCE_DIR}/index/index_disk_usage.cpp
