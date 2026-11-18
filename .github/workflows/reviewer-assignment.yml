@@ -47,6 +47,7 @@ jobs:
         timeout-minutes: 15
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_GITHUB_DIAGNOSTICS_DIR: ${{ runner.temp }}/reviewer-assignment-diagnostics/github
         run: |
           assignment_workspace="$RUNNER_TEMP/reviewer-assignment-workspace"
           python3 .github/scripts/reviewer_assignment.py prepare --workspace "$assignment_workspace"
@@ -232,6 +233,7 @@ jobs:
         timeout-minutes: 9
         run: |
           set -euo pipefail
+          "$CODEX_ASSIGNMENT_BIN" --version > "$RUNNER_TEMP/reviewer-assignment-codex.version"
           codex_started=$SECONDS
           set +e
           timeout --signal=TERM --kill-after=20s 480s \
@@ -339,6 +341,31 @@ jobs:
         run: |
           python3 .github/scripts/reviewer_assignment.py validate --workspace "$ASSIGNMENT_WORKSPACE"
 
+      - name: Collect reviewer selection diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          REUSE_SELECTION: ${{ steps.prepare.outputs.reuse_selection }}
+        run: |
+          python3 .github/scripts/reviewer_assignment_diagnostics.py \
+            --workspace "$RUNNER_TEMP/reviewer-assignment-workspace" \
+            --events "$RUNNER_TEMP/reviewer-assignment-codex.jsonl" \
+            --stderr "$RUNNER_TEMP/reviewer-assignment-codex.stderr" \
+            --version "$RUNNER_TEMP/reviewer-assignment-codex.version" \
+            --output "$RUNNER_TEMP/reviewer-assignment-diagnostics/selection.json"
+
+      - name: Publish reviewer selection diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-assignment-diagnostics-select-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reviewer-assignment-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Publish the validated assignment plan
         timeout-minutes: 2
         uses: actions/upload-artifact@v4
@@ -379,6 +406,18 @@ jobs:
         timeout-minutes: 6
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVIEW_GITHUB_DIAGNOSTICS_DIR: ${{ runner.temp }}/reviewer-assignment-diagnostics/github
         run: |
           python3 .github/scripts/reviewer_assignment.py apply \
             --workspace "$RUNNER_TEMP/reviewer-assignment-plan"
+
+      - name: Publish assignment API diagnostics
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewer-assignment-diagnostics-assign-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reviewer-assignment-diagnostics/github/*.json
+          if-no-files-found: ignore
+          retention-days: 7
