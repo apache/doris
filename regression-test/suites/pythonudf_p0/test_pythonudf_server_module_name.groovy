@@ -16,21 +16,18 @@
 // under the License.
 
 suite("test_pythonudf_server_module_name") {
-    // UDF modules named like server modules load from the UDF package.
-
     def pyPath = """${context.file.parent}/udf_scripts/python_udf_server_module_name.zip"""
+    def nestedPath = """${context.file.parent}/udf_scripts/python_udf_nested_module_name.zip"""
     scp_udf_file_to_all_be(pyPath)
     scp_udf_file_to_all_fe(pyPath)
+    scp_udf_file_to_all_be(nestedPath)
+    scp_udf_file_to_all_fe(nestedPath)
     def runtime_version = getPythonUdfRuntimeVersion()
     def functions = [
-        [function: "py_server_name_types", symbol: "types.evaluate"],
-        [function: "py_server_name_json", symbol: "json.evaluate"],
-        [function: "py_server_name_logging", symbol: "logging.evaluate"],
-        [function: "py_server_name_sys", symbol: "sys.evaluate"],
-        [function: "py_server_name_threading", symbol: "threading.evaluate"],
-        [function: "py_server_name_pkg_logging", symbol: "udfpkg.logging.evaluate"],
-        [function: "py_server_name_uuid_pkg", symbol: "uuid.mod.evaluate"],
-        [function: "py_server_name_uuid_resources", symbol: "uuid.__init__.evaluate_resources"],
+        [function: "py_server_name_types", symbol: "types.evaluate", file: pyPath],
+        [function: "py_server_name_unused", symbol: "entry.evaluate", file: pyPath],
+        [function: "py_server_name_pkg_logging", symbol: "udfpkg.logging.evaluate", file: nestedPath],
+        [function: "py_server_name_pkg_resources", symbol: "udfpkg.__init__.evaluate_resources", file: nestedPath],
     ]
     log.info("Python Zip path: ${pyPath}".toString())
 
@@ -44,7 +41,7 @@ suite("test_pythonudf_server_module_name") {
                 "type" = "PYTHON_UDF",
                 "auto_suspend" = "0",
                 "pool_size" = "2",
-                "file" = "file://${pyPath}",
+                "file" = "file://${udf.file}",
                 "symbol" = "${udf.symbol}",
                 "runtime_version" = "${runtime_version}",
                 "always_nullable" = "true"
@@ -52,7 +49,14 @@ suite("test_pythonudf_server_module_name") {
             """
         }
 
-        // Runs first to cover concurrent first imports.
+        for (function in ["py_server_name_types", "py_server_name_unused"]) {
+            test {
+                sql "SELECT ${function}(5)"
+                exception "conflicting top-level module names:"
+            }
+        }
+
+        // Nested names retain ordinary imports, resources and concurrent module caching.
         sql """ DROP TABLE IF EXISTS python_udf_server_module_name_test """
         sql """
         CREATE TABLE python_udf_server_module_name_test (
@@ -67,18 +71,12 @@ suite("test_pythonudf_server_module_name") {
         SELECT number, number % 100 FROM numbers("number" = "10000");
         """
         qt_concurrent_first_load """
-            SELECT SUM(py_server_name_uuid_pkg(val)), SUM(py_server_name_types(val))
+            SELECT SUM(py_server_name_pkg_logging(val)), SUM(py_server_name_pkg_resources(val))
             FROM python_udf_server_module_name_test;
         """
 
-        qt_types """ SELECT py_server_name_types(5) AS result; """
-        qt_json """ SELECT py_server_name_json(1) AS result; """
-        qt_logging """ SELECT py_server_name_logging(1) AS result; """
-        qt_sys """ SELECT py_server_name_sys(1) AS result; """
-        qt_threading """ SELECT py_server_name_threading(1) AS result; """
         qt_pkg_logging """ SELECT py_server_name_pkg_logging(10) AS result; """
-        qt_uuid_pkg """ SELECT py_server_name_uuid_pkg(1) AS result; """
-        qt_uuid_resources """ SELECT py_server_name_uuid_resources(5) AS result; """
+        qt_pkg_resources """ SELECT py_server_name_pkg_resources(5) AS result; """
     } finally {
         functions.each { udf ->
             try_sql("DROP FUNCTION IF EXISTS ${udf.function}(INT);")

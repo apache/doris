@@ -16,20 +16,16 @@
 // under the License.
 
 suite("test_pythonudaf_server_module_name") {
-    // UDAF modules named like server modules, with state objects merged across workers.
-
     def pyPath = """${context.file.parent}/udaf_scripts/python_udaf_server_module_name.zip"""
+    def nestedPath = """${context.file.parent}/udaf_scripts/python_udaf_nested_module_name.zip"""
     scp_udf_file_to_all_be(pyPath)
     scp_udf_file_to_all_fe(pyPath)
+    scp_udf_file_to_all_be(nestedPath)
+    scp_udf_file_to_all_fe(nestedPath)
     def runtime_version = getPythonUdfRuntimeVersion()
     def functions = [
-        [function: "py_server_name_os_udaf", symbol: "os.SumUDAF"],
-        [function: "py_server_name_pathlib_udaf", symbol: "pathlib.SumUDAF"],
-        [function: "py_server_name_pickle_udaf", symbol: "pickle.SumUDAF"],
-        [function: "py_server_name_datetime_udaf", symbol: "datetime.SumUDAF"],
-        [function: "py_server_name_pkg_pathlib_udaf", symbol: "udafpkg.pathlib.PackagedSumUDAF"],
-        [function: "py_server_name_types_state_udaf", symbol: "types.StateObjectUDAF"],
-        [function: "py_server_name_json_state_udaf", symbol: "json.udaf.MaxUDAF"],
+        [function: "py_server_name_types_state_udaf", symbol: "types.StateObjectUDAF", file: pyPath],
+        [function: "py_server_name_pkg_pathlib_udaf", symbol: "udafpkg.pathlib.PackagedSumUDAF", file: nestedPath],
     ]
     log.info("Python Zip path: ${pyPath}".toString())
 
@@ -58,34 +54,25 @@ suite("test_pythonudaf_server_module_name") {
                 "type" = "PYTHON_UDF",
                 "auto_suspend" = "0",
                 "pool_size" = "4",
-                "file" = "file://${pyPath}",
+                "file" = "file://${udaf.file}",
                 "symbol" = "${udaf.symbol}",
                 "runtime_version" = "${runtime_version}"
             );
             """
         }
 
-        order_qt_sum_states """
-            SELECT grp,
-                   py_server_name_os_udaf(val),
-                   py_server_name_pathlib_udaf(val),
-                   py_server_name_pickle_udaf(val),
-                   py_server_name_datetime_udaf(val),
-                   py_server_name_pkg_pathlib_udaf(val)
-            FROM udaf_server_module_name_test
-            GROUP BY grp;
-        """
+        test {
+            sql "SELECT py_server_name_types_state_udaf(val) FROM udaf_server_module_name_test"
+            exception "conflicting top-level module names:"
+        }
 
         order_qt_object_states """
-            SELECT grp,
-                   py_server_name_types_state_udaf(val),
-                   py_server_name_json_state_udaf(id)
+            SELECT grp, py_server_name_pkg_pathlib_udaf(val)
             FROM udaf_server_module_name_test
             GROUP BY grp;
         """
-
         qt_object_states_without_group """
-            SELECT py_server_name_types_state_udaf(val), py_server_name_json_state_udaf(id)
+            SELECT py_server_name_pkg_pathlib_udaf(val)
             FROM udaf_server_module_name_test;
         """
     } finally {

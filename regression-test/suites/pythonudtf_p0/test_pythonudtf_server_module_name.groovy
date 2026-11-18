@@ -16,19 +16,16 @@
 // under the License.
 
 suite("test_pythonudtf_server_module_name") {
-    // UDTF modules named like server modules load from the UDTF package.
-
     def pyPath = """${context.file.parent}/udtf_scripts/python_udtf_server_module_name.zip"""
+    def nestedPath = """${context.file.parent}/udtf_scripts/python_udtf_nested_module_name.zip"""
     scp_udf_file_to_all_be(pyPath)
     scp_udf_file_to_all_fe(pyPath)
+    scp_udf_file_to_all_be(nestedPath)
+    scp_udf_file_to_all_fe(nestedPath)
     def runtime_version = getPythonUdfRuntimeVersion()
     def functions = [
-        [function: "py_server_name_importlib_udtf", symbol: "importlib.double_udtf"],
-        [function: "py_server_name_inspect_udtf", symbol: "inspect.double_udtf"],
-        [function: "py_server_name_ipaddress_udtf", symbol: "ipaddress.double_udtf"],
-        [function: "py_server_name_base64_udtf", symbol: "base64.double_udtf"],
-        [function: "py_server_name_types_udtf", symbol: "types.double_udtf"],
-        [function: "py_server_name_pkg_inspect_udtf", symbol: "udtfpkg.inspect.shift_udtf"],
+        [function: "py_server_name_importlib_udtf", symbol: "importlib.double_udtf", file: pyPath],
+        [function: "py_server_name_pkg_inspect_udtf", symbol: "udtfpkg.inspect.shift_udtf", file: nestedPath],
     ]
     log.info("Python Zip path: ${pyPath}".toString())
 
@@ -55,43 +52,19 @@ suite("test_pythonudtf_server_module_name") {
                 "type" = "PYTHON_UDF",
                 "auto_suspend" = "0",
                 "pool_size" = "1",
-                "file" = "file://${pyPath}",
+                "file" = "file://${udtf.file}",
                 "symbol" = "${udtf.symbol}",
                 "runtime_version" = "${runtime_version}"
             );
             """
         }
 
-        qt_importlib """
-            SELECT tmp.original, tmp.computed
-            FROM udtf_server_module_name_test
-            LATERAL VIEW py_server_name_importlib_udtf(val) tmp AS original, computed
-            ORDER BY id;
-        """
-        qt_inspect """
-            SELECT tmp.original, tmp.computed
-            FROM udtf_server_module_name_test
-            LATERAL VIEW py_server_name_inspect_udtf(val) tmp AS original, computed
-            ORDER BY id;
-        """
-        qt_ipaddress """
-            SELECT tmp.original, tmp.computed
-            FROM udtf_server_module_name_test
-            LATERAL VIEW py_server_name_ipaddress_udtf(val) tmp AS original, computed
-            ORDER BY id;
-        """
-        qt_base64 """
-            SELECT tmp.original, tmp.computed
-            FROM udtf_server_module_name_test
-            LATERAL VIEW py_server_name_base64_udtf(val) tmp AS original, computed
-            ORDER BY id;
-        """
-        qt_types """
-            SELECT tmp.original, tmp.computed
-            FROM udtf_server_module_name_test
-            LATERAL VIEW py_server_name_types_udtf(val) tmp AS original, computed
-            ORDER BY id;
-        """
+        test {
+            sql """SELECT tmp.original, tmp.computed
+                   FROM udtf_server_module_name_test
+                   LATERAL VIEW py_server_name_importlib_udtf(val) tmp AS original, computed"""
+            exception "conflicting top-level module names:"
+        }
         qt_pkg_inspect """
             SELECT tmp.original, tmp.computed
             FROM udtf_server_module_name_test

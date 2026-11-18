@@ -15,23 +15,28 @@
 # specific language governing permissions and limitations
 # under the License.
 
+class SumState:
+    def __init__(self):
+        self.total = 0
+
+
 class PackagedSumUDAF:
     """A package module named after the pathlib module of the server."""
 
     def __init__(self):
-        self.total = 0
+        self.state = SumState()
 
     def accumulate(self, value):
         if value is not None:
-            self.total += value + 1
+            self.state.total += value + 1
 
     def merge(self, other_state):
         if other_state is not None:
-            self.total += other_state
+            self.state.total += other_state.total
 
     def finish(self):
-        return self.total
+        return self.state.total
 
     @property
     def aggregate_state(self):
-        return self.total
+        return self.state

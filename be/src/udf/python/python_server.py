@@ -19,8 +19,8 @@ import argparse
 import base64
 import gc
 import importlib
-import importlib.abc
 import importlib.machinery
+import importlib.util
 import inspect
 import ipaddress
 import json
@@ -941,41 +941,41 @@ class InlineUDFLoader(UDFLoader):
         return AdaptivePythonUDF(self.python_udf_meta, func)
 
 
-class UDFModuleFinder(importlib.abc.MetaPathFinder):
-    """Load uploaded modules under their original names in a dedicated process."""
+def configure_udf_module_path(location: str) -> None:
+    location = os.path.abspath(location)
+    module_names = set()
+    with os.scandir(location) as entries:
+        for entry in entries:
+            if entry.is_dir():
+                # Earlier workers may have generated this bytecode cache directory.
+                if entry.name != "__pycache__":
+                    module_names.add(entry.name)
+            else:
+                for suffix in importlib.machinery.all_suffixes():
+                    if entry.name.endswith(suffix):
+                        module_names.add(entry.name[:-len(suffix)])
+                        break
 
-    def __init__(self, location: str):
-        self.location = os.path.abspath(location)
-        self.server_modules = {}
+    # Exclude the upload directory when checking the runtime's importable modules.
+    original_path = sys.path[:]
+    sys.path[:] = [path for path in original_path if os.path.abspath(path) != location]
+    try:
+        conflicts = sorted(
+            name for name in module_names
+            if name.isidentifier()
+            and (name in sys.modules or importlib.util.find_spec(name) is not None)
+        )
+    finally:
+        sys.path[:] = original_path
 
-    def install(self) -> None:
-        # A process binds once. Replace preloaded names before its first UDF import.
-        cached_modules = sys.modules.copy()
-        top_level_names = {name.partition(".")[0] for name in cached_modules}
-        udf_names = {
-            name
-            for name in top_level_names
-            if importlib.machinery.PathFinder.find_spec(name, [self.location]) is not None
-        }
-        self.server_modules = {
-            name: module
-            for name, module in cached_modules.items()
-            if name.partition(".")[0] in udf_names
-        }
-        sys.path.insert(0, self.location)
-        sys.meta_path.insert(0, self)
-        for name in self.server_modules:
-            sys.modules.pop(name, None)
-
-    def restore(self) -> None:
-        # Interpreter shutdown still needs original modules such as threading._shutdown.
-        sys.modules.update(self.server_modules)
-
-    def find_spec(self, fullname, path=None, target=None):
-        # Uploaded top-level modules take precedence over built-in and frozen modules.
-        if path is None:
-            return importlib.machinery.PathFinder.find_spec(fullname, [self.location])
-        return None
+    if conflicts:
+        raise ImportError(
+            "Python UDF package has conflicting top-level module names: "
+            f"{', '.join(conflicts)}. Names must not conflict with the Python standard "
+            "library or installed packages. Rename these modules or place them under "
+            "a uniquely named package."
+        )
+    sys.path.insert(0, location)
 
 
 class ModuleUDFLoader(UDFLoader):
@@ -1639,13 +1639,6 @@ class FlightServer(flight.FlightServerBase):
         self._binding_lock = threading.Lock()
         self._bound_runtime_version: Optional[str] = None
         self._bound_function_id: Optional[int] = None
-        self._module_finder: Optional[UDFModuleFinder] = None
-
-    def shutdown(self) -> None:
-        super().shutdown()
-        if self._module_finder is not None:
-            self._module_finder.restore()
-            self._module_finder = None
 
     def _get_udaf_state_manager(
         self, python_udaf_meta: PythonUDFMeta
@@ -1770,8 +1763,7 @@ class FlightServer(flight.FlightServerBase):
             if self._bound_function_id is None:
                 # Keep the original module names cached for lazy imports and UDAF pickle.
                 if python_udf_meta.udf_load_type == 1:
-                    self._module_finder = UDFModuleFinder(python_udf_meta.location)
-                    self._module_finder.install()
+                    configure_udf_module_path(python_udf_meta.location)
                 self._bound_runtime_version = python_udf_meta.runtime_version
                 self._bound_function_id = python_udf_meta.id
                 return
@@ -2732,14 +2724,11 @@ def main(unix_socket_path: str) -> None:
 
         # Start unified server that handles UDF, UDAF, and UDTF
         server = FlightServer(ServerState.unix_socket_path)
-        try:
-            print(ServerState.PYTHON_SERVER_START_SUCCESS_MSG, flush=True)
-            logging.info(
-                "##### PYTHON UDF/UDAF/UDTF SERVER STARTED AT %s #####", datetime.now()
-            )
-            server.wait()
-        finally:
-            server.shutdown()
+        print(ServerState.PYTHON_SERVER_START_SUCCESS_MSG, flush=True)
+        logging.info(
+            "##### PYTHON UDF/UDAF/UDTF SERVER STARTED AT %s #####", datetime.now()
+        )
+        server.wait()
 
     except Exception as e:
         print(

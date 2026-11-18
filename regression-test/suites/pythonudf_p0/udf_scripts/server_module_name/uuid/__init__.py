@@ -23,9 +23,9 @@ from pkgutil import get_data
 
 
 RESOURCE_SUM = (
-    int(pkgutil.get_data("uuid", "data.txt"))
-    + int(get_data("uuid", "data.txt"))
-    + int(importlib.import_module("pkgutil").get_data("uuid", "data.txt"))
+    int(pkgutil.get_data("uuid", "data.txt").splitlines()[-1])
+    + int(get_data("uuid", "data.txt").splitlines()[-1])
+    + int(importlib.import_module("pkgutil").get_data("uuid", "data.txt").splitlines()[-1])
 )
 
 # files() was added in Python 3.9; read_text() also covers Python 3.8 workers.
@@ -34,9 +34,9 @@ for resource_api in (
     resources,
     importlib.import_module("importlib.resources"),
 ):
-    assert int(resource_api.read_text("uuid", "data.txt")) == 7
+    assert int(resource_api.read_text("uuid", "data.txt").splitlines()[-1]) == 7
     if hasattr(resource_api, "files"):
-        assert int(resource_api.files("uuid").joinpath("data.txt").read_text()) == 7
+        assert int(resource_api.files("uuid").joinpath("data.txt").read_text().splitlines()[-1]) == 7
 
 
 def evaluate_resources(x):
