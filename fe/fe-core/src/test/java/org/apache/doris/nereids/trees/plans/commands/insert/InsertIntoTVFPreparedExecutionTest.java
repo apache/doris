@@ -165,7 +165,7 @@ public class InsertIntoTVFPreparedExecutionTest extends TestWithFeService {
         });
         execute(prepared, first);
         Assertions.assertEquals(MysqlStateType.ERR, connectContext.getState().getStateType());
-        Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("Insert into TVF canceled"));
+        Assertions.assertEquals("cancel first execution", connectContext.getState().getErrorMessage());
         Mockito.verify(firstCoordinator).exec();
         Mockito.verify(firstCoordinator).close();
         Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(connectContext.queryId()));
@@ -252,7 +252,7 @@ public class InsertIntoTVFPreparedExecutionTest extends TestWithFeService {
         try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class)) {
             execute(prepared, current);
             Assertions.assertEquals(MysqlStateType.ERR, connectContext.getState().getStateType());
-            Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("Insert into TVF canceled"),
+            Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("canceled before EXECUTE"),
                     connectContext.getState().getErrorMessage());
             Assertions.assertTrue(planners.constructed().isEmpty(), "canceled EXECUTE must not plan");
         }

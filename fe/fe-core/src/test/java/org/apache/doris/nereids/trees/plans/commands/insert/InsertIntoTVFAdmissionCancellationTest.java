@@ -156,7 +156,7 @@ public class InsertIntoTVFAdmissionCancellationTest extends TestWithFeService {
                     new Status(TStatusCode.CANCELLED, "cancel from executor"), false));
             Assertions.assertTrue(firstCancelReturned.await(10, TimeUnit.SECONDS));
             Assertions.assertTrue(coordinator.getCoordinatorContext().getQueueToken().isEmpty());
-            Assertions.assertEquals("Insert into TVF canceled", coordinator.getExecStatus().getErrorMsg());
+            Assertions.assertEquals("cancel from executor", coordinator.getExecStatus().getErrorMsg());
 
             publishToken.countDown();
             QueueToken token = awaitPublishedToken(coordinator);
@@ -165,9 +165,9 @@ public class InsertIntoTVFAdmissionCancellationTest extends TestWithFeService {
             run.get(10, TimeUnit.SECONDS);
 
             Assertions.assertEquals(MysqlStateType.ERR, context.getState().getStateType());
-            Assertions.assertTrue(context.getState().getErrorMessage().contains("Insert into TVF canceled"));
+            Assertions.assertEquals("cancel from executor", context.getState().getErrorMessage());
             Assertions.assertEquals(TStatusCode.CANCELLED, coordinator.getExecStatus().getErrorCode());
-            Assertions.assertEquals("Insert into TVF canceled", coordinator.getExecStatus().getErrorMsg());
+            Assertions.assertEquals("cancel from executor", coordinator.getExecStatus().getErrorMsg());
             Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(context.queryId()));
             Assertions.assertTrue(coordinator.getDispatchedBackendIds().isEmpty());
             Assertions.assertEquals(dispatchesBefore, DefaultPBackendServiceImpl.getExecPlanFragmentCalls());

@@ -58,7 +58,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Command for INSERT INTO tvf_name(properties) SELECT ...
@@ -122,7 +121,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         ExecutionState execution = new ExecutionState();
-        executor.registerQueryCancellationCallback(execution::cancel);
+        executor.registerQueryCancellationCallback(() -> execution.cancel(executor.getPendingCancelReason()));
         execution.checkCanceled();
         NereidsPlanner planner = preparePlan(ctx, executor);
         execution.checkCanceled();
@@ -175,10 +174,13 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, error);
             }
         } catch (Exception e) {
-            String error = e.getMessage() == null ? "unknown error" : e.getMessage();
-            coordinator.cancel(new Status(
-                    execution.canceled.get() ? TStatusCode.CANCELLED : TStatusCode.INTERNAL_ERROR, error));
-            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, error);
+            Status failure = execution.cancelReason;
+            if (failure == null) {
+                failure = new Status(TStatusCode.INTERNAL_ERROR,
+                        e.getMessage() == null ? "unknown error" : e.getMessage());
+            }
+            coordinator.cancel(failure);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, failure.getErrorMsg());
         } finally {
             try {
                 if (registered) {
@@ -198,30 +200,32 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         // Planning does not hold this lock. Cancellation may interrupt planning, but must
         // synchronize with the side effects and fragment dispatch before acknowledging it.
         private final Object executionLock = new Object();
-        private final AtomicBoolean canceled = new AtomicBoolean();
+        private volatile Status cancelReason;
         private volatile Coordinator activeCoordinator;
 
         /** Called by StmtExecutor even when cancellation arrives before a Coordinator exists. */
-        private void cancel() {
-            canceled.set(true);
+        private void cancel(Status reason) {
+            // StmtExecutor publishes its first reason before invoking this callback once.
+            cancelReason = reason;
             Coordinator coordinator = activeCoordinator;
             if (coordinator != null) {
                 // Wake a Coordinator that is waiting for workload admission during exec().
-                coordinator.cancel(new Status(TStatusCode.CANCELLED, "Insert into TVF canceled"));
+                coordinator.cancel(reason);
             }
             synchronized (executionLock) {
                 // Dispatch may have installed new fragments after the first cancel. Do not
                 // acknowledge cancellation until startup has exited and those fragments are canceled.
                 coordinator = activeCoordinator;
                 if (coordinator != null) {
-                    coordinator.cancel(new Status(TStatusCode.CANCELLED, "Insert into TVF canceled"));
+                    coordinator.cancel(reason);
                 }
             }
         }
 
         private void checkCanceled() throws UserException {
-            if (canceled.get()) {
-                throw new UserException("Insert into TVF canceled");
+            Status reason = cancelReason;
+            if (reason != null) {
+                throw new UserException(reason.getErrorMsg());
             }
         }
     }
