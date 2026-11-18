@@ -26,7 +26,14 @@ Every change under `gensrc/thrift` and `gensrc/proto` must keep every upgrade co
 
 To ensure smooth test execution without interference between worktrees, the first thing to do upon entering a worktree directory is to check if `.worktree_initialized` exists. If not, execute `hooks/setup_worktree.sh`, setting `$ROOT_WORKSPACE_PATH` to the base directory (typically `${DORIS_REPO}`) beforehand. After successful execution, verify that `.worktree_initialized` has been touched and that `thirdparty/installed` dependencies exist correctly.
 
-Submodules are not part of the default worktree setup. If the task does not compile Doris or run tests that require submodules, leave all submodules uninitialized. Build and test entry points initialize the submodule paths they require. Only initialize a submodule manually when the task actually needs it and an entry point does not handle it; initialize the exact required path instead of running an unscoped recursive update for every submodule.
+Submodules are not part of the default worktree setup. If the task does not need submodule content for builds, tests, or skills, leave all submodules uninitialized. Build and test entry points initialize the submodule paths they require. Only initialize a submodule manually when the task actually needs it and an entry point does not handle it; initialize the exact required path instead of running an unscoped recursive update for every submodule.
+
+The `develop-with-evidence` and `doris-pr-description` skills must be loaded from the `doris-skills/` submodule in the current worktree:
+
+- `develop-with-evidence`: `doris-skills/skills/develop-with-evidence/SKILL.md`
+- `doris-pr-description`: `doris-skills/skills/doris-pr-description/SKILL.md`
+
+If the submodule is uninitialized or either required skill is missing, first run `git submodule update --init -- doris-skills` from the worktree root to fetch or update it. Then read the corresponding `SKILL.md` at the path above before using the skill.
 
 When working in worktree mode, all operations must be confined to the current worktree directory. Do not enter `${DORIS_REPO}` or use any resources there. Git's own storage in `${DORIS_REPO}/.git`, which every worktree shares, is not such a resource. This includes the PR handoff files in `${DORIS_REPO}/.git/pr-handoff/`, which a development skill such as `develop-with-evidence` writes and the `doris-pr-description` skill reads. Compilation and execution must be done within the current worktree directory. The compiled Doris cluster must use random ports not used by other worktrees (modify BE and FE conf before compilation, using a uniform offset of `${DORIS_PORT_OFFSET_RANGE}` from default ports without conflicting with other worktrees' ports). Run from the `output` directory within the worktree. To run regression tests, modify `regression-test/conf/regression-conf.groovy` and set the port numbers in `jdbcUrl` and other configuration items to your new ports so the corresponding worktree cluster can be used for regression testing.
 

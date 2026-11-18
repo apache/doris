@@ -23,7 +23,7 @@ The initial target matrix is:
 
 | Dimension | Initial target | Current admission |
 | --- | --- | --- |
-| Catalog | HMS with the SDK standard encryption manager and an operator-configured KMS | Other catalogs are rejected |
+| Catalog | HMS or REST with the SDK standard encryption manager and an operator-configured KMS | Other catalogs are rejected |
 | Table format | Iceberg v3 | Other versions are rejected for encrypted reads |
 | Data and delete files | Native Parquet modular encryption, `AES_GCM_V1` | No encrypted ranges are emitted yet |
 | Manifest/list files | SDK-managed encryption | No plaintext fallback is allowed |
@@ -51,7 +51,7 @@ Errors contain a stable `Iceberg encryption [CLASSIFICATION]` prefix:
 | Classification | Meaning |
 | --- | --- |
 | `READ_DISABLED` | Encrypted reads were not enabled in the plugin configuration |
-| `UNSUPPORTED_CATALOG` | The catalog is outside the initial HMS scope |
+| `UNSUPPORTED_CATALOG` | The catalog is outside the HMS/REST scope |
 | `UNSUPPORTED_TABLE_FORMAT` | The encrypted table is not v3 |
 | `UNSUPPORTED_ENCRYPTION_MANAGER` | Encryption detection observed a custom SDK encryption manager |
 | `BACKEND_CAPABILITY_UNAVAILABLE` | The engine cannot prove encrypted-read support |
@@ -183,3 +183,37 @@ disabled streaming; normal-scan fallback would retain all file tasks and ranges
 before the dispatch guard rejects them. This deterministic rejection must not
 trigger the manifest cache's SDK retry. Plaintext COUNT retains its existing
 collapse and cache-failure fallback behavior.
+
+## REST Catalog encrypted metadata
+
+REST catalogs use the same default-off read admission and v3/standard-encryption
+requirements as HMS. The SDK REST operations used by this connector do not attach
+an encryption manager themselves; a small package-access adapter retains the
+original REST table, scan capabilities, REST credentials and refresh protocol while
+adding lazy, read-only encrypted metadata FileIO. It uses the effective FileIO
+properties after SDK catalog defaults, server overrides and table config merging.
+No KMS client is initialized merely to load a table or reject an encrypted query.
+
+The table-owned adapter closes its KMS client once. It closes a table-specific
+FileIO, but leaves a shared Catalog FileIO to the catalog owner. Refresh replaces
+the encrypted metadata generation without discarding retained historical keys.
+Missing KMS configuration or a removed table-key property is rejected explicitly;
+retained keys must never make the SDK select a plaintext manager.
+Encrypted REST writes and maintenance operations remain unsupported, and the
+common SQL execution fence remains in place pending protected key transport and
+native execution admission. Changing the REST allowlist does not bypass that fence.
+
+`test_iceberg_encrypted_rest_metadata` reuses the mandatory encryption fixture's
+`/rest` endpoint and existing ports; no extra enable flag is required. Its dedicated
+namespace and object locations do not reset the HMS regression's tables. An
+independent SDK reference view reads real encrypted Parquet and manifest/list
+files using metadata loaded through REST, checks historical rows, and verifies
+missing KMS, rejected credentials, denied decrypt and wrong-key failures. Doris
+SQL covers plaintext reads and counts, table-cache and batch/count settings,
+repeated encrypted admission, historical and metadata-table reads, and refresh.
+The fixture is a read-only protocol test service, not a production REST catalog.
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encrypted_rest_metadata
+```

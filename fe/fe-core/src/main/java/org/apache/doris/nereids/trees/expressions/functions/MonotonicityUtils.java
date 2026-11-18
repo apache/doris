@@ -62,6 +62,12 @@ public final class MonotonicityUtils {
         return true;
     }
 
+    /** Calendar DAY arithmetic preserves UTC order only when the session offset cannot change. */
+    public static boolean isCalendarDayMonotonic(DataType inputType) {
+        // At a fall-back, 01:50-04 precedes 01:10-05, but adding one local day reverses their UTC order.
+        return !(inputType instanceof TimeStampTzType) || DateUtils.getTimeZone().getRules().isFixedOffset();
+    }
+
     public static boolean hasOneVariableArgument(ExpressionTrait expression) {
         return expression.child(0) instanceof Literal ^ expression.child(1) instanceof Literal;
     }

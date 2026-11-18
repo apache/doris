@@ -364,6 +364,13 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
         setReturnInfo();
     }
 
+    @Override
+    public void onSkipExecution() {
+        if (loadJobRegistered) {
+            recordLoadJob(ctx.getCurrentUserIdentity());
+        }
+    }
+
     protected void setReturnInfo() {
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}

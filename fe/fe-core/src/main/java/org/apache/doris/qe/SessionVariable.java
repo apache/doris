@@ -3103,9 +3103,10 @@ public class SessionVariable implements Serializable, Writable {
     public String mongodbReadPreference = "inherit";
 
     @VarAttrDef.VarAttr(name = MONGODB_READ_CONCERN, needForward = true,
-            checker = "checkMongoDBReadConcern", options = {"inherit", "local", "majority", "available"},
+            checker = "checkMongoDBReadConcern", affectQueryResultInExecution = true,
+            options = {"inherit", "local", "majority", "available", "snapshot"},
             description = "MongoDB data-read visibility for this session or SET_VAR statement. "
-                    + "inherit follows the catalog policy; shared snapshots are not supported")
+                    + "inherit follows the catalog policy; snapshot pins a shared MongoDB cluster timestamp")
     public String mongodbReadConcern = "inherit";
 
     @VarAttrDef.VarAttr(name = "enable_mongodb_predicate_pushdown", needForward = true,
@@ -4618,9 +4619,9 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkMongoDBReadConcern(String value) {
-        if (!Set.of("inherit", "local", "majority", "available").contains(value.toLowerCase(Locale.ROOT))) {
+        if (!Set.of("inherit", "local", "majority", "available", "snapshot").contains(value.toLowerCase(Locale.ROOT))) {
             throw new UnsupportedOperationException("Invalid mongodb_read_concern; expected inherit, local, "
-                    + "majority or available");
+                    + "majority, available or snapshot");
         }
     }
 
