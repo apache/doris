@@ -25,6 +25,7 @@ import io.delta.kernel.types.BinaryType;
 import io.delta.kernel.types.BooleanType;
 import io.delta.kernel.types.DataType;
 import io.delta.kernel.types.DateType;
+import io.delta.kernel.types.IntegerType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
@@ -82,7 +83,7 @@ final class DeltaLakePartitionValues {
     }
 
     static Map<String, String> normalize(StructType schema, List<String> partitions,
-            boolean mapped, Map<String, String> rawValues, Set<String> emptyDatePartitions) {
+            boolean mapped, Map<String, String> rawValues, Set<String> emptyPartitionColumns) {
         Map<String, String> result = new LinkedHashMap<>();
         for (String name : partitions) {
             StructField field = schema.get(name);
@@ -92,9 +93,10 @@ final class DeltaLakePartitionValues {
             }
             try {
                 String raw = rawValues.get(key);
-                result.put(name, normalizeValue(field, raw));
-                if (emptyDatePartitions != null && "".equals(raw) && field.getDataType() instanceof DateType) {
-                    emptyDatePartitions.add(name);
+                String value = normalizeValue(field, raw);
+                result.put(name, value);
+                if (emptyPartitionColumns != null && "".equals(raw) && value == null) {
+                    emptyPartitionColumns.add(name);
                 }
             } catch (IllegalArgumentException | DateTimeException e) {
                 throw new DorisConnectorException("Invalid Delta partition value for column " + name
@@ -113,11 +115,19 @@ final class DeltaLakePartitionValues {
         return normalizeValue(field.getDataType(), value);
     }
 
+    static boolean emptyStringIsNull(DataType type) {
+        return type instanceof DateType || type instanceof IntegerType
+                || type instanceof BooleanType || type instanceof TimestampType;
+    }
+
     static String normalizeValue(DataType type, String value) {
         if (value == null || type instanceof StringType || type instanceof BinaryType) {
             // Delta serializes binary partition values as UTF-8 strings, not base64. Do not
             // path-decode either type: percent signs, slashes, empty strings and sentinels are data.
             return value;
+        }
+        if (value.isEmpty() && emptyStringIsNull(type)) {
+            return null;
         }
         if (type instanceof TimestampType) {
             // The protocol's space-separated timestamps also mean UTC. java.sql.Timestamp's
@@ -134,7 +144,7 @@ final class DeltaLakePartitionValues {
                     .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
         }
         if (type instanceof DateType) {
-            return value.isEmpty() ? null : LocalDate.parse(value).toString();
+            return LocalDate.parse(value).toString();
         }
         if (type instanceof BooleanType && !"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
             throw new IllegalArgumentException("Expected a boolean partition value");

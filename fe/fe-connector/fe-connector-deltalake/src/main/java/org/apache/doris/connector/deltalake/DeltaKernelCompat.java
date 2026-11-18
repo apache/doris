@@ -22,7 +22,13 @@ import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 
 import io.delta.kernel.Snapshot;
+import io.delta.kernel.data.ColumnVector;
 import io.delta.kernel.data.Row;
+import io.delta.kernel.defaults.internal.data.DefaultColumnarBatch;
+import io.delta.kernel.defaults.internal.data.vector.DefaultGenericVector;
+import io.delta.kernel.engine.Engine;
+import io.delta.kernel.expressions.Predicate;
+import io.delta.kernel.expressions.PredicateEvaluator;
 import io.delta.kernel.internal.InternalScanFileUtils;
 import io.delta.kernel.internal.actions.DeletionVectorDescriptor;
 import io.delta.kernel.internal.actions.Protocol;
@@ -30,9 +36,16 @@ import io.delta.kernel.internal.snapshot.LogSegment;
 import io.delta.kernel.internal.tablefeatures.TableFeature;
 import io.delta.kernel.internal.util.PartitionUtils;
 import io.delta.kernel.statistics.DataFileStatistics;
+import io.delta.kernel.types.BinaryType;
 import io.delta.kernel.types.DataType;
+import io.delta.kernel.types.DateType;
+import io.delta.kernel.types.StructField;
+import io.delta.kernel.types.StructType;
+import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.utils.FileStatus;
 
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -100,6 +113,44 @@ final class DeltaKernelCompat {
 
     static Object partitionLiteral(DataType type, String value) {
         return PartitionUtils.literalForPartitionValue(type, value).getValue();
+    }
+
+    static java.util.function.Predicate<Map<String, String>> normalizedPartitionFilter(
+            Engine engine, StructType schema, Predicate predicate) {
+        PredicateEvaluator evaluator = engine.getExpressionHandler().getPredicateEvaluator(schema, predicate);
+        // A single split producer owns this one-row batch. Consume the selection before updating the next row.
+        Object[][] values = new Object[schema.length()][1];
+        ColumnVector[] columns = new ColumnVector[schema.length()];
+        for (int i = 0; i < columns.length; i++) {
+            columns[i] = DefaultGenericVector.fromArray(schema.at(i).getDataType(), values[i]);
+        }
+        DefaultColumnarBatch batch = new DefaultColumnarBatch(1, schema, columns);
+        return partitions -> {
+            for (int i = 0; i < columns.length; i++) {
+                StructField field = schema.at(i);
+                values[i][0] = normalizedPartitionLiteral(field.getDataType(), partitions.get(field.getName()));
+            }
+            try (ColumnVector keep = evaluator.eval(batch, Optional.empty())) {
+                return !keep.isNullAt(0) && keep.getBoolean(0);
+            }
+        };
+    }
+
+    private static Object normalizedPartitionLiteral(DataType type, String value) {
+        if (value == null) {
+            return null;
+        }
+        if (type instanceof DateType) {
+            return Math.toIntExact(LocalDate.parse(value).toEpochDay());
+        }
+        if (type instanceof TimestampNTZType) {
+            // Normalized NTZ values are ISO local times. Kernel represents them as wall-clock microseconds.
+            return PartitionUtils.tryParseTimestamp(value + "Z");
+        }
+        if (type instanceof BinaryType) {
+            return value.getBytes(StandardCharsets.UTF_8);
+        }
+        return partitionLiteral(type, value);
     }
 
     static OptionalLong numRecords(Row file) {

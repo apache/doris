@@ -69,6 +69,10 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         this.statistics = statistics;
     }
 
+    private record ScanFilter(Optional<Predicate> kernelPredicate,
+            java.util.function.Predicate<Map<String, String>> partitionPredicate) {
+    }
+
     @Override
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
@@ -108,12 +112,11 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         private final ConnectorSession session;
         private final DeltaLakeTableHandle handle;
         private final Snapshot snapshot;
-        private final Optional<Predicate> filter;
+        private final ScanFilter filter;
         private final long targetSize;
         private final boolean mapped;
         private final boolean countPushdown;
         private final ConnectorScanContext scanContext;
-        private final Set<String> requiredPartitions;
         private final boolean partitionsPrunedToEmpty;
         private final DeltaLakeScanMetrics metrics;
         private CloseableIterator<Row> files;
@@ -128,13 +131,13 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             this.session = session;
             handle = (DeltaLakeTableHandle) request.getTableHandle();
             snapshot = handle.snapshot(runtime);
-            filter = predicate(session, snapshot, request.getFilter());
+            filter = scanFilter(session, snapshot, request);
             targetSize = targetSplitSize(session);
             mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
             scanContext = request.getScanContext();
-            requiredPartitions = new HashSet<>(request.getRequiredPartitions());
             partitionsPrunedToEmpty = request.isPartitionsPrunedToEmpty();
-            countPushdown = streamingCount && request.getFilter().isEmpty() && requiredPartitions.isEmpty();
+            countPushdown = streamingCount && request.getFilter().isEmpty()
+                    && request.getRequiredPartitions().isEmpty();
             metrics = new DeltaLakeScanMetrics(session, handle, snapshot,
                     statistics.fileCountObserver(session, handle, runtime));
             scanMetrics = null;
@@ -178,7 +181,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                     }
                     if (files == null) {
                         files = DeltaLakeScanFiles.open(snapshot, metrics.engine(runtime.engine(handle.reference())),
-                                false, filter);
+                                false, filter.kernelPredicate());
                     }
                     while (file == null || offset == file.getFileSize()) {
                         scanContext.checkCancelled();
@@ -190,8 +193,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                         Row row = files.next();
                         Map<String, String> partitions = DeltaLakePartitionValues.normalize(
                                 snapshot, DeltaKernelCompat.partitionValues(row));
-                        if (!requiredPartitions.isEmpty() && !requiredPartitions.contains(
-                                DeltaLakePartitionValues.partitionName(partitions))) {
+                        if (!filter.partitionPredicate().test(partitions)) {
                             continue;
                         }
                         file = fileRange(row, handle, partitions, targetSize, mapped);
@@ -304,15 +306,14 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                 return Collections.singletonList(summary.first.withRowCount(summary.count.getAsLong()));
             }
         }
-        Set<String> required = new HashSet<>(request.getRequiredPartitions());
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        Optional<Predicate> predicate = predicate(session, snapshot, request.getFilter());
+        ScanFilter filter = scanFilter(session, snapshot, request);
         Engine engine = metrics.engine(runtime.engine(handle.reference()));
-        DeltaLakeScanFiles.forEach(snapshot, engine, false, predicate, row -> {
+        DeltaLakeScanFiles.forEach(snapshot, engine, false, filter.kernelPredicate(), row -> {
             DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
             Map<String, String> partitions = DeltaLakePartitionValues.normalize(
                     snapshot, DeltaKernelCompat.partitionValues(row));
-            if (!required.isEmpty() && !required.contains(DeltaLakePartitionValues.partitionName(partitions))) {
+            if (!filter.partitionPredicate().test(partitions)) {
                 return;
             }
             DeltaLakeScanRange file = fileRange(row, handle, partitions, targetSize, mapped);
@@ -349,11 +350,19 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                 targetSize, partitions, descriptor);
     }
 
-    private Optional<Predicate> predicate(ConnectorSession session, Snapshot snapshot,
-            Optional<ConnectorExpression> filter) {
-        return filter.flatMap(expression -> new DeltaLakePredicateConverter(snapshot.getSchema(),
+    private ScanFilter scanFilter(ConnectorSession session, Snapshot snapshot, ConnectorScanRequest request) {
+        Set<String> required = new HashSet<>(request.getRequiredPartitions());
+        java.util.function.Predicate<Map<String, String>> selected = values -> required.isEmpty()
+                || required.contains(DeltaLakePartitionValues.partitionName(values));
+        if (request.getFilter().isEmpty()) {
+            return new ScanFilter(Optional.empty(), selected);
+        }
+        ConnectorExpression expression = request.getFilter().get();
+        DeltaLakePredicateConverter converter = new DeltaLakePredicateConverter(snapshot.getSchema(),
                 ZoneId.of(session.getTimeZone()), snapshot.getPartitionColumnNames(),
-                runtime.possibleEmptyDatePartitions(snapshot)).convert(expression));
+                runtime.possibleEmptyPartitionColumns(snapshot));
+        return new ScanFilter(converter.convert(expression),
+                converter.normalizedPartitionFilter(expression, runtime.engine).map(selected::and).orElse(selected));
     }
 
     @Override

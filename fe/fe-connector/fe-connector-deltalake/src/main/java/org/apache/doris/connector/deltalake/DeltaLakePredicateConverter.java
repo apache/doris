@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
+import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.Column;
 import io.delta.kernel.expressions.Expression;
 import io.delta.kernel.expressions.In;
@@ -61,7 +62,10 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 
 /** File pruning only: every original predicate remains a BE residual. */
 final class DeltaLakePredicateConverter {
@@ -74,14 +78,14 @@ final class DeltaLakePredicateConverter {
     private final StructType schema;
     private final ZoneId zone;
     private final Collection<String> partitionColumns;
-    private final Collection<String> possibleEmptyDatePartitions;
+    private final Collection<String> possibleEmptyPartitionColumns;
 
     DeltaLakePredicateConverter(StructType schema, ZoneId zone, Collection<String> partitionColumns,
-            Collection<String> possibleEmptyDatePartitions) {
+            Collection<String> possibleEmptyPartitionColumns) {
         this.schema = schema;
         this.zone = zone;
         this.partitionColumns = partitionColumns;
-        this.possibleEmptyDatePartitions = possibleEmptyDatePartitions;
+        this.possibleEmptyPartitionColumns = possibleEmptyPartitionColumns;
     }
 
     Optional<Predicate> convert(ConnectorExpression expression) {
@@ -96,6 +100,36 @@ final class DeltaLakePredicateConverter {
             return Optional.ofNullable(result);
         }
         return Optional.ofNullable(exact(expression));
+    }
+
+    Optional<java.util.function.Predicate<Map<String, String>>> normalizedPartitionFilter(
+            ConnectorExpression expression, Engine engine) {
+        if (possibleEmptyPartitionColumns.isEmpty()) {
+            return Optional.empty();
+        }
+        Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        collectColumnNames(expression, names);
+        List<StructField> fields = partitionColumns.stream().filter(names::contains).map(schema::get).toList();
+        if (fields.stream().noneMatch(this::requiresNormalizedPartitionValue)) {
+            return Optional.empty();
+        }
+        // Reuse the same AND/OR/NOT conversion on just the referenced partition fields. A disjunction
+        // with a data column stays residual; a disjunction with another partition key can be evaluated here.
+        StructType partitions = new StructType(fields);
+        return new DeltaLakePredicateConverter(partitions, zone, partitionColumns, List.of()).convert(expression)
+                .map(predicate -> DeltaKernelCompat.normalizedPartitionFilter(engine, partitions, predicate));
+    }
+
+    private static void collectColumnNames(ConnectorExpression expression, Set<String> names) {
+        if (expression instanceof ConnectorColumnRef) {
+            names.add(((ConnectorColumnRef) expression).getColumnName());
+        }
+        expression.getChildren().forEach(child -> collectColumnNames(child, names));
+    }
+
+    private boolean requiresNormalizedPartitionValue(StructField field) {
+        return DeltaLakePartitionValues.emptyStringIsNull(field.getDataType())
+                && possibleEmptyPartitionColumns.contains(field.getName());
     }
 
     private Predicate exact(ConnectorExpression expression) {
@@ -217,9 +251,8 @@ final class DeltaLakePredicateConverter {
         for (StructField field : schema.fields()) {
             if (field.getName().equalsIgnoreCase(name)) {
                 DataType type = field.getDataType();
-                // Kernel 4.4.1 treats an empty serialized DATE as non-null and fails to parse it for comparisons.
-                // Doris can still prune these files using its normalized partition values.
-                if (type instanceof DateType && possibleEmptyDatePartitions.contains(field.getName())) {
+                // Kernel tests the raw null bit. It also parses an empty BOOLEAN as false.
+                if (requiresNormalizedPartitionValue(field)) {
                     return null;
                 }
                 // Kernel 4.4.1 parses min/max using the current type. Old DATE statistics

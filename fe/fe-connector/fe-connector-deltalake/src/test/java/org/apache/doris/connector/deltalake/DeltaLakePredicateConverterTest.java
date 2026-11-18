@@ -28,6 +28,8 @@ import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
+import io.delta.kernel.defaults.engine.DefaultEngine;
+import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.In;
 import io.delta.kernel.expressions.Literal;
 import io.delta.kernel.expressions.Predicate;
@@ -47,14 +49,18 @@ import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.types.TimestampType;
 import io.delta.kernel.types.TypeChange;
+import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 class DeltaLakePredicateConverterTest {
     private final ConnectorColumnRef column = new ConnectorColumnRef("mixed", ConnectorType.of("BIGINT"));
@@ -238,5 +244,39 @@ class DeltaLakePredicateConverterTest {
                 dates.convert(new ConnectorAnd(List.of(emptyDate, otherDate))).orElseThrow().toString());
         Assertions.assertTrue(dates.convert(new ConnectorIsNull(new ConnectorColumnRef("label",
                 ConnectorType.of("STRING")), false)).isPresent());
+    }
+
+    @Test
+    void evaluatesMixedPartitionPredicatesWithTypedNullsAndPreservedValues() {
+        StructType schema = new StructType().add("Flag", BooleanType.BOOLEAN)
+                .add("wall", TimestampNTZType.TIMESTAMP_NTZ).add("bytes", BinaryType.BINARY)
+                .add("s", StringType.STRING);
+        DeltaLakePredicateConverter converter = new DeltaLakePredicateConverter(
+                schema, ZoneId.of("UTC"), schema.fieldNames(), List.of("Flag"));
+        Engine engine = DefaultEngine.create(new Configuration());
+        ConnectorExpression flag = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("flag", ConnectorType.of("BOOLEAN")), ConnectorLiteral.ofBoolean(false));
+        ConnectorExpression wall = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("wall", ConnectorType.of("DATETIMEV2", 6, 0)),
+                ConnectorLiteral.ofDatetime(LocalDateTime.of(1969, 12, 31, 23, 59, 59, 999_999_000)));
+        ConnectorType binary = ConnectorType.of("VARBINARY");
+        ConnectorExpression bytes = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("bytes", binary), new ConnectorLiteral(binary,
+                        "é".getBytes(StandardCharsets.UTF_8)));
+        ConnectorExpression emptyString = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("s", ConnectorType.of("STRING")), ConnectorLiteral.ofString(""));
+        Assertions.assertTrue(converter.normalizedPartitionFilter(emptyString, engine).isEmpty());
+        ConnectorExpression either = new ConnectorOr(List.of(flag,
+                new ConnectorAnd(List.of(wall, bytes, emptyString))));
+        java.util.function.Predicate<Map<String, String>> filter =
+                converter.normalizedPartitionFilter(either, engine).orElseThrow();
+        Map<String, String> values = new HashMap<>(Map.of(
+                "wall", "1969-12-31T23:59:59.999999", "bytes", "é", "s", ""));
+        values.put("Flag", null);
+        Assertions.assertTrue(filter.test(values));
+        values.put("s", null);
+        Assertions.assertFalse(filter.test(values));
+        values.put("Flag", "false");
+        Assertions.assertTrue(filter.test(values));
     }
 }

@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.delta.kernel.types.BooleanType;
 import io.delta.kernel.types.DateType;
 import io.delta.kernel.types.DoubleType;
 import io.delta.kernel.types.FloatType;
@@ -411,9 +412,10 @@ class DeltaLakeScanPlanProviderTest {
             connector.invalidateTable("db", "table");
             TestingConnectorSession next = new TestingConnectorSession("next");
             ConnectorTableHandle dirty = metadata.getTableHandle(next, "db", "table").orElseThrow();
-            // A scan can bypass the listing or reuse a partition view from another query.
-            Assertions.assertEquals(3, provider.planScan(next, request(dirty)
-                    .filter(Optional.of(equalsDay)).build()).size());
+            // A cold scan must evaluate the normalized values when it bypasses partition listing.
+            filtered = provider.planScan(next, request(dirty).filter(Optional.of(equalsDay)).build());
+            Assertions.assertEquals(1, filtered.size());
+            Assertions.assertTrue(filtered.get(0).getPath().orElseThrow().endsWith("leap-day.parquet"));
             List<ConnectorPartitionInfo> partitions = metadata.listPartitions(next, dirty, Optional.empty());
             Assertions.assertEquals(2, partitions.size());
             String nullPartition = partitions.stream().filter(p -> p.getPartitionValueNullFlags().get(0))
@@ -423,6 +425,32 @@ class DeltaLakeScanPlanProviderTest {
                     .build());
             Assertions.assertEquals(2, nullFiles.size());
             Assertions.assertTrue(nullFiles.stream().allMatch(file -> file.getPartitionValues().get("p") == null));
+        }
+    }
+
+    @Test
+    void keepsOnlyRealFalsePartitionsBeforeAndAfterListing() throws Exception {
+        DeltaLakeTestTables.commit(warehouse.resolve("db/table"), 0, "table-id",
+                new StructType().add("id", LongType.LONG).add("p", BooleanType.BOOLEAN), List.of("p"));
+        appendFile(0, "empty.parquet", "", 1);
+        appendFile(0, "null.parquet", null, 1);
+        appendFile(0, "true.parquet", "true", 1);
+        appendFile(0, "false.parquet", "false", 1);
+        TestingConnectorSession session = new TestingConnectorSession("typed-empty");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorColumnRef flag = new ConnectorColumnRef("p", ConnectorType.of("BOOLEAN"));
+            ConnectorScanRequest falseFiles = request(handle).filter(Optional.of(new ConnectorComparison(
+                    ConnectorComparison.Operator.EQ, flag, ConnectorLiteral.ofBoolean(false)))).build();
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            List<ConnectorScanRange> cold = provider.planScan(session, falseFiles);
+            Assertions.assertEquals(1, cold.size());
+            Assertions.assertTrue(cold.get(0).getPath().orElseThrow().endsWith("/false.parquet"));
+            Assertions.assertEquals(3, metadata.listPartitions(session, handle, Optional.empty()).size());
+            try (ConnectorSplitSource stream = provider.streamSplits(session, falseFiles)) {
+                Assertions.assertTrue(stream.next().getPath().orElseThrow().endsWith("/false.parquet"));
+                Assertions.assertFalse(stream.hasNext());
+            }
         }
     }
 

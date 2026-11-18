@@ -46,9 +46,9 @@ final class DeltaLakeRuntime implements AutoCloseable {
     final DeltaLakeTableResolver resolver;
     final ConnectorContext storageContext;
     private final DeltaLakeFileIO fileIO;
-    // A completed partition listing proves which DATE columns Kernel can prune at this exact snapshot.
+    // A completed listing identifies which partition columns contain empty strings decoded as NULL.
     // Weak keys give the observation the same lifetime as the cached or in-flight Kernel snapshot.
-    private final Cache<Snapshot, Set<String>> emptyDatePartitions = Caffeine.newBuilder().weakKeys().build();
+    private final Cache<Snapshot, Set<String>> emptyPartitionColumns = Caffeine.newBuilder().weakKeys().build();
 
     DeltaLakeRuntime(DeltaLakeCatalogProperties properties, ConnectorContext context) {
         HmsConfHelper.initializeHadoopConfigDir(context);
@@ -96,12 +96,12 @@ final class DeltaLakeRuntime implements AutoCloseable {
                 : engine;
     }
 
-    void recordEmptyDatePartitions(Snapshot snapshot, Set<String> columns) {
-        emptyDatePartitions.put(snapshot, Set.copyOf(columns));
+    void recordEmptyPartitionColumns(Snapshot snapshot, Set<String> columns) {
+        emptyPartitionColumns.put(snapshot, Set.copyOf(columns));
     }
 
-    Collection<String> possibleEmptyDatePartitions(Snapshot snapshot) {
-        Set<String> observed = emptyDatePartitions.getIfPresent(snapshot);
+    Collection<String> possibleEmptyPartitionColumns(Snapshot snapshot) {
+        Set<String> observed = emptyPartitionColumns.getIfPresent(snapshot);
         return observed != null ? observed : snapshot.getPartitionColumnNames();
     }
 

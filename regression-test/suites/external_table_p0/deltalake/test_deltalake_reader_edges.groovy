@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
     def config = context.config.otherConfigs
     def catalogs = []
@@ -46,6 +48,7 @@ suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
     sql "set time_zone='UTC'"
     sql "set enable_sql_cache=false"
     sql "set num_files_in_batch_mode=1"
+    def profiles = new ProfileAction(context)
     for (String catalog : catalogs) {
         String db = "${catalog}.delta_reader_edges"
         for (boolean batch : [false, true]) {
@@ -107,6 +110,30 @@ suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
             String dates = "select 1 as id, cast(null as date) union all select 2, date '2024-02-29' order by id"
             compare("json_null_date", "select id, p from ${db}.date_control order by id", dates)
             compare("empty_date", "select id, p from ${db}.empty_date order by id", dates)
+
+            // The FLOAT key gives ordinary queries native partition planning. Each ID is a separate file.
+            String typed = "${db}.empty_typed_partitions"
+            String instant = "cast('2024-06-01 00:00:00+00:00' as timestamptz(6))"
+            compare("typed_empty_projection", "select id, p_int, p_bool, p_ts from ${typed} order by id",
+                    """select 1 as id, cast(null as int), cast(null as boolean), cast(null as timestamptz(6))
+                       union all select 2, null, null, null union all select 3, 7, true, ${instant} order by id""")
+            def checkFiles = { String label, String predicate, String expected, int selectedFiles ->
+                checkCase(label) { tag ->
+                    String token = UUID.randomUUID().toString()
+                    quickTest(tag, expected, """select /*+ SET_VAR(enable_profile=true) */ /* ${token} */ id
+                            from ${typed} where ${predicate} order by id""")
+                    String profile = profiles.getProfileBySql(token, ["Delta Scan Metrics", "EnumerationComplete: true"])
+                    assertTrue(profile.readLines()*.trim().contains("- SelectedFiles: " + selectedFiles), profile)
+                }
+            }
+            [p_int: "7", p_bool: "true", p_ts: instant].each { key, value ->
+                checkFiles("typed_empty_${key}_null", "${key} is null", bothIds, 2)
+                checkFiles("typed_empty_${key}_eq", "${key} = ${value}", "select 3", 1)
+            }
+            checkFiles("typed_empty_bool_false", "p_bool = false", "select 1 where false", 0)
+            checkFiles("typed_empty_partition_or", "p_int = 7 or bucket = cast('1.0' as float)", "select 3", 1)
+            checkFiles("typed_empty_data_or", "p_int is null or id = 3",
+                    "select 1 as id union all select 2 union all select 3 order by id", 3)
 
             compare("plain_name", "select id, p from ${db}.plain order by id", "select 41, 'west'")
             compare("plain_filter", "select id from ${db}.plain where p='west' order by id", "select 41")

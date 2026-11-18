@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import io.delta.kernel.types.BinaryType;
 import io.delta.kernel.types.BooleanType;
 import io.delta.kernel.types.ByteType;
+import io.delta.kernel.types.DataType;
 import io.delta.kernel.types.DateType;
 import io.delta.kernel.types.DecimalType;
 import io.delta.kernel.types.DoubleType;
@@ -135,26 +136,31 @@ class DeltaLakePartitionValuesTest {
     }
 
     @Test
-    void recordsOnlyEmptyDatePartitionsUnderTheirLogicalNames() {
-        StructType schema = new StructType().add(new StructField("Day", DateType.DATE, true,
-                FieldMetadata.builder().putString("delta.columnMapping.physicalName", "old_day").build()))
-                .add(new StructField("label", StringType.STRING, true,
-                        FieldMetadata.builder().putString("delta.columnMapping.physicalName", "old_label").build()));
-        List<String> names = List.of("Day", "label");
-        Set<String> emptyDates = new HashSet<>();
-        Map<String, String> raw = new LinkedHashMap<>();
-        raw.put("old_day", null);
-        raw.put("old_label", "");
-        Map<String, String> jsonNull = DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyDates);
-        Assertions.assertTrue(emptyDates.isEmpty());
-        Assertions.assertNull(jsonNull.get("Day"));
-        Assertions.assertEquals("", jsonNull.get("label"));
-        raw.put("old_day", "");
-        Assertions.assertEquals(jsonNull, DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyDates));
-        Assertions.assertEquals(Set.of("Day"), emptyDates);
-        raw.put("old_day", " ");
-        Assertions.assertThrows(DorisConnectorException.class,
-                () -> DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyDates));
+    void recordsOnlyEmptyStringsDecodedAsNullUnderTheirLogicalNames() {
+        FieldMetadata key = FieldMetadata.builder().putString("delta.columnMapping.physicalName", "old_key").build();
+        FieldMetadata label = FieldMetadata.builder()
+                .putString("delta.columnMapping.physicalName", "old_label").build();
+        for (DataType type : List.of(DateType.DATE, IntegerType.INTEGER, BooleanType.BOOLEAN,
+                TimestampType.TIMESTAMP)) {
+            StructType schema = new StructType().add(new StructField("Key", type, true, key))
+                    .add(new StructField("label", StringType.STRING, true, label));
+            List<String> names = List.of("Key", "label");
+            Set<String> emptyColumns = new HashSet<>();
+            Map<String, String> raw = new LinkedHashMap<>();
+            raw.put("old_key", null);
+            raw.put("old_label", "");
+            Map<String, String> jsonNull = DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyColumns);
+            Assertions.assertTrue(emptyColumns.isEmpty());
+            Assertions.assertNull(jsonNull.get("Key"));
+            Assertions.assertEquals("", jsonNull.get("label"));
+            raw.put("old_key", "");
+            Assertions.assertEquals(jsonNull,
+                    DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyColumns));
+            Assertions.assertEquals(Set.of("Key"), emptyColumns);
+            raw.put("old_key", " ");
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> DeltaLakePartitionValues.normalize(schema, names, true, raw, emptyColumns));
+        }
     }
 
     @Test
