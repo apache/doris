@@ -124,6 +124,12 @@ struct RowsetWriterContext {
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     // need to figure out the sub type of compaction
     ReaderType compaction_type = ReaderType::UNKNOWN;
+    // Frozen before compaction readers open, and checked when installing their output.
+    bool sequence_retention_enabled = false;
+    std::shared_ptr<const SequenceRetentionContext> sequence_retention;
+    // Replay retained inputs through the ordinary fill stages in a transient writer.
+    bool sequence_retention_replay = false;
+    int64_t sequence_delete_prune_version = -1;
     BaseTabletSPtr tablet = nullptr;
 
     std::shared_ptr<MowContext> mow_context;

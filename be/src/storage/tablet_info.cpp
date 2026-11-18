@@ -763,6 +763,14 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
     // here we set the default value of partition bounds first! if it doesn't have some key, it will be -1.
     part_result = _obj_pool.add(new VOlapTablePartition(&_partition_block));
     part_result->id = t_part.id;
+    const int64_t plan_version = t_part.sequence_retention_plan_version;
+    // ID zero is the automatic-partition routing placeholder.
+    if (t_part.id != 0 &&
+        (plan_version < 0 || (sequence_retention_gap() > 0) != (plan_version > 0))) {
+        return Status::InvalidArgument(
+                "missing or unexpected sequence retention version for partition {}", t_part.id);
+    }
+    part_result->sequence_retention_plan_version = plan_version;
     part_result->is_mutable = t_part.is_mutable;
     if (t_part.__isset.load_tablet_idx) {
         part_result->load_tablet_idx = t_part.load_tablet_idx;

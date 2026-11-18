@@ -31,6 +31,7 @@ class TupleDescriptor;
 class SlotDescriptor;
 class OlapTableSchemaParam;
 class AtomicStatus;
+struct SequenceRetentionContext;
 
 enum class WriteRequestType {
     DATA = 0,      // data write
@@ -59,6 +60,7 @@ struct WriteRequest {
     bool enable_table_memtable_backpressure = false;
     // Shared by all writers of a load; published before writers can submit work.
     std::shared_ptr<AtomicStatus> load_cancel_status = nullptr;
+    std::shared_ptr<const SequenceRetentionContext> sequence_retention = nullptr;
 };
 
 struct TabletAddRowsPayload {

@@ -273,7 +273,8 @@ protected:
         ASSERT_NE(_tablet, nullptr);
     }
 
-    PTabletWriterOpenRequest open_request(int64_t id, bool incremental = false) {
+    PTabletWriterOpenRequest open_request(int64_t id, bool incremental, int64_t gap,
+                                          int64_t plan_version) {
         auto desc = testutil::create_descriptor_table(
                 {{TYPE_INT, "k1", false}, {TYPE_INT, "v1", false}});
         auto schema = testutil::create_table_schema_param(
@@ -293,11 +294,16 @@ protected:
         auto* tablet = request.add_tablets();
         tablet->set_tablet_id(id);
         tablet->set_partition_id(_request.partition_id);
+        if (gap > 0) {
+            request.set_sequence_retention_gap(gap);
+            tablet->set_sequence_retention_plan_version(plan_version);
+        }
         return request;
     }
 
-    Status open_writer(int64_t id, bool incremental = false) {
-        auto request = open_request(id, incremental);
+    Status open_writer(int64_t id, bool incremental = false, int64_t gap = 0,
+                       int64_t plan_version = 0) {
+        auto request = open_request(id, incremental, gap, plan_version);
         Status status;
         // open() attaches the load task itself. Model its RPC worker separately
         // from the fixture's attached task to avoid nesting AttachTask.
@@ -476,6 +482,17 @@ protected:
     std::atomic<bool> _cleanup_started {false};
     std::future<void> _cleanup;
 };
+
+TEST_P(DeltaWriterCancelIntegrationTest, SequenceRetentionPlanningValuesReachEveryOpen) {
+    ASSERT_TRUE(open_writer(kTabletId, false, 100, 620).ok());
+    EXPECT_TRUE(_writer->check_sequence_retention_context(100, 620).ok());
+    EXPECT_FALSE(_writer->check_sequence_retention_context(100, 621).ok());
+
+    create_tablet(kTabletId + 1);
+    ASSERT_TRUE(open_writer(kTabletId + 1, true, 100, 621).ok());
+    EXPECT_TRUE(_writer->check_sequence_retention_context(100, 621).ok());
+    EXPECT_FALSE(_writer->check_sequence_retention_context(99, 621).ok());
+}
 
 TEST_P(DeltaWriterCancelIntegrationTest, OrdinaryAndIncrementalOpenWireBothPhases) {
     for (int i = 0; i < 2; ++i) {

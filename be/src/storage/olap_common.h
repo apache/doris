@@ -484,6 +484,8 @@ inline RowsetId extract_rowset_id(std::string_view filename) {
 
 class DeleteBitmap;
 // merge on write context
+struct SequenceRetentionContext;
+
 struct MowContext {
     MowContext(int64_t version, int64_t txnid, std::shared_ptr<RowsetIdUnorderedSet> ids,
                std::vector<RowsetSharedPtr> rowset_ptrs, std::shared_ptr<DeleteBitmap> db)
@@ -497,6 +499,11 @@ struct MowContext {
     std::shared_ptr<RowsetIdUnorderedSet> rowset_ids;
     std::vector<RowsetSharedPtr> rowset_ptrs;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
+    std::shared_ptr<const SequenceRetentionContext> sequence_retention;
+    bool sequence_retention_final = false;
+    std::shared_ptr<DeleteBitmap> sequence_retention_tablet_bitmap;
+    // Explicitly identified by the finalizer; published Cloud rowsets may still have COMMITTED state.
+    RowsetIdUnorderedSet sequence_retention_in_transaction_rowsets;
 };
 
 // used for controll compaction

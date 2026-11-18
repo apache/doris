@@ -28,6 +28,7 @@
 #include "storage/rowset/group_rowset_writer.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/sequence_retention.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet_info.h"
 
@@ -107,6 +108,11 @@ Status CloudRowsetBuilder::init() {
         context.enable_segcompaction = false;
     }
     context.write_type = DataWriteType::TYPE_DIRECT;
+    context.sequence_retention = _req.sequence_retention;
+    if (_req.sequence_retention) {
+        context.sequence_retention_enabled = true;
+        context.enable_segcompaction = false;
+    }
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;

@@ -23,6 +23,7 @@
 #include "service/point_query_executor.h"
 #include "storage/key/row_key_encoder.h"
 #include "storage/partial_update_info.h"
+#include "storage/sequence_retention.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
@@ -50,9 +51,14 @@ Result<ProbeOutcome> MowKeyProbe::probe(
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
-    auto st = _tablet->lookup_row_key(key, _lookup_schema, key_has_seq_suffix, specified_rowsets,
-                                      &loc, _mow_context->max_version, segment_caches, &rowset,
-                                      /*with_rowid=*/false);
+    bool expired_delete_sign = false;
+    auto st = _tablet->lookup_row_key(
+            key, _lookup_schema, key_has_seq_suffix, specified_rowsets, &loc,
+            _mow_context->max_version, segment_caches, &rowset,
+            /*with_rowid=*/false, nullptr, nullptr, _mow_context->sequence_retention_tablet_bitmap,
+            nullptr, nullptr, _mow_context->sequence_retention.get(), &expired_delete_sign,
+            &_mow_context->sequence_retention_in_transaction_rowsets,
+            _mow_context->sequence_retention_final ? _mow_context->delete_bitmap.get() : nullptr);
     if (st.is<KEY_NOT_FOUND>()) {
         ++stats.num_rows_new_added;
         return ProbeOutcome {KeyProbeResult::NOT_FOUND, {}, nullptr, /*use_default_or_null=*/true};
@@ -83,10 +89,12 @@ Result<ProbeOutcome> MowKeyProbe::probe(
                        loc.row_id);
     };
     // Skip reading the old row (fill defaults) in any of these cases.
-    bool use_default = (seq_loses && _policy.use_defaults_for_seq_loser) || delete_sign_skip ||
-                       in_load_deleted();
-    ProbeOutcome outcome {seq_loses ? KeyProbeResult::FOUND_NEWER : KeyProbeResult::FOUND, loc,
-                          std::move(rowset), use_default};
+    bool use_default = expired_delete_sign || (seq_loses && _policy.use_defaults_for_seq_loser) ||
+                       delete_sign_skip || in_load_deleted();
+    auto result = expired_delete_sign ? KeyProbeResult::NOT_FOUND
+                  : seq_loses         ? KeyProbeResult::FOUND_NEWER
+                                      : KeyProbeResult::FOUND;
+    ProbeOutcome outcome {result, loc, std::move(rowset), use_default};
 
     // Apply the delete-bitmap marks right away -- see class comment (segcompaction).
     if (seq_loses) {
@@ -101,7 +109,11 @@ Result<ProbeOutcome> MowKeyProbe::probe(
     } else if (_policy.mark_deleted != MarkDeleted::NONE) {
         _mow_context->delete_bitmap->add(
                 {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id);
-        ++stats.num_rows_updated;
+        if (expired_delete_sign) {
+            ++stats.num_rows_new_added;
+        } else {
+            ++stats.num_rows_updated;
+        }
     }
     return outcome;
 }
@@ -116,11 +128,16 @@ Result<PrevSeqProbe> MowKeyProbe::probe_previous_seq_value(
     // sort-key view, which for a cluster-key table carries the trailing rowid that has to be
     // stripped again. Such a table can not reach this path today -- partial update on a cluster-key
     // table is rejected up front -- but the encoding, not the probe, decides the flag.
-    auto st =
-            _tablet->lookup_row_key(key, _lookup_schema, /*with_seq_col=*/false, specified_rowsets,
-                                    &loc, _mow_context->max_version, segment_caches, &rowset,
-                                    /*with_rowid=*/true, &result.encoded_seq_value);
-    if (st.is<KEY_NOT_FOUND>()) {
+    bool expired_delete_sign = false;
+    auto st = _tablet->lookup_row_key(
+            key, _lookup_schema, /*with_seq_col=*/false, specified_rowsets, &loc,
+            _mow_context->max_version, segment_caches, &rowset,
+            /*with_rowid=*/true, &result.encoded_seq_value, nullptr,
+            _mow_context->sequence_retention_tablet_bitmap, nullptr, nullptr,
+            _mow_context->sequence_retention.get(), &expired_delete_sign,
+            &_mow_context->sequence_retention_in_transaction_rowsets,
+            _mow_context->sequence_retention_final ? _mow_context->delete_bitmap.get() : nullptr);
+    if (st.is<KEY_NOT_FOUND>() || expired_delete_sign) {
         // lookup_row_key writes the sequence value before it checks the delete bitmap, so a key
         // whose only row is already marked deleted lands here with that row's value attached.
         result.encoded_seq_value.clear();

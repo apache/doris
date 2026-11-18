@@ -28,6 +28,7 @@
 #include <utility>
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/status.h"
@@ -48,6 +49,7 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema_change/schema_change.h"
+#include "storage/sequence_retention.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
@@ -149,6 +151,19 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
 
     std::lock_guard lck(tablet()->get_header_lock());
     _max_version_in_flush_phase = tablet()->max_version_unlocked();
+    const int64_t gap = _req.sequence_retention ? _req.sequence_retention->gap : 0;
+    if (gap != tablet()->tablet_meta()->sequence_retention_gap()) {
+        return Status::InvalidArgument("sequence retention gap does not match tablet {}",
+                                       _req.tablet_id);
+    }
+    if (_req.sequence_retention) {
+        RETURN_IF_ERROR(_req.sequence_retention->validate());
+        if (tablet()->table_id() != _req.table_schema_param->table_id() ||
+            tablet()->partition_id() != _req.partition_id) {
+            return Status::InvalidArgument("sequence retention request does not match tablet {}",
+                                           _req.tablet_id);
+        }
+    }
     std::vector<RowsetSharedPtr> rowset_ptrs;
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (tablet()->tablet_state() == TabletState::TABLET_NOTREADY) {
@@ -159,7 +174,9 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
                     "the tablet is undergoing a 'schema changing process'");
         }
         _rowset_ids->clear();
-    } else {
+    } else if (!_req.sequence_retention) {
+        // Retained inputs do not probe external history during flush. Capture that view only
+        // at the final predecessor, instead of pinning an unused early rowset snapshot.
         RETURN_IF_ERROR(
                 tablet()->get_all_rs_id_unlocked(_max_version_in_flush_phase, _rowset_ids.get()));
         rowset_ptrs = tablet()->get_rowset_by_ids(_rowset_ids.get());
@@ -167,6 +184,7 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
     _delete_bitmap = std::make_shared<DeleteBitmap>(tablet()->tablet_id());
     mow_context = std::make_shared<MowContext>(_max_version_in_flush_phase, _req.txn_id,
                                                _rowset_ids, rowset_ptrs, _delete_bitmap);
+    mow_context->sequence_retention = _req.sequence_retention;
     return Status::OK();
 }
 
@@ -282,6 +300,11 @@ Status BaseRowsetBuilder::_init_context_common_fields(RowsetWriterContext& conte
         context.enable_segcompaction = false;
     }
     context.write_type = DataWriteType::TYPE_DIRECT;
+    context.sequence_retention = _req.sequence_retention;
+    if (_req.sequence_retention) {
+        context.sequence_retention_enabled = true;
+        context.enable_segcompaction = false;
+    }
     context.write_file_cache = _req.write_file_cache;
 
     return Status::OK();
@@ -295,6 +318,12 @@ Status BaseRowsetBuilder::build_rowset() {
     SCOPED_TIMER(_build_rowset_timer);
     // use rowset meta manager to save meta
     RETURN_NOT_OK_STATUS_WITH_WARN(_rowset_writer->build(_rowset), "fail to build rowset");
+    if (_req.sequence_retention) {
+        auto* input = _rowset->rowset_meta()->mutable_sequence_retention_input();
+        input->set_original_segment_count(cast_set<uint32_t>(_rowset->num_segments()));
+        input->set_raw_partial_update(_partial_update_info &&
+                                      _partial_update_info->is_partial_update());
+    }
     return Status::OK();
 }
 

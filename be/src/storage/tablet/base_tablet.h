@@ -55,6 +55,14 @@ struct CaptureRowsetResult;
 struct TabletReadSource;
 class FixedReadPlan;
 
+struct SequenceRetentionBitmapOptions {
+    std::shared_ptr<const SequenceRetentionContext> retention;
+    // With a speculative bitmap, only input-to-input losers are permanent.
+    std::shared_ptr<const DeleteBitmap> intra_rowset_bitmap;
+    RowsetIdUnorderedSet same_transaction_rowsets;
+    bool invalidate_row_cache = false;
+};
+
 struct TabletWithVersion {
     BaseTabletSPtr tablet;
     int64_t version;
@@ -207,7 +215,11 @@ public:
                           OlapReaderStatistics* stats = nullptr,
                           DeleteBitmapPtr tablet_delete_bitmap = nullptr,
                           const io::IOContext* io_ctx = nullptr,
-                          segment_v2::SegmentSharedPtr* segment = nullptr);
+                          segment_v2::SegmentSharedPtr* segment = nullptr,
+                          const SequenceRetentionContext* sequence_retention = nullptr,
+                          bool* expired_delete_sign = nullptr,
+                          const RowsetIdUnorderedSet* in_transaction_rowsets = nullptr,
+                          const DeleteBitmap* pending_delete_bitmap = nullptr);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -215,13 +227,13 @@ public:
     // for rowset 6-7. Also, if a compaction happens between commit_txn and
     // publish_txn, we should remove compaction input rowsets' delete_bitmap
     // and build newly generated rowset's delete_bitmap
-    static Status calc_delete_bitmap(const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
-                                     const std::vector<segment_v2::SegmentSharedPtr>& segments,
-                                     const std::vector<RowsetSharedPtr>& specified_rowsets,
-                                     DeleteBitmapPtr delete_bitmap, int64_t version,
-                                     CalcDeleteBitmapToken* token,
-                                     RowsetWriter* rowset_writer = nullptr,
-                                     DeleteBitmapPtr tablet_delete_bitmap = nullptr);
+    static Status calc_delete_bitmap(
+            const BaseTabletSPtr& tablet, RowsetSharedPtr rowset,
+            const std::vector<segment_v2::SegmentSharedPtr>& segments,
+            const std::vector<RowsetSharedPtr>& specified_rowsets, DeleteBitmapPtr delete_bitmap,
+            int64_t version, CalcDeleteBitmapToken* token, RowsetWriter* rowset_writer = nullptr,
+            DeleteBitmapPtr tablet_delete_bitmap = nullptr,
+            std::shared_ptr<const SequenceRetentionBitmapOptions> retention = nullptr);
 
     Status calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                                       const segment_v2::SegmentSharedPtr& seg,
@@ -229,7 +241,8 @@ public:
                                       DeleteBitmapPtr delete_bitmap, int64_t end_version,
                                       RowsetWriter* rowset_writer,
                                       DeleteBitmapPtr tablet_delete_bitmap = nullptr,
-                                      int64_t queue_time_us = 0);
+                                      int64_t queue_time_us = 0,
+                                      const SequenceRetentionBitmapOptions* retention = nullptr);
 
     Status calc_delete_bitmap_between_segments(
             TabletSchemaSPtr schema, RowsetId rowset_id,
