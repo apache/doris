@@ -34,7 +34,7 @@ suite("test_ivm_unique_key_null_repair") {
 
     sql """
         CREATE TABLE ivm_unique_repair_contacts (
-            id INT NOT NULL, organisationid INT, contactid INT,
+            id INT NULL, organisationid INT, contactid INT,
             label VARCHAR(32), threshold_value INT
         )
         UNIQUE KEY(id)
@@ -58,7 +58,8 @@ suite("test_ivm_unique_key_null_repair") {
     sql """INSERT INTO ivm_unique_repair_contacts VALUES
         (1, 1, 10, 'first', 15), (2, 1, 20, 'second', 15),
         (3, 2, 10, 'other_org', 15), (4, 1, NULL, 'null_key', 15),
-        (5, 1, 10, 'duplicate_join_key', 25), (6, 1, 30, 'unmatched', 15)
+        (5, 1, 10, 'duplicate_join_key', 25), (6, 1, 30, 'unmatched', 15),
+        (NULL, 1, 20, 'null_row_id', NULL), (8, 1, 20, 'same_on_inputs', NULL)
     """
     sql """INSERT INTO ivm_unique_repair_details VALUES
         (1, 1, 10, 10), (2, 1, 10, 10), (3, 2, 10, 30), (4, 1, NULL, 40)
@@ -112,7 +113,7 @@ suite("test_ivm_unique_key_null_repair") {
     refresh('ivm_unique_repair_groups', 'COMPLETE')
 
     def fullKey = 'a.organisationid = b.organisationid AND a.contactid = b.contactid'
-    def residual = "${fullKey} AND b.total > a.threshold_value"
+    def residual = "${fullKey} AND b.total > COALESCE(a.threshold_value, 0)"
     def conditions = [
         (downstream[0]): fullKey,
         (downstream[1]): fullKey,

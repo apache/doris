@@ -29,12 +29,14 @@ import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -57,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -501,25 +504,52 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testUniqueNullSideResidualConditionCountsMatchesPerRetainedRow() {
-        LogicalOlapScan leftSnapshot = buildSnapshotScanForTable(1251, "unique_residual_retained");
-        LogicalOlapScan rightDelta = buildUniqueScan(1252, "unique_residual_delta", false);
-        NormalizedOuterJoinPlan bundle = normalizedOuterJoinWithNonHashOtherConjunct(
-                rowIdProject(leftSnapshot), rowIdProject(rightDelta));
-
-        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(bundle.topProject,
-                newRefreshContext(bundle.topProject, bundle.rewriteResult));
+    void testUniqueNullSideResidualConditionCountsMatchesPerPredicateTuple() {
+        Plan left = rowIdProject(buildSnapshotScanForTable(1251, "unique_residual_retained"));
+        Plan right = rowIdProject(buildUniqueScan(1252, "unique_residual_delta", false));
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(new EqualTo(firstUserSlot(left), firstUserSlot(right))),
+                ImmutableList.of(new GreaterThan(left.getOutput().get(2), right.getOutput().get(2))),
+                left, right, JoinReorderContext.EMPTY);
+        LogicalProject<Plan> top = normalizedJoinProject(join);
+        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(top,
+                newRefreshContext(top, deterministicRewriteResult(top)));
 
         LogicalUnion union = findOnlyUnion(result.plan);
         Assertions.assertEquals(2, union.children().size());
-        LogicalAggregate<?> counts = (LogicalAggregate<?>) union.child(1)
-                .collectToList(node -> node instanceof LogicalAggregate).get(0);
-        Assertions.assertEquals(Column.IVM_ROW_ID_COL, ((Slot) counts.getGroupByExpressions().get(0)).getName());
+        LogicalProject<?> repair = (LogicalProject<?>) union.child(1);
+        LogicalJoin<?, ?> lookup = (LogicalJoin<?, ?>) repair.child();
+        LogicalAggregate<?> counts = (LogicalAggregate<?>) lookup.right().child(0);
+        Assertions.assertEquals(ImmutableList.of(firstUserSlot(left).getName(), left.getOutput().get(2).getName()),
+                counts.getGroupByExpressions().stream().map(expr -> ((Slot) expr).getName())
+                        .collect(ImmutableList.toImmutableList()));
+        Assertions.assertEquals(2, lookup.getHashJoinConjuncts().size());
+        Assertions.assertTrue(lookup.getHashJoinConjuncts().stream().allMatch(NullSafeEqual.class::isInstance));
         LogicalJoin<?, ?> matches = Assertions.assertInstanceOf(LogicalJoin.class, counts.child());
         Assertions.assertEquals(1, matches.getOtherJoinConjuncts().size());
-        Assertions.assertTrue(result.plan.collectToList(node -> node instanceof LogicalJoin
-                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).isEmpty());
+        Slot netCount = counts.getOutput().get(2);
+        Expression factor = ((Alias) repair.getProjects().get(repair.getProjects().size() - 2)).child();
+        // Three retained rows sharing the tuple require three unit repairs, not three repairs of magnitude three.
+        Assertions.assertEquals(BigInteger.ONE.negate(), evaluateNetCount(factor, netCount, 3));
+        Assertions.assertEquals(BigInteger.ONE, evaluateNetCount(factor, netCount, -3));
         assertNoDuplicateScanRelationIds(result.plan);
+    }
+
+    @Test
+    void testFloatingPointResidualInputKeepsSnapshotRepair() {
+        Plan scan = rowIdProject(buildSnapshotScanForTable(1291, "float_retained"));
+        Alias score = new Alias(new Cast(firstUserSlot(scan), DoubleType.INSTANCE), "score");
+        Plan left = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                .addAll(scan.getOutput()).add(score).build(), scan);
+        Plan right = rowIdProject(buildUniqueScan(1292, "float_unique_delta", false));
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(new EqualTo(firstUserSlot(left), firstUserSlot(right))),
+                ImmutableList.of(new GreaterThan(score.toSlot(), firstUserSlot(right))),
+                left, right, JoinReorderContext.EMPTY);
+        LogicalProject<Plan> top = normalizedJoinProject(join);
+        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(top,
+                newRefreshContext(top, deterministicRewriteResult(top)));
+        Assertions.assertEquals(3, findOnlyUnion(result.plan).arity());
     }
 
     @Test
@@ -592,16 +622,16 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Slot netCount = aggregate.getOutput().get(eventKeyCount);
         // Unlike the generic repair branches, this factor is computed from a slot. The sign of -netCount
         // must still order NULL-row reinsertion after retraction for both sequence encodings.
-        BigInteger deleteSequence = uniqueRepairSequence(sequence.child(), netCount, 1);
-        BigInteger insertSequence = uniqueRepairSequence(sequence.child(), netCount, -1);
+        BigInteger deleteSequence = evaluateNetCount(sequence.child(), netCount, 1);
+        BigInteger insertSequence = evaluateNetCount(sequence.child(), netCount, -1);
         Assertions.assertFalse(deleteSequence.testBit(0));
         Assertions.assertTrue(insertSequence.testBit(0));
         Assertions.assertTrue(insertSequence.compareTo(deleteSequence) > 0);
         Assertions.assertEquals(deleteSequence.shiftRight(1), insertSequence.shiftRight(1));
     }
 
-    private BigInteger uniqueRepairSequence(Expression sequence, Slot netCount, long value) {
-        Expression bound = ExpressionUtils.replace(sequence, ImmutableMap.of(netCount, new BigIntLiteral(value)));
+    private BigInteger evaluateNetCount(Expression expression, Slot netCount, long value) {
+        Expression bound = ExpressionUtils.replace(expression, ImmutableMap.of(netCount, new BigIntLiteral(value)));
         Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(bound);
         Assertions.assertInstanceOf(Literal.class, folded);
         return new BigInteger(((Literal) folded).getStringValue());

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -85,9 +87,9 @@ import java.util.Set;
  * <tr><td>Pure deterministic equality</td><td>Unproven</td>
  *     <td>Probe A with detail and pre/post ANTI events</td>
  *     <td>Outer detail + probe A with pre/post ANTI events</td></tr>
- * <tr><td>Deterministic equality with residual</td><td>Proven unique</td>
- *     <td>Inner detail + sum matches per A row-id</td>
- *     <td>Outer detail + sum matches per A row-id</td></tr>
+ * <tr><td>Deterministic equality with residual; exact scalar A inputs</td><td>Proven unique</td>
+ *     <td>Inner detail + signed repair per A predicate tuple</td>
+ *     <td>Outer detail + signed repair per A predicate tuple</td></tr>
  * <tr><td>Other conditions</td><td>No applicable proof</td>
  *     <td>Inner detail + pre/post SEMI/ANTI repair branches</td>
  *     <td>Outer detail + pre/post SEMI/ANTI repair branches</td></tr>
@@ -246,12 +248,19 @@ class IvmJoinDeltaHandler {
     private IvmDeltaRewriteResult rewriteNullSideDelta(NullSideDeltaContext deltaContext) {
         LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         EquiJoinKeys equiJoinKeys = extractEquiJoinKeys(join);
-        if (equiJoinKeys != null && !equiJoinKeys.hasResidual) {
-            return rewriteNullSideDeltaWithNullSideEvents(deltaContext, equiJoinKeys);
+        if (equiJoinKeys != null) {
+            if (!equiJoinKeys.hasResidual) {
+                return rewriteNullSideDeltaWithNullSideEvents(deltaContext, equiJoinKeys);
+            }
+            Set<Slot> retainedInputs = deltaContext.isDeltaOnLeft
+                    ? join.getRightConditionSlot() : join.getLeftConditionSlot();
+            if (hasUniqueNullSideKeys(deltaContext, equiJoinKeys)
+                    && retainedInputs.stream().allMatch(slot -> isExactRepairKey(slot.getDataType()))) {
+                return combineWithJoinedRows(deltaContext,
+                        ImmutableList.of(buildMatchedTupleRepair(deltaContext, retainedInputs)));
+            }
         }
-        List<Plan> repairs = equiJoinKeys != null && hasUniqueNullSideKeys(deltaContext, equiJoinKeys)
-                ? ImmutableList.of(buildMatchedRowRepair(deltaContext)) : buildNullSideRepairProjects(deltaContext);
-        return combineWithJoinedRows(deltaContext, repairs);
+        return combineWithJoinedRows(deltaContext, buildNullSideRepairProjects(deltaContext));
     }
 
     private IvmDeltaRewriteResult combineWithJoinedRows(NullSideDeltaContext deltaContext, List<Plan> repairs) {
@@ -291,13 +300,19 @@ class IvmJoinDeltaHandler {
                         deltaContext.deltaSideResult().maxDeltaIndex), slotMapping).plan;
     }
 
+    // Group equality must preserve everything a deterministic ON expression can observe. In
+    // particular, floating-point keys can compare equal while carrying different bit patterns.
+    private boolean isExactRepairKey(DataType type) {
+        return type.isBooleanType() || type.isIntegralType() || type.isDecimalLikeType()
+                || type.isStringLikeType() || type.isDateLikeType() || type.isIPType() || type.isUuidType();
+    }
+
     /**
-     * With a unique delta-side key, each retained row has zero or one match at either endpoint.
-     * A payload update may cross the residual predicate. Count signed rows after applying the full ON
-     * condition, grouped by retained row identity. Look up the payload after aggregation so that wide
-     * columns and types that cannot be grouped or aggregated are not carried through the shuffle.
+     * Retained rows with identical ON inputs match exactly the same delta rows. For n such rows
+     * the signed sum is n * (post - pre), where each endpoint is zero or one by delta-side uniqueness.
+     * Its sign gives one repair per original retained row, independent of multiplicity or row-id.
      */
-    private Plan buildMatchedRowRepair(NullSideDeltaContext context) {
+    private Plan buildMatchedTupleRepair(NullSideDeltaContext context, Set<Slot> retainedInputs) {
         Pair<Plan, Map<Slot, Slot>> retained = freshSideInput(context.nonDeltaSideInput());
         Pair<Plan, Map<Slot, Slot>> delta = helper.freshPlan(context.deltaSideResult().plan);
         Map<Slot, Slot> mapping = new HashMap<>(retained.second);
@@ -307,19 +322,25 @@ class IvmJoinDeltaHandler {
                 ExpressionUtils.replace(context.join.getHashJoinConjuncts(), mapping),
                 ExpressionUtils.replace(context.join.getOtherJoinConjuncts(), mapping),
                 context.join.getDistributeHint(), retained.first, delta.first, JoinReorderContext.EMPTY);
-        Plan retainedSource = context.isDeltaOnLeft ? context.join.right() : context.join.left();
-        Slot rowId = IvmUtil.findRowIdSlot(retainedSource.getOutput(), "retained side of outer join");
-        Slot matchedRowId = retained.second.get(rowId);
+        Pair<Plan, Map<Slot, Slot>> payload = freshSideInput(context.nonDeltaSideInput());
+        ImmutableList.Builder<Slot> groupBy = ImmutableList.builder();
+        ImmutableList.Builder<Expression> lookup = ImmutableList.builder();
+        for (Slot input : retainedInputs) {
+            Slot key = retained.second.get(input);
+            groupBy.add(key);
+            // A residual such as COALESCE(A.threshold, 0) can match when an input is NULL.
+            lookup.add(new NullSafeEqual(payload.second.get(input), key));
+        }
+        List<Slot> tuple = groupBy.build();
         Alias netCount = new Alias(new Sum(delta.second.get(context.deltaSideResult().dmlFactorSlot)),
                 NULL_SIDE_KEY_NET_COUNT_ALIAS);
-        Plan aggregate = new LogicalAggregate<>(ImmutableList.of(matchedRowId),
-                ImmutableList.of(matchedRowId, netCount), matches);
-        Pair<Plan, Map<Slot, Slot>> payload = freshSideInput(context.nonDeltaSideInput());
-        Plan changedRows = new LogicalJoin<>(JoinType.INNER_JOIN,
-                ImmutableList.of(new EqualTo(payload.second.get(rowId), matchedRowId)),
-                payload.first, changedNetCounts(aggregate, netCount),
-                JoinReorderContext.EMPTY);
-        return projectNullSideRepairOutputs(context, changedRows, repairFactor(netCount), payload.second);
+        Plan aggregate = new LogicalAggregate<>(ImmutableList.copyOf(tuple),
+                ImmutableList.<NamedExpression>builder().addAll(tuple).add(netCount).build(), matches);
+        Plan changedRows = new LogicalJoin<>(JoinType.INNER_JOIN, lookup.build(), payload.first,
+                changedNetCounts(aggregate, netCount), JoinReorderContext.EMPTY);
+        Expression factor = new If(new GreaterThan(netCount.toSlot(), new BigIntLiteral(0)),
+                new TinyIntLiteral((byte) -1), new TinyIntLiteral((byte) 1));
+        return projectNullSideRepairOutputs(context, changedRows, factor, payload.second);
     }
 
     /**
