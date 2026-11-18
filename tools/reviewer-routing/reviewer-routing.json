@@ -1,0 +1,726 @@
+{
+  "schema_version": 1,
+  "fallback_reviewer": "morningman",
+  "disabled_reviewers": [],
+  "modules": {
+    "search": {
+      "label": "Inverted indexes, full-text search and Search DSL",
+      "priority": 400,
+      "patterns": [
+        "^be/src/(?:storage/index/inverted/|olap/rowset/segment_v2/inverted_index|exprs/function/search/|vec/functions/search/)",
+        "^be/src/(?:exprs|vec/exprs)/(?:vsearch|vmatch|score_runtime)",
+        "^be/src/(?:exprs/function|vec/functions)/(?:match|function_match)",
+        "^fe/[^/]+/src/main/(?:java|antlr4)/org/apache/doris/(?:analysis/)?(?:Search|search/)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:indexpolicy/|nereids/trees/expressions/.*(?:Search|Match|BM25)|analysis/.*(?:Search|Match|InvertedIndex))"
+      ],
+      "reviewers": ["eldenmoon", "csun5285", "airborne12", "yiguolei", "gavinchou", "924060929", "zclllyybb", "hello-stephen", "morrySnow", "HappenLee"]
+    },
+    "ann": {
+      "label": "Vector indexes and approximate nearest-neighbor search",
+      "priority": 395,
+      "patterns": [
+        "^be/src/(?:storage/index/ann/|olap/rowset/segment_v2/(?:ann_|vector_))",
+        "^be/src/(?:exprs/function|vec/functions)/.*(?:ann_|vector_search|cosine_|l2_distance|inner_product)",
+        "^fe/fe-core/src/main/java/org/apache/doris/.*(?:/Ann[A-Z]|/VectorIndex|/VectorSearch|/CosineSimilarity|/L2Distance|/InnerProduct)"
+      ],
+      "reviewers": ["yiguolei", "airborne12", "zclllyybb"]
+    },
+    "variant": {
+      "label": "VARIANT, semi-structured data and JSON types",
+      "priority": 390,
+      "patterns": [
+        "^be/src/(?:core|vec/(?:columns|data_types|common)|storage/segment|olap/rowset/segment_v2)/.*(?:variant|object_column|column_object)",
+        "^be/src/(?:core/value/variant/|core/column/variant_v2/)",
+        "^be/src/(?:exprs/function|vec/functions)/.*(?:variant|jsonb|json_)",
+        "^fe/fe-core/src/main/java/org/apache/doris/.*(?:/Variant[A-Z]|/Json[A-Z]|/Jsonb[A-Z])"
+      ],
+      "reviewers": ["yiguolei", "csun5285", "eldenmoon", "airborne12", "morrySnow", "924060929", "hello-stephen", "Gabriel39", "HappenLee", "gavinchou", "zclllyybb", "Mryange", "yujun777", "zhangstar333"]
+    },
+    "udf": {
+      "label": "UDF, UDAF and UDTF",
+      "priority": 380,
+      "patterns": [
+        "^be/src/(?:udf/|runtime/(?:user_function|plugin/))",
+        "^be/src/(?:exprs|vec)/.*(?:java_udf|python_udf|python_udaf|java_udaf|udf_call)",
+        "^(?:fe/)?be-java-extensions/(?:java-udf|python[^/]*|hive-udf[^/]*)/",
+        "^fe/hive-udf/",
+        "^fe/fe-core/src/main/java/org/apache/doris/.*(?:/PythonUdf|/JavaUdf|/Udf[A-Z]|/Udaf[A-Z]|/Udtf[A-Z])"
+      ],
+      "reviewers": ["HappenLee", "zclllyybb", "hello-stephen", "morningman"]
+    },
+    "connector.iceberg": {
+      "label": "Iceberg",
+      "priority": 350,
+      "patterns": [
+        "^fe/fe-connector/fe-connector-iceberg(?:/|-)",
+        "^fe/fe-iceberg-common/",
+        "^(?:fe/)?be-java-extensions/iceberg(?:/|-)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/iceberg/",
+        "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?iceberg(?:/|_|\\.)"
+      ],
+      "reviewers": ["924060929", "CalvinKirs", "morningman", "Gabriel39", "hubgeter", "suxiaogang223", "yiguolei", "zhangstar333", "morrySnow", "gavinchou"]
+    },
+    "connector.paimon": {
+      "label": "Paimon",
+      "priority": 350,
+      "patterns": [
+        "^fe/fe-connector/fe-connector-paimon(?:/|-)",
+        "^fe/fe-paimon-common/",
+        "^(?:fe/)?be-java-extensions/paimon(?:/|-)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/paimon/",
+        "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?paimon(?:/|_|\\.)"
+      ],
+      "reviewers": ["924060929", "CalvinKirs", "Gabriel39", "morningman", "zhangstar333", "suxiaogang223", "yiguolei", "morrySnow", "hubgeter"]
+    },
+    "connector.hive": {
+      "label": "Hive, HMS and Hudi",
+      "priority": 350,
+      "patterns": [
+        "^fe/fe-connector/fe-connector-(?:hive|hms|hudi|hadoop-hudi)(?:/|-)",
+        "^fe/fe-(?:hive|hms|hudi|hadoop-hudi)-common/",
+        "^(?:fe/)?be-java-extensions/(?:hive|hms|hudi|hadoop-hudi)(?:/|-)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/(?:hive|hms|hudi)/",
+        "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?(?:hive|hms|hudi)(?:/|_|\\.)"
+      ],
+      "reviewers": ["924060929", "CalvinKirs", "morningman", "zhangstar333", "Gabriel39", "hubgeter", "suxiaogang223", "yiguolei", "morrySnow", "hello-stephen"]
+    },
+    "connector.jdbc": {
+      "label": "JDBC and ADBC",
+      "priority": 350,
+      "patterns": [
+        "^fe/fe-connector/fe-connector-(?:jdbc|adbc)(?:/|-)",
+        "^fe/fe-(?:jdbc|adbc)-common/",
+        "^(?:fe/)?be-java-extensions/(?:jdbc|adbc)(?:/|-)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/(?:jdbc|adbc)/",
+        "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?(?:jdbc|adbc)(?:/|_|\\.)"
+      ],
+      "reviewers": ["CalvinKirs", "924060929", "zhangstar333", "Gabriel39", "morningman", "liaoxin01", "hubgeter", "suxiaogang223"]
+    },
+    "connector.trino": {
+      "label": "Trino connector",
+      "priority": 350,
+      "patterns": [
+        "^fe/fe-connector/fe-connector-trino(?:/|-)",
+        "^fe/fe-trino-common/",
+        "^(?:fe/)?be-java-extensions/trino(?:/|-)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/trino/",
+        "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?trino(?:/|_|\\.)"
+      ],
+      "reviewers": ["morningman", "Gabriel39", "924060929"]
+    },
+    "connector.maxcompute": {
+      "label": "MaxCompute",
+      "priority": 350,
+      "patterns": [
+        "^fe/fe-connector/fe-connector-(?:maxcompute|max-compute)(?:/|-)",
+        "^fe/fe-(?:maxcompute|max-compute)-common/",
+        "^(?:fe/)?be-java-extensions/(?:maxcompute|max-compute)(?:/|-)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/(?:maxcompute|max_compute)/",
+        "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?(?:maxcompute|max_compute)(?:/|_|\\.)"
+      ],
+      "reviewers": ["Gabriel39", "morningman", "CalvinKirs"]
+    },
+    "connector.fluss": {
+      "label": "Fluss",
+      "priority": 350,
+      "patterns": [
+        "^fe/fe-connector/fe-connector-fluss(?:/|-)",
+        "^fe/fe-fluss-common/",
+        "^(?:fe/)?be-java-extensions/fluss(?:/|-)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/fluss/",
+        "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?fluss(?:/|_|\\.)"
+      ],
+      "reviewers": ["morningman", "Gabriel39"]
+    },
+    "connector.es": {
+      "label": "Elasticsearch",
+      "priority": 350,
+      "patterns": [
+        "^fe/fe-connector/fe-connector-es(?:/|-)",
+        "^fe/fe-es-common/",
+        "^(?:fe/)?be-java-extensions/es(?:/|-)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/(?:es|elasticsearch)/",
+        "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?(?:es|elasticsearch)(?:/|_|\\.)"
+      ],
+      "reviewers": ["924060929"]
+    },
+    "connector.mongodb": {
+      "label": "MongoDB",
+      "priority": 350,
+      "patterns": [
+        "^fe/fe-connector/fe-connector-mongodb(?:/|-)",
+        "^fe/fe-mongodb-common/",
+        "^(?:fe/)?be-java-extensions/mongodb(?:/|-)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector)/mongodb/",
+        "^be/src/(?:(?:format(?:_v2)?|vec/exec/format)/table/|exec/(?:sink|scan)/|vec/(?:sink|exec)/)(?:v)?mongodb(?:/|_|\\.)"
+      ],
+      "reviewers": ["Gabriel39"]
+    },
+    "connector": {
+      "label": "External catalogs, connector framework and metadata caches",
+      "priority": 160,
+      "patterns": [
+        "^fe/(?:fe-connector/|fe-extension-(?:spi|loader)/)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:datasource|connector|spi)/",
+        "^(?:fe/)?be-java-extensions/",
+        "^extension/",
+        "^fe/fe-trino-connector-common/"
+      ],
+      "reviewers": ["924060929", "CalvinKirs", "morningman", "Gabriel39", "hubgeter", "gavinchou", "morrySnow", "yiguolei", "suxiaogang223", "zhangstar333", "liaoxin01", "hello-stephen", "starocean999", "JNSimba", "yujun777", "dataroaring"]
+    },
+    "files.parquet": {
+      "label": "Parquet readers and writers",
+      "priority": 330,
+      "patterns": [
+        "^be/src/(?:format(?:_v2)?|vec/exec/format)/parquet/"
+      ],
+      "reviewers": ["yiguolei", "Gabriel39", "morningman", "zhangstar333", "CalvinKirs", "suxiaogang223", "gavinchou"]
+    },
+    "files.orc": {
+      "label": "ORC readers and writers",
+      "priority": 330,
+      "patterns": [
+        "^be/src/(?:format(?:_v2)?|vec/exec/format)/orc/"
+      ],
+      "reviewers": ["Gabriel39", "yiguolei", "morningman"]
+    },
+    "files": {
+      "label": "File formats, CSV, JSON and file scan framework",
+      "priority": 140,
+      "patterns": [
+        "^be/src/(?:format(?:_v2)?/|vec/exec/format/)"
+      ],
+      "reviewers": ["yiguolei", "Gabriel39", "924060929", "gavinchou", "hubgeter", "zhangstar333", "HappenLee", "liaoxin01", "morningman", "hello-stephen", "CalvinKirs", "suxiaogang223"]
+    },
+    "io.cache": {
+      "label": "File cache and remote cache",
+      "priority": 320,
+      "patterns": [
+        "^be/src/io/cache/",
+        "^gensrc/proto/file_cache\\.proto$"
+      ],
+      "reviewers": ["gavinchou", "liaoxin01", "deardeng"]
+    },
+    "io": {
+      "label": "Object storage, HDFS and filesystems",
+      "priority": 150,
+      "patterns": [
+        "^be/src/io/",
+        "^fe/fe-filesystem/",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:fs|cooldown)/",
+        "^fs_brokers/"
+      ],
+      "reviewers": ["liaoxin01", "gavinchou", "CalvinKirs", "morningman", "924060929", "Gabriel39", "sollhui", "luwei16", "yiguolei", "hello-stephen", "morrySnow", "wyxxxcat", "deardeng"]
+    },
+    "functions.aggregate": {
+      "label": "Aggregate functions",
+      "priority": 310,
+      "patterns": [
+        "^be/src/(?:exprs/aggregate/|vec/aggregate_functions/)",
+        "^fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/agg/"
+      ],
+      "reviewers": ["HappenLee", "Mryange", "morrySnow", "zclllyybb", "mrhhsg", "924060929", "yiguolei", "BiteTheDDDDt", "jacktengg", "starocean999", "yujun777", "Gabriel39", "linrrzqqq"]
+    },
+    "functions": {
+      "label": "Scalar functions, expressions, casts and table functions",
+      "priority": 180,
+      "patterns": [
+        "^be/src/(?:exprs/|vec/(?:functions|exprs|table_functions)/)",
+        "^fe/fe-core/src/main/java/org/apache/doris/nereids/(?:rules/expression|trees/expressions|types)/",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:tablefunction|dictionary)/"
+      ],
+      "reviewers": ["HappenLee", "yiguolei", "924060929", "morrySnow", "zclllyybb", "starocean999", "Mryange", "mrhhsg", "BiteTheDDDDt", "jacktengg", "yujun777", "airborne12", "eldenmoon", "Gabriel39", "morningman", "linrrzqqq", "csun5285", "gavinchou", "liaoxin01", "hello-stephen", "feiniaofeiafei", "CalvinKirs", "englefly", "yx-keith", "zhangstar333", "sollhui", "hubgeter", "wyxxxcat", "RoanHeNaN"]
+    },
+    "types": {
+      "label": "Columns, Block, types and core data containers",
+      "priority": 170,
+      "patterns": [
+        "^be/src/(?:core/|vec/(?:core|columns|data_types|common)/)",
+        "^fe/fe-type/"
+      ],
+      "reviewers": ["yiguolei", "HappenLee", "Gabriel39", "zclllyybb", "BiteTheDDDDt", "eldenmoon", "mrhhsg", "Mryange", "gavinchou", "csun5285", "924060929", "jacktengg", "zhangstar333", "hello-stephen", "starocean999", "morningman", "morrySnow"]
+    },
+    "optimizer": {
+      "label": "Nereids optimizer, SQL analysis and planning",
+      "priority": 150,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:nereids|planner|analysis)/",
+        "^fe/fe-sql-parser/",
+        "^fe/fe-core/src/main/antlr4/",
+        "^gensrc/script/doris_builtins_functions\\.py$"
+      ],
+      "reviewers": ["morrySnow", "924060929", "starocean999", "englefly", "gavinchou", "yujun777", "yiguolei", "feiniaofeiafei", "CalvinKirs", "morningman", "liaoxin01", "HappenLee", "hello-stephen", "yx-keith", "Gabriel39", "seawinde", "eldenmoon", "zclllyybb", "hubgeter", "airborne12", "csun5285", "luwei16", "dataroaring", "BiteTheDDDDt", "Mryange", "jacktengg", "zhangstar333", "lide-reed", "suxiaogang223", "sollhui"]
+    },
+    "statistics": {
+      "label": "Statistics collection and cardinality estimation",
+      "priority": 320,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:statistics/|nereids/(?:stats|cost)/)"
+      ],
+      "reviewers": ["morrySnow", "starocean999", "englefly", "yujun777", "feiniaofeiafei", "hello-stephen", "924060929", "morningman"]
+    },
+    "mtmv": {
+      "label": "Materialized views, asynchronous MV and incremental maintenance",
+      "priority": 320,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/mtmv/",
+        "^fe/fe-core/src/main/java/org/apache/doris/nereids/rules/(?:exploration/mv|rewrite/.*[Mm]aterialized)"
+      ],
+      "reviewers": ["morrySnow", "yujun777", "starocean999", "924060929", "seawinde", "morningman", "gavinchou"]
+    },
+    "execution.spill": {
+      "label": "Operator spilling",
+      "priority": 300,
+      "patterns": [
+        "^be/src/(?:exec/spill/|vec/spill/|runtime/.*spill|pipeline/.*spill|vec/exec/.*spill)"
+      ],
+      "reviewers": ["yiguolei"]
+    },
+    "execution": {
+      "label": "Pipeline, join, aggregation, sort, scan and exchange",
+      "priority": 140,
+      "patterns": [
+        "^be/src/(?:exec/|pipeline/|vec/(?:exec|sink)/)",
+        "^be/src/runtime/(?:fragment|query_context|exec_env|runtime_state|result_|record_batch|task_execution|descriptors)"
+      ],
+      "reviewers": ["yiguolei", "HappenLee", "Gabriel39", "BiteTheDDDDt", "Mryange", "mrhhsg", "zclllyybb", "gavinchou", "zhangstar333", "jacktengg", "csun5285", "924060929", "morningman", "liaoxin01", "morrySnow", "CalvinKirs", "airborne12", "eldenmoon", "hubgeter", "hello-stephen", "starocean999", "englefly", "sollhui", "suxiaogang223", "kaka11chen"]
+    },
+    "runtime.workload": {
+      "label": "Workload groups, queues and resource management",
+      "priority": 310,
+      "patterns": [
+        "^be/src/runtime/(?:workload_group|workload_management)/",
+        "^fe/fe-core/src/main/java/org/apache/doris/resource/workload",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:scheduler|resource)/"
+      ],
+      "reviewers": ["yiguolei", "zclllyybb", "HappenLee", "jacktengg", "hello-stephen", "mrhhsg"]
+    },
+    "runtime.memory": {
+      "label": "Memory management and tracking",
+      "priority": 300,
+      "patterns": [
+        "^be/src/runtime/memory/",
+        "^be/src/(?:util|common)/.*mem_tracker"
+      ],
+      "reviewers": ["yiguolei", "mrhhsg"]
+    },
+    "runtime": {
+      "label": "BE runtime, utilities, profiles and common infrastructure",
+      "priority": 80,
+      "patterns": [
+        "^be/src/(?:runtime|common|util)/"
+      ],
+      "reviewers": ["gavinchou", "yiguolei", "HappenLee", "eldenmoon", "liaoxin01", "Mryange", "zclllyybb", "BiteTheDDDDt", "morningman", "Gabriel39", "csun5285", "airborne12", "mrhhsg", "924060929", "jacktengg", "luwei16", "CalvinKirs", "sollhui", "linrrzqqq", "hello-stephen", "hubgeter", "suxiaogang223", "zhangstar333"]
+    },
+    "load": {
+      "label": "Ingestion, Stream Load, Routine Load and write paths",
+      "priority": 280,
+      "patterns": [
+        "^be/src/load/",
+        "^be/src/exec/sink/(?:vtablet|vrow_|tablet_sink|load_stream|delta_writer|autoinc|writer/)",
+        "^be/src/(?:runtime|vec/sink)/(?:stream_load|routine_load|load_channel|tablets_channel|vtablet|vrow_)",
+        "^be/src/olap/(?:delta_writer|memtable|rowset_builder)",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:load|insertoverwrite|job)/",
+        "^fe/fe-core/src/main/java/org/apache/doris/nereids/load/"
+      ],
+      "reviewers": ["liaoxin01", "sollhui", "gavinchou", "CalvinKirs", "924060929", "morrySnow", "yiguolei", "Gabriel39", "hello-stephen", "morningman", "starocean999", "HappenLee", "seawinde", "zclllyybb", "BiteTheDDDDt", "yujun777", "zhangstar333", "luwei16", "hubgeter", "Mryange"]
+    },
+    "transaction": {
+      "label": "Transactions and commit protocols",
+      "priority": 300,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:transaction|tso)/",
+        "^be/src/storage/txn/",
+        "^be/src/olap/txn_"
+      ],
+      "reviewers": ["gavinchou", "morrySnow"]
+    },
+    "storage.compaction": {
+      "label": "Compaction and rowset merging",
+      "priority": 290,
+      "patterns": [
+        "^be/src/storage/compaction/",
+        "^be/src/olap/(?:compaction|base_compaction|cumulative_compaction|full_compaction|single_replica_compaction)",
+        "^be/src/cloud/.*compaction"
+      ],
+      "reviewers": ["gavinchou", "luwei16", "yiguolei", "hello-stephen", "eldenmoon", "liaoxin01", "airborne12"]
+    },
+    "schema-change": {
+      "label": "Schema change, alter, rollup and index changes",
+      "priority": 290,
+      "patterns": [
+        "^be/src/storage/schema_change/",
+        "^be/src/olap/(?:schema_change|alter_tablet|index_builder)",
+        "^fe/fe-core/src/main/java/org/apache/doris/alter/",
+        "^be/src/cloud/.*schema_change"
+      ],
+      "reviewers": ["gavinchou", "luwei16", "morrySnow", "hello-stephen", "yiguolei", "Yukang-Lian", "924060929", "CalvinKirs", "eldenmoon", "morningman", "dataroaring", "starocean999", "csun5285"]
+    },
+    "storage.mow": {
+      "label": "Unique keys, merge on write and delete bitmaps",
+      "priority": 285,
+      "patterns": [
+        "^be/src/storage/mow/",
+        "^be/src/(?:storage|olap)/(?:partial_update|delete_bitmap)",
+        "^be/src/cloud/.*delete_bitmap"
+      ],
+      "reviewers": ["gavinchou", "liaoxin01", "yiguolei", "bobhan1"]
+    },
+    "storage": {
+      "label": "Tablets, rowsets, segments and the local storage engine",
+      "priority": 130,
+      "patterns": [
+        "^be/src/(?:storage/|olap/)"
+      ],
+      "reviewers": ["gavinchou", "yiguolei", "csun5285", "eldenmoon", "liaoxin01", "HappenLee", "airborne12", "luwei16", "BiteTheDDDDt", "bobhan1", "Gabriel39", "zclllyybb", "Mryange", "morningman", "zhangstar333", "924060929", "mrhhsg", "hello-stephen", "morrySnow", "jacktengg", "deardeng", "RoanHeNaN"]
+    },
+    "replication": {
+      "label": "Replica scheduling, cloning, balancing and BE agents",
+      "priority": 270,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:clone|master|consistency)/",
+        "^be/src/agent/",
+        "^be/src/storage/(?:snapshot|task)/"
+      ],
+      "reviewers": ["gavinchou", "yiguolei", "luwei16", "eldenmoon", "HappenLee", "deardeng", "morningman", "csun5285", "mrhhsg", "airborne12"]
+    },
+    "backup": {
+      "label": "Backup, restore and snapshots",
+      "priority": 280,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/backup/",
+        "^be/src/runtime/snapshot_",
+        "^cloud/src/snapshot/"
+      ],
+      "reviewers": ["gavinchou"]
+    },
+    "cloud.recycler": {
+      "label": "Cloud recycler and garbage collection",
+      "priority": 300,
+      "patterns": [
+        "^cloud/src/recycler/",
+        "^cloud/test/.*recycler"
+      ],
+      "reviewers": ["gavinchou", "liaoxin01", "wyxxxcat", "luwei16"]
+    },
+    "cloud.meta": {
+      "label": "Cloud Meta Service and Meta Store",
+      "priority": 290,
+      "patterns": [
+        "^cloud/src/(?:meta-service|meta-store|rate-limiter)/",
+        "^gensrc/proto/cloud\\.proto$"
+      ],
+      "reviewers": ["gavinchou", "liaoxin01", "wyxxxcat", "luwei16", "dataroaring"]
+    },
+    "cloud": {
+      "label": "Storage-compute separation, Cloud BE/FE and resource management",
+      "priority": 170,
+      "patterns": [
+        "^cloud/",
+        "^be/src/cloud/",
+        "^fe/fe-core/src/main/java/org/apache/doris/cloud/"
+      ],
+      "reviewers": ["gavinchou", "liaoxin01", "luwei16", "hello-stephen", "deardeng", "wyxxxcat", "morningman", "morrySnow", "Yukang-Lian", "924060929", "yiguolei", "bobhan1", "CalvinKirs", "sollhui", "pingchunzhang", "yujun777"]
+    },
+    "auth": {
+      "label": "Authentication, authorization, Ranger and connection authentication",
+      "priority": 320,
+      "patterns": [
+        "^fe/fe-(?:authentication|authorization|kerberos)/",
+        "^fe_plugins/",
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:auth|authentication|blockrule|encryption|tls)/",
+        "^fe/fe-core/src/main/java/org/apache/doris/mysql/(?:authenticate|privilege)/"
+      ],
+      "reviewers": ["CalvinKirs", "morningman", "morrySnow", "hello-stephen", "924060929", "gavinchou", "seawinde", "luwei16", "starocean999"]
+    },
+    "query": {
+      "label": "Query coordination, sessions, protocols and execution management",
+      "priority": 130,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:qe|mysql|arrow|arrowflight|rpc|service)/",
+        "^fe/fe-grpc/"
+      ],
+      "reviewers": ["924060929", "morrySnow", "gavinchou", "yiguolei", "Gabriel39", "starocean999", "morningman", "CalvinKirs", "HappenLee", "liaoxin01", "englefly", "hubgeter", "Mryange", "hello-stephen", "dataroaring", "BiteTheDDDDt", "zclllyybb", "csun5285", "eldenmoon", "airborne12", "deardeng", "zhangstar333"]
+    },
+    "metadata": {
+      "label": "Catalog, DDL, partitions and metadata models",
+      "priority": 120,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:catalog|policy|event|changelog|binlog)/",
+        "^fe/fe-catalog/",
+        "^fe/fe-storage-protocol/"
+      ],
+      "reviewers": ["morrySnow", "gavinchou", "924060929", "CalvinKirs", "morningman", "starocean999", "dataroaring", "yiguolei", "HappenLee", "deardeng", "zclllyybb", "yujun777", "linrrzqqq", "liaoxin01", "luwei16", "hello-stephen", "eldenmoon", "englefly", "Mryange", "Gabriel39", "BiteTheDDDDt", "seawinde", "feiniaofeiafei", "hubgeter"]
+    },
+    "persistence": {
+      "label": "Journal, EditLog, HA and metadata persistence",
+      "priority": 240,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:persist|journal|ha)/",
+        "^fe/fe-common/src/main/java/org/apache/doris/(?:meta|persist)/"
+      ],
+      "reviewers": ["gavinchou", "CalvinKirs", "morningman"]
+    },
+    "cluster": {
+      "label": "FE/BE node management, deployment and heartbeats",
+      "priority": 160,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:system|cluster|deploy|task)/"
+      ],
+      "reviewers": ["gavinchou", "morningman", "hello-stephen"]
+    },
+    "api": {
+      "label": "HTTP APIs, system tables, monitoring and metrics",
+      "priority": 110,
+      "patterns": [
+        "^fe/fe-core/src/main/java/org/apache/doris/(?:httpv2|metric|monitor|info)/",
+        "^be/src/(?:service|information_schema)/"
+      ],
+      "reviewers": ["gavinchou", "liaoxin01", "yiguolei", "924060929", "morningman", "morrySnow", "hello-stephen", "CalvinKirs", "sollhui", "HappenLee", "Gabriel39", "eldenmoon", "luwei16", "hubgeter", "zclllyybb"]
+    },
+    "fe.foundation": {
+      "label": "FE common modules, configuration and infrastructure",
+      "priority": 60,
+      "patterns": [
+        "^fe/(?:fe-common|fe-foundation|fe-thrift)/",
+        "^fe/fe-core/src/main/java/org/apache/doris/common/"
+      ],
+      "reviewers": ["gavinchou", "morningman", "924060929", "morrySnow", "liaoxin01", "CalvinKirs", "yiguolei", "hello-stephen", "starocean999", "Gabriel39", "HappenLee", "dataroaring", "hubgeter", "airborne12", "Mryange", "suxiaogang223", "luwei16", "deardeng", "yujun777", "zclllyybb", "zhangstar333"]
+    },
+    "ci": {
+      "label": "CI, GitHub workflows and automation",
+      "priority": 250,
+      "patterns": [
+        "^\\.github/",
+        "^regression-test/pipeline/",
+        "^docker/thirdparties/"
+      ],
+      "reviewers": ["hello-stephen", "morningman", "yiguolei", "shuke987", "Gabriel39", "zclllyybb", "CalvinKirs", "924060929", "zhangstar333", "BiteTheDDDDt", "Mryange", "gavinchou", "suxiaogang223", "liaoxin01", "morrySnow", "mrhhsg", "zgxme", "HappenLee", "eldenmoon"]
+    },
+    "build": {
+      "label": "Builds, dependencies, packaging and releases",
+      "priority": 220,
+      "patterns": [
+        "(?:^|/)(?:pom\\.xml|CMakeLists\\.txt|.*\\.cmake)$",
+        "^\\.mvn/",
+        "^fe/(?:\\.mvn|check)/",
+        "^(?:thirdparty|contrib|build-support|dist|docker|bin|conf)/",
+        "^be/src/(?:glibc-compatibility|pch|gen_cpp)/",
+        "^fe/[^/]+/src/main/assembly/",
+        "^(?:build[^/]*\\.sh|env\\.sh|post-build\\.sh|generated-source\\.sh|\\.clang[^/]*|\\.gitmodules)$"
+      ],
+      "reviewers": ["morningman", "yiguolei", "CalvinKirs", "hello-stephen", "gavinchou", "924060929", "Gabriel39", "morrySnow", "zclllyybb", "hubgeter", "HappenLee", "BiteTheDDDDt", "airborne12", "liaoxin01", "zhangstar333", "suxiaogang223", "eldenmoon", "yujun777", "csun5285", "starocean999", "deardeng", "englefly", "Mryange", "dataroaring", "sollhui", "wyxxxcat", "seawinde"]
+    },
+    "test.framework": {
+      "label": "Test frameworks, services and runner scripts",
+      "priority": 210,
+      "patterns": [
+        "^regression-test/(?:framework|plugins|common|conf|script)/",
+        "^run-(?:regression-test|be-ut|fe-ut|cloud-ut|fs-env-test)\\.sh$",
+        "^(?:pytest|fe/mocked)/"
+      ],
+      "reviewers": ["hello-stephen", "gavinchou", "morrySnow", "liaoxin01", "CalvinKirs", "924060929", "yiguolei", "morningman", "zhangstar333", "starocean999", "zclllyybb", "HappenLee"]
+    },
+    "docs-tools": {
+      "label": "Documentation, examples, tools and web interfaces",
+      "priority": 40,
+      "patterns": [
+        "^(?:docs|samples|tools|ui|webroot|common)/",
+        "^[^/]+\\.(?:md|txt|rdf)$",
+        "^doris-skills(?:/|$)",
+        "(?:^|/)(?:AGENTS|README)\\.md$"
+      ],
+      "reviewers": ["hello-stephen", "morningman", "gavinchou", "yiguolei", "morrySnow", "liaoxin01", "zclllyybb", "starocean999", "CalvinKirs", "wyxxxcat", "0AyanamiRei"]
+    },
+    "protocol": {
+      "label": "Thrift and Protobuf interfaces",
+      "priority": 30,
+      "patterns": [
+        "^gensrc/"
+      ],
+      "reviewers": ["yiguolei", "924060929", "gavinchou", "morrySnow", "HappenLee", "morningman", "Gabriel39", "eldenmoon", "liaoxin01", "CalvinKirs", "starocean999", "hello-stephen", "zhangstar333", "zclllyybb", "hubgeter", "csun5285", "airborne12", "BiteTheDDDDt", "luwei16", "dataroaring", "mrhhsg"]
+    },
+    "fe.other": {
+      "label": "Unclassified FE paths",
+      "priority": 10,
+      "patterns": [
+        "^fe/"
+      ],
+      "reviewers": []
+    },
+    "be.other": {
+      "label": "Unclassified BE paths",
+      "priority": 10,
+      "patterns": [
+        "^be/"
+      ],
+      "reviewers": []
+    },
+    "test.other": {
+      "label": "Tests without a confirmed specialized module",
+      "priority": 5,
+      "patterns": [
+        "^(?:regression-test|pytest|be/test|cloud/test)/"
+      ],
+      "reviewers": []
+    },
+    "other": {
+      "label": "Unclassified paths requiring manual inspection",
+      "priority": 0,
+      "patterns": [
+        "."
+      ],
+      "reviewers": []
+    }
+  },
+  "test_routes": [
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:inverted_index|search|mysql_fulltext))",
+      "module": "search"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:ann_index)",
+      "module": "ann"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:variant|jsonb|json)_)",
+      "module": "variant"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:mtmv|mv|rollup)(?:_|(?=/|$)))",
+      "module": "mtmv"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:statistics|stats_up_down))",
+      "module": "statistics"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:spill_)",
+      "module": "execution.spill"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:pipeline|nereids_broadcast_shuffle_join)_)",
+      "module": "execution"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:workload_manager_)",
+      "module": "runtime.workload"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:load|insert|large_txn_load|table_stream)(?:_|(?=/|$)))",
+      "module": "load"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:compaction(?=/|$)|segcompaction_)",
+      "module": "storage.compaction"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:schema_change|alter|rollup)(?:_|(?=/|$)))",
+      "module": "schema-change"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:unique_with_mow|unique_seq_map)",
+      "module": "storage.mow"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:clone|tablet_scheduler)_)",
+      "module": "replication"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:backup_restore|restore)(?:_|(?=/|$)))",
+      "module": "backup"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:cloud|vault|s3_vault|hdfs_vault|inject_hdfs_vault)(?:_|(?=/|$)))",
+      "module": "cloud"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:auth|account|ranger|mysql_ssl|http_auth|sql_block_rule)(?:_|(?=/|$)))",
+      "module": "auth"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:javaudf|pythonudf|pythonudaf|pythonudtf|pythonudf_complex))",
+      "module": "udf"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:nereids_)",
+      "module": "optimizer"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:arrow_flight_sql|prepared_stmt|coordinator)_)",
+      "module": "query"
+    },
+    {
+      "pattern": "(?=^regression-test/(?:suites|data)/(?:external_table|connector|trino|flink_connector)(?:_|/|$)).*(?:/|_)iceberg(?:/|_|\\.)",
+      "module": "connector.iceberg"
+    },
+    {
+      "pattern": "(?=^regression-test/(?:suites|data)/(?:external_table|connector|trino|flink_connector)(?:_|/|$)).*(?:/|_)paimon(?:/|_|\\.)",
+      "module": "connector.paimon"
+    },
+    {
+      "pattern": "(?=^regression-test/(?:suites|data)/(?:external_table|connector|trino|flink_connector)(?:_|/|$)).*(?:/|_)hive(?:/|_|\\.)",
+      "module": "connector.hive"
+    },
+    {
+      "pattern": "(?=^regression-test/(?:suites|data)/(?:external_table|connector|trino|flink_connector)(?:_|/|$)).*(?:/|_)jdbc(?:/|_|\\.)",
+      "module": "connector.jdbc"
+    },
+    {
+      "pattern": "(?=^regression-test/(?:suites|data)/(?:external_table|connector|trino|flink_connector)(?:_|/|$)).*(?:/|_)trino(?:/|_|\\.)",
+      "module": "connector.trino"
+    },
+    {
+      "pattern": "(?=^regression-test/(?:suites|data)/(?:external_table|connector|trino|flink_connector)(?:_|/|$)).*(?:/|_)maxcompute(?:/|_|\\.)",
+      "module": "connector.maxcompute"
+    },
+    {
+      "pattern": "(?=^regression-test/(?:suites|data)/(?:external_table|connector|trino|flink_connector)(?:_|/|$)).*(?:/|_)fluss(?:/|_|\\.)",
+      "module": "connector.fluss"
+    },
+    {
+      "pattern": "(?=^regression-test/(?:suites|data)/(?:external_table|connector|trino|flink_connector)(?:_|/|$)).*(?:/|_)es(?:/|_|\\.)",
+      "module": "connector.es"
+    },
+    {
+      "pattern": "(?=^regression-test/(?:suites|data)/(?:external_table|connector|trino|flink_connector)(?:_|/|$)).*(?:/|_)mongodb(?:/|_|\\.)",
+      "module": "connector.mongodb"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:external_table|connector|trino|flink_connector)(?:_|(?=/|$)))",
+      "module": "connector"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:function|bitmap_functions|cast)(?:_|(?=/|$)))",
+      "module": "functions"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:http_rest_api|http|information_schema|metrics)(?:_|(?=/|$)))",
+      "module": "api"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:node|manager)(?:_|(?=/|$)))",
+      "module": "cluster"
+    },
+    {
+      "pattern": "^regression-test/(?:suites|data)/(?:(?:partition|table|database|ddl|catalog_recycle_bin)(?:_|(?=/|$)))",
+      "module": "metadata"
+    },
+    {
+      "pattern": "^cloud/test/",
+      "module": "cloud"
+    },
+    {
+      "pattern": "^be/src/exec/schema_scanner/schema_(?:cluster_snapshot_properties|cluster_snapshots|columns|encryption_keys|processlist)_scanner\\.",
+      "module": "api"
+    },
+    {
+      "pattern": "^be/src/runtime/decimalv2_value(?:[._/]|$)",
+      "module": "types"
+    },
+    {
+      "pattern": "^be/src/runtime/load_stream(?:[._/]|$)",
+      "module": "load"
+    }
+  ]
+}
