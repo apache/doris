@@ -387,22 +387,40 @@ public class ExternalMetaCacheMgr {
         return effective;
     }
 
-    public void invalidateCatalog(long catalogId) {
-        rowCountCache.invalidateCatalog(catalogId);
+    private void invalidateCatalogCaches(long catalogId, String catalogName, Runnable invalidation) {
         try {
+            invalidation.run();
+        } finally {
+            try {
+                if (catalogName != null) {
+                    Env.getCurrentEnv().onCatalogChanged(catalogName);
+                } else {
+                    Env.getCurrentEnv().getSortedPartitionsCacheManager().invalidateAll();
+                }
+            } finally {
+                rowCountCache.invalidateCatalog(catalogId);
+            }
+        }
+    }
+
+    public void invalidateCatalog(long catalogId) {
+        CatalogIf<?> owner = getCatalog(catalogId);
+        invalidateCatalogCaches(catalogId, owner == null ? null : owner.getName(), () -> {
+            rowCountCache.invalidateCatalog(catalogId);
             invalidateLanceTableAccess(catalogId);
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidateCatalog",
                     () -> cache.invalidateCatalogEntries(catalogId)));
-        } finally {
-            rowCountCache.invalidateCatalog(catalogId);
-        }
+        });
     }
 
     public void invalidateCatalogByEngine(long catalogId, String engine) {
-        routeSpecifiedEngine(engine, cache -> safeInvalidate(
-                cache, catalogId, "invalidateCatalogByEngine",
-                () -> cache.invalidateCatalogEntries(catalogId)));
+        CatalogIf<?> owner = getCatalog(catalogId);
+        invalidateCatalogCaches(catalogId, owner == null ? null : owner.getName(), () -> {
+            routeSpecifiedEngine(engine, cache -> safeInvalidate(
+                    cache, catalogId, "invalidateCatalogByEngine",
+                    () -> cache.invalidateCatalogEntries(catalogId)));
+        });
     }
 
     /**
@@ -421,15 +439,22 @@ public class ExternalMetaCacheMgr {
     }
 
     public void removeCatalog(long catalogId) {
-        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
-        lifecycleLock.lock();
-        try {
-            routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                    cache, catalogId, "removeCatalog",
-                    () -> cache.invalidateCatalog(catalogId)));
-        } finally {
-            lifecycleLock.unlock();
-        }
+        CatalogIf<?> owner = getCatalog(catalogId);
+        removeCatalog(catalogId, owner == null ? null : owner.getName());
+    }
+
+    public void removeCatalog(long catalogId, String catalogName) {
+        invalidateCatalogCaches(catalogId, catalogName, () -> {
+            Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+            lifecycleLock.lock();
+            try {
+                routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                        cache, catalogId, "removeCatalog",
+                        () -> cache.invalidateCatalog(catalogId)));
+            } finally {
+                lifecycleLock.unlock();
+            }
+        });
     }
 
     /**
@@ -446,16 +471,11 @@ public class ExternalMetaCacheMgr {
      * retained runtime, its group) and lets the next statement load a coherent generation.
      */
     public void onCatalogOperationalContextChanged(long catalogId) {
-        try {
-            routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                    cache, catalogId, "onCatalogOperationalContextChanged",
-                    () -> cache.invalidateCatalogEntries(catalogId)));
-        } finally {
-            // The committed property change reset the catalog against a new target. Database objects
-            // already evicted from the smaller metadata cache never run removal callbacks, so publish
-            // one catalog-wide row-count fence to cover those cold scopes as well.
-            rowCountCache.invalidateCatalog(catalogId);
-        }
+        CatalogIf<?> owner = getCatalog(catalogId);
+        invalidateCatalogCaches(catalogId, owner == null ? null : owner.getName(), () ->
+                routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                        cache, catalogId, "onCatalogOperationalContextChanged",
+                        () -> cache.invalidateCatalogEntries(catalogId))));
     }
 
     public void removeCatalogPermanently(long catalogId) {
@@ -487,36 +507,41 @@ public class ExternalMetaCacheMgr {
     /** Restore catalog properties and retire any group initialized from the rejected candidate atomically. */
     public void rollbackCatalogProperties(ExternalCatalog catalog, Map<String, String> oldProperties) {
         long catalogId = catalog.getId();
-        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
-        lifecycleLock.lock();
-        try {
+        CatalogIf<?> owner = getCatalog(catalogId);
+        invalidateCatalogCaches(catalogId, owner == null ? null : owner.getName(), () -> {
+            Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+            lifecycleLock.lock();
             try {
-                catalog.rollBackCatalogProps(oldProperties);
-                catalog.resetToUninitialized(false);
+                try {
+                    catalog.rollBackCatalogProps(oldProperties);
+                    catalog.resetToUninitialized(false);
+                } finally {
+                    // Retire any group initialized from the rejected candidate even when the reset's
+                    // own cleanup (JDBC/Trino/Lance close) throws; otherwise an already-initialized
+                    // group keeps taking the fast path against the old target.
+                    routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                            cache, catalogId, "rollbackCatalogProperties",
+                            () -> cache.invalidateCatalog(catalogId)));
+                }
             } finally {
-                // Retire any group initialized from the rejected candidate even when the reset's
-                // own cleanup (JDBC/Trino/Lance close) throws; otherwise an already-initialized
-                // group keeps taking the fast path against the old target.
-                routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                        cache, catalogId, "rollbackCatalogProperties",
-                        () -> cache.invalidateCatalog(catalogId)));
+                lifecycleLock.unlock();
             }
-        } finally {
-            rowCountCache.invalidateCatalog(catalogId);
-            lifecycleLock.unlock();
-        }
+        });
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
-        Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
-        lifecycleLock.lock();
-        try {
-            routeSpecifiedEngine(engine, cache -> safeInvalidate(
-                    cache, catalogId, "removeCatalogByEngine",
-                    () -> cache.invalidateCatalog(catalogId)));
-        } finally {
-            lifecycleLock.unlock();
-        }
+        CatalogIf<?> owner = getCatalog(catalogId);
+        invalidateCatalogCaches(catalogId, owner == null ? null : owner.getName(), () -> {
+            Lock lifecycleLock = catalogLifecycleLocks.get(catalogId);
+            lifecycleLock.lock();
+            try {
+                routeSpecifiedEngine(engine, cache -> safeInvalidate(
+                        cache, catalogId, "removeCatalogByEngine",
+                        () -> cache.invalidateCatalog(catalogId)));
+            } finally {
+                lifecycleLock.unlock();
+            }
+        });
     }
 
     public void invalidateDb(long catalogId, String dbName) {
@@ -542,6 +567,7 @@ public class ExternalMetaCacheMgr {
     }
 
     private void invalidateDb(long catalogId, String dbName, OptionalLong dbId, boolean invalidateRowCountCache) {
+        CatalogIf<?> owner = getCatalog(catalogId);
         if (invalidateRowCountCache) {
             invalidateDatabaseRowCount(catalogId, dbId);
         }
@@ -549,8 +575,14 @@ public class ExternalMetaCacheMgr {
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
         } finally {
-            if (invalidateRowCountCache) {
-                invalidateDatabaseRowCount(catalogId, dbId);
+            try {
+                if (owner != null) {
+                    Env.getCurrentEnv().onDatabaseChanged(owner.getName(), dbName);
+                }
+            } finally {
+                if (invalidateRowCountCache) {
+                    invalidateDatabaseRowCount(catalogId, dbId);
+                }
             }
         }
     }
@@ -567,35 +599,36 @@ public class ExternalMetaCacheMgr {
 
     public void invalidateDb(ExternalDatabase<?> database) {
         long catalogId = database.getCatalog().getId();
+        CatalogIf<?> owner = getCatalog(catalogId);
+        try {
+            invalidateDbMetadataCache(database);
+        } finally {
+            if (owner != null) {
+                Env.getCurrentEnv().onDatabaseChanged(owner.getName(), database.getFullName());
+            }
+        }
+    }
+
+    /** Retire engine entries for a local DB object without reporting a metadata change. */
+    void invalidateDbMetadataCache(ExternalDatabase<?> database) {
+        long catalogId = database.getCatalog().getId();
         routeCatalogEngines(catalogId, cache -> safeInvalidate(
                 cache, catalogId, "invalidateDb", () -> cache.invalidateDb(database)));
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {
-        Runnable rowCountFence = () -> rowCountCache.invalidateCatalog(catalogId);
-        try {
-            rowCountFence = resolveTableRowCountFence(catalogId, dbName, getCachedDb(catalogId, dbName), tableName);
-            rowCountFence.run();
+        invalidateTableCaches(catalogId, dbName, tableName, () -> {
             invalidateLanceTableAccess(catalogId);
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidateTable",
                     () -> cache.invalidateTable(catalogId, dbName, tableName)));
-        } finally {
-            rowCountFence.run();
-        }
+        });
     }
 
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {
-        Runnable rowCountFence = () -> rowCountCache.invalidateCatalog(catalogId);
-        try {
-            rowCountFence = resolveTableRowCountFence(catalogId, dbName, getCachedDb(catalogId, dbName), tableName);
-            rowCountFence.run();
-            routeSpecifiedEngine(engine, cache -> safeInvalidate(
-                    cache, catalogId, "invalidateTableByEngine",
-                    () -> cache.invalidateTable(catalogId, dbName, tableName)));
-        } finally {
-            rowCountFence.run();
-        }
+        invalidateTableCaches(catalogId, dbName, tableName, () -> routeSpecifiedEngine(engine, cache -> safeInvalidate(
+                cache, catalogId, "invalidateTableByEngine",
+                () -> cache.invalidateTable(catalogId, dbName, tableName))));
     }
 
     private void invalidateLanceTableAccess(long catalogId) {
@@ -609,15 +642,27 @@ public class ExternalMetaCacheMgr {
 
     public void invalidatePartitions(long catalogId,
             String dbName, String tableName, List<String> partitions) {
+        invalidateTableCaches(catalogId, dbName, tableName, () ->
+                routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                        cache, catalogId, "invalidatePartitions",
+                        () -> cache.invalidatePartitions(catalogId, dbName, tableName, partitions))));
+    }
+
+    private void invalidateTableCaches(long catalogId, String dbName, String tableName, Runnable invalidation) {
+        CatalogIf<?> owner = getCatalog(catalogId);
         Runnable rowCountFence = () -> rowCountCache.invalidateCatalog(catalogId);
         try {
             rowCountFence = resolveTableRowCountFence(catalogId, dbName, getCachedDb(catalogId, dbName), tableName);
             rowCountFence.run();
-            routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                    cache, catalogId, "invalidatePartitions",
-                    () -> cache.invalidatePartitions(catalogId, dbName, tableName, partitions)));
+            invalidation.run();
         } finally {
-            rowCountFence.run();
+            try {
+                if (owner != null) {
+                    Env.getCurrentEnv().onTableChanged(owner.getName(), dbName, tableName);
+                }
+            } finally {
+                rowCountFence.run();
+            }
         }
     }
 
@@ -833,7 +878,12 @@ public class ExternalMetaCacheMgr {
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidateTable", () -> cache.invalidateTable(dorisTable)));
         } finally {
-            invalidateRowCountCache(dorisTable);
+            try {
+                Env.getCurrentEnv().onTableChanged(dorisTable.getCatalog().getName(),
+                        dorisTable.getDb().getFullName(), dorisTable.getName());
+            } finally {
+                invalidateRowCountCache(dorisTable);
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("invalid table cache for {}.{} in catalog {}", dorisTable.getRemoteDbName(),
