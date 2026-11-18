@@ -1337,7 +1337,7 @@ public class CloudGlobalTransactionMgrTest {
     // for a transaction that exists.
     @ParameterizedTest
     @ValueSource(strings = {"KV_TXN_GET_ERR", "MAX_QPS_LIMIT", "INVALID_ARGUMENT", "UNDEFINED_ERR", "rpc_error"})
-    public void testGetTransactionIdByLabelFailsOnLookupError(String error) throws Exception {
+    public void testGetTransactionIdFailsOnLookupError(String error) throws Exception {
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);

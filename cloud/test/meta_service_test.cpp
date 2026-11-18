@@ -4768,6 +4768,7 @@ TEST(MetaServiceTest, GetTxnByLabelTest) {
         meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                 &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_txn_id()) << label;
         txn_id = res.txn_id();
     }
     sp->disable_processing();
