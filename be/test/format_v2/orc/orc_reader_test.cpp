@@ -5264,7 +5264,10 @@ TEST_F(NewOrcReaderTest, PhysicalChildrenBoundSdkSetupWithoutPredicates) {
         RuntimeProfile profile("shared_sdk_setup");
         const auto init_reader = [&](format::TableReader* reader) {
             return reader->init({.projected_columns = {column},
+                                 .conjuncts = {},
                                  .format = format::FileFormat::ORC,
+                                 .scan_params = nullptr,
+                                 .io_ctx = nullptr,
                                  .runtime_state = &state,
                                  .scanner_profile = &profile});
         };
