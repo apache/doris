@@ -298,6 +298,23 @@ void ColumnStr<T>::update_crcs_with_value(uint32_t* __restrict hashes, doris::Pr
 }
 
 template <typename T>
+void ColumnStr<T>::update_equal_flags(EqualFlags& flags, const uint8_t* __restrict null_map) const {
+    const size_t rows = size();
+    DCHECK_EQ(flags.size(), rows);
+    // Strings are compared one at a time anyway: skip the rows that already differ.
+    for (size_t row = 1; row < rows; ++row) {
+        if (!flags[row]) {
+            continue;
+        }
+        if (null_map != nullptr && (null_map[row - 1] != 0 || null_map[row] != 0)) {
+            flags[row] = null_map[row - 1] != 0 && null_map[row] != 0;
+            continue;
+        }
+        flags[row] = get_data_at(row - 1) == get_data_at(row);
+    }
+}
+
+template <typename T>
 void ColumnStr<T>::update_crc32c_batch(uint32_t* __restrict hashes,
                                        const uint8_t* __restrict null_map) const {
     auto s = size();

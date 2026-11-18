@@ -22,6 +22,7 @@
 #include <sys/types.h>
 
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -37,11 +38,15 @@
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
+class AggKeyBlockIterator;
 class ColumnPredicate;
 class RuntimeProfile;
+class RuntimeState;
 
 class BlockReader final : public TabletReader {
 public:
+    // Out of line, as the destructor: the header only declares AggKeyBlockIterator.
+    BlockReader();
     ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
@@ -49,9 +54,7 @@ public:
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;
 
-    void update_profile(RuntimeProfile* profile) override {
-        return _vcollect_iter.update_profile(profile);
-    }
+    void update_profile(RuntimeProfile* profile) override;
 
     // Returns the configured preferred output block byte budget; 0 when adaptive is disabled.
     size_t preferred_block_size_bytes() const override {
@@ -64,6 +67,9 @@ private:
     Status _direct_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
     Status _agg_key_next_block(Block* block, bool* eof);
+    // For AGGREGATE KEY tables with enable_new_block_iterator: the rows of every key folded into
+    // one by _agg_key_iter.
+    Status _agg_key_iter_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
@@ -90,6 +96,12 @@ private:
     Status _init_collect_iter(const ReaderParams& read_params);
 
     Status _init_agg_state(const ReaderParams& read_params);
+
+    // Set up _agg_key_iter for the reads that _agg_key_iter_next_block() serves.
+    Status _init_agg_key_iter(const ReaderParams& read_params);
+    // Set `*merge_iter` to the merge of `children` by the key columns.
+    Status _init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
+                               RuntimeState* runtime_state, RowwiseIteratorUPtr* merge_iter);
 
     Status _insert_data_normal(MutableColumns& columns);
 
@@ -125,6 +137,11 @@ private:
 
     std::vector<int> _agg_data_counters;
     int _last_agg_data_counter = 0;
+
+    // Held for the whole read, never used: a rowset reader keeps its rowset in use until it is
+    // destroyed, and _agg_key_iter reads the segments of these rowsets.
+    std::vector<RowsetReaderSharedPtr> _rs_readers;
+    std::unique_ptr<AggKeyBlockIterator> _agg_key_iter;
 
     // Buffer of consecutive rows that share the same primary key, used by
     // _min_delta_next_block to fold INSERT/UPDATE/DELETE into a single net change.

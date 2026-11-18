@@ -179,6 +179,13 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
     }
 }
 
+void ColumnNullable::update_equal_flags(EqualFlags& flags,
+                                        const uint8_t* __restrict null_map) const {
+    DCHECK(null_map == nullptr);
+    // Without a NULL, the nested column compares every row as a value, which is faster.
+    _nested_column->update_equal_flags(flags, has_null() ? get_null_map_data().data() : nullptr);
+}
+
 void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
                                          const uint8_t* __restrict /* null_map */) const {
     const auto* __restrict real_null_data = get_null_map_column().get_data().data();

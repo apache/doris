@@ -495,6 +495,16 @@ public:
                                   int direction, std::vector<uint8_t>& cmp_res,
                                   uint8_t* __restrict filter) const;
 
+    /**
+     * Sets flags[i] to 0 where row i differs from row i - 1.
+     * @param null_map null map of the outer nullable column, nullptr if none.
+     */
+    virtual void update_equal_flags(EqualFlags& flags,
+                                    const uint8_t* __restrict null_map = nullptr) const {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "update_equal_flags for " + get_name());
+    }
+
     /** Returns a permutation that sorts elements of this column,
       *  i.e. perm[i]-th element of source column should be i-th element of sorted column.
       * reverse - true: descending order, false: ascending order.
