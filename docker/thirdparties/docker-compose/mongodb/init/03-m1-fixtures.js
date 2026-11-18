@@ -42,3 +42,19 @@ m1.collated.insertMany([{seq: NumberLong("1"), text: "alpha"}, {seq: NumberLong(
     {seq: NumberLong("3"), text: "alpha "}]);
 m1.paths.insertMany([{seq: NumberLong("1"), a: {b: NumberLong("10")}, "literal.dot": "a.b"},
     {seq: NumberLong("2"), a: NumberLong("10"), "literal.dot": "value"}]);
+
+// The same physical value is mapped at multiple precisions to expose rounding and overflow.
+m1.precision_records.insertMany([
+    {seq: NumberLong("1"), observed: new Date(-1), amount: NumberDecimal("123.4500")},
+    {seq: NumberLong("2"), observed: new Date(0), amount: NumberDecimal("0E-6176")},
+    {seq: NumberLong("3"), observed: new Date(100), amount: NumberDecimal("1E-9")},
+    {seq: NumberLong("4"), observed: new Date(-100), amount: NumberDecimal("9999999999999999999999999999999999")},
+    {seq: NumberLong("5"), observed: new Date(10), amount: NumberDecimal("1E-38")},
+    {seq: NumberLong("6"), observed: new Date(1), amount: NumberDecimal("0.1234567890123456789012345678901234")},
+    {seq: NumberLong("7"), observed: new Date(253402300799999), amount: NumberDecimal("1E+38")},
+    {seq: NumberLong("8"), observed: new Date(253402300800000), amount: NumberDecimal("NaN")},
+    {seq: NumberLong("9"), observed: new Date(-1000), amount: NumberDecimal("1E-6176")},
+    // UTC instants straddle the Los Angeles spring DST transition without changing the mapping.
+    {seq: NumberLong("10"), observed: new Date("2024-03-10T09:59:59.999Z"), amount: NumberDecimal("1.23")},
+    {seq: NumberLong("11"), observed: new Date("2024-03-10T10:00:00.000Z"), amount: NumberDecimal("1.23")}
+]);

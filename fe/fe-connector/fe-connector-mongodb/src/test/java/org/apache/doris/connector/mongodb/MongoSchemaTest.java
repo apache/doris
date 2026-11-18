@@ -136,10 +136,10 @@ class MongoSchemaTest {
     void rejectsAmbiguousColumnNamesAndUnsupportedExplicitTypes() {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> resolve("validator", collection("{A:{bsonType:'int'},a:{bsonType:'int'}}")));
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> MongoSchema.parseDorisType("DECIMAL(39,2)"));
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> MongoSchema.parseDorisType("DATETIME(7)"));
+        for (String type : List.of("DECIMAL(39,2)", "DECIMAL(76,2)", "DATETIME(7)",
+                "DATE", "TIME(6)", "TIMESTAMPTZ(3)")) {
+            Assertions.assertThrows(IllegalArgumentException.class, () -> MongoSchema.parseDorisType(type));
+        }
     }
 
     @Test
