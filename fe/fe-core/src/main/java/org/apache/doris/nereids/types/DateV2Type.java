@@ -41,11 +41,6 @@ public class DateV2Type extends DateLikeType {
     }
 
     @Override
-    public boolean supportsValuePreservingGrouping() {
-        return true;
-    }
-
-    @Override
     public boolean isInjectiveCastTo(DataType target) {
         // BE uses the same calendar domain for DATEV2 and DATE and converts DATEV2 to YYYYMMDD for
         // numeric targets. That value fits in INT and is represented exactly by DOUBLE.

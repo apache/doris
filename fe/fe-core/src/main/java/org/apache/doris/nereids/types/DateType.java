@@ -50,11 +50,6 @@ public class DateType extends DateLikeType {
     }
 
     @Override
-    public boolean supportsValuePreservingGrouping() {
-        return true;
-    }
-
-    @Override
     public boolean isInjectiveCastTo(DataType target) {
         // BE converts DATE to YYYYMMDD for numeric targets. The largest value fits in INT and is
         // below 2^53, so INT and wider integers as well as DOUBLE preserve every DATE exactly.
