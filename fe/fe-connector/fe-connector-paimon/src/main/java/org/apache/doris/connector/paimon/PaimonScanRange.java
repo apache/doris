@@ -23,9 +23,13 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TPaimonReaderType;
+import org.apache.doris.thrift.TPaimonVectorPayload;
+import org.apache.doris.thrift.TPaimonVectorPayloadType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -80,6 +84,9 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (builder.paimonSplit != null) {
             props.put("paimon.split", builder.paimonSplit);
             props.put("paimon.reader_type", builder.readerType.name());
+        }
+        if (builder.vectorPayload != null) {
+            props.put("paimon.vector_payload", builder.vectorPayload);
         }
         if (builder.paimonTable != null) {
             props.put("paimon.table", builder.paimonTable);
@@ -143,6 +150,12 @@ public class PaimonScanRange implements ConnectorScanRange {
 
     @Override
     public String getSplitIdentity() {
+        // Vector buckets share a table root and have no Java DataSplit payload. Use their
+        // actual bucket payload so two buckets cannot acquire the same split identity.
+        String vectorPayload = properties.get("paimon.vector_payload");
+        if (vectorPayload != null) {
+            return vectorPayload;
+        }
         return path != null ? path : properties.getOrDefault("paimon.split", "paimon");
     }
 
@@ -245,6 +258,12 @@ public class PaimonScanRange implements ConnectorScanRange {
                 fileDesc.setDbName(props.get("paimon.database_name"));
                 fileDesc.setTableName(props.get("paimon.table_name"));
                 fileDesc.setPaimonTableSchemaJson(props.get("paimon.table_schema_json"));
+                String vectorPayload = props.get("paimon.vector_payload");
+                if (vectorPayload != null) {
+                    fileDesc.setVectorPayload(new TPaimonVectorPayload()
+                            .setPayloadType(TPaimonVectorPayloadType.BUCKET_SPLIT_BYTES)
+                            .setBytes(ByteBuffer.wrap(Base64.getDecoder().decode(vectorPayload))));
+                }
                 String branchName = props.get("paimon.branch_name");
                 if (branchName != null) {
                     fileDesc.setPaimonBranch(branchName);
@@ -343,6 +362,7 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         // JNI reader fields
         private String paimonSplit;
+        private String vectorPayload;
         private TPaimonReaderType readerType = TPaimonReaderType.PAIMON_JNI;
         private String paimonTable;
         private String databaseName;
@@ -417,6 +437,16 @@ public class PaimonScanRange implements ConnectorScanRange {
             this.tableName = tableName;
             this.tableSchemaJson = tableSchemaJson;
             this.branchName = branchName;
+            return this;
+        }
+
+        /** A preplanned PK-vector bucket uses Rust exclusively; it has no JNI fallback. */
+        public Builder vectorSplit(byte[] payload, String paimonTable, String databaseName,
+                String tableName, String tableSchemaJson, String branchName) {
+            // The explicit logical-split marker retains format/weight dispatch while an old BE
+            // receives an empty DataSplit and reports an error instead of reading arbitrary rows.
+            rustSplit("", paimonTable, databaseName, tableName, tableSchemaJson, branchName);
+            this.vectorPayload = Base64.getEncoder().encodeToString(payload);
             return this;
         }
 
