@@ -649,6 +649,10 @@ public class Coordinator implements CoordInterface {
                     QueueToken queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
                     int queryTimeout = coordinatorContext.queryOptions.getExecutionTimeout() * 1000;
                     coordinatorContext.setQueueInfo(queryQueue, queueToken);
+                    // A cancel before publication recorded its status but could not wake this token.
+                    if (!getQueryStatus().ok()) {
+                        queueToken.cancel();
+                    }
                     try {
                         queueToken.get(DebugUtil.printId(coordinatorContext.queryId), queryTimeout);
                     } catch (UserException e) {
