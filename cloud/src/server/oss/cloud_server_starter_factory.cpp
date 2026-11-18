@@ -18,14 +18,17 @@
 #include "server/cloud_server_starter_factory.h"
 
 #include <brpc/server.h>
+#include <butil/endpoint.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <string.h>
 
 #include <memory>
+#include <string>
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/network_util.h"
 
 namespace doris::cloud {
 namespace {
@@ -61,7 +64,14 @@ public:
         if (config::brpc_internal_listen_port > 0) {
             options.internal_port = config::brpc_internal_listen_port;
         }
-        if (_server->Start(_port, &options) != 0) {
+        const std::string bind_addr = get_service_bind_address(config::priority_networks);
+        butil::EndPoint point;
+        if (butil::str2endpoint(bind_addr.c_str(), _port, &point) < 0) {
+            LOG(WARNING) << "convert address failed, host=" << bind_addr << ", port=" << _port;
+            return false;
+        }
+        LOG(INFO) << "cloud brpc server bind to host: " << bind_addr << ", port: " << _port;
+        if (_server->Start(point, &options) != 0) {
             char buf[64];
             LOG(WARNING) << "failed to start cloud brpc, errno=" << errno
                          << ", errmsg=" << strerror_r(errno, buf, 64) << ", port=" << _port;

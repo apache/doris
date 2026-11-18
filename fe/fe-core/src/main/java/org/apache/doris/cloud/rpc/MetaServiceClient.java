@@ -76,7 +76,7 @@ public class MetaServiceClient {
 
         String target = address;
         if (address.contains(",")) {
-            target = MetaServiceListResolverProvider.MS_LIST_SCHEME_PREFIX + address;
+            target = MetaServiceListResolverProvider.toTarget(address);
         }
 
         Preconditions.checkNotNull(serviceConfig, "serviceConfig is null");
