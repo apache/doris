@@ -35,11 +35,11 @@ from unittest.mock import patch
 import reviewer_assignment as assignment
 import reviewer_assignment_usage as usage
 from reviewer_assignment_diff import git_changes, parse_numstat
-import select_reviewers as selector
+import ci_context as selector
 from ci_context import candidate_summary
-from reviewer_candidates import eligible_candidates
+from routing_config import load_config, load_routing
+from classify_paths import classify
 
-NOW = dt.datetime(2026, 11, 17, 12, tzinfo=dt.timezone.utc)
 PREFIX = "repos/apache/doris"
 ISSUE = PREFIX + "/issues/42"
 PULL = PREFIX + "/pulls/42"
@@ -47,6 +47,25 @@ PULL = PREFIX + "/pulls/42"
 
 def user(login):
     return {"login": login, "type": "User"}
+
+
+def fixture_config():
+    """Test policy is independent of the production reviewer lists."""
+    config = {"schema_version": 1, "fallback_reviewer": "morningman", "disabled_reviewers": [],
+              "test_routes": [], "modules": {}}
+    rules = [
+        ("other", ".", [], 0),
+        ("test.other", "^regression-test/", [], 5),
+        ("search", "^be/src/storage/index/inverted/",
+         ["SearchFirst", "SearchSecond", "SearchThird", "SearchFourth", "SearchFifth", "SearchSixth"], 400),
+        ("connector.trino", "^fe/fe-connector/fe-connector-trino/", ["morningman", "Gabriel39", "924060929"], 350),
+        ("connector.fluss", "^fe/fe-connector/fe-connector-fluss/", ["morningman", "Gabriel39"], 350),
+        ("connector.mongodb", "^fe/fe-connector/fe-connector-mongodb/", ["Gabriel39"], 350),
+        ("runtime.memory", "^be/src/runtime/memory/", ["yiguolei", "mrhhsg"], 300),
+    ]
+    for mid, regex, reviewers, priority in rules:
+        config["modules"][mid] = {"label": mid, "priority": priority, "patterns": [regex], "reviewers": reviewers}
+    return config
 
 
 class FakeGitHub:
@@ -142,30 +161,28 @@ class AssignmentTest(unittest.TestCase):
         self.tool.mkdir()
         self.workspace = self.root / "workspace"
         self.api = FakeGitHub()
-        self.mapping = {"repository": "apache/doris", "as_of": "2026-11-17T09:26:38Z", "modules": [
-            {"id": "search", "label": "Search", "candidates": [
-            {"login": person, "auto_eligible": True, "last_review": "2026-11-10T00:00:00Z",
-             "score": 10, "confidence": "high", "review_prs": 10, "approval_prs": 8,
-             "merge_prs": 1, "review_examples": [41, 40, 39]}
-            for person in ("Author", "Alice", "Bob")]}]}
-        self.save_mapping()
+        self.config = fixture_config()
+        for module in self.config["modules"].values():
+            module["reviewers"] = []
+        self.config["modules"]["search"]["reviewers"] = ["Author", "Alice", "Bob"]
+        self.save_config()
         (self.tool / "README.md").write_text("Trusted guide")
         (self.tool / "CI_GUIDE.md").write_text((assignment.TOOL / "CI_GUIDE.md").read_text())
         self.event = {"action": "labeled", "label": {"name": "need-reviewers"},
                       "pull_request": {"number": 42}}
 
-    def save_mapping(self):
-        (self.tool / "module-reviewers.json").write_text(json.dumps(self.mapping))
+    def save_config(self):
+        (self.tool / "reviewer-routing.json").write_text(json.dumps(self.config))
 
     def prepare(self, run="100"):
         return assignment.prepare(self.api, self.event, "apache/doris", run,
-                                  self.workspace, self.tool, NOW)
+                                  self.workspace, self.tool)
 
     def context(self):
         return json.loads((self.workspace / "context.json").read_text())
 
     def apply(self, people=("Alice", "Bob")):
-        return assignment.apply(self.api, self.context(), {"reviewers": list(people)}, self.tool, NOW)
+        return assignment.apply(self.api, self.context(), {"reviewers": list(people)}, self.tool)
 
     def mutations(self):
         return [call for call in self.api.calls if call[0] != "GET"]
@@ -180,8 +197,6 @@ class AssignmentTest(unittest.TestCase):
         prompt = (self.workspace / "prompt.txt").read_text()
         self.assertIn("ADD ASSIGNEES", prompt)
         self.assertIn("CI_GUIDE.md", prompt)
-        self.assertNotIn("REVIEWER_RULES.md", prompt)
-        self.assertNotIn("GITHUB_ACTION.md", prompt)
         summary = json.loads((self.workspace / "candidate-summary.json").read_text())
         self.assertEqual(summary["path_routing_modules"], ["search"])
         self.assertEqual([p["login"] for p in summary["modules"][0]["candidates"]], ["Alice", "Bob"])
@@ -315,21 +330,16 @@ class AssignmentTest(unittest.TestCase):
         git.assert_called_once()
         self.assertFalse((self.workspace / "prompt.txt").exists())
 
-    def test_stale_or_unqualified_candidates_are_rejected(self):
-        self.mapping["modules"][0]["candidates"][1]["auto_eligible"] = False
-        self.mapping["modules"][0]["candidates"][2]["last_review"] = "2025-01-01T00:00:00Z"
-        self.save_mapping()
+    def test_removed_candidates_are_rejected_without_substitution(self):
+        self.config["modules"]["search"]["reviewers"] = ["Author"]
+        self.save_config()
         self.prepare()
         schema = json.loads((self.workspace / "schema.json").read_text())
         self.assertEqual(schema["properties"]["reviewers"]["maxItems"], 0)
         self.assertNotIn("enum", schema["properties"]["reviewers"]["items"])
-        with self.assertRaisesRegex(ValueError, "qualified"):
+        with self.assertRaisesRegex(ValueError, "active"):
             self.apply(("Alice",))
         self.assertTrue(self.apply(())["fallback"])
-        self.mapping["as_of"] = "2026-01-01T00:00:00Z"
-        self.save_mapping()
-        with self.assertRaisesRegex(ValueError, "expired"):
-            self.prepare()
 
     def test_other_labels_are_not_routed(self):
         self.event["label"]["name"] = "bug"
@@ -337,15 +347,13 @@ class AssignmentTest(unittest.TestCase):
             self.prepare()
         self.assertEqual(self.api.calls, [])
 
-    def test_workflow_honors_override_despite_old_unqualified_history(self):
-        module = self.mapping["modules"][0]
-        module["reviewer_override"] = ["Alice"]
-        module["candidates"][1].update(auto_eligible=False, last_review="2025-01-01T00:00:00Z")
-        self.save_mapping()
+    def test_workflow_reads_the_single_config_without_other_data_files(self):
+        self.config["modules"]["search"]["reviewers"] = ["Alice"]
+        self.save_config()
         self.prepare()
-        allowed = assignment.candidates(self.tool, NOW)
+        allowed = assignment.candidates(self.tool)
         self.assertEqual(allowed, {"alice": "Alice"})
-        with self.assertRaisesRegex(ValueError, "maintainer override"):
+        with self.assertRaisesRegex(ValueError, "active"):
             assignment.validate_selection({"reviewers": ["Bob"]}, "Author", allowed)
         self.assertTrue(self.apply(("Alice",))["assigned"])
 
@@ -388,9 +396,8 @@ class AssignmentTest(unittest.TestCase):
     def test_api_file_cap_uses_reconstructed_complete_file_list(self):
         self.api.pr["changed_files"] = 2
         files = self.api.files + [{"filename": "be/src/runtime/memory/mem_tracker.cpp", "additions": 2, "deletions": 0}]
-        memory = {"id": "runtime.memory", "label": "Memory", "candidates": [], "reviewer_override": ["Alice"]}
-        self.mapping["modules"].append(memory)
-        self.save_mapping()
+        self.config["modules"]["runtime.memory"]["reviewers"] = ["Alice"]
+        self.save_config()
         with patch.object(assignment, "git_changes", return_value=(files, "complete diff", "e" * 40)):
             self.prepare()
         pr = json.loads((self.workspace / "pr.json").read_text())
@@ -442,17 +449,16 @@ class AssignmentTest(unittest.TestCase):
         self.assertTrue(self.apply(())["fallback"])
         self.assertIn("help assign reviewers", self.api.comments[0]["body"])
 
-    def test_no_eligible_history_can_still_request_fallback(self):
-        for person in self.mapping["modules"][0]["candidates"]:
-            person["auto_eligible"] = False
-        self.save_mapping()
+    def test_empty_configured_pools_can_still_request_fallback(self):
+        self.config["modules"]["search"]["reviewers"] = []
+        self.save_config()
         self.prepare()
-        self.assertEqual(assignment.candidates(self.tool, NOW), {})
+        self.assertEqual(assignment.candidates(self.tool), {})
         self.assertTrue(self.apply(())["fallback"])
 
     def test_qualified_morningman_is_a_normal_review_request(self):
-        self.mapping["modules"][0]["reviewer_override"] = ["morningman"]
-        self.save_mapping()
+        self.config["modules"]["search"]["reviewers"] = ["morningman"]
+        self.save_config()
         self.prepare()
         self.assertFalse(self.apply(("morningman",))["fallback"])
         self.assertIn("@morningman, please review this PR.", self.api.comments[0]["body"])
@@ -469,9 +475,28 @@ class AssignmentTest(unittest.TestCase):
     def test_retry_cannot_switch_the_fallback_login(self):
         self.prepare()
         self.apply(())
-        with patch.object(assignment, "FALLBACK_REVIEWER", "Alice"):
-            with self.assertRaisesRegex(ValueError, "fallback reviewer changed"):
-                self.prepare()
+        self.config["fallback_reviewer"] = "Alice"
+        self.save_config()
+        with self.assertRaisesRegex(ValueError, "fallback reviewer changed"):
+            self.prepare()
+
+    def test_changed_fallback_configuration_controls_assignment_and_message(self):
+        self.config["fallback_reviewer"] = "NewTriage"
+        self.save_config()
+        self.prepare()
+        result = self.apply(())
+        self.assertEqual(result["reviewers"], ["NewTriage"])
+        self.assertIn("@NewTriage, please help assign reviewers", self.api.comments[0]["body"])
+
+    def test_disabled_account_is_excluded_from_validation_and_summary(self):
+        self.config["disabled_reviewers"] = ["aLiCe"]
+        self.save_config()
+        self.prepare()
+        summary = json.loads((self.workspace / "candidate-summary.json").read_text())
+        self.assertEqual([p["login"] for p in summary["modules"][0]["candidates"]], ["Bob"])
+        with self.assertRaisesRegex(ValueError, "active"):
+            self.apply(("Alice",))
+        self.assertTrue(self.apply(("Bob",))["assigned"])
 
     def test_silent_fallback_assignment_failure_recovers_without_a_second_comment(self):
         self.prepare()
@@ -626,7 +651,7 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(error.exception.status, 404)
 
 
-class ReviewerOverrideTest(unittest.TestCase):
+class ConfiguredReviewersTest(unittest.TestCase):
     EXPECTED = {
         "connector.trino": ["morningman", "Gabriel39", "924060929"],
         "connector.fluss": ["morningman", "Gabriel39"],
@@ -641,155 +666,224 @@ class ReviewerOverrideTest(unittest.TestCase):
     }
 
     def setUp(self):
-        self.mapping = json.loads((assignment.TOOL / "module-reviewers.json").read_text())
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.tool = Path(self.temp.name)
+        self.config = fixture_config()
+        self.save_config()
+
+    def save_config(self):
+        (self.tool / "reviewer-routing.json").write_text(json.dumps(self.config))
+        self.mapping = load_routing(self.tool)
         self.modules = {module["id"]: module for module in self.mapping["modules"]}
 
     def pr(self, module, author="Contributor", unavailable=()):
         return {"number": 42, "author": author, "files": [self.PATHS[module]],
                 "unavailable_reviewers": list(unavailable)}
 
-    def test_exact_maintainer_lists_and_order_are_preserved(self):
+    def test_requested_maintainer_lists_and_order_are_preserved(self):
         for module, expected in self.EXPECTED.items():
             with self.subTest(module=module):
-                data = self.modules[module]
-                self.assertEqual(data["reviewer_override"], expected)
-                self.assertEqual(data["recommended"], expected)
-                self.assertEqual(data["confidence"], "maintainer")
-                self.assertEqual([p["login"] for p in eligible_candidates(data, NOW)], expected)
+                self.assertEqual(self.modules[module]["reviewers"], expected)
+                self.assertEqual([p["login"] for p in self.modules[module]["candidates"]], expected)
 
     def test_each_module_selects_its_first_configured_reviewer(self):
         for module, expected in self.EXPECTED.items():
             with self.subTest(module=module):
-                result = selector.plan(self.pr(module), self.mapping, NOW, limit=2)
+                result = selector.plan(self.pr(module), self.mapping)
                 self.assertEqual([p["login"] for p in result["reviewers"]], expected[:1])
                 self.assertFalse(result["uncovered_modules"])
-                evidence = result["reviewers"][0]["evidence"][module]
-                self.assertEqual(evidence["selection_source"], "maintainer_override")
-                self.assertEqual(evidence["confidence"], "maintainer")
 
     def test_author_exclusion_uses_the_next_configured_person(self):
         for module, expected in self.EXPECTED.items():
             with self.subTest(module=module):
-                result = selector.plan(self.pr(module, author=expected[0].upper()), self.mapping, NOW)
+                result = selector.plan(self.pr(module, author=expected[0].upper()), self.mapping)
                 self.assertEqual([p["login"] for p in result["reviewers"]], expected[1:2])
                 self.assertEqual(result["uncovered_modules"], [module] if len(expected) == 1 else [])
 
-    def test_exhausted_overrides_do_not_fall_back_to_historical_names(self):
+    def test_exhausted_pools_do_not_substitute_unlisted_people(self):
         for module, expected in self.EXPECTED.items():
             with self.subTest(module=module):
-                result = selector.plan(self.pr(module, unavailable=expected), self.mapping, NOW)
+                result = selector.plan(self.pr(module, unavailable=expected), self.mapping)
                 self.assertEqual(result["reviewers"], [])
                 self.assertEqual(result["uncovered_modules"], [module])
 
     def test_multi_module_coverage_can_reuse_a_configured_reviewer(self):
         pr = self.pr("connector.trino")
         pr["files"].append(self.PATHS["connector.mongodb"])
-        result = selector.plan(pr, self.mapping, NOW, limit=2)
+        result = selector.plan(pr, self.mapping)
         self.assertEqual([p["login"] for p in result["reviewers"]], ["Gabriel39"])
         self.assertEqual(set(result["reviewers"][0]["covers"]), {"connector.trino", "connector.mongodb"})
 
-    def test_overrides_do_not_rewrite_historical_evidence(self):
-        original = copy.deepcopy(self.mapping)
-        trino = self.modules["connector.trino"]
-        morningman = next(p for p in trino["candidates"] if p["login"] == "morningman")
-        self.assertFalse(morningman["auto_eligible"])
-        self.assertGreater((NOW - assignment.timestamp(morningman["last_review"])).days, 180)
-        result = selector.plan(self.pr("connector.trino"), self.mapping, NOW)
-        evidence = result["reviewers"][0]["evidence"]["connector.trino"]
-        self.assertEqual(evidence["review_prs"], morningman["review_prs"])
-        self.assertEqual(evidence["last_review"], morningman["last_review"])
-        self.assertEqual(self.mapping, original)
-
-    def test_maintainer_without_historical_records_can_be_selected(self):
-        mapping = {"as_of": self.mapping["as_of"], "repository": "apache/doris", "modules": [
-            {"id": "runtime.memory", "candidates": [], "reviewer_override": ["NewMaintainer"]}]}
-        result = selector.plan(self.pr("runtime.memory"), mapping, NOW)
-        self.assertEqual([p["login"] for p in result["reviewers"]], ["NewMaintainer"])
-
-    def test_history_routing_and_global_expiry_remain_in_effect(self):
-        pr = {"number": 42, "author": "Contributor", "files": ["be/src/storage/index/inverted/query/query.cpp"]}
-        result = selector.plan(pr, self.mapping, NOW)
-        self.assertEqual(result["reviewers"][0]["login"], "eldenmoon")
-        self.assertEqual(result["reviewers"][0]["evidence"]["search"]["selection_source"], "history")
-        with self.assertRaisesRegex(AssertionError, "older than 90"):
-            selector.plan(self.pr("connector.trino"), self.mapping, NOW + dt.timedelta(days=91))
-
 
 class CandidateSummaryTest(unittest.TestCase):
-    EXPECTED = ReviewerOverrideTest.EXPECTED
-    PATHS = ReviewerOverrideTest.PATHS
-    setUp = ReviewerOverrideTest.setUp
-    pr = ReviewerOverrideTest.pr
+    EXPECTED = ConfiguredReviewersTest.EXPECTED
+    PATHS = ConfiguredReviewersTest.PATHS
+    setUp = ConfiguredReviewersTest.setUp
+    save_config = ConfiguredReviewersTest.save_config
+    pr = ConfiguredReviewersTest.pr
 
-    def test_summary_preserves_override_order_and_author_exclusion(self):
-        result = candidate_summary(self.pr("connector.trino", author="MORNINGMAN"), self.mapping, NOW)
+    def test_summary_preserves_config_order_and_author_exclusion(self):
+        result = candidate_summary(self.pr("connector.trino", author="MORNINGMAN"), self.mapping)
         module = result["modules"][0]
-        self.assertEqual(module["reviewer_override"], self.EXPECTED["connector.trino"])
+        self.assertEqual(module["configured_reviewers"], self.EXPECTED["connector.trino"])
         self.assertEqual([p["login"] for p in module["candidates"]], ["Gabriel39", "924060929"])
         self.assertEqual([p["preference_weight"] for p in module["candidates"]], [0.5, 0.333333])
-        self.assertTrue(all(p["confidence"] == "maintainer" for p in module["candidates"]))
 
     def test_existing_reviewers_do_not_consume_ci_budget(self):
         pr = self.pr("connector.trino")
         pr["files"].append(self.PATHS["runtime.memory"])
         pr["existing_reviewers"] = ["morningman", "yiguolei", "SomeoneElse"]
-        result = candidate_summary(pr, self.mapping, NOW)
+        result = candidate_summary(pr, self.mapping)
         self.assertEqual([p["login"] for p in result["path_suggestion"]], ["morningman", "yiguolei"])
         self.assertFalse(result["uncovered_path_modules"])
         self.assertTrue(result["modules"][0]["candidates"][0]["existing_reviewer"])
 
-    def test_summary_uses_shared_history_filters_and_bounds_examples(self):
+    def test_summary_contains_only_active_configured_candidates(self):
         pr = {"number": 42, "author": "Contributor", "files": [
             "be/src/storage/index/inverted/query/query.cpp"]}
-        result = candidate_summary(pr, self.mapping, NOW)
+        result = candidate_summary(pr, self.mapping)
         people = result["modules"][0]["candidates"]
-        self.assertEqual([p["login"] for p in people],
-                         [p["login"] for p in eligible_candidates(self.modules["search"], NOW)[:5]])
-        self.assertTrue(all(len(p["review_examples"]) <= 2 for p in people))
+        self.assertEqual([p["login"] for p in people], self.modules["search"]["reviewers"][:5])
+        self.assertTrue(all(set(p) == {"login", "preference_weight", "existing_reviewer"} for p in people))
         self.assertNotIn("patterns", result["modules"][0])
-        self.assertNotIn("score", people[0])
 
-    def test_queries_can_reclassify_and_expand_history_without_dumping_other_modules(self):
-        pr = self.pr("connector.trino")
-        result = candidate_summary(pr, self.mapping, NOW, ["search"], all_candidates=True)
+    def test_queries_can_reclassify_and_expand_configured_pools(self):
+        result = candidate_summary(self.pr("connector.trino"), self.mapping, ["search"], all_candidates=True)
         self.assertEqual([m["id"] for m in result["modules"]], ["search"])
-        self.assertEqual(len(result["modules"][0]["candidates"]),
-                         len(eligible_candidates(self.modules["search"], NOW)))
+        self.assertEqual(len(result["modules"][0]["candidates"]), len(self.modules["search"]["candidates"]))
         self.assertNotIn("path_suggestion", result)
         with self.assertRaises(KeyError):
-            candidate_summary(pr, self.mapping, NOW, ["not-a-module"])
+            candidate_summary(self.pr("connector.trino"), self.mapping, ["not-a-module"])
 
-    def test_fallback_and_exhausted_override_do_not_invent_candidates(self):
+    def test_unclassified_paths_and_exhausted_pools_do_not_invent_candidates(self):
         pr = {"number": 42, "author": "Contributor", "files": ["unknown/path.txt"]}
-        result = candidate_summary(pr, self.mapping, NOW)
+        result = candidate_summary(pr, self.mapping)
         self.assertEqual(result["uncovered_path_modules"], ["other"])
         self.assertEqual(result["modules"][0]["candidates"], [])
-        result = candidate_summary(self.pr("connector.mongodb", author="Gabriel39"), self.mapping, NOW)
-        self.assertEqual(result["modules"][0]["candidates"], [])
+        result = candidate_summary(self.pr("connector.mongodb", author="Gabriel39"), self.mapping)
         self.assertEqual(result["path_suggestion"], [])
 
-    def test_guide_is_smaller_and_full_evidence_is_unchanged(self):
+    def test_summary_does_not_modify_the_loaded_policy(self):
         original = copy.deepcopy(self.mapping)
-        candidate_summary(self.pr("connector.trino"), self.mapping, NOW)
+        candidate_summary(self.pr("connector.trino"), self.mapping)
         self.assertEqual(self.mapping, original)
-        guide = (assignment.TOOL / "CI_GUIDE.md").read_text()
-        previous = sum(len((assignment.TOOL / name).read_text()) for name in (
-            "README.md", "REVIEWER_RULES.md", "GITHUB_ACTION.md"))
-        self.assertLess(len(guide), previous / 5)
-        self.assertIn("complete", guide)
 
     def test_module_lookup_cli_works_outside_the_repository(self):
         with tempfile.TemporaryDirectory() as temporary:
             pr = Path(temporary) / "pr.json"
             pr.write_text(json.dumps(self.pr("connector.trino")))
-            command = [sys.executable, str(assignment.TOOL / "ci_context.py")]
+            tool = Path(temporary) / "tool"
+            shutil.copytree(assignment.TOOL, tool)
+            (tool / "reviewer-routing.json").write_text(json.dumps(self.config))
+            command = [sys.executable, str(tool / "ci_context.py")]
             listing = subprocess.run(command + ["--list-modules"], cwd=temporary,
                                      capture_output=True, text=True, check=True)
             self.assertEqual(json.loads(listing.stdout)["runtime.memory"], self.modules["runtime.memory"]["label"])
             query = subprocess.run(command + [str(pr), "--modules", "runtime.memory"], cwd=temporary,
                                    capture_output=True, text=True, check=True)
-            module = json.loads(query.stdout)["modules"][0]
-            self.assertEqual([p["login"] for p in module["candidates"]], ["yiguolei", "mrhhsg"])
+            self.assertEqual([p["login"] for p in json.loads(query.stdout)["modules"][0]["candidates"]],
+                             ["yiguolei", "mrhhsg"])
+
+
+class ConfigurationTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.tool = Path(self.temp.name)
+        self.config = fixture_config()
+        self.path = self.tool / "reviewer-routing.json"
+
+    def routing(self):
+        self.path.write_text(json.dumps(self.config))
+        return load_routing(self.tool)
+
+    def test_new_module_and_new_reviewers_need_only_one_configuration_edit(self):
+        self.config["modules"]["connector.new"] = {
+            "label": "New connector", "priority": 500,
+            "patterns": ["^fe/fe-connector/fe-connector-new/"], "reviewers": ["NewMaintainer", "Backup"]}
+        routing = self.routing()
+        pr = {"number": 42, "author": "Contributor", "files": ["fe/fe-connector/fe-connector-new/New.java"]}
+        result = selector.plan(pr, routing)
+        self.assertEqual(result["routing_modules"], ["connector.new"])
+        self.assertEqual(result["reviewers"], [{"login": "NewMaintainer", "covers": ["connector.new"]}])
+        self.assertEqual({p.name for p in self.tool.iterdir()}, {"reviewer-routing.json"})
+
+    def test_reordering_removing_and_pausing_reviewers_take_effect_immediately(self):
+        pr = {"number": 42, "author": "Contributor", "files": ["be/src/runtime/memory/mem_tracker.cpp"]}
+        self.config["modules"]["runtime.memory"]["reviewers"] = ["Backup", "Primary"]
+        self.assertEqual(selector.plan(pr, self.routing())["reviewers"][0]["login"], "Backup")
+        self.config["modules"]["runtime.memory"]["reviewers"] = ["Primary", "Backup"]
+        self.assertEqual(selector.plan(pr, self.routing())["reviewers"][0]["login"], "Primary")
+        self.config["disabled_reviewers"] = ["PRIMARY"]
+        active = self.routing()
+        self.assertEqual(selector.plan(pr, active)["reviewers"][0]["login"], "Backup")
+        module = next(m for m in active["modules"] if m["id"] == "runtime.memory")
+        self.assertEqual(module["candidates"], [{"login": "Backup", "preference_weight": 1}])
+        self.config["modules"]["runtime.memory"]["reviewers"] = []
+        self.assertEqual(selector.plan(pr, self.routing())["reviewers"], [])
+
+    def test_disabled_people_do_not_cover_modules_or_consume_planner_budget(self):
+        self.config["disabled_reviewers"] = ["SearchFirst", "SearchSecond", "SearchThird"]
+        pr = {"number": 42, "author": "Contributor", "files": ["be/src/storage/index/inverted/query.cpp"],
+              "existing_reviewers": ["SearchFirst", "SearchSecond", "SearchThird"]}
+        result = selector.plan(pr, self.routing())
+        self.assertEqual(result["reviewers"][0]["login"], "SearchFourth")
+
+    def test_test_routes_and_path_priorities_are_read_from_the_same_file(self):
+        self.config["modules"]["new"] = {"label": "New", "priority": 500,
+            "patterns": ["^be/src/runtime/"], "reviewers": ["NewMaintainer"]}
+        self.config["test_routes"] = [{"pattern": "^regression-test/suites/new_", "module": "new"}]
+        routing = self.routing()
+        self.assertEqual(classify("be/src/runtime/memory/mem_tracker.cpp", routing["config"])["module"], "new")
+        self.assertEqual(classify("regression-test/suites/new_p0/test.groovy", routing["config"])["module"], "new")
+
+    def test_case_insensitive_duplicate_logins_are_rejected(self):
+        for field in ("disabled_reviewers", "reviewers"):
+            with self.subTest(field=field):
+                config = self.config if field == "disabled_reviewers" else self.config["modules"]["search"]
+                original = config[field]
+                config[field] = ["Alice", "ALICE"]
+                with self.assertRaisesRegex(ValueError, "duplicate logins"):
+                    self.routing()
+                config[field] = original
+
+    def test_duplicate_json_keys_cannot_silently_override_a_module(self):
+        self.path.write_text('{"schema_version":1,"schema_version":1}')
+        with self.assertRaisesRegex(ValueError, "Duplicate configuration key"):
+            load_config(self.path)
+
+    def test_typos_regex_errors_and_unknown_test_modules_are_actionable(self):
+        changes = [
+            (lambda c: c.update(disabled_reviewer=[]), "Unknown top-level"),
+            (lambda c: c["modules"]["search"].update(reveiwers=[]), "requires exactly"),
+            (lambda c: c["modules"]["search"].update(patterns=["["]), "Invalid regex"),
+            (lambda c: c.update(test_routes=[{"pattern": "test", "module": "missing"}]), "Unknown test_routes module"),
+            (lambda c: c["modules"]["search"].update(reviewers=["@Alice"]), "invalid GitHub login"),
+        ]
+        for change, expected in changes:
+            with self.subTest(expected=expected):
+                self.config = fixture_config()
+                change(self.config)
+                with self.assertRaisesRegex(ValueError, expected):
+                    self.routing()
+
+    def test_fallback_cannot_be_disabled_and_generic_fallbacks_are_required(self):
+        self.config["disabled_reviewers"] = ["MORNINGMAN"]
+        with self.assertRaisesRegex(ValueError, "fallback_reviewer is disabled"):
+            self.routing()
+        self.config = fixture_config()
+        del self.config["modules"]["test.other"]
+        with self.assertRaisesRegex(ValueError, "fallback categories"):
+            self.routing()
+
+    def test_configuration_check_cli_reports_real_failure(self):
+        self.config["modules"]["search"]["reviewers"] = ["@Invalid"]
+        self.path.write_text(json.dumps(self.config))
+        result = subprocess.run([sys.executable, str(assignment.TOOL / "routing_config.py"),
+                                 "--config", str(self.path), "--check"], capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("invalid GitHub login", result.stderr)
 
 
 class UsageTest(unittest.TestCase):

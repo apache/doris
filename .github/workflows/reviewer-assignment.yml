@@ -38,6 +38,7 @@ jobs:
       - name: Check the assignment helper
         timeout-minutes: 1
         run: |
+          python3 tools/reviewer-routing/routing_config.py --check
           PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
             -s .github/scripts -p test_reviewer_assignment.py
 
