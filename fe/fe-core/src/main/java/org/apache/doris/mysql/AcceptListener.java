@@ -97,6 +97,9 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                 ProxyProtocolResult result = ProxyProtocolHandler.handle(context.getMysqlChannel());
                 Preconditions.checkNotNull(result);
                 ProtocolType pType = result.pType;
+                if (pType != ProtocolType.NOT_PROXY_PROTOCOL) {
+                    context.getMysqlChannel().setProxyProtocol();
+                }
                 if (pType == ProtocolType.PROTOCOL_WITH_IP) {
                     context.getMysqlChannel().setRemoteAddr(result.sourceIP, result.sourcePort);
                 }

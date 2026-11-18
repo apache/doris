@@ -29,6 +29,7 @@ import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlChannel;
@@ -39,6 +40,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AuthenticationProtocol;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -289,6 +291,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 stmtStr = executeStmt.toSql();
                 stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
             }
+        } catch (UserException e) {
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe doris bug.
@@ -393,6 +397,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.debug("handle command {}", command);
         }
         ctx.setCommand(command);
+        if (ctx.isPasswordResetRequired() && !BootstrapPasswordGuard.isAllowedCommand(command)) {
+            ctx.getState().setError(ErrorCode.ERR_MUST_CHANGE_PASSWORD,
+                    ErrorCode.ERR_MUST_CHANGE_PASSWORD.formatErrorMsg());
+            return;
+        }
         ctx.setStartTime();
         resolveWorkloadGroupName();
 
@@ -553,14 +562,19 @@ public class MysqlConnectProcessor extends ConnectProcessor {
 
         // Check password.
         List<UserIdentity> currentUserIdentity = Lists.newArrayList();
+        AuthenticationProtocol protocol = AuthenticationProtocol.MYSQL;
+        if (ctx.getMysqlChannel().hasProxyProtocol()) {
+            protocol = AuthenticationProtocol.PROXIED_MYSQL;
+        }
         try {
             Env.getCurrentEnv().getAuth()
-                .checkPassword(userName, ctx.remoteIP, password, authPluginData, currentUserIdentity);
+                .checkPassword(userName, ctx.remoteIP, password, authPluginData, currentUserIdentity, protocol);
         } catch (AuthenticationException e) {
             ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
             return;
         }
         ctx.setCurrentUserIdentity(currentUserIdentity.get(0));
+        ctx.setPasswordResetRequired(false);
 
         // Change default db if set.
         if (Strings.isNullOrEmpty(db)) {

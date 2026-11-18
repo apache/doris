@@ -39,6 +39,7 @@ import org.apache.doris.mysql.authenticate.integration.AuthenticationIntegration
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.mysql.authenticate.plugin.AuthenticationPluginAuthenticator;
+import org.apache.doris.mysql.privilege.AuthenticationProtocol;
 import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -279,6 +280,7 @@ public class AuthenticatorManager {
 
     private void applyAuthenticateResponse(ConnectContext context, String remoteIp, AuthenticateResponse response) {
         context.setCurrentUserIdentity(response.getUserIdentity());
+        context.setPasswordResetRequired(response.isPasswordResetRequired());
         context.setRemoteIP(remoteIp);
         context.setIsTempUser(response.isTemp());
         context.setAuthenticatedPrincipal(response.getPrincipal());
@@ -369,6 +371,21 @@ public class AuthenticatorManager {
         }
         if (refuseIfAccountLocked(context, response.getUserIdentity())) {
             return false;
+        }
+        if (Env.getCurrentEnv().getAuth().isSecureInitialization()) {
+            try {
+                AuthenticationProtocol protocol = AuthenticationProtocol.MYSQL;
+                if (context.getMysqlChannel().hasProxyProtocol()) {
+                    protocol = AuthenticationProtocol.PROXIED_MYSQL;
+                }
+                boolean resetRequired = Env.getCurrentEnv().getAuth().checkBootstrapAuthentication(
+                        response.getUserIdentity(), remoteIp, protocol);
+                response.setPasswordResetRequired(response.isPasswordResetRequired() || resetRequired);
+            } catch (AuthenticationException e) {
+                context.getState().setError(e.errorCode, e.getMessage());
+                MysqlProto.sendResponsePacket(context);
+                return false;
+            }
         }
         if (setOkState) {
             context.getState().setOk();

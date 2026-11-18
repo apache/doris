@@ -61,12 +61,14 @@ public class ExternalCatalogLookupFailureTest extends TestWithFeService {
     private static final String CATALOG = "lookup_failure_catalog";
     private static final String DATABASE = "example_db";
     private static final String FAILURE = "Metastore authentication failed";
+    private static final String ROOT_PASSWORD = "Root_password1";
     private TestExternalCatalog catalog;
     private boolean initializationUnavailable;
     private boolean failAfterLookup;
 
     @Override
     protected void runBeforeAll() throws Exception {
+        executeSql("SET PASSWORD = PASSWORD('" + ROOT_PASSWORD + "')");
         executeSql("CREATE USER 'lookup_unprivileged_user'");
         createDatabase(DATABASE);
         connectContext.setDatabase(DATABASE);
@@ -274,6 +276,7 @@ public class ExternalCatalogLookupFailureTest extends TestWithFeService {
             Mockito.verify(submitter).submit(submitted.capture());
             Assertions.assertEquals(sql, submitted.getValue().stmt);
             Assertions.assertEquals("root", submitted.getValue().user);
+            Assertions.assertEquals(ROOT_PASSWORD, submitted.getValue().passwd);
             Assertions.assertEquals(CATALOG, ConnectContext.get().getDefaultCatalog());
             Assertions.assertEquals(DATABASE, ConnectContext.get().getDatabase());
         } finally {
@@ -286,7 +289,7 @@ public class ExternalCatalogLookupFailureTest extends TestWithFeService {
         Mockito.when(request.getScheme()).thenReturn("https");
         Mockito.when(request.getRemoteAddr()).thenReturn("127.0.0.1");
         Mockito.when(request.getHeader("Authorization")).thenReturn("Basic "
-                + Base64.getEncoder().encodeToString((user + ":").getBytes(StandardCharsets.UTF_8)));
+                + Base64.getEncoder().encodeToString((user + ":" + ROOT_PASSWORD).getBytes(StandardCharsets.UTF_8)));
         Mockito.when(request.getHeader("X-Doris-Stream")).thenReturn("false");
         return request;
     }

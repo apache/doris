@@ -32,6 +32,7 @@ public class AuthenticateResponse {
     private boolean success;
     private UserIdentity userIdentity;
     private boolean isTemp = false;
+    private boolean passwordResetRequired;
     private Principal principal;
     private String authenticationIntegration;
     private String boundIdentity;
@@ -74,6 +75,14 @@ public class AuthenticateResponse {
 
     public boolean isSuccess() {
         return success;
+    }
+
+    public boolean isPasswordResetRequired() {
+        return passwordResetRequired;
+    }
+
+    public void setPasswordResetRequired(boolean passwordResetRequired) {
+        this.passwordResetRequired = passwordResetRequired;
     }
 
     public void setSuccess(boolean success) {

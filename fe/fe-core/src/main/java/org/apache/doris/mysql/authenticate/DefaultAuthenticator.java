@@ -25,6 +25,7 @@ import org.apache.doris.mysql.authenticate.password.NativePassword;
 import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.Password;
 import org.apache.doris.mysql.authenticate.password.PasswordResolver;
+import org.apache.doris.mysql.privilege.AuthenticationProtocol;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -53,19 +54,28 @@ public class DefaultAuthenticator implements Authenticator {
         NativePassword nativePassword = (NativePassword) password;
 
         List<UserIdentity> currentUserIdentity = Lists.newArrayList();
+        AuthenticationProtocol protocol = AuthenticationProtocol.MYSQL;
+        if (Boolean.TRUE.equals(request.getProperties().get("proxyProtocol"))) {
+            protocol = AuthenticationProtocol.PROXIED_MYSQL;
+        }
+        boolean passwordResetRequired;
         try {
             if (request.getUserIdentity() != null) {
-                Env.getCurrentEnv().getAuth().checkPasswordForUserIdentity(request.getUserIdentity(),
-                        nativePassword.getRemotePasswd(), nativePassword.getRandomString(), currentUserIdentity);
+                passwordResetRequired = Env.getCurrentEnv().getAuth().checkPasswordForUserIdentity(
+                        request.getUserIdentity(), request.getRemoteIp(), nativePassword.getRemotePasswd(),
+                        nativePassword.getRandomString(), currentUserIdentity, protocol);
             } else {
-                Env.getCurrentEnv().getAuth().checkPassword(request.getUserName(), request.getRemoteIp(),
-                        nativePassword.getRemotePasswd(), nativePassword.getRandomString(), currentUserIdentity);
+                passwordResetRequired = Env.getCurrentEnv().getAuth().checkPassword(request.getUserName(),
+                        request.getRemoteIp(), nativePassword.getRemotePasswd(), nativePassword.getRandomString(),
+                        currentUserIdentity, protocol);
             }
         } catch (AuthenticationException e) {
             ErrorReport.report(e.errorCode, e.msgs);
             return AuthenticateResponse.failedResponse;
         }
-        return new AuthenticateResponse(true, currentUserIdentity.get(0));
+        AuthenticateResponse response = new AuthenticateResponse(true, currentUserIdentity.get(0));
+        response.setPasswordResetRequired(passwordResetRequired);
+        return response;
     }
 
     @Override

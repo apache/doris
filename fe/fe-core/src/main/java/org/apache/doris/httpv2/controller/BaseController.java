@@ -31,6 +31,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
+import org.apache.doris.mysql.privilege.AuthenticationProtocol;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -361,13 +362,14 @@ public class BaseController {
             throw new UnauthorizedException("Authentication-bound users must authenticate through their integration");
         }
         CertificateAuthDecision certDecision = tryCertificateAuth(authInfo, request);
-        if (certDecision.shouldSkipPasswordVerification()
-                && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
-            return certDecision.getUserIdentity();
-        }
-
         List<UserIdentity> currentUser = Lists.newArrayList();
         try {
+            if (certDecision.shouldSkipPasswordVerification()
+                    && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
+                Env.getCurrentEnv().getAuth().checkBootstrapAuthentication(
+                        certDecision.getUserIdentity(), authInfo.remoteIp, AuthenticationProtocol.OTHER);
+                return certDecision.getUserIdentity();
+            }
             if (certDecision.isVerified()) {
                 Env.getCurrentEnv().getAuth().checkPlainPasswordForUserIdentity(
                         certDecision.getUserIdentity(), authInfo.password, currentUser);

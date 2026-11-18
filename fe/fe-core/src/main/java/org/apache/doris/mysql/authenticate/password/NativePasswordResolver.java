@@ -126,6 +126,7 @@ public class NativePasswordResolver implements PasswordResolver {
                 .credentialType(CredentialType.MYSQL_NATIVE_PASSWORD)
                 .credential(nativePassword.getRemotePasswd())
                 .property(MYSQL_RANDOM_STRING_PROPERTY, nativePassword.getRandomString())
+                .property("proxyProtocol", channel.hasProxyProtocol())
                 .build());
     }
 }

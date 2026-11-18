@@ -34,9 +34,11 @@ import org.junit.jupiter.api.Test;
 public class SystemRootUserTest extends TestWithFeService {
 
     private static final String HOST = "8.8.20.39";
+    private static final String ROOT_PASSWORD = "Root_password1";
 
     @Override
     protected void runBeforeAll() throws Exception {
+        run("SET PASSWORD = PASSWORD('" + ROOT_PASSWORD + "')");
         run("CREATE USER 'root'@'" + HOST + "' IDENTIFIED BY 'Pwd_a1'");
         run("GRANT GRANT_PRIV ON *.*.* TO 'root'@'" + HOST + "'");
         run("CREATE USER 'grant_admin'@'%'");
@@ -94,7 +96,7 @@ public class SystemRootUserTest extends TestWithFeService {
         assertRejected("SET PASSWORD FOR 'root'@'%' = PASSWORD('Pwd_d4')",
                 "Can not set password for root user, except root itself");
         assertRejected("ALTER USER 'root'@'%' IDENTIFIED BY 'Pwd_d4'", "Only root user can modify root user");
-        assertPassword(UserIdentity.ROOT, "");
+        assertPassword(UserIdentity.ROOT, ROOT_PASSWORD);
     }
 
     @Test
@@ -103,6 +105,6 @@ public class SystemRootUserTest extends TestWithFeService {
         assertRejected("SET PASSWORD FOR 'root'@'%' = PASSWORD('Pwd_e5')",
                 "Can not set password for root user, except root itself");
         assertRejected("ALTER USER 'root'@'%' IDENTIFIED BY 'Pwd_e5'", "Only root user can modify root user");
-        assertPassword(UserIdentity.ROOT, "");
+        assertPassword(UserIdentity.ROOT, ROOT_PASSWORD);
     }
 }

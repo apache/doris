@@ -112,6 +112,7 @@ import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.AuthenticationProtocol;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
@@ -1430,6 +1431,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         if (certDecision.shouldSkipPasswordVerification()
                 && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
+            Env.getCurrentEnv().getAuth().checkBootstrapAuthentication(
+                    certDecision.getUserIdentity(), clientIp, AuthenticationProtocol.OTHER);
             return certDecision.getUserIdentity();
         }
 

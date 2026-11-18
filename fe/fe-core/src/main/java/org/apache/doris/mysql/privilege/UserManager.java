@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
@@ -67,6 +66,18 @@ public class UserManager implements Writable {
     @SerializedName(value = "nameToUsers")
     private Map<String, List<User>> nameToUsers = Maps.newHashMap();
 
+    // Absent in images written before secure cluster initialization was introduced.
+    @SerializedName(value = "secureInitialization")
+    private volatile boolean secureInitialization;
+
+    public boolean isSecureInitialization() {
+        return secureInitialization;
+    }
+
+    public void setSecureInitialization() {
+        secureInitialization = true;
+    }
+
     public boolean userIdentityExist(UserIdentity userIdentity, boolean includeByDomain) {
         rlock.lock();
         try {
@@ -101,36 +112,43 @@ public class UserManager implements Writable {
         }
     }
 
-    public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) throws AuthenticationException {
-        checkPasswordInternal(remoteUser, remoteHost, remotePasswd, randomString, null, currentUser, false);
+    public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser, AuthenticationProtocol protocol) throws AuthenticationException {
+        return checkPasswordInternal(remoteUser, remoteHost, remotePasswd, randomString, null,
+                currentUser, false, protocol);
     }
 
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
-        checkPasswordInternal(remoteUser, remoteHost, null, null, remotePasswd, currentUser, true);
+        checkPasswordInternal(remoteUser, remoteHost, null, null, remotePasswd, currentUser, true,
+                AuthenticationProtocol.OTHER);
     }
 
-    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) throws AuthenticationException {
-        checkPasswordInternalForUser(userIdentity, remotePasswd, randomString, null, currentUser, false);
+    public boolean checkPasswordForUserIdentity(UserIdentity userIdentity, String remoteHost,
+            byte[] remotePasswd, byte[] randomString, List<UserIdentity> currentUser,
+            AuthenticationProtocol protocol) throws AuthenticationException {
+        return checkPasswordInternalForUser(userIdentity, remoteHost, remotePasswd, randomString, null,
+                currentUser, false, protocol);
     }
 
     public void checkPlainPasswordForUserIdentity(UserIdentity userIdentity, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
-        checkPasswordInternalForUser(userIdentity, null, null, remotePasswd, currentUser, true);
+        checkPasswordInternalForUser(userIdentity, null, null, null, remotePasswd, currentUser, true,
+                AuthenticationProtocol.OTHER);
     }
 
-    private void checkPasswordInternal(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
+    private boolean checkPasswordInternal(String remoteUser, String remoteHost,
+            byte[] remotePasswd, byte[] randomString,
+            String remotePasswdStr, List<UserIdentity> currentUser, boolean plain, AuthenticationProtocol protocol)
+            throws AuthenticationException {
         PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
-        List<User> users = new ArrayList<>();
+        boolean suppliedPassword = plain ? !Strings.isEmpty(remotePasswdStr) : remotePasswd.length != 0;
+        List<User> users;
         rlock.lock();
         try {
             users = nameToUsers.get(remoteUser);
             if (CollectionUtils.isEmpty(users)) {
-                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
-                    "YES");
+                throw BootstrapAuthPolicy.accessDenied(remoteUser, remoteHost, suppliedPassword);
             }
         } finally {
             rlock.unlock();
@@ -145,51 +163,46 @@ public class UserManager implements Writable {
                 continue;
             }
             if (getAuthenticationUser(user).isAuthenticationBound()) {
-                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
-                        hasRemotePasswd(plain, remotePasswd));
+                throw BootstrapAuthPolicy.accessDenied(remoteUser, remoteHost, suppliedPassword);
             }
             UserIdentity curUser = user.getDomainUserIdentity();
             if (comparePassword(user.getPassword(), remotePasswd, randomString, remotePasswdStr, plain)) {
                 passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(curUser);
+                boolean passwordResetRequired = BootstrapAuthPolicy.check(user, secureInitialization,
+                        remoteHost, protocol, suppliedPassword);
                 if (currentUser != null) {
                     currentUser.add(curUser);
                 }
-                return;
-            } else {
-                // case A. this means we already matched a entry by user@host, but password is incorrect.
-                // return false, NOT continue matching other entries.
-                // For example, there are 2 entries in order:
-                // 1. cmy@"192.168.%" identified by '123';
-                // 2. cmy@"%" identified by 'abc';
-                // if user cmy@'192.168.1.1' try to login with password 'abc', it will be denied.
-                passwdPolicyMgr.onFailedLogin(curUser);
-                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
-                        hasRemotePasswd(plain, remotePasswd));
+                return passwordResetRequired;
             }
+            // A matching user@host with the wrong password must not fall back to a broader host entry.
+            passwdPolicyMgr.onFailedLogin(curUser);
+            throw BootstrapAuthPolicy.accessDenied(remoteUser, remoteHost, suppliedPassword);
         }
-        throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
-                hasRemotePasswd(plain, remotePasswd));
+        throw BootstrapAuthPolicy.accessDenied(remoteUser, remoteHost, suppliedPassword);
     }
 
-    private void checkPasswordInternalForUser(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
-            String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
+    private boolean checkPasswordInternalForUser(UserIdentity userIdentity, String remoteHost,
+            byte[] remotePasswd, byte[] randomString, String remotePasswdStr, List<UserIdentity> currentUser,
+            boolean plain, AuthenticationProtocol protocol) throws AuthenticationException {
         PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
+        boolean suppliedPassword = plain ? !Strings.isEmpty(remotePasswdStr) : remotePasswd.length != 0;
         User user = getUserByUserIdentity(userIdentity);
         if (user == null || getAuthenticationUser(user).isAuthenticationBound()) {
-            throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, userIdentity.toString(),
-                    hasRemotePasswd(plain, remotePasswd));
+            throw BootstrapAuthPolicy.accessDenied(userIdentity.getQualifiedUser(), remoteHost, suppliedPassword);
         }
         UserIdentity currentIdentity = user.getDomainUserIdentity();
         if (comparePassword(user.getPassword(), remotePasswd, randomString, remotePasswdStr, plain)) {
             passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(currentIdentity);
+            boolean passwordResetRequired = BootstrapAuthPolicy.check(user, secureInitialization,
+                    remoteHost, protocol, suppliedPassword);
             if (currentUser != null) {
                 currentUser.add(currentIdentity);
             }
-            return;
+            return passwordResetRequired;
         }
         passwdPolicyMgr.onFailedLogin(currentIdentity);
-        throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, userIdentity.toString(),
-                hasRemotePasswd(plain, remotePasswd));
+        throw BootstrapAuthPolicy.accessDenied(userIdentity.getQualifiedUser(), remoteHost, suppliedPassword);
     }
 
     public User getAuthenticationUser(User user) {
@@ -211,13 +224,6 @@ public class UserManager implements Writable {
         } finally {
             rlock.unlock();
         }
-    }
-
-    private String hasRemotePasswd(boolean plain, byte[] remotePasswd) {
-        if (plain) {
-            return "YES";
-        }
-        return remotePasswd.length == 0 ? "NO" : "YES";
     }
 
     private boolean comparePassword(Password curUserPassword, byte[] remotePasswd,

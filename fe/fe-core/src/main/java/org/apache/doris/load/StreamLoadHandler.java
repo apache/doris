@@ -37,6 +37,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ThriftLogHelper;
 import org.apache.doris.load.routineload.RoutineLoadJob;
+import org.apache.doris.mysql.privilege.AuthenticationProtocol;
 import org.apache.doris.nereids.load.NereidsCloudStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadTask;
@@ -191,6 +192,8 @@ public class StreamLoadHandler {
         try {
             if (certDecision.shouldSkipPasswordVerification()
                     && !Env.getCurrentEnv().getAuth().isAuthenticationBound(certDecision.getUserIdentity())) {
+                Env.getCurrentEnv().getAuth().checkBootstrapAuthentication(
+                        certDecision.getUserIdentity(), request.getUserIp(), AuthenticationProtocol.OTHER);
                 return certDecision.getUserIdentity();
             }
             if (certDecision.isVerified()) {
