@@ -426,15 +426,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
         // estimate row count for unknownPartitionCount
         if (unknownPartitionCount > 0) {
-            double tableRowCount = tableFallback.getAsDouble();
+            // Whole-index totals cover permanent partitions only. A scan may select temporary partitions.
+            int tablePartitions = olapScan.getTable().getPartitionNum();
+            double tableRowCount = tablePartitions > 0 ? tableFallback.getAsDouble() : -1;
             // Preserve unknown when neither any selected partition nor the ordinary table can size this scan.
             if (hasScanRowCountEstimates(olapScan) && tableRowCount < 0
                     && unknownPartitionCount == olapScan.getSelectedPartitionIds().size()) {
                 return -1;
             }
             // each selected partition has at least one row
-            partRowCountSum += Math.max(unknownPartitionCount,
-                    tableRowCount * unknownPartitionCount / olapScan.getTable().getPartitionNum());
+            partRowCountSum += tableRowCount < 0 ? unknownPartitionCount
+                    : Math.max(unknownPartitionCount, tableRowCount * unknownPartitionCount / tablePartitions);
         }
         return partRowCountSum;
     }

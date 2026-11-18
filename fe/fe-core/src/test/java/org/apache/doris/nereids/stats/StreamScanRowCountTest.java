@@ -440,6 +440,37 @@ public class StreamScanRowCountTest extends TestWithFeService {
         Assertions.assertEquals(3010, new StatsCalculator(null).computeOlapScan(scan).getRowCount());
     }
 
+    @Test
+    public void testTemporaryOnlyStreamPlanWithUnknownRows() throws Exception {
+        createTable("CREATE TABLE stream_temp_base (k INT NOT NULL, v INT) DUPLICATE KEY(k) "
+                + "PARTITION BY RANGE(k) () DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'changelog.enable'='true')");
+        createStream("CREATE STREAM stream_temp_source ON TABLE stream_temp_base "
+                + "PROPERTIES ('show_initial_rows'='false')");
+        executeSql("ALTER TABLE stream_temp_base ADD TEMPORARY PARTITION tp VALUES LESS THAN (10)");
+        OlapTable base = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException("stream_temp_base");
+        Partition temporary = base.getPartition("tp", true);
+        temporary.setVisibleVersionAndTime(3L, System.currentTimeMillis(), END_TSO);
+        advanceReplicaVersions(temporary);
+        // Simulate a visible load before the first statistics report on the temporary partition.
+        long changelogIndexId = base.getChangelogIndexMeta().getIndexId();
+        temporary.getIndex(changelogIndexId).setRowCount(-1L);
+        temporary.getBaseIndex().setRowCount(-1L);
+        Assertions.assertEquals(0, base.getPartitionNum());
+        Assertions.assertEquals(0L, base.getRowCountForIndex(changelogIndexId, true));
+
+        long id = temporary.getId();
+        OlapChangelogTableWrapper wrapper = new OlapChangelogTableWrapper(base, Map.of(id,
+                new PartitionScanState(Pair.of(null, END_TSO + 1), null, -1L)));
+        LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), wrapper)
+                .withSelectedPartitionIds(List.of(id));
+        Assertions.assertEquals(-1L, wrapper.getRowCountEstimate());
+        Assertions.assertEquals(-1, StatsCalculator.getMaxTableRowCount(List.of(scan), null));
+        Assertions.assertEquals(1L, streamScanRowCount("select * from stream_temp_source temporary partition(tp)",
+                "stream_temp_base"));
+    }
+
     private OlapTable createUnknownPartitionedTable(String name) throws Exception {
         createTable("CREATE TABLE " + name + " (k INT NOT NULL, v INT) DUPLICATE KEY(k) "
                 + "PARTITION BY RANGE(k) (PARTITION p1 VALUES LESS THAN (10), "

@@ -239,11 +239,14 @@ public class OlapTableWrapper extends OlapTable {
             }
         }
         if (unknown > 0) {
-            long tableRows = originTable.getRowCountForIndex(indexId, strict);
+            // Whole-index totals cover permanent partitions only. A scan may select temporary partitions.
+            int tablePartitions = originTable.getPartitionNum();
+            long tableRows = tablePartitions > 0 ? originTable.getRowCountForIndex(indexId, strict)
+                    : TableIf.UNKNOWN_ROW_COUNT;
             if (tableRows < 0 && unknown == estimatedPartitionCount) {
                 return TableIf.UNKNOWN_ROW_COUNT;
             }
-            total += Math.max(unknown, tableRows * unknown / originTable.getPartitionNum());
+            total += tableRows < 0 ? unknown : Math.max(unknown, tableRows * unknown / tablePartitions);
         }
         return total;
     }
