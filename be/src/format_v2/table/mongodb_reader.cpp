@@ -80,11 +80,11 @@ Status acquire_pool(const TMongoScanDesc& d, std::shared_ptr<ClientPool>* result
     for (const auto* value : {&d.uri, &d.username, &d.password, &d.auth_database}) {
         key += ":" + std::to_string(value->size()) + ":" + *value;
     }
-    const auto connect_timeout = std::min<int64_t>(d.connect_timeout_ms, d.timeout_ms);
-    const auto selection_timeout = std::min<int64_t>(d.server_selection_timeout_ms, d.timeout_ms);
-    // Snapshot planning consumes different amounts of each scan's deadline. Key the effective
-    // transport caps, not the remaining lifetime, or every scan could bypass the shared pool bound.
-    key += ":" + std::to_string(connect_timeout) + ":" + std::to_string(selection_timeout) + ":" +
+    // Pool identity AND construction must use stable configuration. Remaining budgets such as
+    // 1990/1980 ms (both below a 10000 ms cap) must still contend for the same one-client pool.
+    // A first caller's shorter deadline must not become the shared pool's transport configuration.
+    key += ":" + std::to_string(d.connect_timeout_ms) + ":" +
+           std::to_string(d.server_selection_timeout_ms) + ":" +
            std::to_string(d.socket_timeout_ms) + ":" + std::to_string(d.pool_max_clients);
     {
         std::lock_guard lock(mutex);
@@ -109,10 +109,9 @@ Status acquire_pool(const TMongoScanDesc& d, std::shared_ptr<ClientPool>* result
         return Status::InvalidArgument("Invalid MongoDB authentication configuration");
     }
     mongoc_uri_set_option_as_int32(uri.get(), MONGOC_URI_MAXPOOLSIZE, d.pool_max_clients);
-    mongoc_uri_set_option_as_int32(uri.get(), MONGOC_URI_CONNECTTIMEOUTMS,
-                                   static_cast<int32_t>(connect_timeout));
+    mongoc_uri_set_option_as_int32(uri.get(), MONGOC_URI_CONNECTTIMEOUTMS, d.connect_timeout_ms);
     mongoc_uri_set_option_as_int32(uri.get(), MONGOC_URI_SERVERSELECTIONTIMEOUTMS,
-                                   static_cast<int32_t>(selection_timeout));
+                                   d.server_selection_timeout_ms);
     mongoc_uri_set_option_as_int32(uri.get(), MONGOC_URI_SOCKETTIMEOUTMS, d.socket_timeout_ms);
     mongoc_uri_set_option_as_bool(uri.get(), MONGOC_URI_RETRYREADS, false);
     auto pool = std::make_shared<ClientPool>();
@@ -134,9 +133,51 @@ Status acquire_pool(const TMongoScanDesc& d, std::shared_ptr<ClientPool>* result
     return Status::OK();
 }
 
+Status validate_split_descriptor(const TMongoScanDesc& d) {
+    if (!d.__isset.split) {
+        return d.version == 1
+                       ? Status::OK()
+                       : Status::InvalidArgument("MongoDB range scan requires a frozen partition");
+    }
+    const auto& split = d.split;
+    if (!split.__isset.strategy || !split.__isset.field || !split.__isset.type_family ||
+        !split.__isset.index || !split.__isset.requested || !split.__isset.admitted ||
+        !split.__isset.actual || !split.__isset.reason || split.requested < 1 ||
+        split.requested > 256 || split.admitted < 1 || split.admitted > split.requested ||
+        split.actual < 1 || split.actual > split.admitted || split.index < 0 ||
+        split.index >= split.actual || split.reason.empty() || split.reason.size() > 64 ||
+        !std::ranges::all_of(split.reason,
+                             [](char c) { return (c >= 'a' && c <= 'z') || c == '_'; })) {
+        return Status::InvalidArgument("Invalid MongoDB frozen split counts or decision");
+    }
+    if (split.strategy == "single") {
+        if (d.version != 1 || split.actual != 1 || split.index != 0 || !split.field.empty() ||
+            !split.type_family.empty() || split.__isset.filter_bson) {
+            return Status::InvalidArgument("Invalid MongoDB single split descriptor");
+        }
+        return Status::OK();
+    }
+    // Version 1 readers ignore new optional fields. A range MUST use version 2 so an old reader
+    // rejects it instead of reading the whole collection once for every published partition.
+    if (d.version != 2 || split.strategy != "range" || d.object_kind != "collection" ||
+        !d.__isset.snapshot || split.actual < 2 || split.field.empty() ||
+        split.field.size() > 1024 || split.field.find_first_of(".$") != std::string::npos ||
+        split.field.find('\0') != std::string::npos ||
+        (split.type_family != "objectId" && split.type_family != "integer" &&
+         split.type_family != "date") ||
+        !split.__isset.filter_bson || split.filter_bson.size() <= 5 ||
+        split.filter_bson.size() > 65536) {
+        return Status::InvalidArgument("Invalid or unsupported MongoDB range partition");
+    }
+    return Status::OK();
+}
+
 Status validate_pushdown_bson(const TMongoScanDesc& d) {
-    for (const auto* bytes : {d.__isset.filter_bson ? &d.filter_bson : nullptr,
-                              d.__isset.projection_bson ? &d.projection_bson : nullptr}) {
+    RETURN_IF_ERROR(validate_split_descriptor(d));
+    for (const auto* bytes :
+         {d.__isset.filter_bson ? &d.filter_bson : nullptr,
+          d.__isset.projection_bson ? &d.projection_bson : nullptr,
+          d.__isset.split && d.split.__isset.filter_bson ? &d.split.filter_bson : nullptr}) {
         if (!bytes) {
             continue;
         }
@@ -226,10 +267,14 @@ public:
         RETURN_IF_ERROR(validate_pushdown_bson(d));
         RETURN_IF_ERROR(validate_snapshot_descriptor(d));
         RETURN_IF_ERROR(acquire_pool(d, &_pool));
+        // Pool setup and checkout can consume the remaining budget. Recheck cancellation/deadline
+        // before an available client starts a source identity command, not only while the pool is full.
+        RETURN_IF_ERROR(check_deadline());
         while (!(_client = mongoc_client_pool_try_pop(_pool->pool.get()))) {
             RETURN_IF_ERROR(check_deadline());
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
+        RETURN_IF_ERROR(check_deadline());
         mongoc_client_set_sockettimeoutms(_client, static_cast<int32_t>(std::min<int64_t>(
                                                            d.socket_timeout_ms, remaining_ms())));
         if (d.__isset.snapshot) {
@@ -597,15 +642,35 @@ Status build_mongodb_find_options(const TMongoScanDesc& d, bson_t* filter, bson_
                               static_cast<uint32_t>(d.snapshot.timestamp_increment));
         bson_append_document_end(options, &concern);
     }
+    const bool partitioned = d.__isset.split && d.split.__isset.filter_bson;
+    bson_t candidate;
     if (d.__isset.filter_bson) {
-        bson_t view;
-        bson_init_static(&view, reinterpret_cast<const uint8_t*>(d.filter_bson.data()),
+        bson_init_static(&candidate, reinterpret_cast<const uint8_t*>(d.filter_bson.data()),
                          d.filter_bson.size());
-        if (!bson_concat(filter, &view)) {
-            return Status::InvalidArgument("MongoDB candidate filter exceeds BSON limits");
+    }
+    bson_t partition;
+    if (partitioned) {
+        bson_init_static(&partition, reinterpret_cast<const uint8_t*>(d.split.filter_bson.data()),
+                         d.split.filter_bson.size());
+    }
+    if (d.__isset.filter_bson && partitioned) {
+        // Q and a partition may both have $and or the same field. Concatenating their top-level
+        // keys can overwrite semantics; retain both complete BSON documents as independent conjuncts.
+        bson_array_builder_t* conjunction = nullptr;
+        BSON_APPEND_ARRAY_BUILDER_BEGIN(filter, "$and", &conjunction);
+        bson_array_builder_append_document(conjunction, &candidate);
+        bson_array_builder_append_document(conjunction, &partition);
+        // The matching end consumes the construction handle; filter owns the copied BSON bytes.
+        bson_append_array_builder_end(filter, conjunction);
+    } else if (d.__isset.filter_bson || partitioned) {
+        if (!bson_concat(filter, partitioned ? &partition : &candidate)) {
+            return Status::InvalidArgument(
+                    "MongoDB candidate/partition filter exceeds BSON limits");
         }
-        // Views cannot override their own collation and are rejected above. For example, the
-        // ordinary collection's case-insensitive default must not change SQL text = 'alpha'.
+    }
+    if (d.__isset.filter_bson || partitioned) {
+        // Views cannot override their own collation and are rejected above. Range-only scans also
+        // use the planner's simple comparison contract when SQL predicate pushdown is disabled.
         bson_t collation;
         BSON_APPEND_DOCUMENT_BEGIN(options, "collation", &collation);
         BSON_APPEND_UTF8(&collation, "locale", "simple");
@@ -629,8 +694,9 @@ Status validate_mongodb_range(const TFileRangeDesc& range) {
         return Status::InvalidArgument("MongoDB native reader requires mongodb_params");
     }
     const auto& d = range.table_format_params.mongodb_params;
-    if (!d.__isset.version || d.version != 1 || d.database.empty() || d.collection.empty() ||
-        d.collection.starts_with("system.") || d.database.find('\0') != std::string::npos ||
+    if (!d.__isset.version || (d.version != 1 && d.version != 2) || d.database.empty() ||
+        d.collection.empty() || d.collection.starts_with("system.") ||
+        d.database.find('\0') != std::string::npos ||
         d.collection.find('\0') != std::string::npos || d.uri.empty() || d.schema_version.empty() ||
         d.configuration_version.empty() || d.bindings_json.empty() ||
         (d.object_kind != "collection" && d.object_kind != "view" &&
@@ -682,6 +748,17 @@ Status MongoFileReader::init(RuntimeState* state) {
     if (_profile) {
         const auto& descriptor = _range.table_format_params.mongodb_params;
         _profile->add_info_string("MongoReadConcern", descriptor.read_concern);
+        if (descriptor.__isset.split) {
+            const auto& split = descriptor.split;
+            _profile->add_info_string("MongoSplitStrategy", split.strategy);
+            _profile->add_info_string("MongoSplitField", split.field);
+            _profile->add_info_string("MongoSplitTypeFamily", split.type_family);
+            _profile->add_info_string("MongoSplitIndex", std::to_string(split.index));
+            _profile->add_info_string("MongoSplitRequested", std::to_string(split.requested));
+            _profile->add_info_string("MongoSplitAdmitted", std::to_string(split.admitted));
+            _profile->add_info_string("MongoSplitActual", std::to_string(split.actual));
+            _profile->add_info_string("MongoSplitReason", split.reason);
+        }
         if (descriptor.__isset.snapshot) {
             _profile->add_info_string("MongoSnapshotTimestamp",
                                       fmt::format("{}:{}", descriptor.snapshot.timestamp_seconds,

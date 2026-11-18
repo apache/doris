@@ -18,10 +18,14 @@
 package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
+import org.apache.doris.thrift.TMongoSnapshot;
 
 import com.mongodb.ClientSessionOptions;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
+import com.mongodb.MongoExecutionTimeoutException;
+import com.mongodb.MongoOperationTimeoutException;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
@@ -29,10 +33,14 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.cursor.TimeoutMode;
 import com.mongodb.client.internal.MongoClientImpl;
 import com.mongodb.internal.operation.BatchCursor;
 import com.mongodb.internal.operation.ListCollectionsOperation;
+import org.bson.BsonDocument;
+import org.bson.BsonNull;
 import org.bson.BsonTimestamp;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.codecs.DocumentCodec;
 import org.bson.types.ObjectId;
@@ -174,6 +182,122 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
             return timestamp;
         } catch (MongoException failure) {
             throw failure(failure);
+        }
+    }
+
+    @Override
+    public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
+            TMongoSnapshot snapshot, int rows, long timeoutMs, ConnectorScanContext context) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
+        String index = null;
+        long bytes = 0;
+        try {
+            var collection = probeDatabase(table.getDatabase(), deadline, context).getCollection(table.getName());
+            try (MongoCursor<Document> indexes = collection.listIndexes().batchSize(1)
+                    .timeoutMode(TimeoutMode.CURSOR_LIFETIME).iterator()) {
+                int count = 0;
+                while (true) {
+                    // hasNext may issue getMore. Cancellation must be checked before that request,
+                    // not only after it returns; the lifetime timeout also covers all cursor batches.
+                    checkProbe(deadline, context);
+                    if (!indexes.hasNext()) {
+                        break;
+                    }
+                    checkProbe(deadline, context);
+                    Document value = indexes.next();
+                    bytes += MongoSplitPlan.encode(value.toBsonDocument()).length;
+                    if (++count > 128 || bytes > 65536) {
+                        throw new MongoRangePlanner.PlanningLimit();
+                    }
+                    if (eligibleIndex(value, field)) {
+                        index = value.getString("name");
+                        break;
+                    }
+                }
+            }
+            if (index == null) {
+                return new MongoSplitProbe(List.of(), -1, bytes, false);
+            }
+            Number size = probeDatabase(table.getDatabase(), deadline, context)
+                    .runCommand(new Document("collStats", table.getName()).append("scale", 1))
+                    .get("size", Number.class);
+            long logicalBytes = size == null ? -1 : size.longValue();
+            List<BsonValue> samples = new ArrayList<>();
+            // Index-prefix sampling is deliberately bounded, not an unbiased cardinality estimate.
+            // It can produce skewed ranges, but never narrows coverage or removes the complement.
+            // Project only qualified fixed-width scalars: a giant array/string key cannot multiply
+            // the FE's retained memory by sample_rows. The remaining types become BsonNull hints.
+            Document type = new Document("$type", "$" + field);
+            Document supported = new Document("$in", List.of(type, List.of("int", "long", "objectId", "date")));
+            Document projection = new Document("_id", 0).append("value",
+                    new Document("$cond", List.of(supported, "$" + field, new Document("$literal", null))));
+            try (ClientSession session = client.startSession(ClientSessionOptions.builder()
+                    .causallyConsistent(false).snapshot(true).build())) {
+                session.setSnapshotTimestamp(new BsonTimestamp((int) snapshot.getTimestampSeconds(),
+                        (int) snapshot.getTimestampIncrement()));
+                var data = probeDatabase(table.getDatabase(), deadline, context)
+                        .getCollection(table.getName(), BsonDocument.class)
+                        .withReadPreference(properties.readPreferenceForSnapshot(preference));
+                try (MongoCursor<BsonDocument> cursor = data.find(session).hintString(index)
+                        .projection(projection).limit(rows).batchSize(Math.min(rows, 128))
+                        .timeoutMode(TimeoutMode.CURSOR_LIFETIME).iterator()) {
+                    while (true) {
+                        // Do not let a per-iteration timeout reset or a late cancellation start
+                        // another remote batch after the optional planning budget has ended.
+                        checkProbe(deadline, context);
+                        if (!cursor.hasNext()) {
+                            break;
+                        }
+                        checkProbe(deadline, context);
+                        BsonDocument value = cursor.next();
+                        bytes += MongoSplitPlan.encode(value).length;
+                        if (samples.size() >= rows || bytes > 1024 * 1024) {
+                            throw new MongoRangePlanner.PlanningLimit();
+                        }
+                        samples.add(value.get("value", BsonNull.VALUE));
+                    }
+                }
+            }
+            checkProbe(deadline, context);
+            return new MongoSplitProbe(samples, logicalBytes, bytes, true);
+        } catch (MongoException error) {
+            context.checkCancelled();
+            // Only the optional planning deadline can trigger auto fallback. Permission denial,
+            // expired snapshot history, replacement, and transport errors must fail the statement.
+            // A thread can resume after its deadline while handling an earlier BadValue/permission
+            // failure. Elapsed time alone must not disguise that source error as optional timeout.
+            if (error instanceof MongoExecutionTimeoutException || error instanceof MongoOperationTimeoutException) {
+                throw new MongoRangePlanner.PlanningLimit();
+            }
+            throw failure(error);
+        }
+    }
+
+    static boolean eligibleIndex(Document index, String field) {
+        Document keys = index.get("key", Document.class);
+        if (keys == null || keys.isEmpty() || !field.equals(keys.keySet().iterator().next())
+                || !(keys.get(field) instanceof Number direction) || Math.abs(direction.intValue()) != 1
+                || Boolean.TRUE.equals(index.getBoolean("sparse")) || index.containsKey("partialFilterExpression")
+                || Boolean.TRUE.equals(index.getBoolean("hidden")) || index.containsKey("buildUUID")) {
+            return false;
+        }
+        Document collation = index.get("collation", Document.class);
+        return collation == null || "simple".equals(collation.getString("locale"));
+    }
+
+    private MongoDatabase probeDatabase(String database, long deadline, ConnectorScanContext context) {
+        checkProbe(deadline, context);
+        return metadataDatabase(database).withTimeout(Math.max(1,
+                TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())), TimeUnit.MILLISECONDS);
+    }
+
+    private static void checkProbe(long deadline, ConnectorScanContext context) {
+        context.checkCancelled();
+        if (Thread.currentThread().isInterrupted()) {
+            throw new java.util.concurrent.CancellationException("MongoDB split planning interrupted");
+        }
+        if (System.nanoTime() >= deadline) {
+            throw new MongoRangePlanner.PlanningLimit();
         }
     }
 

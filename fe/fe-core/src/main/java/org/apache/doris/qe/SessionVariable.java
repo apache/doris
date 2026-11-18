@@ -3137,6 +3137,39 @@ public class SessionVariable implements Serializable, Writable {
             description = "Read only MongoDB roots required by projections and residual predicates")
     public boolean enableMongoDBProjectionPushdown = true;
 
+    @VarAttrDef.VarAttr(name = "mongodb_split_strategy", needForward = true,
+            checker = "checkMongoDBSplitStrategy", options = {"single", "auto", "range"},
+            description = "MongoDB split planning: single cursor, conservative auto, "
+                    + "or explicit range at a shared snapshot")
+    public String mongodbSplitStrategy = "single";
+
+    @VarAttrDef.VarAttr(name = "mongodb_split_field", needForward = true, checker = "checkMongoDBSplitField",
+            description = "Top-level MongoDB split field; empty selects _id. Explicit fields require one MongoDB scan")
+    public String mongodbSplitField = "";
+
+    @VarAttrDef.VarAttr(name = "mongodb_split_count", needForward = true, checker = "checkMongoDBSplitCount",
+            description = "Requested total MongoDB splits including complement; 0 estimates, 1 uses a single cursor")
+    public int mongodbSplitCount = 0;
+
+    @VarAttrDef.VarAttr(name = "mongodb_split_max_count", needForward = true, checker = "checkMongoDBSplitMaximum",
+            description = "Per-scan MongoDB split cap including complement, "
+                    + "within the statement/source planning budget")
+    public int mongodbSplitMaxCount = 256;
+
+    @VarAttrDef.VarAttr(name = "mongodb_split_target_bytes", needForward = true,
+            checker = "checkMongoDBSplitTargetBytes",
+            description = "Estimated logical bytes per MongoDB split; not compressed storage or network bytes")
+    public int mongodbSplitTargetBytes = 268435456;
+
+    @VarAttrDef.VarAttr(name = "mongodb_split_sample_rows", needForward = true, checker = "checkMongoDBSplitSampleRows",
+            description = "Maximum MongoDB boundary samples; byte, deadline and probe concurrency limits also apply")
+    public int mongodbSplitSampleRows = 4096;
+
+    @VarAttrDef.VarAttr(name = "mongodb_split_plan_timeout_ms", needForward = true,
+            checker = "checkMongoDBSplitPlanTimeout",
+            description = "Optional MongoDB boundary probe deadline in milliseconds, capped by remaining query time")
+    public int mongodbSplitPlanTimeoutMs = 2000;
+
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
     /** Read by the lance connector, which matches this name byte for byte; it must stay visible. */
@@ -4651,6 +4684,45 @@ public class SessionVariable implements Serializable, Writable {
     public void checkLanceFragmentsPerSplit(String value) {
         if (Integer.parseInt(value) < 0) {
             throw new InvalidParameterException("lance_fragments_per_split must be non-negative");
+        }
+    }
+
+    public void checkMongoDBSplitStrategy(String value) {
+        if (!Set.of("single", "auto", "range").contains(value)) {
+            throw new UnsupportedOperationException("Invalid mongodb_split_strategy; expected single, auto or range");
+        }
+    }
+
+    public void checkMongoDBSplitField(String value) {
+        if (value.length() > 256 || value.contains(".") || value.contains("$") || value.indexOf(0) >= 0) {
+            throw new UnsupportedOperationException("mongodb_split_field must be an unambiguous top-level field");
+        }
+    }
+
+    public void checkMongoDBSplitCount(String value) {
+        checkMongoDBSplitNumber(value, 0, 256);
+    }
+
+    public void checkMongoDBSplitMaximum(String value) {
+        checkMongoDBSplitNumber(value, 1, 256);
+    }
+
+    public void checkMongoDBSplitTargetBytes(String value) {
+        checkMongoDBSplitNumber(value, 1, Integer.MAX_VALUE);
+    }
+
+    public void checkMongoDBSplitSampleRows(String value) {
+        checkMongoDBSplitNumber(value, 1, 4096);
+    }
+
+    public void checkMongoDBSplitPlanTimeout(String value) {
+        checkMongoDBSplitNumber(value, 1, 300000);
+    }
+
+    private static void checkMongoDBSplitNumber(String value, int minimum, int maximum) {
+        int count = Integer.parseInt(value);
+        if (count < minimum || count > maximum) {
+            throw new UnsupportedOperationException("MongoDB split policy is outside its supported bounds");
         }
     }
 
