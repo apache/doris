@@ -351,7 +351,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         checkNotLegacyChangelog(baseTable);
         List<Long> partIds = getPartitionIds(baseTable, unboundRelation, qualifier).stream()
                 .distinct().collect(ImmutableList.toImmutableList());
-        boolean hasSpecifiedPartitions = !partIds.isEmpty() && !unboundRelation.getIndexName().isPresent();
+        boolean hasSpecifiedPartitions = !partIds.isEmpty();
         List<Long> selectedPartitionIds = hasSpecifiedPartitions ? partIds : baseTable.getPartitionIds();
         OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(olapTableStream, baseTable, selectedPartitionIds);
         LogicalOlapTableStreamScan scan;

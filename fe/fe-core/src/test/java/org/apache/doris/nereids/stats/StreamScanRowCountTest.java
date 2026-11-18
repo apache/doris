@@ -31,11 +31,13 @@ import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.insert.StreamConsumptionInfoExtractor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -54,6 +56,7 @@ import org.mockito.Mockito;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -347,6 +350,22 @@ public class StreamScanRowCountTest extends TestWithFeService {
                 "stream_partitioned"));
         Assertions.assertEquals(1000, streamScanRowCount("select * from stream_partitioned_s@snapshot() where k < 10",
                 "stream_partitioned"));
+
+        String indexPartitionScan = "select * from stream_partitioned_s index stream_partitioned "
+                + "partition(p1) where k < 10";
+        long p1 = table.getPartition("p1").getId();
+        Plan analyzed = PlanChecker.from(connectContext).analyze(indexPartitionScan).getPlan();
+        List<TableStreamUpdateInfo> updates = StreamConsumptionInfoExtractor.extract(analyzed);
+        Assertions.assertEquals(1, updates.size());
+        OlapTableStreamUpdate update = (OlapTableStreamUpdate) updates.get(0).getUpdate();
+        Assertions.assertEquals(Set.of(p1), update.getPartitionUpdates().keySet());
+        PlanChecker.from(connectContext).checkExplain(indexPartitionScan, planner -> {
+            List<PhysicalOlapScan> scans = new ArrayList<>();
+            collectScans(planner.getOptimizedPlan(), scans);
+            Assertions.assertEquals(1, scans.size());
+            Assertions.assertEquals(List.of(p1), scans.get(0).getSelectedPartitionIds());
+            Assertions.assertEquals(10, scans.get(0).getStats().getRowCount());
+        });
     }
 
     @Test
