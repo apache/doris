@@ -165,6 +165,12 @@ public class SPMPlanner {
                         + "degrade to the original plan", candidate.getId());
                 return null;
             }
+            // A permissive capture can freeze an implicit ANY_VALUE. Strict callers must
+            // analyse their own grouping expressions before that permissive result can be used.
+            if ((candidate.getCreatorSqlMode() & SqlModeHelper.MODE_ONLY_FULL_GROUP_BY) == 0
+                    && (ctx.getSessionVariable().getSqlMode() & SqlModeHelper.MODE_ONLY_FULL_GROUP_BY) != 0) {
+                continue;
+            }
             LogicalPlan bindTree = candidate.getParameterizedBindPlan();
             if (bindTree == null) {
                 continue;

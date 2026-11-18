@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
@@ -185,6 +186,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * constructor itself sits in a container position of a NullType-producing chain.
      */
     private int containerElementDepth;
+
+    /** Whether the current container dependency follows MAP_KEYS through its map input. */
+    private boolean mapKeyDependency;
 
     /**
      * Whether a bare integer GROUP BY / ORDER BY ordinal references a SELECT item that carries a
@@ -453,8 +457,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             }
             return true;
         }
-        if (isArgumentTypedAggregate(expr)) {
-            return children.size() == 1 && producesNullType(children.get(0));
+        if (expr instanceof WindowExpression) {
+            return producesNullType(((WindowExpression) expr).getFunction());
+        }
+        if (isFirstArgumentTypedResult(expr)) {
+            return !children.isEmpty() && producesNullType(children.get(0));
         }
         if (isElementAtCall(expr)) {
             // element_at(array(NULL), 1) takes its type from the ARRAY's element type and
@@ -480,13 +487,14 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return false;
     }
 
-    /** MIN and MAX derive their result type from the aggregate argument. */
-    private static boolean isArgumentTypedAggregate(Expression expression) {
+    /** These aggregates and window functions derive the result type from their first argument. */
+    private static boolean isFirstArgumentTypedResult(Expression expression) {
         if (!(expression instanceof Function)) {
             return false;
         }
         String name = ((Function) expression).getName();
-        return "min".equalsIgnoreCase(name) || "max".equalsIgnoreCase(name);
+        return "min".equalsIgnoreCase(name) || "max".equalsIgnoreCase(name)
+                || "first_value".equalsIgnoreCase(name) || "last_value".equalsIgnoreCase(name);
     }
 
     /**
@@ -531,43 +539,19 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return isAllNullArray(expr) || isAllNullMap(expr);
     }
 
-    /**
-     * Recognizes all-NULL map values in MapLiteral payloads, map constructor value positions and supported
-     * type-preserving wrappers. An empty map literal is treated as having a NULL value type. Keys do not
-     * contribute to this classification.
-     */
+    /** Follows a map's value type through constructors and type-preserving wrappers. */
     private static boolean isAllNullMap(Expression expr) {
-        if (expr == null) {
-            return false;
-        }
+        return isAllNullMapComponent(expr, 0, false);
+    }
+
+    /** Tests the requested map component, optionally through further array elements. */
+    private static boolean isAllNullMapComponent(Expression expr, int arrayDepth, boolean key) {
         if (expr instanceof MapLiteral) {
-            // A map LITERAL is a LEAF: its entries live in getValue, not in children
-            // instead. visitLiteral parameterizes the whole literal as ONE marker, and
-            // without this branch element_at({'x': NULL}, 'x') stayed a NullType producer
-            // candidate, the Boolean consumer replaced the whole call and the marker with it,
-            // and the {'x': TRUE} variant had no id left to substitute.
             Map<Literal, Literal> entries = ((MapLiteral) expr).getValue();
-            if (entries.isEmpty()) {
-                // the same argument as for the empty ARRAY literal: without an entry there is no
-                // value type to inherit, so the empty map is NullType-valued as well
-                return true;
-            }
-            for (Literal value : entries.values()) {
-                if (!producesNullType(value)) {
-                    return false;
-                }
-            }
-            return true;
+            return allNullAtArrayDepth(key ? entries.keySet() : entries.values(), arrayDepth);
         }
         if (isTypePreservingMapCall(expr)) {
-            // A TYPE-PRESERVING MAP WRAPPER (map_filter) forwards its INPUT's MAP value type,
-            // so its result is MAP<..., NULL_TYPE> exactly when the input is:
-            // element_at(map_filter(map('x', NULL), (m_k, m_v) -> TRUE), 'x') stayed a NullType
-            // producer, visitOr replaced the whole ElementAt operand with a Boolean NULL and
-            // erased its markers, and the map('x', TRUE) variant then replayed NULL instead of
-            // TRUE. Recursing through the wrapper keeps the family in ONE classifier.
-            List<Expression> args = expr.children();
-            return !args.isEmpty() && isAllNullMap(args.get(0));
+            return expr.arity() > 0 && isAllNullMapComponent(expr.child(0), arrayDepth, key);
         }
         if (!isMapConstructor(expr)) {
             return false;
@@ -576,86 +560,68 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (pairs.size() < 2) {
             return false;
         }
-        for (int i = 1; i < pairs.size(); i += 2) {
-            if (!producesNullType(pairs.get(i))) {
+        for (int i = key ? 0 : 1; i < pairs.size(); i += 2) {
+            if (!nullAtArrayDepth(pairs.get(i), arrayDepth)) {
                 return false;
             }
         }
         return true;
     }
 
-    /**
-     * Recognizes supported array expressions whose element type is NullType. A bare NULL qualifies in an array
-     * position, as do empty arrays and arrays whose elements produce NullType. Array-from-element calls follow the
-     * designated element argument; array_concat requires every part to qualify; map_values follows the map's value
-     * type. Recognized type-preserving array calls follow their first argument.
-     */
+    /** Tests whether the element of a recognized array producer has NullType. */
     private static boolean isAllNullArray(Expression expr) {
+        return isAllNullArray(expr, 1);
+    }
+
+    /** Follows the result type through the requested number of array element selections. */
+    private static boolean isAllNullArray(Expression expr, int depth) {
         if (expr == null) {
             return false;
         }
         if (expr.isNullLiteral()) {
-            // a NULL literal is untyped ARRAY<NULL_TYPE> in an array position
             return true;
+        }
+        if (isElementAtCall(expr)) {
+            return expr.arity() > 0 && (isAllNullArray(expr.child(0), depth + 1)
+                    || isAllNullMapComponent(expr.child(0), depth, false));
         }
         if (isArrayMapCall(expr)) {
             return !expr.children().isEmpty() && expr.child(0) instanceof Lambda
-                    && producesNullType(((Lambda) expr.child(0)).getLambdaFunction());
+                    && nullAtArrayDepth(((Lambda) expr.child(0)).getLambdaFunction(), depth - 1);
         }
         int elementIndex = elementTypeArgumentIndex(expr);
         if (elementIndex >= 0) {
-            // An ARRAY-FROM-ELEMENT producer (array_repeat(NULL, 1) declares
-            // ARRAY of the type of its first argument: the result has a NULL element type
-            // exactly when the ELEMENT argument produces NullType, so the whole call is a
-            // NullType producer and the Boolean consumer erased the element_at operand with its
-            // markers - the array_repeat(TRUE, 1) variant then replayed NULL.
-            List<Expression> args = expr.children();
-            return elementIndex < args.size() && producesNullType(args.get(elementIndex));
+            return elementIndex < expr.arity() && nullAtArrayDepth(expr.child(elementIndex), depth - 1);
         }
         if (isArrayConcatCall(expr)) {
-            List<Expression> parts = expr.children();
-            if (parts.isEmpty()) {
-                return false;
-            }
-            for (Expression part : parts) {
-                if (!isAllNullArray(part)) {
-                    return false;
-                }
-            }
-            return true;
+            return !expr.children().isEmpty()
+                    && expr.children().stream().allMatch(part -> isAllNullArray(part, depth));
         }
-        if (isMapValuesCall(expr)) {
-            // MAP_VALUES follows its MAP's value type (see the doc above)
-            List<Expression> parts = expr.children();
-            return parts.size() == 1 && isAllNullMap(parts.get(0));
+        if (isMapValuesCall(expr) || isMapKeysCall(expr)) {
+            return expr.arity() == 1 && isAllNullMapComponent(expr.child(0), depth - 1, isMapKeysCall(expr));
         }
         if (isTypePreservingArrayCall(expr)) {
-            // only the FIRST child is the array whose element type the result inherits: the
-            // comparator of array_sort(array, lambda) contributes no type of its own
-            List<Expression> parts = expr.children();
-            return !parts.isEmpty() && isAllNullArray(parts.get(0));
+            return !expr.children().isEmpty() && isAllNullArray(expr.child(0), depth);
         }
         if (!isArrayConstructor(expr)) {
             return false;
         }
-        // a bracket array LITERAL is a LEAF: its elements live in getValue, not in children
         List<? extends Expression> elements = expr instanceof ArrayLiteral
                 ? ((ArrayLiteral) expr).getValue() : expr.children();
-        if (elements.isEmpty()) {
-            // An EMPTY array literal carries no element to take a type from, so its element type
-            // is NullType as well: without this branch element_at([], 1) was NOT
-            // classified as a NullType producer, the Boolean context never reached the container
-            // marker, and the payload kept ARRAY<NULL_TYPE> - the consumer then replaced the
-            // whole operand together with its markers and the element_at([TRUE], 1) caller had
-            // nothing to substitute.
-            return true;
-        }
-        for (Expression element : elements) {
-            if (!producesNullType(element)) {
+        return allNullAtArrayDepth(elements, depth - 1);
+    }
+
+    private static boolean allNullAtArrayDepth(Iterable<? extends Expression> values, int depth) {
+        for (Expression value : values) {
+            if (!nullAtArrayDepth(value, depth)) {
                 return false;
             }
         }
         return true;
+    }
+
+    private static boolean nullAtArrayDepth(Expression value, int depth) {
+        return depth == 0 ? producesNullType(value) : isAllNullArray(value, depth);
     }
 
     /** ARRAY_MAP derives its element type from the lambda body at argument zero. */
@@ -828,6 +794,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 && "map_values".equalsIgnoreCase(((Function) expr).getName());
     }
 
+    /** MAP_KEYS derives the array element type from the map's key type. */
+    private static boolean isMapKeysCall(Expression expr) {
+        return expr instanceof Function && "map_keys".equalsIgnoreCase(((Function) expr).getName());
+    }
+
     /**
      * Whether the expression is a GREATEST / LEAST call (see producesNullType).
      *
@@ -943,7 +914,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (isIfConditional(parent)) {
             return childIndex == 1 || childIndex == 2;
         }
-        return isCoalesceConditional(parent) || isArgumentTypedAggregate(parent) && childIndex == 0;
+        return isCoalesceConditional(parent) || isFirstArgumentTypedResult(parent) && childIndex == 0;
     }
 
     @Override
@@ -1023,7 +994,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (isArrayConcatCall(parent)) {
             return true;
         }
-        return isMapValuesCall(parent) && currentChildIndex() == 0;
+        return (isMapValuesCall(parent) || isMapKeysCall(parent)) && currentChildIndex() == 0;
     }
 
     /**
@@ -1111,15 +1082,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (containerElementDepth == 0) {
             return false;
         }
-        // Keys determine the map's key type independently of its value type.
-        if (isMapConstructor(parent) && currentChildIndex() % 2 == 0) {
-            return false;
+        if (isMapConstructor(parent)) {
+            return (currentChildIndex() % 2 == 0) == mapKeyDependency;
         }
         if ((parent instanceof WhenClause || isIfConditional(parent))
                 && !isConditionalResultPosition(parent)) {
             return false;
         }
-        if ((isArrayMapCall(parent) || parent instanceof Lambda) && currentChildIndex() != 0) {
+        if ((isArrayMapCall(parent) || parent instanceof Lambda || isElementAtCall(parent))
+                && currentChildIndex() != 0) {
             return false;
         }
         // Counts and other non-element arguments do not determine the array's element type.
@@ -1432,6 +1403,10 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (containerElementOperand) {
             containerElementDepth++;
         }
+        boolean savedMapKeyDependency = mapKeyDependency;
+        if (containerElementDepth > 0 && (isMapKeysCall(expr) || isMapValuesCall(expr))) {
+            mapKeyDependency = isMapKeysCall(expr);
+        }
         try {
             for (int i = 0; i < children.size(); i++) {
                 Expression child = children.get(i);
@@ -1441,7 +1416,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 Expression newChild;
                 int savedContainerDepth = containerElementDepth;
                 int savedBooleanDepth = booleanConditionalDepth;
-                if (containerElementDepth > 0 && !isContainerElementPosition(expr)) {
+                if (expr instanceof WindowExpression && i != 0
+                        || containerElementDepth > 0 && !isContainerElementPosition(expr)) {
                     // Excluded positions also exclude their descendants (map keys, counts,
                     // and conditional predicates), rather than only a direct literal.
                     containerElementDepth = 0;
@@ -1460,6 +1436,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 }
             }
         } finally {
+            mapKeyDependency = savedMapKeyDependency;
             if (containerElementOperand) {
                 containerElementDepth--;
             }

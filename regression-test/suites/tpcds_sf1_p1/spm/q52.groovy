@@ -49,6 +49,7 @@ suite("spm_tpcds_sf1_q52", "spm") {
     // SPM regression pins the fallback switch CLOSED: a rewritten-plan failure must
     // surface as an error, never silently re-run the original query.
     sql 'set enable_spm_fallback=false'
+    sql 'set enable_sql_cache=false'
     sql 'set disable_nereids_rules=PRUNE_EMPTY_PARTITION'
 
     // CREATE BASELINE PLAN returns the created baseline id; the own row in

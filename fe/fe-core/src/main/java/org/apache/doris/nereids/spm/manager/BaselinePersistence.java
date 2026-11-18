@@ -148,9 +148,8 @@ public interface BaselinePersistence {
     }
 
     /**
-     * Reads a hash bucket with the supplied statement timeout in seconds. The live reader passes this timeout to
-     * its row and tombstone queries; multiple queries and tree rebuilding can exceed that duration in total. The
-     * default delegates to the overload without a timeout.
+     * Reads raw rows of a hash bucket with the supplied statement timeout in seconds. The manager checks
+     * tombstones separately using the remaining matching budget. The default delegates to the untimed overload.
      */
     default List<BaselinePlan> readRowsByHash(long hash, int timeoutSeconds) {
         return readRowsByHash(hash);
@@ -362,6 +361,12 @@ public interface BaselinePersistence {
         return null;
     }
 
+    /** Reads one identity without starting a statement after the rewrite deadline. */
+    default SeqReservation readLatestReservation(String bindSqlDigest, long planSqlHash, long deadlineMillis) {
+        BaselineManager.remainingReadTimeout(deadlineMillis);
+        return readLatestReservation(bindSqlDigest, planSqlHash);
+    }
+
     /**
      * Reads compact identity records for requested slots in a batch. Unanswered slots can use the single-identity
      * history fallback. The default returns an empty map and performs no read. Snapshot filtering invokes this
@@ -469,6 +474,11 @@ public interface BaselinePersistence {
      */
     default Set<String> readDroppedIdentities(Collection<Long> ids, int timeoutSeconds) {
         return readDroppedIdentities(ids);
+    }
+
+    /** Reads the scoped tombstones within the matching attempt's deadline. */
+    default Set<String> readDroppedIdentitiesBefore(Collection<Long> ids, long deadlineMillis) {
+        return readDroppedIdentities(ids, BaselineManager.remainingReadTimeout(deadlineMillis));
     }
 
     // compact id high-water mark.

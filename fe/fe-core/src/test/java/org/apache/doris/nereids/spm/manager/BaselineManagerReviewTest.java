@@ -74,6 +74,33 @@ class BaselineManagerReviewTest {
     }
 
     @Test
+    void coldReadSharesDeadlineWithTombstoneAndIdentityReads() {
+        publish(row(7L, "cold"));
+        long deadline = System.currentTimeMillis() + 1500;
+
+        Assertions.assertEquals(1, manager.findCandidateBaselines("review_digest", HASH, deadline).size());
+        Assertions.assertTrue(store.compactTimeout > 0 && store.compactTimeout <= 2);
+        Assertions.assertEquals(deadline, store.tombstoneDeadline);
+        Assertions.assertEquals(deadline, store.identityDeadline);
+        Assertions.assertThrows(IllegalStateException.class, () -> BaselineManager.remainingReadTimeout(0));
+    }
+
+    @Test
+    void newerIncarnationSatisfiesAnOldDropConfirmation() {
+        publish(row(7L, "old"));
+        store.identityState = new BaselinePersistence.SeqReservation(7L, 10L, false, false);
+
+        Assertions.assertThrows(IllegalStateException.class, () -> manager.dropBaseline(7L));
+        Assertions.assertTrue(BaselineManagerTestAccess.owesDropTombstoneConfirmation(7L));
+
+        store.put(row(8L, "new"));
+        store.identityState = new BaselinePersistence.SeqReservation(8L, 11L, false, false);
+        Assertions.assertFalse(manager.dropBaseline(7L));
+        Assertions.assertFalse(BaselineManagerTestAccess.owesDropTombstoneConfirmation(7L));
+        Assertions.assertTrue(store.rows.containsKey(8L));
+    }
+
+    @Test
     void hashCollisionCannotPublishACacheReadFromBeforeRefresh() {
         Assertions.assertEquals("Aa".hashCode(), "BB".hashCode());
         publish(row(7L, "Aa"));
@@ -311,6 +338,9 @@ class BaselineManagerReviewTest {
         private Runnable beforeHashReadReturns;
         private Runnable afterDelete;
         private SeqReservation identityState;
+        private int compactTimeout;
+        private long tombstoneDeadline;
+        private long identityDeadline;
         private boolean unknownProbe;
         private boolean failHashRead;
         private String failDeleteDigest;
@@ -407,8 +437,26 @@ class BaselineManagerReviewTest {
         }
 
         @Override
+        public Map<Long, SeqReservation> readLatestReservations(Collection<Long> ids, int timeoutSeconds) {
+            compactTimeout = timeoutSeconds;
+            return Map.of();
+        }
+
+        @Override
+        public SeqReservation readLatestReservation(String digest, long planHash, long deadlineMillis) {
+            identityDeadline = deadlineMillis;
+            return BaselinePersistence.super.readLatestReservation(digest, planHash, deadlineMillis);
+        }
+
+        @Override
         public SeqReservation readLatestReservation(String digest, long planHash) {
             return identityState;
+        }
+
+        @Override
+        public Set<String> readDroppedIdentitiesBefore(Collection<Long> ids, long deadlineMillis) {
+            tombstoneDeadline = deadlineMillis;
+            return BaselinePersistence.super.readDroppedIdentitiesBefore(ids, deadlineMillis);
         }
 
         @Override
