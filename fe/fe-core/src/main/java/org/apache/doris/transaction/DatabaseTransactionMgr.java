@@ -1724,10 +1724,19 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
                                                 Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                                Database db, long commitTSO) {
+                                                Database db, long commitTSO) throws UserException {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
+        }
+        // Validate every actual assignment before changing transaction state. Visible version
+        // can lag already-committed predecessors and is not a valid estimate of this commit.
+        for (Map.Entry<Long, Set<Long>> entry : tableToPartition.entrySet()) {
+            OlapTable table = (OlapTable) db.getTableNullable(entry.getKey());
+            for (long partitionId : entry.getValue()) {
+                transactionState.checkSequenceRetentionCommit(table.getId(), partitionId,
+                        table.getSequenceRetentionGap(), table.getPartition(partitionId).getNextVersion());
+            }
         }
         // update transaction state version
         long commitTime = System.currentTimeMillis();
@@ -1768,10 +1777,33 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
             Map<Long, Set<Long>> subTxnToPartition, Set<Long> totalInvolvedBackends,
-            List<SubTransactionState> subTransactionStates, Database db, long commitTSO) {
+            List<SubTransactionState> subTransactionStates, Database db, long commitTSO) throws UserException {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
+        }
+        Map<Long, Map<Long, Long>> finalVersions = new HashMap<>();
+        for (SubTransactionState statement : subTransactionStates) {
+            Set<Long> partitions = subTxnToPartition.get(statement.getSubTransactionId());
+            if (partitions == null) {
+                continue;
+            }
+            long tableId = statement.getTable().getId();
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+            Map<Long, Long> versions = finalVersions.computeIfAbsent(tableId, ignored -> new HashMap<>());
+            for (long partitionId : partitions) {
+                long next = versions.containsKey(partitionId) ? versions.get(partitionId) + 1
+                        : table.getPartition(partitionId).getNextVersion();
+                versions.put(partitionId, next);
+            }
+        }
+        // Use the last assigned sub-version while preserving the first planning snapshot.
+        for (Map.Entry<Long, Map<Long, Long>> entry : finalVersions.entrySet()) {
+            OlapTable table = (OlapTable) db.getTableNullable(entry.getKey());
+            for (Map.Entry<Long, Long> partition : entry.getValue().entrySet()) {
+                transactionState.checkSequenceRetentionCommit(table.getId(), partition.getKey(),
+                        table.getSequenceRetentionGap(), partition.getValue());
+            }
         }
         // update transaction state version
         long commitTime = System.currentTimeMillis();
@@ -1841,18 +1873,30 @@ public class DatabaseTransactionMgr {
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
-    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db, long commitTSO) {
+    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db, long commitTSO)
+            throws UserException {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
             LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
                     transactionState.getTransactionId());
             return;
         }
+        for (TableCommitInfo info : transactionState.getIdToTableCommitInfos().values()) {
+            OlapTable table = (OlapTable) db.getTableNullable(info.getTableId());
+            if (table == null) {
+                continue; // Existing 2PC semantics discard tables dropped after prepare.
+            }
+            for (long partitionId : info.getIdToPartitionCommitInfo().keySet()) {
+                Partition partition = table.getPartition(partitionId);
+                if (partition != null) {
+                    transactionState.checkSequenceRetentionCommit(table.getId(), partitionId,
+                            table.getSequenceRetentionGap(), partition.getNextVersion());
+                }
+            }
+        }
         // update transaction state version
         transactionState.setCommitTime(System.currentTimeMillis());
         transactionState.setCommitTSO(commitTSO);
-
-        transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
 
         Iterator<TableCommitInfo> tableCommitInfoIterator
                 = transactionState.getIdToTableCommitInfos().values().iterator();
@@ -1892,6 +1936,9 @@ public class DatabaseTransactionMgr {
                 }
             }
         }
+        // PublishVersionDaemon can observe status without the state monitor. All final
+        // assignments must be installed before it sees COMMITTED, including after 2PC prepare.
+        transactionState.setTransactionStatus(TransactionStatus.COMMITTED);
         // Update in-memory state only; caller handles edit log persistence
         unprotectUpdateInMemoryState(transactionState, false);
     }
@@ -1948,6 +1995,45 @@ public class DatabaseTransactionMgr {
         if (isReplay) {
             updateTxnLabels(transactionState);
         }
+    }
+
+    Map<Long, Long> captureSequenceRetentionVersions(long txnId, long tableId,
+            Map<Long, Long> observedVersions) throws UserException {
+        TransactionState state = getTransactionState(txnId);
+        if (state == null) {
+            throw new UserException("Transaction not found while capturing sequence retention: " + txnId);
+        }
+        Map<Long, Long> result = new HashMap<>();
+        // A concurrent planner cannot return a version before the first planner has persisted it.
+        synchronized (state) {
+            EditLog.EditLogItem item = null;
+            writeLock();
+            try {
+                Map<Long, Long> newVersions = new HashMap<>();
+                for (Map.Entry<Long, Long> observed : observedVersions.entrySet()) {
+                    long partitionId = observed.getKey();
+                    long version = state.getSequenceRetentionPlanVersion(tableId, partitionId);
+                    if (version == 0) {
+                        version = observed.getValue();
+                        if (state.getTransactionStatus() != TransactionStatus.PREPARE
+                                || !state.getTableIdList().contains(tableId) || !env.isMaster() || version < 1) {
+                            throw new UserException("Cannot capture sequence retention for transaction " + txnId);
+                        }
+                        newVersions.put(partitionId, version);
+                    }
+                    result.put(partitionId, version);
+                }
+                if (!newVersions.isEmpty()) {
+                    state.recordSequenceRetentionVersions(tableId, newVersions);
+                    // PREPARE can normally be transient. This snapshot can already reach BE.
+                    item = editLog.submitEdit(OperationType.OP_UPSERT_TRANSACTION_STATE, state);
+                }
+            } finally {
+                writeUnlock();
+            }
+            awaitTransactionState(item, state);
+        }
+        return result;
     }
 
     /**

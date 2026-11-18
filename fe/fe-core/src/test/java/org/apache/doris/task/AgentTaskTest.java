@@ -165,6 +165,14 @@ public class AgentTaskTest {
     }
 
     @Test
+    public void testCreateCarriesSequenceRetentionSetting() {
+        CreateReplicaTask task = (CreateReplicaTask) createReplicaTask;
+        Assertions.assertFalse(task.toThrift().isSetSequenceRetentionGap());
+        task.setSequenceRetentionGap(100);
+        Assertions.assertEquals(100, task.toThrift().getSequenceRetentionGap());
+    }
+
+    @Test
     public void toThriftTest() throws Exception {
         Class<? extends AgentBatchTask> agentBatchTaskClass = agentBatchTask.getClass();
         Class[] typeParams = new Class[] { AgentTask.class };

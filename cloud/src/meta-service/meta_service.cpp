@@ -983,6 +983,7 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
                                      CreateTabletsResponse* response,
                                      ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(create_tablets, get, put);
+    response->set_supports_sequence_retention(true);
 
     if (request->tablet_metas_size() == 0) {
         msg = "no tablet meta";
@@ -1061,6 +1062,14 @@ void MetaServiceImpl::create_tablets(::google::protobuf::RpcController* controll
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = fmt::format("failed to get vault id, vault name={}", name);
         return;
+    }
+
+    for (const auto& meta : request->tablet_metas()) {
+        if (meta.sequence_retention_gap() < 0) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "Invalid sequence retention gap";
+            return;
+        }
     }
 
     // [index_id, schema_version]

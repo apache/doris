@@ -242,7 +242,7 @@ protected:
         _request.__set_enable_unique_key_merge_on_write(true);
         if (GetParam()) {
             std::unordered_map<uint32_t, uint32_t> ids {{0, 0}, {1, 1}};
-            auto meta = TabletMeta::create(_request, TabletUid::gen_uid(), 0, 2, ids);
+            auto meta = TabletMeta::create(_request, TabletUid::gen_uid(), 0, 2, ids).value();
             auto tablet = std::make_shared<CloudTablet>(_engine->to_cloud(), meta);
             auto rs_meta = std::make_shared<RowsetMeta>();
             rs_meta->set_rowset_type(BETA_ROWSET);

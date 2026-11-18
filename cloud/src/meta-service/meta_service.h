@@ -123,6 +123,11 @@ public:
                  ::google::protobuf::Closure* done) override;
     // clang-format on
 
+    void record_sequence_retention_plan(::google::protobuf::RpcController* controller,
+                                        const RecordSequenceRetentionPlanRequest* request,
+                                        RecordSequenceRetentionPlanResponse* response,
+                                        ::google::protobuf::Closure* done) override;
+
     void get_current_max_txn_id(::google::protobuf::RpcController* controller,
                                 const GetCurrentMaxTxnRequest* request,
                                 GetCurrentMaxTxnResponse* response,
@@ -589,6 +594,14 @@ public:
     void get_txn(::google::protobuf::RpcController* controller, const GetTxnRequest* request,
                  GetTxnResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_txn, controller, request, response, done);
+    }
+
+    void record_sequence_retention_plan(::google::protobuf::RpcController* controller,
+                                        const RecordSequenceRetentionPlanRequest* request,
+                                        RecordSequenceRetentionPlanResponse* response,
+                                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::record_sequence_retention_plan, controller, request,
+                  response, done);
     }
 
     void get_current_max_txn_id(::google::protobuf::RpcController* controller,

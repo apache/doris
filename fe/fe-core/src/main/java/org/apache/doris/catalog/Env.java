@@ -4180,6 +4180,12 @@ public class Env {
             sb.append(olapTable.getStoragePolicy()).append("\"");
         }
 
+        long retentionGap = olapTable.getSequenceRetentionGap();
+        if (retentionGap > 0) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP).append("\" = \"");
+            sb.append(retentionGap).append("\"");
+        }
+
         // row ttl
         if (olapTable.hasRowTtl()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL).append("\" = \"true\"");

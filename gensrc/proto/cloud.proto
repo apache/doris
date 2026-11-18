@@ -539,6 +539,12 @@ message TxnTsoFencePB {
     optional int64 fence_tso = 1;
 }
 
+message SequenceRetentionPlanPB {
+    optional int64 table_id = 1;
+    optional int64 version_gap = 2;
+    map<int64, int64> partition_versions = 3;
+}
+
 message TxnInfoPB {
     optional int64 db_id = 1;
     repeated int64 table_ids = 2;
@@ -570,6 +576,7 @@ message TxnInfoPB {
     // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
     optional string load_cluster_id = 22;
     optional int64 commit_tso = 23;
+    repeated SequenceRetentionPlanPB sequence_retention_plans = 25;
 }
 
 enum IndexObjectTypePB {
@@ -1178,6 +1185,21 @@ message GetTxnResponse {
     optional TxnInfoPB txn_info = 2;
 }
 
+message RecordSequenceRetentionPlanRequest {
+    optional string cloud_unique_id = 1;
+    optional int64 db_id = 2;
+    optional int64 txn_id = 3;
+    // Partition versions observed by the FE through get_version.
+    optional SequenceRetentionPlanPB plan = 4;
+    optional string request_ip = 5;
+}
+
+message RecordSequenceRetentionPlanResponse {
+    optional MetaServiceResponseStatus status = 1;
+    // The first saved versions are returned even if the supplied observations have advanced.
+    optional SequenceRetentionPlanPB plan = 2;
+}
+
 message GetTxnIdRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
@@ -1421,6 +1443,7 @@ message CreateTabletsResponse {
     optional MetaServiceResponseStatus status = 1;
     optional string storage_vault_id = 2;
     optional string storage_vault_name = 3;
+    optional bool supports_sequence_retention = 5;
 }
 
 message UpdateTabletRequest {
@@ -2089,6 +2112,8 @@ message UpdateDeleteBitmapRequest {
     optional bool enable_remove_pre_rowsets_delete_bitmap_by_keys = 20;
     // stats of pre-rowset delete bitmaps in [start_version, end_version) used for point delete
     repeated PreRowsetDeleteBitmapStatsPB pre_rowset_delete_bitmap_stats = 21;
+    // First sub-transaction to write this tablet, which may differ from the lock owner.
+    optional bool reset_pending_delete_bitmap = 22;
     // 50-51: used for storage v2
     repeated string delta_rowset_ids = 50;
     repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
@@ -2465,6 +2490,7 @@ service MetaService {
     rpc commit_txn(CommitTxnRequest) returns (CommitTxnResponse);
     rpc abort_txn(AbortTxnRequest) returns (AbortTxnResponse);
     rpc get_txn(GetTxnRequest) returns (GetTxnResponse);
+    rpc record_sequence_retention_plan(RecordSequenceRetentionPlanRequest) returns (RecordSequenceRetentionPlanResponse);
     rpc get_current_max_txn_id(GetCurrentMaxTxnRequest) returns (GetCurrentMaxTxnResponse);
     rpc create_meta_sync_point(CreateMetaSyncPointRequest) returns (CreateMetaSyncPointResponse);
     rpc check_txn_conflict(CheckTxnConflictRequest) returns (CheckTxnConflictResponse);

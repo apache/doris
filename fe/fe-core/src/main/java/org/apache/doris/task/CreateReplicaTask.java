@@ -146,6 +146,7 @@ public class CreateReplicaTask extends AgentTask {
     private Map<String, List<String>> columnSeqMapping;
     private RowTtlConfig rowTtlConfig;
     private int rowTtlTimeZoneOffsetSeconds;
+    private long sequenceRetentionGap;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -308,9 +309,16 @@ public class CreateReplicaTask extends AgentTask {
         this.clusterKeyUids = clusterKeyUids;
     }
 
+    public void setSequenceRetentionGap(long gap) {
+        sequenceRetentionGap = gap;
+    }
+
     public TCreateTabletReq toThrift() {
         TCreateTabletReq createTabletReq = new TCreateTabletReq();
         createTabletReq.setTabletId(tabletId);
+        if (sequenceRetentionGap > 0) {
+            createTabletReq.setSequenceRetentionGap(sequenceRetentionGap);
+        }
 
         TTabletSchema tSchema = new TTabletSchema();
         tSchema.setShortKeyColumnCount(shortKeyColumnCount);

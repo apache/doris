@@ -1286,6 +1286,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return tableProperty == null ? -1 : tableProperty.getRowTtlDurationMicros();
     }
 
+    public long getSequenceRetentionGap() {
+        return tableProperty == null ? 0 : tableProperty.getSequenceRetentionGap();
+    }
+
     public RowTtlConfig getRowTtlConfig() {
         if (tableProperty == null) {
             return new RowTtlConfig(-1, 0);

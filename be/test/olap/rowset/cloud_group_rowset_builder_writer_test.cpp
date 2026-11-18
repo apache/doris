@@ -135,7 +135,8 @@ TabletMetaSharedPtr create_tablet_meta(const TCreateTabletReq& request, TabletRo
     }
     auto tablet_meta = TabletMeta::create(request, TabletUid::gen_uid(), 0,
                                           cast_set<uint32_t>(request.tablet_schema.columns.size()),
-                                          col_idx_to_unique_id);
+                                          col_idx_to_unique_id)
+                               .value();
     tablet_meta->set_tablet_role(tablet_role);
     return tablet_meta;
 }

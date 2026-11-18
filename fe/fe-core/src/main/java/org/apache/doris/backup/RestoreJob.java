@@ -1499,6 +1499,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getVerticalCompactionNumColumnsPerGroup(),
                             localTbl.getRowTtlConfig(),
                             localTbl.getRowTtlTimeZoneOffsetSeconds());
+                    task.setSequenceRetentionGap(localTbl.getSequenceRetentionGap());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {

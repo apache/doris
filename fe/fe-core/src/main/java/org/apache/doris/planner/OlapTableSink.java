@@ -395,6 +395,12 @@ public class OlapTableSink extends DataSink {
         return DataPartition.RANDOM;
     }
 
+    public void prepareSequenceRetention() throws UserException {
+        if (getDataSinkType() != TDataSinkType.GROUP_COMMIT_BLOCK_SINK) {
+            SequenceRetentionPlanner.prepare(tDataSink.getOlapTableSink());
+        }
+    }
+
     @Override
     protected TDataSink toThrift() {
         return tDataSink;
@@ -993,6 +999,10 @@ public class OlapTableSink extends DataSink {
     private TOlapTablePartitionParam createPartition(long dbId, OlapTable table)
             throws UserException {
         TOlapTablePartitionParam partitionParam = new TOlapTablePartitionParam();
+        long retentionGap = table.getSequenceRetentionGap();
+        if (retentionGap > 0) {
+            partitionParam.setSequenceRetentionGap(retentionGap);
+        }
         PartitionInfo partitionInfo = table.getPartitionInfo();
         boolean enableAutomaticPartition = partitionInfo.enableAutomaticPartition();
         PartitionType partType = table.getPartitionInfo().getType();

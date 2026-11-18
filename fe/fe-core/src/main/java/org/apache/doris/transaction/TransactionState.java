@@ -212,6 +212,9 @@ public class TransactionState implements Writable {
     private TUniqueId requestId;
     @SerializedName(value = "idToTableCommitInfos")
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
+
+    @SerializedName("sequenceRetentionVersions")
+    private Map<Long, Map<Long, Long>> sequenceRetentionVersions = new HashMap<>();
     // coordinator is show who begin this txn (FE, or one of BE, etc...)
     @SerializedName(value = "txnCoordinator")
     private TxnCoordinator txnCoordinator;
@@ -659,6 +662,42 @@ public class TransactionState implements Writable {
 
     public List<Long> getTableIdList() {
         return tableIdList;
+    }
+
+    public void recordSequenceRetentionVersions(long tableId, Map<Long, Long> versions) {
+        synchronized (sequenceRetentionVersions) {
+            Map<Long, Long> stored = sequenceRetentionVersions.computeIfAbsent(tableId, id -> new HashMap<>());
+            for (Map.Entry<Long, Long> entry : versions.entrySet()) {
+                Long previous = stored.putIfAbsent(entry.getKey(), entry.getValue());
+                if (previous != null && !previous.equals(entry.getValue())) {
+                    throw new IllegalStateException("Conflicting sequence retention planning versions");
+                }
+            }
+        }
+    }
+
+    public long getSequenceRetentionPlanVersion(long tableId, long partitionId) {
+        synchronized (sequenceRetentionVersions) {
+            return sequenceRetentionVersions.getOrDefault(tableId, Map.of())
+                    .getOrDefault(partitionId, 0L);
+        }
+    }
+
+    public void checkSequenceRetentionCommit(long tableId, long partitionId, long gap,
+            long commitVersion) throws UserException {
+        if (gap == 0) {
+            return;
+        }
+        long planVersion = getSequenceRetentionPlanVersion(tableId, partitionId);
+        if (planVersion <= 0) {
+            throw new UserException("Missing sequence retention planning version: transaction=" + transactionId
+                    + ", table=" + tableId + ", partition=" + partitionId);
+        }
+        if (commitVersion <= planVersion || commitVersion - planVersion > gap) {
+            throw new UserException("Sequence retention transaction exceeded version window: table=" + tableId
+                    + ", partition=" + partitionId + ", plan=" + planVersion + ", commit=" + commitVersion
+                    + ", gap=" + gap);
+        }
     }
 
     public Map<Long, TableCommitInfo> getIdToTableCommitInfos() {

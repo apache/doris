@@ -24,6 +24,19 @@
 #include "common/logging.h"
 
 namespace doris::cloud {
+namespace {
+
+template <typename Out, typename In>
+void copy_sequence_retention(Out* out, const In& in) {
+    if (in.has_sequence_retention_input()) {
+        *out->mutable_sequence_retention_input() = in.sequence_retention_input();
+    }
+    if (in.has_requires_sequence_retention()) {
+        out->set_requires_sequence_retention(in.requires_sequence_retention());
+    }
+}
+
+} // namespace
 
 RowsetMetaCloudPB doris_rowset_meta_to_cloud(const RowsetMetaPB& in) {
     RowsetMetaCloudPB out;
@@ -122,6 +135,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
     }
+    copy_sequence_retention(out, in);
     if (in.has_commit_tso()) {
         out->mutable_commit_tso()->CopyFrom(in.commit_tso());
     }
@@ -223,6 +237,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
     }
+    copy_sequence_retention(out, in);
     if (in.has_commit_tso()) {
         out->mutable_commit_tso()->CopyFrom(in.commit_tso());
     }
@@ -334,6 +349,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
     }
+    copy_sequence_retention(out, in);
     if (in.has_commit_tso()) {
         out->mutable_commit_tso()->CopyFrom(in.commit_tso());
     }
@@ -434,6 +450,7 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
     }
+    copy_sequence_retention(out, in);
     if (in.has_commit_tso()) {
         out->mutable_commit_tso()->CopyFrom(in.commit_tso());
     }
@@ -786,6 +803,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->CopyFrom(in.binlog_config());
     }
+    if (in.has_sequence_retention_gap()) {
+        out->set_sequence_retention_gap(in.sequence_retention_gap());
+    }
     if (in.has_row_ttl_config()) {
         out->mutable_row_ttl_config()->CopyFrom(in.row_ttl_config());
     }
@@ -876,6 +896,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     out->mutable_cooldown_meta_id()->CopyFrom(in.cooldown_meta_id());
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->Swap(in.mutable_binlog_config());
+    }
+    if (in.has_sequence_retention_gap()) {
+        out->set_sequence_retention_gap(in.sequence_retention_gap());
     }
     if (in.has_row_ttl_config()) {
         out->mutable_row_ttl_config()->Swap(in.mutable_row_ttl_config());
@@ -975,6 +998,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->CopyFrom(in.binlog_config());
     }
+    if (in.has_sequence_retention_gap()) {
+        out->set_sequence_retention_gap(in.sequence_retention_gap());
+    }
     if (in.has_row_ttl_config()) {
         out->mutable_row_ttl_config()->CopyFrom(in.row_ttl_config());
     }
@@ -1065,6 +1091,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     out->mutable_cooldown_meta_id()->CopyFrom(in.cooldown_meta_id());
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->Swap(in.mutable_binlog_config());
+    }
+    if (in.has_sequence_retention_gap()) {
+        out->set_sequence_retention_gap(in.sequence_retention_gap());
     }
     if (in.has_row_ttl_config()) {
         out->mutable_row_ttl_config()->Swap(in.mutable_row_ttl_config());

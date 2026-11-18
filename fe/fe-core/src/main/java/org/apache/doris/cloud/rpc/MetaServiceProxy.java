@@ -440,6 +440,12 @@ public class MetaServiceProxy {
         return executeWithMetrics("getTxn", (client) -> client.getTxn(request), Cloud.GetTxnResponse::getStatus);
     }
 
+    public Cloud.RecordSequenceRetentionPlanResponse recordSequenceRetentionPlan(
+            Cloud.RecordSequenceRetentionPlanRequest request) throws RpcException {
+        return executeWithMetrics("recordSequenceRetentionPlan", client -> client.recordSequenceRetentionPlan(request),
+                Cloud.RecordSequenceRetentionPlanResponse::getStatus);
+    }
+
     public Cloud.GetTxnIdResponse getTxnId(Cloud.GetTxnIdRequest request)
             throws RpcException {
         return executeWithMetrics("getTxnId", (client) -> client.getTxnId(request),

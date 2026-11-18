@@ -409,6 +409,8 @@ public class TxnUtil {
                 finishTime
         );
         transactionState.setCommitTSO(txnInfo.hasCommitTso() ? txnInfo.getCommitTso() : -1);
+        txnInfo.getSequenceRetentionPlansList().forEach(plan ->
+                transactionState.recordSequenceRetentionVersions(plan.getTableId(), plan.getPartitionVersionsMap()));
         if (LOG.isDebugEnabled()) {
             LOG.debug("transactionState={}", transactionState);
         }

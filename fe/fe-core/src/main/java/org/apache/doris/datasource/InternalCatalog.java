@@ -2345,6 +2345,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.getVerticalCompactionNumColumnsPerGroup(),
                             tbl.getRowTtlConfig(),
                             tbl.getRowTtlTimeZoneOffsetSeconds());
+                    task.setSequenceRetentionGap(tbl.getSequenceRetentionGap());
                     if (isChangelogIndex) {
                         // BE locates the companion changelog tablet via base_tablet_id and writes it to the same disk.
                         task.setTabletRole(TTabletRole.TABLET_ROLE_CHANGELOG);

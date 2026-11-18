@@ -309,6 +309,8 @@ struct TOlapTablePartition {
     // only used in adaptive random bucket mode: FE-selected bucket seqs for this sink.
     // When set, BE uses them directly and skips recomputing from tablet locations.
     16: optional list<i32> local_bucket_seqs
+
+    18: optional i64 sequence_retention_plan_version
 }
 
 struct TOlapTablePartitionParam {
@@ -336,6 +338,7 @@ struct TOlapTablePartitionParam {
     13: optional bool partitions_is_fake = false
     // remote insert fe master address
     14: optional Types.TNetworkAddress master_address
+    15: optional i64 sequence_retention_gap
 }
 
 struct TOlapTableIndex {
