@@ -1476,7 +1476,8 @@ TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsLeavesOutLengthsOfNull
 // The sums are kept with the index: a later query with the same hidden rows reads neither the
 // norms nor the NULL rows, and one with other hidden rows reads the NULL rows once and only the
 // norms of its hidden rows.
-TEST(CollectionStatisticsHiddenRowsTest, ExcludeHiddenDocsKeepsSumsWithTheIndex) {
+TEST(CollectionStatisticsHiddenRowsTest, // NOLINT(readability-function-cognitive-complexity) --
+     ExcludeHiddenDocsKeepsSumsWithTheIndex) { // GoogleTest assertions inflate the metric.
     index_query::testing::FakeIndexSource source;
     source.set_doc_count(6);
     source.norms = {{0, 3}, {1, 5}, {2, 1}, {3, 7}, {4, 2}, {5, 4}};

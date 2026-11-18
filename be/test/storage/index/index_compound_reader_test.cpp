@@ -1063,7 +1063,8 @@ TEST_F(DorisCompoundReaderTest, InitializeThenClearIoCtxForCacheSafety) {
 // field's norms through, reads with the context scoped to the reading thread. The base stream that
 // every sub-file shares drops it after each read, even a read that fails, so no query's pointers
 // stay behind on a cached reader.
-TEST_F(DorisCompoundReaderTest, ScopedIoContextReachesStreamsWithoutTheirOwn) {
+TEST_F(DorisCompoundReaderTest, // NOLINT(readability-function-cognitive-complexity) --
+       ScopedIoContextReachesStreamsWithoutTheirOwn) { // GoogleTest assertions inflate the metric.
     const std::string path = kTestDir + "/scoped_io_ctx.idx";
     constexpr int32_t kLength = 64 * 1024;
     constexpr int32_t kRead = 8192;

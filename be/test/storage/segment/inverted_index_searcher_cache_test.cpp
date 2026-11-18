@@ -355,7 +355,8 @@ TEST(NormLengthSumsTest, NonNullNormLengthSumIsComputedOncePerField) {
 
 // The norm length sum of a set of hidden rows is computed once per field and set, and a few sets
 // per field are kept, the oldest given up first.
-TEST(NormLengthSumsTest, HiddenNormLengthSumIsComputedOncePerRowSet) {
+TEST(NormLengthSumsTest, // NOLINT(readability-function-cognitive-complexity) --
+     HiddenNormLengthSumIsComputedOncePerRowSet) { // GoogleTest assertions inflate the metric.
     NormLengthSums value;
     int computed = 0;
     auto compute = [&computed](uint64_t sum) {
