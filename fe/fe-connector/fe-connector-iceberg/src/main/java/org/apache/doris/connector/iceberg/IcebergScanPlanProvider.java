@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -3306,99 +3307,118 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // Every scan in this statement shares admission, including eager delete-manifest reads.
         int concurrency = manifestReadConcurrency(session);
         Semaphore readPermits = IcebergStatementScope.manifestReadBudget(session, concurrency);
-        Supplier<AutoCloseable> retainLoadOwner = IcebergStatementScope.readTableLeaseFactory(session,
-                readHandle.getDbName(), readHandle.getTableName());
-        IcebergManifestReadContext deleteReadContext = new IcebergManifestReadContext(context, readPermits,
-                () -> scanContext.isCancelled() || scheduler != null && scheduler.isClosed(), retainLoadOwner);
+        IcebergManifestReader reader = IcebergStatementScope.manifestReader(session,
+                readHandle.getDbName(), readHandle.getTableName(), manifestCache, table, statsQueryId);
+        boolean statementOwned = session != null && session.getStatementScope() != ConnectorStatementScope.NONE;
+        Supplier<AutoCloseable> retainLoadOwner = reader::retain;
+        try {
+            IcebergManifestReadContext deleteReadContext = new IcebergManifestReadContext(context, readPermits,
+                    () -> scanContext.isCancelled() || scheduler != null && scheduler.isClosed(), retainLoadOwner);
 
-        // Phase 1 (eager): partition-prune + cache-load delete manifests into the delete-file index.
-        List<DeleteFile> deleteFiles = new ArrayList<>();
-        for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
-            scanContext.checkCancelled();
-            if (manifest.content() != ManifestContent.DELETES) {
-                continue;
-            }
-            PartitionSpec spec = specsById.get(manifest.partitionSpecId());
-            if (spec == null) {
-                continue;
-            }
-            if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
-                continue;
-            }
-            ManifestCacheValue value = manifestCache.getCachedManifestValue(manifest, statsQueryId);
-            if (value == null) {
-                try {
-                    value = deleteReadContext.read(manifest, m -> manifestCacheGet(m, table, statsQueryId));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    CancellationException cancelled = new CancellationException(
-                            "Interrupted while reading Iceberg delete manifest " + manifest.path());
-                    cancelled.initCause(e);
-                    throw cancelled;
-                }
-            }
-            scanContext.checkCancelled();
-            deleteFiles.addAll(value.forScan(spec).getDeleteFiles());
-        }
-        DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
-                .schemasById(table.schemas())
-                .specsById(specsById)
-                .caseSensitive(caseSensitive)
-                .build();
-
-        scanContext.checkCancelled();
-        CloseableIterable<ManifestFile> matching =
-                getMatchingManifest(snapshot.dataManifests(table.io()), specsById, filterExpr,
-                        scanContext::checkCancelled);
-        CloseableIterable<ManifestFile> dataManifests = CloseableIterable.filter(matching,
-                manifest -> manifest.content() == ManifestContent.DATA
-                        && specsById.containsKey(manifest.partitionSpecId())
-                        && residualEvaluators.containsKey(manifest.partitionSpecId()));
-        return new CloseableIterable<FileScanTask>() {
-            private ManifestCacheFileScanTaskIterator iterator;
-            private boolean closed;
-
-            @Override
-            public synchronized CloseableIterator<FileScanTask> iterator() {
-                if (closed) {
-                    throw new CancellationException("Iceberg manifest source is closed");
-                }
-                if (iterator != null) {
-                    throw new IllegalStateException("Iceberg manifest source is single-pass");
-                }
-                IcebergManifestPrefetcher prefetcher = new IcebergManifestPrefetcher(
-                        dataManifests.iterator(), concurrency,
-                        manifest -> manifestCache.getCachedManifestValue(manifest, statsQueryId),
-                        manifest -> manifestCacheGet(manifest, table, statsQueryId), context, readPermits,
-                        readControl::allowPrefetch, scheduler,
-                        manifest -> manifestCache.getManifestCacheValueFuture(manifest, table, statsQueryId),
-                        retainLoadOwner);
-                scanContext.whenCancelled(prefetcher::cancel);
+            // Phase 1 (eager): partition-prune + cache-load delete manifests into the delete-file index.
+            List<DeleteFile> deleteFiles = new ArrayList<>();
+            for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
                 scanContext.checkCancelled();
-                iterator = new ManifestCacheFileScanTaskIterator(prefetcher, specsById,
-                        residualEvaluators, metricsEvaluator, deleteIndex, schemaJson, scanContext::checkCancelled);
-                return iterator;
+                if (manifest.content() != ManifestContent.DELETES) {
+                    continue;
+                }
+                PartitionSpec spec = specsById.get(manifest.partitionSpecId());
+                if (spec == null) {
+                    continue;
+                }
+                if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
+                    continue;
+                }
+                ManifestCacheValue value = reader.cachedOnly(manifest, statsQueryId);
+                if (value == null) {
+                    try {
+                        value = deleteReadContext.read(manifest, m -> reader.read(m, statsQueryId));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        CancellationException cancelled = new CancellationException(
+                                "Interrupted while reading Iceberg delete manifest " + manifest.path());
+                        cancelled.initCause(e);
+                        throw cancelled;
+                    }
+                }
+                scanContext.checkCancelled();
+                deleteFiles.addAll(value.forScan(spec).getDeleteFiles());
             }
+            DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
+                    .schemasById(table.schemas())
+                    .specsById(specsById)
+                    .caseSensitive(caseSensitive)
+                    .build();
 
-            @Override
-            public void close() throws IOException {
-                ManifestCacheFileScanTaskIterator active;
-                synchronized (this) {
+            scanContext.checkCancelled();
+            CloseableIterable<ManifestFile> matching =
+                    getMatchingManifest(snapshot.dataManifests(table.io()), specsById, filterExpr,
+                            scanContext::checkCancelled);
+            CloseableIterable<ManifestFile> dataManifests = CloseableIterable.filter(matching,
+                    manifest -> manifest.content() == ManifestContent.DATA
+                            && specsById.containsKey(manifest.partitionSpecId())
+                            && residualEvaluators.containsKey(manifest.partitionSpecId()));
+            return new CloseableIterable<FileScanTask>() {
+                private ManifestCacheFileScanTaskIterator iterator;
+                private boolean closed;
+
+                @Override
+                public synchronized CloseableIterator<FileScanTask> iterator() {
                     if (closed) {
-                        return;
+                        throw new CancellationException("Iceberg manifest source is closed");
                     }
-                    closed = true;
-                    active = iterator;
+                    if (iterator != null) {
+                        throw new IllegalStateException("Iceberg manifest source is single-pass");
+                    }
+                    IcebergManifestPrefetcher prefetcher = new IcebergManifestPrefetcher(
+                            dataManifests.iterator(), concurrency,
+                            manifest -> reader.cachedOnly(manifest, statsQueryId),
+                            manifest -> reader.read(manifest, statsQueryId), context, readPermits,
+                            readControl::allowPrefetch, scheduler,
+                            manifest -> reader.readFuture(manifest, statsQueryId),
+                            retainLoadOwner);
+                    scanContext.whenCancelled(prefetcher::cancel);
+                    scanContext.checkCancelled();
+                    iterator = new ManifestCacheFileScanTaskIterator(prefetcher, specsById,
+                            residualEvaluators, metricsEvaluator, deleteIndex, schemaJson, scanContext::checkCancelled);
+                    return iterator;
                 }
-                try {
-                    if (active != null) {
-                        active.close();
+
+                @Override
+                public void close() throws IOException {
+                    ManifestCacheFileScanTaskIterator active;
+                    synchronized (this) {
+                        if (closed) {
+                            return;
+                        }
+                        closed = true;
+                        active = iterator;
                     }
-                } finally {
-                    dataManifests.close();
+                    try {
+                        if (active != null) {
+                            active.close();
+                        }
+                    } finally {
+                        try {
+                            dataManifests.close();
+                        } finally {
+                            if (!statementOwned) {
+                                reader.close();
+                            }
+                        }
+                    }
+                }
+            };
+        } catch (RuntimeException | Error failure) {
+            if (!statementOwned) {
+                try {
+                    reader.close();
+                } catch (RuntimeException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
                 }
             }
-        };
+            throw failure;
+        }
     }
 
     private static int manifestReadConcurrency(ConnectorSession session) {
@@ -3424,13 +3444,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             throw new CancellationException("Iceberg query task group is closed");
         }
         return scheduler;
-    }
-
-    /** Dispatch a manifest read to the stats-tallying or no-stats cache overload (see cacheBackedFileScanTasks). */
-    private ManifestCacheValue manifestCacheGet(ManifestFile manifest, Table table, String statsQueryId) {
-        return statsQueryId != null
-                ? manifestCache.getManifestCacheValue(manifest, table, statsQueryId)
-                : manifestCache.getManifestCacheValue(manifest, table);
     }
 
     /**

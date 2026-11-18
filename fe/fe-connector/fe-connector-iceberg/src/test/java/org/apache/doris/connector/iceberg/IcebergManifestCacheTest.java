@@ -32,6 +32,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expressions;
@@ -76,6 +77,272 @@ import java.util.concurrent.atomic.AtomicInteger;
  * exercised against genuine iceberg {@link ManifestFile}s (no I/O — InMemoryCatalog serves manifests in-memory).
  */
 public class IcebergManifestCacheTest {
+
+    @ParameterizedTest
+    @CsvSource({"data,false", "data,true", "position,false", "equality,true"})
+    void statementReaderCoalescesUnknownFileKeysWithoutRetainingCompletedValues(String kind, boolean futureFirst)
+            throws Exception {
+        Table table = tableWithTwoDataFiles();
+        ManifestFile manifest;
+        ByteBuffer metadata = ByteBuffer.wrap(new byte[] {1, 2, 3});
+        if (kind.equals("data")) {
+            table.newFastAppend().appendFile(DataFiles.builder(table.spec()).withPath("/data/keyed.parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1).withEncryptionKeyMetadata(metadata).build()).commit();
+            manifest = table.currentSnapshot().dataManifests(table.io()).stream()
+                    .filter(file -> file.snapshotId() == table.currentSnapshot().snapshotId()).findFirst().orElseThrow();
+        } else {
+            FileMetadata.Builder builder = FileMetadata.deleteFileBuilder(table.spec());
+            if (kind.equals("position")) {
+                builder.ofPositionDeletes();
+            } else {
+                builder.ofEqualityDeletes(1);
+            }
+            table.newRowDelta().addDeletes(builder.withPath("/data/keyed-delete.parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1).withEncryptionKeyMetadata(metadata).build()).commit();
+            manifest = table.currentSnapshot().deleteManifests(table.io()).get(0);
+        }
+        assertStatementReaderCoalesces(table, manifest, futureFirst);
+    }
+
+    @Test
+    void statementReaderCoalescesEncryptedManifestsWithoutPublishingPlaintextDescriptors() throws Exception {
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            Table table = fixture.queryTable();
+            ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+            assertStatementReaderCoalesces(table, manifest, false);
+        }
+    }
+
+    private static void assertStatementReaderCoalesces(Table table, ManifestFile manifest, boolean futureFirst)
+            throws Exception {
+        AtomicInteger opens = new AtomicInteger();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        FileIO io = blockingManifestIo(table.io(), opens, entered, release);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergManifestCache cache = new IcebergManifestCache(owner, Collections.emptyMap());
+            try (IcebergManifestReader reader = new IcebergManifestReader(cache, tableWithIo(table, io),
+                    "statement", () -> { })) {
+                Future<ManifestCacheValue> elected = workers.submit(() -> futureFirst
+                        ? reader.readFuture(manifest).toCompletableFuture().join() : reader.read(manifest));
+                try {
+                    Assertions.assertTrue(entered.await(10, TimeUnit.SECONDS));
+                    Future<java.util.concurrent.CompletionStage<ManifestCacheValue>> joined =
+                            workers.submit(() -> reader.readFuture(manifest));
+                    java.util.concurrent.CompletionStage<ManifestCacheValue> observer = joined.get(3, TimeUnit.SECONDS);
+                    Assertions.assertEquals(1, opens.get());
+                    Assertions.assertTrue(observer.toCompletableFuture().cancel(false));
+                    java.util.concurrent.CompletionStage<ManifestCacheValue> remaining = reader.readFuture(manifest);
+                    release.countDown();
+                    ManifestCacheValue value = elected.get(10, TimeUnit.SECONDS);
+                    Assertions.assertSame(value, remaining.toCompletableFuture().get(10, TimeUnit.SECONDS));
+                    Assertions.assertEquals(0, reader.inFlightCount());
+                    Assertions.assertEquals(0, cache.size());
+                    Assertions.assertNotSame(value, reader.read(manifest));
+                    Assertions.assertEquals(2, opens.get(), "completed private results are not statement-wide storage");
+                } finally {
+                    release.countDown();
+                }
+            }
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void completedPlaintextReaderPublishesForSubsequentStatements() {
+        Table table = tableWithTwoDataFiles();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        CountingFileIO io = new CountingFileIO(table.io());
+        Table observed = tableWithIo(table, io);
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergManifestCache cache = new IcebergManifestCache(owner, Collections.emptyMap());
+            ManifestCacheValue value;
+            try (IcebergManifestReader first = new IcebergManifestReader(cache, observed, "first", () -> { })) {
+                value = first.read(manifest);
+            }
+            try (IcebergManifestReader second = new IcebergManifestReader(cache, observed, "second", () -> { })) {
+                Assertions.assertSame(value, second.cachedOnly(manifest));
+                Assertions.assertSame(value, second.readFuture(manifest).toCompletableFuture().join());
+            }
+            Assertions.assertEquals(1, io.opens.get());
+        }
+    }
+
+    @Test
+    void sharedReaderPreservesPerCallerOptionalStats() {
+        Table table = tableWithTwoDataFiles();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        try (IcebergManifestReader reader = new IcebergManifestReader(cache, table, "default", () -> { })) {
+            ManifestCacheValue value = reader.read(manifest, null);
+            Assertions.assertSame(value, reader.cachedOnly(manifest, "counted"));
+            Assertions.assertSame(value, reader.read(manifest, "counted"));
+            Assertions.assertSame(value, reader.readFuture(manifest, "counted").toCompletableFuture().join());
+            Assertions.assertSame(value, reader.readFuture(manifest, null).toCompletableFuture().join());
+            Assertions.assertArrayEquals(new long[] {3, 0, 0}, cache.takeStats("counted"));
+            Assertions.assertArrayEquals(new long[] {0, 0, 0}, cache.takeStats("default"));
+        }
+    }
+
+    @Test
+    void encryptedTableNeverConsumesAnEarlierPlaintextCacheHit() {
+        Table table = tableWithTwoDataFiles();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        ManifestCacheValue warm = cache.getManifestCacheValue(manifest, table);
+        Table encrypted = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("properties")) {
+                        return Map.of(TableProperties.ENCRYPTION_TABLE_KEY, "fixture-key");
+                    }
+                    if (method.getName().equals("encryption")) {
+                        throw new SecurityException("fixture KMS access revoked");
+                    }
+                    if (method.getName().equals("io")) {
+                        throw new SecurityException("fixture storage access revoked");
+                    }
+                    try {
+                        return method.invoke(table, args);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        try (IcebergManifestReader reader = new IcebergManifestReader(cache, encrypted, "revoked", () -> { })) {
+            Assertions.assertNull(reader.cachedOnly(manifest));
+            Assertions.assertThrows(SecurityException.class, () -> reader.read(manifest));
+            Assertions.assertSame(warm, cache.getCachedManifestValue(manifest, null));
+        }
+    }
+
+    @Test
+    void encryptedReaderRetainsNoCompletedValuesAcrossManyManifests() {
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            for (int i = 0; i < 24; i++) {
+                fixture.appendPlainFile("data-" + i);
+            }
+            Table table = fixture.queryTable();
+            List<ManifestFile> manifests = table.currentSnapshot().dataManifests(table.io());
+            Assertions.assertEquals(25, manifests.size());
+            IcebergManifestCache cache = new IcebergManifestCache();
+            try (IcebergManifestReader reader = new IcebergManifestReader(cache, table, "many", () -> { })) {
+                for (ManifestFile manifest : manifests) {
+                    Assertions.assertEquals(1, reader.read(manifest).getDataFiles().size());
+                    Assertions.assertEquals(0, reader.inFlightCount());
+                    Assertions.assertNull(reader.cachedOnly(manifest));
+                    Assertions.assertEquals(0, cache.size());
+                }
+            }
+        }
+    }
+
+    @Test
+    void differentManifestKeyCannotJoinAnAuthorizedRead() throws Exception {
+        try (EncryptedManifestFixture fixture = new EncryptedManifestFixture()) {
+            Table table = fixture.queryTable();
+            ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+            ManifestFile tampered = (ManifestFile) Proxy.newProxyInstance(ManifestFile.class.getClassLoader(),
+                    new Class<?>[] {ManifestFile.class}, (proxy, method, args) -> {
+                        if (method.getName().equals("keyMetadata")) {
+                            return ByteBuffer.wrap(new byte[] {7, 8, 9});
+                        }
+                        try {
+                            return method.invoke(manifest, args);
+                        } catch (InvocationTargetException failure) {
+                            throw failure.getCause();
+                        }
+                    });
+            CountDownLatch entered = new CountDownLatch(2);
+            CountDownLatch release = new CountDownLatch(1);
+            AtomicInteger opens = new AtomicInteger();
+            ExecutorService workers = Executors.newFixedThreadPool(2);
+            IcebergManifestCache cache = new IcebergManifestCache();
+            try (IcebergManifestReader reader = new IcebergManifestReader(cache,
+                    tableWithIo(table, blockingManifestIo(table.io(), opens, entered, release)), "keys", () -> { })) {
+                Future<ManifestCacheValue> authorized = workers.submit(() -> reader.read(manifest));
+                Future<ManifestCacheValue> invalid = workers.submit(() -> reader.read(tampered));
+                try {
+                    Assertions.assertTrue(entered.await(10, TimeUnit.SECONDS), "different keys need independent I/O");
+                    Assertions.assertEquals(2, opens.get());
+                } finally {
+                    release.countDown();
+                }
+                Assertions.assertEquals(1, authorized.get(10, TimeUnit.SECONDS).getDataFiles().size());
+                Assertions.assertThrows(java.util.concurrent.ExecutionException.class,
+                        () -> invalid.get(10, TimeUnit.SECONDS));
+                Assertions.assertEquals(0, reader.inFlightCount());
+            } finally {
+                release.countDown();
+                workers.shutdownNow();
+                Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test
+    void cancelledCallableRetainsTheReaderOwnerUntilTheBodyExits() throws Exception {
+        Table table = tableWithTwoDataFiles();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        AtomicInteger closed = new AtomicInteger();
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergManifestCache cache = new IcebergManifestCache(owner, Collections.emptyMap());
+            IcebergManifestReader reader = new IcebergManifestReader(cache,
+                    tableWithIo(table, blockingManifestIo(table.io(), new AtomicInteger(), entered, release)),
+                    "cancelled", closed::incrementAndGet);
+            IcebergManifestReadContext readContext = new IcebergManifestReadContext(null,
+                    new java.util.concurrent.Semaphore(1), () -> false, reader::retain);
+            Future<?> active = worker.submit(() -> {
+                try {
+                    readContext.read(manifest, reader::read);
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(failure);
+                } finally {
+                    finished.countDown();
+                }
+            });
+            try {
+                Assertions.assertTrue(entered.await(10, TimeUnit.SECONDS));
+                Assertions.assertTrue(active.cancel(false));
+                reader.close();
+                Assertions.assertEquals(0, closed.get(), "Future cancellation does not end the I/O callable");
+                Assertions.assertThrows(java.util.concurrent.CancellationException.class, () -> reader.read(manifest));
+            } finally {
+                release.countDown();
+                Assertions.assertTrue(finished.await(10, TimeUnit.SECONDS));
+                reader.close();
+            }
+            Assertions.assertEquals(1, closed.get());
+        } finally {
+            release.countDown();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    private static FileIO blockingManifestIo(FileIO delegate, AtomicInteger opens,
+            CountDownLatch entered, CountDownLatch release) {
+        return (FileIO) Proxy.newProxyInstance(FileIO.class.getClassLoader(), new Class<?>[] {FileIO.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("newInputFile") && args[0] instanceof ManifestFile) {
+                        opens.incrementAndGet();
+                        entered.countDown();
+                        Assertions.assertTrue(release.await(15, TimeUnit.SECONDS));
+                    }
+                    try {
+                        return method.invoke(delegate, args);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+    }
 
     @ParameterizedTest
     @CsvSource({"data", "position", "equality"})
@@ -148,10 +415,12 @@ public class IcebergManifestCacheTest {
         ExecutorService workers = Executors.newFixedThreadPool(2);
         try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
             IcebergManifestCache cache = new IcebergManifestCache(owner, Collections.emptyMap());
-            Callable<ManifestCacheValue> read = () -> future
-                    ? cache.getManifestCacheValueFuture(manifest, observed, "concurrent")
-                            .toCompletableFuture().get(10, TimeUnit.SECONDS)
-                    : cache.getManifestCacheValue(manifest, observed, "concurrent");
+            Callable<ManifestCacheValue> read = () -> {
+                try (IcebergManifestReader reader = new IcebergManifestReader(cache, observed, "concurrent", () -> { })) {
+                    return future ? reader.readFuture(manifest).toCompletableFuture().get(10, TimeUnit.SECONDS)
+                            : reader.read(manifest);
+                }
+            };
             Future<ManifestCacheValue> first = workers.submit(read);
             Future<ManifestCacheValue> second = workers.submit(read);
             try {
