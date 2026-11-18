@@ -64,8 +64,11 @@ import java.util.Optional;
 
 /** File pruning only: every original predicate remains a BE residual. */
 final class DeltaLakePredicateConverter {
-    private static final Literal NEGATIVE_ZERO = Literal.ofDouble(-0.0);
-    private static final Literal POSITIVE_ZERO = Literal.ofDouble(0.0);
+    private record SignedZeros(Literal negative, Literal positive) {
+    }
+
+    private static final SignedZeros FLOAT_ZEROS = new SignedZeros(Literal.ofFloat(-0.0f), Literal.ofFloat(0.0f));
+    private static final SignedZeros DOUBLE_ZEROS = new SignedZeros(Literal.ofDouble(-0.0), Literal.ofDouble(0.0));
     private final StructType schema;
     private final ZoneId zone;
     private final Collection<String> partitionColumns;
@@ -130,9 +133,10 @@ final class DeltaLakePredicateConverter {
                 if (value == null) {
                     return null;
                 }
-                if (isDoublePartitionZero(field, value)) {
-                    values.add(NEGATIVE_ZERO);
-                    values.add(POSITIVE_ZERO);
+                SignedZeros zeros = signedZeros(field, value);
+                if (zeros != null) {
+                    values.add(zeros.negative());
+                    values.add(zeros.positive());
                 } else {
                     values.add(value);
                 }
@@ -158,18 +162,19 @@ final class DeltaLakePredicateConverter {
                 operator = "IS NOT DISTINCT FROM";
             }
             ConnectorComparison.Operator op = comparison.getOperator();
-            if (isDoublePartitionZero(field, value)) {
+            SignedZeros zeros = signedZeros(field, value);
+            if (zeros != null) {
                 // Kernel orders -0.0 below +0.0. Doris treats them as one value, including inside NOT.
                 if (op == ConnectorComparison.Operator.EQ || op == ConnectorComparison.Operator.NE
                         || op == ConnectorComparison.Operator.EQ_FOR_NULL) {
                     String equality = op == ConnectorComparison.Operator.NE ? "=" : operator;
-                    Predicate either = new Predicate("OR", new Predicate(equality, column, NEGATIVE_ZERO),
-                            new Predicate(equality, column, POSITIVE_ZERO));
+                    Predicate either = new Predicate("OR", new Predicate(equality, column, zeros.negative()),
+                            new Predicate(equality, column, zeros.positive()));
                     return op == ConnectorComparison.Operator.NE ? new Predicate("NOT", either) : either;
                 }
                 // For column < 0 and column >= 0, the boundary is the first zero in Kernel's order.
                 boolean useNegative = op == ConnectorComparison.Operator.LT || op == ConnectorComparison.Operator.GE;
-                value = useNegative != reversed ? NEGATIVE_ZERO : POSITIVE_ZERO;
+                value = useNegative != reversed ? zeros.negative() : zeros.positive();
             }
             if (op == ConnectorComparison.Operator.NE) {
                 return new Predicate("NOT", new Predicate("=", column, value));
@@ -179,9 +184,16 @@ final class DeltaLakePredicateConverter {
         return null;
     }
 
-    private boolean isDoublePartitionZero(StructField field, Literal literal) {
-        return literal.getValue() instanceof Double && (double) literal.getValue() == 0.0
-                && partitionColumns.contains(field.getName());
+    private SignedZeros signedZeros(StructField field, Literal literal) {
+        Object value = literal.getValue();
+        if (value instanceof Double && (double) value == 0.0) {
+            return DOUBLE_ZEROS;
+        }
+        // FLOAT data columns use file statistics. FLOAT partitions still use Doris LIST pruning.
+        if (value instanceof Float && (float) value == 0.0f && !partitionColumns.contains(field.getName())) {
+            return FLOAT_ZEROS;
+        }
+        return null;
     }
 
     private StructField field(ConnectorExpression expression) {

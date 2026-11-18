@@ -28,6 +28,8 @@ import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.ConnectorNot;
 import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
+import io.delta.kernel.expressions.In;
+import io.delta.kernel.expressions.Literal;
 import io.delta.kernel.expressions.Predicate;
 import io.delta.kernel.types.BinaryType;
 import io.delta.kernel.types.BooleanType;
@@ -88,16 +90,30 @@ class DeltaLakePredicateConverterTest {
     }
 
     @Test
-    void expandsSignedZeroOnlyForDoublePartitionColumns() {
-        DeltaLakePredicateConverter partitioned = new DeltaLakePredicateConverter(new StructType()
-                .add("P", DoubleType.DOUBLE).add("value", DoubleType.DOUBLE), ZoneId.of("UTC"), List.of("P"), List.of());
-        ConnectorLiteral zero = ConnectorLiteral.ofDouble(-0.0);
-        ConnectorColumnRef partition = new ConnectorColumnRef("p", ConnectorType.of("DOUBLE"));
-        ConnectorColumnRef data = new ConnectorColumnRef("value", ConnectorType.of("DOUBLE"));
-        Assertions.assertEquals("OR", partitioned.convert(new ConnectorComparison(
-                ConnectorComparison.Operator.EQ, partition, zero)).orElseThrow().getName());
-        Assertions.assertEquals("=", partitioned.convert(new ConnectorComparison(
-                ConnectorComparison.Operator.EQ, data, zero)).orElseThrow().getName());
+    void expandsBothZerosInTheDataColumnTypeAndPreservesPartitionPredicates() {
+        for (Literal negative : List.of(Literal.ofFloat(-0.0f), Literal.ofDouble(-0.0))) {
+            boolean isFloat = negative.getDataType() instanceof FloatType;
+            Literal positive = isFloat ? Literal.ofFloat(0.0f) : Literal.ofDouble(0.0);
+            ConnectorType type = ConnectorType.of(isFloat ? "FLOAT" : "DOUBLE");
+            DeltaLakePredicateConverter partitioned = new DeltaLakePredicateConverter(new StructType()
+                    .add("P", negative.getDataType()).add("value", negative.getDataType()),
+                    ZoneId.of("UTC"), List.of("P"), List.of());
+            ConnectorColumnRef data = new ConnectorColumnRef("value", type);
+            ConnectorLiteral zero = new ConnectorLiteral(type, -0.0);
+            Predicate eq = partitioned.convert(new ConnectorComparison(
+                    ConnectorComparison.Operator.EQ, data, zero)).orElseThrow();
+            Assertions.assertEquals("OR", eq.getName());
+            Assertions.assertEquals(negative, eq.getChildren().get(0).getChildren().get(1));
+            Assertions.assertEquals(positive, eq.getChildren().get(1).getChildren().get(1));
+            In in = (In) partitioned.convert(new ConnectorIn(data,
+                    List.of(zero, ConnectorLiteral.ofNull(type)), false)).orElseThrow();
+            Assertions.assertEquals(List.of(negative, positive, Literal.ofNull(negative.getDataType())),
+                    in.getInListElements());
+
+            ConnectorColumnRef partition = new ConnectorColumnRef("p", type);
+            Assertions.assertEquals(isFloat ? "=" : "OR", partitioned.convert(new ConnectorComparison(
+                    ConnectorComparison.Operator.EQ, partition, zero)).orElseThrow().getName());
+        }
     }
 
     @Test
