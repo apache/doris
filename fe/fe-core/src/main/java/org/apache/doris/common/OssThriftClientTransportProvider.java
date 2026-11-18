@@ -53,4 +53,16 @@ public class OssThriftClientTransportProvider implements ThriftClientTransportPr
         TSocket socket = new TSocket(address.hostname, address.port, timeoutMs);
         return nonBlocking ? new TFramedTransport(socket) : socket;
     }
+
+    @Override
+    public TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking,
+            RpcPurpose purpose, String peerHost) throws Exception {
+        // Preserve legacy custom provider dispatch and the external endpoint's transport policy.
+        if (getClass() != OssThriftClientTransportProvider.class || purpose == RpcPurpose.EXTERNAL_SERVICE
+                || !PrivateRpcTls.enabled(Protocol.THRIFT)) {
+            return createTransport(address, timeoutMs, nonBlocking, purpose);
+        }
+        TSocket socket = new TlsThriftSocket(address.hostname, address.port, timeoutMs, peerHost);
+        return nonBlocking ? new TFramedTransport(socket) : socket;
+    }
 }

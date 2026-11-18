@@ -49,7 +49,16 @@ public final class FileScanEncryptionGuard {
     }
 
     public static boolean checkFragments(TPipelineFragmentParamsList fragments, IntSupplier verifiedVersion) {
-        Checker checker = new Checker(verifiedVersion, FileScanEncryption.VERSION, true);
+        return checkFragments(fragments, verifiedVersion, true);
+    }
+
+    public static void checkFragments(TPipelineFragmentParamsList fragments, boolean internalRpc) {
+        checkFragments(fragments, () -> 0, internalRpc);
+    }
+
+    public static boolean checkFragments(TPipelineFragmentParamsList fragments, IntSupplier verifiedVersion,
+            boolean internalRpc) {
+        Checker checker = new Checker(verifiedVersion, FileScanEncryption.VERSION, true, internalRpc);
         if (fragments.isSetParamsList()) {
             Map<Integer, TFileScanRangeParams> paramsByNode = Map.of();
             for (TPipelineFragmentParams fragment : fragments.getParamsList()) {
@@ -82,7 +91,7 @@ public final class FileScanEncryptionGuard {
     }
 
     public static boolean checkBatch(List<TScanRangeLocations> ranges, IntSupplier verifiedVersion, int callerVersion) {
-        Checker checker = new Checker(verifiedVersion, callerVersion, false);
+        Checker checker = new Checker(verifiedVersion, callerVersion, false, true);
         for (TScanRangeLocations range : ranges) {
             checker.checkRange(range.getScanRange(), null);
         }
@@ -93,9 +102,12 @@ public final class FileScanEncryptionGuard {
         private final IntSupplier verifiedVersion;
         private final int callerVersion;
         private final boolean initialDispatch;
+        private final boolean internalRpc;
         private boolean needsCapability;
 
-        private Checker(IntSupplier verifiedVersion, int callerVersion, boolean initialDispatch) {
+        private Checker(IntSupplier verifiedVersion, int callerVersion, boolean initialDispatch,
+                boolean internalRpc) {
+            this.internalRpc = internalRpc;
             this.initialDispatch = initialDispatch;
             this.verifiedVersion = verifiedVersion;
             this.callerVersion = callerVersion;
@@ -103,6 +115,10 @@ public final class FileScanEncryptionGuard {
 
         private void checkDescriptor(TFileFormatType format, TTableFormatFileDesc table) {
             boolean encrypted = table != null && FileScanEncryption.validate(table);
+            // Remote clusters do not share the local authenticated key-transport contract.
+            if ((encrypted || format == TFileFormatType.FORMAT_PARQUET_PME) && !internalRpc) {
+                throw new IllegalStateException("File encryption [KEY_TRANSPORT_UNAVAILABLE]");
+            }
             if (encrypted && format != TFileFormatType.FORMAT_PARQUET_PME) {
                 throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
             }

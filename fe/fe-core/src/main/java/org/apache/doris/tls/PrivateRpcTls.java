@@ -98,6 +98,11 @@ public final class PrivateRpcTls {
 
     public static SSLSocket openThriftSocket(String host, int port, int connectTimeout, int readTimeout)
             throws TTransportException {
+        return openThriftSocket(host, port, connectTimeout, readTimeout, host);
+    }
+
+    public static SSLSocket openThriftSocket(String host, int port, int connectTimeout, int readTimeout,
+            String peerHost) throws TTransportException {
         Socket tcp = null;
         SSLSocket tls = null;
         boolean connected = false;
@@ -110,7 +115,8 @@ public final class PrivateRpcTls {
             tcp = new Socket();
             tcp.connect(new InetSocketAddress(host, port), thriftHandshakeTimeout(connectTimeout));
             tcp.setTcpNoDelay(true);
-            tls = (SSLSocket) context.context().getSocketFactory().createSocket(tcp, host, port, true);
+            // Connect to the DNS cache's current IP but authenticate the registered node name on every open.
+            tls = (SSLSocket) context.context().getSocketFactory().createSocket(tcp, peerHost, port, true);
             // RPC reads can be unlimited; authentication must still expire for a stalled TCP peer.
             tls.setSoTimeout(thriftHandshakeTimeout(readTimeout));
             tls.setEnabledProtocols(new String[] {"TLSv1.2", "TLSv1.3"});

@@ -90,6 +90,11 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
         this.cancelInProcess = new AtomicBoolean();
     }
 
+    void removeProxy() {
+        // Failed remote calls must evict the same endpoint policy used for prepare/start/cancel.
+        backendClientProxy.removeProxy(backend.getBrpcAddress());
+    }
+
     public Future<PExecPlanFragmentResult> sendPhaseOneRpc(boolean twoPhaseExecution) {
         return execRemoteFragmentsAsync(
                 backendClientProxy, serializeFragments, backend.getBrpcAddress(), twoPhaseExecution
@@ -126,8 +131,9 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
         try {
             TNetworkAddress brpcAddress = backend.getBrpcAddress();
             try {
+                // Cancellation must use the same endpoint policy as fragment prepare/start.
                 ListenableFuture<PCancelPlanFragmentResult> cancelResult =
-                        BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(
+                        backendClientProxy.cancelPipelineXPlanFragmentAsync(
                                 brpcAddress, queryId, cancelReason);
                 Futures.addCallback(cancelResult, new FutureCallback<PCancelPlanFragmentResult>() {
                     public void onSuccess(InternalService.PCancelPlanFragmentResult result) {

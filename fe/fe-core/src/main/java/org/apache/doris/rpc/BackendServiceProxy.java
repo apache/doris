@@ -67,29 +67,43 @@ public class BackendServiceProxy {
             "grpc_thread_pool", true);
 
     private final Map<TNetworkAddress, BackendServiceClientExtIp> serviceMap;
+    private final boolean internalRpc;
 
     public BackendServiceProxy() {
+        this(true);
+    }
+
+    BackendServiceProxy(boolean internalRpc) {
+        this.internalRpc = internalRpc;
         serviceMap = Maps.newConcurrentMap();
     }
 
     private static class Holder {
         private static final int PROXY_NUM = Config.backend_proxy_num;
         private static BackendServiceProxy[] proxies = new BackendServiceProxy[PROXY_NUM];
+        private static BackendServiceProxy[] remoteProxies = new BackendServiceProxy[PROXY_NUM];
         private static AtomicInteger count = new AtomicInteger();
 
         static {
             for (int i = 0; i < proxies.length; i++) {
                 proxies[i] = new BackendServiceProxy();
+                remoteProxies[i] = new BackendServiceProxy(false);
             }
         }
 
-        static BackendServiceProxy get() {
-            return proxies[Math.abs(count.addAndGet(1) % PROXY_NUM)];
+        static BackendServiceProxy get(boolean internalRpc) {
+            // Independent clusters must not consume a cached private channel at the same address.
+            BackendServiceProxy[] selected = internalRpc ? proxies : remoteProxies;
+            return selected[Math.abs(count.addAndGet(1) % PROXY_NUM)];
         }
     }
 
     public static BackendServiceProxy getInstance() {
-        return Holder.get();
+        return Holder.get(true);
+    }
+
+    public static BackendServiceProxy getInstance(boolean internalRpc) {
+        return internalRpc ? getInstance() : Holder.get(false);
     }
 
     private class BackendServiceClientExtIp {
@@ -156,7 +170,7 @@ public class BackendServiceProxy {
             }
             if (serviceClientExtIp == null) {
                 // Pass resolved IP to BackendServiceClient to avoid DNS resolution at gRPC layer
-                BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool);
+                BackendServiceClient client = new BackendServiceClient(address, realIp, grpcThreadPool, internalRpc);
                 serviceMap.put(address, new BackendServiceClientExtIp(realIp, client));
             }
             return serviceMap.get(address).client;
@@ -171,7 +185,8 @@ public class BackendServiceProxy {
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
             TPipelineFragmentParamsList params, boolean twoPhaseExecution) throws TException, RpcException {
         // This direct entry bypasses the pipeline task builder, but has the same transport restriction.
-        FileScanEncryptionGuard.checkFragments(params, () -> NativeFileEncryptionSupport.version(address));
+        FileScanEncryptionGuard.checkFragments(params,
+                () -> NativeFileEncryptionSupport.version(address), internalRpc);
         InternalService.PExecPlanFragmentRequest.Builder builder =
                 InternalService.PExecPlanFragmentRequest.newBuilder();
         if (Config.use_compact_thrift_rpc) {

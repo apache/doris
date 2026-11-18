@@ -22,8 +22,8 @@ namespace doris::client {
 Status configure_brpc_channel_options(brpc::ChannelOptions* options,
                                       [[maybe_unused]] RpcPurpose purpose) {
 #ifdef DORIS_OSS_PRIVATE_RPC_PROVIDERS
-    // FE validates external RPC functions over plaintext. Cluster TLS must not change their
-    // execution transport, and enabling TLS for external services is a separate contract.
+    // External functions and remote Doris clusters keep their own endpoint policy; enabling
+    // private TLS here must not send TLS handshakes to their existing plaintext listeners.
     if (purpose == RpcPurpose::EXTERNAL_SERVICE) {
         return Status::OK();
     }
@@ -34,7 +34,7 @@ Status configure_brpc_channel_options(brpc::ChannelOptions* options,
 std::shared_ptr<apache::thrift::transport::TSocket> create_thrift_client_socket(
         const std::string& host, int port, [[maybe_unused]] RpcPurpose purpose) {
 #ifdef DORIS_OSS_PRIVATE_RPC_PROVIDERS
-    // Broker filesystem calls share the external endpoint policy used by FE, including on reopen.
+    // Brokers and remote catalog FEs retain their external policy, including on reopen.
     if (purpose == RpcPurpose::EXTERNAL_SERVICE) {
         return std::make_shared<apache::thrift::transport::TSocket>(host, port);
     }

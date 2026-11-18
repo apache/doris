@@ -29,4 +29,10 @@ public interface BackendServiceClientChannelProvider {
     default boolean supportsPrivateFileKeys() {
         return false;
     }
+
+    default ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor,
+            boolean internalRpc) {
+        // Preserve custom providers' existing endpoint policy until they opt into purpose selection.
+        return createChannel(address, resolvedIp, executor);
+    }
 }

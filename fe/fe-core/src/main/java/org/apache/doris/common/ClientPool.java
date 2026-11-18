@@ -72,6 +72,12 @@ public class ClientPool {
     public static GenericPool<FrontendService.Client> frontendPool =
             new GenericPool("FrontendService", backendConfig, Config.backend_rpc_timeout_ms,
                     Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
+    // Remote Doris catalogs belong to independent clusters and keep their existing plaintext policy.
+    // A separate pool prevents a remote client from being reused for an internal TLS endpoint.
+    public static GenericPool<FrontendService.Client> remoteFrontendPool =
+            new GenericPool<>("FrontendService", backendConfig, Config.backend_rpc_timeout_ms,
+                    Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR),
+                    ThriftClientTransportProvider.RpcPurpose.EXTERNAL_SERVICE);
     public static GenericPool<FrontendService.Client> frontendStatsPool =
             new GenericPool<>("FrontendService", heartbeatConfig, heartbeatTimeoutMs,
                     Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));

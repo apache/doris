@@ -18,6 +18,7 @@
 #include <arrow/util/config.h>
 #include <brpc/channel.h>
 #include <brpc/server.h>
+#include <brpc/stream.h>
 #include <fcntl.h>
 #include <gtest/gtest.h>
 #include <spawn.h>
@@ -44,6 +45,7 @@
 
 #include "common/config.h"
 #include "exec/scan/file_scan_range_utils.h"
+#include "exec/sink/load_stream_stub.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/TPaloBrokerService.h"
@@ -57,6 +59,7 @@
 #include "util/defer_op.h"
 #include "util/dns_cache.h"
 #include "util/private_rpc_tls.h"
+#include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 
 namespace doris {
@@ -723,6 +726,159 @@ TEST_F(InternalRpcTlsTest, ClientCacheReturnsStatusForTlsConstructionFailuresAnd
             ASSERT_TRUE(status.ok()) << status;
             expect_successful_split(recovered);
         }
+    }
+}
+
+TEST_F(InternalRpcTlsTest, RemoteFrontendCallbacksRetainPlaintextAcrossReopenAndMasterChange) {
+    // The real client cache resolves even numeric endpoints through ExecEnv's DNS cache.
+    DNSCache dns;
+    auto* previous_dns = std::exchange(ExecEnv::GetInstance()->_dns_cache, &dns);
+    Defer restore_dns {[&] { ExecEnv::GetInstance()->_dns_cache = previous_dns; }};
+    auto processor =
+            std::make_shared<FrontendServiceProcessor>(std::make_shared<TlsSplitService>());
+    config::enable_tls = false;
+    ThriftServer first("remote-frontend-first", processor, 0);
+    ThriftServer second("remote-frontend-second", processor, 0);
+    first.set_server_socket(
+            std::make_shared<apache::thrift::transport::TServerSocket>("127.0.0.1", 0));
+    second.set_server_socket(
+            std::make_shared<apache::thrift::transport::TServerSocket>("127.0.0.1", 0));
+    ASSERT_TRUE(first.start().ok());
+    Defer stop_first {[&] { first.stop_for_testing(); }};
+    ASSERT_TRUE(second.start().ok());
+    Defer stop_second {[&] { second.stop_for_testing(); }};
+    config::enable_tls = true;
+    ClientCache<FrontendServiceClient> remote_cache(2, false);
+    TNetworkAddress address;
+    address.__set_hostname("127.0.0.1");
+    address.__set_port(first._server_socket->getPort());
+    Status status;
+    {
+        FrontendServiceConnection connection(&remote_cache, address, 1000, &status, 0);
+        ASSERT_TRUE(status.ok()) << status;
+        expect_successful_split(connection);
+        ASSERT_TRUE(connection.reopen(1000).ok());
+        expect_successful_split(connection);
+    }
+    // The address-provider retry must keep the remote cache when a new master is returned.
+    int attempt = 0;
+    auto call = [&](FrontendServiceConnection& connection) {
+        expect_successful_split(connection);
+        if (attempt++ == 0) {
+            address.__set_port(second._server_socket->getPort());
+            throw apache::thrift::transport::TTransportException("fixture master changed");
+        }
+    };
+    auto result = ThriftRpcHelper::rpc<FrontendServiceClient>([&] { return address; }, call, 1000,
+                                                              &remote_cache);
+    EXPECT_TRUE(result.ok()) << result;
+    EXPECT_EQ(2, attempt);
+}
+
+class RemoteStreamService final : public PBackendService {
+public:
+    ~RemoteStreamService() override {
+        for (auto stream : streams) {
+            brpc::StreamClose(stream);
+        }
+    }
+
+    void open_load_stream(google::protobuf::RpcController* controller,
+                          const POpenLoadStreamRequest*, POpenLoadStreamResponse* response,
+                          google::protobuf::Closure* done) override {
+        brpc::ClosureGuard guard(done);
+        brpc::StreamId stream;
+        if (brpc::StreamAccept(&stream, *static_cast<brpc::Controller*>(controller), nullptr) !=
+            0) {
+            controller->SetFailed("Fixture stream acceptance failed");
+            return;
+        }
+        streams.push_back(stream);
+        response->mutable_status()->set_status_code(0);
+    }
+
+    std::vector<brpc::StreamId> streams;
+};
+
+TEST_F(InternalRpcTlsTest, RemoteDorisStreamingWritesOpenPlaintextStreamsWithPrivateTlsEnabled) {
+    RemoteStreamService service;
+    brpc::Server server;
+    ASSERT_EQ(0, server.AddService(&service, brpc::SERVER_DOESNT_OWN_SERVICE));
+    ASSERT_EQ(0, server.Start("127.0.0.1:0", nullptr));
+    Defer shutdown {[&] {
+        server.Stop(0);
+        server.Join();
+    }};
+    InternalServiceClientCache cache("baidu_std", "", "streaming");
+    NodeInfo node {};
+    node.id = 1;
+    node.host = "127.0.0.1";
+    node.brpc_port = server.listen_address().port;
+    OlapTableSchemaParam schema;
+    ASSERT_TRUE(schema.init(TOlapTableSchemaParam()).ok());
+    LoadStreamStubs streams(2, UniqueId(1, 2), 1, std::make_shared<IndexToTabletSchema>(),
+                            std::make_shared<IndexToEnableMoW>());
+    auto result = streams.open(&cache, node, 1, schema, {}, 2, 1000, false, true);
+    EXPECT_TRUE(result.ok()) << result;
+    EXPECT_EQ(2, service.streams.size());
+    streams.cancel(Status::Cancelled("Fixture complete"));
+}
+
+// Gtest assertions inflate the complexity of this two-connection-group policy matrix.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(InternalRpcTlsTest, RemoteDorisBackendDoesNotUseTheLocalPrivateTlsPolicy) {
+    TlsEchoService service;
+    brpc::Server server;
+    ASSERT_EQ(0, server.AddService(&service, brpc::SERVER_DOESNT_OWN_SERVICE));
+    ASSERT_EQ(0, server.Start("127.0.0.1:0", nullptr));
+    Defer shutdown {[&] {
+        server.Stop(0);
+        server.Join();
+    }};
+    const std::string host = "127.0.0.1";
+    const int port = server.listen_address().port;
+    const std::string endpoint = host + ":" + std::to_string(port);
+    for (const auto& group : {std::string(), std::string("streaming")}) {
+        InternalServiceClientCache cache("baidu_std", "", group);
+        auto remote = cache.get_client(host, port, client::RpcPurpose::EXTERNAL_SERVICE);
+        auto fresh = cache.get_new_client_no_cache(endpoint, "", "", "", 500, 0,
+                                                   client::RpcPurpose::EXTERNAL_SERVICE);
+        auto internal = cache.get_client(host, port);
+        ASSERT_NE(nullptr, remote);
+        ASSERT_NE(nullptr, fresh);
+        ASSERT_NE(nullptr, internal);
+        EXPECT_NE(remote, internal);
+        EXPECT_EQ(remote, cache.get_client(host, port, client::RpcPurpose::EXTERNAL_SERVICE));
+        auto call = [&](const auto& stub) {
+            brpc::Controller cntl;
+            cntl.set_timeout_ms(500);
+            cntl.set_max_retry(0);
+            PExecPlanFragmentRequest request;
+            PExecPlanFragmentResult response;
+            stub->exec_plan_fragment(&cntl, &request, &response, nullptr);
+            return !cntl.Failed() && response.status().status_code() == 0;
+        };
+        EXPECT_TRUE(call(remote));
+        EXPECT_TRUE(call(fresh));
+        auto http = cache.get_new_client_no_cache(endpoint, "http", "", "", 500, 0,
+                                                  client::RpcPurpose::EXTERNAL_SERVICE);
+        ASSERT_NE(nullptr, http);
+        EXPECT_TRUE(call(http));
+        // A warm external connection at the same address must not bypass internal TLS.
+        EXPECT_FALSE(call(internal));
+        EXPECT_TRUE(call(remote));
+        EXPECT_EQ(1, cache.erase(host, port, client::RpcPurpose::EXTERNAL_SERVICE));
+        EXPECT_EQ(internal, cache.get_client(host, port));
+        EXPECT_TRUE(call(cache.get_client(host, port, client::RpcPurpose::EXTERNAL_SERVICE)));
+        std::vector<std::string> endpoints;
+        cache.get_all(&endpoints);
+        EXPECT_EQ(std::vector<std::string> {endpoint}, endpoints);
+        EXPECT_TRUE(cache.exist(endpoint));
+        EXPECT_EQ(2, cache.erase(endpoint));
+        EXPECT_EQ(0, cache.size());
+        EXPECT_NE(nullptr, cache.get_client(host, port, client::RpcPurpose::EXTERNAL_SERVICE));
+        cache.clear();
+        EXPECT_EQ(0, cache.size());
     }
 }
 
