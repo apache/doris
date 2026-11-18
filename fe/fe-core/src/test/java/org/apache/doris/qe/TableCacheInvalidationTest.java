@@ -28,6 +28,7 @@ import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.mtmv.MTMVService;
@@ -198,6 +199,21 @@ class TableCacheInvalidationTest extends TestWithFeService {
         Assertions.assertEquals(0, Env.getCurrentEnv().getSortedPartitionsCacheManager()
                 .getPartitionCaches().estimatedSize());
         Assertions.assertTrue(aggregates.invalidated.containsAll(ImmutableList.of(target.getId(), control.getId())));
+    }
+
+    @Test
+    void replaceTempPartitionOnMasterInvalidatesAllTableCaches() throws Exception {
+        // ALTER TABLE notifies by itself, so add the temporary partition before warming the caches.
+        alterTableSync("ALTER TABLE cache_replay.target ADD TEMPORARY PARTITION tp1 VALUES LESS THAN (10)");
+        long tempPartitionId = target.getPartition("tp1", true).getId();
+        warmBothTables();
+
+        // Insert overwrite and MTMV refresh replace partitions through this path instead of ALTER TABLE.
+        InsertOverwriteUtil.replacePartition(target, ImmutableList.of("p1"), ImmutableList.of("tp1"));
+
+        Assertions.assertEquals(tempPartitionId, target.getPartition("p1").getId());
+        Assertions.assertFalse(target.checkPartitionNameExist("tp1", true));
+        assertTargetInvalidated();
     }
 
     @Test
