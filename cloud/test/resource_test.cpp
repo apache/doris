@@ -283,6 +283,7 @@ protected:
     }
 
     void alter_node(const AlterClusterRequest& req, MetaServiceCode expected_code) {
+        ScopedLegacyInstanceRpc legacy_instance_rpc;
         brpc::Controller cntl;
         AlterClusterResponse resp;
         meta_service->alter_cluster(&cntl, &req, &resp, brpc::DoNothing());
