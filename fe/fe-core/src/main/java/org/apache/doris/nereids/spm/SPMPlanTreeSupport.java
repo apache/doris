@@ -5282,8 +5282,8 @@ public final class SPMPlanTreeSupport {
             // a missing / differently sized sort is the ORDER BY contract check's business
             return true;
         }
-        Map<String, Expression> bindLabels = outputLabelExpressions(bindItems);
-        Map<String, Expression> planLabels = outputLabelExpressions(planItems);
+        Map<String, Optional<NamedExpression>> bindLabels = outputLabels(bindItems);
+        Map<String, Optional<NamedExpression>> planLabels = outputLabels(planItems);
         for (int i = 0; i < bindKeys.size(); i++) {
             if (!sameResolvedExpression(bindKeys.get(i).getExpr(), bindLabels,
                     planKeys.get(i).getExpr(), planLabels, 0)) {
@@ -5293,27 +5293,18 @@ public final class SPMPlanTreeSupport {
         return true;
     }
 
-    /**
-     * One output list's label-to-EXPRESSION mapping (see sameResolvedSortKeys): an ALIAS's name
-     * resolves to its body, the label-only forms keep their child as well.
-     *
-     * Parameter items: the output list
-     * Returns: the lower-cased label map (the FIRST occurrence of a duplicate wins)
-     */
-    private static Map<String, Expression> outputLabelExpressions(List<NamedExpression> items) {
-        Map<String, Expression> labels = new HashMap<>();
+    /** Collects output labels, using an empty value for a name that would bind to multiple outputs. */
+    private static Map<String, Optional<NamedExpression>> outputLabels(List<NamedExpression> items) {
+        Map<String, Optional<NamedExpression>> labels = new HashMap<>();
         for (NamedExpression item : items) {
             String label = outputLabelOf(item);
             if (label == null || label.isEmpty()) {
                 continue;
             }
-            Expression expression = item;
-            if (item instanceof Alias) {
-                expression = ((Alias) item).child();
-            } else if (item instanceof UnboundAlias) {
-                expression = ((UnboundAlias) item).child();
-            }
-            labels.putIfAbsent(label.toLowerCase(Locale.ROOT), expression);
+            // Repeating a reference to the same slot does not create a second binding.
+            labels.merge(label.toLowerCase(Locale.ROOT), Optional.of(item),
+                    (previous, replacement) -> previous.filter(output -> output instanceof Slot
+                            && output.equals(item)));
         }
         return labels;
     }
@@ -5336,8 +5327,8 @@ public final class SPMPlanTreeSupport {
      * Returns: whether both keys yield the same value
      */
     private static boolean sameResolvedExpression(Expression bindKey,
-            Map<String, Expression> bindLabels, Expression planKey,
-            Map<String, Expression> planLabels, int depth) {
+            Map<String, Optional<NamedExpression>> bindLabels, Expression planKey,
+            Map<String, Optional<NamedExpression>> planLabels, int depth) {
         if (depth > 8) {
             return false;
         }
@@ -5403,8 +5394,8 @@ public final class SPMPlanTreeSupport {
         if (bindPredicates.isEmpty()) {
             return true;
         }
-        Map<String, Expression> bindLabels = outputLabelExpressions(bindItems);
-        Map<String, Expression> planLabels = outputLabelExpressions(planItems);
+        Map<String, Optional<NamedExpression>> bindLabels = outputLabels(bindItems);
+        Map<String, Optional<NamedExpression>> planLabels = outputLabels(planItems);
         boolean[] matched = new boolean[planPredicates.size()];
         for (Expression bindPredicate : bindPredicates) {
             boolean found = false;
@@ -5453,9 +5444,9 @@ public final class SPMPlanTreeSupport {
             LogicalAggregate<?> bindAggregate = bindAggregates.get(i);
             LogicalAggregate<?> planAggregate = planAggregates.get(i);
             if (!sameResolvedExpressionSet(bindAggregate.getGroupByExpressions(),
-                    outputLabelExpressions(bindAggregate.getOutputExpressions()),
+                    outputLabels(bindAggregate.getOutputExpressions()),
                     planAggregate.getGroupByExpressions(),
-                    outputLabelExpressions(planAggregate.getOutputExpressions()))) {
+                    outputLabels(planAggregate.getOutputExpressions()))) {
                 return false;
             }
         }
@@ -5480,10 +5471,8 @@ public final class SPMPlanTreeSupport {
             if (bindSets.size() != planSets.size()) {
                 return true;
             }
-            Map<String, Expression> bindLabels =
-                    outputLabelExpressions(bindRepeat.getOutputExpressions());
-            Map<String, Expression> planLabels =
-                    outputLabelExpressions(planRepeat.getOutputExpressions());
+            Map<String, Optional<NamedExpression>> bindLabels = outputLabels(bindRepeat.getOutputExpressions());
+            Map<String, Optional<NamedExpression>> planLabels = outputLabels(planRepeat.getOutputExpressions());
             for (int set = 0; set < bindSets.size(); set++) {
                 if (!sameResolvedExpressionSet(bindSets.get(set), bindLabels,
                         planSets.get(set), planLabels)) {
@@ -5510,8 +5499,8 @@ public final class SPMPlanTreeSupport {
      * surrounding topology checks validate arity.
      */
     private static boolean sameResolvedExpressionSet(List<Expression> bindKeys,
-            Map<String, Expression> bindLabels, List<Expression> planKeys,
-            Map<String, Expression> planLabels) {
+            Map<String, Optional<NamedExpression>> bindLabels, List<Expression> planKeys,
+            Map<String, Optional<NamedExpression>> planLabels) {
         if (bindKeys.size() != planKeys.size()) {
             return true;
         }
@@ -5548,15 +5537,15 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * The expression an output LABEL resolves to (see sameResolvedKey), or null when the
-     * expression is not a bare slot naming one of the block's labels.
+     * Resolves a bare name against the output list, rejecting a consumed ambiguous label.
+     * Returns null when the expression does not reference an output label.
      *
      * Parameter expression: the key expression (or a subexpression)
      * Parameter labels: the label map of that side
      * Returns: the resolved expression, or null
      */
     private static Expression resolveOutputLabel(Expression expression,
-            Map<String, Expression> labels) {
+            Map<String, Optional<NamedExpression>> labels) {
         if (labels.isEmpty() || !(expression instanceof UnboundSlot)) {
             return null;
         }
@@ -5564,7 +5553,21 @@ public final class SPMPlanTreeSupport {
         if (parts == null || parts.size() != 1) {
             return null; // a qualified reference addresses a relation, never an output alias
         }
-        return labels.get(parts.get(0).toLowerCase(Locale.ROOT));
+        String name = parts.get(0);
+        Optional<NamedExpression> candidate = labels.get(name.toLowerCase(Locale.ROOT));
+        if (candidate == null) {
+            return null;
+        }
+        NamedExpression output = candidate.orElseThrow(() ->
+                new org.apache.doris.nereids.exceptions.AnalysisException("SPM cannot align the plan SQL with"
+                        + " the bind SQL: the referenced output name '" + name + "' is ambiguous"));
+        if (output instanceof Alias) {
+            return ((Alias) output).child();
+        }
+        if (output instanceof UnboundAlias) {
+            return ((UnboundAlias) output).child();
+        }
+        return output;
     }
 
     /**

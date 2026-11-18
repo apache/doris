@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Like;
@@ -2746,6 +2747,15 @@ public class SPMPlan2SQLBuilderTest {
     // ==================== LIKE ... ESCAPE ====================
 
     /** A three-argument LIKE keeps its ESCAPE child (dropping it changes the match). */
+    @Test
+    public void testComparisonOperandsPreservePredicateBoundaries() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        Expression left = new IsNull(k);
+        Expression right = new InPredicate(k, List.of(new IntegerLiteral(1), new IntegerLiteral(2)));
+        String sql = new EqualTo(left, right).accept(new SPMExprSqlBuilder(), new SQLRelation());
+        Assertions.assertEquals("((k IS NULL) = (k IN (1, 2)))", sql);
+    }
+
     @Test
     public void testLikeEscapeIsRendered() {
         SlotReference s = new SlotReference("s", org.apache.doris.nereids.types.VarcharType.SYSTEM_DEFAULT);

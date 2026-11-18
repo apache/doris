@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -176,6 +177,29 @@ public class AuditLoaderTest {
         }
     }
 
+    @Test
+    public void testEnqueueDoesNotWaitForStreamLoadMonitor() throws Exception {
+        boolean originalEnabled = GlobalVariable.enableAuditLoader;
+        GlobalVariable.enableAuditLoader = true;
+        try {
+            AuditLoader auditLoader = new AuditLoader();
+            BlockingQueue<AuditEvent> queue = Queues.newLinkedBlockingDeque(1000);
+            Deencapsulation.setField(auditLoader, "auditEventQueue", queue);
+            AuditEvent auditEvent = event(1L);
+            Thread producer = new Thread(() -> auditLoader.exec(auditEvent));
+
+            // A stream load can hold this monitor for the duration of its HTTP request.
+            synchronized (auditLoader) {
+                producer.start();
+                producer.join(5000);
+                Assertions.assertFalse(producer.isAlive(), "enqueue waited for the stream-load monitor");
+                Assertions.assertSame(auditEvent, queue.poll());
+            }
+        } finally {
+            GlobalVariable.enableAuditLoader = originalEnabled;
+        }
+    }
+
     /**
      * Round-92 review fix: the idle wait is bounded by the BATCH's own flush deadline, so a
      * configured interval below the poll interval is not stretched to the poll interval.
@@ -187,14 +211,14 @@ public class AuditLoaderTest {
         try {
             AuditLoader auditLoader = new AuditLoader();
             Deencapsulation.setField(auditLoader, "auditLogNum", 0);
-            long idle = Deencapsulation.invoke(auditLoader, "idleWaitMillisLocked");
+            long idle = Deencapsulation.invoke(auditLoader, "idleWaitMillis");
             Assertions.assertEquals(AuditLoader.QUEUE_POLL_INTERVAL_MILLIS, idle,
                     "an empty batch waits the whole poll interval");
 
             Deencapsulation.setField(auditLoader, "auditLogNum", 1);
             Deencapsulation.setField(auditLoader, "lastLoadTimeAuditLog",
                     System.currentTimeMillis());
-            long pending = Deencapsulation.invoke(auditLoader, "idleWaitMillisLocked");
+            long pending = Deencapsulation.invoke(auditLoader, "idleWaitMillis");
             Assertions.assertTrue(pending > 0 && pending <= 1000L,
                     "a 1s batch interval must not be stretched to the poll interval: "
                             + pending + "ms");

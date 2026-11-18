@@ -90,6 +90,14 @@ public class SPMRound79PlannerTest {
                 "`k` addresses the base column on both sides");
     }
 
+    @Test
+    public void testHavingOnABaseColumnAllowsUnusedDuplicateLabels() {
+        String bind = "SELECT k AS x, v AS x FROM t HAVING k > 0";
+        String plan = "SELECT k AS x, v AS y FROM t HAVING k > 0";
+        Assertions.assertDoesNotThrow(
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind));
+    }
+
     /** Without HAVING the label really is only a label. */
     @Test
     public void testLabelRenameWithoutHavingIsAccepted() {

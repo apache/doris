@@ -32,6 +32,12 @@ suite("test_spm_replay_semantics", "spm") {
         PROPERTIES("replication_num" = "1")"""
     sql "INSERT INTO spm_replay_semantics_u VALUES (1), (2)"
 
+    sql "DROP TABLE IF EXISTS spm_replay_sink_order"
+    sql """CREATE TABLE spm_replay_sink_order (a INT, b INT)
+        DUPLICATE KEY(a) DISTRIBUTED BY HASH(a) BUCKETS 1
+        PROPERTIES("replication_num" = "1")"""
+    sql "INSERT INTO spm_replay_sink_order VALUES (1, 2)"
+
     sql "SET enable_spm_rewrite = true"
     sql "SET enable_spm_fallback = false"
     sql "SET enable_sql_cache = false"
@@ -77,6 +83,36 @@ suite("test_spm_replay_semantics", "spm") {
 
     String negation = "SELECT b, (NOT b) IS NULL AS c FROM spm_replay_semantics_t"
     verify("negation", negation, negation)
+
+    String predicates = """SELECT b, k, a, s, b = (k IS NULL) AS is_null,
+        b = (s LIKE 'a%') AS like_a, b = (a IN (1, 2)) AS in_a FROM spm_replay_semantics_t"""
+    withBaseline(predicates) { long id ->
+        order_qt_predicate_rows predicates
+        qt_predicate_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        boolean hit = explainHit(predicates, id)
+        qt_predicate_hit "SELECT ${hit}"
+    }
+
+    String sinkOrder = "SELECT b, a FROM spm_replay_sink_order"
+    withBaseline(sinkOrder) { long id ->
+        def (rows, meta) = JdbcUtils.executeToList(context.getConnection(), sinkOrder)
+        qt_sink_order """SELECT ${rows[0][0]}, ${rows[0][1]},
+            '${meta.getColumnLabel(1)}', '${meta.getColumnLabel(2)}'"""
+        qt_sink_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        boolean hit = explainHit(sinkOrder, id)
+        qt_sink_hit "SELECT ${hit}"
+    }
+
+    String ambiguous = "SELECT k AS x, v AS x FROM spm_replay_semantics_t HAVING x > 0"
+    String unambiguous = "SELECT k AS x, v AS y FROM spm_replay_semantics_t HAVING x > 0"
+    test {
+        sql ambiguous
+        exception "ambiguous"
+    }
+    test {
+        sql """CREATE GLOBAL BASELINE PLAN "${ambiguous}" WITH "${unambiguous}" """
+        exception "the referenced output name 'x' is ambiguous"
+    }
 
     String recursive = "WITH RECURSIVE c(k) AS" +
             " (SELECT k FROM ASSERT_ROWS (SELECT k FROM spm_replay_semantics_u) a" +

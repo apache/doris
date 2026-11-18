@@ -9,6 +9,28 @@ true	false
 -- !negation_hit --
 true
 
+-- !predicate_rows --
+\N	-1	1	a	\N	\N	\N
+\N	-1	2	b	\N	\N	\N
+true	-1	\N	\N	false	\N	\N
+true	-1	1	a	false	true	true
+true	1	1	a	false	true	true
+
+-- !predicate_frozen --
+true
+
+-- !predicate_hit --
+true
+
+-- !sink_order --
+2	1	b	a
+
+-- !sink_frozen --
+true
+
+-- !sink_hit --
+true
+
 -- !recursive_assertion_hit --
 true
 
