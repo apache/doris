@@ -685,10 +685,28 @@ struct TMongoSnapshot {
     7: optional string timeseries_options_json
 }
 
-// Stable single-cursor read contract. Driver objects and active sessions remain local to FE/BE.
-// The reader validates the required version-1 fields before opening the logical namespace.
+// One partition of a complete, frozen MongoDB plan. Bounds are typed BSON values, never SQL casts.
+struct TMongoSplit {
+    // range, or single when planning retained the complete namespace.
+    1: optional string strategy
+    // Top-level BSON field and scalar family (objectId/integer/date); empty for single.
+    2: optional string field
+    3: optional string type_family
+    // Zero-based partition number; the last range-plan partition is the disjoint complement.
+    4: optional i32 index
+    // Desired total, admitted total, and frozen total, including the complement.
+    5: optional i32 requested
+    6: optional i32 admitted
+    7: optional i32 actual
+    // Stable decision code only; never contains source values, URIs, or driver errors.
+    8: optional string reason
+    // Independent partition predicate, ANDed with the SQL candidate while preserving its residual.
+    9: optional binary filter_bson
+}
+
+// Stable read descriptor. Driver objects and active sessions remain local to FE/BE.
 struct TMongoScanDesc {
-    // Descriptor layout understood by the native reader; currently 1.
+    // Version 1 is the complete single cursor; version 2 requires a frozen range partition.
     1: optional i32 version
     // Doris catalog identity used to isolate authenticated BE client pools.
     2: optional i64 catalog_id
@@ -729,13 +747,14 @@ struct TMongoScanDesc {
     // Positive document count requested per find/getMore driver batch (1..65536), from the session.
     // Doris output blocks also obey a separate row/byte budget in MongoFileReader.
     17: optional i32 batch_size
-    // Native scan lifetime in milliseconds, derived from session query_timeout; bounds pool waits
-    // and driver operations and is also checked before/after advancing the cursor.
+    // Local scan lifetime in milliseconds, derived from session query_timeout; bounds pool waits
+    // and socket/server execution budgets and is checked before/after cursor advancement.
+    // Synchronous connection/selection can still run up to their stable configured transport caps.
     // Snapshot planning subtracts elapsed FE snapshot-selection/planning time before publishing it.
     18: optional i64 timeout_ms
-    // Connection establishment timeout in milliseconds; bounded by timeout_ms when creating a pool.
+    // Stable connection establishment cap in milliseconds; independent of per-scan remaining time.
     19: optional i32 connect_timeout_ms
-    // Server-selection timeout in milliseconds; bounded by timeout_ms when creating a pool.
+    // Stable server-selection cap in milliseconds; independent of per-scan remaining time.
     20: optional i32 server_selection_timeout_ms
     // Socket I/O timeout in milliseconds; the leased client is bounded by the remaining scan time.
     21: optional i32 socket_timeout_ms
@@ -748,6 +767,8 @@ struct TMongoScanDesc {
     24: optional binary projection_bson
     // Present exactly for read_concern=snapshot; every participating scan uses the same timestamp.
     25: optional TMongoSnapshot snapshot
+    // Version 2 requires a range partition at the common snapshot; single may carry diagnostics.
+    26: optional TMongoSplit split
 }
 
 struct TTableFormatFileDesc {

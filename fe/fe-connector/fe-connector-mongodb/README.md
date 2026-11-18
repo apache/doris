@@ -217,8 +217,89 @@ snapshot reads with concurrent inserts and **without concurrent drop/rename** of
 time-series collection. An observed options change fails the read. Options equality
 cannot detect dropping and recreating an identical time-series definition, so that
 DDL combination is outside this contract. No internal bucket reads are introduced.
-Snapshot consistency does not imply parallel range partitioning; each namespace
-continues to use one native cursor.
+Single remains the default. Qualified ordinary collections can opt into the bounded
+range planner below; views and time-series collections retain one cursor.
+
+## Bounded parallel scans
+
+Use a matching FE/BE deployment and `mongodb_read_concern='snapshot'`. The initial
+parallel contract covers ordinary collections on the qualified MongoDB 7/8 replica
+sets and mongos. Standard views and time-series range scans are rejected explicitly;
+`auto` retains their declared single-cursor paths when the requested read concern is
+supported. No direct shard or bucket scans are used.
+
+```sql
+SELECT /*+ SET_VAR(mongodb_read_concern='snapshot', mongodb_split_strategy='range',
+                  mongodb_split_count=8) */ count(*) FROM mongo_native.sample.records;
+```
+
+| Session variable | Default | Meaning |
+| --- | --- | --- |
+| `mongodb_split_strategy` | `single` | `single`, conservative `auto`, or explicit `range` |
+| `mongodb_split_field` | empty | Select `_id`; an explicit top-level field requires exactly one MongoDB scan in the statement |
+| `mongodb_split_count` | `0` | Desired total including complement; zero estimates from logical collection bytes, one uses single |
+| `mongodb_split_max_count` | `256` | Per-scan total cap; requested counts above it are rejected |
+| `mongodb_split_target_bytes` | `268435456` | Estimated logical bytes per split; storage compression and residual selectivity are not used |
+| `mongodb_split_sample_rows` | `4096` | Maximum boundary samples; fixed-width scalar projection also limits returned bytes |
+| `mongodb_split_plan_timeout_ms` | `2000` | Optional probe budget, further capped by remaining query time |
+
+Range planning additionally requires `listIndexes` and `collStats` on the collection;
+a missing privilege fails explicitly. The planner admits a completed, visible,
+non-hidden, non-sparse, non-partial B-tree
+index with the split field first and simple collation. Samples come from a bounded
+index-prefix read at the statement's T, not skip/limit pagination or a full sort.
+This is a tuning hint and can be skewed; it is not an unbiased cardinality estimate.
+Sampling has a 1 MiB returned-byte cap, a 128-index/64 KiB metadata cap, client CSOT,
+server execution limits, and cancellation checks. At most two probes run concurrently;
+completed probes share a 16 MiB statement budget for returned sample/metadata bytes.
+
+Scalar families are ObjectId, signed int32/int64, and BSON Date. Comparisons retain
+all 12 ObjectId bytes, exact signed 64-bit integers and epoch milliseconds. Decimal128,
+double, strings, arrays, nested/compound fields and BSON Timestamp are not range
+families. Their documents are still read by the complement; explicit requests whose
+samples provide no supported family fail, while `auto` records the fallback reason.
+Date partitioning does not cast into SQL DATETIME precision or the session time zone.
+Decimal and other output conversions continue through the existing SerDes.
+
+Every ordinary collection plan keeps exactly one complement for missing, null, arrays
+and other families. `$expr/$type` tests the field itself, rather than matching array
+elements. Sorted quantiles preserve duplicate frequencies before boundary deduplication;
+ranges cover `(-infinity,b1)`, `[b1,b2)`, ..., `[bn,+infinity)` by omitting infinite ends.
+Neither a validator nor homogeneous samples prove that the complement is unnecessary.
+The source candidate is ANDed with each partition; SQL residuals remain in Doris,
+including when predicate/projection pushdown switches are off or strict decoding is used.
+
+A statement admits at most 4096 planned range partitions in total and 256 per pinned
+source, including complements; unused quantile slots are refunded. Conservative
+serialized descriptor budgets are 8 MiB per plan, 32 MiB per pinned source and 64 MiB
+per statement, including repeated schema/connection/filter payloads. Wide metadata
+therefore reduces admitted counts instead of multiplying into an oversized split RPC. These are planning
+limits for the opted-in range path, not a new cross-statement/cross-BE source service.
+The existing per-catalog/configuration BE client-pool bound controls leases during
+execution and is shared across unequal remaining query deadlines. Splits are tasks,
+not additional clients opened inside every scanner. General D06 resource-policy and
+credential-lifecycle extensions remain outside this change.
+
+`auto` requires known logical collection size to account for an additional complement
+scan and retains single for a small collection, missing index, unknown cost, unsupported
+family or exhausted optional probe budget. It does not convert authorization, history,
+identity, cancellation or source transport errors into successful fallback. `range`
+reports unsupported planning conditions rather than silently changing fields.
+Requested/admitted/actual counts, type family and stable decision reasons appear in
+EXPLAIN and completed Profiles; bounds and connection secrets do not.
+
+The complete boundary/complement table is frozen before publishing its first split.
+Streaming creates descriptors under engine backpressure instead of retaining a schema
+copy per split. A failed plan remains failed for the statement; after publication,
+source failures fail the SQL without reselecting T or appending a full-namespace rescan.
+Version-2 descriptors require the range partition and snapshot; old native readers
+reject them. Version-1 single reads retain their existing contract.
+
+Pool creation uses stable configured connection/selection caps. Leased-client socket
+timeouts, server execution limits and local scan deadlines remain separate. The pinned
+synchronous C driver can remain inside connection/selection for its configured cap;
+a local cancellation flag does not immediately interrupt those calls. Keep transport
+caps appropriate for the desired cancellation responsiveness.
 
 ## Dependencies and tests
 

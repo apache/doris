@@ -18,19 +18,27 @@
 package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
+import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.thrift.TMongoScanDesc;
+import org.apache.doris.thrift.TMongoSplit;
 
 import org.bson.Document;
 
+import java.util.AbstractList;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -38,14 +46,17 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
     private final MongoCatalogProperties properties;
 
     private final Supplier<MongoCatalogClient> client;
+    private final MongoRangePlanner rangePlanner;
 
     MongoScanPlanProvider(MongoCatalogProperties properties, Supplier<MongoCatalogClient> client) {
         this.properties = properties;
         this.client = client;
+        this.rangePlanner = new MongoRangePlanner(client);
     }
 
     @Override
     public List<ConnectorScanRange> planScan(ConnectorSession session, ConnectorScanRequest request) {
+        request.getScanContext().checkCancelled();
         MongoTableHandle handle = (MongoTableHandle) request.getTableHandle();
         for (ConnectorColumnHandle column : request.getColumns()) {
             if (!(column instanceof MongoColumnHandle)
@@ -93,8 +104,8 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
             d.setSnapshot(snapshot);
             d.setTimeoutMs(MongoSnapshot.remainingMillis(session));
         }
-        // Distinct limits for connection setup, node selection and socket I/O. BE caps these by
-        // the scan budget; poolMaxClients limits leased clients per compatible BE-local pool.
+        // Stable connection/selection caps identify the shared pool; per-client socket timeouts
+        // and local scan deadlines are separate. poolMaxClients bounds compatible BE-local leases.
         d.setConnectTimeoutMs(properties.getConnectTimeoutMs());
         d.setServerSelectionTimeoutMs(properties.getServerSelectionTimeoutMs());
         d.setSocketTimeoutMs(properties.getSocketTimeoutMs());
@@ -109,8 +120,115 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
             // Include complete source roots so pruning cannot turn malformed nested paths into missing values.
             d.setProjectionBson(encode(projection));
         }
-        // One cursor owns the entire logical namespace. Filters and LIMIT remain Doris residuals.
-        return List.of(new MongoScanRange(d));
+        long descriptorSize = descriptorBytes(session, handle,
+                d.isSetFilterBson() ? d.getFilterBson().length : 0,
+                d.isSetProjectionBson() ? d.getProjectionBson().length : 0);
+        MongoSplitPlan plan = rangePlanner.plan(session, handle, snapshot, d.getReadPreference(),
+                request.getScanContext(), descriptorSize);
+        // Retain the shared descriptor once; streaming creates owned RPC values under engine backpressure.
+        // A wide schema must not be copied 256 times merely to keep a frozen boundary table in FE.
+        return new AbstractList<>() {
+            @Override
+            public ConnectorScanRange get(int index) {
+                java.util.Objects.checkIndex(index, plan.size());
+                request.getScanContext().checkCancelled();
+                TMongoScanDesc range = d.deepCopy();
+                TMongoSplit split = new TMongoSplit();
+                split.setStrategy(plan.family().isEmpty() ? "single" : "range");
+                split.setField(plan.field());
+                split.setTypeFamily(plan.family());
+                split.setIndex(index);
+                split.setRequested(plan.requested());
+                split.setAdmitted(plan.admitted());
+                split.setActual(plan.size());
+                split.setReason(plan.reason());
+                if (!plan.family().isEmpty()) {
+                    range.setVersion(2);
+                    split.setFilterBson(MongoSplitPlan.encode(plan.partition(index)));
+                }
+                range.setSplit(split);
+                if (snapshot != null) {
+                    range.setTimeoutMs(MongoSnapshot.remainingMillis(session));
+                }
+                if (plan.descriptorBudget() > 0 && descriptorSize > plan.descriptorBudget()) {
+                    try {
+                        // EXPLAIN may freeze a plan before a later caller supplies a larger candidate
+                        // or projection. Never let that RPC silently exceed the frozen reservation.
+                        int actual = new org.apache.thrift.TSerializer(
+                                new org.apache.thrift.protocol.TBinaryProtocol.Factory()).serialize(range).length;
+                        if (actual > plan.descriptorBudget()) {
+                            throw new DorisConnectorException("MongoDB descriptor grew after split plan freeze");
+                        }
+                    } catch (org.apache.thrift.TException failure) {
+                        throw new DorisConnectorException("Cannot size MongoDB split descriptor");
+                    }
+                }
+                return new MongoScanRange(range);
+            }
+
+            @Override
+            public int size() {
+                return plan.size();
+            }
+        };
+    }
+
+    @Override
+    public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter, boolean countPushdown) {
+        return "single".equals(session.getSessionProperties().getOrDefault("mongodb_split_strategy", "single"))
+                ? -1 : 8;
+    }
+
+    @Override
+    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorScanRequest request) {
+        return new ConnectorSplitSource() {
+            private Iterator<ConnectorScanRange> ranges;
+            private boolean closed;
+
+            @Override
+            public boolean hasNext() {
+                if (closed) {
+                    return false;
+                }
+                request.getScanContext().checkCancelled();
+                if (ranges == null) {
+                    // All probes, admission and boundary validation finish before the first publication.
+                    ranges = planScan(session, request).iterator();
+                }
+                return ranges.hasNext();
+            }
+
+            @Override
+            public ConnectorScanRange next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                return ranges.next();
+            }
+
+            @Override
+            public void close() {
+                closed = true;
+                ranges = Collections.emptyIterator();
+            }
+        };
+    }
+
+    private long descriptorBytes(ConnectorSession session, MongoTableHandle table,
+            int candidateBytes, int projectionBytes) {
+        if ("single".equals(session.getSessionProperties().getOrDefault("mongodb_split_strategy", "single"))) {
+            return 0;
+        }
+        // A count-only cap is insufficient: 100 copies of a large schema/credential/filter can exceed
+        // a split RPC's body limit. Include UTF-8 payloads plus room for Thrift fields and range BSON.
+        long bytes = 8192L + candidateBytes + projectionBytes;
+        for (String value : List.of(properties.getUri(), properties.getUsername(), properties.getPassword(),
+                properties.getAuthDatabase(), table.getDatabase(), table.getName(), table.getUuid(),
+                table.getSchema().getVersion(), table.getSchema().toBindingsJson())) {
+            bytes += value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        }
+        return bytes;
     }
 
     private static int bounded(Map<String, String> properties, String name, int fallback, int min, int max) {
@@ -136,14 +254,26 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
                 policies.getOrDefault("mongodb_read_preference", "inherit"));
         var snapshot = MongoSnapshot.prepare(session, properties, table, client, concern, preference,
                 1000L * bounded(policies, "query_timeout", 300, 1, Integer.MAX_VALUE / 1000));
+        var pushed = predicate(session, table, filter);
+        var pruned = projection(session, table, columns);
+        MongoSplitPlan plan = rangePlanner.plan(session, table, snapshot, preference, new ConnectorScanContext(),
+                descriptorBytes(session, table, pushed.kind() == MongoPredicateTranslator.Kind.UNSUPPORTED
+                        ? 0 : encode(pushed.filter()).length, pruned.isEmpty() ? 0 : encode(pruned).length));
+        result.put("split_strategy", plan.family().isEmpty() ? "single" : "range");
+        result.put("split_field", plan.field());
+        result.put("split_type", plan.family());
+        result.put("splits_requested", Integer.toString(plan.requested()));
+        result.put("splits_admitted", Integer.toString(plan.admitted()));
+        result.put("splits_actual", Integer.toString(plan.size()));
+        result.put("split_reason", plan.reason());
         result.put("read_concern", concern);
         result.put("snapshot", snapshot == null ? "none" : snapshot.getTimestampSeconds()
                 + ":" + snapshot.getTimestampIncrement());
         result.put("object_kind", table.getObjectKind());
         result.put("schema_source", table.getSchema().getSource());
         result.put("schema_version", table.getSchema().getVersion());
-        result.put("predicate_pushdown", predicate(session, table, filter).kind().name());
-        result.put("projection_pushdown", projection(session, table, columns).isEmpty() ? "false" : "true");
+        result.put("predicate_pushdown", pushed.kind().name());
+        result.put("projection_pushdown", pruned.isEmpty() ? "false" : "true");
         return result;
     }
 
@@ -154,6 +284,13 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
                 .append("; version: ").append(nodeProperties.get("schema_version")).append("\n");
         output.append(prefix).append("MongoDB read concern: ").append(nodeProperties.get("read_concern"))
                 .append("; snapshot: ").append(nodeProperties.get("snapshot")).append("\n");
+        output.append(prefix).append("MongoDB splits: ").append(nodeProperties.get("split_strategy"))
+                .append("; field: ").append(nodeProperties.get("split_field"))
+                .append("; type: ").append(nodeProperties.get("split_type"))
+                .append("; requested/admitted/actual: ").append(nodeProperties.get("splits_requested"))
+                .append("/").append(nodeProperties.get("splits_admitted"))
+                .append("/").append(nodeProperties.get("splits_actual"))
+                .append("; reason: ").append(nodeProperties.get("split_reason")).append("\n");
         output.append(prefix).append("MongoDB predicate: ").append(nodeProperties.get("predicate_pushdown"))
                 .append("; residual: retained; projection: ").append(nodeProperties.get("projection_pushdown"))
                 .append("\n");

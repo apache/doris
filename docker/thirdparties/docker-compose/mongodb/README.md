@@ -202,3 +202,42 @@ The oracle enables the existing all-candidate external-scan spreading policy thr
 statement hints, since default single-split placement may choose one BE for both
 collections. Every scan still has to share T and match the source result at T. It deliberately
 omits the per-BE pool-contention fault case in this multi-BE run.
+
+## Frozen range-plan qualification
+
+`verify_native_splits.py` uses the same disposable authenticated 7.0.28/8.0.20
+replica-set and sharded fixtures. It only creates synthetic data in the reserved
+`doris_mongodb_splits` database. It never takes an arbitrary production MongoDB URI.
+The state file contains credentials and must remain private.
+
+```bash
+python3 verify_native_splits.py --fixture-state ./snapshot-state/state.json \
+    --prepare-only --allow-failpoints
+# Set DORIS_FE_HOST, DORIS_FE_PORT, DORIS_FE_USER, DORIS_FE_PASSWORD and
+# DORIS_FE_HTTP_ADDRESS for the isolated Doris test cluster, then run:
+python3 verify_native_splits.py --fixture-state ./snapshot-state/state.json \
+    --iterations 20 --allow-failpoints
+```
+
+The script creates read-only query identities and exercises replica-set and mongos
+catalogs. It checks source partition predicates at the exact T from completed
+Profiles, full result multisets across single/range paths, missing/null/array/other
+BSON families, ObjectIds, int64 boundaries, duplicate/skewed keys, DATETIME(0..6),
+Decimal precisions/scales and four time zones. Transactional split-key updates are
+compared against an independent single-cursor source read at exactly the same T.
+A one-client pool case uses the default 10000 ms connection/selection caps and a
+2-second competing query, covering the below-cap deadline case.
+
+After `--prepare-only`, enable the retained SQL suite with `enableMongoSplitTest=true`
+and set `mongodb_split_uri` from the corresponding `split_reader_uris` entry in the
+private fixture state. Run `test_mongodb_splits` with the regression runner, including
+`-d external_table_p0/mongodb` with `-s test_mongodb_splits`. The ordinary basic-read
+and snapshot suites remain required independently. Remove only fixture-owned
+containers with `snapshot_fixture.py --state-dir ./snapshot-state --remove`.
+
+For a second Doris BE, rerun with `--oracle-only --require-cross-backend` so the
+exact-T transaction oracle also verifies that native partitions actually ran on
+multiple BEs. Keep fault tests on the isolated one-BE fixture. Independent fixture
+runs may use distinct `--catalog-prefix` values to avoid dropping each other's SQL
+catalogs. Each invocation reseeds its fixture and replaces its read-only identity;
+do not run a retained regression suite against that same fixture concurrently.

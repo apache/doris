@@ -36,6 +36,7 @@
 #include "format_v2/column_mapper.h"
 #include "runtime/runtime_state.h"
 #include "testutil/desc_tbl_builder.h"
+#include "util/defer_op.h"
 
 namespace doris::format::mongodb {
 namespace {
@@ -625,6 +626,39 @@ TEST(MongoNativeStreamTest, CancellationBeforeOpenDoesNotConnect) {
     stream->close();
     stream->close();
 }
+TEST(MongoNativeStreamTest, RemainingBudgetsBelowTransportCapsShareOneClientBound) {
+    auto d = range().table_format_params.mongodb_params;
+    d.__set_uri("mongodb://127.0.0.1:1");
+    d.__set_connect_timeout_ms(10000);
+    d.__set_server_selection_timeout_ms(10000);
+    d.__set_pool_max_clients(1);
+    d.__set_timeout_ms(1990);
+    auto first = make_native_mongo_stream();
+    // Ordinary find is lazy: open leases a client without sending a request to the source.
+    ASSERT_TRUE(first->open(d, [] { return false; }).ok());
+    d.__set_timeout_ms(80);
+    auto second = make_native_mongo_stream();
+    auto status = second->open(d, [] { return false; });
+    EXPECT_FALSE(status.ok()) << "A shorter remaining budget must not create another pool";
+    second->close();
+    first->close();
+    auto recovered = make_native_mongo_stream();
+    EXPECT_TRUE(recovered->open(d, [] { return false; }).ok());
+    recovered->close();
+}
+TEST(MongoNativeStreamTest, CancellationAfterPoolSetupStopsBeforeSourceIdentityCommands) {
+    auto d = snapshot_descriptor();
+    d.__set_uri("mongodb://127.0.0.1:1");
+    d.__set_connect_timeout_ms(25);
+    d.__set_server_selection_timeout_ms(25);
+    int checks = 0;
+    auto stream = make_native_mongo_stream();
+    auto status = stream->open(d, [&] { return ++checks >= 2; });
+    EXPECT_EQ(status.code(), ErrorCode::CANCELLED);
+    stream->close();
+    stream->close();
+}
+
 TEST(MongoNativeStreamTest, InvalidUriIsRedactedAndPartialOpenCanBeClosed) {
     auto stream = make_native_mongo_stream();
     auto descriptor = range().table_format_params.mongodb_params;
@@ -760,4 +794,100 @@ TEST(MongoNativeStreamTest, UnsafeViewStrictAndOversizedDescriptorsAreRejected) 
     EXPECT_FALSE(validate_mongodb_range(scan).ok());
 }
 
+namespace {
+TMongoScanDesc range_descriptor() {
+    auto descriptor = snapshot_descriptor();
+    descriptor.__set_version(2);
+    TMongoSplit split;
+    split.__set_strategy("range");
+    split.__set_field("observed");
+    split.__set_type_family("date");
+    split.__set_index(0);
+    split.__set_requested(8);
+    split.__set_admitted(4);
+    split.__set_actual(3);
+    split.__set_reason("range");
+    bson_t partition = BSON_INITIALIZER;
+    bson_t bound;
+    BSON_APPEND_DOCUMENT_BEGIN(&partition, "observed", &bound);
+    BSON_APPEND_DATE_TIME(&bound, "$lt", -1);
+    bson_append_document_end(&partition, &bound);
+    split.__set_filter_bson(bson_bytes(partition));
+    bson_destroy(&partition);
+    descriptor.__set_split(split);
+    return descriptor;
+}
+} // namespace
+
+TEST(MongoNativeStreamTest, FrozenRangeContractRequiresSnapshotAndValidCounts) {
+    auto scan = range();
+    scan.table_format_params.__set_mongodb_params(range_descriptor());
+    EXPECT_TRUE(validate_mongodb_range(scan).ok());
+    auto reject = [&](auto mutate) {
+        auto changed = scan;
+        mutate(changed.table_format_params.mongodb_params);
+        EXPECT_FALSE(validate_mongodb_range(changed).ok());
+    };
+    reject([](auto& d) { d.__isset.split = false; });
+    reject([](auto& d) { d.__isset.snapshot = false; });
+    reject([](auto& d) { d.split.__set_actual(5); });
+    reject([](auto& d) { d.split.__set_admitted(9); });
+    reject([](auto& d) { d.split.__set_index(-1); });
+    reject([](auto& d) { d.split.__set_index(3); });
+    reject([](auto& d) { d.split.__set_requested(257); });
+    reject([](auto& d) { d.split.__set_field("nested.observed"); });
+    reject([](auto& d) { d.split.__set_type_family("decimal"); });
+    reject([](auto& d) { d.split.__set_filter_bson("truncated"); });
+    reject([](auto& d) { d.__set_object_kind("view"); });
+    reject([](auto& d) { d.__set_object_kind("timeseries"); });
+    reject([](auto& d) { d.__set_version(1); });
+}
+
+TEST(MongoNativeStreamTest, RangePredicatesAndSqlCandidatesRemainIndependentConjuncts) {
+    auto d = range_descriptor();
+    d.__set_type_mismatch_as_null(true);
+    bson_t candidate = BSON_INITIALIZER;
+    BSON_APPEND_INT64(&candidate, "sequence", 9007199254740993LL);
+    d.__set_filter_bson(bson_bytes(candidate));
+    bson_t filter = BSON_INITIALIZER;
+    bson_t options = BSON_INITIALIZER;
+    Defer release([&] {
+        bson_destroy(&options);
+        bson_destroy(&filter);
+        bson_destroy(&candidate);
+    });
+    ASSERT_TRUE(build_mongodb_find_options(d, &filter, &options).ok());
+    bson_iter_t it;
+    ASSERT_TRUE(bson_iter_init_find(&it, &filter, "$and"));
+    ASSERT_EQ(bson_iter_type(&it), BSON_TYPE_ARRAY);
+    bson_iter_t conjunct;
+    ASSERT_TRUE(bson_iter_recurse(&it, &conjunct));
+    ASSERT_TRUE(bson_iter_next(&conjunct));
+    uint32_t length;
+    const uint8_t* data;
+    bson_iter_document(&conjunct, &length, &data);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(data), length), d.filter_bson);
+    ASSERT_TRUE(bson_iter_next(&conjunct));
+    bson_iter_document(&conjunct, &length, &data);
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(data), length), d.split.filter_bson);
+    EXPECT_FALSE(bson_iter_next(&conjunct));
+    ASSERT_TRUE(bson_iter_init_find(&it, &options, "collation"));
+}
+
+TEST(MongoNativeStreamTest, StrictRangeScansPartitionAllRowsWithoutEnablingSqlPushdown) {
+    auto d = range_descriptor();
+    d.__set_type_mismatch_as_null(false);
+    bson_t filter = BSON_INITIALIZER;
+    bson_t options = BSON_INITIALIZER;
+    ASSERT_TRUE(build_mongodb_find_options(d, &filter, &options).ok());
+    EXPECT_EQ(bson_bytes(filter), d.split.filter_bson);
+    bson_destroy(&filter);
+    bson_destroy(&options);
+    d.__set_filter_bson(d.split.filter_bson);
+    bson_init(&filter);
+    bson_init(&options);
+    EXPECT_FALSE(build_mongodb_find_options(d, &filter, &options).ok());
+    bson_destroy(&filter);
+    bson_destroy(&options);
+}
 } // namespace doris::format::mongodb
