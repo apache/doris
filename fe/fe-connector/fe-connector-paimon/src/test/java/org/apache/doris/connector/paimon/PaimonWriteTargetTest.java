@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
@@ -24,17 +25,23 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.catalog.Catalog;
+import org.apache.paimon.catalog.FileSystemCatalog;
+import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.sink.BatchTableCommit;
 import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.sink.CommitMessage;
+import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +49,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
@@ -146,6 +154,17 @@ public class PaimonWriteTargetTest {
     }
 
     @Test
+    public void recreatedMainTableRejectsCachedWriteOptions() throws Exception {
+        assertRecreatedTableIsRejected(Optional.empty());
+        assertRecreatedTableIsRejected(Optional.of("main"));
+    }
+
+    @Test
+    public void recreatedBranchRejectsCachedWriteOptions() throws Exception {
+        assertRecreatedTableIsRejected(Optional.of("audit"));
+    }
+
+    @Test
     public void schemaDriftFailsBeforeWriting() throws Exception {
         PaimonWriteTarget target = resolve(source(), Optional.of("audit"));
         branch.schemaManager().commitChanges(Collections.singletonList(SchemaChange.renameColumn("id", "changed")));
@@ -204,6 +223,76 @@ public class PaimonWriteTargetTest {
         transaction.commit();
         Assertions.assertNotEquals(branchSnapshot, branch.snapshotManager().latestSnapshotId());
         Assertions.assertEquals(mainSnapshot, main.snapshotManager().latestSnapshotId());
+    }
+
+    private void assertRecreatedTableIsRejected(Optional<String> branchName) throws Exception {
+        org.apache.paimon.fs.Path root = new org.apache.paimon.fs.Path(
+                warehouse.resolve("catalog-" + branchName.orElse("implicit")).toUri());
+        Identifier identifier = Identifier.create("db", "tbl");
+        Identifier destination = new Identifier("db", "tbl", branchName.orElse("main"));
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged();
+                Catalog external = new FileSystemCatalog(LocalFileIO.create(), root)) {
+            external.createDatabase("db", false);
+            external.createTable(identifier, keyedSchema("2", "x"), false);
+            FileStoreTable original = (FileStoreTable) external.getTable(identifier);
+            stampSchema(original, 1000L);
+            original = (FileStoreTable) external.getTable(identifier);
+            original.createBranch("audit");
+            PaimonMetaCacheCatalog cached = new PaimonMetaCacheCatalog(external, owner,
+                    100, 100, new Options(), true, () -> 0L);
+            FileStoreTable retained = (FileStoreTable) cached.getTable(destination);
+            PaimonWritePlanProvider cachedProvider = new PaimonWritePlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()),
+                    new PaimonCatalogOps.CatalogBackedPaimonCatalogOps(cached), new RecordingConnectorContext());
+
+            // A normal ALTER preserves the old schema history. The cache hit is valid, but its
+            // old bucket-key must not overwrite the renamed key from the latest branch schema.
+            retained.schemaManager().commitChanges(
+                    Collections.singletonList(SchemaChange.renameColumn("x", "renamed_x")));
+            PaimonWriteTarget altered = (PaimonWriteTarget) cachedProvider.resolveWriteTarget(
+                    null, source(), WriteOperation.INSERT, branchName).orElseThrow(AssertionError::new);
+            Assertions.assertEquals("renamed_x", altered.getTable().options().get("bucket-key"));
+            Assertions.assertDoesNotThrow(altered::validateCurrentSchema);
+
+            // Bypass Doris invalidation, as another engine would. Keep identical fields and the
+            // same schema ID, but replace the physical generation and its writer options.
+            external.dropTable(identifier, false);
+            external.createTable(identifier, keyedSchema("4", "y"), false);
+            FileStoreTable replacement = (FileStoreTable) external.getTable(identifier);
+            stampSchema(replacement, 2000L);
+            replacement = (FileStoreTable) external.getTable(identifier);
+            replacement.createBranch("audit");
+            Assertions.assertEquals(retained.schema().id(), replacement.schema().id());
+            Assertions.assertSame(retained, cached.getTable(destination));
+
+            for (WriteOperation operation : Arrays.asList(WriteOperation.INSERT, WriteOperation.OVERWRITE)) {
+                DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                        () -> cachedProvider.resolveWriteTarget(null, source(), operation, branchName));
+                Assertions.assertTrue(failure.getMessage().contains("generation changed"));
+            }
+
+            cached.invalidateTable(identifier);
+            for (WriteOperation operation : Arrays.asList(WriteOperation.INSERT, WriteOperation.OVERWRITE)) {
+                PaimonWriteTarget fresh = (PaimonWriteTarget) cachedProvider.resolveWriteTarget(
+                        null, source(), operation, branchName).orElseThrow(AssertionError::new);
+                Assertions.assertEquals("4", fresh.getTable().options().get("bucket"));
+                Assertions.assertEquals("y", fresh.getTable().options().get("bucket-key"));
+                Assertions.assertDoesNotThrow(fresh::validateCurrentSchema);
+            }
+        }
+    }
+
+    private static Schema keyedSchema(String bucket, String bucketKey) {
+        return Schema.newBuilder().column("x", DataTypes.INT().notNull())
+                .column("y", DataTypes.INT().notNull()).primaryKey("x", "y")
+                .option("bucket", bucket).option("bucket-key", bucketKey).build();
+    }
+
+    private static void stampSchema(FileStoreTable table, long creationTime) throws Exception {
+        TableSchema schema = table.schema();
+        TableSchema stamped = new TableSchema(schema.version(), schema.id(), schema.fields(), schema.highestFieldId(),
+                schema.partitionKeys(), schema.primaryKeys(), schema.options(), schema.comment(), creationTime);
+        table.fileIO().overwriteFileUtf8(table.schemaManager().toSchemaPath(schema.id()), stamped.toString());
     }
 
     private static void append(FileStoreTable table, int value) throws Exception {

@@ -130,8 +130,11 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
                 Map<String, String> writerOptions = new LinkedHashMap<>(latest.options());
                 // Preserve catalog/runtime overrides, without replaying an older generation's
                 // field-dependent options (bucket-key, sequence.field, etc.) after an ALTER.
-                Map<String, String> persistedOptions =
-                        table.schemaManager().schema(table.schema().id()).options();
+                TableSchema persistedSchema = table.schemaManager().schema(table.schema().id());
+                // A catalog cache hit may still describe a dropped table whose replacement reuses
+                // the same schema ID. Reject it before mistaking old physical options for overrides.
+                PaimonSchemaPin.validateRetainedSchema(table.schema(), persistedSchema);
+                Map<String, String> persistedOptions = persistedSchema.options();
                 table.options().forEach((key, value) -> {
                     if (!Objects.equals(persistedOptions.get(key), value)) {
                         writerOptions.put(key, value);
