@@ -117,10 +117,6 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
         if (properties.hasAssumeRole()) {
             throw new IllegalArgumentException("Lance S3 AssumeRole access is not supported yet");
         }
-        if (!properties.hasStaticCredentials()) {
-            throw new IllegalArgumentException("Lance S3 access currently requires static s3.access_key and"
-                    + " s3.secret_key; anonymous and credential-chain access are not supported yet");
-        }
         LanceStorageOptions.putIfNotEmpty(result, ACCESS_KEY_ID, properties.getAccessKey());
         LanceStorageOptions.putIfNotEmpty(result, SECRET_ACCESS_KEY, properties.getSecretKey());
         // Keep the complete static identity: an absent key lets Lance's with_env_s3() import an
@@ -191,7 +187,27 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
 
     @Override
     public Map<String, String> normalizeVendedStorageOptions(Map<String, String> options) {
-        return LanceStorageOptions.normalizeAliases(options, CANONICAL_BY_ALIAS);
+        Map<String, String> normalized = LanceStorageOptions.normalizeAliases(options, CANONICAL_BY_ALIAS);
+        if (normalized.containsKey(ACCESS_KEY_ID) && normalized.containsKey(SECRET_ACCESS_KEY)) {
+            // A vended key pair is its own identity. Without a token of its own, it must not inherit
+            // either the catalog's STS token or an unrelated token from the FE/BE environment.
+            normalized.putIfAbsent(SESSION_TOKEN, "");
+        }
+        return normalized;
+    }
+
+    @Override
+    public void validateStorageOptions(List<StorageProperties> storageProperties,
+            Map<String, String> effectiveOptions) {
+        // REST catalogs may bind just an endpoint and receive their credentials from DescribeTable.
+        // Check the identity that will actually reach Lance, after those options have been merged.
+        if (selectS3Compatible(storageProperties) != null
+                && (effectiveOptions.getOrDefault(ACCESS_KEY_ID, "").isBlank()
+                || effectiveOptions.getOrDefault(SECRET_ACCESS_KEY, "").isBlank())) {
+            throw new IllegalArgumentException("Lance S3 access currently requires static s3.access_key and"
+                    + " s3.secret_key or namespace-vended credentials; anonymous and credential-chain access"
+                    + " are not supported yet");
+        }
     }
 
     @Override

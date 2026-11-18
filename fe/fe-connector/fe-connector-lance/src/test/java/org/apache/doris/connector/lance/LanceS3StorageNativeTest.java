@@ -36,6 +36,15 @@ class LanceS3StorageNativeTest {
 
     @Test
     void explicitS3ConfigurationOverridesAmbientIdentityAndEndpoints() throws Exception {
+        assertExplicitIdentityOverridesTheEnvironment(false);
+    }
+
+    @Test
+    void vendedS3ConfigurationOverridesAmbientIdentityAndEndpoints() throws Exception {
+        assertExplicitIdentityOverridesTheEnvironment(true);
+    }
+
+    private void assertExplicitIdentityOverridesTheEnvironment(boolean vended) throws Exception {
         LanceNativeTestSupport.requireNativeLibraries();
         AtomicReference<String> authorization = new AtomicReference<>();
         AtomicReference<String> token = new AtomicReference<>();
@@ -63,7 +72,8 @@ class LanceS3StorageNativeTest {
             ProcessBuilder builder = new ProcessBuilder(
                     Paths.get(System.getProperty("java.home"), "bin", "java").toString(),
                     "-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
-                    LanceS3StorageNativeTest.class.getName(), "http://127.0.0.1:" + server.getAddress().getPort())
+                    LanceS3StorageNativeTest.class.getName(), "http://127.0.0.1:" + server.getAddress().getPort(),
+                    vended ? "vended" : "catalog")
                     .redirectErrorStream(true);
             builder.environment().keySet().removeIf(key -> key.startsWith("AWS_"));
             builder.environment().put("AWS_ACCESS_KEY_ID", "ambient-ak");
@@ -90,10 +100,15 @@ class LanceS3StorageNativeTest {
 
     /** Child process entry point: load the real native provider after setting its environment. */
     public static void main(String[] args) {
-        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(
-                "s3://warehouse/all_types.lance", Collections.singletonList(
-                        new FakeS3CompatibleStorageProperties("S3").endpoint(args[0]).region("us-east-1")
-                                .accessKey("catalog-ak").secretKey("catalog-sk").usePathStyle("true")));
+        Map<String, String> options = "vended".equals(args[1])
+                ? LanceStorageOptions.fromDorisAndVendedStorageOptions("s3://warehouse/all_types.lance",
+                        Collections.emptyList(), Map.of("endpoint", args[0], "region", "us-east-1",
+                                "access_key_id", "catalog-ak", "secret_access_key", "catalog-sk",
+                                "virtual_hosted_style_request", "false"))
+                : LanceStorageOptions.fromDorisStorageProperties("s3://warehouse/all_types.lance",
+                        Collections.singletonList(new FakeS3CompatibleStorageProperties("S3").endpoint(args[0])
+                                .region("us-east-1").accessKey("catalog-ak").secretKey("catalog-sk")
+                                .usePathStyle("true")));
         Assertions.assertTrue(Dataset.listManifestLocations("s3://warehouse/all_types.lance", options).isEmpty());
     }
 }

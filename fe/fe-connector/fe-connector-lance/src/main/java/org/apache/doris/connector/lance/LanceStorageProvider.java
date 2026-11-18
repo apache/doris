@@ -67,6 +67,11 @@ interface LanceStorageProvider {
      */
     Map<String, String> normalizeVendedStorageOptions(Map<String, String> vendedOptions);
 
+    /** Checks authentication after namespace-vended options have replaced the catalog's options. */
+    default void validateStorageOptions(List<StorageProperties> storageProperties,
+            Map<String, String> effectiveOptions) {
+    }
+
     /**
      * Derives provider options from the fully normalized and merged option map.
      *
@@ -80,6 +85,9 @@ interface LanceStorageProvider {
         String scheme = schemeOf(datasetUri);
         if (S3_SCHEMES.contains(scheme)) {
             return LanceS3StorageProvider.INSTANCE;
+        }
+        if ("oss".equals(scheme)) {
+            return LanceOssStorageProvider.INSTANCE;
         }
         return LancePassThroughStorageProvider.INSTANCE;
     }

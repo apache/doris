@@ -37,6 +37,9 @@ import java.util.Map;
  */
 final class LanceStorageOptions {
 
+    /** The provider name of the engine's OSS-HDFS (JindoFS) storage binding. */
+    private static final String OSS_HDFS_PROVIDER = "OSS_HDFS";
+
     private LanceStorageOptions() {
     }
 
@@ -79,15 +82,34 @@ final class LanceStorageOptions {
         Map<String, String> normalizedVended = new HashMap<>();
         if (vendedOptions != null && !vendedOptions.isEmpty()) {
             vendedOptions.forEach(LanceStorageOptions::validateVendedOption);
-            // Safe to validate before normalizing: normalization only renames a key to a provider
-            // constant or passes it through, so it cannot introduce a NUL missed above.
+            // Normalization renames keys to provider constants and may fill an absent session token
+            // with an empty string, so it cannot introduce a NUL missed by validation above.
             normalizedVended = provider.normalizeVendedStorageOptions(vendedOptions);
         }
         result.putAll(normalizedVended);
+        provider.validateStorageOptions(storageProperties, result);
         provider.inferStorageOptions(result).forEach(result::putIfAbsent);
         result.forEach((key, value) -> rejectUntransportable(key, value,
                 "Lance storage configuration"));
         return result;
+    }
+
+    /**
+     * Refuses an OSS-HDFS configuration for a filesystem catalog. The engine binds it as HDFS-compatible
+     * storage (provider {@code OSS_HDFS}), which no Lance provider can read, so the directory namespace would
+     * be handed no endpoint and no credentials and could not open at all.
+     *
+     * <p>The binding decides, not the warehouse: an endpoint on the OSS-HDFS host routes
+     * {@code oss://bucket/path} there just the same, with a clean-looking warehouse.
+     */
+    static void rejectOssHdfs(List<StorageProperties> storageProperties) {
+        for (StorageProperties properties : storageProperties) {
+            if (OSS_HDFS_PROVIDER.equals(properties.providerName())) {
+                throw new IllegalArgumentException("OSS-HDFS is not supported by the Lance catalog. Doris reads"
+                        + " this form through its HDFS-compatible properties, which carry no Lance OSS storage"
+                        + " options.");
+            }
+        }
     }
 
     static Map<String, String> normalizeAliases(Map<String, String> options, Map<String, String> aliases) {

@@ -64,7 +64,7 @@ final class LanceCatalogClient implements AutoCloseable {
     private final LanceCatalogProperties properties;
     private final Supplier<List<StorageProperties>> storageProperties;
     private final LongSupplier arrowMemoryLimitBytes;
-    /** REST secrets to strip from provider errors; a filesystem catalog has none. */
+    /** The catalog's secrets to strip from provider errors: its REST credentials and credential headers. */
     private final List<String> catalogSecrets;
 
     private BufferAllocator allocator;
@@ -84,7 +84,7 @@ final class LanceCatalogClient implements AutoCloseable {
         this.properties = properties;
         this.storageProperties = storageProperties;
         this.arrowMemoryLimitBytes = arrowMemoryLimitBytes;
-        this.catalogSecrets = Collections.emptyList();
+        this.catalogSecrets = properties.secretValues();
     }
 
     List<String> listDatabaseNames() {
@@ -169,6 +169,10 @@ final class LanceCatalogClient implements AutoCloseable {
                 return read.read(access, readAllocator);
             } catch (UserFacingException e) {
                 throw new DorisConnectorException(e.getMessage());
+            } catch (DorisConnectorException e) {
+                // Raised here with a message for the user, such as a table the namespace describes but this
+                // connector cannot read; as in call(), it is not wrapped again.
+                throw e;
             } catch (Exception e) {
                 String uri = access == null ? null : access.getDatasetUri();
                 Map<String, String> options = access == null ? namespaceStorageOptions : access.getStorageOptions();
@@ -263,23 +267,34 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     private void openNamespace() {
-        properties.requireFilesystem();
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         BufferAllocator newAllocator = null;
+        Map<String, String> storageOptions = Collections.emptyMap();
         try {
             Thread.currentThread().setContextClassLoader(LanceCatalogClient.class.getClassLoader());
             long limit = arrowMemoryLimitBytes.getAsLong();
             List<StorageProperties> storage = storageProperties.get();
+            String implementation;
+            Map<String, String> namespaceProperties;
+            if (properties.isRest()) {
+                // A REST namespace is reached over HTTP and reads no storage itself; every table's storage
+                // options come with its description.
+                implementation = "rest";
+                namespaceProperties = properties.restNamespaceProperties();
+            } else {
+                implementation = "dir";
+                LanceStorageOptions.rejectOssHdfs(storage);
+                String warehouse = properties.getWarehouse();
+                storageOptions = LanceStorageOptions.fromDorisStorageProperties(warehouse, storage);
+                namespaceProperties = new HashMap<>();
+                namespaceProperties.put("root", warehouse);
+                storageOptions.forEach((key, value) -> namespaceProperties.put("storage." + key, value));
+            }
             newAllocator = new RootAllocator(limit);
-            String warehouse = properties.getWarehouse();
-            Map<String, String> storageOptions = LanceStorageOptions.fromDorisStorageProperties(warehouse, storage);
-            Map<String, String> namespaceProperties = new HashMap<>();
-            namespaceProperties.put("root", warehouse);
-            storageOptions.forEach((key, value) -> namespaceProperties.put("storage." + key, value));
-            namespace = LanceNamespace.connect("dir", namespaceProperties, newAllocator);
+            namespace = LanceNamespace.connect(implementation, namespaceProperties, newAllocator);
             allocator = newAllocator;
             namespaceStorageOptions = storageOptions;
-            namespaceClient = new LanceNamespaceClient(namespace, properties.getRootDatabase(),
+            namespaceClient = new LanceNamespaceClient(namespace, properties.isRest(), properties.getRootDatabase(),
                     properties.getParentNamespace(), storage);
         } catch (LinkageError e) {
             closeResource(newAllocator);
@@ -287,8 +302,9 @@ final class LanceCatalogClient implements AutoCloseable {
                     + " lance-core in plugins/connector/lance/lib: " + e, e);
         } catch (RuntimeException e) {
             closeResource(newAllocator);
+            // The options this attempt built, which the namespace may echo back in its error.
             throw LanceErrorMessages.failure("Failed to initialize Lance " + properties.getCatalogType()
-                    + " catalog", e, null, namespaceStorageOptions, catalogSecrets);
+                    + " catalog", e, null, storageOptions, catalogSecrets);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
