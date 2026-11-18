@@ -19,8 +19,6 @@
 
 #include <memory>
 #include <span>
-#include <string>
-#include <vector>
 
 #include "common/status.h"
 #include "core/column/variant_v2/column_variant_v2.h"
@@ -48,7 +46,6 @@ private:
     const TabletIndex* _index_meta;
     bool _is_direct_load;
     std::unique_ptr<SniiIndexColumnWriter> _writer;
-    std::vector<std::string> _texts;
 };
 } // namespace segment_v2
 } // namespace doris

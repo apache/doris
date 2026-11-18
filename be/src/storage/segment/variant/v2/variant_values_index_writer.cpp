@@ -17,7 +17,6 @@
 
 #include "storage/segment/variant/v2/variant_values_index_writer.h"
 
-#include "common/cast_set.h"
 #include "common/exception.h"
 #include "core/value/variant/variant_leaf_visitor.h"
 #include "storage/index/inverted/snii/snii_index_writer.h"
@@ -53,29 +52,15 @@ Status VariantValuesIndexWriter::append(const ColumnVariantV2::ReadView& view, s
     DORIS_CHECK(!view.is_typed());
     DORIS_CHECK_LE(begin + length, view.size());
     DORIS_CHECK(outer_nulls.empty() || outer_nulls.size() == length);
-    std::vector<Slice> values;
     for (size_t row = 0; row < length; ++row) {
-        _texts.clear();
-        values.clear();
-        const uint8_t is_null = outer_nulls.empty() ? 0 : outer_nulls[row];
-        if (!is_null) {
-            RETURN_IF_ERROR(for_each_variant_leaf_text(view.value_at(begin + row),
-                                                       [&](std::string_view text) {
-                                                           _texts.emplace_back(text);
-                                                           return Status::OK();
-                                                       }));
+        if (!outer_nulls.empty() && outer_nulls[row] != 0) {
+            RETURN_IF_ERROR(_writer->add_nulls(1));
+            continue;
         }
-        // Canonical numeric text is callback-local. Take slices only after the owning vector
-        // stopped growing, so moving short strings cannot invalidate their bytes.
-        values.reserve(_texts.size());
-        for (const auto& text : _texts) {
-            values.emplace_back(text);
-        }
-        const uint64_t offsets[] = {0, values.size()};
-        RETURN_IF_ERROR(_writer->add_array_values(sizeof(Slice),
-                                                  reinterpret_cast<const uint8_t*>(values.data()),
-                                                  nullptr, offsets, 1));
-        RETURN_IF_ERROR(_writer->add_array_nulls(&is_null, 1));
+        const auto value = view.value_at(begin + row);
+        RETURN_IF_ERROR(_writer->add_text_document([&value](const auto& consume) {
+            return for_each_variant_leaf_text(value, consume);
+        }));
     }
     return Status::OK();
 }
