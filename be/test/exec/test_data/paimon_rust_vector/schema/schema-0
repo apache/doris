@@ -1,0 +1,32 @@
+{
+  "version" : 3,
+  "id" : 0,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT NOT NULL"
+  }, {
+    "id" : 1,
+    "name" : "embedding",
+    "type" : {
+      "type" : "VECTOR NOT NULL",
+      "element" : "FLOAT",
+      "length" : 2
+    }
+  } ],
+  "highestFieldId" : 1,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ "id" ],
+  "options" : {
+    "bucket" : "1",
+    "compaction.force-rewrite-all-files" : "true",
+    "merge-engine" : "first-row",
+    "target-file-size" : "1 b",
+    "write-only" : "false",
+    "scan.manifest.parallelism" : "1",
+    "file.format" : "parquet",
+    "commit.force-compact" : "true",
+    "deletion-vectors.enabled" : "false"
+  },
+  "timeMillis" : 1794303733169
+}
