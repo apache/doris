@@ -2823,6 +2823,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // remote_doris scan node already outside this switch). Without this the format falls to
                 // FORMAT_JNI below and BE never enters the Arrow reader path.
                 return TFileFormatType.FORMAT_ARROW;
+            case "lance":
+                // BE reads a Lance dataset through lance-c rather than a file reader or JNI.
+                return TFileFormatType.FORMAT_LANCE;
             default:
                 return TFileFormatType.FORMAT_JNI;
         }

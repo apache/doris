@@ -832,7 +832,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Keep this list identical to the deploy loop's (search CONN_PLUGIN_DIR). A module missing here
     # but present there is not a no-op: the deploy step unzips whatever archive is left in the
     # module's target/ from some earlier build, so the plugin silently ships stale.
-    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss mongodb; do
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss mongodb lance; do
         if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
             modules+=("fe-connector/fe-connector-${_conn_mod}")
         fi
@@ -1348,7 +1348,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy connector provider plugins as independent plugin directories.
     # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
     CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
-    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss mongodb; do
+    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss mongodb lance; do
         conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
         conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"
         if [ ! -d "${conn_module_dir}" ]; then
@@ -1417,6 +1417,17 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         cp -p "${DORIS_OUTPUT}/fe/lib/jindofs/"bennett-iceberg-plugin-*.jar "${ICEBERG_CONN_LIB}/" 2>/dev/null || true
     fi
     unset ICEBERG_CONN_LIB
+
+    # Replace Lance's Linux x86_64 JNI with its glibc 2.17 build, and rebuild Arrow C Data JNI with
+    # static C++ runtimes. Both libraries are needed for schema reads on older hosts. Run after the
+    # deploy loop, because it clears and refills the plugin's lib/.
+    LANCE_CONN_LIB="${DORIS_OUTPUT}/fe/plugins/connector/lance/lib"
+    if [[ -d "${LANCE_CONN_LIB}" ]]; then
+        # shellcheck source=/dev/null
+        . "${DORIS_HOME}/docker/thirdparties/lance-jni-helpers.sh"
+        lance_jni_replace "${LANCE_CONN_LIB}" "${DORIS_THIRDPARTY}" "${TARGET_SYSTEM}" "${TARGET_ARCH}"
+    fi
+    unset LANCE_CONN_LIB
 
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"

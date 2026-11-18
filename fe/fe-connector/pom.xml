@@ -87,6 +87,7 @@ under the License.
         <module>fe-connector-hudi</module>
         <module>fe-connector-iceberg</module>
         <module>fe-connector-fluss</module>
+        <module>fe-connector-lance</module>
     </modules>
 
     <build>
