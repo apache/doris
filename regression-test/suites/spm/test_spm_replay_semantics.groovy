@@ -114,6 +114,26 @@ suite("test_spm_replay_semantics", "spm") {
         exception "the referenced output name 'x' is ambiguous"
     }
 
+    def verifyOrdinal = { String tag, String original, String variant ->
+        withBaseline(original) { long id ->
+            quickTest(tag + "_frozen",
+                    "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}", false)
+            quickTest(tag + "_original", original, false)
+            quickTest(tag + "_variant", variant, false)
+            boolean originalHit = explainHit(original, id)
+            boolean variantHit = explainHit(variant, id)
+            quickTest(tag + "_hits", "SELECT ${originalHit}, ${variantHit}", false)
+        }
+    }
+    String ordinal = "SELECT k * (1 - 2) AS score, k FROM spm_replay_semantics_u" +
+            " ORDER BY 1 DESC NULLS LAST LIMIT 1"
+    verifyOrdinal("ordinal", ordinal, ordinal.replace("(1 - 2)", "(3 - 2)"))
+
+    String setOrdinal = "(SELECT 'web' AS channel, k FROM spm_replay_semantics_u)" +
+            " UNION ALL (SELECT 'store' AS channel, k FROM spm_replay_semantics_u)" +
+            " ORDER BY 1 ASC, 2 DESC LIMIT 3"
+    verifyOrdinal("set_ordinal", setOrdinal, setOrdinal.replace("'web'", "'catalog'"))
+
     String recursive = "WITH RECURSIVE c(k) AS" +
             " (SELECT k FROM ASSERT_ROWS (SELECT k FROM spm_replay_semantics_u) a" +
             " UNION ALL SELECT CAST(k + 1 AS INT) FROM c WHERE k < 0) SELECT k FROM c"

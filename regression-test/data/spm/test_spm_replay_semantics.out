@@ -31,6 +31,34 @@ true
 -- !sink_hit --
 true
 
+-- !ordinal_frozen --
+true
+
+-- !ordinal_original --
+-1	1
+
+-- !ordinal_variant --
+2	2
+
+-- !ordinal_hits --
+true	true
+
+-- !set_ordinal_frozen --
+true
+
+-- !set_ordinal_original --
+store	2
+store	1
+web	2
+
+-- !set_ordinal_variant --
+catalog	2
+catalog	1
+store	2
+
+-- !set_ordinal_hits --
+true	true
+
 -- !recursive_assertion_hit --
 true
 

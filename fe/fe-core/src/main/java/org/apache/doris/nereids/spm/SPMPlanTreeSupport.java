@@ -186,8 +186,8 @@ public final class SPMPlanTreeSupport {
         default void setGroupByMirrorLookup(java.util.function.Function<String, Expression> lookup) {
         }
 
-        /** Records a positional SELECT reference whose target contains placeholders. */
-        default void noteParameterizedOrdinalTarget() {
+        /** Records a GROUP BY ordinal whose SELECT item contains placeholders. */
+        default void noteParameterizedGroupByOrdinalTarget() {
         }
     }
 
@@ -1511,12 +1511,9 @@ public final class SPMPlanTreeSupport {
             if (newOutput != aggregate.getOutputExpressions()) {
                 changed = true;
             }
-            // A bare integer GROUP BY ordinal stays CONCRETE (see the loop above), but the
-            // ANALYZER resolves it to the SELECT item's expression - which carries
-            // placeholders. The frozen rendering of such a group key is NOT faithful (see
-            // SPMPlaceholderBuilder.hasParameterizedOrdinalTarget), so the CREATE
-            // must keep the user planSql and replay the parameterized tree.
-            noteParameterizedOrdinalTargets(aggregate.getGroupByExpressions(), newOutput, transform);
+            // The group key can inline the SELECT expression during analysis. Keep the
+            // parameterized tree when the physical grouping cannot preserve that ordinal.
+            noteParameterizedGroupByOrdinalTargets(aggregate.getGroupByExpressions(), newOutput, transform);
             if (!changed) {
                 return aggregate;
             }
@@ -1589,11 +1586,8 @@ public final class SPMPlanTreeSupport {
             } finally {
                 clearGroupByMirrorLookup(transform);
             }
-            List<Expression> keys = new ArrayList<>(orderKeys.size());
-            for (OrderKey orderKey : orderKeys) {
-                keys.add(orderKey.getExpr());
-            }
-            noteParameterizedSortOrdinalTargets(keys, child, transform);
+            // Analysis binds ORDER BY ordinals to output slots before optimization.
+            // The decompiler renders those physical sort slots against its own projection.
             dropGroupByMirrorsFrom(mirrorMark);
             if (!changed) {
                 return sort;
@@ -1601,24 +1595,8 @@ public final class SPMPlanTreeSupport {
             return sort.withOrderKeysAndChild(newOrderKeys, child);
         }
 
-        /** Find the SELECT items an ORDER BY ordinal resolves to, including set operands. */
-        private void noteParameterizedSortOrdinalTargets(List<Expression> keys,
-                Plan plan, ExprTransform transform) {
-            if (carriesOutputList(plan)) {
-                noteParameterizedOrdinalTargets(keys, outputItemsOf(plan), transform);
-            } else if (plan instanceof OneRowRelation) {
-                noteParameterizedOrdinalTargets(keys, ((OneRowRelation) plan).getProjects(), transform);
-            } else if (plan instanceof LogicalSetOperation) {
-                for (Plan child : plan.children()) {
-                    noteParameterizedSortOrdinalTargets(keys, child, transform);
-                }
-            } else if (plan.children().size() == 1) {
-                noteParameterizedSortOrdinalTargets(keys, plan.child(0), transform);
-            }
-        }
-
-        /** Ordinals stay concrete, but their parameterized targets must be replayed as a tree. */
-        private void noteParameterizedOrdinalTargets(List<Expression> keys,
+        /** Detects a GROUP BY ordinal that resolves to a parameterized SELECT item. */
+        private void noteParameterizedGroupByOrdinalTargets(List<Expression> keys,
                 List<? extends NamedExpression> outputs, ExprTransform transform) {
             for (Expression key : keys) {
                 if (!(key instanceof IntegerLikeLiteral)) {
@@ -1628,7 +1606,7 @@ public final class SPMPlanTreeSupport {
                 if (ordinal.compareTo(BigDecimal.ONE) >= 0
                         && ordinal.compareTo(BigDecimal.valueOf(outputs.size())) <= 0
                         && containsPlaceholder(outputs.get(ordinal.intValueExact() - 1))) {
-                    transform.noteParameterizedOrdinalTarget();
+                    transform.noteParameterizedGroupByOrdinalTarget();
                 }
             }
         }

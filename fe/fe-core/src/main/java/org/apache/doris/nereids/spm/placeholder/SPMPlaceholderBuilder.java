@@ -191,16 +191,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private boolean mapKeyDependency;
 
     /**
-     * Whether a bare integer GROUP BY / ORDER BY ordinal references a SELECT item that carries a
-     * placeholder (see SPMPlanTreeSupport.visitLogicalAggregate). The ordinal itself stays
-     * CONCRETE, but the analyzer resolves it to that item's (parameterized) expression, and
-     * the frozen rendering of a placeholder group key is NOT faithful: the capture optimizer
-     * rewrote GROUP BY a placeholder into a child column, so a frozen replay of
-     * SELECT 1 AS c, count(*)... GROUP BY 1 grouped by k while the user's own query
-     * grouped by the constant. The CREATE keeps the user planSql then and replays the
-     * parameterized tree, whose analysis resolves the ordinal in the caller's own query.
+     * Whether a GROUP BY ordinal references a parameterized SELECT item. Analysis can inline
+     * that expression and the physical grouping can lose its binding to the original item.
+     * Keep the parameterized tree so replay binds the ordinal against the caller's values.
      */
-    private boolean parameterizedOrdinalTarget;
+    private boolean parameterizedGroupByOrdinalTarget;
 
     /** The enclosing block's root-ordinal counter, restored by exitQueryBlock. */
     private final Deque<Long> rootOrdinalStack = new ArrayDeque<>();
@@ -214,15 +209,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         this.groupByMirrorLookup = lookup;
     }
 
-    /** See parameterizedOrdinalTarget. */
-    public boolean hasParameterizedOrdinalTarget() {
-        return parameterizedOrdinalTarget;
+    /** Reports whether capture must keep the parameterized tree for a GROUP BY ordinal. */
+    public boolean hasParameterizedGroupByOrdinalTarget() {
+        return parameterizedGroupByOrdinalTarget;
     }
 
-    /** Marks one GROUP BY / ORDER BY ordinal whose SELECT item carries placeholders. */
+    /** Marks a GROUP BY ordinal whose SELECT item carries placeholders. */
     @Override
-    public void noteParameterizedOrdinalTarget() {
-        this.parameterizedOrdinalTarget = true;
+    public void noteParameterizedGroupByOrdinalTarget() {
+        this.parameterizedGroupByOrdinalTarget = true;
     }
 
     /** Starts one expression ROOT of the current block (see nextRootOrdinal). */
@@ -282,8 +277,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
 
         @Override
-        public void noteParameterizedOrdinalTarget() {
-            SPMPlaceholderBuilder.this.noteParameterizedOrdinalTarget();
+        public void noteParameterizedGroupByOrdinalTarget() {
+            SPMPlaceholderBuilder.this.noteParameterizedGroupByOrdinalTarget();
         }
 
         @Override

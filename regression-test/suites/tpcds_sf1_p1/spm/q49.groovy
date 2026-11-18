@@ -27,9 +27,8 @@ suite("spm_tpcds_sf1_q49", "spm") {
     //    drop the baseline afterwards.
     // 2. Match verification: the query itself and a similar query (same structure,
     //    different literal values, verified to return data) run through the SPM
-    //    rewrite path (enable_spm_rewrite=true); each must produce the same result
-    //    as without SPM (rewrite hit or safe fallback - never an error or a
-    //    different result).
+    //    frozen replay. Both must hit the baseline and return the same ordered
+    //    results as native execution.
 
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     if (isCloudMode()) {
@@ -193,6 +192,10 @@ LIMIT 100"""
         """
         order_qt_spm_plan_sql """
             SELECT plan_sql
+            FROM __internal_schema.spm_baselines WHERE id = ${id}
+        """
+        qt_spm_plan_frozen """
+            SELECT plan_frozen
             FROM __internal_schema.spm_baselines WHERE id = ${id}
         """
     

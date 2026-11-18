@@ -18,6 +18,7 @@
 suite("test_spm_placeholder_context", "p0") {
     sql "set enable_spm_rewrite = true"
     sql "set enable_spm_fallback = false"
+    sql "set enable_sql_cache = false"
     sql "DROP TABLE IF EXISTS spm_placeholder_context"
     sql """CREATE TABLE spm_placeholder_context (k INT, v INT)
         DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -77,8 +78,8 @@ suite("test_spm_placeholder_context", "p0") {
         ]
         ordinals.each { entry ->
             long id = sql('CREATE GLOBAL BASELINE PLAN "' + entry[1] + '" WITH "' + entry[1] + '"')[0][0] as Long
-            def planSql = sql("SELECT plan_sql FROM __internal_schema.spm_baselines WHERE id = ${id}")[0][0]
-            assertEquals(entry[1], planSql.toString())
+            "qt_${entry[0]}_ordinal_frozen"(
+                    "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}")
             [entry[1], entry[2]].eachWithIndex { query, index ->
                 def explain = sql("EXPLAIN ${query}").toString()
                 assertTrue(explain.contains("SPM baseline hit: id=" + id), explain)

@@ -142,20 +142,30 @@ public class SPMPlaceholderContextTest {
     }
 
     @Test
-    public void testOrdinalsReferenceParameterizedSelectItems() {
+    public void testOrderByOrdinalsRemainPositionalWithParameterizedSelectItems() {
         String[] queries = {
                 "SELECT k + 1 AS c FROM t ORDER BY 1",
                 "SELECT k + 1 AS c FROM t ORDER BY 1 DESC LIMIT 2",
-                "SELECT k + 1 AS c, count(*) AS n FROM t GROUP BY 1",
                 "SELECT k, sum(v + 1) AS c FROM t GROUP BY k HAVING count(*) > 0 ORDER BY 2",
                 "SELECT 1 AS c ORDER BY 1",
-                "SELECT k + 1 AS c FROM t UNION ALL SELECT k + 2 AS c FROM u ORDER BY 1",
-                "SELECT * FROM t WHERE EXISTS (SELECT k + 1 AS c FROM u ORDER BY 1 LIMIT 1)"
+                "SELECT k + 1 AS c FROM t UNION ALL SELECT k + 2 AS c FROM u ORDER BY 1"
         };
         for (String query : queries) {
-            TestSPMPlaceholderBuilder builder = parameterize(query);
-            Assertions.assertTrue(builder.hasParameterizedOrdinalTarget(), query);
+            LogicalPlan plan = parse(query);
+            TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
+            LogicalPlan parameterized = SPMPlanTreeSupport.transform(plan, builder);
+            List<String> originalOrder = SPMPlanTreeSupport.rootOrderContract(plan);
+            Assertions.assertFalse(originalOrder.isEmpty(), query);
+            Assertions.assertEquals(originalOrder, SPMPlanTreeSupport.rootOrderContract(parameterized), query);
+            Assertions.assertFalse(builder.getPlaceholderExprs().isEmpty(), query);
+            Assertions.assertFalse(builder.hasParameterizedGroupByOrdinalTarget(), query);
         }
+    }
+
+    @Test
+    public void testParameterizedGroupByOrdinalPreventsFreezing() {
+        String query = "SELECT k + 1 AS c, count(*) AS n FROM t GROUP BY 1";
+        Assertions.assertTrue(parameterize(query).hasParameterizedGroupByOrdinalTarget(), query);
     }
 
     @Test
@@ -168,7 +178,7 @@ public class SPMPlaceholderContextTest {
                 "SELECT k + 1 AS c FROM t GROUP BY 9223372036854775808"
         };
         for (String query : queries) {
-            Assertions.assertFalse(parameterize(query).hasParameterizedOrdinalTarget(), query);
+            Assertions.assertFalse(parameterize(query).hasParameterizedGroupByOrdinalTarget(), query);
         }
     }
 
