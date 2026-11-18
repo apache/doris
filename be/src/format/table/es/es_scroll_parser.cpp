@@ -582,28 +582,22 @@ template <PrimitiveType T>
 Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
                     typename PrimitiveTypeTraits<T>::CppType* slot,
                     const cctz::time_zone& time_zone, std::string_view date_format) {
-    if (col.IsNumber()) {
+    // Scalar docvalues have an array wrapper; declared ARRAY elements reach this path directly.
+    const auto& value = pure_doc_value && col.IsArray() && !col.Empty() ? col[0] : col;
+    if (value.IsNumber()) {
         // ES applies the mapped grammar to source numeric tokens too. Numeric docvalues are
         // canonical epoch values; requests from an old FE also retain their millisecond decoder.
         const bool mapped_source = !pure_doc_value && !date_format.empty();
-        return get_date_value_int<T>(col, type, mapped_source, slot, time_zone, date_format);
-    } else if (col.IsArray() && pure_doc_value && !col.Empty()) {
-        // this would happened just only when `enable_docvalue_scan = true`
-        // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
-        // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
-        // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
-        // date field's docvalue
-        if (col[0].IsString()) {
-            return get_date_value_int<T>(col[0], type, true, slot, time_zone, date_format);
-        }
-        // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-        return get_date_value_int<T>(col[0], type, false, slot, time_zone, date_format);
-    } else {
-        // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
-        RETURN_ERROR_IF_COL_IS_ARRAY(col, type, true);
-        RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-        return get_date_value_int<T>(col, type, true, slot, time_zone, date_format);
+        return get_date_value_int<T>(value, type, mapped_source, slot, time_zone, date_format);
     }
+    RETURN_ERROR_IF_COL_IS_ARRAY(value, type, true);
+    RETURN_ERROR_IF_COL_IS_NOT_STRING(value, type);
+    // ES 6.x returns ISO docvalues even for yyyy-MM-dd mappings. Recognize that response grammar
+    // without overriding mapped numeric/compact strings, or loosening the source-value grammar.
+    if (pure_doc_value && value.GetStringLength() >= 19 && value.GetString()[10] == 'T') {
+        date_format = "strict_date_optional_time";
+    }
+    return get_date_value_int<T>(value, type, true, slot, time_zone, date_format);
 }
 template <PrimitiveType T>
 Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
