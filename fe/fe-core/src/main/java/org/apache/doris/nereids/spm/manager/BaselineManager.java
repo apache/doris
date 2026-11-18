@@ -68,14 +68,14 @@ import java.util.stream.Collectors;
 /**
  * Manages GLOBAL baselines, durable mutations, snapshot publication and candidate lookup. The live store uses the
  * baseline table, an id-reservation table and a high-water-mark/mutation-clock table. A bounded cache holds
- * complete hot hash buckets; an immutable hash map provides the coarse lookup filter.
+ * complete hot hash buckets; a copy-on-write hash map provides the coarse lookup filter.
  *
  * GLOBAL DDL is routed to the master. Allocation reconciles durable row and reservation watermarks and confirms
  * reservations before inserting rows. Collision handling, tombstones, mutation windows and publication fences
  * handle delayed writes and leadership changes.
  *
  * writerLock serializes local mutation protocols. stateLock protects in-memory publication, and the row cache has
- * its own lock. Internal-table I/O stays outside stateLock. Matching uses the lock-free hash map and cache path;
+ * its own lock. Internal-table I/O stays outside stateLock. Matching first checks the volatile hash map and cache;
  * periodic refresh publishes durable changes across FEs.
  */
 public class BaselineManager {
@@ -187,7 +187,7 @@ public class BaselineManager {
      * How many low bits of a mutation tick carry the window's FE identity (see
      * mutationTickSalt): enough range that two FEs writing in the same millisecond almost never
      * collide, small enough that the millisecond stays in the high bits (the clock's
-     * cluster-wide ordering: the remaining 44 bits cover roughly 550 years of millis).
+     * cluster-wide ordering: the remaining 43 positive bits cover roughly 279 years of millis).
      *
      * The salt only makes a collision UNLIKELY; beginRowMutation therefore VERIFIES that the
      * marker it appended is the only one carrying its tick (see MUTATION_TICK_OPEN_ATTEMPTS).
@@ -385,13 +385,13 @@ public class BaselineManager {
      *   dropped = 1: a tombstone (a completed DROP or a condemned abandoned
      *       write) RESOLVED the identity - no fence, the key may be created again.
      * The NEWEST IDENTITY wins (highest baseline_id): ids name the successive
-     * incarnations of one key, and reserve_time has only SECOND precision - a DROP of
+     * incarnations of one key. Timestamp ordering alone cannot distinguish all interleavings: a DROP of
      * id N followed by a re-create as N+1 within the same stored instant used to sort
      * N's dropped = 1 tombstone BEFORE N+1's reservation, so resolveDurablePendingCreate
      * read the key as resolved, skipped the pending fence of N+1's committed-but-
      * unreadable INSERT, and allocated N+2 (both ENABLED rows could then publish).
      * Within one identity the latest state wins: a tombstone (appended after the
-     * reservation) means resolved; the same-second order is tombstone, then marker,
+     * reservation) means resolved; the equal-timestamp order is tombstone, then marker,
      * then the plain row.
      */
     private static final String SELECT_PENDING_SEQ_SQL = "SELECT `baseline_id`, "
@@ -820,36 +820,42 @@ public class BaselineManager {
      * read keeps hiding it and the append is retried.
      */
     private static final class PendingDropMarker {
+        final long id;
         final String bindSqlDigest;
         final long planSqlHash;
 
-        PendingDropMarker(String bindSqlDigest, long planSqlHash) {
+        PendingDropMarker(long id, String bindSqlDigest, long planSqlHash) {
+            this.id = id;
             this.bindSqlDigest = bindSqlDigest;
             this.planSqlHash = planSqlHash;
+        }
+
+        String key() {
+            return droppedIdentityKey(id, bindSqlDigest, planSqlHash);
         }
     }
 
     /**
      * One retained DROP tombstone obligation (see confirmDropTombstonesDurable): the
      * identities this DROP removed, INCLUDING the same-key twins retired with it (see
-     * retireSupersededKeyTwins). id -> the identity marker owed for that id; an empty
-     * digest owes only the id-scoped marker. The twins ride in the SAME obligation: their
+     * retireSupersededKeyTwins). Each complete scope key retains its marker, so identity and id-scoped markers
+     * of one id coexist, including multiple identities left by an id collision. The twins share this obligation: their
      * DELETE is durably confirmed, but it left a process-local marker only - if that
      * append failed while the removed row's markers were readable, the DROP used to
      * report success and a demoted master's already-dispatched status INSERT for the twin
      * could publish, reviving the dropped baseline on every other FE / after a restart.
      */
     private static final class PendingDropObligation {
-        final Map<Long, PendingDropMarker> owed = new java.util.LinkedHashMap<>();
+        final Map<String, PendingDropMarker> owed = new java.util.LinkedHashMap<>();
     }
 
     /**
-     * Drop tombstones whose durable append has not succeeded yet, id -> identity (see
+     * Drop tombstones whose durable append has not succeeded yet, complete scope key -> marker (see
      * writeDroppedMarker). Process-local by nature: another FE never saw the failed write,
      * but it also lost this tombstone's delayed-commit protection entirely, which is the
      * pre-existing exposure the retry shrinks.
      */
-    private static final Map<Long, PendingDropMarker> pendingDroppedMarkers =
+    private static final Map<String, PendingDropMarker> pendingDroppedMarkers =
             new ConcurrentHashMap<>();
 
     /**
@@ -867,8 +873,8 @@ public class BaselineManager {
 
     /**
      * The drop ids whose KEY CLEANUP (the same-key twin retirement of retireSupersededKeyTwins)
-     * is still unfinished, id -> the retained cleanup (the identity row the DROP removed plus
-     * the instant the retention was recorded).
+     * is still unfinished, id -> the retained identities and their allocation upper bounds. An id collision can
+     * leave several identities under the same id; retry must retain every identity the DROP removed.
      *
      * A DROP deletes its own row FIRST and retires the same-key twins afterwards. When a twin's
      * delete throws, the retry finds the id's row ABSENT - so it never reaches
@@ -881,10 +887,10 @@ public class BaselineManager {
      * The retention is SCOPE-BOUND: a resumed cleanup re-discovers twins with the
      * (digest, planSql, fingerprint) key check, and a CREATE of the SAME SQL that ran AFTER this
      * DROP is durable is exactly such a row - retiring it deleted a baseline the user had just
-     * created. The retained instant therefore bounds the retirement to the rows that already
+     * created. The retained allocation watermark therefore bounds retirement to the rows that already
      * existed when the DROP removed its identity (see retireSupersededKeyTwins).
      */
-    private static final Map<Long, PendingDropKeyCleanup> pendingDropKeyCleanups =
+    private static final Map<Long, List<PendingDropKeyCleanup>> pendingDropKeyCleanups =
             new ConcurrentHashMap<>();
 
     /**
@@ -895,7 +901,7 @@ public class BaselineManager {
     private static final class PendingDropKeyCleanup {
         private final BaselinePlan identity;
         /**
-         * The ID high-water mark at the instant the DROP removed its own rows: a resumed
+         * The ID high-water mark captured before the DROP dispatches its deletes: a resumed
          * retirement only removes twins allocated AT OR BELOW it. A CREATE of the same SQL that
          * lands afterwards carries a LARGER id (ids are allocated monotonically) and is left
          * alone.
@@ -903,9 +909,8 @@ public class BaselineManager {
          * The bound is the ID, not a timestamp. A timestamp bound compared against
          * the twin's stored update time is unreliable in both directions: the status flip pushes
          * a row's stored instant past wall time, so a PREEXISTING twin carrying a future-dated
-         * update time was skipped (and left durable), while a CREATE landing in the SAME second
-         * as the retention carried an update time at or below it (DATETIME has second
-         * precision) and was deleted. Allocation order is exactly what "existed at DROP time"
+         * update time was skipped, while a later CREATE with an update time at or below the bound was deleted.
+         * Allocation order is exactly what "existed at DROP time"
          * means, and it is monotonic cluster-wide.
          */
         private final long retainedMaxId;
@@ -935,7 +940,7 @@ public class BaselineManager {
          * are provably gone as well.
          */
         final BaselinePlan pruneIdentity;
-        final long pruneKeepFromSecond;
+        final long pruneKeepFromMicros;
 
         UnresolvedMutationWindow(long id, BaselineStatus expectedStatus,
                 long attemptedUpdateTimeMicros, long sinceMillis) {
@@ -944,13 +949,13 @@ public class BaselineManager {
 
         UnresolvedMutationWindow(long id, BaselineStatus expectedStatus,
                 long attemptedUpdateTimeMicros, long sinceMillis, BaselinePlan pruneIdentity,
-                long pruneKeepFromSecond) {
+                long pruneKeepFromMicros) {
             this.id = id;
             this.expectedStatus = expectedStatus;
             this.attemptedUpdateTimeMicros = attemptedUpdateTimeMicros;
             this.sinceMillis = sinceMillis;
             this.pruneIdentity = pruneIdentity;
-            this.pruneKeepFromSecond = pruneKeepFromSecond;
+            this.pruneKeepFromMicros = pruneKeepFromMicros;
         }
 
         /** Whether the snapshot shows the committed outcome (mirrors PendingMutationFence). */
@@ -984,7 +989,7 @@ public class BaselineManager {
                 return true;
             }
             try {
-                return store.countVersionsBefore(pruneIdentity, pruneKeepFromSecond) == 0;
+                return store.countVersionsBefore(pruneIdentity, pruneKeepFromMicros) == 0;
             } catch (RuntimeException e) {
                 return false; // the outcome cannot be read: the window stays held
             }
@@ -1117,7 +1122,8 @@ public class BaselineManager {
      * I/O and the CPU work derived from a snapshot (digest filter, priority sort) run
      * OUTSIDE the lock. Rewrite lookups (hasBaselines + findCandidateBaselines on every
      * query) read the volatile hash index without any lock; create / drop / status / load /
-     * refresh take the write lock for their in-memory publication only.
+     * refresh take the write lock for their in-memory publication only. Cold matching reads briefly take the
+     * read lock to capture a consistent generation and hash epoch, then the write lock to validate publication.
      */
     private final ReentrantReadWriteLock stateLock = new ReentrantReadWriteLock();
 
@@ -1130,18 +1136,16 @@ public class BaselineManager {
 
     /**
      * Monotonic version of the in-memory state, bumped by every local mutation (create /
-     * drop / status change / load) and by every refresh that changed something. The periodic
-     * refresh compares it to skip a table snapshot whose read overlapped a local mutation
+     * drop / status change / load) and by every accepted refresh, including content-equal snapshots. The periodic
+     * refresh compares it to skip a table snapshot whose read overlapped another publication
      * (see refreshFromInternalTable). Guarded by stateLock.
      */
     private long stateVersion = 0;
 
     /**
-     * The largest durable id this store has EVER seen - the load snapshot's MAX(id) and
-     * every locally published row. The table allocates ids upward only, so a table whose
-     * MAX(id) is not above this value has no row this store does not know: the
-     * create-path key dedup can then be answered from the in-memory key index instead of
-     * scanning the whole table (see readPersistedRowsForCreate).
+     * The largest id observed by an initial load or local row publication. A larger durable watermark requires
+     * a fresh CREATE dedup read. A watermark at or below this value only permits using a complete cached hash
+     * bucket; it does not prove that an evicted bucket's rows remain in memory.
      */
     private volatile long maxPersistedIdSeen = 0;
 
@@ -1271,12 +1275,11 @@ public class BaselineManager {
     }
 
     /**
-     * Bumped by every invalidation of the published store (the promotion reload). A load
-     * that STARTED before an invalidation must never republish its snapshot: that
-     * snapshot may still contain a row the concurrent DROP deleted - the DROP then finds
-     * no map entry (the maps were cleared) and skips its stateVersion bump, so the
-     * version guard alone cannot reject the stale snapshot. Bumped under writerLock (see
-     * invalidatePublishedStore), read without a lock.
+     * Advances when a snapshot is published, the store is invalidated, or forwarded DDL requires a fresh read.
+     * A read that started before any of these events must not overwrite the newer state. Snapshot publication
+     * advances it under stateLock; invalidation and forwarded-DDL fencing advance it under writerLock. Cold
+     * hash reads capture it with their hash epoch under stateLock and validate both before caching. Content
+     * signatures can collide, so even a snapshot with equal signatures advances this generation.
      */
     private final AtomicLong storeGeneration = new AtomicLong();
 
@@ -1297,16 +1300,9 @@ public class BaselineManager {
     private final AtomicLong hashMutationSeq = new AtomicLong();
 
     /**
-     * CONTENT signature of the rows behind every known hash (see knownHashes).
-     *
-     * The epoch above used to advance only for changes the LOCAL CACHE observed
-     * (applySnapshot's updated count) or for a key-set change. A refresh that only
-     * rewrote rows of a COLD hash - no cached bucket, so nothing the cache reported as
-     * updated - therefore kept the old epoch, and a by-hash miss that had read the OLD
-     * rows still passed its epoch check and published them: the stale read became a WARM
-     * hit that served the pre-flip status until the next refresh. Comparing the snapshot's
-     * own signature (id / status / stored instant / plan text identity) keeps the epoch tied
-     * to the DURABLE content, cached or not.
+     * Content signatures of all snapshot hashes, including cold ones. A changed signature advances that hash's
+     * epoch without retaining every durable row in memory. Equality does not prove equal content: exact cache
+     * changes also advance the hash epoch, and storeGeneration fences overlapping reads on every publication.
      */
     private volatile Map<Long, Long> knownHashSignatures = new ConcurrentHashMap<>();
 
@@ -1573,9 +1569,8 @@ public class BaselineManager {
             }
             evictIfNeeded();
 
-            // The DURABLE signature comparison: it covers every snapshot hash, so a hash whose
-            // rows changed without any cached bucket still advances (a miss that read the OLD set
-            // must not become a warm hit).
+            // Include cold hashes in change accounting without retaining their rows. Signatures are only
+            // change detectors; storeGeneration protects publication even when their values collide.
             Set<Long> changedHashes = new HashSet<>();
             Map<Long, Long> nextSignatures = new HashMap<>();
             for (Map.Entry<Long, List<BaselinePlan>> entry : byHash.entrySet()) {
@@ -1588,17 +1583,8 @@ public class BaselineManager {
             }
             knownHashSignatures = nextSignatures;
 
-            // Development-time assertion: a cache entry that changed must be explained by a
-            // signature change. A violation means hashContentSignature misses a persisted field -
-            // exactly the omission the removed blanket bump used to hide.
-            for (Long hash : cacheChangedHashes) {
-                if (byHash.containsKey(hash) && !changedHashes.contains(hash)) {
-                    LOG.warn("SPM cache entry of hash {} changed but its content signature did"
-                            + " not; hashContentSignature is likely missing a persisted field",
-                            hash);
-                }
-            }
-            return new ApplyResult(changedHashes, cacheChangedHashes, cacheRowsChanged);
+            changedHashes.addAll(cacheChangedHashes);
+            return new ApplyResult(changedHashes, cacheRowsChanged);
         }
 
         private void putCompleteLocked(long hash, List<BaselinePlan> rows) {
@@ -1758,32 +1744,17 @@ public class BaselineManager {
     }
 
     /**
-     * The outcome of one BaselineRowCache.applySnapshot: which hashes the caller must treat
-     * as CHANGED, plus the cache-internal accounting used for logging and for the development-time
-     * assertion below.
-     *
-     * Replacing the former pair of mechanisms (a row-count-driven blanket epoch bump plus a
-     * precise per-hash bump) with ONE set keeps a single maintenance point, avoids killing the
-     * epochs of hashes that did not change, and gives the log / stateVersion a meaning that
-     * can be stated in terms of hashes.
+     * Snapshot change accounting: the union of signature changes and exact cache changes determines which
+     * hash epochs advance. Every accepted snapshot independently advances stateVersion and storeGeneration.
      */
     static final class ApplyResult {
-        /** Hashes whose DURABLE content signature changed (cold hashes included). */
+        /** Hashes with a changed signature or cache entry, including vanished cached hashes. */
         final Set<Long> changedHashes;
-        /**
-         * Hashes whose CACHE entry changed, vanished hashes included. Used only for the
-         * development-time assertion: it must be a subset of
-         * changedHashes ∪ vanishedHashes, otherwise hashContentSignature misses a
-         * persisted field.
-         */
-        final Set<Long> cacheChangedHashes;
         /** Rows added / changed / removed inside cached entries (logging only). */
         final int cacheRowsChanged;
 
-        ApplyResult(Set<Long> changedHashes, Set<Long> cacheChangedHashes,
-                int cacheRowsChanged) {
+        ApplyResult(Set<Long> changedHashes, int cacheRowsChanged) {
             this.changedHashes = changedHashes;
-            this.cacheChangedHashes = cacheChangedHashes;
             this.cacheRowsChanged = cacheRowsChanged;
         }
     }
@@ -1855,7 +1826,7 @@ public class BaselineManager {
             final long tableWatermark = readPersistedTableMaxId();
             // The allocation bound combines the table maximum and the reservation watermark so dropped or
             // reserved-but-unwritten ids remain consumed. The durable key lookup below also uses this bound when
-            // deciding whether a cached bucket is complete.
+            // deciding whether a complete cached bucket may answer dedup.
             final long watermark = Math.max(tableWatermark, readPersistedIdHighWater());
             // Durable half of the same fence: the in-memory registry above
             // is per-FE, so a retry that runs on the new master after a handoff (or after
@@ -1916,16 +1887,25 @@ public class BaselineManager {
                     durableGoneIds.add(duplicate.getId());
                 } else if (!persistence.isDurable()) {
                     return duplicate.getId();
-                } else if (probeDurableRow(duplicate.getId(), duplicate.getBindSqlDigest(),
-                        duplicate.getPlanSql(), duplicate.getStatus(),
-                        duplicate.getSchemaFingerprint(), null)
-                        == BaselinePersistence.DurablePresence.PRESENT) {
-                    // the durable row must be the SAME incarnation (id + key + status +
-                    // fingerprint): a REUSED id carrying another baseline satisfied the
-                    // old id+status probe, and returning it handed the user an id whose
-                    // row is a different baseline
-                    return duplicate.getId(); // exact duplicate -> skip
                 } else {
+                    // Existence is independent of status: an ALTER on another FE may have disabled this
+                    // identity since it was cached. UNKNOWN cannot justify allocating a replacement.
+                    BaselinePersistence.DurablePresence presence = probeDurableRow(duplicate.getId(),
+                            duplicate.getBindSqlDigest(), duplicate.getPlanSql(), null,
+                            duplicate.getSchemaFingerprint(), null);
+                    if (presence == BaselinePersistence.DurablePresence.UNKNOWN) {
+                        throw new IllegalStateException("SPM cannot create baseline: the cached duplicate "
+                                + duplicate.getId() + " has UNKNOWN durable presence; retry the statement");
+                    }
+                    if (presence == BaselinePersistence.DurablePresence.PRESENT) {
+                        BaselinePlan readable = readableIdentityRow(duplicate.getId(), plan);
+                        if (readable == null) {
+                            throw new IllegalStateException("SPM cannot create baseline: the durable duplicate "
+                                    + duplicate.getId() + " cannot be read consistently; retry the statement");
+                        }
+                        publishBaseline(readable);
+                        return readable.getId();
+                    }
                     LOG.warn("SPM baseline create: the cached duplicate {} is gone durably"
                             + " (promotion window); creating a fresh row", duplicate.getId());
                     staleCacheRows.add(duplicate);
@@ -2778,7 +2758,7 @@ public class BaselineManager {
             // marker keeps the DROP retryable; resumed retirements add their own markers to the same obligation.
             resumePendingDropKeyCleanup(id);
             if (pendingDropTombstoneConfirmations.containsKey(id)) {
-                confirmAbsentDropTombstones(id);
+                confirmPendingDropTombstones(id);
             }
             return false;
         }
@@ -2793,6 +2773,9 @@ public class BaselineManager {
         try {
             for (BaselinePlan row : durable) {
                 persistDeleteByIdentity(row);
+                // This identity is confirmed gone even if a later incarnation's delete fails.
+                noteDroppedSeqState(row);
+                oweDropTombstone(id, row);
             }
         } catch (RuntimeException e) {
             if (!NO_LONGER_MASTER.equals(e.getMessage())) {
@@ -2810,14 +2793,6 @@ public class BaselineManager {
         // confirmDropTombstonesDurable), or a demoted master's delayed status INSERT of a
         // twin revives the dropped baseline on another FE.
         List<BaselinePlan> droppedRows = new ArrayList<>(durable);
-        for (BaselinePlan row : durable) {
-            noteDroppedSeqState(row);
-            // the identity rides into the DROP's confirmation obligation NOW: a later twin
-            // delete may throw, and the retry then finds these rows already ABSENT - the
-            // obligation map is the only source of their markers then (see
-            // confirmAbsentDropTombstones)
-            oweDropTombstone(id, row);
-        }
         // The hash-epoch barrier covers this CACHE-MISS drop too (see
         // removeCachedBaseline): a by-hash load that read one of these rows BEFORE the
         // DROP pauses between its reconciliation and the publication lock, and both the
@@ -2847,9 +2822,7 @@ public class BaselineManager {
         // twins still have to be retired (see resumePendingDropKeyCleanup).
         List<BaselinePlan> retiredKeys = new ArrayList<>();
         try {
-            for (BaselinePlan row : durable) {
-                retireSupersededKeyTwins(row, retiredKeys);
-            }
+            retirePendingDropKeyTwins(id, retiredKeys);
         } catch (RuntimeException e) {
             // The twins retired BEFORE the failing statement are already GONE durably: a
             // warm bucket that still held one of them would keep replaying it until the
@@ -2883,33 +2856,56 @@ public class BaselineManager {
      * pendingDropKeyCleanups). The snapshot is scalar-only: the transient trees are not needed
      * to re-discover the twins, and a cached row's trees may be stale.
      *
-     * Parameter identity: the row this DROP removed
+     * Parameter identity: the row this DROP is about to remove
      */
     private void retainDropKeyCleanup(BaselinePlan identity) {
-        if (identity == null || identity.getId() <= 0 || !persistence.isDurable()) {
+        if (!persistence.isDurable()) {
             return;
         }
         // The bound is the ALLOCATION high-water mark at this instant: every row
-        // that already existed carries an id at or below it, and every CREATE landing later gets
+        // that already existed carries an id at or below it, and every later allocation gets
         // a LARGER id, so a resumed retirement can never touch a baseline the user created after
         // the DROP. An unreadable mark fails the DROP retryably - guessing it would either skip a
         // preexisting twin or delete a fresh one.
+        List<PendingDropKeyCleanup> retained = pendingDropKeyCleanups.getOrDefault(identity.getId(), List.of());
         long retainedMaxId;
-        try {
-            retainedMaxId = Math.max(identity.getId(), readCompactIdWatermark());
-        } catch (RuntimeException e) {
-            throw new IllegalStateException("SPM cannot drop baseline " + identity.getId()
-                    + ": the id watermark that bounds its key cleanup cannot be read; retry the"
-                    + " statement", e);
+        if (retained.isEmpty()) {
+            try {
+                retainedMaxId = Math.max(identity.getId(), readCompactIdWatermark());
+            } catch (RuntimeException e) {
+                throw new IllegalStateException("SPM cannot drop baseline " + identity.getId()
+                        + ": the id watermark that bounds its key cleanup cannot be read; retry the"
+                        + " statement", e);
+            }
+        } else {
+            // Every identity of this DROP and every retry reuse the original allocation bound.
+            retainedMaxId = retained.get(0).retainedMaxId;
         }
-        pendingDropKeyCleanups.put(identity.getId(), new PendingDropKeyCleanup(
-                identity.copyPersistedScalars(), retainedMaxId));
+        boolean alreadyRetained = false;
+        for (PendingDropKeyCleanup cleanup : retained) {
+            alreadyRetained |= sameIdentity(cleanup.identity, identity);
+        }
+        if (!alreadyRetained) {
+            List<PendingDropKeyCleanup> next = new ArrayList<>(retained);
+            next.add(new PendingDropKeyCleanup(identity.copyPersistedScalars(), retainedMaxId));
+            pendingDropKeyCleanups.put(identity.getId(), List.copyOf(next));
+        }
+    }
+
+    /** Retires twins of every retained identity, including identities removed by a previous partial attempt. */
+    private void retirePendingDropKeyTwins(long id, List<BaselinePlan> retiredOut) {
+        if (!persistence.isDurable()) {
+            return;
+        }
+        for (PendingDropKeyCleanup cleanup : pendingDropKeyCleanups.get(id)) {
+            retireSupersededKeyTwins(cleanup.identity, retiredOut, cleanup.retainedMaxId);
+        }
     }
 
     /**
      * Resumes the KEY CLEANUP a failed DROP attempt left unfinished (see
      * pendingDropKeyCleanups), called by the ABSENT-row retry: that retry has no identity row
-     * any more, so it re-discovers the same-key twins from the retained one and retires them.
+     * any more, so it re-discovers the same-key twins from every retained identity and retires them.
      *
      * The retirement is idempotent from the durable side (already retired twins are absent and
      * drop out of the discovery read), and both markers and cache eviction follow the normal
@@ -2920,8 +2916,8 @@ public class BaselineManager {
      * Parameter id: the dropped id
      */
     private void resumePendingDropKeyCleanup(long id) {
-        PendingDropKeyCleanup cleanup = pendingDropKeyCleanups.get(id);
-        if (cleanup == null) {
+        List<PendingDropKeyCleanup> cleanups = pendingDropKeyCleanups.get(id);
+        if (cleanups == null) {
             return;
         }
         List<BaselinePlan> retired = new ArrayList<>();
@@ -2929,7 +2925,7 @@ public class BaselineManager {
             // The retirement is bounded to the rows that already existed when the DROP removed
             // its identity: a CREATE of the SAME SQL that landed afterwards is a NEW baseline
             // the retry must not retire.
-            retireSupersededKeyTwins(cleanup.identity, retired, cleanup.retainedMaxId);
+            retirePendingDropKeyTwins(id, retired);
         } catch (RuntimeException e) {
             // the twins retired by THIS attempt are gone durably: they must leave the warm
             // cache and keep their markers, and the retention makes the next retry resume
@@ -2963,6 +2959,7 @@ public class BaselineManager {
             }
             LOG.warn("SPM drop of baseline {} removed a lingering row of a different"
                     + " incarnation (digest {})", id, row.getBindSqlDigest());
+            retainDropKeyCleanup(row);
             persistDeleteByIdentity(row);
             // the wiped incarnation gets its own tombstone: a still-in-flight write of
             // THAT identity must not revive it either
@@ -2975,7 +2972,7 @@ public class BaselineManager {
         // Retire the KEY's superseded twins as well (see retireSupersededKeyTwins); their
         // identities ride into the DROP's durable confirmation (see
         // confirmDropTombstonesDurable)
-        retireSupersededKeyTwins(alreadyDeleted, retiredOut);
+        retirePendingDropKeyTwins(id, retiredOut);
         return retiredOut;
     }
 
@@ -2989,18 +2986,9 @@ public class BaselineManager {
      * just dropped. The loser is retired durably (its identity DELETE is confirmed
      * before this returns) with its own tombstone; a row under a DIFFERENT fingerprint
      * is a DIFFERENT incarnation and stays untouched. Shared by the cached and the
-     * cache-miss DROP paths.
-     */
-    private void retireSupersededKeyTwins(BaselinePlan alreadyDeleted,
-            List<BaselinePlan> retiredOut) {
-        retireSupersededKeyTwins(alreadyDeleted, retiredOut, Long.MAX_VALUE);
-    }
-
-    /**
-     * Retires the superseded same-key twins of a DROP (see the two-argument overload), bounded to
-     * the rows whose ID is not LARGER than maxRetainedId.
+     * cache-miss DROP paths, including retries. Only rows at or below maxRetainedId are retired.
      *
-     * A RESUMED cleanup runs long after the DROP removed its identity, and by then the key can
+     * A cleanup can run after the DROP removed its identity, and by then the key can
      * name a NEWER baseline: the user re-CREATEd the very same SQL, the durable row carries the
      * same (digest, planSql, fingerprint) and a fresh id - the key check alone cannot tell it
      * from a handoff twin, and retiring it deleted the baseline the user had just created
@@ -3013,8 +3001,7 @@ public class BaselineManager {
      *
      * Parameter alreadyDeleted: the row the DROP removed
      * Parameter retiredOut: collects the durably retired rows
-     * Parameter maxRetainedId: the inclusive upper bound of a twin's id (Long.MAX_VALUE =
-     *                        unbounded, the DROP's own path)
+     * Parameter maxRetainedId: the inclusive allocation upper bound recorded before the identity delete
      */
     private void retireSupersededKeyTwins(BaselinePlan alreadyDeleted,
             List<BaselinePlan> retiredOut, long maxRetainedId) {
@@ -3061,7 +3048,7 @@ public class BaselineManager {
             // The obligation is recorded HERE, before the loop can reach a twin whose
             // delete throws: the twins retired so far are already GONE durably, and the
             // retry finds them ABSENT - only the obligation keeps their markers owed (see
-            // confirmAbsentDropTombstones).
+            // confirmPendingDropTombstones).
             oweDropTombstone(alreadyDeleted.getId(), twin);
             retiredOut.add(twin);
         }
@@ -3233,7 +3220,7 @@ public class BaselineManager {
                 if (probe.winner != null && !sameIdentity(plan, probe.winner)) {
                     // A handoff can publish two DIFFERENT CREATE rows under one id (B
                     // cached its row after an empty collision probe, then A's delayed row
-                    // appeared and won the same-second digest tie): completing the ALTER
+                    // appeared and won the equal-timestamp digest tie): completing the ALTER
                     // against B would report success for an identity the durable table no
                     // longer favors, and a differing-status flip would even write a newer
                     // B row and switch the durable winner. Adopt the winner that IS
@@ -3322,10 +3309,9 @@ public class BaselineManager {
             // delete-then-insert gap, where the next refresh / restart silently dropped the
             // baseline). Deleting by the PREVIOUS status can never touch the freshly inserted
             // row (the statuses differ).
-            // DATETIME stores only SECONDS: two committed flips inside one second keep
-            // EQUAL durable timestamps, and pickDurableWinner prefers DISABLED on such a
-            // tie - a later ENABLE would then be reversed by the next refresh / restart
-            // while this FE temporarily served ENABLED. Advancing the new row past the
+            // Two committed flips can share a wall-clock microsecond, and pickDurableWinner prefers
+            // DISABLED when stored timestamps tie. A later ENABLE would then be reversed by refresh.
+            // Advancing the new row past the
             // newest stored instant OF THIS ID keeps the durable order ("the later intent
             // wins") exact at the stored precision among the id's own rows, so the row
             // this statement writes is always the durable winner once it is written.
@@ -4062,11 +4048,10 @@ public class BaselineManager {
      * DISABLED baseline) and the active mutation fences (an id whose committed flip is
      * still unreadable must not be served from its pre-flip row).
      *
-     * The publication is validated ATOMICALLY under stateLock against the hash's mutation
-     * epoch: a local publish / drop ADVANCES the epoch (publishHash) and so does a status
-     * flip (publishStatus) or a refresh that updated the hash's rows (see
-     * applyRefreshedBaselinesLocked) - a miss that raced any of them discards its stale
-     * rows for the current attempt too (the next match retries against the newer state)
+     * Publication is validated under stateLock against both the hash's mutation epoch and storeGeneration.
+     * Local publish / drop / status changes advance the hash epoch. Every accepted snapshot advances the
+     * generation, including snapshots whose signatures collide or whose content is unchanged. A raced miss discards
+     * its rows for the current attempt too (the next match retries against the newer state)
      * instead of overwriting the completed state. The same lock serializes the empty-read
      * index removal with the other index publishers: the copy-on-write dropHash used to
      * lose a concurrent CREATE's hash under un-synchronized removal.
@@ -4090,7 +4075,15 @@ public class BaselineManager {
         if (!durableHashReadAvailable()) {
             return List.of();
         }
-        final Long seqBefore = knownHashes.get(hash);
+        final Long seqBefore;
+        final long generationBefore;
+        stateLock.readLock().lock();
+        try {
+            seqBefore = knownHashes.get(hash);
+            generationBefore = storeGeneration.get();
+        } finally {
+            stateLock.readLock().unlock();
+        }
         if (seqBefore == null) {
             return List.of();
         }
@@ -4130,10 +4123,9 @@ public class BaselineManager {
             rows = reconcileMatchingRows(rows);
             stateLock.writeLock().lock();
             try {
-                if (!Objects.equals(seqBefore, knownHashes.get(hash))) {
-                    // The hash advanced (a local publish / drop / status flip / refresh updated
-                    // it): the rows this attempt read may predate that change, so they are
-                    // discarded - both from the cache AND from this attempt's result.
+                if (storeGeneration.get() != generationBefore
+                        || !Objects.equals(seqBefore, knownHashes.get(hash))) {
+                    // A snapshot or mutation superseded the read. Discard it from both the cache and result.
                     return List.of();
                 }
                 if (rows.isEmpty()) {
@@ -4671,6 +4663,7 @@ public class BaselineManager {
             idGenerator.set(maxId + 1);
         }
         stateVersion++;
+        storeGeneration.incrementAndGet();
         LOG.info("SPM loaded {} baselines from internal table", loadedPlans.size());
     }
 
@@ -4744,8 +4737,7 @@ public class BaselineManager {
             // a snapshot read that started BEFORE it is rejected here, or - when the
             //   mutation has not published yet - applied first and then overwritten by the
             //   mutation's own (newer) publication.
-            // Matching queries are unaffected: they never take writerLock (only stateLock
-            // read).
+            // Matching queries never take writerLock; cold reads use stateLock for publication validation.
             if (!applyRefreshedSnapshotIfUnchanged(versionAtRead, snapshot)) {
                 LOG.debug("SPM baseline refresh skipped: local state changed while reading");
             }
@@ -5265,8 +5257,8 @@ public class BaselineManager {
     }
 
     /**
-     * The current in-memory state version: bumped by every local mutation that changes
-     * the published store. Public for unit tests (the stale-snapshot guard).
+     * The current publication version: advanced by local mutations and every accepted snapshot, even when
+     * content signatures are unchanged. Public for unit tests of the stale-snapshot guard.
      *
      * Returns: the state version
      */
@@ -5500,11 +5492,8 @@ public class BaselineManager {
                 removed++;
             }
         }
-        // ONE changed-hash set decides which epochs advance (see ApplyResult): it covers the rows
-        // that changed inside cached entries AND the cold hashes applySnapshot never warms, and it
-        // is derived from the DURABLE content signature instead of the cached row count. The former
-        // row-count-driven blanket bump killed the epochs of unchanged hashes (degrading in-flight
-        // by-hash reads for no reason) and hid a signature omission rather than exposing it.
+        // Exact cache changes and signature changes advance the affected hash epochs. Equal signatures can
+        // collide, so the global publication version and generation advance independently below.
         ApplyResult applied = baselineCache.applySnapshot(byHash, !durableHashReadAvailable());
         for (Long hash : applied.changedHashes) {
             if (next.containsKey(hash)) {
@@ -5515,8 +5504,9 @@ public class BaselineManager {
         if (maxId >= idGenerator.get()) {
             idGenerator.set(maxId + 1);
         }
+        stateVersion++;
+        storeGeneration.incrementAndGet();
         if (added > 0 || removed > 0 || !applied.changedHashes.isEmpty()) {
-            stateVersion++;
             LOG.info("SPM baseline refresh applied: added={}, removed={}, changedHashes={},"
                     + " cacheRowsChanged={}, knownHashes={}", added, removed,
                     applied.changedHashes.size(), applied.cacheRowsChanged, knownHashes.size());
@@ -5630,14 +5620,14 @@ public class BaselineManager {
      *
      * Parameter id: the baseline id
      * Parameter requested: the status this ALTER wants to be durable
-     * Parameter plannedUpdateTimeMillis: the stored instant this statement is about to write
+     * Parameter plannedUpdateTimeMicros: the stored instant this statement is about to write
      *                              (0 = unknown, never ordered above the intent)
      */
     private void requireNoContradictingStatusFence(long id, BaselineStatus requested,
-            long plannedUpdateTimeMillis) {
+            long plannedUpdateTimeMicros) {
         PendingMutationFence fence = pendingMutationFences.get(id);
         if (fence != null && fence.expectedStatus != requested
-                && plannedUpdateTimeMillis <= fence.attemptedUpdateTimeMicros) {
+                && plannedUpdateTimeMicros <= fence.attemptedUpdateTimeMicros) {
             throw new IllegalStateException("SPM cannot confirm the durable status of"
                     + " baseline " + id + "; an earlier write of this id is still"
                     + " unresolved - retry the ALTER");
@@ -5647,7 +5637,7 @@ public class BaselineManager {
             // durable winner whatever that write finally publishes
             return;
         }
-        if (plannedUpdateTimeMillis > 0) {
+        if (plannedUpdateTimeMicros > 0) {
             // A REAL flip stops here: the durable read that selected this branch proved the
             // stored status is the OPPOSITE of the requested one, so a write that is still in
             // FLIGHT elsewhere cannot make this statement a silent no-op - and blocking on the
@@ -5815,18 +5805,9 @@ public class BaselineManager {
     }
 
     /**
-     * The durable BASELINES TABLE's MAX(id) - the watermark's TABLE half, kept SEPARATE
-     * from the ALLOCATION high-water mark (see readPersistedIdHighWater):
-     * mustScanDurableForKey compares it with the highest id the STORE has seen, and the
-     * allocation mark also carries the append-only reservation HWM - a reserved then
-     * dropped / never-committed highest id raises it ABOVE every row the table can hold.
-     * Feeding the allocation mark into the gate kept the gate true forever: every GLOBAL
-     * CREATE scanned the whole unindexed baselines table, and once the scan outgrew its
-     * timeout every retry of that CREATE failed on the same unnecessary scan.
-     *
-     * Returns 0 when persistence is disabled (unit tests / internal schema db off). A
-     * failed read is rethrown as a retryable error: createBaseline must never allocate
-     * an id while the watermark is unknown.
+     * Reads the largest visible baseline row id, separately from the reservation high-water mark. CREATE
+     * reconciles both before allocating: deleted and reserved-but-unwritten ids remain consumed even when the
+     * baseline table's own maximum falls. A read failure propagates so allocation cannot guess this bound.
      */
     private long readPersistedTableMaxId() {
         return persistence.tableWatermark();
@@ -6723,7 +6704,7 @@ public class BaselineManager {
      * DROP happens to reach its confirmation. A later twin's delete can throw, a tombstone
      * READ can fail, and the retry then finds these rows already ABSENT: the obligation
      * map is the only source of their identities anymore (see
-     * confirmAbsentDropTombstones), and losing it let a demoted master's delayed status
+     * confirmPendingDropTombstones), and losing it let a demoted master's delayed status
      * INSERT of the twin revive the dropped baseline on another FE / after a restart.
      *
      * Parameter dropId: the user-facing id of the DROP
@@ -6733,17 +6714,19 @@ public class BaselineManager {
         if (row == null || row.getBindSqlDigest() == null || row.getPlanSql() == null) {
             return;
         }
+        PendingDropMarker marker = new PendingDropMarker(row.getId(), row.getBindSqlDigest(),
+                identityPlanSqlHash(row));
         pendingDropTombstoneConfirmations.computeIfAbsent(dropId,
                         k -> new PendingDropObligation())
-                .owed.putIfAbsent(row.getId(), new PendingDropMarker(
-                        row.getBindSqlDigest(), identityPlanSqlHash(row)));
+                .owed.putIfAbsent(marker.key(), marker);
     }
 
     /** Records the id-scoped tombstone the DROP of dropId still owes (see oweDropTombstone). */
     private static void oweDropIdTombstone(long dropId) {
+        PendingDropMarker marker = new PendingDropMarker(dropId, "", 0L);
         pendingDropTombstoneConfirmations.computeIfAbsent(dropId,
                         k -> new PendingDropObligation())
-                .owed.putIfAbsent(dropId, new PendingDropMarker("", 0L));
+                .owed.putIfAbsent(marker.key(), marker);
     }
 
     /**
@@ -6758,15 +6741,16 @@ public class BaselineManager {
         if (!persistence.isDurable()) {
             return;
         }
+        PendingDropMarker marker = new PendingDropMarker(id, bindSqlDigest, planSqlHash);
         try {
             if (persistence.appendDroppedMarker(id, bindSqlDigest, planSqlHash,
                     System.currentTimeMillis())) {
-                pendingDroppedMarkers.remove(id);
+                pendingDroppedMarkers.remove(marker.key());
                 return;
             }
         } catch (RuntimeException e) {
             // a THROWN append takes the same masking path as a false return
-            pendingDroppedMarkers.put(id, new PendingDropMarker(bindSqlDigest, planSqlHash));
+            pendingDroppedMarkers.put(marker.key(), marker);
             LOG.warn("SPM could not persist the drop tombstone of baseline {} (an"
                     + " in-flight status write may revive it); the identity stays filtered"
                     + " on this FE and the append is retried: {}", id, e.getMessage());
@@ -6776,7 +6760,7 @@ public class BaselineManager {
         // delayed-commit window this FE just closed: keep the marker in memory so the
         // identity stays masked for THIS process, and retry the durable append from the
         // next scoped tombstone read (see readDroppedIdentities).
-        pendingDroppedMarkers.put(id, new PendingDropMarker(bindSqlDigest, planSqlHash));
+        pendingDroppedMarkers.put(marker.key(), marker);
         LOG.warn("SPM could not persist the drop tombstone of baseline {} (an"
                 + " in-flight status write may revive it); the identity stays filtered"
                 + " on this FE and the append is retried", id);
@@ -6857,14 +6841,12 @@ public class BaselineManager {
         // append the caller must not mistake for a readable one.
         if (includeLocalPending && !pendingDroppedMarkers.isEmpty()) {
             Set<Long> scoped = new java.util.HashSet<>(ids);
-            for (Map.Entry<Long, PendingDropMarker> entry : pendingDroppedMarkers.entrySet()) {
-                if (!scoped.contains(entry.getKey())) {
+            for (PendingDropMarker marker : pendingDroppedMarkers.values()) {
+                if (!scoped.contains(marker.id)) {
                     continue;
                 }
-                markers.add(entry.getKey() + "|" + entry.getValue().bindSqlDigest + "|"
-                        + entry.getValue().planSqlHash);
-                writeDroppedMarker(entry.getKey(), entry.getValue().bindSqlDigest,
-                        entry.getValue().planSqlHash);
+                markers.add(marker.key());
+                writeDroppedMarker(marker.id, marker.bindSqlDigest, marker.planSqlHash);
             }
         }
         return markers;
@@ -7068,7 +7050,8 @@ public class BaselineManager {
      * Extends scoped tombstones using the latest sequence state of each bind/plan/fingerprint identity. Compact
      * states are fetched in batches. Missing or dropped compact states, and non-dropped states that do not name
      * every row incarnation being filtered, use the single-identity history reconciliation. A latest DROP state
-     * masks every row of that identity. Visible within the package for tests.
+     * masks that allocation and older rows of the identity. A larger id is a later creation that the older
+     * DROP cannot condemn, even when its reservation metadata is still unreadable. Visible for package tests.
      */
     Set<String> withIdentityDrops(Set<String> tombstones, Collection<BaselinePlan> rows) {
         Map<String, List<BaselinePlan>> byIdentity = null;
@@ -7142,7 +7125,9 @@ public class BaselineManager {
                     continue;
                 }
                 for (BaselinePlan row : group.getValue()) {
-                    extended.add(droppedIdentityKey(row));
+                    if (row.getId() <= state.id) {
+                        extended.add(droppedIdentityKey(row));
+                    }
                 }
             }
         }
@@ -7560,7 +7545,7 @@ public class BaselineManager {
             // Defer retryably instead - the reservation becomes readable with its time.
             throw new IllegalStateException("SPM cannot create baseline: the age of the"
                     + " reservation of id " + reservation.id + " cannot be proven (its stored"
-                    + " second is unreadable); nothing was changed, retry the statement");
+                    + " timestamp is unreadable); nothing was changed, retry the statement");
         }
         // The fence elapsed, but elapsed time is NOT a terminal outcome -
         // the write may still be COMMITTED with its publication lagging, and a fresh id
@@ -7663,170 +7648,72 @@ public class BaselineManager {
     private void confirmDropTombstonesDurable(Collection<BaselinePlan> removed,
             long id) {
         if (!persistence.isDurable()) {
-            return; // in-memory only: no tombstone store exists
+            return;
         }
-        List<BaselinePlan> identities = new ArrayList<>();
-        for (BaselinePlan row : removed) {
-            if (row != null && row.getBindSqlDigest() != null && row.getPlanSql() != null) {
-                identities.add(row);
-            }
-        }
-        Set<Long> scoped = new java.util.HashSet<>();
-        scoped.add(id);
-        for (BaselinePlan row : identities) {
-            scoped.add(row.getId());
-        }
-        // The obligation is recorded BEFORE the read loop: a tombstone READ failure throws
-        // straight out of this method (the DROP stays retryable), and the retry then finds
-        // the rows already ABSENT - without the obligation the removed identities would
-        // never be re-appended (see confirmAbsentDropTombstones).
         oweDropIdTombstone(id);
-        for (BaselinePlan row : identities) {
+        for (BaselinePlan row : removed) {
             oweDropTombstone(id, row);
         }
-        for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
-            // read FIRST: the callers above already appended their markers, so the
-            // healthy path needs no extra write at all - only a marker that is NOT
-            // readable yet is re-appended (bounded, see confirmDroppedMarkerDurable)
-            Set<String> readable = readDroppedIdentitiesDurable(scoped);
-            boolean complete = readable.contains(droppedIdKey(id));
-            for (BaselinePlan row : identities) {
-                complete &= readable.contains(droppedIdentityKey(row.getId(),
-                        row.getBindSqlDigest(), identityPlanSqlHash(row)));
-            }
-            // The tombstone lives in TWO places: the append-only HISTORY row read above, and
-            // the COMPACT identity slot every reader consults first (see
-            // readPersistedSeqReservation, whose non-dropped early return deliberately does NOT
-            // read the history). Confirming only the history let a DROP report success while the
-            // compact slot still carried the identity's PREVIOUS plain reservation - the identity
-            // then still looked alive, and a delayed INSERT of an older id of the same key was
-            // republished as an active baseline. The compact publish is therefore part of the
-            // SAME fence.
-            if (complete) {
-                complete = compactTombstonesVisible(identityMarkers(identities));
-            }
-            if (complete) {
-                pendingDropTombstoneConfirmations.remove(id);
-                return;
-            }
-            writeDroppedMarker(id, "", 0L);
-            for (BaselinePlan row : identities) {
-                writeDroppedMarker(row.getId(), row.getBindSqlDigest(),
-                        identityPlanSqlHash(row));
-            }
-            sleepBeforeVisibilityRetry();
-        }
-        // The obligation SURVIVES the failed confirmation: the row is already deleted, so
-        // the retry finds it ABSENT (see dropDurableRowByIdIfAbsentFromCache) and would
-        // never reach these identities again - the markers must be re-appended and
-        // confirmed before that retry may report success, or a demoted master's delayed
-        // status INSERT revives the baseline the DROP reported as failed (the
-        // C2 finding). The retained markers also keep masking the identity on this FE and
-        // re-append from every scoped tombstone read (see readDroppedIdentities).
-        for (BaselinePlan row : identities) {
-            pendingDroppedMarkers.putIfAbsent(row.getId(), new PendingDropMarker(
-                    row.getBindSqlDigest(), identityPlanSqlHash(row)));
-        }
-        pendingDroppedMarkers.putIfAbsent(id, new PendingDropMarker("", 0L));
-        // The obligation (every identity this DROP removed: the removed row(s) AND the
-        // same-key twins retired with them) was recorded before the read loop above, so it
-        // already carries every row - the retry settles it via confirmAbsentDropTombstones.
-        throw new IllegalStateException("SPM cannot confirm the drop tombstones of baseline id "
-                + id + " (the row is gone but its filter markers are not readable);"
-                + " retry the DROP");
+        confirmPendingDropTombstones(id);
     }
 
     /**
-     * Settles the tombstone obligation a PREVIOUS, failed attempt of a DROP retained (see
-     * pendingDropTombstoneConfirmations) for an id whose row is now ABSENT: the retry
-     * never reaches the removed identity objects again - the row is gone - so the
-     * obligation map and the retained pendingDroppedMarkers entry are the only sources of
-     * the identity. Re-appends the owed markers, confirms them readable within the bounded
-     * budget and only then releases the obligation; a still unreadable marker keeps the
-     * DROP retryable.
-     *
-     * Parameter id: the dropped id
+     * Confirms every retained scope of a DROP, including identities and twins removed by an earlier partial
+     * attempt. Normal completion and absent-row retry share this fence: all history markers and compact
+     * identity states must be readable before the obligation is released. A timeout retains every local mask.
      */
-    private void confirmAbsentDropTombstones(long id) {
+    private void confirmPendingDropTombstones(long id) {
         if (!persistence.isDurable()) {
             pendingDropTombstoneConfirmations.remove(id);
-            pendingDroppedMarkers.remove(id);
-            return; // in-memory only: no tombstone store exists
+            pendingDroppedMarkers.values().removeIf(marker -> marker.id == id);
+            return;
         }
+        PendingDropObligation obligation = Objects.requireNonNull(pendingDropTombstoneConfirmations.get(id));
+        Set<Long> scoped = new java.util.HashSet<>();
+        scoped.add(id);
+        for (PendingDropMarker marker : obligation.owed.values()) {
+            scoped.add(marker.id);
+        }
+        List<PendingDropMarker> identities = identityMarkersOf(obligation);
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
-            PendingDropObligation obligation = pendingDropTombstoneConfirmations.get(id);
-            Set<Long> scoped = new java.util.HashSet<>();
-            scoped.add(id);
-            if (obligation != null) {
-                scoped.addAll(obligation.owed.keySet());
-            }
             Set<String> readable = readDroppedIdentitiesDurable(scoped);
             boolean complete = readable.contains(droppedIdKey(id));
-            if (obligation != null) {
-                for (Map.Entry<Long, PendingDropMarker> owed : obligation.owed.entrySet()) {
-                    complete &= owed.getValue().bindSqlDigest.isEmpty()
-                            ? readable.contains(droppedIdKey(owed.getKey()))
-                            : readable.contains(droppedIdentityKey(owed.getKey(),
-                                    owed.getValue().bindSqlDigest,
-                                    owed.getValue().planSqlHash));
-                }
+            for (String key : obligation.owed.keySet()) {
+                complete &= readable.contains(key);
             }
-            // the COMPACT identity slot is part of the same fence (see
-            // confirmDropTombstonesDurable): the history row alone does not make the tombstone
-            // readable to a reader that trusts a non-dropped compact record
-            if (complete && obligation != null) {
-                complete = compactTombstonesVisible(identityMarkersOf(obligation));
+            if (complete) {
+                complete = compactTombstonesVisible(identities);
             }
             if (complete) {
                 pendingDropTombstoneConfirmations.remove(id);
-                if (obligation != null) {
-                    for (Long owedId : obligation.owed.keySet()) {
-                        pendingDroppedMarkers.remove(owedId);
-                    }
+                for (String key : obligation.owed.keySet()) {
+                    pendingDroppedMarkers.remove(key);
                 }
-                pendingDroppedMarkers.remove(id);
-                LOG.info("SPM confirmed the retained drop tombstones of baseline {} (its"
-                        + " retry found the row already deleted)", id);
+                LOG.info("SPM confirmed the drop tombstones of baseline {}", id);
                 return;
             }
             writeDroppedMarker(id, "", 0L);
-            if (obligation != null) {
-                for (Map.Entry<Long, PendingDropMarker> owed : obligation.owed.entrySet()) {
-                    if (owed.getValue().bindSqlDigest.isEmpty() && owed.getKey() == id) {
-                        continue; // the id-scoped marker was just re-appended above
-                    }
-                    writeDroppedMarker(owed.getKey(), owed.getValue().bindSqlDigest,
-                            owed.getValue().planSqlHash);
+            for (PendingDropMarker marker : obligation.owed.values()) {
+                if (marker.id == id && marker.bindSqlDigest.isEmpty()) {
+                    continue; // the id-scoped marker was just re-appended
                 }
+                writeDroppedMarker(marker.id, marker.bindSqlDigest, marker.planSqlHash);
             }
             sleepBeforeVisibilityRetry();
         }
-        throw new IllegalStateException("SPM cannot confirm the retained drop tombstones of"
-                + " baseline id " + id + " (the row is gone but its filter markers are not"
-                + " readable); retry the DROP");
-    }
-
-    /** The identity markers of one DROP's removed rows (see compactTombstonesVisible). */
-    private static List<PendingDropMarker> identityMarkers(Collection<BaselinePlan> rows) {
-        List<PendingDropMarker> markers = new ArrayList<>(rows.size());
-        for (BaselinePlan row : rows) {
-            if (row != null && row.getBindSqlDigest() != null && row.getPlanSql() != null) {
-                markers.add(new PendingDropMarker(row.getBindSqlDigest(),
-                        identityPlanSqlHash(row)));
-            }
+        for (PendingDropMarker marker : obligation.owed.values()) {
+            pendingDroppedMarkers.putIfAbsent(marker.key(), marker);
         }
-        return markers;
+        throw new IllegalStateException("SPM cannot confirm the drop tombstones of baseline id "
+                + id + " (the row is gone but its filter markers are not readable); retry the DROP");
     }
 
-    /**
-     * The retained obligation's identity markers, without the id-scoped one (see
-     * compactTombstonesVisible).
-     */
+    /** The retained identity markers, excluding id-scoped markers. */
     private static List<PendingDropMarker> identityMarkersOf(PendingDropObligation obligation) {
         List<PendingDropMarker> markers = new ArrayList<>(obligation.owed.size());
-        for (Map.Entry<Long, PendingDropMarker> owed : obligation.owed.entrySet()) {
-            if (!owed.getValue().bindSqlDigest.isEmpty()) {
-                markers.add(owed.getValue());
+        for (PendingDropMarker marker : obligation.owed.values()) {
+            if (!marker.bindSqlDigest.isEmpty()) {
+                markers.add(marker);
             }
         }
         return markers;
@@ -8608,70 +8495,59 @@ public class BaselineManager {
     }
 
     /**
-     * Durable dedup lookup of the CREATE path: served from the store's key INDEX while
-     * the store is complete for this table, and from the durable table only when the
-     * table carries a row this store has never seen.
-     *
-     * Every GLOBAL CREATE used to filter bind_sql_digest / plan_sql in SQL, but the
-     * table is keyed and distributed only by id: that predicate scans EVERY bucket and
-     * row, while the table grows without a cap (auto capture), so the lookup eventually
-     * ran into its fixed timeout and CREATE slowed down / failed as baselines
-     * accumulated. The store already holds every row (the load reads them all) plus
-     * every local write, and it is invalidated + reloaded on promotion / forwarded DDL,
-     * so the in-memory index answers correctly whenever the table has no NEWER id than
-     * the store has seen (mustScanDurableForKey); only a newer id - another
-     * master's write, an out-of-band insert, a load that could not run - requires the
-     * complete (scanned) answer, which is then paid for.
+     * CREATE dedup lookup. A newer durable watermark requires a by-key table read. Otherwise a complete cached
+     * hash bucket can answer the lookup; a cold or evicted bucket still requires a durable read. Remembering an
+     * id watermark does not retain its rows. Read failures propagate instead of allowing an uncertain INSERT.
      *
      * Parameter plan: the baseline being created
-     * Parameter tableWatermark: MAX(id) of the durable table, read by the caller
+     * Parameter tableWatermark: durable allocation watermark confirmed by the caller
      * Returns: the rows carrying the plan's (bind_sql_digest, plan_sql) key
      */
     private List<BaselinePlan> readPersistedRowsForCreate(BaselinePlan plan, long tableWatermark) {
         if (!(persistence instanceof TablePersistence)) {
-            // a substituted store IS the durable table of its scenario: its index answers
-            // the point read (the scanned SQL read belongs to the live store)
-            return storeRowsByKey(plan.getBindSqlHash(), plan.getBindSqlDigest(),
+            // Injected stores use their cache or persistence API; the static SQL helper belongs to the live store.
+            return readRowsByKeyFromCacheOrTable(plan.getBindSqlHash(), plan.getBindSqlDigest(),
                     plan.getPlanSql());
         }
-        if (mustScanDurableForKey(tableWatermark) || plan.getBindSqlHash() == 0) {
+        if (hasUnseenDurableIds(tableWatermark) || plan.getBindSqlHash() == 0) {
             // the store may miss durable rows (or cannot index this key): the scanned
             // read is the only COMPLETE answer
             return readPersistedByKey(plan.getBindSqlDigest(), plan.getPlanSql());
         }
-        return storeRowsByKey(plan.getBindSqlHash(), plan.getBindSqlDigest(), plan.getPlanSql());
+        return readRowsByKeyFromCacheOrTable(plan.getBindSqlHash(), plan.getBindSqlDigest(), plan.getPlanSql());
     }
 
     /**
-     * Whether the durable by-key scan is unavoidable: true when the table's MAX(id) is
-     * above the largest id this store has seen. Ids are allocated upward only (single
-     * writer = the master), so a MAX(id) the store has already passed proves every
-     * durable row is present in memory; a HIGHER id means at least one row is not.
+     * Whether the allocation watermark is above the largest id observed by a load or local publication. False
+     * permits checking a complete cached bucket, but does not prove that it is cached.
      *
-     * Parameter tableWatermark: the table's MAX(id) (0 for an empty table)
+     * Parameter tableWatermark: durable allocation watermark (zero when none)
      */
-    private boolean mustScanDurableForKey(long tableWatermark) {
+    private boolean hasUnseenDurableIds(long tableWatermark) {
         return tableWatermark > maxPersistedIdSeen;
     }
 
     /**
-     * The store's rows with exactly the given (bind_sql_digest, plan_sql) key, looked up
-     * through the same hash index the phase-1 duplicate check uses (an O(1) path - the
-     * point of the indexed dedup).
+     * Finds the exact bind digest and plan SQL in one complete cached bucket. A missing bucket is not evidence
+     * of absence: the live store reads by key, and an injected store with authoritative hash reads uses that
+     * persistence API. Stores without hash reads retain all rows in their in-memory cache.
      */
-    private List<BaselinePlan> storeRowsByKey(long bindSqlHash, String bindSqlDigest,
+    private List<BaselinePlan> readRowsByKeyFromCacheOrTable(long bindSqlHash, String bindSqlDigest,
             String planSql) {
         List<BaselinePlan> result = new ArrayList<>();
-        stateLock.readLock().lock();
-        try {
-            for (BaselinePlan row : findByHash(bindSqlHash)) {
-                if (Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
-                        && Objects.equals(row.getPlanSql(), planSql)) {
-                    result.add(row);
-                }
+        List<BaselinePlan> rows = baselineCache.getComplete(bindSqlHash);
+        if (rows == null) {
+            if (persistence instanceof TablePersistence) {
+                return readPersistedByKey(bindSqlDigest, planSql);
             }
-        } finally {
-            stateLock.readLock().unlock();
+            rows = durableHashReadAvailable()
+                    ? readPersistedRowsByHash(bindSqlHash, INTERNAL_QUERY_TIMEOUT_SECONDS) : List.of();
+        }
+        for (BaselinePlan row : rows) {
+            if (Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
+                    && Objects.equals(row.getPlanSql(), planSql)) {
+                result.add(row);
+            }
         }
         return result;
     }
@@ -8731,10 +8607,9 @@ public class BaselineManager {
     }
 
     /**
-     * Forces an authoritative reload of the internal table (master acquisition): the
-     * in-memory cache may have been loaded long BEFORE this FE became master, so it can
-     * miss every row the previous master wrote after that load - the create-time key
-     * dedup would then miss an existing durable baseline. loaded is cleared
+     * Requests an authoritative reload on master acquisition. The match index and cached buckets may predate
+     * the previous master's writes; reloading rebuilds their published state from the durable table. loaded is
+     * cleared
      * first, so a failed read keeps the lazy-retry state machine intact (the next access
      * retries; mutators fail visibly via ensureLoadedOrThrow until the read succeeds).
      */
@@ -8968,7 +8843,7 @@ public class BaselineManager {
      *
      * A status statement that stalled past its shared mutation window (or crossed a leader
      * handoff) used to find its previous-status precondition intact and land with a stored
-     * second derived from the row it saw - reversing a successor's successful no-op ENABLE,
+     * timestamp derived from the row it saw - reversing a successor's successful no-op ENABLE,
      * which wrote nothing at all. A successor now writes its own intent (see
      * persistNoOpStatusIntent) and this term voids the older statement's precondition, so the
      * late flip writes nothing and reports a retryable conflict instead.

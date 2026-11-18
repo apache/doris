@@ -823,7 +823,7 @@ public class BaselineManagerMutationClockTest {
             // "nothing to drop" while the markers are still unreadable
             IllegalStateException retry = Assertions.assertThrows(IllegalStateException.class,
                     () -> manager.dropBaseline(id));
-            Assertions.assertTrue(retry.getMessage().contains("retained drop tombstones"),
+            Assertions.assertTrue(retry.getMessage().contains("drop tombstones"),
                     "the absent-row retry must re-confirm the owed markers: "
                             + retry.getMessage());
 

@@ -270,23 +270,25 @@ public class SPMRound78ManagerTest {
     }
 
     /**
-     * A CREATE allocated AFTER the DROP is kept even when its stored second equals the retention
-     * instant: allocation order, not a second-precision timestamp, defines "existed then".
+     * A CREATE allocated after a failed DROP is preserved when cleanup resumes. The original allocation bound
+     * remains in force even when a retry sees a larger watermark.
      */
     @Test
     public void testResumedCleanupKeepsABaselineAllocatedAfterTheDrop() {
         TestStore store = new TestStore();
         BaselineManager manager = manager(store);
         store.idWatermark = 41L;
+        store.rows.put(40L, row(40L, "digest_a", BaselineStatus.ENABLED));
         store.rows.put(41L, row(41L, "digest_a", BaselineStatus.ENABLED));
-        store.failDeletesForId = 42L;
-        store.rows.put(42L, row(42L, "digest_a", BaselineStatus.ENABLED));
+        store.failDeletesForId = 40L;
 
         Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(41L));
+        Assertions.assertTrue(BaselineManagerTestAccess.retainsDropKeyCleanup(41L));
+        store.rows.put(42L, row(42L, "digest_a", BaselineStatus.ENABLED));
+        store.idWatermark = 42L;
         store.failDeletesForId = -1L;
-        // DATETIME keeps second precision, so a CREATE landing after the DROP can carry the SAME
-        // stored second as the retention instant - only the allocation order tells them apart
         Assertions.assertFalse(manager.dropBaseline(41L));
+        Assertions.assertNull(store.rows.get(40L), "the preexisting twin is still retired");
         Assertions.assertNotNull(store.rows.get(42L),
                 "the allocation order decides: an id above the watermark is a NEW baseline");
     }

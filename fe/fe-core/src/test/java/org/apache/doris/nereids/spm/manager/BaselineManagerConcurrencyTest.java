@@ -926,16 +926,22 @@ public class BaselineManagerConcurrencyTest {
             // a cached duplicate that is gone durably (promotion window) must be
             // replaced, not returned
             BaselineManagerTestAccess.clear(manager);
-            doubles.statusProtocolStore = new RecordingProtocolStore(0, 0);
+            SimulatedStore absentStore = new SimulatedStore();
+            doubles.idAllocatorStore = absentStore;
             BaselinePlan cached = baseline("fp-dropped", "select 4");
             cached.setSchemaFingerprint("fp-x");
             long idCached = manager.createBaseline(cached);
+            // Model proven ABSENT by-id state without reservation metadata. A status-only store cannot
+            // answer the identity probe and returns UNKNOWN, which must fail retryably instead.
+            absentStore.deleteByIdentity(cached);
+            absentStore.keyedReservations.clear();
             BaselinePlan again = baseline("fp-dropped", "select 4");
             again.setSchemaFingerprint("fp-x");
             long idRecreated = manager.createBaseline(again);
             Assertions.assertNotEquals(idCached, idRecreated,
                     "a durably dropped cached row must not be returned as the duplicate");
         } finally {
+            doubles.idAllocatorStore = null;
             doubles.statusProtocolStore = null;
             BaselineManagerTestAccess.clear(manager);
         }
@@ -3751,9 +3757,9 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
-    /** The scanned read is required exactly when the table carries an id the store never saw. */
+    /** A watermark beyond the observed ids requires a durable read; an older watermark permits cache lookup. */
     @Test
-    public void testDurableScanDecisionFollowsTheTableWatermark() {
+    public void testUnseenDurableIdsFollowTheAllocationWatermark() {
         manager = newManager();
         BaselineManagerTestAccess.clear(manager);
         try {
@@ -3763,10 +3769,10 @@ public class BaselineManagerConcurrencyTest {
             BaselineManagerTestAccess.prepareLoad(manager);
             manager.loadFromInternalTable();
 
-            Assertions.assertFalse(BaselineManagerTestAccess.mustScanDurableForKey(manager, 7L),
-                    "MAX(id) == the largest seen id: the store holds every durable row");
-            Assertions.assertFalse(BaselineManagerTestAccess.mustScanDurableForKey(manager, 6L));
-            Assertions.assertTrue(BaselineManagerTestAccess.mustScanDurableForKey(manager, 8L),
+            Assertions.assertFalse(BaselineManagerTestAccess.hasUnseenDurableIds(manager, 7L),
+                    "the watermark does not exceed the observed id; a complete cached bucket may answer");
+            Assertions.assertFalse(BaselineManagerTestAccess.hasUnseenDurableIds(manager, 6L));
+            Assertions.assertTrue(BaselineManagerTestAccess.hasUnseenDurableIds(manager, 8L),
                     "a higher MAX(id) proves the table has a row the store never saw");
         } finally {
             doubles.snapshotReader = null;

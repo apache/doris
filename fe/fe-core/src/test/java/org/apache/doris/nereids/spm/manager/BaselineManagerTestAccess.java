@@ -535,8 +535,8 @@ public final class BaselineManagerTestAccess {
         return (String) invokeStatic("snapshotPageSql", new Class<?>[] {Long.class, long.class}, pageStart, offset);
     }
 
-    public static boolean mustScanDurableForKey(BaselineManager manager, long tableWatermark) {
-        return (Boolean) invoke(manager, "mustScanDurableForKey", new Class<?>[] {long.class}, tableWatermark);
+    public static boolean hasUnseenDurableIds(BaselineManager manager, long tableWatermark) {
+        return (Boolean) invoke(manager, "hasUnseenDurableIds", new Class<?>[] {long.class}, tableWatermark);
     }
 
     // ==================== static helpers ====================
