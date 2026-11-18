@@ -266,6 +266,12 @@ void add_term_doc_frequency(
 Status sum_non_null_norm_lengths(index_query::IndexSource& source,
                                  std::span<const uint32_t> null_docs, uint64_t* out);
 
+// The sum of the lengths the norms of the ascending `hidden_docs` stand for, leaving out those in
+// `null_docs`, which hold no tokens.
+Status sum_hidden_non_null_norm_lengths(index_query::IndexSource& source,
+                                        std::span<const uint32_t> hidden_docs,
+                                        const roaring::Roaring& null_docs, uint64_t* out);
+
 // The NULL rows of a segment's index.
 using ReadNullDocs = std::function<Status(std::shared_ptr<const roaring::Roaring>* out)>;
 

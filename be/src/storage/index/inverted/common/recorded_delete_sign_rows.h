@@ -41,7 +41,7 @@ public:
     using Read = std::function<Status(std::shared_ptr<const roaring::Roaring>* out)>;
     Status get(const Read& read, std::shared_ptr<const roaring::Roaring>* out) {
         // Queries of the index that need the rows meanwhile wait for this read, not read them too.
-        std::lock_guard lock(_mutex);
+        std::scoped_lock lock(_mutex);
         if (!_read) {
             RETURN_IF_ERROR(read(&_rows));
             _read = true;

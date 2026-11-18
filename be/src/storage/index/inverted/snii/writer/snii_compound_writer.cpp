@@ -204,7 +204,9 @@ Status SniiCompoundWriter::_add_logical_index(const SniiIndexInput& in,
     auto liw = std::make_unique<LogicalIndexWriter>(in, std::move(null_docids));
     Placement p;
     Status status = write_delete_sign_rows(in, &p.delete_sign_rows_off, &p.delete_sign_rows_len);
-    if (!status.ok()) return poison(status);
+    if (!status.ok()) {
+        return poison(status);
+    }
     // The posting region streams DIRECTLY into the container during build() -- no temp
     // round-trip for the bulk -- followed immediately by this index's compact DICT
     // trailer (produced interleaved into a temp, but laid out right after its posting
@@ -477,7 +479,9 @@ Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in, TrackedNullDo
     uint64_t delete_sign_rows_off = 0;
     uint64_t delete_sign_rows_len = 0;
     Status status = write_delete_sign_rows(in, &delete_sign_rows_off, &delete_sign_rows_len);
-    if (!status.ok()) return poison(status);
+    if (!status.ok()) {
+        return poison(status);
+    }
     auto s = std::unique_ptr<SniiStreamedIndexSession>(
             new SniiStreamedIndexSession(this, std::move(in), std::move(null_docids)));
     s->delete_sign_rows_off_ = delete_sign_rows_off;

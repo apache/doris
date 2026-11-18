@@ -169,6 +169,24 @@ Status open_snii_stats_reader(const std::shared_ptr<segment_v2::IndexFileReader>
     return Status::OK();
 }
 
+// The NULL rows of a SNII index, for exclude_hidden_docs. The memory tracker macros alone make up
+// its cognitive complexity.
+Status read_snii_null_docs( // NOLINT(readability-function-cognitive-complexity)
+        const ::doris::snii::reader::LogicalIndexReader& reader,
+        std::shared_ptr<const roaring::Roaring>* out) {
+    std::vector<uint32_t> null_doc_ids;
+    RETURN_IF_ERROR(reader.read_null_docids(&null_doc_ids));
+    // The SNII reader returns a plain vector; charge it while it lives.
+    const auto null_doc_id_bytes = static_cast<int64_t>(null_doc_ids.capacity() * sizeof(uint32_t));
+    CONSUME_THREAD_MEM_TRACKER(null_doc_id_bytes);
+    Defer release_null_doc_ids(
+            [null_doc_id_bytes] { RELEASE_THREAD_MEM_TRACKER(null_doc_id_bytes); });
+    auto null_docs = std::make_shared<roaring::Roaring>();
+    null_docs->addMany(null_doc_ids.size(), null_doc_ids.data());
+    *out = std::move(null_docs);
+    return Status::OK();
+}
+
 // Whether a SNII segment has no terms for this field: it indexed the field with BKD, see
 // open_optional_clucene_stats_searcher, or the field is a VARIANT path this segment does not hold,
 // as segments of {"a": 1} hold no path b. Any other missing index was not built, and the caller
@@ -288,6 +306,19 @@ Status sum_non_null_norm_lengths(index_query::IndexSource& source,
     return Status::OK();
 }
 
+Status sum_hidden_non_null_norm_lengths(index_query::IndexSource& source,
+                                        std::span<const uint32_t> hidden_docs,
+                                        const roaring::Roaring& null_docs, uint64_t* out) {
+    // Most segments have no NULL rows, and then the hidden rows are summed as they are.
+    if (null_docs.isEmpty()) {
+        return source.sum_norm_lengths_of(hidden_docs, out);
+    }
+    DorisVector<uint32_t> hidden_non_null_docs;
+    std::ranges::copy_if(hidden_docs, std::back_inserter(hidden_non_null_docs),
+                         [&null_docs](uint32_t doc) { return !null_docs.contains(doc); });
+    return source.sum_norm_lengths_of(hidden_non_null_docs, out);
+}
+
 Status exclude_hidden_docs(index_query::IndexSource& source, const std::wstring& field,
                            std::span<const uint32_t> hidden_docs,
                            const ReadNullDocs& read_null_docs, segment_v2::NormLengthSums* sums,
@@ -336,16 +367,7 @@ Status exclude_hidden_docs(index_query::IndexSource& source, const std::wstring&
                 field, hidden_docs,
                 [&](uint64_t* out) {
                     RETURN_IF_ERROR(ensure_null_docs());
-                    // Most segments have no NULL rows, and then the hidden rows are summed as
-                    // they are.
-                    if (null_docs->isEmpty()) {
-                        return source.sum_norm_lengths_of(hidden_docs, out);
-                    }
-                    DorisVector<uint32_t> hidden_non_null_docs;
-                    std::ranges::copy_if(
-                            hidden_docs, std::back_inserter(hidden_non_null_docs),
-                            [&null_docs](uint32_t doc) { return !null_docs->contains(doc); });
-                    return source.sum_norm_lengths_of(hidden_non_null_docs, out);
+                    return sum_hidden_non_null_norm_lengths(source, hidden_docs, *null_docs, out);
                 },
                 &hidden_length_sum));
     }
@@ -709,21 +731,10 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                         },
                         &delete_sign_rows));
                 RETURN_IF_ERROR(find_hidden_docs(delete_sign_rows.get()));
-                auto read_null_docs = [&logical_reader](
-                                              std::shared_ptr<const roaring::Roaring>* out) {
-                    std::vector<uint32_t> null_doc_ids;
-                    RETURN_IF_ERROR(logical_reader.read_null_docids(&null_doc_ids));
-                    // The SNII reader returns a plain vector; charge it while it lives.
-                    const auto null_doc_id_bytes =
-                            static_cast<int64_t>(null_doc_ids.capacity() * sizeof(uint32_t));
-                    CONSUME_THREAD_MEM_TRACKER(null_doc_id_bytes);
-                    Defer release_null_doc_ids(
-                            [null_doc_id_bytes] { RELEASE_THREAD_MEM_TRACKER(null_doc_id_bytes); });
-                    auto null_docs = std::make_shared<roaring::Roaring>();
-                    null_docs->addMany(null_doc_ids.size(), null_doc_ids.data());
-                    *out = std::move(null_docs);
-                    return Status::OK();
-                };
+                auto read_null_docs =
+                        [&logical_reader](std::shared_ptr<const roaring::Roaring>* out) {
+                            return read_snii_null_docs(logical_reader, out);
+                        };
                 RETURN_IF_ERROR(collection_statistics_detail::exclude_hidden_docs(
                         source, ws_field_name, hidden_docs, read_null_docs,
                         stats_reader.norm_length_sums, &scoring_stats));

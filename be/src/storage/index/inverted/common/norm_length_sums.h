@@ -108,7 +108,7 @@ private:
         bool kept = false;
         Defer give_up {[&] {
             {
-                std::lock_guard lock(_mutex);
+                std::scoped_lock lock(_mutex);
                 if (kept) {
                     _keep(key, *out);
                 }
@@ -135,13 +135,13 @@ private:
         if (it == _hidden_sums.end()) {
             return false;
         }
-        for (const auto& [rows, sum] : it->second) {
-            if (rows == *key.rows) {
-                *out = sum;
-                return true;
-            }
+        const auto found = std::ranges::find_if(
+                it->second, [&key](const auto& entry) { return entry.first == *key.rows; });
+        if (found == it->second.end()) {
+            return false;
         }
-        return false;
+        *out = found->second;
+        return true;
     }
 
     // Requires _mutex.

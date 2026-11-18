@@ -398,7 +398,8 @@ TEST(NormLengthSumsTest, // NOLINT(readability-function-cognitive-complexity) --
 
 // Queries that need a sum being computed wait for it instead of reading the same norms, while a
 // query of another set of rows goes on. When computing a sum fails, a waiting query computes it.
-TEST(NormLengthSumsTest, ConcurrentQueriesComputeASumOnce) {
+TEST(NormLengthSumsTest,                 // NOLINT(readability-function-cognitive-complexity) --
+     ConcurrentQueriesComputeASumOnce) { // GoogleTest assertions inflate the metric.
     NormLengthSums value;
     const std::vector<uint32_t> rows {1, 5, 9};
     const std::vector<uint32_t> other_rows {2};
