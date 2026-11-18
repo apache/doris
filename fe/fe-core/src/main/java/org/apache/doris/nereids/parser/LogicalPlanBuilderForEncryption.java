@@ -241,6 +241,12 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
                 visit(aliasQuery.query());
             }
         }
+        // Static partition values can contain subqueries, even if sink analysis later rejects them.
+        if (ctx.partitionSpec() != null) {
+            for (DorisParser.PartitionKeyValueContext partitionKeyValue : ctx.partitionSpec().partitionKeyValue()) {
+                visit(partitionKeyValue.expression());
+            }
+        }
         return visitQuery(ctx.query());
     }
 
