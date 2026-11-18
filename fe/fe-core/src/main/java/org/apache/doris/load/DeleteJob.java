@@ -241,11 +241,11 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason) {
-        if (!txnOperated) {
-            // The abort was rejected, so the transaction may still become visible and needs afterVisible().
+        if (!txnOperated && !Config.isCloudMode()) {
+            // A rejected shared-nothing abort may still become visible and needs afterVisible().
             return;
         }
-        // just to clean the callback
+        // Cloud aborts must also clean up transactions that MS already aborted (txnOperated=false).
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getId());
     }
 
