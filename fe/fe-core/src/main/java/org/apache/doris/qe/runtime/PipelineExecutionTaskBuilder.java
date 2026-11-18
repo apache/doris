@@ -20,12 +20,15 @@ package org.apache.doris.qe.runtime;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.protocol.TFastSerializer;
+import org.apache.doris.rpc.BackendServiceClient;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
@@ -57,6 +60,13 @@ public class PipelineExecutionTaskBuilder {
 
     private PipelineExecutionTask buildTask(CoordinatorContext coordinatorContext,
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
+        // Validate the complete worker graph before creating tasks: a remote BE also initiates exchanges
+        // and reports back to the coordinator, independently of the FE-to-BE channel selected below.
+        if (workerToFragmentsParam.keySet().stream().anyMatch(worker -> !isInternalWorker(worker))
+                && !BackendServiceClient.supportsRemoteWorkers()) {
+            throw new IllegalStateException("Private RPC TLS requires local query workers; set "
+                    + "use_arrow_flight=true on the remote Doris catalog to read its results into local workers");
+        }
         BackendServiceProxy backendServiceProxy = BackendServiceProxy.getInstance();
         PipelineExecutionTask pipelineExecutionTask = new PipelineExecutionTask(
                 coordinatorContext,
@@ -71,25 +81,28 @@ public class PipelineExecutionTaskBuilder {
             CoordinatorContext coordinatorContext, BackendServiceProxy backendServiceProxy,
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
 
-        Map<DistributedPlanWorker, ByteString> workerToSerializeFragments = serializeFragments(workerToFragmentsParam);
+        Map<DistributedPlanWorker, SerializedFragments> workerToSerializeFragments =
+                serializeFragments(workerToFragmentsParam);
 
         Map<BackendWorker, MultiFragmentsPipelineTask> fragmentTasks = Maps.newLinkedHashMap();
         for (Entry<DistributedPlanWorker, TPipelineFragmentParamsList> kv :
                 workerToFragmentsParam.entrySet()) {
             BackendWorker worker = (BackendWorker) kv.getKey();
             TPipelineFragmentParamsList fragmentParamsList = kv.getValue();
-            ByteString serializeFragments = workerToSerializeFragments.get(worker);
+            SerializedFragments serialized = workerToSerializeFragments.get(worker);
 
             Backend backend = worker.getBackend();
+            // Remote catalog workers keep their independent cluster's channel policy.
             fragmentTasks.put(
                     worker,
                     new MultiFragmentsPipelineTask(
                             coordinatorContext,
                             backend,
-                            backendServiceProxy,
-                            serializeFragments,
+                            isInternalWorker(worker) ? backendServiceProxy : BackendServiceProxy.getInstance(false),
+                            serialized.bytes(),
                             buildSingleFragmentPipelineTask(
-                                    coordinatorContext.executionProfile, backend, fragmentParamsList)
+                                    coordinatorContext.executionProfile, backend, fragmentParamsList),
+                            serialized.needsCapability()
                     )
             );
         }
@@ -111,23 +124,30 @@ public class PipelineExecutionTaskBuilder {
         return tasks;
     }
 
-    private Map<DistributedPlanWorker, ByteString> serializeFragments(
+    static boolean isInternalWorker(DistributedPlanWorker worker) {
+        // Catalog identity survives distribution even when local and remote backend IDs/addresses coincide.
+        return worker.getCatalogId() == InternalCatalog.INTERNAL_CATALOG_ID;
+    }
+
+    private Map<DistributedPlanWorker, SerializedFragments> serializeFragments(
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
 
         AtomicLong compressedSize = new AtomicLong(0);
-        Map<DistributedPlanWorker, ByteString> serializedFragments = workerToFragmentsParam.entrySet()
+        Map<DistributedPlanWorker, SerializedFragments> serializedFragments = workerToFragmentsParam.entrySet()
                 .parallelStream()
                 .map(kv -> {
                     try {
-                        FileScanEncryptionGuard.checkFragments(kv.getValue());
+                        boolean needsCapability = FileScanEncryptionGuard.checkFragments(kv.getValue(),
+                                () -> NativeFileEncryptionSupport.version(((BackendWorker) kv.getKey()).getBackend()),
+                                isInternalWorker(kv.getKey()));
                         ByteString serializeString =
                                 new TFastSerializer(1024, new Factory()).serialize(kv.getValue());
-                        return Pair.of(kv.getKey(), serializeString);
+                        return Pair.of(kv.getKey(), new SerializedFragments(serializeString, needsCapability));
                     } catch (Throwable t) {
                         throw new IllegalStateException(t.getMessage(), t);
                     }
                 })
-                .peek(kv -> compressedSize.addAndGet(kv.second.size()))
+                .peek(kv -> compressedSize.addAndGet(kv.second.bytes().size()))
                 .collect(Collectors.toMap(Pair::key, Pair::value));
 
         coordinatorContext.updateProfileIfPresent(
@@ -137,4 +157,8 @@ public class PipelineExecutionTaskBuilder {
 
         return serializedFragments;
     }
+
+    private record SerializedFragments(ByteString bytes, boolean needsCapability) {
+    }
+
 }

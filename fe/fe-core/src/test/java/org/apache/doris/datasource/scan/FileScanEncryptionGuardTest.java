@@ -17,8 +17,10 @@
 
 package org.apache.doris.datasource.scan;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileEncryptionInfo;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -37,6 +39,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class FileScanEncryptionGuardTest {
     @Test
@@ -70,11 +73,111 @@ class FileScanEncryptionGuardTest {
     }
 
     @Test
+    void externalChannelsRejectKeysEvenWhenLocalPrivateTlsIsEnabled() {
+        boolean enabled = Config.enable_tls;
+        try {
+            Config.enable_tls = true;
+            FileScanEncryptionGuard.checkFragments(fragments(location(new TIcebergFileDesc())), false);
+            for (int content : List.of(0, 1, 2, 3)) {
+                TIcebergFileDesc iceberg = content == 0 ? new TIcebergFileDesc().setEncryptionInfo(info())
+                        : new TIcebergFileDesc().setDeleteFiles(List.of(new TIcebergDeleteFileDesc()
+                                .setContent(content).setEncryptionInfo(info())));
+                IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
+                        () -> FileScanEncryptionGuard.checkFragments(fragments(location(iceberg)), false));
+                Assertions.assertEquals("File encryption [KEY_TRANSPORT_UNAVAILABLE]", error.getMessage());
+            }
+            TPipelineFragmentParams shared = new TPipelineFragmentParams().setFileScanParams(Map.of(1,
+                    new TFileScanRangeParams().setTableFormatParams(new TTableFormatFileDesc()
+                            .setIcebergParams(new TIcebergFileDesc().setEncryptionInfo(info())))));
+            IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
+                    () -> FileScanEncryptionGuard.checkFragments(
+                            new TPipelineFragmentParamsList().setParamsList(List.of(shared)), false));
+            Assertions.assertEquals("File encryption [KEY_TRANSPORT_UNAVAILABLE]", error.getMessage());
+        } finally {
+            Config.enable_tls = enabled;
+        }
+    }
+
+    @Test
+    void remoteMarkerCannotUseALocalCapabilityProof() {
+        TPipelineFragmentParams fragment = new TPipelineFragmentParams().setFileScanParams(Map.of(1,
+                new TFileScanRangeParams().setFormatType(TFileFormatType.FORMAT_PARQUET_PME)));
+        TPipelineFragmentParamsList fragments = new TPipelineFragmentParamsList().setParamsList(List.of(fragment));
+        IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
+                () -> FileScanEncryptionGuard.checkFragments(fragments, () -> 1, false));
+        Assertions.assertEquals("File encryption [KEY_TRANSPORT_UNAVAILABLE]", error.getMessage());
+        Assertions.assertTrue(FileScanEncryptionGuard.checkFragments(fragments, () -> 1, true));
+    }
+
+    @Test
     void malformedAndFutureDescriptorsDoNotBecomePlaintext() {
         for (TFileEncryptionInfo value : List.of(new TFileEncryptionInfo(), info().setVersion(9))) {
             Assertions.assertThrows(IllegalArgumentException.class, () -> FileScanEncryptionGuard.checkBatch(
                     List.of(location(new TIcebergFileDesc().setEncryptionInfo(value)))));
         }
+    }
+
+    @Test
+    void markedNativeKeysRequireBothAVerifiedTargetAndAnOptedInCaller() {
+        for (int content : List.of(0, 1, 2)) {
+            TIcebergFileDesc iceberg = content == 0 ? new TIcebergFileDesc().setEncryptionInfo(info())
+                    : new TIcebergFileDesc().setDeleteFiles(List.of(new TIcebergDeleteFileDesc()
+                            .setContent(content).setEncryptionInfo(info())));
+            TScanRangeLocations location = location(iceberg);
+            TFileRangeDesc file = location.getScanRange().getExtScanRange().getFileScanRange().getRanges().get(0);
+            file.setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+            Assertions.assertTrue(FileScanEncryptionGuard.checkBatch(List.of(location), () -> 1, 1));
+            assertUnavailable(() -> FileScanEncryptionGuard.checkBatch(List.of(location), () -> 0, 1));
+            assertUnavailable(() -> FileScanEncryptionGuard.checkBatch(List.of(location), () -> 1, 0));
+            file.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            assertUnavailable(() -> FileScanEncryptionGuard.checkBatch(List.of(location), () -> 1, 1));
+        }
+    }
+
+    @Test
+    void markerOnlyFragmentsRecheckCapabilityBeforeEverySerialization() {
+        TPipelineFragmentParams fragment = new TPipelineFragmentParams().setFileScanParams(Map.of(1,
+                new TFileScanRangeParams().setFormatType(TFileFormatType.FORMAT_PARQUET_PME)));
+        TPipelineFragmentParamsList fragments = new TPipelineFragmentParamsList().setParamsList(List.of(fragment));
+        AtomicInteger version = new AtomicInteger(1);
+        Assertions.assertTrue(FileScanEncryptionGuard.checkFragments(fragments, version::get));
+        version.set(0);
+        assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(fragments, version::get));
+    }
+
+    @Test
+    void plaintextBatchRemainsCompatibleWithALegacyCaller() {
+        Assertions.assertFalse(FileScanEncryptionGuard.checkBatch(
+                List.of(location(new TIcebergFileDesc())), () -> 0, 0));
+    }
+
+    @Test
+    void initialFragmentsMustAlsoMarkTheSharedParamsForLegacyReaders() {
+        TScanRangeLocations location = location(new TIcebergFileDesc().setEncryptionInfo(info()));
+        location.getScanRange().getExtScanRange().getFileScanRange().getRanges().get(0)
+                .setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+        TPipelineFragmentParamsList fragments = fragments(location);
+        fragments.getParamsList().get(0).setFileScanParams(Map.of(1,
+                new TFileScanRangeParams().setFormatType(TFileFormatType.FORMAT_PARQUET)));
+        assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(fragments, () -> 1));
+        fragments.getParamsList().get(0).getFileScanParams().get(1).setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+        Assertions.assertTrue(FileScanEncryptionGuard.checkFragments(fragments, () -> 1));
+    }
+
+    @Test
+    void simplifiedFragmentsInheritTheFirstFragmentsSharedScanParams() {
+        TScanRangeLocations location = location(new TIcebergFileDesc().setEncryptionInfo(info()));
+        location.getScanRange().getExtScanRange().getFileScanRange().getRanges().get(0)
+                .setFormatType(TFileFormatType.FORMAT_PARQUET_PME);
+        TPipelineFragmentParams owner = new TPipelineFragmentParams().setFileScanParams(Map.of(1,
+                new TFileScanRangeParams().setFormatType(TFileFormatType.FORMAT_PARQUET_PME)));
+        TPipelineFragmentParams simplified = fragments(location).getParamsList().get(0).setIsSimplifiedParam(true);
+        TPipelineFragmentParamsList request = new TPipelineFragmentParamsList()
+                .setParamsList(List.of(owner, simplified));
+        Assertions.assertTrue(FileScanEncryptionGuard.checkFragments(request, () -> 1));
+        assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(request, () -> 0));
+        owner.getFileScanParams().get(1).setFormatType(TFileFormatType.FORMAT_PARQUET);
+        assertUnavailable(() -> FileScanEncryptionGuard.checkFragments(request, () -> 1));
     }
 
     private static TFileEncryptionInfo info() {

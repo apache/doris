@@ -133,7 +133,9 @@ enum TFileFormatType {
     FORMAT_NATIVE = 18,
     FORMAT_LANCE = 19,
     FORMAT_ES_HTTP = 20,
-    FORMAT_MONGODB = 21
+    FORMAT_MONGODB = 21,
+    // Older readers must reject this format instead of ignoring optional file or delete keys.
+    FORMAT_PARQUET_PME = 22
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,

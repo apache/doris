@@ -1150,7 +1150,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         try {
-            List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
+            List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits(),
+                    request.isSetNativeFileEncryptionVersion() ? request.getNativeFileEncryptionVersion() : 0);
             result.setSplits(locations);
             result.status = new TStatus(TStatusCode.OK);
             return result;

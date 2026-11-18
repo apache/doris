@@ -1,8 +1,8 @@
 # Iceberg encrypted scan wire contract
 
-This is protocol preparation. It does not enable encrypted SQL reads, implement
-native decryption, or establish a protected RPC channel. D1 admission remains in
-place; D4 also rejects secret-bearing ranges before dispatch and on the BE.
+This is the opt-in native encrypted-read wire contract. The deployment switch,
+SDK scheme validation, runtime reader capability and both protected private RPC
+channels are required before secret-bearing ranges can leave FE.
 
 ## File payload
 
@@ -10,7 +10,7 @@ place; D4 also rejects secret-bearing ranges before dispatch and on the BE.
 Its optional fields are `1: version`, `2: binary key`, and `3: binary aad_prefix`.
 Version 1 means Parquet AES_GCM_V1 with the SDK-unwrapped file key and exact AAD
 prefix bytes. AAD is binary; do not convert it to text or reconstruct it from the
-file path. Native reader initialization belongs to subsequent work.
+file path. Each native reader owns independent decryption state.
 
 Each `TIcebergFileDesc` has optional field **14** for the data-file payload.
 Each `TIcebergDeleteFileDesc` has optional field **12** for its own payload.
@@ -33,10 +33,16 @@ Never put them in durable plan dumps, persistent caches or audit records.
 
 ## Dispatch
 
-FE and BE are deployed together for this feature. This change does not introduce
-heartbeat capability fields, version negotiation, downgrade handling or backend
-capability persistence. Native encrypted execution remains uniformly disabled
-until the reader and protected key transport are implemented.
+`TBackendInfo` optional field **12** advertises native-file-encryption version 1.
+FE retains only a fresh runtime heartbeat lease, with no image-persisted proof.
+`TFetchSplitBatchRequest` optional field **4** reports the actual caller's version;
+field 3 remains reserved for branch-4.2's `close_source`. An absent version is
+zero, including after an old BE replaces a capable process.
+
+Keyed ranges and shared scan parameters use `FORMAT_PARQUET_PME = 22`. Old readers
+must reject that unknown format rather than ignore optional key fields. Native
+readers validate both marker and descriptor before I/O or COUNT shortcuts.
+Plaintext wire values and absent descriptors retain their existing behavior.
 
 The pipeline task builder validates assigned file parameters and ranges before
 serialization. The direct typed fragment RPC entry has the same restriction.
@@ -55,11 +61,12 @@ The latter uses the separate BE-to-FE Thrift connection. Every selected endpoint
 including retry targets, must meet this requirement. HTTPS for SQL, catalog or
 object storage access does not establish protection of either internal channel.
 
-The OSS fragment channel provider currently selects plaintext gRPC. D4 therefore
-rejects every encrypted dispatch with `READ_UNAVAILABLE`. There is no configuration
-flag that asserts the transport is secure. A subsequent change must implement the
-native reader and verify actual protection of both channels before lifting this
-restriction. Enabling the Iceberg plugin option cannot bypass it.
+The OSS providers support opt-in private mutual TLS. Capability proof requires
+both fragment and split transports, mandatory trusted peer identities, a running
+TLS split listener and fresh capable backends. Unknown custom providers default
+to unavailable. The plugin option cannot override missing proof. See the
+[deployment contract](iceberg-encryption-read.md#requirements-before-enabling-execution)
+and [private RPC TLS configuration](../../../docs/private-rpc-tls.md).
 
 ## Diagnostic redaction
 
@@ -82,16 +89,17 @@ other plan descriptors retain their ordinary diagnostic output.
   carrier fields. Non-wire diagnostic JSON is deliberately unable to restore keys.
 
 Do not log serialized RPC byte strings or manually format key/AAD buffers.
-This change does not promise memory zeroization, protected crash dumps or a
-key-scoped cache lifecycle; those remain required before final read enablement.
+Keys have query-scoped cache and reader ownership. This contract does not promise
+deterministic memory zeroization or protected crash dumps.
 
 ## Validation
 
 `FileEncryptionInfoTest` covers Java Binary/Compact round trips, distinct data
 and delete values, absent payloads, object serialization, nested strings, Gson
 and both JSON Thrift protocols. `FileScanEncryptionTest` checks descriptor shape.
-FE guard tests cover independent delete kinds, unknown payload versions, repeated
-dispatch and rejection before execution. SplitSource tests preserve a terminal
+FE guard tests cover independent delete kinds, unknown payload versions, shared
+parameters across simplified fragments, missing caller/target capabilities,
+repeated dispatch and rejection before execution. SplitSource tests preserve a terminal
 error when a rejected last batch is fetched again.
 `FileEncryptionInfoTest` in BE covers binary bytes, key sizes, stream printing,
 nested containers, `ThriftDebugString` and JSON; FileScannerV2 has a pre-reader
@@ -117,5 +125,6 @@ bash run-regression-test.sh --run -d external_table_p0/iceberg \
 ```
 
 The standard Iceberg stack and FE debug points must be enabled. No separate
-feature-mode variable is needed. These tests do not replace a future complete
-native encrypted SQL interoperability run.
+feature-mode variable is needed for the default-off guard suites. The separate
+`test_iceberg_encryption_native_read_integration` suite requires the explicitly
+enabled deployment and validates real SDK-generated encrypted tables.

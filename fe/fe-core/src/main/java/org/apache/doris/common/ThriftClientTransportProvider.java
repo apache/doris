@@ -22,5 +22,23 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.thrift.transport.TTransport;
 
 public interface ThriftClientTransportProvider {
+    enum RpcPurpose { INTERNAL_RPC, EXTERNAL_SERVICE }
+
     TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking) throws Exception;
+
+    default boolean supportsPrivateFileKeys() {
+        return false;
+    }
+
+    /** Existing custom providers retain their transport policy until they opt into purpose selection. */
+    default TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking, RpcPurpose purpose)
+            throws Exception {
+        return createTransport(address, timeoutMs, nonBlocking);
+    }
+
+    default TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking,
+            RpcPurpose purpose, String peerHost) throws Exception {
+        // Existing custom providers keep their original dispatch until they opt into separate peer names.
+        return createTransport(address, timeoutMs, nonBlocking, purpose);
+    }
 }

@@ -29,6 +29,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <limits>
 #include <memory>
 #include <set>
@@ -59,6 +60,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "testutil/scoped_temp_dir.h"
 #include "util/coding.h"
@@ -996,6 +998,107 @@ TEST(ParquetEncryptionTest, SharedMetadataCacheCannotAuthorizeAnotherKey) {
     wrong.key[0] ^= 1;
     EXPECT_FALSE(native_rows(bytes, wrong, &rows).ok());
     EXPECT_TRUE(native_rows(bytes, parameters(), &rows).ok());
+}
+
+void verify_concurrent_file_reads(const std::vector<std::vector<uint8_t>>& files,
+                                  const std::vector<std::string>& keys, size_t worker) {
+    SCOPED_INIT_THREAD_CONTEXT();
+    for (size_t iteration = 0; iteration < 4; ++iteration) {
+        size_t index = (worker + iteration) % files.size();
+        std::vector<std::vector<Field>> rows;
+        auto status = native_rows(files[index], parameters(keys[index]), &rows);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(rows.size(), 1);
+        ASSERT_EQ(rows[0].size(), 8);
+        for (size_t row = 0; row < rows[0].size(); ++row) {
+            EXPECT_EQ(rows[0][row].get<TYPE_INT>(), row + 1);
+        }
+        EXPECT_FALSE(
+                native_rows(files[index], parameters(keys[(index + 1) % keys.size()]), &rows).ok());
+        EXPECT_FALSE(
+                native_rows(files[index], parameters(keys[index], "different-aad"), &rows).ok());
+        EXPECT_TRUE(native_rows(files[index], parameters(keys[index]), &rows).ok());
+    }
+}
+
+TEST(ParquetEncryptionTest, ConcurrentReadersKeepIndependentKeysAndDecryptorState) {
+    std::vector<std::string> keys {std::string(16, 'a'), std::string(24, 'b'),
+                                   std::string(32, 'c')};
+    std::vector<std::vector<uint8_t>> files;
+    for (size_t i = 0; i < keys.size(); ++i) {
+        files.push_back(encrypted_file(i % 2 == 0,
+                                       i % 2 == 0 ? ::parquet::ParquetDataPageVersion::V1
+                                                  : ::parquet::ParquetDataPageVersion::V2,
+                                       keys[i]));
+    }
+    std::vector<std::future<void>> workers;
+    for (size_t worker = 0; worker < 8; ++worker) {
+        workers.emplace_back(std::async(std::launch::async, [&, worker] {
+            verify_concurrent_file_reads(files, keys, worker);
+        }));
+    }
+    for (auto& worker : workers) {
+        worker.get();
+    }
+}
+
+TEST(ParquetEncryptionTest, ClosingFileContextReleasesItsKeyOwner) {
+    auto file = std::make_shared<EncryptionMemoryReader>(encrypted_file());
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(file, nullptr, true, description, false, false, false, &info).ok());
+    std::weak_ptr<const ParquetFileCrypto> key = context.native_metadata->encryption();
+    ASSERT_FALSE(key.expired());
+    ASSERT_TRUE(context.close().ok());
+    EXPECT_TRUE(key.expired());
+    EXPECT_EQ(context.native_metadata, nullptr);
+    EXPECT_EQ(context.native_file, nullptr);
+    EXPECT_TRUE(context.close().ok());
+}
+
+void verify_reader_close(const std::filesystem::path& path, size_t file_size, bool cancelled,
+                         bool valid_key) {
+    auto properties = std::make_shared<io::FileSystemProperties>();
+    properties->system_type = TFileType::FILE_LOCAL;
+    auto description = std::make_unique<io::FileDescription>();
+    description->path = path;
+    description->file_size = file_size;
+    auto io_context = std::make_shared<io::IOContext>();
+    io_context->should_stop = cancelled;
+    auto info = parameters();
+    if (!valid_key) {
+        info.key[0] ^= 1;
+    }
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ParquetReader reader(properties, description, io_context, nullptr, std::nullopt, false, false,
+                         std::nullopt, false, nullptr, info);
+    auto status = reader.init(&state);
+    if (cancelled) {
+        EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>());
+    } else {
+        EXPECT_EQ(status.ok(), valid_key) << status;
+    }
+    ASSERT_TRUE(reader.close().ok());
+    EXPECT_FALSE(reader._encryption_info.has_value());
+    EXPECT_EQ(reader._file_reader, nullptr);
+    EXPECT_EQ(reader._tracing_file_reader, nullptr);
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(ParquetEncryptionTest, CloseClearsKeysAfterSuccessfulCancelledAndFailedInitialization) {
+    const auto bytes = encrypted_file();
+    test::ScopedTempDirectory directory("encrypted-reader-lifetime");
+    const auto path = directory.path() / "data.parquet";
+    {
+        std::ofstream output(path, std::ios::binary);
+        output.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    }
+    for (bool cancelled : {false, true}) {
+        for (bool valid_key : {false, true}) {
+            verify_reader_close(path, bytes.size(), cancelled, valid_key);
+        }
+    }
 }
 
 class EncryptedIndexPredicate final : public VExpr {

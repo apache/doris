@@ -21,6 +21,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.rpc.FileScanEncryption;
 import org.apache.doris.thrift.TFileEncryptionInfo;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -35,72 +36,132 @@ import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.List;
+import java.util.Map;
+import java.util.function.IntSupplier;
 
 /** Last checks before serializing file keys, including lazy split responses and replanned retries. */
 public final class FileScanEncryptionGuard {
     private FileScanEncryptionGuard() {
     }
 
-    private static void rejectEncryptedRead() {
-        // Native decryption and protected transport for file keys are not implemented yet.
-        throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
+    public static void checkFragments(TPipelineFragmentParamsList fragments) {
+        checkFragments(fragments, () -> 0);
     }
 
-    public static void checkFragments(TPipelineFragmentParamsList fragments) {
-        if (!fragments.isSetParamsList()) {
-            return;
-        }
-        for (TPipelineFragmentParams fragment : fragments.getParamsList()) {
-            if (fragment.isSetFileScanParams()) {
-                for (TFileScanRangeParams params : fragment.getFileScanParams().values()) {
-                    checkParams(params);
+    public static boolean checkFragments(TPipelineFragmentParamsList fragments, IntSupplier verifiedVersion) {
+        return checkFragments(fragments, verifiedVersion, true);
+    }
+
+    public static void checkFragments(TPipelineFragmentParamsList fragments, boolean internalRpc) {
+        checkFragments(fragments, () -> 0, internalRpc);
+    }
+
+    public static boolean checkFragments(TPipelineFragmentParamsList fragments, IntSupplier verifiedVersion,
+            boolean internalRpc) {
+        Checker checker = new Checker(verifiedVersion, FileScanEncryption.VERSION, true, internalRpc);
+        if (fragments.isSetParamsList()) {
+            Map<Integer, TFileScanRangeParams> paramsByNode = Map.of();
+            for (TPipelineFragmentParams fragment : fragments.getParamsList()) {
+                // Later simplified fragments reuse the query-wide params sent in the first fragment.
+                if (fragment.isSetFileScanParams()) {
+                    paramsByNode = fragment.getFileScanParams();
+                    for (TFileScanRangeParams params : paramsByNode.values()) {
+                        checker.checkParams(params);
+                    }
                 }
-            }
-            if (fragment.isSetLocalParams()) {
-                for (TPipelineInstanceParams instance : fragment.getLocalParams()) {
-                    if (instance.isSetPerNodeScanRanges()) {
-                        for (List<TScanRangeParams> ranges : instance.getPerNodeScanRanges().values()) {
-                            for (TScanRangeParams range : ranges) {
-                                checkRange(range.getScanRange());
+                if (fragment.isSetLocalParams()) {
+                    for (TPipelineInstanceParams instance : fragment.getLocalParams()) {
+                        if (instance.isSetPerNodeScanRanges()) {
+                            for (Map.Entry<Integer, List<TScanRangeParams>> node
+                                    : instance.getPerNodeScanRanges().entrySet()) {
+                                for (TScanRangeParams range : node.getValue()) {
+                                    checker.checkRange(range.getScanRange(), paramsByNode.get(node.getKey()));
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        return checker.needsCapability;
     }
 
     public static void checkBatch(List<TScanRangeLocations> ranges) {
+        checkBatch(ranges, () -> 0, 0);
+    }
+
+    public static boolean checkBatch(List<TScanRangeLocations> ranges, IntSupplier verifiedVersion, int callerVersion) {
+        Checker checker = new Checker(verifiedVersion, callerVersion, false, true);
         for (TScanRangeLocations range : ranges) {
-            checkRange(range.getScanRange());
+            checker.checkRange(range.getScanRange(), null);
         }
+        return checker.needsCapability;
     }
 
-    private static void checkParams(TFileScanRangeParams params) {
-        if (params.isSetTableFormatParams() && FileScanEncryption.validate(params.getTableFormatParams())) {
-            rejectEncryptedRead();
-        }
-    }
+    private static final class Checker {
+        private final IntSupplier verifiedVersion;
+        private final int callerVersion;
+        private final boolean initialDispatch;
+        private final boolean internalRpc;
+        private boolean needsCapability;
 
-    private static void checkRange(TScanRange range) {
-        if (!range.isSetExtScanRange() || !range.getExtScanRange().isSetFileScanRange()) {
-            return;
+        private Checker(IntSupplier verifiedVersion, int callerVersion, boolean initialDispatch,
+                boolean internalRpc) {
+            this.internalRpc = internalRpc;
+            this.initialDispatch = initialDispatch;
+            this.verifiedVersion = verifiedVersion;
+            this.callerVersion = callerVersion;
         }
-        TFileScanRange fileScan = range.getExtScanRange().getFileScanRange();
-        if (fileScan.isSetParams()) {
-            checkParams(fileScan.getParams());
-        }
-        if (fileScan.isSetRanges()) {
-            DebugPoint injection = DebugPointUtil.getDebugPoint("FileScanEncryptionGuard.inject");
-            for (TFileRangeDesc file : fileScan.getRanges()) {
-                TTableFormatFileDesc table = file.getTableFormatParams();
-                if (injection != null && file.isSetPath()
-                        && file.getPath().contains(injection.param("path_contains", "iceberg_encryption_wire_db"))) {
-                    // Synthetic descriptors let SQL regressions exercise dispatch without opening encrypted reads.
-                    table = injectedDescriptor(injection);
+
+        private void checkDescriptor(TFileFormatType format, TTableFormatFileDesc table) {
+            boolean encrypted = table != null && FileScanEncryption.validate(table);
+            // Remote clusters do not share the local authenticated key-transport contract.
+            if ((encrypted || format == TFileFormatType.FORMAT_PARQUET_PME) && !internalRpc) {
+                throw new IllegalStateException("File encryption [KEY_TRANSPORT_UNAVAILABLE]");
+            }
+            if (encrypted && format != TFileFormatType.FORMAT_PARQUET_PME) {
+                throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
+            }
+            if (format == TFileFormatType.FORMAT_PARQUET_PME && !needsCapability) {
+                // Even a marker-only first batch must exclude old readers before sending any fragment.
+                if (callerVersion < FileScanEncryption.VERSION
+                        || verifiedVersion.getAsInt() < FileScanEncryption.VERSION) {
+                    throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
                 }
-                if (table != null && FileScanEncryption.validate(table)) {
-                    rejectEncryptedRead();
+                needsCapability = true;
+            }
+        }
+
+        private void checkParams(TFileScanRangeParams params) {
+            checkDescriptor(params.getFormatType(), params.getTableFormatParams());
+        }
+
+        private void checkRange(TScanRange range, TFileScanRangeParams inheritedParams) {
+            if (!range.isSetExtScanRange() || !range.getExtScanRange().isSetFileScanRange()) {
+                return;
+            }
+            TFileScanRange fileScan = range.getExtScanRange().getFileScanRange();
+            TFileScanRangeParams params = fileScan.isSetParams() ? fileScan.getParams() : inheritedParams;
+            if (params != null) {
+                checkParams(params);
+            }
+            if (fileScan.isSetRanges()) {
+                DebugPoint injection = DebugPointUtil.getDebugPoint("FileScanEncryptionGuard.inject");
+                for (TFileRangeDesc file : fileScan.getRanges()) {
+                    TTableFormatFileDesc table = file.getTableFormatParams();
+                    if (injection != null && file.isSetPath()
+                            && file.getPath().contains(
+                                    injection.param("path_contains", "iceberg_encryption_wire_db"))) {
+                        table = injectedDescriptor(injection);
+                    }
+                    TFileFormatType format = file.isSetFormatType() ? file.getFormatType()
+                            : (params == null ? null : params.getFormatType());
+                    if (initialDispatch && format == TFileFormatType.FORMAT_PARQUET_PME
+                            && (params == null || params.getFormatType() != TFileFormatType.FORMAT_PARQUET_PME)) {
+                        // An old reader may ignore range overrides and choose its reader from shared params alone.
+                        throw new IllegalStateException("File encryption [READ_UNAVAILABLE]");
+                    }
+                    checkDescriptor(format, table);
                 }
             }
         }

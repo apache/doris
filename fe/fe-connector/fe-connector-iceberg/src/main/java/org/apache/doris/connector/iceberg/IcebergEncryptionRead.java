@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import org.apache.iceberg.BaseMetadataTable;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
@@ -28,12 +29,58 @@ import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.encryption.PlaintextEncryptionManager;
 import org.apache.iceberg.encryption.StandardEncryptionManager;
 
-/** Shared admission contract; encrypted ranges remain forbidden until the engine can prove BE support. */
+/** Read admission requires verified execution; native writes remain restricted to plaintext targets. */
 final class IcebergEncryptionRead {
     private IcebergEncryptionRead() {
     }
 
+    static boolean isEncrypted(Table table) {
+        if (hasEncryptionMetadata(table)) {
+            return true;
+        }
+        EncryptionManager manager = table.encryption();
+        return manager != null && !(manager instanceof PlaintextEncryptionManager);
+    }
+
+    static void checkWrite(Table table) {
+        checkWrite(isEncrypted(table));
+    }
+
+    static void checkWrite(TableMetadata metadata) {
+        checkWrite(metadata.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
+                || !metadata.encryptionKeys().isEmpty());
+    }
+
+    private static void checkWrite(boolean encrypted) {
+        // SDK manifest encryption does not encrypt the physical files emitted by native Doris sinks.
+        if (encrypted) {
+            throw failure("WRITE_UNAVAILABLE", "Native writes to encrypted Iceberg tables are not supported");
+        }
+    }
+
+    private static boolean hasEncryptionMetadata(Table table) {
+        TableMetadata metadata = table instanceof HasTableOperations
+                ? ((HasTableOperations) table).operations().current() : null;
+        return table.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
+                || hasEncryptionMetadata(metadata);
+    }
+
+    static boolean hasEncryptionMetadata(TableMetadata metadata) {
+        return metadata != null && (metadata.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
+                || !metadata.encryptionKeys().isEmpty());
+    }
+
     static void check(Table table, IcebergCatalogProperties catalog, ConnectorContext context) {
+        check(table, catalog, context, false);
+    }
+
+    static void checkFile(Table table, IcebergCatalogProperties catalog, ConnectorContext context) {
+        Table base = table instanceof BaseMetadataTable ? ((BaseMetadataTable) table).table() : table;
+        check(base, catalog, context, true);
+    }
+
+    private static void check(Table table, IcebergCatalogProperties catalog, ConnectorContext context,
+            boolean fileEncrypted) {
         TableMetadata metadata = table instanceof HasTableOperations
                 ? ((HasTableOperations) table).operations().current() : null;
         // Removing the current write key does not make old snapshots plaintext. Retained table keys must
@@ -41,7 +88,7 @@ final class IcebergEncryptionRead {
         boolean declared = table.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
                 || (metadata != null && !metadata.encryptionKeys().isEmpty());
         EncryptionManager manager = declared ? null : table.encryption();
-        if (!declared && (manager == null || manager instanceof PlaintextEncryptionManager)) {
+        if (!fileEncrypted && !declared && (manager == null || manager instanceof PlaintextEncryptionManager)) {
             return;
         }
         if (!IcebergConf.encryptionReadEnabled(context)) {
@@ -61,10 +108,22 @@ final class IcebergEncryptionRead {
             throw failure("UNSUPPORTED_ENCRYPTION_MANAGER", "Encrypted Iceberg reads require the SDK standard "
                     + "encryption scheme with native Parquet AES_GCM_V1 files");
         }
-        // A PME-enabled Arrow build does not prove key-transport, delete-reader or mixed-version scheduling
-        // support. Until explicit BE negotiation is wired, even an enabled FE must never emit encrypted tasks.
-        throw failure("BACKEND_CAPABILITY_UNAVAILABLE", "Encrypted Iceberg read capability is not verified "
-                + "by the engine; native encrypted scan execution is not available");
+        // Do not initialize a KMS before the engine verifies both protected transports and native readers.
+        if (context == null || context.getStorageContext().getNativeFileEncryptionVersion() < 1) {
+            throw failure("BACKEND_CAPABILITY_UNAVAILABLE", "Encrypted Iceberg read capability is not verified "
+                    + "by the engine; native encrypted scan execution is not available");
+        }
+        // REST metadata support does not establish the native execution acceptance required by this switch.
+        if (!IcebergCatalogProperties.TYPE_HMS.equals(catalog.getFlavor())) {
+            throw failure("UNSUPPORTED_CATALOG", "Native encrypted Iceberg execution currently requires HMS");
+        }
+        if (manager == null) {
+            manager = table.encryption();
+        }
+        if (!(manager instanceof StandardEncryptionManager)) {
+            throw failure("UNSUPPORTED_ENCRYPTION_MANAGER", "Encrypted Iceberg reads require the SDK standard "
+                    + "encryption scheme with native Parquet AES_GCM_V1 files");
+        }
     }
 
     private static DorisConnectorException failure(String classification, String message) {

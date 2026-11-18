@@ -104,7 +104,8 @@ public class QueryProcessor extends AbstractJobProcessor {
                             execBeAddr,
                             coordinatorContext.timeoutDeadline.get(),
                             coordinatorContext.connectContext.getSessionVariable().getMaxMsgSizeOfResultReceiver(),
-                            enableParallelResultSink
+                            enableParallelResultSink,
+                            PipelineExecutionTaskBuilder.isInternalWorker(topWorker)
                     )
             );
         }
