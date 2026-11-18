@@ -25,7 +25,8 @@ suite("test_ivm_unique_key_null_repair") {
 
     def downstream = ["ivm_unique_repair_left", "ivm_unique_repair_right",
                       "ivm_unique_repair_partial_key", "ivm_unique_repair_residual",
-                      "ivm_unique_repair_full"]
+                      "ivm_unique_repair_full", "ivm_unique_repair_full_residual",
+                      "ivm_unique_repair_right_residual"]
     downstream.each { sql "DROP MATERIALIZED VIEW IF EXISTS ${it}" }
     sql "DROP MATERIALIZED VIEW IF EXISTS ivm_unique_repair_groups"
     sql "DROP TABLE IF EXISTS ivm_unique_repair_contacts"
@@ -111,20 +112,23 @@ suite("test_ivm_unique_key_null_repair") {
     refresh('ivm_unique_repair_groups', 'COMPLETE')
 
     def fullKey = 'a.organisationid = b.organisationid AND a.contactid = b.contactid'
+    def residual = "${fullKey} AND b.total > a.threshold_value"
     def conditions = [
         (downstream[0]): fullKey,
         (downstream[1]): fullKey,
         // organisationid alone is not unique: a net positive change can be 1->2, not 0->1.
         (downstream[2]): 'a.organisationid = b.organisationid',
         // A value update may change matching despite an unchanged number of L1 rows.
-        (downstream[3]): "${fullKey} AND b.total > a.threshold_value",
-        (downstream[4]): fullKey
+        (downstream[3]): residual,
+        (downstream[4]): fullKey,
+        (downstream[5]): residual,
+        (downstream[6]): residual
     ]
     def fromClause = { mv, groups ->
-        if (mv == downstream[1]) {
+        if (mv in [downstream[1], downstream[6]]) {
             return "${groups} b RIGHT JOIN ivm_unique_repair_contacts a"
         }
-        def joinType = mv == downstream[4] ? 'FULL OUTER JOIN' : 'LEFT JOIN'
+        def joinType = mv in [downstream[4], downstream[5]] ? 'FULL OUTER JOIN' : 'LEFT JOIN'
         return "ivm_unique_repair_contacts a ${joinType} ${groups} b"
     }
     downstream.each { mv ->
@@ -164,6 +168,17 @@ suite("test_ivm_unique_key_null_repair") {
     }
     def refreshAndCheck = { String stage ->
         refresh('ivm_unique_repair_groups', 'INCREMENTAL')
+        if (stage == 'first_match') {
+            // Only the grouped side has pending changes. Check each residual orientation uses
+            // the signed aggregate even when other (idle) contributions need snapshot repair.
+            [downstream[3], downstream[5], downstream[6]].each { mv ->
+                explain {
+                    sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL"
+                    contains "__DORIS_IVM_NULL_SIDE_NET_COUNT__"
+                    notContains "LEFT_ANTI_JOIN"
+                }
+            }
+        }
         downstream.each { refresh(it, 'INCREMENTAL') }
         check(stage)
     }

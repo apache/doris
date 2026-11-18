@@ -72,10 +72,30 @@ import java.util.Set;
  *   <li>delta side is the null side: emit joined rows, plus repair rows for old/new null-side MV rows</li>
  * </ul>
  *
- * <p>For FULL OUTER JOIN both physical sides retain unmatched rows. A left delta is therefore handled as
- * {@code left_delta LEFT OUTER JOIN right_snapshot} plus repair rows for right-only dangling rows; a right delta is
- * symmetric. Those repair rows are modeled with a branch-local retained side and null side instead of a global
- * retained/null-side assumption.
+ * <p>For each contribution below, B carries the delta and A is the opposite snapshot. In LEFT/RIGHT
+ * joins the table applies when B is the null-producing side. A delta on the preserved side uses the
+ * original directional outer join directly. For FULL joins either side can play B.
+ *
+ * <table>
+ * <caption>Outer join rewrite by ON condition and uniqueness of B's equality slots</caption>
+ * <tr><th>ON condition</th><th>B key</th><th>LEFT/RIGHT</th><th>FULL</th></tr>
+ * <tr><td>Pure deterministic equality</td><td>Proven unique</td>
+ *     <td>Probe A with detail and signed key-aggregate events</td>
+ *     <td>Outer detail + probe A with signed key repairs</td></tr>
+ * <tr><td>Pure deterministic equality</td><td>Unproven</td>
+ *     <td>Probe A with detail and pre/post ANTI events</td>
+ *     <td>Outer detail + probe A with pre/post ANTI events</td></tr>
+ * <tr><td>Deterministic equality with residual</td><td>Proven unique</td>
+ *     <td>Inner detail + sum matches per A row-id</td>
+ *     <td>Outer detail + sum matches per A row-id</td></tr>
+ * <tr><td>Other conditions</td><td>No applicable proof</td>
+ *     <td>Inner detail + pre/post SEMI/ANTI repair branches</td>
+ *     <td>Outer detail + pre/post SEMI/ANTI repair branches</td></tr>
+ * </table>
+ *
+ * <p>Equality here means extractable, ordinary equality keys. Uniqueness must hold for direct B slots
+ * on the original relation. A signed repair emits the negative change in match count, since a unique
+ * key limits each A row to zero or one match in each snapshot.
  */
 class IvmJoinDeltaHandler {
 
@@ -226,50 +246,18 @@ class IvmJoinDeltaHandler {
     private IvmDeltaRewriteResult rewriteNullSideDelta(NullSideDeltaContext deltaContext) {
         LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         EquiJoinKeys equiJoinKeys = extractEquiJoinKeys(join);
-        if (equiJoinKeys != null) {
+        if (equiJoinKeys != null && !equiJoinKeys.hasResidual) {
             return rewriteNullSideDeltaWithNullSideEvents(deltaContext, equiJoinKeys);
-        } else {
-            return rewriteNullSideDeltaWithRepairBranches(deltaContext);
         }
+        List<Plan> repairs = equiJoinKeys != null && hasUniqueNullSideKeys(deltaContext, equiJoinKeys)
+                ? ImmutableList.of(buildMatchedRowRepair(deltaContext)) : buildNullSideRepairProjects(deltaContext);
+        return combineWithJoinedRows(deltaContext, repairs);
     }
 
-    /**
-     * General null-side delta rewrite using one joined-row branch and two NULL-row repair branches.
-     */
-    private IvmDeltaRewriteResult rewriteNullSideDeltaWithRepairBranches(NullSideDeltaContext deltaContext) {
-        // Null-side delta for:
-        //   retained_snapshot OUTER JOIN null_side_delta
-        //
-        // It has three parts:
-        //   1. Joined rows:
-        //        retained_snapshot INNER JOIN null_side_delta
-        //      or for FULL OUTER JOIN:
-        //        left_delta LEFT OUTER JOIN right_snapshot
-        //        left_snapshot RIGHT OUTER JOIN right_delta
-        //      FULL OUTER JOIN uses LEFT/RIGHT OUTER JOIN here to keep unmatched delta-side rows, and skips the
-        //      null-side event path because that path probes retained_snapshot with INNER JOIN.
-        //
-        //   2. Remove old null-side rows when null-side inserts create the first match:
-        //        retained_snapshot LEFT SEMI JOIN null_side_insert_delta
-        //          LEFT ANTI JOIN null_side_pre_snapshot
-        //      The semi join keeps retained-side rows affected by this delta without
-        //      multiplying them by matched delta rows. The anti join then keeps only rows
-        //      that had no matching null-side row before this delta. For those rows, the old MV
-        //      contained one row with null-side columns filled as NULL, so we emit that
-        //      null-side row with dml_factor = -1.
-        //
-        //   3. Add new null-side rows when null-side deletes remove the last match:
-        //        retained_snapshot LEFT SEMI JOIN null_side_delete_delta
-        //          LEFT ANTI JOIN null_side_post_snapshot
-        //      The semi join keeps retained-side rows affected by this delta without
-        //      multiplying them by matched delta rows. The anti join then keeps only rows
-        //      that have no matching null-side row after this delta. For those rows, the new MV
-        //      needs one null-side row, so we emit that row with dml_factor = +1.
+    private IvmDeltaRewriteResult combineWithJoinedRows(NullSideDeltaContext deltaContext, List<Plan> repairs) {
         Plan joinedProject = rewriteNullSideJoinedRowsDelta(deltaContext);
-        List<Plan> repairProjects = buildNullSideRepairProjects(deltaContext);
-
-        LogicalUnion union = helper.buildUnionAll(ImmutableList.of(
-                joinedProject, repairProjects.get(0), repairProjects.get(1)));
+        LogicalUnion union = helper.buildUnionAll(ImmutableList.<Plan>builder().add(joinedProject)
+                .addAll(repairs).build());
         LogicalProject<Plan> outputProject = helper.projectUnionOutputs(union, joinedProject.getOutput());
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequence = findSlotByName(outputProject.getOutput(), Column.SEQUENCE_COL);
@@ -301,6 +289,37 @@ class IvmJoinDeltaHandler {
                         helper.findSlotByName(newJoin.getOutput(), Column.IVM_DML_FACTOR_COL),
                         helper.findSlotByName(newJoin.getOutput(), Column.SEQUENCE_COL),
                         deltaContext.deltaSideResult().maxDeltaIndex), slotMapping).plan;
+    }
+
+    /**
+     * With a unique delta-side key, each retained row has zero or one match at either endpoint.
+     * A payload update may cross the residual predicate. Count signed rows after applying the full ON
+     * condition, grouped by retained row identity. Look up the payload after aggregation so that wide
+     * columns and types that cannot be grouped or aggregated are not carried through the shuffle.
+     */
+    private Plan buildMatchedRowRepair(NullSideDeltaContext context) {
+        Pair<Plan, Map<Slot, Slot>> retained = freshSideInput(context.nonDeltaSideInput());
+        Pair<Plan, Map<Slot, Slot>> delta = helper.freshPlan(context.deltaSideResult().plan);
+        Map<Slot, Slot> mapping = new HashMap<>(retained.second);
+        // The delta contribution was rebound to the source output ExprIds before rewriting this join.
+        mapping.putAll(delta.second);
+        LogicalJoin<Plan, Plan> matches = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ExpressionUtils.replace(context.join.getHashJoinConjuncts(), mapping),
+                ExpressionUtils.replace(context.join.getOtherJoinConjuncts(), mapping),
+                context.join.getDistributeHint(), retained.first, delta.first, JoinReorderContext.EMPTY);
+        Plan retainedSource = context.isDeltaOnLeft ? context.join.right() : context.join.left();
+        Slot rowId = IvmUtil.findRowIdSlot(retainedSource.getOutput(), "retained side of outer join");
+        Slot matchedRowId = retained.second.get(rowId);
+        Alias netCount = new Alias(new Sum(delta.second.get(context.deltaSideResult().dmlFactorSlot)),
+                NULL_SIDE_KEY_NET_COUNT_ALIAS);
+        Plan aggregate = new LogicalAggregate<>(ImmutableList.of(matchedRowId),
+                ImmutableList.of(matchedRowId, netCount), matches);
+        Pair<Plan, Map<Slot, Slot>> payload = freshSideInput(context.nonDeltaSideInput());
+        Plan changedRows = new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.of(new EqualTo(payload.second.get(rowId), matchedRowId)),
+                payload.first, changedNetCounts(aggregate, netCount),
+                JoinReorderContext.EMPTY);
+        return projectNullSideRepairOutputs(context, changedRows, repairFactor(netCount), payload.second);
     }
 
     /**
@@ -376,9 +395,7 @@ class IvmJoinDeltaHandler {
                 eventJoin, retainedSnapshot.second, nullSideEvents.nullSideOutputMapping,
                 nullSideEvents.dmlFactorSlot, nullSideEvents.sequenceSlot, fullOuter);
         if (fullOuter) {
-            Plan detail = rewriteNullSideJoinedRowsDelta(deltaContext);
-            LogicalUnion union = helper.buildUnionAll(ImmutableList.of(detail, outputProject));
-            outputProject = helper.projectUnionOutputs(union, targetOutputs);
+            return combineWithJoinedRows(deltaContext, ImmutableList.of(outputProject));
         }
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot sequence = findSlotByName(outputProject.getOutput(), Column.SEQUENCE_COL);
@@ -555,12 +572,18 @@ class IvmJoinDeltaHandler {
         outputs.add(netCount);
         Plan aggregate = new LogicalAggregate<>(groupBy.build(), outputs.build(),
                 new LogicalFilter<>(nonNullKeys.build(), delta.first));
-        Plan changedKeys = new LogicalFilter<>(ImmutableSet.of(
-                new Not(new EqualTo(netCount.toSlot(), new BigIntLiteral(0)))), aggregate);
-        // The proven unique endpoints constrain netCount to -1/0/+1; keep the existing event factor type.
-        Expression factor = new Cast(new Subtract(new BigIntLiteral(0), netCount.toSlot()), TinyIntType.INSTANCE);
-        return projectNullSideRepairEvent(context, changedKeys,
-                aggregate.getOutput().subList(0, keyExpressions.size()), factor);
+        return projectNullSideRepairEvent(context, changedNetCounts(aggregate, netCount),
+                aggregate.getOutput().subList(0, keyExpressions.size()), repairFactor(netCount));
+    }
+
+    private Plan changedNetCounts(Plan aggregate, Alias netCount) {
+        return new LogicalFilter<>(ImmutableSet.of(new Not(new EqualTo(netCount.toSlot(), new BigIntLiteral(0)))),
+                aggregate);
+    }
+
+    private Expression repairFactor(Alias netCount) {
+        // Unique endpoints constrain the matched-row count change to -1/0/+1.
+        return new Cast(new Subtract(new BigIntLiteral(0), netCount.toSlot()), TinyIntType.INSTANCE);
     }
 
     /**
@@ -711,10 +734,9 @@ class IvmJoinDeltaHandler {
     }
 
     /**
-     * Extract pure equi-join keys from both hash conjuncts and other conjuncts.
+     * Extract deterministic equi-join keys from both hash conjuncts and other conjuncts.
      *
-     * Return null when there is no hashable equality, or when any residual non-hash condition remains. The null
-     * result makes the null-side rewrite fall back to the general repair-branch path.
+     * Record residual predicates separately: their truth can depend on the individual retained row.
      *
      * This intentionally accepts expression keys, not only slot-to-slot keys. For example,
      *   date_trunc(left.dt) = date_trunc(right.dt)
@@ -729,12 +751,12 @@ class IvmJoinDeltaHandler {
                 .addAll(join.getHashJoinConjuncts())
                 .addAll(join.getOtherJoinConjuncts())
                 .build();
-        if (conjuncts.isEmpty()) {
+        if (conjuncts.stream().anyMatch(Expression::containsNondeterministic)) {
             return null;
         }
         Pair<List<Expression>, List<Expression>> extractedConjuncts = JoinUtils.extractExpressionForHashTable(
                 join.left().getOutput(), join.right().getOutput(), conjuncts);
-        if (extractedConjuncts.first.isEmpty() || !extractedConjuncts.second.isEmpty()) {
+        if (extractedConjuncts.first.isEmpty()) {
             return null;
         }
         Set<ExprId> leftExprIds = outputExprIds(join.left());
@@ -748,9 +770,6 @@ class IvmJoinDeltaHandler {
             EqualTo equalTo = (EqualTo) conjunct;
             Expression left = equalTo.left();
             Expression right = equalTo.right();
-            if (left.containsVolatileExpression() || right.containsVolatileExpression()) {
-                return null;
-            }
             if (isBoundBy(left, leftExprIds) && isBoundBy(right, rightExprIds)) {
                 leftKeys.add(left);
                 rightKeys.add(right);
@@ -761,7 +780,7 @@ class IvmJoinDeltaHandler {
                 return null;
             }
         }
-        return new EquiJoinKeys(leftKeys.build(), rightKeys.build());
+        return new EquiJoinKeys(leftKeys.build(), rightKeys.build(), !extractedConjuncts.second.isEmpty());
     }
 
     /**
@@ -838,13 +857,15 @@ class IvmJoinDeltaHandler {
     private static class EquiJoinKeys {
         private final List<Expression> leftExpressions;
         private final List<Expression> rightExpressions;
+        private final boolean hasResidual;
 
         /**
          * Store key expressions in physical join-child order.
          */
-        private EquiJoinKeys(List<Expression> leftExpressions, List<Expression> rightExpressions) {
+        private EquiJoinKeys(List<Expression> leftExpressions, List<Expression> rightExpressions, boolean hasResidual) {
             this.leftExpressions = leftExpressions;
             this.rightExpressions = rightExpressions;
+            this.hasResidual = hasResidual;
         }
     }
 
