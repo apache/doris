@@ -29,10 +29,12 @@
 #include "storage/olap_common.h"
 #include "storage/schema.h"
 #include "storage/segment/column_read_ahead.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
+#include "util/threadpool.h"
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -73,23 +75,18 @@ public:
         ++prefetcher_collect_calls;
     }
 
-    Status prepare_read_ahead(const ColumnReadAheadRequest& request,
-                              std::vector<ColumnReadAheadPlan>* plans) override {
-        request.sanity_check();
-        DORIS_CHECK(plans != nullptr);
+    Status prepare_read_ahead(const ColumnReadAheadHint& hint) override {
+        const auto& request = std::get<ScanReadAheadHint>(hint.request);
         RecordedReadAheadCall call {.rowids = {},
                                     .role = request.role,
                                     .phase = _read_phase,
                                     .reverse = request.reverse,
-                                    .page_driven = request.page_driven};
-        call.rowids = *request.scan_rowids;
-        EXPECT_EQ(request.current_rowids, nullptr);
-        EXPECT_EQ(request.current_rowid_count, 0);
+                                    .page_driven = true};
+        call.rowids = *request.candidate_rows;
         calls.push_back(std::move(call));
         if (!_prepare_status.ok()) {
             return _prepare_status;
         }
-        plans->push_back({});
         return Status::OK();
     }
 
@@ -120,10 +117,22 @@ TabletSchemaSPtr make_tablet_schema(size_t column_count) {
     return tablet_schema;
 }
 
-ColumnReadAheadContext make_context() {
-    return {.eager_options = {.window_bytes = 4 * 1024 * 1024},
-            .lazy_options = {.window_bytes = 128 * 1024}};
-}
+class HintOnlyFileReader final : public io::FileReader {
+public:
+    Status close() override { return Status::OK(); }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return 100; }
+    bool closed() const override { return false; }
+    int64_t mtime() const override { return 0; }
+
+protected:
+    Status read_at_impl(size_t, Slice, size_t*, const io::IOContext*) override {
+        return Status::NotSupported("hint-only test reader");
+    }
+
+private:
+    const io::Path _path {"hint-only"};
+};
 
 class SegmentIteratorReadAheadTest : public testing::Test {
 protected:
@@ -131,6 +140,15 @@ protected:
         _tablet_schema = make_tablet_schema(3);
         _read_schema = std::make_shared<Schema>(_tablet_schema->columns(),
                                                 std::vector<ColumnId> {0, 1, 2});
+        ASSERT_TRUE(ThreadPoolBuilder("ColumnHintTest")
+                            .set_min_threads(1)
+                            .set_max_threads(1)
+                            .build(&_pool)
+                            .ok());
+        ASSERT_TRUE(io::FileRangeReadScheduler::create(
+                            {.max_bytes_per_query = 1024, .max_bytes_per_be = 1024}, _pool.get(),
+                            &_scheduler)
+                            .ok());
     }
 
     std::unique_ptr<SegmentIterator> make_iterator() {
@@ -138,8 +156,10 @@ protected:
                 std::make_shared<MockSegment>(_tablet_schema), _read_schema);
         iterator->_opts.stats = &_stats;
         iterator->_opts.tablet_schema = _tablet_schema;
-        iterator->_column_read_ahead_context =
-                std::make_unique<ColumnReadAheadContext>(make_context());
+        iterator->_read_ahead_resources = std::make_shared<ColumnReadAheadResources>(
+                std::make_shared<HintOnlyFileReader>(), _scheduler.get(),
+                _scheduler->create_context(), io::FileRangeReadIOContext {},
+                ColumnReadAheadIOOptions {});
         iterator->_row_bitmap.addRange(0, 100);
         return iterator;
     }
@@ -154,6 +174,8 @@ protected:
     TabletSchemaSPtr _tablet_schema;
     SchemaSPtr _read_schema;
     OlapReaderStatistics _stats;
+    std::unique_ptr<ThreadPool> _pool;
+    std::unique_ptr<io::FileRangeReadScheduler> _scheduler;
 };
 
 TEST_F(SegmentIteratorReadAheadTest, SubmitsAllPlannableRolesBeforeDecoding) {
@@ -168,7 +190,7 @@ TEST_F(SegmentIteratorReadAheadTest, SubmitsAllPlannableRolesBeforeDecoding) {
     iterator->_non_predicate_columns = {2};
     iterator->_opts.read_orderby_key_reverse = true;
 
-    const auto plans = iterator->_plan_scan_read_ahead();
+    iterator->_prepare_scan_read_ahead();
 
     ASSERT_EQ(predicate->calls.size(), 1);
     EXPECT_EQ(predicate->calls[0].role, ColumnReadAheadRole::EAGER);
@@ -184,10 +206,9 @@ TEST_F(SegmentIteratorReadAheadTest, SubmitsAllPlannableRolesBeforeDecoding) {
     ASSERT_EQ(output->calls.size(), 1);
     EXPECT_EQ(output->calls[0].role, ColumnReadAheadRole::LAZY);
     EXPECT_EQ(output->calls[0].phase, ColumnIterator::ReadPhase::NORMAL);
-    EXPECT_EQ(plans.size(), 3);
 }
 
-TEST_F(SegmentIteratorReadAheadTest, ComplexColumnsKeepOriginalPrefetchers) {
+TEST_F(SegmentIteratorReadAheadTest, LeavesPrefetchMechanismSelectionToColumns) {
     const auto old_cloud_unique_id = config::cloud_unique_id;
     const auto old_enable_prefetch = config::enable_query_segment_file_cache_prefetch;
     Defer restore_config {[&] {
@@ -196,41 +217,17 @@ TEST_F(SegmentIteratorReadAheadTest, ComplexColumnsKeepOriginalPrefetchers) {
     }};
     config::cloud_unique_id = "SegmentIteratorReadAheadTest";
     config::enable_query_segment_file_cache_prefetch = true;
-
-    for (FieldType type : {FieldType::OLAP_FIELD_TYPE_ARRAY, FieldType::OLAP_FIELD_TYPE_MAP,
-                           FieldType::OLAP_FIELD_TYPE_STRUCT, FieldType::OLAP_FIELD_TYPE_VARIANT,
-                           FieldType::OLAP_FIELD_TYPE_AGG_STATE}) {
-        SCOPED_TRACE(static_cast<int>(type));
-        _tablet_schema->columns()[1]->set_type(type);
-        auto iterator = make_iterator();
-        auto* predicate = set_column(iterator.get(), 0);
-        auto* complex = set_column(iterator.get(), 1);
-        auto* output = set_column(iterator.get(), 2);
-        iterator->_is_need_short_eval = true;
-        iterator->_predicate_column_ids = {0};
-        iterator->_non_predicate_column_ids = {1};
-        iterator->_non_predicate_columns = {2};
-        iterator->_support_lazy_read_pruned_columns = {1};
-        iterator->_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
-
-        EXPECT_EQ(iterator->_plan_scan_read_ahead().size(), 2);
-        EXPECT_EQ(predicate->calls.size(), 1);
-        EXPECT_EQ(output->calls.size(), 1);
-        EXPECT_TRUE(complex->calls.empty());
-        iterator->_init_segment_prefetchers();
-        EXPECT_EQ(predicate->prefetcher_init_calls, 0);
-        EXPECT_EQ(output->prefetcher_init_calls, 0);
-        EXPECT_EQ(predicate->prefetcher_collect_calls, 0);
-        EXPECT_EQ(output->prefetcher_collect_calls, 0);
-        EXPECT_EQ(complex->prefetcher_init_calls, 1);
-        EXPECT_EQ(complex->prefetcher_collect_calls, 1);
-
-        iterator->_column_read_ahead_context.reset();
-        iterator->_init_segment_prefetchers();
-        EXPECT_EQ(predicate->prefetcher_init_calls, 1);
-        EXPECT_EQ(output->prefetcher_init_calls, 1);
-        EXPECT_EQ(complex->prefetcher_init_calls, 2);
-    }
+    auto iterator = make_iterator();
+    auto* scalar = set_column(iterator.get(), 0);
+    auto* complex = set_column(iterator.get(), 1);
+    set_column(iterator.get(), 2);
+    _tablet_schema->columns()[1]->set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    iterator->_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    iterator->_init_segment_prefetchers();
+    EXPECT_EQ(scalar->prefetcher_init_calls, 1);
+    EXPECT_EQ(complex->prefetcher_init_calls, 1);
+    EXPECT_EQ(scalar->prefetcher_collect_calls, 1);
+    EXPECT_EQ(complex->prefetcher_collect_calls, 1);
 }
 
 TEST_F(SegmentIteratorReadAheadTest, UsesEagerWindowForFirstCommonExpressionStage) {
@@ -242,13 +239,12 @@ TEST_F(SegmentIteratorReadAheadTest, UsesEagerWindowForFirstCommonExpressionStag
     iterator->_predicate_column_ids = {0};
     iterator->_non_predicate_columns = {1};
 
-    const auto plans = iterator->_plan_scan_read_ahead();
+    iterator->_prepare_scan_read_ahead();
 
     ASSERT_EQ(common_expr->calls.size(), 1);
     ASSERT_EQ(output->calls.size(), 1);
     EXPECT_EQ(common_expr->calls[0].role, ColumnReadAheadRole::EAGER);
     EXPECT_EQ(output->calls[0].role, ColumnReadAheadRole::LAZY);
-    EXPECT_EQ(plans.size(), 2);
 }
 
 TEST_F(SegmentIteratorReadAheadTest, UsesEagerWindowWhenOutputHasNoDependency) {
@@ -258,13 +254,12 @@ TEST_F(SegmentIteratorReadAheadTest, UsesEagerWindowWhenOutputHasNoDependency) {
     set_column(iterator.get(), 2);
     iterator->_predicate_column_ids = {0, 1};
 
-    const auto plans = iterator->_plan_scan_read_ahead();
+    iterator->_prepare_scan_read_ahead();
 
     ASSERT_EQ(first->calls.size(), 1);
     ASSERT_EQ(second->calls.size(), 1);
     EXPECT_EQ(first->calls[0].role, ColumnReadAheadRole::EAGER);
     EXPECT_EQ(second->calls[0].role, ColumnReadAheadRole::EAGER);
-    EXPECT_EQ(plans.size(), 2);
 }
 
 TEST_F(SegmentIteratorReadAheadTest, SparseColumnIdsKeepUnselectedColumnsOutOfPlanning) {
@@ -284,12 +279,12 @@ TEST_F(SegmentIteratorReadAheadTest, SparseColumnIdsKeepUnselectedColumnsOutOfPl
     iterator->_predicate_column_ids = {0, 2};
     iterator->_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
 
-    EXPECT_EQ(iterator->_plan_scan_read_ahead().size(), 2);
+    iterator->_prepare_scan_read_ahead();
     EXPECT_EQ(first->calls.size(), 1);
     EXPECT_EQ(last->calls.size(), 1);
     iterator->_init_segment_prefetchers();
-    EXPECT_EQ(first->prefetcher_collect_calls, 0);
-    EXPECT_EQ(last->prefetcher_collect_calls, 0);
+    EXPECT_EQ(first->prefetcher_collect_calls, 1);
+    EXPECT_EQ(last->prefetcher_collect_calls, 1);
 }
 
 TEST_F(SegmentIteratorReadAheadTest, PreparationFailureFallsBackAndKeepsOtherColumns) {
@@ -300,12 +295,11 @@ TEST_F(SegmentIteratorReadAheadTest, PreparationFailureFallsBackAndKeepsOtherCol
     failed->set_prepare_status(Status::IOError("injected planning failure"));
     iterator->_predicate_column_ids = {0, 1};
 
-    const auto plans = iterator->_plan_scan_read_ahead();
+    iterator->_prepare_scan_read_ahead();
 
     EXPECT_EQ(failed->calls.size(), 1);
     EXPECT_EQ(healthy->calls.size(), 1);
     EXPECT_EQ(failed->phase(), ColumnIterator::ReadPhase::NORMAL);
-    EXPECT_EQ(plans.size(), 1);
 }
 
 TEST_F(SegmentIteratorReadAheadTest, EmptySelectionAndDisabledReadAheadSkipPlanning) {
@@ -313,12 +307,12 @@ TEST_F(SegmentIteratorReadAheadTest, EmptySelectionAndDisabledReadAheadSkipPlann
     auto* column = set_column(iterator.get(), 0);
     iterator->_predicate_column_ids = {0};
     iterator->_row_bitmap = roaring::Roaring {};
-    EXPECT_TRUE(iterator->_plan_scan_read_ahead().empty());
+    iterator->_prepare_scan_read_ahead();
     EXPECT_TRUE(column->calls.empty());
 
     iterator->_row_bitmap.add(20);
-    iterator->_column_read_ahead_context.reset();
-    EXPECT_TRUE(iterator->_plan_scan_read_ahead().empty());
+    iterator->_read_ahead_resources.reset();
+    iterator->_prepare_scan_read_ahead();
     EXPECT_TRUE(column->calls.empty());
 }
 

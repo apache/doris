@@ -70,11 +70,9 @@ namespace segment_v2 {
 
 class ColumnIterator;
 class InvertedIndexIterator;
-struct ColumnReadAheadContext;
-struct ColumnReadAheadPlan;
+struct ColumnReadAheadResources;
 class RowRanges;
 class IndexIterator;
-class SegmentReadAhead;
 
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;
@@ -171,17 +169,12 @@ private:
 
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
-    // Create the scalar context before column iterators capture their FileReader.
+    // Bind shared query services before initializing the per-column controllers.
     [[nodiscard]] Status _init_query_read_ahead();
-    // Complex columns retain their original reader and segment prefetcher.
-    bool _use_read_ahead_for_column(ColumnId cid) const;
     [[nodiscard]] Status _init_return_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
-    // Initialize eager and lazy page sequences after pruning and submit their first windows
-    // together. Subsequent data-page reads advance each physical column's window.
+    // Pass the pruned row selection and dependency role to every independently planned column.
     void _prepare_scan_read_ahead();
-    // Classify physical iterators by filtering dependency and plan their initial windows.
-    std::vector<ColumnReadAheadPlan> _plan_scan_read_ahead();
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
@@ -480,8 +473,7 @@ private:
     MutableColumns _seek_block;
 
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<SegmentReadAhead> _segment_read_ahead;
-    std::unique_ptr<ColumnReadAheadContext> _column_read_ahead_context;
+    std::shared_ptr<const ColumnReadAheadResources> _read_ahead_resources;
 
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;

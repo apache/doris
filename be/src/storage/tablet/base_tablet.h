@@ -173,14 +173,13 @@ public:
                            RowsetSharedPtr rowset, OlapReaderStatistics& stats, std::string& values,
                            bool write_to_cache = false, const io::IOContext* io_ctx = nullptr);
 
-    // Read from a resolved segment with query-scoped range read-ahead admission. The caller
-    // keeps the segment and its acquired rowset alive until this method returns.
-    Status lookup_row_data_with_read_ahead(
+    // Reuse the supplied segment while its acquired rowset remains alive.
+    Status lookup_row_data(
             const Slice& encoded_key, const RowLocation& row_location,
             const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr rowset,
-            OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
-            const io::IOContext* io_ctx,
-            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context);
+            OlapReaderStatistics& stats, std::string& values, bool write_to_cache = false,
+            const io::IOContext* io_ctx = nullptr,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context = {});
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
@@ -368,6 +367,13 @@ public:
                                                                const CaptureRowsetOps& options);
 
 protected:
+    Status _lookup_row_data(
+            const Slice& encoded_key, const RowLocation& row_location,
+            const segment_v2::SegmentSharedPtr* segment, RowsetSharedPtr rowset,
+            OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+            const io::IOContext* io_ctx,
+            const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) const;
+
     // Find the missed versions until the spec_version.
     //
     // for example:
