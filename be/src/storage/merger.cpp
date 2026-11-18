@@ -168,6 +168,15 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     reader_params.tablet_schema = std::make_shared<TabletSchema>();
     reader_params.tablet_schema->copy_from(cur_tablet_schema);
     reader_params.variant_compaction_paths = dst_rowset_writer->context().variant_compaction_paths;
+    reader_params.sequence_retention_enabled =
+            dst_rowset_writer->context().sequence_retention_enabled;
+    reader_params.sequence_delete_prune_version =
+            dst_rowset_writer->context().sequence_delete_prune_version;
+    if (reader_params.sequence_retention_enabled) {
+        // Once a delete100 is replaced by live80, sequence-max MOR merging is unsound.
+        // Every column group must exclude the same version-bounded bitmap rows first.
+        reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
+    }
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
@@ -271,7 +280,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
                                     std::vector<std::vector<uint32_t>>* column_groups,
                                     std::vector<uint32_t>* key_group_cluster_key_idxes,
-                                    int32_t num_columns_per_group) {
+                                    int32_t num_columns_per_group, bool include_original_version) {
     size_t num_key_cols = tablet_schema.num_key_columns();
     size_t total_cols = tablet_schema.num_columns();
     std::vector<uint32_t> key_columns;
@@ -313,6 +322,18 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
                         break;
                     }
                 }
+            }
+        }
+    }
+    if (include_original_version) {
+        const int version_col_idx = tablet_schema.version_col_idx();
+        DORIS_CHECK_GE(version_col_idx, 0);
+        auto delete_position = std::ranges::find(key_columns, delete_sign_idx);
+        auto inserted_position = std::distance(key_columns.begin(), delete_position);
+        key_columns.insert(delete_position, version_col_idx);
+        for (auto& cluster_position : *key_group_cluster_key_idxes) {
+            if (cluster_position >= inserted_position) {
+                ++cluster_position;
             }
         }
     }
@@ -398,6 +419,15 @@ Status Merger::vertical_compact_one_group(
     reader_params.tablet_schema = std::make_shared<TabletSchema>();
     reader_params.tablet_schema->copy_from(tablet_schema);
     reader_params.variant_compaction_paths = dst_rowset_writer->context().variant_compaction_paths;
+    reader_params.sequence_retention_enabled =
+            dst_rowset_writer->context().sequence_retention_enabled;
+    reader_params.sequence_delete_prune_version =
+            dst_rowset_writer->context().sequence_delete_prune_version;
+    if (reader_params.sequence_retention_enabled) {
+        // Once a delete100 is replaced by live80, sequence-max MOR merging is unsound.
+        // Every column group must exclude the same version-bounded bitmap rows first.
+        reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
+    }
     bool has_cluster_key = false;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
@@ -689,7 +719,8 @@ Status Merger::vertical_merge_rowsets(
     });
 
     vertical_split_columns(tablet_schema, &column_groups, &key_group_cluster_key_idxes,
-                           num_columns_per_group);
+                           num_columns_per_group,
+                           dst_rowset_writer->context().sequence_retention_enabled);
 
     if (progress_cb) {
         progress_cb(column_groups.size(), 0);

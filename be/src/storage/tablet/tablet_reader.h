@@ -156,6 +156,8 @@ public:
         std::vector<RowSetSplits> rs_splits;
         // For unique key table with merge-on-write
         DeleteBitmapPtr delete_bitmap = nullptr;
+        bool sequence_retention_enabled = false;
+        int64_t sequence_delete_prune_version = -1;
 
         // The read schema of every Block at the TabletReader boundary.
         // Query scanners construct the FE-slot prefix in scan-tuple order;
@@ -318,6 +320,8 @@ protected:
     bool _aggregation = false;
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
+    bool _sequence_retention_active = false;
+    int64_t _sequence_delete_prune_version = -1;
     bool _delete_sign_available = false;
     bool _filter_delete = false;
     bool _direct_mode = false;

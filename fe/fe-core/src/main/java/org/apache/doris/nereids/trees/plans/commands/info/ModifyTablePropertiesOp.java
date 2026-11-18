@@ -95,6 +95,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP)) {
+            throw new AnalysisException(
+                    PropertyAnalyzer.PROPERTIES_SEQUENCE_RETENTION_GAP + " can only be set at CREATE TABLE");
+        }
         String rowTtlPrefix = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                 + PropertyAnalyzer.PROPERTIES_TTL;
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL)
