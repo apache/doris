@@ -17,8 +17,12 @@
 
 package org.apache.doris.rpc;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DNSCache;
 import org.apache.doris.common.OssThriftClientTransportProvider;
+import org.apache.doris.common.ThriftClientTransportProvider;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.tls.server.OssFeServerStarterProvider;
 import org.apache.doris.tls.server.ServerStarter;
@@ -49,7 +53,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -59,6 +65,7 @@ import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -154,6 +161,57 @@ class OssPrivateRpcTlsTest {
     }
 
     @Test
+    void channelPurposePreservesLegacyProviderOverrides() {
+        ManagedChannel selected = Mockito.mock(ManagedChannel.class);
+        OssBackendServiceClientChannelProvider custom = new OssBackendServiceClientChannelProvider() {
+            @Override
+            public ManagedChannel createChannel(TNetworkAddress address, String resolvedIp,
+                    Executor executor) {
+                return selected;
+            }
+        };
+        for (boolean internal : new boolean[] {false, true}) {
+            Assertions.assertSame(selected, custom.createChannel(
+                    new TNetworkAddress("remote.example", 1), "127.0.0.1", Runnable::run, internal));
+        }
+    }
+
+    @Test
+    void remoteDorisFragmentChannelKeepsItsPlaintextEndpointPolicy() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        DNSCache dns = Mockito.mock(DNSCache.class);
+        Mockito.when(env.getDnsCache()).thenReturn(dns);
+        Mockito.when(dns.get("localhost")).thenReturn("127.0.0.1");
+        try (Peer peer = peer(null); MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+            mocked.when(Env::getCurrentEnv).thenReturn(env);
+            TNetworkAddress address = new TNetworkAddress("localhost", peer.server.getPort());
+            BackendServiceProxy remote = new BackendServiceProxy(false);
+            BackendServiceProxy internal = new BackendServiceProxy();
+            try {
+                BackendServiceClient client = Deencapsulation.invoke(remote, "getProxy", address);
+                ManagedChannel channel = Deencapsulation.getField(client, "channel");
+                Assertions.assertEquals(PAYLOAD, ClientCalls.blockingUnaryCall(channel, PROBE,
+                        CallOptions.DEFAULT.withDeadlineAfter(3, TimeUnit.SECONDS), PAYLOAD));
+                Assertions.assertSame(client, Deencapsulation.invoke(remote, "getProxy", address));
+                BackendServiceClient privateClient = Deencapsulation.invoke(internal, "getProxy", address);
+                Assertions.assertNotSame(client, privateClient);
+                ManagedChannel privateChannel = Deencapsulation.getField(privateClient, "channel");
+                Assertions.assertThrows(StatusRuntimeException.class, () -> ClientCalls.blockingUnaryCall(
+                        privateChannel, PROBE, CallOptions.DEFAULT.withDeadlineAfter(3, TimeUnit.SECONDS), PAYLOAD));
+                remote.removeProxy(address);
+                BackendServiceClient reopened = Deencapsulation.invoke(remote, "getProxy", address);
+                Assertions.assertNotSame(client, reopened);
+                ManagedChannel reopenedChannel = Deencapsulation.getField(reopened, "channel");
+                Assertions.assertEquals(PAYLOAD, ClientCalls.blockingUnaryCall(reopenedChannel, PROBE,
+                        CallOptions.DEFAULT.withDeadlineAfter(3, TimeUnit.SECONDS), PAYLOAD));
+            } finally {
+                remote.removeProxy(address);
+                internal.removeProxy(address);
+            }
+        }
+    }
+
+    @Test
     void defaultOffStillSupportsPlaintext() throws Exception {
         Config.enable_tls = false;
         try (Peer peer = peer(null)) {
@@ -203,10 +261,10 @@ class OssPrivateRpcTlsTest {
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void thriftClientReopensWithTlsForBothTransportTypes(boolean framed) throws Exception {
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void thriftClientReopensWithTlsForBothTransportTypes(boolean framed, boolean resolved) throws Exception {
         JdkSslContext context = (JdkSslContext) SslContextBuilder.forServer(
-                certificates.resolve("fe.pem").toFile(), certificates.resolve("fe.key").toFile())
+                certificates.resolve("dns-fe.pem").toFile(), certificates.resolve("dns-fe.key").toFile())
                 .sslProvider(SslProvider.JDK).trustManager(certificates.resolve("ca.pem").toFile())
                 .clientAuth(ClientAuth.REQUIRE).build();
         ExecutorService worker = Executors.newSingleThreadExecutor();
@@ -230,8 +288,12 @@ class OssPrivateRpcTlsTest {
                 }
                 return null;
             });
-            try (TTransport client = new OssThriftClientTransportProvider().createTransport(
-                    new TNetworkAddress("localhost", server.getLocalPort()), 3000, framed)) {
+            // A DNS-only certificate exposes loss of the original name on resolved opens and reopens.
+            OssThriftClientTransportProvider provider = new OssThriftClientTransportProvider();
+            try (TTransport client = resolved
+                    ? provider.createTransport(new TNetworkAddress("127.0.0.1", server.getLocalPort()), 3000, framed,
+                            ThriftClientTransportProvider.RpcPurpose.INTERNAL_RPC, "localhost")
+                    : provider.createTransport(new TNetworkAddress("localhost", server.getLocalPort()), 3000, framed)) {
                 TSocket socket = framed ? (TSocket) ((TFramedTransport) client).getInnerTransport() : (TSocket) client;
                 for (int round = 0; round < 2; round++) {
                     socket.setTimeout(3000);

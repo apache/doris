@@ -31,4 +31,10 @@ public interface ThriftClientTransportProvider {
             throws Exception {
         return createTransport(address, timeoutMs, nonBlocking);
     }
+
+    default TTransport createTransport(TNetworkAddress address, int timeoutMs, boolean nonBlocking,
+            RpcPurpose purpose, String peerHost) throws Exception {
+        // Existing custom providers keep their original dispatch until they opt into separate peer names.
+        return createTransport(address, timeoutMs, nonBlocking, purpose);
+    }
 }

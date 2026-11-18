@@ -37,6 +37,8 @@ class LegacyThriftProviderCompatibilityTest {
             for (ThriftClientTransportProvider.RpcPurpose purpose : ThriftClientTransportProvider.RpcPurpose.values()) {
                 Assertions.assertSame(selected, provider.createTransport(
                         new TNetworkAddress("unused.invalid", 1), 100, false, purpose));
+                Assertions.assertSame(selected, provider.createTransport(
+                        new TNetworkAddress("127.0.0.1", 1), 100, false, purpose, "unused.invalid"));
             }
         }
     }

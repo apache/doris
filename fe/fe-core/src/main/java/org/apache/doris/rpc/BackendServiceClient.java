@@ -43,8 +43,12 @@ public class BackendServiceClient {
     private final long execPlanTimeout;
 
     public BackendServiceClient(TNetworkAddress address, String resolvedIp, Executor executor) {
+        this(address, resolvedIp, executor, true);
+    }
+
+    public BackendServiceClient(TNetworkAddress address, String resolvedIp, Executor executor, boolean internalRpc) {
         this.address = address;
-        channel = CHANNEL_PROVIDER.createChannel(address, resolvedIp, executor);
+        channel = CHANNEL_PROVIDER.createChannel(address, resolvedIp, executor, internalRpc);
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
         // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException

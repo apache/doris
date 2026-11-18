@@ -34,16 +34,22 @@ import javax.net.ssl.SSLSocket;
 public final class TlsThriftSocket extends TSocket {
     private static final Logger LOG = LogManager.getLogger(TlsThriftSocket.class);
     private final String host;
+    private final String peerHost;
     private final int port;
     private int connectTimeout;
     private int readTimeout;
     private SSLSocket tlsSocket;
 
     public TlsThriftSocket(String host, int port, int timeout) throws TTransportException {
+        this(host, port, timeout, host);
+    }
+
+    public TlsThriftSocket(String host, int port, int timeout, String peerHost) throws TTransportException {
         super(host, port, timeout);
         // TSocket.open() constructs plain TCP after close(). Keep its IO/accounting, and own only TLS sockets.
         super.close();
         this.host = host;
+        this.peerHost = peerHost;
         this.port = port;
         connectTimeout = timeout;
         readTimeout = timeout;
@@ -59,7 +65,7 @@ public final class TlsThriftSocket extends TSocket {
         if (isOpen()) {
             throw new TTransportException(TTransportException.ALREADY_OPEN, "Private RPC TLS socket is already open");
         }
-        tlsSocket = PrivateRpcTls.openThriftSocket(host, port, connectTimeout, readTimeout);
+        tlsSocket = PrivateRpcTls.openThriftSocket(host, port, connectTimeout, readTimeout, peerHost);
         try {
             inputStream_ = new BufferedInputStream(tlsSocket.getInputStream());
             outputStream_ = new BufferedOutputStream(tlsSocket.getOutputStream());

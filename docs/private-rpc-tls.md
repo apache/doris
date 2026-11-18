@@ -26,8 +26,15 @@ connection failure. `enable_tls=false` preserves the existing plaintext behavior
 
 External RPC functions retain plaintext for both FE validation and BE execution.
 Broker heartbeats and filesystem clients on FE and BE also retain their existing
-plaintext policy. These external service endpoints do not inherit the cluster's
-private RPC TLS configuration.
+plaintext policy. Remote Doris catalogs also retain their existing plaintext
+Thrift metadata/transaction calls, gRPC fragment execution/result fetch/cancellation,
+native BRPC writes (including HTTP batches and streaming writes) and partition
+callbacks. File-key descriptors are rejected before serialization to those remote
+plaintext channels, even when local private TLS is enabled. Remote endpoint
+pools and cached channels are isolated from internal connections, including when
+the addresses coincide. These external endpoints do not inherit the local
+cluster's private RPC TLS configuration; this provider does not configure TLS
+for an independent remote cluster.
 
 ## Configuration and deployment
 

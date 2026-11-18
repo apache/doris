@@ -25,4 +25,10 @@ import java.util.concurrent.Executor;
 
 public interface BackendServiceClientChannelProvider {
     ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor);
+
+    default ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor,
+            boolean internalRpc) {
+        // Preserve custom providers' existing endpoint policy until they opt into purpose selection.
+        return createChannel(address, resolvedIp, executor);
+    }
 }

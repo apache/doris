@@ -32,6 +32,21 @@ import java.util.concurrent.TimeUnit;
 public class OssBackendServiceClientChannelProvider implements BackendServiceClientChannelProvider {
     @Override
     public ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor) {
+        return createChannelForPurpose(address, resolvedIp, executor, true);
+    }
+
+    @Override
+    public ManagedChannel createChannel(TNetworkAddress address, String resolvedIp, Executor executor,
+            boolean internalRpc) {
+        // Legacy subclasses own their policy through the original provider entry point.
+        if (getClass() != OssBackendServiceClientChannelProvider.class) {
+            return createChannel(address, resolvedIp, executor);
+        }
+        return createChannelForPurpose(address, resolvedIp, executor, internalRpc);
+    }
+
+    private ManagedChannel createChannelForPurpose(TNetworkAddress address, String resolvedIp, Executor executor,
+            boolean internalRpc) {
         String targetHost = (resolvedIp != null && !resolvedIp.isEmpty()) ? resolvedIp : address.getHostname();
         NettyChannelBuilder channelBuilder = NettyChannelBuilder.forAddress(targetHost, address.getPort())
                 .keepAliveTime(Config.grpc_keep_alive_second, TimeUnit.SECONDS)
@@ -40,7 +55,8 @@ public class OssBackendServiceClientChannelProvider implements BackendServiceCli
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
                 .enableRetry()
                 .maxRetryAttempts(10);
-        if (PrivateRpcTls.enabled(Protocol.BRPC)) {
+        // Remote Doris workers expose their own endpoint contract, independently of local private TLS.
+        if (internalRpc && PrivateRpcTls.enabled(Protocol.BRPC)) {
             // DNS resolution may change the connect address, but must not change the certified peer identity.
             channelBuilder.sslContext(PrivateRpcTls.grpcClientContext()).overrideAuthority(
                     HostAndPort.fromParts(address.getHostname(), address.getPort()).toString());

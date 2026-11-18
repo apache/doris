@@ -202,6 +202,9 @@ public:
     ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
+    ClientCache<FrontendServiceClient>* remote_frontend_client_cache() {
+        return _remote_frontend_client_cache;
+    }
     // Only for the FE calls that cancel an Arrow Flight query, see ArrowFlightBatchReaderBase.
     ClientCache<FrontendServiceClient>* flight_cancel_frontend_client_cache() {
         return _flight_cancel_frontend_client_cache;
@@ -476,6 +479,7 @@ private:
     ResultQueueMgr* _result_queue_mgr = nullptr;
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
+    ClientCache<FrontendServiceClient>* _remote_frontend_client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _flight_cancel_frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
 

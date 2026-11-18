@@ -20,6 +20,7 @@ package org.apache.doris.qe.runtime;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
@@ -81,12 +82,13 @@ public class PipelineExecutionTaskBuilder {
             ByteString serializeFragments = workerToSerializeFragments.get(worker);
 
             Backend backend = worker.getBackend();
+            // Remote catalog workers keep their independent cluster's channel policy.
             fragmentTasks.put(
                     worker,
                     new MultiFragmentsPipelineTask(
                             coordinatorContext,
                             backend,
-                            backendServiceProxy,
+                            isInternalWorker(worker) ? backendServiceProxy : BackendServiceProxy.getInstance(false),
                             serializeFragments,
                             buildSingleFragmentPipelineTask(
                                     coordinatorContext.executionProfile, backend, fragmentParamsList)
@@ -111,6 +113,11 @@ public class PipelineExecutionTaskBuilder {
         return tasks;
     }
 
+    static boolean isInternalWorker(DistributedPlanWorker worker) {
+        // Catalog identity survives distribution even when local and remote backend IDs/addresses coincide.
+        return worker.getCatalogId() == InternalCatalog.INTERNAL_CATALOG_ID;
+    }
+
     private Map<DistributedPlanWorker, ByteString> serializeFragments(
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
 
@@ -119,7 +126,7 @@ public class PipelineExecutionTaskBuilder {
                 .parallelStream()
                 .map(kv -> {
                     try {
-                        FileScanEncryptionGuard.checkFragments(kv.getValue());
+                        FileScanEncryptionGuard.checkFragments(kv.getValue(), isInternalWorker(kv.getKey()));
                         ByteString serializeString =
                                 new TFastSerializer(1024, new Factory()).serialize(kv.getValue());
                         return Pair.of(kv.getKey(), serializeString);

@@ -247,6 +247,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _result_queue_mgr = new ResultQueueMgr();
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
+    // Remote catalog callbacks can target a plaintext cluster even when local private TLS is enabled.
+    _remote_frontend_client_cache =
+            new FrontendServiceClientCache(config::max_client_cache_size_per_host, false);
     // A cached transport keeps the timeout of the caller that opened it, so the Arrow Flight
     // cancellation keeps its own, opened with its short timeout, and none of them reaches another
     // caller. Each idle connection holds an FE thrift thread, so at most two are kept per FE.
@@ -409,6 +412,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
+    _remote_frontend_client_cache->init_metrics("remote_frontend");
     _flight_cancel_frontend_client_cache->init_metrics("flight_cancel_frontend");
     _broker_client_cache->init_metrics("broker");
     static_cast<void>(_result_mgr->init());
@@ -1036,6 +1040,7 @@ void ExecEnv::destroy() {
 
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_flight_cancel_frontend_client_cache);
+    SAFE_DELETE(_remote_frontend_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_queue_mgr);

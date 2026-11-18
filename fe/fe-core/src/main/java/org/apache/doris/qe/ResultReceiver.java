@@ -60,10 +60,17 @@ public class ResultReceiver {
     private volatile Future<InternalService.PFetchDataResult> fetchDataAsyncFuture = null;
     private Boolean enableParallelResultSink = false;
 
+    private final boolean internalRpc;
     int maxMsgSizeOfResultReceiver;
 
     public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
             int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink) {
+        this(queryId, tid, backendId, address, timeoutTs, maxMsgSizeOfResultReceiver, enableParallelResultSink, true);
+    }
+
+    public ResultReceiver(TUniqueId queryId, TUniqueId tid, Long backendId, TNetworkAddress address, long timeoutTs,
+            int maxMsgSizeOfResultReceiver, Boolean enableParallelResultSink, boolean internalRpc) {
+        this.internalRpc = internalRpc;
         this.queryId = Types.PUniqueId.newBuilder().setHi(queryId.hi).setLo(queryId.lo).build();
         this.instanceId = Types.PUniqueId.newBuilder().setHi(tid.hi).setLo(tid.lo).build();
         this.backendId = backendId;
@@ -87,8 +94,10 @@ public class ResultReceiver {
                 .setRespInAttachment(false)
                 .build();
         try {
-            fetchDataAsyncFuture = BackendServiceProxy.getInstance().fetchDataAsyncWithCallback(address, request,
-                    callback);
+            // Result fetches use the same local/remote endpoint policy as fragment execution.
+            BackendServiceProxy proxy = internalRpc ? BackendServiceProxy.getInstance()
+                    : BackendServiceProxy.getInstance(false);
+            fetchDataAsyncFuture = proxy.fetchDataAsyncWithCallback(address, request, callback);
         } catch (RpcException e) {
             LOG.warn("fetch result rpc exception, finstId={}", DebugUtil.printId(getRealFinstId()), e);
             SimpleScheduler.addToBlacklist(backendId, e.getMessage());
