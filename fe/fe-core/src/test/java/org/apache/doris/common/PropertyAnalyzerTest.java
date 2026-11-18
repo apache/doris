@@ -139,7 +139,7 @@ public class PropertyAnalyzerTest {
                 ImmutableMap.of(), ImmutableList.of(legacy), true));
         Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
                 ImmutableMap.of(key, "TRUE"), ImmutableList.of(escaped), true));
-        Assertions.assertEquals(ImmutableMap.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+        Assertions.assertEquals(ImmutableMap.of(key, "false"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
                 ImmutableMap.of(key, "FALSE"), ImmutableList.of(legacy), true));
         for (Map<String, String> props : ImmutableList.of(ImmutableMap.<String, String>of(), ImmutableMap.of(key, "true"), ImmutableMap.of(key, "false"))) {
             Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
@@ -164,7 +164,7 @@ public class PropertyAnalyzerTest {
         TableIf external = Mockito.mock(TableIf.class);
         Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
                 ImmutableMap.of(key, "TRUE"), ImmutableList.of(legacy, external), false));
-        Assertions.assertEquals(ImmutableMap.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+        Assertions.assertEquals(ImmutableMap.of(key, "false"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
                 ImmutableMap.of(key, "FALSE"), ImmutableList.of(escaped), false));
         Assertions.assertEquals(ImmutableMap.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
                 ImmutableMap.of(), ImmutableList.of(escaped), false));

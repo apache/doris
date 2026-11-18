@@ -3727,7 +3727,7 @@ public class Env {
             sb.append("\n").append(distributionInfo.toSql());
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(mtmv, sb, false, false, null);
+            addOlapTablePropertyInfo(mtmv, sb, false, false, false, null);
             addMTMVPropertyInfo(mtmv, sb);
             sb.append("\n)");
             sb.append("\nAS ");
@@ -3795,7 +3795,7 @@ public class Env {
     }
 
     private static void addOlapTablePropertyInfo(OlapTable olapTable, StringBuilder sb, boolean separatePartition,
-            boolean getDdlForSync, List<Long> partitionId) {
+            boolean getDdlForSync, boolean includeLegacyEncoding, List<Long> partitionId) {
         // replicationNum
         ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
         if (Config.isCloudMode()) {
@@ -4044,7 +4044,7 @@ public class Env {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
         sb.append(olapTable.disableAutoCompaction()).append("\"");
 
-        addVariantEscapeDotsInKeysProperty(olapTable, sb);
+        addVariantEscapeDotsInKeysProperty(olapTable, sb, includeLegacyEncoding);
 
         if (olapTable.variantEnableFlattenNested()) {
             // enable flatten nested type in variant
@@ -4092,10 +4092,20 @@ public class Env {
         }
     }
 
-    private static void addVariantEscapeDotsInKeysProperty(OlapTable olapTable, StringBuilder sb) {
+    /**
+     * @param includeLegacyEncoding Emit an explicit false as well. The DDL of an existing table is
+     * replayed by LIKE/COPY TABLET/binlog sync, so it must pin the source encoding; SHOW CREATE
+     * keeps the historical false omission.
+     */
+    private static void addVariantEscapeDotsInKeysProperty(OlapTable olapTable, StringBuilder sb,
+            boolean includeLegacyEncoding) {
         if (olapTable.getVariantEscapeDotsInKeys()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)
                     .append("\" = \"true\"");
+        } else if (includeLegacyEncoding && olapTable.getBaseSchema().stream()
+                .anyMatch(column -> column.getType().isVariantType())) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)
+                    .append("\" = \"false\"");
         }
     }
 
@@ -4208,7 +4218,7 @@ public class Env {
                     .append(") BUCKETS 1");
                 sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
                         + specificVersion + "\"");
-                addVariantEscapeDotsInKeysProperty(olapTable, sb);
+                addVariantEscapeDotsInKeysProperty(olapTable, sb, true);
                 sb.append("\n)");
                 createTableStmt.add(sb + ";");
                 return;
@@ -4307,7 +4317,8 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
+            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync,
+                    getDdlForLike || getDdlForSync, partitionId);
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4635,7 +4646,7 @@ public class Env {
                         .append(") BUCKETS 1");
                 sb.append("\nPROPERTIES (\n" + "\"replication_num\" = \"1\",\n" + "\"version_info\" = \""
                         + specificVersion + "\"");
-                addVariantEscapeDotsInKeysProperty(olapTable, sb);
+                addVariantEscapeDotsInKeysProperty(olapTable, sb, true);
                 sb.append("\n)");
                 createTableStmt.add(sb + ";");
                 return;
@@ -4737,7 +4748,8 @@ public class Env {
 
             // properties
             sb.append("\nPROPERTIES (\n");
-            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync, partitionId);
+            addOlapTablePropertyInfo(olapTable, sb, separatePartition, getDdlForSync,
+                    getDdlForLike || getDdlForSync, partitionId);
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;

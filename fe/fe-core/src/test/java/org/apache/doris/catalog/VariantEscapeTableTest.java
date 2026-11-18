@@ -140,7 +140,8 @@ public class VariantEscapeTableTest extends TestWithFeService {
             Assertions.assertTrue(ddl.contains("\"replication_num\" = \"1\""), ddl);
             Assertions.assertTrue(ddl.contains("\"version_info\" = \"42\""), ddl);
             Assertions.assertEquals(escaped, ddl.contains("\"variant_escape_dots_in_keys\" = \"true\""), ddl);
-            Assertions.assertFalse(ddl.contains("\"variant_escape_dots_in_keys\" = \"false\""), ddl);
+            // A re-created table must keep its source encoding, so a legacy table's DDL pins false.
+            Assertions.assertEquals(!escaped, ddl.contains("\"variant_escape_dots_in_keys\" = \"false\""), ddl);
 
             createTable(ddl.replace("`" + sourceName + "`", "`" + targetName + "`"));
             Assertions.assertEquals(escaped, table(targetName).getVariantEscapeDotsInKeys());
@@ -166,6 +167,31 @@ public class VariantEscapeTableTest extends TestWithFeService {
         Assertions.assertTrue(restored.getVariantEscapeDotsInKeys());
         Assertions.assertFalse(table("escaped").getColumn("v").getType().toSql()
                 .contains("variant_escape_dots_in_keys"));
+    }
+
+    @Test
+    public void testActivationSwitchSelectsCreationDefault() throws Exception {
+        createTable("CREATE TABLE default_escaped(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        Assertions.assertTrue(table("default_escaped").getVariantEscapeDotsInKeys());
+        createTable("CREATE TABLE default_explicit_false(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                + "'variant_escape_dots_in_keys'='false')");
+        Assertions.assertFalse(table("default_explicit_false").getVariantEscapeDotsInKeys());
+        createTable("CREATE TABLE default_non_variant(k INT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        Assertions.assertFalse(table("default_non_variant").getVariantEscapeDotsInKeys());
+
+        // LIKE re-creates an existing table, so it keeps that table's encoding instead of the default.
+        createLike("CREATE TABLE default_like_false LIKE default_explicit_false");
+        Assertions.assertFalse(table("default_like_false").getVariantEscapeDotsInKeys());
+        createLike("CREATE TABLE default_like_escaped LIKE default_escaped");
+        Assertions.assertTrue(table("default_like_escaped").getVariantEscapeDotsInKeys());
+
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = false;
+        createTable("CREATE TABLE default_off(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        Assertions.assertFalse(table("default_off").getVariantEscapeDotsInKeys());
     }
 
     @Test
@@ -232,7 +258,8 @@ public class VariantEscapeTableTest extends TestWithFeService {
         createTable("CREATE TABLE template_legacy(k INT, v VARIANT<MATCH_NAME '50%':STRING,"
                 + "MATCH_NAME 'a%2Eb':STRING, PROPERTIES('variant_max_subcolumns_count'='3',"
                 + "'variant_enable_nested_group'='false')>) DUPLICATE KEY(k) "
-                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                + "'variant_escape_dots_in_keys'='false')");
         createTable("CREATE TABLE template_escaped(k INT, v VARIANT<MATCH_NAME '50%25':STRING,"
                 + "MATCH_NAME 'a%2Eb':STRING, PROPERTIES('variant_enable_nested_group'='false')>) "
                 + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
@@ -315,12 +342,13 @@ public class VariantEscapeTableTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
                 + "'variant_escape_dots_in_keys'='true')");
         org.apache.doris.common.Config.enable_variant_v2 = false;
-        for (String policy : new String[] {"default", "false"}) {
-            String property = policy.equals("default") ? "" : ",'variant_escape_dots_in_keys'='false'";
-            createTable("CREATE TABLE v1_" + policy + "(k INT, v VARIANT) DUPLICATE KEY(k) "
-                    + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1'" + property + ")");
-            Assertions.assertFalse(table("v1_" + policy).getVariantEscapeDotsInKeys());
-        }
+        // The activation switch selects the creation default, so an omitted property requires V2.
+        assertV2Required(() -> createTable("CREATE TABLE v1_default(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')"));
+        createTable("CREATE TABLE v1_false(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                + "'variant_escape_dots_in_keys'='false')");
+        Assertions.assertFalse(table("v1_false").getVariantEscapeDotsInKeys());
         assertV2Required(() -> createTable("CREATE TABLE v1_true(k INT,v VARIANT) DUPLICATE KEY(k) "
                 + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
                 + "'variant_escape_dots_in_keys'='true')"));
@@ -329,14 +357,14 @@ public class VariantEscapeTableTest extends TestWithFeService {
                 + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM v2_source"));
         assertV2Required(() -> createTable("CREATE TABLE v1_ctas_explicit DISTRIBUTED BY HASH(k) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true') "
-                + "AS SELECT k,v FROM v1_default"));
+                + "AS SELECT k,v FROM v1_false"));
         assertV2Required(() -> createMvByNereids("CREATE MATERIALIZED VIEW v1_async "
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM v2_source"));
         assertV2Required(() -> createMvByNereids("CREATE MATERIALIZED VIEW v1_async_explicit "
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true') "
-                + "AS SELECT k FROM v1_default"));
+                + "AS SELECT k FROM v1_false"));
         assertV2Required(() -> createMv("CREATE MATERIALIZED VIEW v1_sync "
                 + "AS SELECT k AS kk, element_at(v,'obj') AS sub FROM v2_source"));
         assertV2Required(() -> alterTableSync("ALTER TABLE v2_source ADD ROLLUP v1_rollup(k,v)"));
@@ -348,10 +376,11 @@ public class VariantEscapeTableTest extends TestWithFeService {
         Assertions.assertTrue(table("v2_source").getVariantEscapeDotsInKeys());
         createLike("CREATE TABLE v1_like_false LIKE v1_false");
         createTable("CREATE TABLE v1_ctas_false DISTRIBUTED BY HASH(k) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM v1_default");
+                + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='false') "
+                + "AS SELECT k,v FROM v1_false");
         createMvByNereids("CREATE MATERIALIZED VIEW v1_async_false "
                 + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM v1_default");
+                + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM v1_false");
         for (String name : new String[] {"v1_like_false", "v1_ctas_false", "v1_async_false"}) {
             Assertions.assertFalse(table(name).getVariantEscapeDotsInKeys());
         }

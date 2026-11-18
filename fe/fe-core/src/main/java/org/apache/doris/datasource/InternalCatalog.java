@@ -2746,6 +2746,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 properties.putAll(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(properties, baseTables, true));
             }
+            if (!(olapTable instanceof MTMV)
+                    && !properties.containsKey(
+                            PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)
+                    && PropertyAnalyzer.defaultVariantEscapeDotsInKeys(baseSchema)) {
+                // The activation switch selects the storage default for new Variant tables; an
+                // explicit property, including false, always wins.
+                properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
+            }
             olapTable.setVariantEscapeDotsInKeys(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
             PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
                     baseSchema, createTableInfo.getIndexes());

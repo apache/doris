@@ -12,6 +12,18 @@ backup tables before changing local table state or creating replicas, independen
 of the query execution switch. Unescaped tables retain their
 existing V1 and V2 behavior.
 
+The switch also selects the storage default for newly created tables that have
+a VARIANT column: when it is enabled and the DDL omits
+`variant_escape_dots_in_keys`, the table is created escaped and therefore also
+requires `enable_variant_v2`, exactly like an explicit `true`. An explicit
+`false` remains the opt-out, is preserved through CTAS and MV policy
+inheritance, and is not overridden by the switch. Existing tables keep the
+encoding they were created with. `CREATE TABLE LIKE`, `ADMIN COPY TABLET` and
+binlog-sync DDL pin the source encoding, while `SHOW CREATE TABLE` keeps
+omitting `false` for legacy tables: replaying that text on a cluster whose
+activation switch is enabled creates an escaped table, so use the copy paths
+(or add `false` explicitly) when the encoding must be preserved.
+
 This branch does not advertise escaped-path support in backend heartbeats. Backend
 version strings and the block execution version cannot reliably identify this
 feature in development builds or backports. The activation switch is therefore an

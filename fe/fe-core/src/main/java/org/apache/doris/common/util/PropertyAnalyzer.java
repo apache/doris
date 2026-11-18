@@ -2183,6 +2183,16 @@ public class PropertyAnalyzer {
         return escaped;
     }
 
+    /**
+     * The activation switch also selects the storage default for a new Variant table. An explicit
+     * table property always wins; this only applies when the DDL omits it. Non-Variant tables are
+     * not marked because the property describes Variant path encoding.
+     */
+    public static boolean defaultVariantEscapeDotsInKeys(Collection<Column> columns) {
+        return Config.enable_variant_escape_dots_in_keys
+                && columns.stream().anyMatch(column -> column.getType().isVariantType());
+    }
+
     /** CTAS inherits any escaped OLAP source; async MVs require matching Variant storage policies. */
     public static Map<String, String> inheritVariantEscapeDotsInKeys(Map<String, String> properties,
             Collection<TableIf> sourceTables, boolean requireConsistentSources) throws AnalysisException {
@@ -2215,8 +2225,9 @@ public class PropertyAnalyzer {
             escaped = escapedSource;
         }
         requireVariantV2ForEscape(escaped);
-        if (escaped) {
-            result.put(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "true");
+        if (escaped || explicit) {
+            // Preserve an explicit false so a creation default cannot override the opt-out.
+            result.put(PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, Boolean.toString(escaped));
         }
         return result;
     }
