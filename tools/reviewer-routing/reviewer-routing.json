@@ -401,7 +401,7 @@
         "^cloud/src/recycler/",
         "^cloud/test/.*recycler"
       ],
-      "reviewers": ["gavinchou", "liaoxin01", "wyxxxcat", "luwei16", "mymeiyi"]
+      "reviewers": ["gavinchou", "liaoxin01", "wyxxxcat", "luwei16"]
     },
     "cloud.meta": {
       "label": "Cloud Meta Service and Meta Store",
@@ -410,7 +410,7 @@
         "^cloud/src/(?:meta-service|meta-store|rate-limiter)/",
         "^gensrc/proto/cloud\\.proto$"
       ],
-      "reviewers": ["gavinchou", "liaoxin01", "wyxxxcat", "luwei16", "dataroaring", "mymeiyi"]
+      "reviewers": ["gavinchou", "liaoxin01", "wyxxxcat", "luwei16", "dataroaring"]
     },
     "cloud": {
       "label": "Storage-compute separation, Cloud BE/FE and resource management",
@@ -420,7 +420,7 @@
         "^be/src/cloud/",
         "^fe/fe-core/src/main/java/org/apache/doris/cloud/"
       ],
-      "reviewers": ["gavinchou", "liaoxin01", "luwei16", "hello-stephen", "deardeng", "wyxxxcat", "morningman", "morrySnow", "Yukang-Lian", "924060929", "yiguolei", "bobhan1", "CalvinKirs", "mymeiyi", "sollhui", "pingchunzhang", "yujun777"]
+      "reviewers": ["gavinchou", "liaoxin01", "luwei16", "hello-stephen", "deardeng", "wyxxxcat", "morningman", "morrySnow", "Yukang-Lian", "924060929", "yiguolei", "bobhan1", "CalvinKirs", "sollhui", "pingchunzhang", "yujun777"]
     },
     "auth": {
       "label": "Authentication, authorization, Ranger and connection authentication",
