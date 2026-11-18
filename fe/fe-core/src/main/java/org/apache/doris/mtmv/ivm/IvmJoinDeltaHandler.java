@@ -522,18 +522,19 @@ class IvmJoinDeltaHandler {
      */
     private NullSideEventPlan buildNullSideEventPlan(
             NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys) {
-        Plan detailEvent = buildNullSideDetailEvent(deltaContext, equiJoinKeys);
-        LogicalUnion union;
+        ImmutableList.Builder<Plan> events = ImmutableList.builder();
+        events.add(buildNullSideDetailEvent(deltaContext, equiJoinKeys));
         if (hasUniqueNullSideKeys(deltaContext, equiJoinKeys)) {
-            union = helper.buildUnionAll(ImmutableList.of(detailEvent,
-                    buildUniqueKeyRepairEvent(deltaContext, equiJoinKeys)));
+            events.add(buildUniqueKeyRepairEvent(deltaContext, equiJoinKeys));
         } else {
             Plan preNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, false,
                     new TinyIntLiteral((byte) -1));
             Plan postNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, true,
                     new TinyIntLiteral((byte) 1));
-            union = helper.buildUnionAll(ImmutableList.of(detailEvent, preNullEvent, postNullEvent));
+            events.add(preNullEvent);
+            events.add(postNullEvent);
         }
+        LogicalUnion union = helper.buildUnionAll(events.build());
 
         List<Slot> unionOutputs = union.getOutput();
         Map<Slot, Slot> nullSideOutputMapping = new HashMap<>();

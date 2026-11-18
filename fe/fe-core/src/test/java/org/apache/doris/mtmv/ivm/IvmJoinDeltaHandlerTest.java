@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -520,8 +522,14 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     private void assertUniqueNullSideEvents(NormalizedOuterJoinPlan bundle, int eventKeyCount) {
-        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(bundle.topProject,
-                newRefreshContext(bundle.topProject, bundle.rewriteResult));
+        for (DataType sequenceType : ImmutableList.of(BigIntType.INSTANCE, LargeIntType.INSTANCE)) {
+            assertUniqueNullSideEvents(bundle, eventKeyCount, sequenceType);
+        }
+    }
+
+    private void assertUniqueNullSideEvents(NormalizedOuterJoinPlan bundle, int eventKeyCount, DataType sequenceType) {
+        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler(sequenceType)
+                .exposeRewritePlan(bundle.topProject, newRefreshContext(bundle.topProject, bundle.rewriteResult));
         LogicalUnion union = findOnlyUnion(result.plan);
         Assertions.assertEquals(2, union.children().size());
         assertUnionChildrenAlign(union);
@@ -553,8 +561,25 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         NamedExpression factor = repair.getProjects().get(repair.getProjects().size() - 2);
         Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, factor.getName());
         Assertions.assertEquals(TinyIntType.INSTANCE, factor.getDataType());
-        Assertions.assertEquals(Column.SEQUENCE_COL,
-                repair.getProjects().get(repair.getProjects().size() - 1).getName());
+        Alias sequence = (Alias) repair.getProjects().get(repair.getProjects().size() - 1);
+        Assertions.assertEquals(Column.SEQUENCE_COL, sequence.getName());
+        Assertions.assertEquals(sequenceType, sequence.getDataType());
+        Slot netCount = aggregate.getOutput().get(eventKeyCount);
+        // Unlike the generic repair branches, this factor is computed from a slot. The sign of -netCount
+        // must still order NULL-row reinsertion after retraction for both sequence encodings.
+        BigInteger deleteSequence = uniqueRepairSequence(sequence.child(), netCount, 1);
+        BigInteger insertSequence = uniqueRepairSequence(sequence.child(), netCount, -1);
+        Assertions.assertFalse(deleteSequence.testBit(0));
+        Assertions.assertTrue(insertSequence.testBit(0));
+        Assertions.assertTrue(insertSequence.compareTo(deleteSequence) > 0);
+        Assertions.assertEquals(deleteSequence.shiftRight(1), insertSequence.shiftRight(1));
+    }
+
+    private BigInteger uniqueRepairSequence(Expression sequence, Slot netCount, long value) {
+        Expression bound = ExpressionUtils.replace(sequence, ImmutableMap.of(netCount, new BigIntLiteral(value)));
+        Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(bound);
+        Assertions.assertInstanceOf(Literal.class, folded);
+        return new BigInteger(((Literal) folded).getStringValue());
     }
 
     @Test
