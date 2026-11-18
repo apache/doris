@@ -1,8 +1,8 @@
-# Foyer data-cache integration from lance-format/lance-c#73.
-# Base: 4fafcd64525b274b113208390bbcca86bbbc093b (lance-c main, including #96 and #97).
-# PR base: d214faaca89ad7654fb1d85d46cdbce6f3770c95; current PR head: 8a08f171b66a3e01e7ba634bcfc6168a955c7289.
-# Current PR head includes revert c3857f085d3aa522c79ebc92b28b302e2eb8e865 of cache-origin isolation.
-# Rebased from https://github.com/lance-format/lance-c/pull/73.
+# Foyer data-cache integration from lance-format/lance-c#73, with Doris cache hardening.
+# Base: a51ab47a9c814a746cb1714c99fad93dd3a188b8 (the revision in thirdparty/vars.sh).
+# Retains the existing Foyer integration; bounds descriptors, namespaces storage identities,
+# and exposes shared cache clearing without changing the pinned upstream dependencies.
+# Original integration: https://github.com/lance-format/lance-c/pull/73.
 diff --git a/Cargo.lock b/Cargo.lock
 index 78812f1330e146db295a14276f90f9e28654f399..466216e0816d2f659d8421f4cd67fc3645f981d0 100644
 --- a/Cargo.lock
@@ -6528,10 +6528,10 @@ index 18654b862440a90aa6bf0dd846e8f1ad6036fd7c..1e06540b08bbce8d2c72ef2be7399b56
  prost = "0.14"
  snafu = "0.9"
 diff --git a/README.md b/README.md
-index f13ad015826a8ac5468cfea247707d987cc0864d..6754a88eac90f74bf70a92c7aca8ca9bccc21e6a 100644
+index 8decd7e3b533701426af181890d692d7f940cd12..08b2e3dd1483554897e75970ee2841ada354d99e 100644
 --- a/README.md
 +++ b/README.md
-@@ -409,6 +409,27 @@ and formats follow the underlying SDK's support and error behavior. It does not
+@@ -449,6 +449,42 @@ and formats follow the underlying SDK's support and error behavior. It does not
  prewarm ordinary data columns or eliminate result-row reads, and it adds no
  persistent cache, automatic refresh, or background task management.
 
@@ -6541,6 +6541,21 @@ index f13ad015826a8ac5468cfea247707d987cc0864d..6754a88eac90f74bf70a92c7aca8ca9b
 +children are cached. Conditional and versioned reads, plus manifests, deletion
 +files, and index files, keep using Lance's normal paths. Use one shared session
 +for datasets that share the cache directory.
++
++The disk tier uses one sparse `lance-data-v2.cache` file, independent of the
++number of range blocks. Upgrading from the older per-block-file layout starts
++a cold cache and removes the old device's reserved block files after the new
++device initializes. As before, one session/process must own the cache directory. Data, metadata and index cache keys
++include a hash of the explicit storage options and provider environment
++settings, so the same bucket/path on different endpoints stays isolated.
++Credential changes may also cause cold misses. Shared memory capacities apply
++to all storage identities together.
++
++`lance_session_clear_caches(session)` (C) or `session.clear_caches()` (C++)
++evicts shared index, metadata and Foyer entries while leaving open datasets
++usable. Active operations can retain references until they finish, and
++concurrent reads can repopulate caches. Clearing does not cancel scans or
++reset cumulative hit/miss counters.
 +
 +```cpp
 +lance::DataCacheOptions data_cache{
@@ -6560,7 +6575,7 @@ index f13ad015826a8ac5468cfea247707d987cc0864d..6754a88eac90f74bf70a92c7aca8ca9b
 
  `lance_dataset_open` takes a `version` argument — `0` means the latest, any
 diff --git a/include/lance/lance.h b/include/lance/lance.h
-index 6467a46a0dae57931fe248d80a37218b203c3455..2b3b755caa1aa687941539430ce62310f3608016 100644
+index 969e7c3f523a7acedd7dc09cbecc7b023f47d503..fe09ea31280303171ea70092788f322357208395 100644
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
 @@ -214,6 +214,36 @@ typedef struct LanceSessionCacheStats {
@@ -6626,7 +6641,24 @@ index 6467a46a0dae57931fe248d80a37218b203c3455..2b3b755caa1aa687941539430ce62310
  /**
   * Close a session handle. Safe to call with NULL. Datasets previously opened
   * with the session remain valid and retain the shared cache state.
-@@ -281,6 +330,20 @@ LanceDataset* lance_dataset_open_with_session(
+@@ -241,6 +290,16 @@ int32_t lance_session_get_cache_stats(
+     LanceSessionCacheStats* out_stats
+ );
+
++/**
++ * Clear entries in the shared index, metadata and optional Foyer caches.
++ *
++ * Open datasets remain valid. Entries still held by an active operation remain
++ * alive until that operation releases them, and concurrent reads may repopulate
++ * the caches. This does not cancel scans or reset cumulative hit/miss counters.
++ * @return 0 on success, -1 on error (including a NULL session).
++ */
++int32_t lance_session_clear_caches(const LanceSession* session);
++
+ /* ─── Dataset lifecycle ─── */
+
+ /**
+@@ -281,6 +340,20 @@ LanceDataset* lance_dataset_open_with_session(
      const LanceSession* session
  );
 
@@ -6648,7 +6680,7 @@ index 6467a46a0dae57931fe248d80a37218b203c3455..2b3b755caa1aa687941539430ce62310
  void lance_dataset_close(LanceDataset* dataset);
 
 diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
-index 092929c2d1d2aab2424b095894a612921ea686e6..2f30c5fe03403857c61a7cd2671aa2093e600135 100644
+index a6b94ab1f3e4c8904d2046d8e71dcf732d10c191..2950049dcbe87463be9e3aeb5cee78806c26b94b 100644
 --- a/include/lance/lance.hpp
 +++ b/include/lance/lance.hpp
 @@ -176,6 +176,13 @@ struct SqlColumn {
@@ -6665,7 +6697,7 @@ index 092929c2d1d2aab2424b095894a612921ea686e6..2f30c5fe03403857c61a7cd2671aa209
  class Session {
      Handle<LanceSession, lance_session_close> handle_;
 
-@@ -185,6 +192,21 @@ public:
+@@ -185,6 +192,25 @@ public:
          if (!handle_) check_error();
      }
 
@@ -6684,10 +6716,14 @@ index 092929c2d1d2aab2424b095894a612921ea686e6..2f30c5fe03403857c61a7cd2671aa209
 +        if (!handle_) check_error();
 +    }
 +
++    void clear_caches() const {
++        if (lance_session_clear_caches(handle_.get()) != 0) check_error();
++    }
++
      LanceSessionCacheStats cache_stats() const {
          LanceSessionCacheStats stats{};
          if (lance_session_get_cache_stats(handle_.get(), &stats) != 0)
-@@ -350,6 +372,13 @@ public:
+@@ -350,6 +376,13 @@ public:
          return Dataset(ds);
      }
 
@@ -6703,10 +6739,10 @@ index 092929c2d1d2aab2424b095894a612921ea686e6..2f30c5fe03403857c61a7cd2671aa209
      ///
 diff --git a/src/data_cache.rs b/src/data_cache.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..430b4c891f91d31f202e2318e18db64c7a12ae9d
+index 0000000000000000000000000000000000000000..8461cacf3eb7ab19e3f3dc8e2585a6eeef570292
 --- /dev/null
 +++ b/src/data_cache.rs
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,74 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -6738,7 +6774,13 @@ index 0000000000000000000000000000000000000000..430b4c891f91d31f202e2318e18db64c
 +}
 +
 +pub(crate) trait DataCacheFactory: Debug + Send + Sync {
-+    fn attach(&self, dataset: Dataset) -> (Dataset, Arc<dyn DatasetDataCache>);
++    fn attach(
++        &self,
++        dataset: Dataset,
++        storage_identity: String,
++    ) -> (Dataset, Arc<dyn DatasetDataCache>);
++
++    fn clear(&self) -> Result<()>;
 +}
 +
 +/// Copy this dataset handle's cumulative data-cache statistics into
@@ -6776,10 +6818,10 @@ index 0000000000000000000000000000000000000000..430b4c891f91d31f202e2318e18db64c
 +    Ok(0)
 +}
 diff --git a/src/dataset.rs b/src/dataset.rs
-index cc1f87ce3f7dfe8dd33aeb6ab7f54d02e31a220a..76fd39ef9e456d1fab6978b6b2cb3c27fab1c2f3 100644
+index cc1f87ce3f7dfe8dd33aeb6ab7f54d02e31a220a..34ce3e4f4d43037b73b1126308f05402c3dbaeeb 100644
 --- a/src/dataset.rs
 +++ b/src/dataset.rs
-@@ -14,6 +14,7 @@ use lance::Dataset;
+@@ -14,15 +14,18 @@ use lance::Dataset;
  use lance::dataset::builder::DatasetBuilder;
  use lance_core::Result;
 
@@ -6787,7 +6829,10 @@ index cc1f87ce3f7dfe8dd33aeb6ab7f54d02e31a220a..76fd39ef9e456d1fab6978b6b2cb3c27
  use crate::error::{ffi_try, swallow_unwind};
  use crate::helpers;
  use crate::runtime::block_on;
-@@ -23,6 +24,7 @@ use crate::stream_guard::guarded_ffi_stream_from_reader;
+ use crate::session::LanceSession;
++use crate::session_cache::storage_identity;
+ use crate::stream_guard::guarded_ffi_stream_from_reader;
+
  /// Opaque handle representing an opened Lance dataset.
  pub struct LanceDataset {
      pub(crate) inner: RwLock<Arc<Dataset>>,
@@ -6795,13 +6840,28 @@ index cc1f87ce3f7dfe8dd33aeb6ab7f54d02e31a220a..76fd39ef9e456d1fab6978b6b2cb3c27
  }
 
  impl LanceDataset {
-@@ -182,8 +184,16 @@ unsafe fn open_dataset_inner(
+@@ -170,6 +173,9 @@ unsafe fn open_dataset_inner(
+
+     let opts = unsafe { helpers::parse_storage_options(storage_options)? };
+
++    let environment = std::env::vars_os()
++        .filter_map(|(key, value)| Some((key.into_string().ok()?, value.into_string().ok()?)));
++    let identity = storage_identity(&opts, environment);
+     let mut builder = DatasetBuilder::from_uri(uri_str);
+     if !opts.is_empty() {
+         builder = builder.with_storage_options(opts);
+@@ -178,12 +184,20 @@ unsafe fn open_dataset_inner(
+         builder = builder.with_version(version);
+     }
+     if let Some(session) = session {
+-        builder = builder.with_session(session.inner.clone());
++        builder = builder.with_session(session.for_storage(&identity));
      }
 
      let dataset = block_on(builder.load())?;
 +    let (dataset, data_cache) =
 +        if let Some(factory) = session.and_then(|session| session.data_cache_factory.clone()) {
-+            let (dataset, data_cache) = factory.attach(dataset);
++            let (dataset, data_cache) = factory.attach(dataset, identity);
 +            (dataset, Some(data_cache))
 +        } else {
 +            (dataset, None)
@@ -6812,7 +6872,7 @@ index cc1f87ce3f7dfe8dd33aeb6ab7f54d02e31a220a..76fd39ef9e456d1fab6978b6b2cb3c27
      };
      Ok(Box::into_raw(Box::new(handle)))
  }
-@@ -519,6 +529,7 @@ mod tests {
+@@ -519,6 +533,7 @@ mod tests {
          .unwrap();
          let handle = LanceDataset {
              inner: RwLock::new(Arc::new(dataset)),
@@ -6822,10 +6882,10 @@ index cc1f87ce3f7dfe8dd33aeb6ab7f54d02e31a220a..76fd39ef9e456d1fab6978b6b2cb3c27
      }
 diff --git a/src/foyer_data_cache.rs b/src/foyer_data_cache.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559014c9d62
+index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b1314b650d4
 --- /dev/null
 +++ b/src/foyer_data_cache.rs
-@@ -0,0 +1,1397 @@
+@@ -0,0 +1,1657 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -6842,7 +6902,7 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +use async_trait::async_trait;
 +use bytes::{Bytes, BytesMut};
 +use foyer::{
-+    BlockEngineConfig, Cache, CacheBuilder, DeviceBuilder, FsDeviceBuilder, HybridCache,
++    BlockEngineConfig, Cache, CacheBuilder, DeviceBuilder, FileDeviceBuilder, HybridCache,
 +    HybridCacheBuilder, HybridCachePolicy, PsyncIoEngineConfig,
 +};
 +use futures::stream::BoxStream;
@@ -6861,7 +6921,7 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +use crate::runtime::block_on;
 +use crate::session::{LanceSession, session_new_with_data_cache_factory};
 +
-+const CACHE_KEY_VERSION: &str = "lance-data-v1";
++const CACHE_KEY_VERSION: &str = "lance-data-v2";
 +const FOYER_PAGE_SIZE: usize = 4096;
 +
 +/// Configuration for the optional Foyer data-file cache.
@@ -7025,7 +7085,13 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +            .ok_or_else(|| foyer::Error::new(foyer::ErrorKind::Config, "read block size overflow"))?
 +            .max(FOYER_PAGE_SIZE);
 +        let memory_shards = (memory_capacity / read_block_size).clamp(1, 8);
-+        let device = FsDeviceBuilder::new(directory)
++        // FsDevice retains one descriptor per engine block: the default 100 GiB
++        // cache with 2 MiB blocks opens 51,200 files. FileDevice shares one file
++        // across all blocks without increasing the read or engine block size.
++        std::fs::create_dir_all(directory).map_err(foyer::Error::io_error)?;
++        // A distinct file and key version start a cold cache and cannot
++        // interpret legacy entries whose keys omitted the storage identity.
++        let device = FileDeviceBuilder::new(directory.join("lance-data-v2.cache"))
 +            .with_capacity(disk_capacity)
 +            .build()?;
 +        let engine = BlockEngineConfig::new(device).with_block_size(engine_block_size);
@@ -7070,6 +7136,24 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +            .with_engine_config(engine)
 +            .build()
 +            .await?;
++        // Only remove the v1 device's reserved block files after the new device
++        // has initialized. Leaving a full v1 cache behind would let an upgrade
++        // use twice the configured disk capacity. As with the old FsDevice,
++        // a cache directory must have one owning session/process.
++        for entry in std::fs::read_dir(directory).map_err(foyer::Error::io_error)? {
++            let entry = entry.map_err(foyer::Error::io_error)?;
++            let name = entry.file_name();
++            let name = name.to_string_lossy();
++            if let Some(number) = name.strip_prefix("foyer-storage-direct-fs-") {
++                // FsDevice formats u32 partition IDs with at least eight digits.
++                // Keep every name outside that exact reserved representation.
++                if let Ok(partition) = number.parse::<u32>()
++                    && number == format!("{partition:08}")
++                {
++                    std::fs::remove_file(entry.path()).map_err(foyer::Error::io_error)?;
++                }
++            }
++        }
 +        Ok(Self {
 +            cache,
 +            metadata,
@@ -7102,9 +7186,10 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +        )
 +    }
 +
-+    fn create_scope(&self) -> Arc<DatasetFoyerDataCache> {
++    fn create_scope(&self, storage_identity: String) -> Arc<DatasetFoyerDataCache> {
 +        Arc::new(DatasetFoyerDataCache {
 +            cache: self.clone(),
++            storage_identity,
 +            statistics: Arc::new(FoyerDataCacheStatistics::default()),
 +        })
 +    }
@@ -7179,18 +7264,44 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +    }
 +}
 +
-+impl DataCacheFactory for FoyerDataCache {
-+    fn attach(&self, dataset: lance::Dataset) -> (lance::Dataset, Arc<dyn DatasetDataCache>) {
-+        let scope = self.create_scope();
++impl FoyerDataCache {
++    fn attach_with_identity(
++        &self,
++        dataset: lance::Dataset,
++        storage_identity: String,
++    ) -> (lance::Dataset, Arc<dyn DatasetDataCache>) {
++        let scope = self.create_scope(storage_identity);
 +        let wrapper: Arc<dyn WrappingObjectStore> = scope.clone();
 +        let dataset = dataset.with_object_store_wrappers([wrapper]);
 +        (dataset, scope)
 +    }
 +}
 +
++impl DataCacheFactory for FoyerDataCache {
++    fn attach(
++        &self,
++        dataset: lance::Dataset,
++        storage_identity: String,
++    ) -> (lance::Dataset, Arc<dyn DatasetDataCache>) {
++        self.attach_with_identity(dataset, storage_identity)
++    }
++
++    fn clear(&self) -> lance_core::Result<()> {
++        // Foyer 0.22.6's clear() drains its index without decrementing the
++        // weighted usage, so later insertions retain the old capacity debt.
++        // Eviction releases that accounting as well as the entry references;
++        // destroy then drains pending writes and invalidates the disk index.
++        self.metadata.evict_all();
++        self.cache.memory().evict_all();
++        block_on(self.cache.storage().destroy())
++            .map_err(|error| lance_core::Error::io(format!("clear Foyer data cache: {error}")))
++    }
++}
++
 +#[derive(Debug)]
 +struct DatasetFoyerDataCache {
 +    cache: FoyerDataCache,
++    storage_identity: String,
 +    statistics: Arc<FoyerDataCacheStatistics>,
 +}
 +
@@ -7200,7 +7311,8 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +    }
 +
 +    fn attach_fresh(&self, dataset: lance::Dataset) -> (lance::Dataset, Arc<dyn DatasetDataCache>) {
-+        self.cache.attach(dataset)
++        self.cache
++            .attach_with_identity(dataset, self.storage_identity.clone())
 +    }
 +}
 +
@@ -7212,7 +7324,7 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +        let original = self.cache.unwrap_store(original);
 +        let reader = DataCacheReader {
 +            cache: self.cache.clone(),
-+            store_prefix: store_prefix.to_owned(),
++            store_prefix: format!("{}\0{store_prefix}", self.storage_identity),
 +            original: original.clone(),
 +            statistics: self.statistics.clone(),
 +        };
@@ -7680,13 +7792,221 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +    use object_store::memory::InMemory;
 +
 +    use super::*;
++    use crate::session_cache::storage_identity;
 +
 +    fn wrap_for_test(
 +        cache: &FoyerDataCache,
 +        original: Arc<dyn ObjectStore>,
 +    ) -> (Arc<dyn ObjectStore>, Arc<DatasetFoyerDataCache>) {
-+        let scope = cache.create_scope();
++        let scope = cache.create_scope("test".to_owned());
 +        (scope.wrap("memory://test", original), scope)
++    }
++
++    #[test]
++    fn storage_identity_is_order_independent_and_separates_origins() {
++        let first = HashMap::from([
++            ("endpoint".to_owned(), "https://endpoint-a".to_owned()),
++            ("region".to_owned(), "region-a".to_owned()),
++            ("access_key_id".to_owned(), "test-secret".to_owned()),
++        ]);
++        let reversed = first.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
++        let identity = storage_identity(&first, []);
++        assert_eq!(identity, storage_identity(&reversed, []));
++        assert_eq!(identity.len(), 32);
++        assert!(!identity.contains("test-secret"));
++        for key in ["endpoint", "region", "access_key_id"] {
++            let mut different = first.clone();
++            different.insert(key.to_owned(), "different".to_owned());
++            assert_ne!(identity, storage_identity(&different, []), "{key}");
++        }
++        let env = |value: &str| [("AWS_ENDPOINT_URL".to_owned(), value.to_owned())];
++        assert_ne!(
++            storage_identity(&first, env("a")),
++            storage_identity(&first, env("b"))
++        );
++        assert_eq!(
++            identity,
++            storage_identity(&first, [("UNRELATED".to_owned(), "changed".to_owned())])
++        );
++        // Delimiters and differing field boundaries must not alias.
++        assert_ne!(
++            storage_identity(&HashMap::from([("ab".to_owned(), "c".to_owned())]), []),
++            storage_identity(&HashMap::from([("a".to_owned(), "bc".to_owned())]), [])
++        );
++    }
++
++    #[tokio::test]
++    async fn same_bucket_and_path_are_isolated_by_storage_options() {
++        let directory = tempfile::tempdir().unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 4096)
++            .await
++            .unwrap();
++        let path = Path::from("table.lance/data/identical-name.lance");
++        let mut scopes = Vec::new();
++        for (endpoint, data) in [
++            ("endpoint-a", "first origin"),
++            ("endpoint-b", "second origin"),
++        ] {
++            let origin = Arc::new(InMemory::new());
++            origin.put(&path, Bytes::from(data).into()).await.unwrap();
++            let options = HashMap::from([("endpoint".to_owned(), endpoint.to_owned())]);
++            let scope = cache.create_scope(storage_identity(&options, []));
++            let store = scope.wrap("s3$identical-bucket", origin.clone());
++            assert_eq!(store.get(&path).await.unwrap().bytes().await.unwrap(), data);
++            assert!(scope.snapshot().bytes_read_from_remote > 0);
++            assert_eq!(scope.snapshot().bytes_read_from_cache, 0);
++            scopes.push((scope, origin, data, options));
++        }
++        // A new dataset scope with the same identity must still hit its own
++        // cached bytes, including after its origin data has disappeared.
++        for (_, origin, data, options) in &scopes {
++            origin.delete(&path).await.unwrap();
++            let scope = cache.create_scope(storage_identity(options, []));
++            let store = scope.wrap("s3$identical-bucket", origin.clone());
++            assert_eq!(
++                store.get(&path).await.unwrap().bytes().await.unwrap(),
++                *data
++            );
++            assert!(scope.snapshot().bytes_read_from_cache > 0);
++            assert_eq!(scope.snapshot().bytes_read_from_remote, 0);
++        }
++    }
++
++    #[test]
++    #[cfg(unix)]
++    fn default_capacity_uses_bounded_file_descriptors() {
++        const CHILD: &str = "LANCE_CACHE_FD_TEST_CHILD";
++        if std::env::var_os(CHILD).is_none() {
++            let output = std::process::Command::new(std::env::current_exe().unwrap())
++                .args([
++                    "--exact",
++                    "foyer_data_cache::tests::default_capacity_uses_bounded_file_descriptors",
++                    "--nocapture",
++                ])
++                .env(CHILD, "1")
++                .output()
++                .unwrap();
++            assert!(
++                output.status.success(),
++                "{}\n{}",
++                String::from_utf8_lossy(&output.stdout),
++                String::from_utf8_lossy(&output.stderr)
++            );
++            return;
++        }
++        let directory = tempfile::tempdir().unwrap();
++        #[cfg(target_os = "linux")]
++        let descriptors = "/proc/self/fd";
++        #[cfg(not(target_os = "linux"))]
++        let descriptors = "/dev/fd";
++        let count = || std::fs::read_dir(descriptors).unwrap().count();
++        // Initialize Tokio before counting: its worker/event descriptors are
++        // unrelated to cache capacity. The child excludes parallel test noise.
++        crate::runtime::block_on(async {});
++        let before = count();
++        let cache = crate::runtime::block_on(FoyerDataCache::try_new(
++            directory.path(),
++            1024 * 1024,
++            100 * 1024 * 1024 * 1024,
++            1024 * 1024,
++        ))
++        .unwrap();
++        let added = count().saturating_sub(before);
++        println!("default 100 GiB cache added {added} descriptors");
++        assert!(added < 128, "cache added {added} descriptors");
++        assert_eq!(
++            std::fs::metadata(directory.path().join("lance-data-v2.cache"))
++                .unwrap()
++                .len(),
++            100 * 1024 * 1024 * 1024
++        );
++        drop(cache);
++    }
++
++    #[tokio::test]
++    async fn removes_only_legacy_device_blocks_after_successful_initialization() {
++        let directory = tempfile::tempdir().unwrap();
++        for name in [
++            "foyer-storage-direct-fs-00000000",
++            "foyer-storage-direct-fs-00000001",
++        ] {
++            std::fs::write(directory.path().join(name), b"legacy block").unwrap();
++        }
++        // A failed new-device setup must leave the old cache in place.
++        assert!(
++            FoyerDataCache::try_new(directory.path(), 64 * 1024, 1024 * 1024, usize::MAX)
++                .await
++                .is_err()
++        );
++        assert!(
++            directory
++                .path()
++                .join("foyer-storage-direct-fs-00000000")
++                .is_file()
++        );
++        let unrelated = directory.path().join("foyer-storage-direct-fs-not-a-block");
++        std::fs::write(&unrelated, b"retain").unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 64 * 1024, 1024 * 1024, 4096)
++            .await
++            .unwrap();
++        assert!(
++            !directory
++                .path()
++                .join("foyer-storage-direct-fs-00000000")
++                .exists()
++        );
++        assert!(
++            !directory
++                .path()
++                .join("foyer-storage-direct-fs-00000001")
++                .exists()
++        );
++        assert_eq!(std::fs::read(&unrelated).unwrap(), b"retain");
++        assert!(directory.path().join("lance-data-v2.cache").is_file());
++        drop(cache);
++    }
++
++    #[tokio::test]
++    async fn clear_removes_data_and_object_metadata_without_invalidating_scopes() {
++        let directory = tempfile::tempdir().unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 4096)
++            .await
++            .unwrap();
++        let origin = Arc::new(InMemory::new());
++        let path = Path::from("table.lance/data/part.lance");
++        origin
++            .put(&path, Bytes::from_static(b"original").into())
++            .await
++            .unwrap();
++        let (store, scope) = wrap_for_test(&cache, origin.clone());
++        assert_eq!(
++            store.get(&path).await.unwrap().bytes().await.unwrap(),
++            "original"
++        );
++        assert!(cache.cache.memory().usage() > 0);
++        assert!(cache.metadata.usage() > 0);
++        let to_clear = cache.clone();
++        tokio::task::spawn_blocking(move || to_clear.clear())
++            .await
++            .unwrap()
++            .unwrap();
++        assert_eq!(cache.cache.memory().usage(), 0);
++        assert_eq!(cache.metadata.usage(), 0);
++        // Different length also proves that clear removed cached HEAD metadata.
++        origin
++            .put(&path, Bytes::from_static(b"replacement content").into())
++            .await
++            .unwrap();
++        let before = scope.snapshot();
++        assert_eq!(
++            store.get(&path).await.unwrap().bytes().await.unwrap(),
++            "replacement content"
++        );
++        assert!(scope.snapshot().bytes_read_from_remote > before.bytes_read_from_remote);
++        assert_eq!(
++            scope.snapshot().bytes_read_from_cache,
++            before.bytes_read_from_cache
++        );
 +    }
 +
 +    #[tokio::test]
@@ -8109,13 +8429,13 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +        let data = Bytes::from((0..100_000).map(|value| value as u8).collect::<Vec<_>>());
 +        original.put(&data_path, data.clone().into()).await.unwrap();
 +
-+        let source_scope = cache.create_scope();
++        let source_scope = cache.create_scope("test".to_owned());
 +        let source_store = source_scope.wrap("memory://test", original.clone());
 +
 +        // A restored Dataset is derived from an already-wrapped source
 +        // Dataset. The fresh scope must unwrap to the registered origin rather
 +        // than nesting over the source scope.
-+        let restored_scope = cache.create_scope();
++        let restored_scope = cache.create_scope("test".to_owned());
 +        let restored_store = restored_scope.wrap("memory://test", source_store.clone());
 +        let requested_range = 10..90_000;
 +        assert_eq!(
@@ -8150,8 +8470,8 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
 +            .await
 +            .unwrap();
-+        let first: Arc<dyn WrappingObjectStore> = cache.create_scope();
-+        let second: Arc<dyn WrappingObjectStore> = cache.create_scope();
++        let first: Arc<dyn WrappingObjectStore> = cache.create_scope("test".to_owned());
++        let second: Arc<dyn WrappingObjectStore> = cache.create_scope("test".to_owned());
 +        let chained = ChainedWrappingObjectStore::new(vec![first, second]);
 +        let original: Arc<dyn ObjectStore> = Arc::new(InMemory::new());
 +        let (sender, receiver) = mpsc::channel();
@@ -8224,7 +8544,7 @@ index 0000000000000000000000000000000000000000..f0275014f6fd432edcccf61e3c89d559
 +    }
 +}
 diff --git a/src/lib.rs b/src/lib.rs
-index 34817600548d8d68c0081597d2f0ea9a41efc8d8..4a96bb58652b467d3ff278596b4f4fd95eea97fb 100644
+index f03cc4083f91fd3381086c68f264f20c2d645114..4d74ef6670f27f6fd54ed56bb68794aaca9f55b4 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
 @@ -26,11 +26,13 @@ mod async_dispatcher;
@@ -8241,7 +8561,15 @@ index 34817600548d8d68c0081597d2f0ea9a41efc8d8..4a96bb58652b467d3ff278596b4f4fd9
  mod fragment_writer;
  mod fts_query;
  mod helpers;
-@@ -55,6 +57,7 @@ pub use alter_columns::*;
+@@ -45,6 +47,7 @@ mod scalar_index_selection;
+ mod scalar_segment;
+ mod scanner;
+ mod session;
++mod session_cache;
+ pub mod stream_guard;
+ mod update;
+ mod versions;
+@@ -56,6 +59,7 @@ pub use alter_columns::*;
  pub use batch::*;
  pub use blob::*;
  pub use compact::*;
@@ -8249,7 +8577,7 @@ index 34817600548d8d68c0081597d2f0ea9a41efc8d8..4a96bb58652b467d3ff278596b4f4fd9
  pub use data_statistics::*;
  pub use dataset::*;
  pub use delete::*;
-@@ -62,6 +65,7 @@ pub use drop_columns::*;
+@@ -63,6 +67,7 @@ pub use drop_columns::*;
  pub use error::{
      LanceErrorCode, lance_free_string, lance_last_error_code, lance_last_error_message,
  };
@@ -8279,11 +8607,16 @@ index 7804b55818c3b0ed2f14de5cc9f632098e0eb25e..fa2d26da5670c78224a3e33f98f747b2
      Ok(Box::into_raw(Box::new(handle)))
  }
 diff --git a/src/session.rs b/src/session.rs
-index 60a16234557eaeb93e8eaad971a9eba73a562a83..9ed8cfe4b5207afc78c65163e8cc4c7dc1faab09 100644
+index 60a16234557eaeb93e8eaad971a9eba73a562a83..3fd5b1739cd0ae2581cda1f46a240dd8af8e8af2 100644
 --- a/src/session.rs
 +++ b/src/session.rs
-@@ -8,12 +8,14 @@ use std::sync::Arc;
- use lance::session::Session;
+@@ -5,15 +5,20 @@
+
+ use std::sync::Arc;
+
+-use lance::session::Session;
++use crate::session_cache::SharedSessionCache;
++use lance::session::{CacheSpec, Session};
  use lance_core::Result;
 
 +use crate::data_cache::DataCacheFactory;
@@ -8295,10 +8628,12 @@ index 60a16234557eaeb93e8eaad971a9eba73a562a83..9ed8cfe4b5207afc78c65163e8cc4c7d
  pub struct LanceSession {
      pub(crate) inner: Arc<Session>,
 +    pub(crate) data_cache_factory: Option<Arc<dyn DataCacheFactory>>,
++    index_cache_backend: Arc<SharedSessionCache>,
++    metadata_cache_backend: Arc<SharedSessionCache>,
  }
 
  /// Snapshot of a session's metadata and index cache statistics.
-@@ -47,6 +49,14 @@ pub extern "C" fn lance_session_new(
+@@ -47,17 +52,30 @@ pub extern "C" fn lance_session_new(
  fn session_new_inner(
      index_cache_size_bytes: u64,
      metadata_cache_size_bytes: u64,
@@ -8313,14 +8648,301 @@ index 60a16234557eaeb93e8eaad971a9eba73a562a83..9ed8cfe4b5207afc78c65163e8cc4c7d
  ) -> Result<*mut LanceSession> {
      let index_cache_size_bytes = u64_to_usize(index_cache_size_bytes, "index_cache_size_bytes")?;
      let metadata_cache_size_bytes =
-@@ -58,6 +68,7 @@ fn session_new_inner(
+         u64_to_usize(metadata_cache_size_bytes, "metadata_cache_size_bytes")?;
+-    let session = Session::new(
+-        index_cache_size_bytes,
+-        metadata_cache_size_bytes,
++    let index_cache_backend = SharedSessionCache::new(index_cache_size_bytes);
++    let metadata_cache_backend = SharedSessionCache::new(metadata_cache_size_bytes);
++    let session = Session::with_cache_backends(
++        CacheSpec::Backend(index_cache_backend.namespaced("")),
++        CacheSpec::Backend(metadata_cache_backend.namespaced("")),
+         Default::default(),
      );
      Ok(Box::into_raw(Box::new(LanceSession {
          inner: Arc::new(session),
 +        data_cache_factory,
++        index_cache_backend,
++        metadata_cache_backend,
      })))
  }
 
+@@ -97,8 +115,8 @@ unsafe fn session_get_cache_stats_inner(
+     }
+     let session = unsafe { &*session };
+     let (index, metadata) = block_on(async {
+-        let index = session.inner.index_cache_stats().await;
+-        let metadata = session.inner.metadata_cache_stats().await;
++        let index = session.index_cache_backend.stats().await;
++        let metadata = session.metadata_cache_backend.stats().await;
+         (index, metadata)
+     });
+     unsafe {
+@@ -126,3 +144,41 @@ fn u64_to_usize(value: u64, field: &'static str) -> Result<usize> {
+         )
+     })
+ }
++
++/// Clear shared cache entries without replacing the session or invalidating
++/// already-open datasets. Concurrent reads can populate new entries afterward.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_session_clear_caches(session: *const LanceSession) -> i32 {
++    ffi_try!(unsafe { session_clear_caches_inner(session) }, neg)
++}
++
++unsafe fn session_clear_caches_inner(session: *const LanceSession) -> Result<i32> {
++    // A null handle is a caller error, just as it is for the statistics API.
++    if session.is_null() {
++        return Err(lance_core::Error::invalid_input_source(
++            "session must not be NULL".into(),
++        ));
++    }
++    let session = unsafe { &*session };
++    block_on(async {
++        session.index_cache_backend.clear().await;
++        session.metadata_cache_backend.clear().await;
++    });
++    if let Some(factory) = &session.data_cache_factory {
++        factory.clear()?;
++    }
++    Ok(0)
++}
++
++impl LanceSession {
++    pub(crate) fn for_storage(&self, identity: &str) -> Arc<Session> {
++        // Lance scopes these caches by URI alone. The same s3://bucket/table
++        // on two endpoints must also isolate manifests, deletions and indices,
++        // before a data-cache wrapper is attached after dataset loading.
++        Arc::new(Session::with_cache_backends(
++            CacheSpec::Backend(self.index_cache_backend.namespaced(identity)),
++            CacheSpec::Backend(self.metadata_cache_backend.namespaced(identity)),
++            self.inner.store_registry(),
++        ))
++    }
++}
+diff --git a/src/session_cache.rs b/src/session_cache.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..b7cb1c7e3b0a784732147fa68a67e607f5f1e52e
+--- /dev/null
++++ b/src/session_cache.rs
+@@ -0,0 +1,217 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Storage namespaces over shared byte-bounded session cache backends.
++
++use std::collections::{BTreeMap, HashMap};
++use std::pin::Pin;
++use std::sync::{
++    Arc,
++    atomic::{AtomicU64, Ordering},
++};
++
++use async_trait::async_trait;
++use futures::Future;
++use lance_core::Result;
++use lance_core::cache::{
++    CacheBackend, CacheCodec, CacheEntry, CacheKeySchema, CacheNamespace, CacheStats,
++    InternalCacheKey, KeyBuilder, QuickCacheBackend,
++};
++use lance_core::deepsize::Context;
++
++// Include every explicit storage option, plus provider environment options.
++// Upstream S3 prefixes and dataset URIs omit the endpoint. Reuse Lance's
++// canonical length-framed digest so credentials never enter persistent keys
++// or Debug output. Credential changes can cause cold misses, but cannot mix
++// storage configurations. Keep one key schema for every shared cache tier.
++pub(crate) fn storage_identity(
++    storage_options: &HashMap<String, String>,
++    environment: impl IntoIterator<Item = (String, String)>,
++) -> String {
++    let options: BTreeMap<_, _> = storage_options.iter().collect();
++    let environment: BTreeMap<_, _> = environment
++        .into_iter()
++        .filter(|(key, _)| {
++            [
++                "AWS_", "AZURE_", "GOOGLE_", "GCS_", "OSS_", "ALIYUN_", "HUAWEI_",
++            ]
++            .iter()
++            .any(|prefix| key.starts_with(prefix))
++        })
++        .collect();
++    let mut builder = KeyBuilder::new(
++        CacheNamespace::root(),
++        "lance-c.storage-identity",
++        CacheKeySchema::new("lance-c.storage-options", 1),
++    );
++    builder.write_u64(options.len() as u64);
++    for (key, value) in options {
++        builder.write_str(key);
++        builder.write_str(value);
++    }
++    builder.write_u64(environment.len() as u64);
++    for (key, value) in environment {
++        builder.write_str(&key);
++        builder.write_str(&value);
++    }
++    builder
++        .finish()
++        .as_bytes()
++        .iter()
++        .map(|byte| format!("{byte:02x}"))
++        .collect()
++}
++
++#[derive(Debug)]
++pub(crate) struct SharedSessionCache {
++    backend: QuickCacheBackend,
++    hits: AtomicU64,
++    misses: AtomicU64,
++}
++
++impl SharedSessionCache {
++    pub(crate) fn new(capacity: usize) -> Arc<Self> {
++        Arc::new(Self {
++            backend: QuickCacheBackend::with_capacity(capacity),
++            hits: AtomicU64::new(0),
++            misses: AtomicU64::new(0),
++        })
++    }
++
++    pub(crate) fn namespaced(self: &Arc<Self>, identity: &str) -> Arc<dyn CacheBackend> {
++        Arc::new(NamespacedBackend {
++            shared: self.clone(),
++            namespace: CacheNamespace::root().child(identity),
++        })
++    }
++
++    pub(crate) async fn stats(&self) -> CacheStats {
++        CacheStats {
++            hits: self.hits.load(Ordering::Relaxed),
++            misses: self.misses.load(Ordering::Relaxed),
++            num_entries: self.backend.num_entries().await,
++            size_bytes: self.backend.size_bytes().await,
++        }
++    }
++
++    pub(crate) async fn clear(&self) {
++        self.backend.clear().await;
++    }
++
++    fn record(&self, hit: bool) {
++        let counter = if hit { &self.hits } else { &self.misses };
++        counter.fetch_add(1, Ordering::Relaxed);
++    }
++}
++
++#[derive(Debug)]
++struct NamespacedBackend {
++    shared: Arc<SharedSessionCache>,
++    namespace: CacheNamespace,
++}
++
++impl NamespacedBackend {
++    fn key(&self, key: &InternalCacheKey) -> InternalCacheKey {
++        let mut builder = KeyBuilder::new(
++            self.namespace,
++            "lance-c.session-cache",
++            CacheKeySchema::new("lance-c.storage-key", 1),
++        );
++        builder.write_fixed_bytes(key.as_bytes());
++        builder.finish()
++    }
++}
++
++#[async_trait]
++impl CacheBackend for NamespacedBackend {
++    async fn get(&self, key: &InternalCacheKey, codec: Option<CacheCodec>) -> Option<CacheEntry> {
++        let entry = self.shared.backend.get(&self.key(key), codec).await;
++        self.shared.record(entry.is_some());
++        entry
++    }
++
++    async fn insert(
++        &self,
++        key: &InternalCacheKey,
++        entry: CacheEntry,
++        size: usize,
++        codec: Option<CacheCodec>,
++    ) {
++        self.shared
++            .backend
++            .insert(&self.key(key), entry, size, codec)
++            .await;
++    }
++
++    async fn get_or_insert<'a>(
++        &self,
++        key: &InternalCacheKey,
++        loader: Pin<Box<dyn Future<Output = Result<(CacheEntry, usize)>> + Send + 'a>>,
++        codec: Option<CacheCodec>,
++    ) -> Result<(CacheEntry, bool)> {
++        let result = self
++            .shared
++            .backend
++            .get_or_insert(&self.key(key), loader, codec)
++            .await?;
++        self.shared.record(result.1);
++        Ok(result)
++    }
++
++    // Capacity, statistics and clear belong to the shared physical tier, not
++    // one storage identity. Creating more identities cannot multiply its limit.
++    async fn clear(&self) {
++        self.shared.clear().await;
++    }
++    async fn num_entries(&self) -> usize {
++        self.shared.backend.num_entries().await
++    }
++    async fn size_bytes(&self) -> usize {
++        self.shared.backend.size_bytes().await
++    }
++    fn approx_num_entries(&self) -> usize {
++        self.shared.backend.approx_num_entries()
++    }
++    fn approx_size_bytes(&self) -> usize {
++        self.shared.backend.approx_size_bytes()
++    }
++    fn capacity_bytes(&self) -> Option<usize> {
++        self.shared.backend.capacity_bytes()
++    }
++    fn deep_size_of_entries(
++        &self,
++        context: &mut Context,
++        size_of_entry: &dyn Fn(&CacheEntry, &mut Context) -> Option<usize>,
++    ) -> Option<usize> {
++        self.shared
++            .backend
++            .deep_size_of_entries(context, size_of_entry)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[tokio::test]
++    async fn identities_share_one_capacity_but_never_entries() {
++        let shared = SharedSessionCache::new(1024 * 1024);
++        let a = shared.namespaced("a");
++        let b = shared.namespaced("b");
++        let key = InternalCacheKey::from_bytes([7; 16]);
++        a.insert(&key, Arc::new(11_u64), 8, None).await;
++        assert!(b.get(&key, None).await.is_none());
++        b.insert(&key, Arc::new(22_u64), 8, None).await;
++        for (identity, expected) in [("a", 11), ("b", 22)] {
++            let entry = shared.namespaced(identity).get(&key, None).await.unwrap();
++            assert_eq!(*entry.downcast_ref::<u64>().unwrap(), expected);
++        }
++        let stats = shared.stats().await;
++        assert_eq!((stats.num_entries, stats.hits, stats.misses), (2, 2, 1));
++        assert_eq!(a.capacity_bytes(), b.capacity_bytes());
++        shared.clear().await;
++        assert_eq!(shared.stats().await.num_entries, 0);
++        assert!(a.get(&key, None).await.is_none());
++        assert!(b.get(&key, None).await.is_none());
++    }
++}
 diff --git a/src/writer.rs b/src/writer.rs
 index 1971510de4a13ee6f04fc39c159b088e78e21d55..ba51c87a8cebb6897c48fb55509f71dabb58f3b4 100644
 --- a/src/writer.rs
@@ -8334,7 +8956,7 @@ index 1971510de4a13ee6f04fc39c159b088e78e21d55..ba51c87a8cebb6897c48fb55509f71da
          // SAFETY: `out_dataset` is non-NULL (checked above) and the caller
          // guarantees it points to caller-owned, writable storage of size
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
-index 341e5532d805d0a7a26f4615fc1b64fe3c918a29..ea4efed856c4b1bf35be4855bb89ad76288eb971 100644
+index e1592c1f1ac126dc67b5509faad459d5171cde97..029a959e0d4bdbcda910f91fd8e3a58b4a9b2aa4 100644
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
 @@ -100,10 +100,83 @@ fn create_large_dataset(num_rows: i32) -> (tempfile::TempDir, String) {
@@ -8421,7 +9043,235 @@ index 341e5532d805d0a7a26f4615fc1b64fe3c918a29..ea4efed856c4b1bf35be4855bb89ad76
  #[derive(Default)]
  struct CapturedScanStatistics {
      calls: usize,
-@@ -445,6 +518,120 @@ fn test_shared_session_rejects_null_inputs() {
+@@ -417,6 +490,227 @@ fn test_shared_session_open_and_cache_stats() {
+     unsafe { lance_dataset_close(second) };
+ }
+
++#[test]
++fn test_shared_session_isolates_s3_endpoints_before_loading_metadata() {
++    use std::io::{Read, Write};
++    use std::net::TcpListener;
++    use std::path::PathBuf;
++    use std::sync::atomic::AtomicBool;
++    use std::time::Duration;
++
++    struct FileServer {
++        endpoint: String,
++        stop: Arc<AtomicBool>,
++        worker: Option<std::thread::JoinHandle<()>>,
++    }
++    impl FileServer {
++        fn new(root: PathBuf) -> Self {
++            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
++            let endpoint = format!("http://{}", listener.local_addr().unwrap());
++            listener.set_nonblocking(true).unwrap();
++            let stop = Arc::new(AtomicBool::new(false));
++            let stopping = stop.clone();
++            let worker = std::thread::spawn(move || {
++                while !stopping.load(AtomicOrdering::Acquire) {
++                    let (mut socket, _) = match listener.accept() {
++                        Ok(connection) => connection,
++                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
++                            std::thread::sleep(Duration::from_millis(1));
++                            continue;
++                        }
++                        Err(error) => panic!("accept: {error}"),
++                    };
++                    socket.set_nonblocking(false).unwrap();
++                    socket
++                        .set_read_timeout(Some(Duration::from_secs(5)))
++                        .unwrap();
++                    let mut request = Vec::new();
++                    while !request.ends_with(b"\r\n\r\n") {
++                        let mut byte = [0];
++                        socket.read_exact(&mut byte).unwrap();
++                        request.push(byte[0]);
++                        assert!(request.len() < 32 * 1024);
++                    }
++                    let request = String::from_utf8(request).unwrap();
++                    let mut start_line = request.lines().next().unwrap().split_whitespace();
++                    let method = start_line.next().unwrap();
++                    let target = start_line.next().unwrap().split('?').next().unwrap();
++                    let path = target.strip_prefix("/same-bucket/table.lance/").unwrap();
++                    let data = std::fs::read(root.join(path)).unwrap_or_default();
++                    let (status, content_range, range) = if data.is_empty() {
++                        ("404 Not Found", String::new(), 0..0)
++                    } else if let Some(range) = request.lines().find_map(|line| {
++                        line.to_ascii_lowercase()
++                            .strip_prefix("range: bytes=")
++                            .map(str::to_owned)
++                    }) {
++                        let (start, end) = range.split_once('-').unwrap();
++                        let range = if start.is_empty() {
++                            data.len().saturating_sub(end.parse::<usize>().unwrap())..data.len()
++                        } else {
++                            start.parse::<usize>().unwrap()..if end.is_empty() {
++                                data.len()
++                            } else {
++                                (end.parse::<usize>().unwrap() + 1).min(data.len())
++                            }
++                        };
++                        (
++                            "206 Partial Content",
++                            format!(
++                                "Content-Range: bytes {}-{}/{}\r\n",
++                                range.start,
++                                range.end - 1,
++                                data.len()
++                            ),
++                            range,
++                        )
++                    } else {
++                        ("200 OK", String::new(), 0..data.len())
++                    };
++                    // Distinct storage systems can legally return the same ETag
++                    // for different objects. Storage identity must still isolate them.
++                    let headers = format!(
++                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\n{content_range}ETag: \"same-etag\"\r\nLast-Modified: Tue, 01 Sep 2026 00:00:00 GMT\r\nConnection: close\r\n\r\n",
++                        range.len()
++                    );
++                    socket.write_all(headers.as_bytes()).unwrap();
++                    if method != "HEAD" {
++                        socket.write_all(&data[range]).unwrap();
++                    }
++                }
++            });
++            Self {
++                endpoint,
++                stop,
++                worker: Some(worker),
++            }
++        }
++    }
++    impl Drop for FileServer {
++        fn drop(&mut self) {
++            self.stop.store(true, AtomicOrdering::Release);
++            let worker_result = self.worker.take().unwrap().join();
++            // Preserve the first assertion if test cleanup also sees a failed worker.
++            assert!(worker_result.is_ok() || std::thread::panicking());
++        }
++    }
++
++    let (_first_dir, first_path) = create_large_dataset(5);
++    let (_second_dir, second_path) = create_large_dataset(9);
++    let first = FileServer::new(first_path.into());
++    let second = FileServer::new(second_path.into());
++    for data_cache in [false, true] {
++        let (_cache, session) = if data_cache {
++            let (cache, session) = create_data_cache_session();
++            (Some(cache), session)
++        } else {
++            (None, lance_session_new(8 * 1024 * 1024, 16 * 1024 * 1024))
++        };
++        assert!(!session.is_null());
++        for (server, expected_rows) in [(&first, 5), (&second, 9), (&first, 5), (&second, 9)] {
++            let options = [
++                "endpoint",
++                &server.endpoint,
++                "region",
++                "us-east-1",
++                "access_key_id",
++                "test",
++                "secret_access_key",
++                "test",
++                "allow_http",
++                "true",
++                "virtual_hosted_style_request",
++                "false",
++            ];
++            let strings: Vec<_> = options.iter().map(|s| c_str(s)).collect();
++            let pointers: Vec<_> = strings
++                .iter()
++                .map(|s| s.as_ptr())
++                .chain([ptr::null()])
++                .collect();
++            let ds = unsafe {
++                lance_dataset_open_with_session(
++                    c_str("s3://same-bucket/table.lance").as_ptr(),
++                    pointers.as_ptr(),
++                    1,
++                    session,
++                )
++            };
++            assert!(!ds.is_null(), "{}", take_last_error_message());
++            assert_eq!(unsafe { lance_dataset_count_rows(ds) }, expected_rows);
++            let batches = scan_all_rows(ds);
++            let ids: Vec<i32> = batches
++                .iter()
++                .flat_map(|batch| {
++                    batch
++                        .column_by_name("id")
++                        .unwrap()
++                        .as_any()
++                        .downcast_ref::<Int32Array>()
++                        .unwrap()
++                        .values()
++                        .to_vec()
++                })
++                .collect();
++            assert_eq!(
++                ids,
++                (0..expected_rows as i32).collect::<Vec<_>>(),
++                "data cache={data_cache}, endpoint={}",
++                server.endpoint
++            );
++            unsafe { lance_dataset_close(ds) };
++        }
++        unsafe { lance_session_close(session) };
++    }
++}
++
++#[test]
++fn test_shared_session_clear_keeps_datasets_usable() {
++    let (_tmp, uri) = create_test_dataset();
++    let session = lance_session_new(8 * 1024 * 1024, 16 * 1024 * 1024);
++    assert!(!session.is_null());
++    let ds =
++        unsafe { lance_dataset_open_with_session(c_str(&uri).as_ptr(), ptr::null(), 0, session) };
++    assert!(!ds.is_null());
++    assert_eq!(
++        scan_all_rows(ds)
++            .iter()
++            .map(|b| b.num_rows())
++            .sum::<usize>(),
++        5
++    );
++    let mut before = LanceSessionCacheStats::default();
++    assert_eq!(
++        unsafe { lance_session_get_cache_stats(session, &mut before) },
++        0
++    );
++    assert!(before.metadata_cache_entries > 0);
++    assert_eq!(unsafe { lance_session_clear_caches(session) }, 0);
++    let mut after = LanceSessionCacheStats::default();
++    assert_eq!(
++        unsafe { lance_session_get_cache_stats(session, &mut after) },
++        0
++    );
++    assert_eq!(after.index_cache_entries, 0);
++    assert_eq!(after.index_cache_size_bytes, 0);
++    assert_eq!(after.metadata_cache_entries, 0);
++    assert_eq!(after.metadata_cache_size_bytes, 0);
++    assert_eq!(
++        scan_all_rows(ds)
++            .iter()
++            .map(|b| b.num_rows())
++            .sum::<usize>(),
++        5
++    );
++    // Repeated clear and session-handle release preserve the dataset lifetime.
++    assert_eq!(unsafe { lance_session_clear_caches(session) }, 0);
++    unsafe { lance_session_close(session) };
++    assert_eq!(unsafe { lance_dataset_count_rows(ds) }, 5);
++    unsafe { lance_dataset_close(ds) };
++    assert_eq!(unsafe { lance_session_clear_caches(ptr::null()) }, -1);
++    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
++}
++
+ #[test]
+ fn test_shared_session_rejects_null_inputs() {
+     let (_tmp, uri) = create_test_dataset();
+@@ -445,6 +739,120 @@ fn test_shared_session_rejects_null_inputs() {
      }
  }
 
@@ -8542,7 +9392,7 @@ index 341e5532d805d0a7a26f4615fc1b64fe3c918a29..ea4efed856c4b1bf35be4855bb89ad76
  #[test]
  fn test_open_nonexistent() {
      let c_uri = c_str("memory://nonexistent_dataset_xyz");
-@@ -3318,6 +3505,40 @@ fn test_dataset_restore_to_prior_version() {
+@@ -3318,6 +3726,40 @@ fn test_dataset_restore_to_prior_version() {
      unsafe { lance_dataset_close(ds) };
  }
 
@@ -8584,7 +9434,7 @@ index 341e5532d805d0a7a26f4615fc1b64fe3c918a29..ea4efed856c4b1bf35be4855bb89ad76
  fn test_dataset_restore_to_current_latest_writes_new_manifest() {
      // Restoring to the current latest still writes a new manifest. The
 diff --git a/tests/cpp/test_c_api.c b/tests/cpp/test_c_api.c
-index 77af1a69b872bd4152a44e642f30190720daa33f..da15749671cb9448c73d3c61546ecab2adcacb15 100644
+index a6842acda8cdb3e47723746d9bd04d42c0261586..2211a2bd775e34c2fca08f2dba8ddacc094b3ded 100644
 --- a/tests/cpp/test_c_api.c
 +++ b/tests/cpp/test_c_api.c
 @@ -171,6 +171,37 @@ static void test_shared_session(const char *uri) {
@@ -8625,7 +9475,7 @@ index 77af1a69b872bd4152a44e642f30190720daa33f..da15749671cb9448c73d3c61546ecab2
  static void test_scan(const char *uri) {
      printf("  test_scan... ");
 
-@@ -1476,6 +1507,7 @@ int main(int argc, char **argv) {
+@@ -1528,6 +1559,7 @@ int main(int argc, char **argv) {
      test_batch_nearest(uri);
      test_open_and_metadata(uri);
      test_shared_session(uri);
@@ -8634,7 +9484,7 @@ index 77af1a69b872bd4152a44e642f30190720daa33f..da15749671cb9448c73d3c61546ecab2
      test_distance_range(uri);
      test_scan_with_limit(uri);
 diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
-index 3bc313ebecbb0de06badd9f8d75f531fc95809c9..298228f7dd68d28452e6436db5c589183361f2de 100644
+index 77da4cdd99ffdb9c9a204a8048b25b4db153497c..5cad1e68086db53da90ee1e89a372dacf413fcae 100644
 --- a/tests/cpp/test_cpp_api.cpp
 +++ b/tests/cpp/test_cpp_api.cpp
 @@ -131,6 +131,28 @@ static void test_shared_session(const std::string& uri) {
@@ -8666,7 +9516,7 @@ index 3bc313ebecbb0de06badd9f8d75f531fc95809c9..298228f7dd68d28452e6436db5c58918
  static void test_dataset_schema(const std::string& uri) {
      TEST(test_dataset_schema);
 
-@@ -1402,6 +1424,7 @@ int main(int argc, char** argv) {
+@@ -1404,6 +1426,7 @@ int main(int argc, char** argv) {
 
      test_dataset_open(uri);
      test_shared_session(uri);

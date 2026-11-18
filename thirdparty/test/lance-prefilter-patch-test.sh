@@ -75,6 +75,13 @@ check_sources() {
         || fail "missing upstream C++ prewarm API"
     grep -q 'fn test_prewarm_index_vector_segments_reuse_shared_session' "${source}/tests/c_api_test.rs" \
         || fail "missing upstream shared-session prewarm regression"
+    grep -q 'FileDeviceBuilder::new' "${source}/src/foyer_data_cache.rs" \
+        || fail "missing bounded-descriptor cache device"
+    grep -q 'lance_session_clear_caches' "${source}/include/lance/lance.h" \
+        || fail "missing session cache-clear API"
+    grep -q 'session.for_storage(&identity)' "${source}/src/dataset.rs" \
+        || fail "missing storage isolation before metadata loading"
+    [[ -f "${source}/src/session_cache.rs" ]] || fail "missing shared namespaced cache backend"
     [[ -f "${source}/patched_mark_foyer" ]] || fail "missing Foyer patch marker"
 }
 
@@ -129,3 +136,20 @@ fi
 [[ ! -f "${tmpdir}/invalid/src/${LANCE_C_SOURCE}/patched_mark_foyer" ]] \
     || fail "failed patch was marked complete"
 echo "PASS: patch failure does not mark sources ready"
+
+# These tests compile the native library but never install it. Keep the default
+# extraction/marker checks fast; enable the native suite for dependency changes.
+# CARGO_TARGET_DIR can point into output/ to retain build artifacts across runs.
+if [[ "${LANCE_C_RUN_NATIVE_TESTS:-OFF}" == "ON" ]]; then
+    native_source="${tmpdir}/fresh/src/${LANCE_C_SOURCE}"
+    cargo_bin="${LANCE_C_CARGO:-${CARGO:-cargo}}"
+    (
+        cd "${native_source}"
+        "${cargo_bin}" test --locked --lib cache -- --nocapture
+        "${cargo_bin}" test --locked --test c_api_test test_shared_session -- --nocapture
+        "${cargo_bin}" test --locked --test c_api_test test_session_with_data_cache -- --nocapture
+        "${cargo_bin}" test --locked --test c_api_test test_prewarm_index -- --nocapture
+        "${cargo_bin}" test --locked --test c_api_test test_restored_handle_has_independent_data_cache_statistics -- --nocapture
+    )
+    echo "PASS: native cache resource, storage-isolation, and C API tests"
+fi
