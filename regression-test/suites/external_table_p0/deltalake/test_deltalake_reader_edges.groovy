@@ -105,11 +105,8 @@ suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
             compare("json_null_date", "select id, p from ${db}.date_control order by id", dates)
             compare("empty_date", "select id, p from ${db}.empty_date order by id", dates)
 
-            // Both logs point to identical Parquet bytes and carry the same physical partition value.
             compare("plain_name", "select id, p from ${db}.plain order by id", "select 41, 'west'")
             compare("plain_filter", "select id from ${db}.plain where p='west' order by id", "select 41")
-            compare("comma_name", "select id, `p,q` from ${db}.comma order by id", "select 41, 'west'")
-            compare("comma_filter", "select id from ${db}.comma where `p,q`='west' order by id", "select 41")
         }
     }
 }

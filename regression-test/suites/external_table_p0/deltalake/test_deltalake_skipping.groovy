@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_deltalake_skipping", "p0,external") {
     if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableDeltaLakeTest"))) {
         return
@@ -30,14 +32,29 @@ suite("test_deltalake_skipping", "p0,external") {
     )"""
     sql "switch test_deltalake_skipping"
     sql "use delta_m1"
+    sql "set enable_profile=true"
+    sql "set enable_sql_cache=false"
     sql "set enable_count_push_down_for_external_table=true"
-    order_qt_all "select * from skipping order by id"
-    order_qt_range "select * from skipping where id < 5 order by id"
+    def profiles = new ProfileAction(context)
+    // Streaming EXPLAIN can report an estimate before file enumeration finishes.
+    def checkScan = { String tag, String selectBody, int selectedFiles, int generatedSplits ->
+        String token = UUID.randomUUID().toString()
+        "order_qt_${tag}"("select /* ${token} */ ${selectBody}")
+        String profile = profiles.getProfileBySql(token, ["Delta Scan Metrics", "EnumerationComplete: true"])
+        def metrics = profile.readLines()*.trim()
+        ["- SelectedFiles: " + selectedFiles, "- GeneratedSplits: " + generatedSplits].each { metric ->
+            assertTrue(metrics.contains(metric), "Missing ${metric} for ${tag}\n${profile}")
+        }
+    }
+
+    checkScan("all", "* from skipping order by id", 3, 3)
+    // Kernel conservatively retains the all-null file, whose min/max are absent.
+    checkScan("range", "* from skipping where id < 5 order by id", 2, 2)
     order_qt_reversed "select * from skipping where 5 > id order by id"
     order_qt_between "select * from skipping where id >= 5 and id <= 7 order by id"
     order_qt_or "select * from skipping where id < 2 or id > 107 order by id"
-    order_qt_null "select * from skipping where id is null order by id"
-    order_qt_not_null "select * from skipping where id is not null order by id"
+    checkScan("null", "* from skipping where id is null order by id", 1, 1)
+    checkScan("not_null", "* from skipping where id is not null order by id", 2, 2)
     order_qt_not_null_safe "select * from skipping where not (id <=> 1) order by id"
     order_qt_in "select * from skipping where id in (1, 101, null) order by id"
     order_qt_not_in "select * from skipping where id not in (1, 101, null) order by id"
@@ -47,31 +64,17 @@ suite("test_deltalake_skipping", "p0,external") {
     order_qt_decimal "select * from skipping where dec >= 100.0000 order by id"
     order_qt_float "select * from skipping where f > 107.5 order by id"
     order_qt_double "select * from skipping where d > 107.5 order by id"
-    qt_count "select count(*) from skipping"
+    checkScan("count", "count(*) from skipping", 3, 1)
     qt_count_column "select count(id) from skipping"
     qt_filtered_count "select count(*) from skipping where id < 5"
     qt_function_count "select count(*) from skipping where substring(s, 1, 3)='low'"
     explain {
         sql "select * from skipping"
-        contains "inputSplitNum=3"
         contains "Delta snapshot:"
     }
     explain {
-        sql "select * from skipping where id < 5"
-        // Kernel conservatively retains the all-null file, whose min/max are absent.
-        contains "inputSplitNum=2"
-    }
-    explain {
-        sql "select * from skipping where id is null"
-        contains "inputSplitNum=1"
-    }
-    explain {
-        sql "select * from skipping where id is not null"
-        contains "inputSplitNum=2"
-    }
-    explain {
-        sql "select count(*) from skipping"
-        contains "inputSplitNum=1"
+        // Synchronous planning also exposes the exact table-level count in EXPLAIN.
+        sql "select /*+ SET_VAR(enable_external_table_batch_mode=false) */ count(*) from skipping"
         contains "pushdown agg=COUNT (21)"
     }
     sql "set enable_count_push_down_for_external_table=false"
