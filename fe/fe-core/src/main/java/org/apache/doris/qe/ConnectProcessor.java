@@ -48,6 +48,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -356,6 +357,14 @@ public abstract class ConnectProcessor {
                     // would otherwise be audited with the stale value picked up once per
                     // packet in dispatch().
                     resolveWorkloadGroupName();
+                    // Fault injection for tests: fail a statement whose text contains the given marker here,
+                    // before its executor is built.
+                    String failMarker = DebugPointUtil.getDebugParamOrDefault(
+                            "ConnectProcessor.executeQuery.failBeforeExecution", "stmt_contains", "");
+                    if (!failMarker.isEmpty() && auditStmt.contains(failMarker)) {
+                        throw new IllegalStateException(
+                                "debug point ConnectProcessor.executeQuery.failBeforeExecution");
+                    }
 
                     StatementBase parsedStmt = stmts.get(i);
                     parsedStmt.setOrigStmt(new OriginStatement(auditStmt, usingOrigSingleStmt ? 0 : i));
