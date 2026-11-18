@@ -28,6 +28,21 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
     String alteredJdbcPassword = "ffffffffffffffffffff"
     String maxComputeSessionToken = "gggggggggggggggggggg"
     String ozoneAccessKey = "hhhhhhhhhhhhhhhhhhhh"
+    Map<String, String> policyProperties = [
+        'jdbc_url': 'jdbc:fixture://db.example.com;password=fixture-jdbc',
+        'hosts': 'https://fixture:fixture-userinfo@api.example.com/v1?token=fixture-url-token&region=east',
+        'token': 'fixture-native-token',
+        'credential': 'fixture-native-credential',
+        'fs.s3a.secret.key': 'fixture-hadoop-secret',
+        'fs.azure.account.key.fixture.blob.core.windows.net': 'fixture-account-key',
+        'custom.password': 'fixture-custom-password',
+        'signed.endpoint': 'https://api.example.com/v1?X-Amz-Signature=fixture-signature',
+        'safe.endpoint': 'host.example.com:9000'
+    ]
+    String policySql = policyProperties.collect { key, value -> "'${key}' = '${value}'" }.join(',\n')
+    List<String> policySecrets = ['fixture-jdbc', 'fixture-userinfo', 'fixture-url-token', 'fixture-native-token',
+        'fixture-native-credential', 'fixture-hadoop-secret', 'fixture-account-key', 'fixture-custom-password',
+        'fixture-signature']
 
     // The audit log files CREATE CATALOG under stmt_type OTHER and ALTER CATALOG under ALTER.
     def waitForAuditStatement = { String catalogName, String statement = "create catalog", String stmtType = "OTHER" ->
@@ -73,7 +88,8 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
                     'ozone.access_key' = '${ozoneAccessKey}',
                     'iceberg.rest.security.type' = 'oauth2',
                     'iceberg.rest.oauth2.credential' = '${oauthCredential}',
-                    'iceberg.rest.oauth2.server-uri' = 'http://127.0.0.1:1/oauth/tokens'
+                    'iceberg.rest.oauth2.server-uri' = 'http://127.0.0.1:1/oauth/tokens',
+                    ${policySql}
                 )
             """
             // Masking is global across catalog properties, even when a key belongs to another loaded plugin.
@@ -87,6 +103,18 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             }
             assertEquals('*XXX', shownProperties['mc.session_token'])
             assertEquals('*XXX', shownProperties['ozone.access_key'])
+            policySecrets.each { secret -> assertFalse(shownCredentials.contains(secret)) }
+            ['jdbc_url', 'token', 'credential', 'fs.s3a.secret.key',
+                'fs.azure.account.key.fixture.blob.core.windows.net', 'custom.password', 'signed.endpoint'].each { key ->
+                assertEquals('*XXX', shownProperties[key])
+            }
+            assertEquals('https://api.example.com/v1?token=*XXX&region=east', shownProperties['hosts'])
+            assertEquals('host.example.com:9000', shownProperties['safe.endpoint'])
+            def tvfProperties = sql("""select `Property`, `Value` from catalogs()
+                    where CatalogName = '${credentialCatalog}' order by `Property`""").collectEntries { row ->
+                [(row[0].toString()): row[1].toString()]
+            }
+            assertEquals(shownProperties, tvfProperties)
             sql """
                 create catalog ${tokenCatalog} properties (
                     'type' = 'iceberg',
@@ -96,13 +124,13 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
                     'iceberg.rest.oauth2.token' = '${oauthToken}'
                 )
             """
-            // iceberg.jdbc.password is on no list fe-core keeps: only the iceberg connector knows it, and
-            // declares it on its security surface. The catalog is never initialized, so nothing connects.
+            // Keep both embedded and separate JDBC passwords covered through actual catalog commands.
+            // The catalog is never initialized, so nothing connects.
             sql """
                 create catalog ${jdbcCatalog} properties (
                     'type' = 'iceberg',
                     'iceberg.catalog.type' = 'jdbc',
-                    'uri' = 'jdbc:mysql://127.0.0.1:1/iceberg',
+                    'uri' = 'jdbc:mysql://127.0.0.1:1/iceberg?password=${jdbcPassword}',
                     'iceberg.jdbc.catalog_name' = 'audit_masking',
                     'iceberg.jdbc.user' = 'iceberg',
                     'iceberg.jdbc.password' = '${jdbcPassword}',
@@ -117,10 +145,13 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             assertFalse(shownJdbc.contains(jdbcPassword))
             assertTrue(shownJdbc.contains('"iceberg.jdbc.password" = "*XXX"'))
             assertTrue(shownJdbc.contains('"iceberg.jdbc.user" = "iceberg"'))
+            assertTrue(shownJdbc.contains('"uri" = "*XXX"'))
+            assertFalse(shownJdbc.contains('jdbc:mysql:'))
 
             // ALTER CATALOG sets the same secrets, so its statement text must be masked in the audit log too.
             sql """
                 alter catalog ${jdbcCatalog} set properties (
+                    'uri' = 'jdbc:mysql://127.0.0.1:1/iceberg?password=${alteredJdbcPassword}',
                     'iceberg.jdbc.password' = '${alteredJdbcPassword}',
                     's3.secret_key' = '${secretKey}',
                     'mc.session_token' = '${maxComputeSessionToken}',
@@ -149,6 +180,8 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             assertTrue(credentialStmt.contains('"iceberg.rest.oauth2.credential" = "*XXX"'))
             assertTrue(credentialStmt.contains('"mc.session_token" = "*XXX"'))
             assertTrue(credentialStmt.contains('"ozone.access_key" = "*XXX"'))
+            policySecrets.each { secret -> assertFalse(credentialStmt.contains(secret)) }
+            assertTrue(credentialStmt.contains('https://api.example.com/v1?token=*XXX&region=east'))
 
             String tokenStmt = waitForAuditStatement(tokenCatalog)
             assertFalse(tokenStmt.contains(oauthToken))
@@ -157,6 +190,8 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             String jdbcCreateStmt = waitForAuditStatement(jdbcCatalog)
             assertFalse(jdbcCreateStmt.contains(jdbcPassword))
             assertTrue(jdbcCreateStmt.contains('"iceberg.jdbc.password" = "*XXX"'))
+            assertTrue(jdbcCreateStmt.contains('"uri" = "*XXX"'))
+            assertFalse(jdbcCreateStmt.contains('jdbc:mysql:'))
 
             String jdbcAlterStmt = waitForAuditStatement(jdbcCatalog, "alter catalog", "ALTER")
             assertFalse(jdbcAlterStmt.contains(alteredJdbcPassword))
@@ -167,6 +202,8 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             assertTrue(jdbcAlterStmt.contains('"s3.secret_key" = "*XXX"'))
             assertTrue(jdbcAlterStmt.contains('"mc.session_token" = "*XXX"'))
             assertTrue(jdbcAlterStmt.contains('"ozone.access_key" = "*XXX"'))
+            assertTrue(jdbcAlterStmt.contains('"uri" = "*XXX"'))
+            assertFalse(jdbcAlterStmt.contains('jdbc:mysql:'))
         } finally {
             sql """drop catalog if exists ${credentialCatalog}"""
             sql """drop catalog if exists ${tokenCatalog}"""

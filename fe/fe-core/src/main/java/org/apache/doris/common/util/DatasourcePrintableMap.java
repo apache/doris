@@ -191,9 +191,9 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
     }
 
     /**
-     * Whether a property key must be masked in any user-visible catalog rendering: it is on the list, or it
-     * falls in a namespace of secret keys. The list and the namespaces are the engine's own plus those of
-     * every connector and filesystem provider registered at FE startup.
+     * Whether a property name is sensitive: registered exact keys and prefixes are combined with built-in
+     * credential/connection-string rules and the configurable name pattern. Provider declarations remain
+     * effective even when the configurable pattern is disabled.
      */
     public static boolean isSensitiveKey(Object key) {
         if (!(key instanceof String)) {
@@ -208,7 +208,12 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
                 return true;
             }
         }
-        return false;
+        return DatasourcePropertyRedactor.isSensitiveName(stringKey);
+    }
+
+    /** Masks a display value without changing the stored configuration used by a connector. */
+    public static String redactProperty(Object key, Object value) {
+        return DatasourcePropertyRedactor.redact(key, value);
     }
 
     @Override
@@ -218,8 +223,8 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
 
     @Override
     protected String formatValue(Map.Entry<K, V> entry) {
-        if (hidePassword && isSensitiveKey(entry.getKey())) {
-            return PASSWORD_MASK;
+        if (hidePassword) {
+            return redactProperty(entry.getKey(), entry.getValue());
         }
         return super.formatValue(entry);
     }

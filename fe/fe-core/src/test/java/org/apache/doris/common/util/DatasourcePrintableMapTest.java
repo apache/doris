@@ -399,16 +399,16 @@ public class DatasourcePrintableMapTest {
         Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("prefix_test_passthrough.connection-password"));
         Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("PREFIX_TEST_PASSTHROUGH.auth.TOKEN"));
         Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("prefix_test_passthrough.connection-url"));
-        // Only the rest after the prefix is searched, and only under the prefix.
-        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("other.prefix_test_passthrough.password"));
+        // The global name rule also protects credential-like names outside provider namespaces.
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("other.prefix_test_passthrough.password"));
         Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("prefix_test_all.endpoint"));
         Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("prefix_test_al.endpoint"));
 
         Map<String, String> testMap = new HashMap<>();
         testMap.put("prefix_test_passthrough.connection-password", "super_secret_value");
-        testMap.put("prefix_test_passthrough.connection-url", "jdbc:x://host");
+        testMap.put("prefix_test_passthrough.connection-url", "https://host.example.com");
         String result = new DatasourcePrintableMap<>(testMap, "=", false, false, true).toString();
         Assertions.assertFalse(result.contains("super_secret_value"), result);
-        Assertions.assertTrue(result.contains("prefix_test_passthrough.connection-url = jdbc:x://host"), result);
+        Assertions.assertTrue(result.contains("prefix_test_passthrough.connection-url = https://host.example.com"), result);
     }
 }
