@@ -45,6 +45,14 @@ public class OssBackendServiceClientChannelProvider implements BackendServiceCli
         return createChannelForPurpose(address, resolvedIp, executor, internalRpc);
     }
 
+    @Override
+    public boolean supportsRemoteWorkers() {
+        // Remote BEs keep their own exchange and coordinator-report policy. Configuring the FE's outbound
+        // channel cannot give them this cluster's TLS identity or change their plaintext callback transport.
+        return getClass() != OssBackendServiceClientChannelProvider.class
+                || !(PrivateRpcTls.enabled(Protocol.BRPC) || PrivateRpcTls.enabled(Protocol.THRIFT));
+    }
+
     private ManagedChannel createChannelForPurpose(TNetworkAddress address, String resolvedIp, Executor executor,
             boolean internalRpc) {
         String targetHost = (resolvedIp != null && !resolvedIp.isEmpty()) ? resolvedIp : address.getHostname();

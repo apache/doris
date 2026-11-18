@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.runtime;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.ExecutionProfile;
@@ -25,7 +26,11 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.CoordinatorContext;
+import org.apache.doris.qe.JobProcessor;
+import org.apache.doris.rpc.BackendServiceClient;
+import org.apache.doris.rpc.BackendServiceClientChannelProvider;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.OssBackendServiceClientChannelProvider;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -51,6 +56,105 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 class PipelineExecutionTaskBuilderTest {
+    @Test
+    void mixedPrivateAndRemoteWorkersFailBeforeCreatingAnyTask() {
+        boolean previousTls = Config.enable_tls;
+        String previousExcluded = Config.tls_excluded_protocols;
+        try {
+            Config.enable_tls = true;
+            Config.tls_excluded_protocols = "http,mysql,arrowflight,bdbje";
+            CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+            Deencapsulation.setField(context, "timeoutDeadline", (java.util.function.Supplier<Long>) () -> Long.MAX_VALUE);
+            Mockito.when(context.getJobProcessor()).thenReturn(Mockito.mock(JobProcessor.class));
+            Backend backend = new Backend(1, "127.0.0.1", 9050);
+            Map<DistributedPlanWorker, TPipelineFragmentParamsList> params = new LinkedHashMap<>();
+            params.put(new BackendWorker(InternalCatalog.INTERNAL_CATALOG_ID, backend),
+                    new TPipelineFragmentParamsList().setParamsList(Collections.emptyList()));
+            params.put(new BackendWorker(9, backend),
+                    new TPipelineFragmentParamsList().setParamsList(Collections.emptyList()));
+            try (MockedStatic<BackendServiceProxy> factory = Mockito.mockStatic(BackendServiceProxy.class)) {
+                factory.when(BackendServiceProxy::getInstance).thenReturn(Mockito.mock(BackendServiceProxy.class));
+                factory.when(() -> BackendServiceProxy.getInstance(false))
+                        .thenReturn(Mockito.mock(BackendServiceProxy.class));
+                IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                        () -> PipelineExecutionTaskBuilder.build(context, params));
+                Assertions.assertTrue(failure.getMessage().contains("use_arrow_flight=true"));
+                factory.verifyNoInteractions();
+                Mockito.verify(context, Mockito.never()).getJobProcessor();
+            }
+        } finally {
+            Config.enable_tls = previousTls;
+            Config.tls_excluded_protocols = previousExcluded;
+        }
+    }
+
+    @Test
+    void remoteWorkerPolicyCoversExchangesAndReverseThriftCallbacks() {
+        boolean previousTls = Config.enable_tls;
+        String previousExcluded = Config.tls_excluded_protocols;
+        try {
+            OssBackendServiceClientChannelProvider provider = new OssBackendServiceClientChannelProvider();
+            Config.enable_tls = true;
+            for (String excluded : new String[] {"", "brpc", "thrift"}) {
+                Config.tls_excluded_protocols = excluded;
+                Assertions.assertFalse(provider.supportsRemoteWorkers());
+            }
+            Config.tls_excluded_protocols = "brpc,thrift";
+            Assertions.assertTrue(provider.supportsRemoteWorkers());
+            Config.enable_tls = false;
+            Config.tls_excluded_protocols = "";
+            Assertions.assertTrue(provider.supportsRemoteWorkers());
+            Config.enable_tls = true;
+            BackendServiceClientChannelProvider legacy = (address, ip, executor) -> {
+                throw new UnsupportedOperationException("fixture does not create channels");
+            };
+            Assertions.assertTrue(legacy.supportsRemoteWorkers());
+            Assertions.assertTrue(new OssBackendServiceClientChannelProvider() { }.supportsRemoteWorkers(),
+                    "legacy subclasses keep responsibility for their complete endpoint policy");
+        } finally {
+            Config.enable_tls = previousTls;
+            Config.tls_excluded_protocols = previousExcluded;
+        }
+    }
+
+    @Test
+    void isolatedRemoteWorkersAlsoRequireACompatibleCoordinatorReportPolicy() {
+        try (MockedStatic<BackendServiceClient> policy = Mockito.mockStatic(BackendServiceClient.class);
+                MockedStatic<BackendServiceProxy> factory = Mockito.mockStatic(BackendServiceProxy.class)) {
+            policy.when(BackendServiceClient::supportsRemoteWorkers).thenReturn(false);
+            Map<DistributedPlanWorker, TPipelineFragmentParamsList> remote = Map.of(
+                    new BackendWorker(9, new Backend(1, "127.0.0.1", 9050)),
+                    new TPipelineFragmentParamsList().setParamsList(Collections.emptyList()));
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> PipelineExecutionTaskBuilder.build(Mockito.mock(CoordinatorContext.class), remote));
+            Assertions.assertTrue(failure.getMessage().contains("use_arrow_flight=true"));
+            factory.verifyNoInteractions();
+        }
+    }
+
+    @Test
+    void localWorkersAndProviderSupportedRemoteGraphsRemainUsable() {
+        try (MockedStatic<BackendServiceClient> policy = Mockito.mockStatic(BackendServiceClient.class);
+                MockedStatic<BackendServiceProxy> factory = Mockito.mockStatic(BackendServiceProxy.class)) {
+            factory.when(BackendServiceProxy::getInstance).thenReturn(Mockito.mock(BackendServiceProxy.class));
+            factory.when(() -> BackendServiceProxy.getInstance(false))
+                    .thenReturn(Mockito.mock(BackendServiceProxy.class));
+            CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+            Deencapsulation.setField(context, "timeoutDeadline", (java.util.function.Supplier<Long>) () -> Long.MAX_VALUE);
+            Mockito.when(context.getJobProcessor()).thenReturn(Mockito.mock(JobProcessor.class));
+            Backend backend = new Backend(1, "127.0.0.1", 9050);
+            Map<DistributedPlanWorker, TPipelineFragmentParamsList> params = new LinkedHashMap<>();
+            params.put(new BackendWorker(InternalCatalog.INTERNAL_CATALOG_ID, backend),
+                    new TPipelineFragmentParamsList().setParamsList(Collections.emptyList()));
+            policy.when(BackendServiceClient::supportsRemoteWorkers).thenReturn(false);
+            Assertions.assertNotNull(PipelineExecutionTaskBuilder.build(context, params));
+            params.put(new BackendWorker(9, backend),
+                    new TPipelineFragmentParamsList().setParamsList(Collections.emptyList()));
+            policy.when(BackendServiceClient::supportsRemoteWorkers).thenReturn(true);
+            Assertions.assertNotNull(PipelineExecutionTaskBuilder.build(context, params));
+        }
+    }
+
     @Test
     void cancellationAndFailedChannelRemovalUseTheTaskProxy() throws Exception {
         CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
