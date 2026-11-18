@@ -99,6 +99,17 @@ class FileScanEncryptionGuardTest {
     }
 
     @Test
+    void remoteMarkerCannotUseALocalCapabilityProof() {
+        TPipelineFragmentParams fragment = new TPipelineFragmentParams().setFileScanParams(Map.of(1,
+                new TFileScanRangeParams().setFormatType(TFileFormatType.FORMAT_PARQUET_PME)));
+        TPipelineFragmentParamsList fragments = new TPipelineFragmentParamsList().setParamsList(List.of(fragment));
+        IllegalStateException error = Assertions.assertThrows(IllegalStateException.class,
+                () -> FileScanEncryptionGuard.checkFragments(fragments, () -> 1, false));
+        Assertions.assertEquals("File encryption [KEY_TRANSPORT_UNAVAILABLE]", error.getMessage());
+        Assertions.assertTrue(FileScanEncryptionGuard.checkFragments(fragments, () -> 1, true));
+    }
+
+    @Test
     void malformedAndFutureDescriptorsDoNotBecomePlaintext() {
         for (TFileEncryptionInfo value : List.of(new TFileEncryptionInfo(), info().setVersion(9))) {
             Assertions.assertThrows(IllegalArgumentException.class, () -> FileScanEncryptionGuard.checkBatch(
