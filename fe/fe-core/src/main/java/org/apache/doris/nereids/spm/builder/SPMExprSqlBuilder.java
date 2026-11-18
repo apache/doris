@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.expressions.IsTrue;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Like;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.Mod;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StringRegexPredicate;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TryCast;
@@ -68,6 +70,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
@@ -256,16 +259,16 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitComparisonPredicate(ComparisonPredicate comparisonPredicate, SQLRelation context) {
-        return "(" + comparisonPredicate.left().accept(this, context)
+        return "(" + renderValueOperand(comparisonPredicate.left(), context)
                 + " " + operatorSymbol(comparisonPredicate)
-                + " " + comparisonPredicate.right().accept(this, context) + ")";
+                + " " + renderValueOperand(comparisonPredicate.right(), context) + ")";
     }
 
     @Override
     public String visitBinaryArithmetic(BinaryArithmetic binaryArithmetic, SQLRelation context) {
-        return "(" + binaryArithmetic.left().accept(this, context)
+        return "(" + renderValueOperand(binaryArithmetic.left(), context)
                 + " " + operatorSymbol(binaryArithmetic)
-                + " " + binaryArithmetic.right().accept(this, context) + ")";
+                + " " + renderValueOperand(binaryArithmetic.right(), context) + ")";
     }
 
     /**
@@ -304,24 +307,24 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitIsNull(IsNull isNull, SQLRelation context) {
-        return isNull.child().accept(this, context) + " IS NULL";
+        return renderValueOperand(isNull.child(), context) + " IS NULL";
     }
 
     @Override
     public String visitIsTrue(IsTrue isTrue, SQLRelation context) {
-        return isTrue.child().accept(this, context) + " IS TRUE";
+        return renderValueOperand(isTrue.child(), context) + " IS TRUE";
     }
 
     @Override
     public String visitIsFalse(IsFalse isFalse, SQLRelation context) {
-        return isFalse.child().accept(this, context) + " IS FALSE";
+        return renderValueOperand(isFalse.child(), context) + " IS FALSE";
     }
 
     // predicates.
 
     @Override
     public String visitInPredicate(InPredicate inPredicate, SQLRelation context) {
-        String compareExpr = inPredicate.getCompareExpr().accept(this, context);
+        String compareExpr = renderValueOperand(inPredicate.getCompareExpr(), context);
         List<String> options = inPredicate.getOptions().stream()
                 .map(o -> o.accept(this, context))
                 .collect(Collectors.toList());
@@ -341,23 +344,37 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitBetween(Between between, SQLRelation context) {
-        String compareExpr = between.getCompareExpr().accept(this, context);
-        String lower = between.getLowerBound().accept(this, context);
-        String upper = between.getUpperBound().accept(this, context);
+        String compareExpr = renderValueOperand(between.getCompareExpr(), context);
+        String lower = renderValueOperand(between.getLowerBound(), context);
+        String upper = renderValueOperand(between.getUpperBound(), context);
         return compareExpr + " BETWEEN " + lower + " AND " + upper;
     }
 
     @Override
     public String visitLike(Like like, SQLRelation context) {
-        String rendered = like.left().accept(this, context)
-                + " LIKE " + like.right().accept(this, context);
+        String rendered = renderValueOperand(like.left(), context)
+                + " LIKE " + renderValueOperand(like.right(), context);
         if (like.children().size() > 2) {
             // The third child is the ESCAPE character. Dropping it froze a three-argument
             // LIKE as a two-child predicate: parameterizing the escape literal fails
             // LIKE's literal-only legality check, so creation fell back to the raw plan and
             // persisted the ALTERED predicate - a column-pattern LIKE replayed without
             // ESCAPE can match different rows. Render the child recursively.
-            rendered += " ESCAPE " + like.child(2).accept(this, context);
+            rendered += " ESCAPE " + renderValueOperand(like.child(2), context);
+        }
+        return rendered;
+    }
+
+    /** Parentheses let a predicate occupy a value-expression position in the parser. */
+    private String renderValueOperand(Expression operand, SQLRelation context) {
+        if (operand instanceof Nullable) {
+            return renderValueOperand(operand.child(0), context);
+        }
+        String rendered = operand.accept(this, context);
+        if (operand instanceof IsNull || operand instanceof IsTrue || operand instanceof IsFalse
+                || operand instanceof InPredicate || operand instanceof Between
+                || operand instanceof StringRegexPredicate || operand instanceof Match) {
+            return "(" + rendered + ")";
         }
         return rendered;
     }
@@ -369,7 +386,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         // The Nullable marker (nullable(x) wraps a column to make it nullable, e.g. on a
         // recursive CTE union branch) has no SQL equivalent: decompile the inner
         // expression only.
-        if (boundFunction instanceof org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable) {
+        if (boundFunction instanceof Nullable) {
             return boundFunction.child(0).accept(this, context);
         }
         if (boundFunction instanceof GroupConcat || boundFunction instanceof MultiDistinctGroupConcat) {

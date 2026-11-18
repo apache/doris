@@ -994,16 +994,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 ordered.add(Pair.of(output.getExprId(), ref + " AS " + quoteIdentifier(display)));
                 anyRenamed = true;
             }
-            if (child.getRelationName() == null) {
-                // inline relation (plain table scan): SELECT * renders in the table
-                // schema order and the ResultSink output follows the scan order;
-                // nothing to reorder.
-                return child;
-            }
             if (child.getSelects().isEmpty()) {
-                // SELECT * over a wrapped subquery (TopN/Sort wrapper whose FROM is a
-                // subquery): the columns are referenceable, so rewrite the outer SELECT
-                // list to the user column order in place (preserving ORDER BY / LIMIT) -
+                // Without an explicit projection, the FROM columns are referenceable.
+                // A scan emits star columns in schema order even when the sink requests a
+                // different projection. Apply the sink order in place, preserving ORDER BY / LIMIT,
                 // UNLESS a re-labelled alias would SHADOW a name the ORDER BY references
                 // "c_3 AS b" next to "ORDER BY b" rebinds the sort to the
                 // alias although the clause was rendered against the base column b. Then

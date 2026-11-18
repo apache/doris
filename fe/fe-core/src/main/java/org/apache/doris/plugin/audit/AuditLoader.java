@@ -36,6 +36,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 /*
  * This plugin will load audit log to specified doris table at specified interval
@@ -46,10 +47,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     public static final String AUDIT_LOG_TABLE = "audit_log";
 
     /**
-     * The longest an IDLE load worker waits for the next queued event before it looks at the
-     * batch again (millis). The wait is woken by an enqueue (see exec), so this is an upper
-     * bound, and it is further bounded by the batch's own flush deadline
-     * (see idleWaitMillisLocked).
+     * Maximum queue wait in milliseconds. An enqueue wakes the worker, and a pending
+     * batch can shorten the wait to its flush deadline.
      */
     public static final long QUEUE_POLL_INTERVAL_MILLIS = 5_000L;
 
@@ -136,15 +135,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             return;
         }
         try {
+            // The queue wakes the worker without taking the stream-load monitor.
             auditEventQueue.add(event);
-            // Wake an IDLE worker (see transferNextEvent): it waits on the loader monitor
-            // between empty polls, so without the notification the event would sit in the
-            // queue for a whole poll interval before it entered the batch. The enqueue
-            // above happens FIRST, so a worker that polls before this monitor is taken
-            // already finds the event and never waits for the notification.
-            synchronized (this) {
-                notifyAll();
-            }
         } catch (Exception e) {
             // In order to ensure that the system can run normally, here we directly
             // discard the current audit_event. If this problem occurs frequently,
@@ -338,11 +330,6 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         public void run() {
             while (!isClosed) {
                 try {
-                    // the poll, the wait for the next event and the assembly are ONE
-                    // atomic step (see transferNextEvent): a reader of the audit batch
-                    // state must never see the event in neither the queue nor the batch.
-                    // An empty queue blocks here instead of sleeping after the poll, so an
-                    // event arriving while idle is picked up immediately.
                     transferNextEvent();
                     // process all audit logs
                     loadIfNecessary(false);
@@ -357,46 +344,24 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         }
     }
 
-    /**
-     * Moves ONE queued event into the current batch, ATOMICALLY with the batch state
-     * read: the poll and the assembly happen under the loader monitor, so an accepted
-     * event is always visible - in the queue before the poll, in the batch after the
-     * assembly, never in neither.
-     *
-     * <p>While the queue is EMPTY it waits on the loader monitor (which the wait releases)
-     * instead of sleeping after the poll, so an event enqueued right after an empty poll
-     * wakes the worker through the notification in {@link #exec} instead of waiting out a
-     * whole poll interval; the batch flush then runs immediately as well. The wait is
-     * bounded by the BATCH's own flush deadline, so an interval configured below the poll
-     * interval still flushes on time (see idleWaitMillisLocked). The notification cannot
-     * be lost: {@link #exec} enqueues BEFORE it takes the monitor, so a worker that polls
-     * in between finds the event and never waits at all.
-     *
-     * @return the transferred event, or null when the wait ended without one
-     */
+    /** Waits for one event until the next flush check and appends it under the batch lock. */
     private AuditEvent transferNextEvent() throws InterruptedException {
-        synchronized (this) {
-            AuditEvent event = auditEventQueue.poll();
-            if (event == null) {
-                wait(idleWaitMillisLocked());
-                event = auditEventQueue.poll();
-            }
-            if (event != null) {
-                assembleAudit(event);
-            }
-            return event;
+        AuditEvent event = auditEventQueue.poll(idleWaitMillis(), TimeUnit.MILLISECONDS);
+        if (event != null) {
+            assembleAudit(event);
         }
+        return event;
     }
 
     /**
      * How long an idle worker may wait for the next event: the poll interval, bounded by the
      * remaining time until the current NON-EMPTY batch must be flushed
      * (audit_plugin_max_batch_interval_sec), so a short interval is not stretched to the
-     * poll interval. Caller holds the loader monitor.
+     * poll interval.
      *
      * @return the wait in milliseconds, always positive
      */
-    private long idleWaitMillisLocked() {
+    private synchronized long idleWaitMillis() {
         if (auditLogNum == 0) {
             return QUEUE_POLL_INTERVAL_MILLIS;
         }
