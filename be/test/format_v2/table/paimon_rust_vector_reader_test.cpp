@@ -61,8 +61,9 @@ protected:
         TQueryOptions options;
         options.__set_batch_size(2);
         _state = RuntimeState::create_unique(options, TQueryGlobals {});
-        _fixture = std::filesystem::canonical(std::filesystem::path(__FILE__).parent_path() /
-                                              "../../exec/test_data/paimon_rust_vector");
+        // run-be-ut.sh runs from the repository root; ccache can make __FILE__ relative
+        // to the build directory instead, so it is not a stable fixture location.
+        _fixture = std::filesystem::canonical("be/test/exec/test_data/paimon_rust_vector");
         set_request(false, TVectorMetric::L2, kFixtureRows + 1);
     }
 
@@ -99,13 +100,17 @@ protected:
     Status init(PaimonRustTableReader& reader, bool score_only = false) {
         std::vector<ColumnDefinition> columns;
         if (!score_only) {
-            columns.push_back(
-                    {.name = "id", .type = make_nullable(std::make_shared<DataTypeInt32>())});
-            columns.push_back({.name = "embedding",
+            columns.push_back({.identifier = Field {},
+                               .name = "id",
+                               .type = make_nullable(std::make_shared<DataTypeInt32>())});
+            columns.push_back({.identifier = Field {},
+                               .name = "embedding",
                                .type = make_nullable(std::make_shared<DataTypeArray>(
                                        make_nullable(std::make_shared<DataTypeFloat32>())))});
         }
-        columns.push_back({.name = _distance_name, .type = std::make_shared<DataTypeFloat32>()});
+        columns.push_back({.identifier = Field {},
+                           .name = _distance_name,
+                           .type = std::make_shared<DataTypeFloat32>()});
         return reader.init({.projected_columns = std::move(columns),
                             .conjuncts = {},
                             .format = FileFormat::JNI,
