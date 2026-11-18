@@ -60,6 +60,10 @@ public class BackendServiceClient {
         execPlanTimeout = Config.remote_fragment_exec_timeout_ms + 5000;
     }
 
+    public static boolean supportsRemoteWorkers() {
+        return CHANNEL_PROVIDER.supportsRemoteWorkers();
+    }
+
     // Is the underlying channel in a normal state? (That means the RPC call will not fail immediately)
     public boolean isNormalState() {
         ConnectivityState state = channel.getState(false);

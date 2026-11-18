@@ -35,4 +35,9 @@ public interface BackendServiceClientChannelProvider {
         // Preserve custom providers' existing endpoint policy until they opt into purpose selection.
         return createChannel(address, resolvedIp, executor);
     }
+
+    /** Whether independent catalog workers can exchange data and report status to this coordinator. */
+    default boolean supportsRemoteWorkers() {
+        return true;
+    }
 }

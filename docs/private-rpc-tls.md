@@ -36,6 +36,27 @@ the addresses coincide. These external endpoints do not inherit the local
 cluster's private RPC TLS configuration; this provider does not configure TLS
 for an independent remote cluster.
 
+With the OSS private BRPC or Thrift transport enabled, remote Doris reads must
+use `use_arrow_flight=true` (the catalog's default). Arrow Flight retrieves
+external results into local workers, so query exchanges and execution-status
+reports stay inside the local TLS cluster. Direct OLAP mode
+(`use_arrow_flight=false`) assigns fragments to remote BEs, which independently
+initiate exchanges and Thrift reports; an outbound FE channel policy cannot
+supply those BEs with a local TLS identity. Such execution graphs are rejected
+before tasks are created, including remote-only graphs with reverse status
+callbacks. This does not change metadata access or remote tablet writes that
+execute in local workers. Custom providers retain their existing policy unless
+they explicitly opt out of remote workers.
+
+The opt-in `test_remote_doris_private_rpc_tls` regression runs against two
+independent clusters: private TLS enabled locally, plaintext RPC remotely. Set
+`enablePrivateRpcRemoteDorisTest=true` and the `privateRpcRemoteDorisHost`,
+`privateRpcRemoteDorisHttpPort`, `privateRpcRemoteDorisThriftPort`,
+`privateRpcRemoteDorisArrowPort`, `privateRpcRemoteDorisQueryPort`,
+`privateRpcRemoteDorisUser` and `privateRpcRemoteDorisPassword` regression settings.
+It covers broadcast and shuffle joins in both directions through Arrow Flight,
+local/remote read controls, and early rejection of direct remote execution.
+
 ## Configuration and deployment
 
 Configure each participating FE and BE with its own PEM certificate and private
@@ -100,7 +121,7 @@ statement-scoped key ownership are separate requirements.
 ## Test fixtures
 
 `docker/thirdparties/docker-compose/iceberg/encryption/generate-tls-fixture.sh`
-generates ephemeral test CA and peer identities with OpenSSL. Certificates expire
+generates ephemeral test CA and peer identities with OpenSSL or a JDK keytool fallback. Certificates expire
 after two days, private files are created under `umask 077`, and tests use temporary
 directories. The fixture includes an untrusted CA and a certificate with a wrong
 hostname for rejection tests. A DNS-only peer identity covers resolved native

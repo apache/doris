@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.protocol.TFastSerializer;
+import org.apache.doris.rpc.BackendServiceClient;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.NativeFileEncryptionSupport;
 import org.apache.doris.system.Backend;
@@ -59,6 +60,13 @@ public class PipelineExecutionTaskBuilder {
 
     private PipelineExecutionTask buildTask(CoordinatorContext coordinatorContext,
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
+        // Validate the complete worker graph before creating tasks: a remote BE also initiates exchanges
+        // and reports back to the coordinator, independently of the FE-to-BE channel selected below.
+        if (workerToFragmentsParam.keySet().stream().anyMatch(worker -> !isInternalWorker(worker))
+                && !BackendServiceClient.supportsRemoteWorkers()) {
+            throw new IllegalStateException("Private RPC TLS requires local query workers; set "
+                    + "use_arrow_flight=true on the remote Doris catalog to read its results into local workers");
+        }
         BackendServiceProxy backendServiceProxy = BackendServiceProxy.getInstance();
         PipelineExecutionTask pipelineExecutionTask = new PipelineExecutionTask(
                 coordinatorContext,
