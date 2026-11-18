@@ -1217,7 +1217,9 @@ DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
 // Thread pool for S3 reads in cross-CG peer winner race.
-// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+// Effective max threads = max(max_peer_race_s3_thread_num, max_concurrent_peer_races) at startup,
+// so every race slot has a thread; setting it below max_concurrent_peer_races has no effect.
+// Changing max_concurrent_peer_races at runtime does not resize the pool.
 DECLARE_Int32(min_peer_race_s3_thread_num);
 DECLARE_Int32(max_peer_race_s3_thread_num);
 
@@ -1391,6 +1393,8 @@ DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
+
+DECLARE_mDouble(file_cache_io_adaptor_skip_read_factor);
 
 // async file cache write
 DECLARE_mBool(enable_async_file_cache_write);
@@ -2092,7 +2096,12 @@ DECLARE_mInt64(load_reader_max_block_bytes);
 
 // Maximum number of OpenMP threads available for concurrent index builds.
 // -1 means auto: use 80% of detected CPU cores.
+// Auto sizing shares the CPU count captured on first use with ann_index_build_threads_per_task.
 DECLARE_Int32(omp_threads_limit);
+// OpenMP threads per ANN train/add call, capped by the global budget above.
+// -1 means auto: 1 thread below 32 available CPU cores, otherwise 4 threads.
+// The CPU count is captured once on first use and reused until BE restart.
+DECLARE_Int32(ann_index_build_threads_per_task);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
 // Cache for ANN index IVF on-disk list data.

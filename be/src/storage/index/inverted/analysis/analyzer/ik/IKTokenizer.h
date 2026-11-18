@@ -18,52 +18,39 @@
 #pragma once
 
 #include <memory>
+#include <string>
 #include <string_view>
+#include <vector>
 
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
 #include "storage/index/inverted/analysis/analyzer/ik/cfg/Configuration.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/IKSegmenter.h"
-#include "storage/index/inverted/analysis/tokenizer/tokenizer.h"
-
-using namespace lucene::analysis;
+#include "storage/index/inverted/analysis/per_token_stream.h"
 
 namespace doris::segment_v2 {
-namespace inverted_index {
-class DorisCharFilter;
-}
 
-class IKTokenizer : public inverted_index::DorisTokenizer {
+// The words IK segments the value into, full-width forms folded to half-width and, with
+// `lowercase`, ASCII lowercased; at most MAX_WORD_LEN bytes each, cut on a rune boundary.
+class IKTokenizer final : public inverted_index::PerTokenTokenizer {
 public:
-    IKTokenizer();
-    IKTokenizer(std::shared_ptr<Configuration> config, bool lowercase, bool ownReader);
-    ~IKTokenizer() override = default;
+    IKTokenizer(std::shared_ptr<Configuration> config, bool lowercase);
 
-    Token* next(Token* token) override;
-    void reset() override;
-    void reset(lucene::util::Reader* reader) override;
-    void set_source_byte_offsets_enabled(bool enabled) override {
-        source_byte_offsets_enabled_ = enabled;
-        inverted_index::DorisTokenizer::set_source_byte_offsets_enabled(enabled);
-    }
+    // Strict: folds rune by rune and keeps an invalid byte sequence as it is.
+    void set_strict_utf8(bool strict) override { strict_utf8_ = strict; }
+
+    // The words of the current value, and the segmenter's window.
+    size_t reserved_bytes() const override;
+
+protected:
+    void on_reset(std::string_view text) override;
+    bool next_token(inverted_index::TokenRef& token) override;
 
 private:
-    struct TokenData {
-        std::string text;
-        int32_t start_offset;
-        int32_t end_offset;
-    };
-
-    int32_t buffer_index_ {0};
-    int32_t data_length_ {0};
-    std::string buffer_;
-    std::vector<TokenData> tokens_;
+    size_t buffer_index_ {0};
+    std::vector<std::string> tokens_;
     std::shared_ptr<Configuration> config_;
     std::unique_ptr<IKSegmenter> ik_segmenter_;
-    TokenData* current_token_ {nullptr};
-    std::vector<int32_t> current_source_byte_offsets_;
-    const inverted_index::DorisCharFilter* source_char_filter_ {nullptr};
-    bool source_byte_offsets_enabled_ {false};
+    const bool lowercase_;
+    bool strict_utf8_ {false};
 };
 
 } // namespace doris::segment_v2

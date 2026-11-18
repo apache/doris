@@ -35,6 +35,9 @@ class DataTypeJsonbSerDe : public DataTypeStringSerDe {
 public:
     DataTypeJsonbSerDe(int nesting_level = 1) : DataTypeStringSerDe(TYPE_JSONB, nesting_level) {};
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override { return "JSONB"; }
 
     // JSON null is a value, so a nested SQL NULL needs a distinct spelling.
@@ -59,6 +62,11 @@ public:
                                       FormatOptions& options) const override;
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_simdjson(IColumn& column, simdjson::ondemand::value& value,
+                                              const FormatOptions& options,
+                                              SimdJsonReadContext& context,
+                                              const std::string& column_name) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;

@@ -97,6 +97,9 @@ public:
     DataTypeStringSerDeBase(PrimitiveType type, int nesting_level = 1, int len = -1)
             : DataTypeSerDe(nesting_level), _type(type), _len(len) {}
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override { return "String"; }
 
     Status from_string(StringRef& str, IColumn& column,

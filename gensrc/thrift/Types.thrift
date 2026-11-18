@@ -420,6 +420,10 @@ struct TFunction {
   17: optional TDictFunction dict_function
   18: optional string runtime_version
   19: optional string function_code
+
+  // New FE sends true for Python functions; absent fields preserve the legacy DATETIME mapping.
+  // Keep this field id reserved after removing the compatibility option.
+  2000: optional bool enable_python_udf_arrow_time_v2 = false
 }
 
 enum TJdbcOperation {
@@ -689,6 +693,8 @@ struct TUserIdentity {
     1: optional string username
     2: optional string host
     3: optional bool is_domain
+    // Session roles supplied by authentication / role mapping, in addition to persistent grants.
+    4: optional set<string> authenticated_roles
 }
 
 struct TColumnGroup {

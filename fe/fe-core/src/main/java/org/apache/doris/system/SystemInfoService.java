@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendHostNameO
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyBackendOp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 
@@ -300,6 +301,7 @@ public class SystemInfoService {
         copiedBackends.remove(droppedBackend.getId());
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
+        AgentTaskQueue.removeBackendTasks(droppedBackend.getId());
 
         // update idToReportVersion
         Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
@@ -850,6 +852,7 @@ public class SystemInfoService {
         copiedBackends.remove(backend.getId());
         ImmutableMap<Long, Backend> newIdToBackend = ImmutableMap.copyOf(copiedBackends);
         idToBackendRef = newIdToBackend;
+        AgentTaskQueue.removeBackendTasks(backend.getId());
 
         // update idToReportVersion
         Map<Long, AtomicLong> copiedReportVersions = Maps.newHashMap(idToReportVersionRef);
