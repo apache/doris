@@ -121,9 +121,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
             // Include complete source roots so pruning cannot turn malformed nested paths into missing values.
             d.setProjectionBson(encode(projection));
         }
-        long descriptorSize = descriptorBytes(session, handle,
-                d.isSetFilterBson() ? d.getFilterBson().length : 0,
-                d.isSetProjectionBson() ? d.getProjectionBson().length : 0);
+        long descriptorSize = descriptorBytes(session, handle, d);
         MongoSplitPlan plan = rangePlanner.plan(session, handle, snapshot, d.getReadPreference(),
                 request.getScanContext(), descriptorSize);
         // Retain the shared descriptor once; streaming creates owned RPC values under engine backpressure.
@@ -217,13 +215,20 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private long descriptorBytes(ConnectorSession session, MongoTableHandle table,
-            int candidateBytes, int projectionBytes) {
+            TMongoScanDesc descriptor) {
         if ("single".equals(session.getSessionProperties().getOrDefault("mongodb_split_strategy", "single"))) {
             return 0;
         }
         // A count-only cap is insufficient: 100 copies of a large schema/credential/filter can exceed
         // a split RPC's body limit. Include UTF-8 payloads plus room for Thrift fields and range BSON.
-        long bytes = 8192L + candidateBytes + projectionBytes;
+        long bytes = 8192L + (descriptor.isSetFilterBson() ? descriptor.getFilterBson().length : 0)
+                + (descriptor.isSetProjectionBson() ? descriptor.getProjectionBson().length : 0);
+        if (descriptor.isSetSnapshot() && descriptor.getSnapshot().isSetTimeseriesOptionsJson()) {
+            // A legal timeField can exceed the fixed header allowance. Every auto fallback
+            // repeats these options, so omit none of their UTF-8 bytes from source admission.
+            bytes += descriptor.getSnapshot().getTimeseriesOptionsJson()
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        }
         for (String value : List.of(properties.getUri(), properties.getUsername(), properties.getPassword(),
                 properties.getAuthDatabase(), table.getDatabase(), table.getName(), table.getUuid(),
                 table.getSchema().getVersion(), table.getSchema().toBindingsJson())) {

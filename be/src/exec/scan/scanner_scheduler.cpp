@@ -183,6 +183,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
     Status status = Status::OK();
     bool eos = false;
+    scan_task->resource_wait = false;
     auto append_late_arrival_runtime_filter = [&] {
         Status rf_status = scanner->try_append_late_arrival_runtime_filter();
         if (!rf_status.ok()) {
@@ -276,6 +277,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                         // resume (including a workload group with just one scan thread).
                         // The reader retains its split/deadline and produced no output to publish.
                         DCHECK_EQ(free_block->rows(), 0);
+                        scan_task->resource_wait = true;
                         ctx->inc_block_usage(free_block->allocated_bytes());
                         scan_task->cached_block = std::move(free_block);
                         status = Status::OK();
