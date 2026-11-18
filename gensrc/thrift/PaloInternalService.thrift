@@ -540,6 +540,11 @@ struct TQueryOptions {
   // Optional Parquet output indexes; absent fields retain the existing writer defaults.
   238: optional bool enable_parquet_write_page_index = true;
   239: optional i32 parquet_write_data_page_size = 1048576;
+
+  // Pre-filter column predicates into the ANN candidate bitmap (IDSelector) instead of falling
+  // back to a brute-force distance scan when an ANN TopN query carries a column predicate.
+  240: optional bool enable_ann_topn_predicate_prefilter = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
