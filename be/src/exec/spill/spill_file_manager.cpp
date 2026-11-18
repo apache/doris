@@ -25,8 +25,11 @@
 #include <filesystem>
 #include <iterator>
 #include <limits>
+#include <list>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -34,15 +37,17 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
+#include "common/spill_storage_type.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/s3_file_writer.h"
 #include "runtime/query_context.h"
 #include "storage/options.h"
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
-#include "util/time.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -78,10 +83,11 @@ namespace {
 std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> create_spill_store_map(
         const std::vector<StorePath>& spill_store_paths) {
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
-    if (config::spill_storage_type == "s3") {
+    if (spill_storage_type::is_remote(config::spill_storage_type)) {
         // One remote store, see RemoteSpillDataDir for the object layout.
         spill_store_map.emplace(
-                "s3", std::make_unique<RemoteSpillDataDir>(config::spill_s3_storage_vault_id));
+                spill_storage_type::REMOTE,
+                std::make_unique<RemoteSpillDataDir>(config::spill_s3_storage_vault_id));
     }
     // External spill sessions need native local paths even when query spill uses object
     // storage. Query spill selects the remote store; external sessions select these roots.
@@ -165,7 +171,7 @@ void ExternalSpillSession::update_accounting(const std::string& path, int64_t cu
         }
     }
     if (released_bytes > 0) {
-        data_dir->update_spill_data_usage(-released_bytes);
+        data_dir->release(released_bytes);
     }
     if (write_bytes > 0) {
         _resource_context->io_context()->update_spill_write_bytes_to_local_storage(write_bytes);
@@ -178,12 +184,8 @@ void ExternalSpillSession::update_accounting(const std::string& path, int64_t cu
 }
 
 SpillFileManager::~SpillFileManager() {
-    // QueryContext destruction can still queue failed deletions after stop(), for example while
-    // VDataStreamMgr is being destroyed. Retry them once more before dropping the in-memory state.
-    // A local directory that still cannot be deleted remains under the active spill root and is
-    // moved to the GC root by init() after restart; remote objects are left to the lifecycle rule
-    // of the bucket.
-    _retry_pending_local_spill_directories();
+    // Do not start another cleanup pass during shutdown. Local leftovers are moved to
+    // spill_gc by init() after restart; remote leftovers require a bucket lifecycle rule.
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
 
@@ -205,6 +207,9 @@ SpillFileManager::SpillFileManager(
             _local_stores.push_back(local);
         }
     }
+    // init() may fail before starting GC. Every constructed manager must still own a
+    // valid metric entity, including on that failure path when its destructor deregisters it.
+    _init_metrics();
 }
 
 void SpillFileManager::stop() {
@@ -212,32 +217,37 @@ void SpillFileManager::stop() {
     if (_spill_gc_thread) {
         _spill_gc_thread->join();
     }
-    // The GC thread may observe the stop latch before processing a recently queued failed deletion.
-    // Retry the pending directories after the thread exits; later failures get one final retry in
-    // the destructor. Neither retries remote directories, so that an unavailable object store does
-    // not delay shutdown; they stay queued for a later gc() and are otherwise left to the
-    // lifecycle rule of the bucket.
-    _retry_pending_local_spill_directories();
 }
 
 Status SpillFileManager::init() {
     LOG(INFO) << "init spill stream manager";
-    if (config::spill_storage_type == "s3") {
+    if (spill_storage_type::is_remote(config::spill_storage_type)) {
         if (!config::is_cloud_mode()) {
-            return Status::InvalidArgument("spill_storage_type=s3 is only supported in cloud mode");
+            return Status::InvalidArgument("remote spill is only supported in cloud mode");
         }
         if (config::spill_file_part_size_bytes < config::s3_write_buffer_size) {
             // Every part ends with a partially filled upload buffer that still allocates
             // s3_write_buffer_size, so tiny parts waste upload memory.
             LOG(WARNING) << "spill_file_part_size_bytes (" << config::spill_file_part_size_bytes
                          << ") is below s3_write_buffer_size (" << config::s3_write_buffer_size
-                         << "); every spill part will hold a mostly empty upload buffer";
+                         << "); using s3_write_buffer_size as the minimum remote spill part size";
         }
         LOG(INFO) << "query spill data will be written to object storage; local spill paths "
                      "remain available to external writers that require native file paths";
     }
     RETURN_IF_ERROR(_init_spill_store_map());
 
+    RETURN_IF_ERROR(_init_local_spill_directories());
+
+    RETURN_IF_ERROR(Thread::create(
+            "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
+            &_spill_gc_thread));
+    LOG(INFO) << "spill gc thread started";
+
+    return Status::OK();
+}
+
+Status SpillFileManager::_init_local_spill_directories() {
     for (auto* store : _local_stores) {
         auto gc_dir_root_dir = store->get_spill_data_gc_path();
         bool exists = true;
@@ -251,22 +261,14 @@ Status SpillFileManager::init() {
         if (!exists) {
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(spill_dir));
         } else {
-            auto suffix = ToStringFromUnixMillis(UnixMillis());
+            auto suffix = UniqueId::gen_uid().to_string();
             auto gc_dir = store->get_spill_data_gc_path(suffix);
-            if (std::filesystem::exists(gc_dir)) {
-                LOG(WARNING) << "gc dir already exists: " << gc_dir;
-            }
-            (void)io::global_local_filesystem()->rename(spill_dir, gc_dir);
+            // Failure to quarantine the old root must fail startup; silently reusing it
+            // would mix stale files with new queries. A UUID avoids GC-name collisions.
+            RETURN_IF_ERROR(io::global_local_filesystem()->rename(spill_dir, gc_dir));
             RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(spill_dir));
         }
     }
-
-    RETURN_IF_ERROR(Thread::create(
-            "Spill", "spill_gc_thread", [this]() { this->_spill_gc_thread_callback(); },
-            &_spill_gc_thread));
-    LOG(INFO) << "spill gc thread started";
-
-    _init_metrics();
 
     return Status::OK();
 }
@@ -334,11 +336,9 @@ void SpillFileManager::_spill_gc_thread_callback() {
             std::chrono::milliseconds(config::spill_gc_interval_ms))) {
         gc(config::spill_gc_work_time_ms);
         for (auto& [path, dir] : _spill_store_map) {
-            static_cast<void>(dir->update_capacity());
+            WARN_IF_ERROR(dir->update_capacity(), "failed to refresh spill store capacity");
         }
-        if (_spill_pending_delete_dir_count_gauge != nullptr) {
-            _spill_pending_delete_dir_count_gauge->set_value(pending_delete_dir_count());
-        }
+        _spill_pending_delete_dir_count_gauge->set_value(pending_delete_dir_count());
     }
 }
 
@@ -462,9 +462,9 @@ void SpillFileManager::_release_external_spill_session(ExternalSpillSession* spi
     }
 
     if (spill_session->_accounted_bytes > 0) {
-        // Match SpillFile::gc(): QueryContext owns physical cleanup and its retry path, while the
-        // writer releases logical usage when its lifetime ends.
-        spill_session->_data_dir->update_spill_data_usage(-spill_session->_accounted_bytes);
+        // External implementations own their logical reservations; query-directory GC cleans
+        // any files they leave behind after their callbacks release the directory lease.
+        spill_session->_data_dir->release(spill_session->_accounted_bytes);
         spill_session->_accounted_bytes = 0;
     }
 
@@ -508,27 +508,42 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
             .dir = data_dir->get_spill_data_path(query_id),
             .query_id = query_id,
             .data_dir = data_dir,
-            .fs = nullptr,
+            .fs = data_dir->fs(),
             .charged_bytes = 0,
             .persisted_bytes = 0,
             .file_log_contexts = {},
     };
 
-    auto status = _try_delete_spill_directory(pending_directory);
-    if (!status.ok()) {
-        LOG(WARNING) << "[spill][delete_query] query_id=" << query_id
-                     << ", storage=local, path=" << pending_directory.dir
-                     << ", retry_queued=true, status=" << status;
-        ++pending_directory.failed_count;
-        _add_pending_directory(std::move(pending_directory));
-    }
+    _add_pending_directory(std::move(pending_directory));
 }
 
-void SpillFileManager::retry_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
+void SpillFileManager::register_s3_writer(const io::S3FileWriter& writer) {
+    std::lock_guard lock(_upload_progress_mutex);
+    // Part rotation destroys old writers, so do not keep their expired control blocks.
+    std::erase_if(_upload_progress, [](const auto& progress) { return progress.expired(); });
+    _upload_progress.emplace_back(writer.upload_progress());
+}
+
+int64_t SpillFileManager::pending_upload_bytes() {
+    std::lock_guard lock(_upload_progress_mutex);
+    int64_t bytes = 0;
+    std::erase_if(_upload_progress, [&](const auto& weak_progress) {
+        // A closed/discarded part may expire between two admission checks. Promoting only
+        // its progress view never delays writer destruction or waits for network I/O.
+        if (auto progress = weak_progress.lock()) {
+            bytes += progress->pending_upload_bytes();
+            return false;
+        }
+        return true;
+    });
+    return bytes;
+}
+
+void SpillFileManager::queue_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
                                                       std::string dir, int64_t charged_bytes,
                                                       int64_t persisted_bytes, std::string query_id,
                                                       std::vector<std::string> file_log_contexts) {
-    _add_pending_directory({.failed_count = 1,
+    _add_pending_directory({.failed_count = 0,
                             .dir = std::move(dir),
                             .query_id = std::move(query_id),
                             .data_dir = data_dir,
@@ -539,38 +554,63 @@ void SpillFileManager::retry_spill_directory_deletion(SpillDataDir* data_dir, io
 }
 
 void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_directory) {
-    auto is_under = [](const std::string& dir, const std::string& ancestor) {
-        return dir.size() > ancestor.size() && dir.starts_with(ancestor) &&
-               dir[ancestor.size()] == '/';
-    };
+    // Normal SpillFile teardown uses this path too. A sibling-heavy backlog must not make
+    // each producer scan all earlier entries while holding the shared queue mutex.
     std::lock_guard lock(_pending_spill_directories_mutex);
-    for (auto& pending : _pending_spill_directories) {
-        if (pending.data_dir == pending_directory.data_dir && pending.fs == pending_directory.fs &&
-            (pending.dir == pending_directory.dir ||
-             is_under(pending_directory.dir, pending.dir))) {
-            // Deleting the pending ancestor deletes these objects too.
-            pending.charged_bytes += pending_directory.charged_bytes;
-            pending.persisted_bytes += pending_directory.persisted_bytes;
-            pending.file_log_contexts.insert(
-                    pending.file_log_contexts.end(),
-                    std::make_move_iterator(pending_directory.file_log_contexts.begin()),
-                    std::make_move_iterator(pending_directory.file_log_contexts.end()));
-            return;
+    _pending_spill_directories.emplace_back(std::move(pending_directory));
+}
+
+std::list<SpillFileManager::PendingSpillDirectory> SpillFileManager::_coalesce_pending_directories(
+        std::list<PendingSpillDirectory> pending_directories) {
+    using DirectoryIterator = std::list<PendingSpillDirectory>::iterator;
+    struct IndexedDirectory {
+        DirectoryIterator entry;
+        bool emitted = false;
+    };
+    using DirectoryIndex = std::unordered_map<std::string_view, IndexedDirectory>;
+    std::list<PendingSpillDirectory> coalesced;
+    // Keep absorbed nodes alive until the index is destroyed: its string_views borrow dir.
+    std::list<PendingSpillDirectory> absorbed;
+    std::unordered_map<SpillDataDir*, std::unordered_map<io::FileSystem*, DirectoryIndex>> indices;
+    for (auto it = pending_directories.begin(); it != pending_directories.end(); ++it) {
+        indices[it->data_dir][it->fs.get()].try_emplace(it->dir, IndexedDirectory {.entry = it});
+    }
+    while (!pending_directories.empty()) {
+        auto current = pending_directories.begin();
+        auto& index = indices.at(current->data_dir).at(current->fs.get());
+        const std::string_view dir = current->dir;
+        auto* root = &index.at(dir);
+        // Search component-boundary ancestors, not the backlog. Indexing the whole batch
+        // first also finds a parent enqueued after its children. For q/run-1 and q/run-10,
+        // neither is an ancestor; only an indexed q can absorb both.
+        for (auto slash = dir.find('/'); slash != std::string_view::npos;
+             slash = dir.find('/', slash + 1)) {
+            if (auto it = index.find(dir.substr(0, slash)); it != index.end()) {
+                root = &it->second;
+                break;
+            }
+        }
+        if (!root->emitted) {
+            // Emit groups at their first encountered member, not in path/hash order, so a
+            // time-sliced retry still puts untried directories before earlier failures.
+            coalesced.splice(coalesced.end(), pending_directories, root->entry);
+            root->emitted = true;
+        }
+        auto& ancestor = *root->entry;
+        // A duplicate/descendant contributes its metadata once; the root already carries
+        // its own charge and must not add itself after being spliced to coalesced.
+        if (&ancestor != &*current) {
+            ancestor.charged_bytes += current->charged_bytes;
+            ancestor.persisted_bytes += current->persisted_bytes;
+            ancestor.failed_count = std::max(ancestor.failed_count, current->failed_count);
+            ancestor.file_log_contexts.insert(
+                    ancestor.file_log_contexts.end(),
+                    std::make_move_iterator(current->file_log_contexts.begin()),
+                    std::make_move_iterator(current->file_log_contexts.end()));
+            absorbed.splice(absorbed.end(), pending_directories, current);
         }
     }
-    std::erase_if(_pending_spill_directories, [&](const PendingSpillDirectory& pending) {
-        if (pending.data_dir == pending_directory.data_dir && pending.fs == pending_directory.fs &&
-            is_under(pending.dir, pending_directory.dir)) {
-            pending_directory.charged_bytes += pending.charged_bytes;
-            pending_directory.persisted_bytes += pending.persisted_bytes;
-            pending_directory.file_log_contexts.insert(pending_directory.file_log_contexts.end(),
-                                                       pending.file_log_contexts.begin(),
-                                                       pending.file_log_contexts.end());
-            return true;
-        }
-        return false;
-    });
-    _pending_spill_directories.emplace_back(std::move(pending_directory));
+    return coalesced;
 }
 
 Status SpillFileManager::_try_delete_spill_directory(
@@ -591,6 +631,8 @@ Status SpillFileManager::_try_delete_spill_directory(
                                               : pending_directory.data_dir->fs();
     DORIS_CHECK(fs != nullptr) << "spill store " << pending_directory.data_dir->path()
                                << " is not ready";
+    DBUG_EXECUTE_IF("fault_inject::spill_file::gc",
+                    { return Status::Error<INTERNAL_ERROR>("fault_inject spill_file gc failed"); });
     auto status = fs->delete_directory(pending_directory.dir);
     if (status.ok()) {
         pending_directory.data_dir->record_spill_file_deleted(
@@ -611,17 +653,9 @@ Status SpillFileManager::_try_delete_spill_directory(
     return status;
 }
 
-void SpillFileManager::_retry_pending_local_spill_directories() {
-    MonotonicStopWatch watch;
-    watch.start();
-    _retry_pending_spill_directories(watch, std::numeric_limits<int64_t>::max(),
-                                     /*retry_remote=*/false);
-}
-
 void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch& watch,
-                                                        int64_t max_work_time_ns,
-                                                        bool retry_remote) {
-    std::vector<PendingSpillDirectory> pending_directories;
+                                                        int64_t max_work_time_ns) {
+    std::list<PendingSpillDirectory> pending_directories;
     {
         std::lock_guard lock(_pending_spill_directories_mutex);
         pending_directories.swap(_pending_spill_directories);
@@ -629,25 +663,29 @@ void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch
     DBUG_EXECUTE_IF("fault_inject::spill_file_manager::retry_pending_spill_directories_after_drain",
                     { DBUG_RUN_CALLBACK(); });
 
+    // Index/coalesce only the owned batch, outside the producer mutex.
+    pending_directories = _coalesce_pending_directories(std::move(pending_directories));
     // Limit repeated warnings for a persistently unavailable directory while retaining it for
     // every subsequent retry.
-    std::vector<PendingSpillDirectory> untried_directories;
-    std::vector<PendingSpillDirectory> failed_directories;
+    std::list<PendingSpillDirectory> untried_directories;
+    std::list<PendingSpillDirectory> failed_directories;
     size_t tried = 0;
-    for (auto& pending_directory : pending_directories) {
+    while (!pending_directories.empty()) {
+        auto current = pending_directories.begin();
+        auto& pending_directory = *current;
         // A remote deletion can wait for a request timeout: after the time slice is used up the
         // remaining directories are queued again without being tried, ahead of the ones that
         // just failed, so that a slow failing directory cannot starve the others.
-        if ((!retry_remote && pending_directory.data_dir->is_remote()) ||
-            (tried > 0 && watch.elapsed_time() >= max_work_time_ns)) {
-            untried_directories.emplace_back(std::move(pending_directory));
-            continue;
+        if (tried > 0 && watch.elapsed_time() >= max_work_time_ns) {
+            untried_directories.splice(untried_directories.end(), pending_directories);
+            break;
         }
         ++tried;
         auto status = _try_delete_spill_directory(pending_directory);
         if (status.ok()) {
             pending_directory.data_dir->release(pending_directory.charged_bytes);
             pending_directory.data_dir->release_persisted_bytes(pending_directory.persisted_bytes);
+            pending_directories.erase(current);
             continue;
         }
 
@@ -677,24 +715,15 @@ void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch
                                  << ", files=" << pending_directory.file_log_contexts.size()
                                  << ", failed_attempts=" << pending_directory.failed_count
                                  << ", status=" << status;
-        failed_directories.emplace_back(std::move(pending_directory));
+        failed_directories.splice(failed_directories.end(), pending_directories, current);
     }
 
-    // The directories kept are already merged with each other, so they go back as one batch;
-    // only the ones queued while this pass ran are merged into them one by one. A backlog of
-    // many spill-file prefixes (an outage during a partitioned spill) thus costs one rescan
-    // per new entry, not one per kept entry.
-    std::vector<PendingSpillDirectory> queued_meanwhile;
+    // Return complete batches in constant time under the mutex. Requests enqueued while
+    // GC was doing I/O remain intact and will coalesce with these retries on the next pass.
+    untried_directories.splice(untried_directories.end(), failed_directories);
     {
         std::lock_guard lock(_pending_spill_directories_mutex);
-        queued_meanwhile.swap(_pending_spill_directories);
-        _pending_spill_directories = std::move(untried_directories);
-        _pending_spill_directories.insert(_pending_spill_directories.end(),
-                                          std::make_move_iterator(failed_directories.begin()),
-                                          std::make_move_iterator(failed_directories.end()));
-    }
-    for (auto& pending_directory : queued_meanwhile) {
-        _add_pending_directory(std::move(pending_directory));
+        _pending_spill_directories.splice(_pending_spill_directories.begin(), untried_directories);
     }
 }
 
@@ -717,7 +746,7 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
             LOG(INFO) << msg;
         }
     }};
-    _retry_pending_spill_directories(watch, max_work_time_ns, /*retry_remote=*/true);
+    _retry_pending_spill_directories(watch, max_work_time_ns);
     for (auto* store_dir : _local_stores) {
         SpillGcStats stats;
         _gc_spill_store(store_dir, watch, max_work_time_ns, &stats);

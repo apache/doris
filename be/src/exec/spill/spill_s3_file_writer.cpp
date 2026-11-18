@@ -22,14 +22,15 @@
 #include <utility>
 
 #include "common/config.h"
+#include "core/assert_cast.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_manager.h"
+#include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/workload_management/io_context.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
-#include "util/threadpool.h"
 
 namespace doris {
 
@@ -38,7 +39,8 @@ SpillS3FileWriter::SpillS3FileWriter(const std::shared_ptr<SpillFile>& spill_fil
                                      SpillDataDir* data_dir, io::FileSystemSPtr fs,
                                      std::string spill_dir)
         : SpillFileWriter(spill_file, state, profile, data_dir, std::move(fs),
-                          std::move(spill_dir)) {
+                          std::move(spill_dir)),
+          _spill_manager(ExecEnv::GetInstance()->spill_file_mgr()) {
     RuntimeProfile* custom_profile = profile->get_child("CustomCounters");
     _remote_upload_bytes = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_BYTES);
     _remote_upload_timer = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_TIME);
@@ -55,7 +57,13 @@ SpillS3FileWriter::~SpillS3FileWriter() {
     }
 }
 
-Status SpillS3FileWriter::_wait_for_upload_queue() {
+void SpillS3FileWriter::_on_part_opened() {
+    // S3FileSystem creates an S3FileWriter for every part. Only spill registers its progress;
+    // unrelated writers using the same upload pool do not enter the BE spill budget.
+    _spill_manager->register_s3_writer(*assert_cast<io::S3FileWriter*>(_file_writer.get()));
+}
+
+Status SpillS3FileWriter::_wait_for_upload_capacity() {
     auto is_cancelled = [this]() {
         return _resource_ctx != nullptr && _resource_ctx->task_controller()->is_cancelled();
     };
@@ -63,10 +71,10 @@ Status SpillS3FileWriter::_wait_for_upload_queue() {
     if (is_cancelled()) {
         return Status::Cancelled("query cancelled before uploading spill data");
     }
-    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
-    auto queue_full = [upload_pool]() {
-        return static_cast<int64_t>(upload_pool->get_queue_size()) * config::s3_write_buffer_size >=
-               config::spill_s3_max_inflight_upload_bytes;
+    // Only submitted spill uploads count. Unrelated loads on the shared S3 pool must not
+    // throttle spill, and idle partial buffers must not prevent active writers making progress.
+    auto queue_full = [this]() {
+        return _spill_manager->pending_upload_bytes() >= config::spill_s3_max_inflight_upload_bytes;
     };
     if (!queue_full()) {
         return Status::OK();
@@ -90,7 +98,7 @@ Status SpillS3FileWriter::_append_to_part(const Slice& data) {
     // S3FileWriter splits `data` into upload buffers and queues every full one without waiting,
     // so the queue is checked once per append: `data` is already in memory, and the wait keeps
     // the next append from producing faster than object storage takes the data.
-    _part_append_status = _wait_for_upload_queue();
+    _part_append_status = _wait_for_upload_capacity();
     RETURN_IF_ERROR(_part_append_status);
     MonotonicStopWatch append_watch;
     append_watch.start();

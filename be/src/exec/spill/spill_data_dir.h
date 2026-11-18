@@ -70,7 +70,7 @@ public:
 
     /// Root of spill data of this store, optionally for one query:
     ///   local:  {path}/spill[/query_id]
-    ///   remote: spill/{ip}_{port}[/query_id]   (relative to the vault prefix)
+    ///   remote: spill/{backend_uid}[/query_id]   (relative to the vault prefix)
     std::string get_spill_data_path(const std::string& query_id = "") const;
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
@@ -81,14 +81,15 @@ public:
 
     /// Atomically check the capacity limit and account `bytes` as used. Returns
     /// DISK_REACH_CAPACITY_LIMIT without accounting when the limit would be exceeded.
-    /// With force=true the bytes are accounted without checking (used for part footers so
-    /// that an open part can always be closed).
-    Status try_reserve(int64_t bytes, bool force = false);
+    Status try_reserve(int64_t bytes);
 
-    /// Give back bytes accounted by try_reserve().
-    void release(int64_t bytes) { update_spill_data_usage(-bytes); }
+    /// Account bytes without checking capacity (part footers must allow closing an open part).
+    void reserve(int64_t bytes);
 
-    void update_spill_data_usage(int64_t incoming_data_size);
+    /// Return bytes charged by try_reserve()/reserve(); callers own the reservation lifetime.
+    /// This changes capacity accounting, not persisted-object accounting or filesystem state.
+    /// SpillFile keeps its reservation until background deletion succeeds.
+    void release(int64_t bytes);
 
     int64_t get_spill_data_bytes();
 
@@ -116,11 +117,15 @@ protected:
     SpillDataDir(std::string path, std::string spill_root, const std::string& metric_path,
                  int64_t capacity_bytes, TStorageMedium::type storage_medium);
 
+    static double _inode_usage(size_t total, size_t available);
+    static std::string _inode_debug_string(size_t total, size_t available);
+
     /// Called with _mutex held.
-    virtual bool _reach_limit_unlocked(int64_t incoming_data_size) = 0;
+    virtual bool _reach_limit_unlocked(int64_t incoming_data_size,
+                                       const std::lock_guard<std::mutex>& lock) = 0;
 
     std::string _path;
-    // Root of spill data: local "{path}/spill", remote "spill/{ip}_{port}".
+    // Root of spill data: local "{path}/spill", remote "spill/{backend_uid}".
     std::string _spill_root;
 
     // protect _disk_capacity_bytes, _available_bytes, _spill_data_limit_bytes, _spill_data_bytes
@@ -146,36 +151,6 @@ protected:
     // for test
     IntGauge* spill_disk_has_spill_data = nullptr;
     IntGauge* spill_disk_has_spill_gc_data = nullptr;
-};
-
-/// Spill store on one local disk (spill_storage_type=local).
-class LocalSpillDataDir final : public SpillDataDir {
-public:
-    LocalSpillDataDir(std::string path, int64_t capacity_bytes,
-                      TStorageMedium::type storage_medium = TStorageMedium::HDD);
-
-    Status init() override;
-
-    io::FileSystemSPtr fs() const override;
-
-    Status update_capacity() override;
-
-    double get_disk_usage(int64_t incoming_data_size) const override {
-        return _disk_capacity_bytes == 0
-                       ? 0
-                       : (double)(_disk_capacity_bytes - _available_bytes + incoming_data_size) /
-                                 (double)_disk_capacity_bytes;
-    }
-
-    /// {path}/spill_gc[/sub_dir]: spill directories moved here are deleted by the GC thread.
-    std::string get_spill_data_gc_path(const std::string& sub_dir_name = "") const;
-
-protected:
-    bool _reach_limit_unlocked(int64_t incoming_data_size) override;
-
-private:
-    bool _reach_disk_capacity_limit(int64_t incoming_data_size);
-    void _update_inode_usage();
 };
 
 } // namespace doris

@@ -42,6 +42,7 @@
 #include "cpp/sync_point.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/spill_file_manager.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"

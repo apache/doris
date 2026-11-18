@@ -122,7 +122,7 @@ public class Backend implements Writable {
     // this field is set by tablet report, and just for metric monitor, no need to persist.
     private volatile long tabletMaxCompactionScore = 0;
     // Bytes of query spill this BE currently holds in object storage, from its latest disk report
-    // (cloud mode, spill_storage_type=s3). Like the disk capacity, only the master FE keeps it.
+    // (cloud mode, spill_storage_type=remote). Like the disk capacity, only the master FE keeps it.
     private volatile long remoteSpillBytes = 0;
 
     // additional backendStatus information for BE, display in JSON format

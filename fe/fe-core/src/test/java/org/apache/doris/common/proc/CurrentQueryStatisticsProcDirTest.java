@@ -20,6 +20,8 @@ package org.apache.doris.common.proc;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 /**
  * Unit test for CurrentQueryStatisticsProcDir progress formatting.
  * Tests the formatProgress method directly — no mocking or reflection required.
@@ -27,12 +29,16 @@ import org.junit.jupiter.api.Test;
 public class CurrentQueryStatisticsProcDirTest {
 
     @Test
-    public void testRemoteSpillColumnsAreAppendedLast() {
-        // Old FE rows omit the appended columns during a rolling upgrade.
-        int n = CurrentQueryStatisticsProcDir.TITLE_NAMES.size();
-        Assertions.assertEquals("Progress", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 3));
-        Assertions.assertEquals("SpillWriteBytesToRemoteStorage", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 2));
-        Assertions.assertEquals("SpillReadBytesFromRemoteStorage", CurrentQueryStatisticsProcDir.TITLE_NAMES.get(n - 1));
+    public void testRemoteSpillColumnsPreserveLegacyColumnPositions() {
+        List<String> titles = CurrentQueryStatisticsProcDir.TITLE_NAMES;
+        int n = titles.size();
+        Assertions.assertEquals("Progress", titles.get(n - 3));
+        Assertions.assertEquals("SpillWriteBytesToRemoteStorage", titles.get(n - 2));
+        Assertions.assertEquals("SpillReadBytesFromRemoteStorage", titles.get(n - 1));
+        // A pre-upgrade FE uses these positions even for rows returned by an upgraded peer.
+        Assertions.assertEquals("SpillReadBytesFromLocalStorage", titles.get(20));
+        Assertions.assertEquals("BytesWriteIntoCache", titles.get(21));
+        Assertions.assertEquals("TotalTasks", titles.get(22));
     }
 
     @Test

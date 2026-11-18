@@ -73,6 +73,8 @@ public:
     size_t max_footer_bytes() const { return _max_footer_bytes; }
 
 protected:
+    virtual void _on_part_opened() {}
+
     /// Preserve the first append failure for the whole part, including its footer.
     virtual Status _append_to_part(const Slice& data);
 
@@ -107,7 +109,8 @@ private:
     /// Called by SpillFile::gc() when the SpillFile goes away before this writer was closed
     /// (e.g. an error unwound the owner of the file first). Drops the current part without
     /// a footer and without publishing it, and unregisters from the SpillFile, so that nothing
-    /// is charged to or written under a SpillFile that no longer exists.
+    /// is charged to or written under a SpillFile that no longer exists. Destruction of the
+    /// underlying writer waits for in-flight uploads before directory deletion is queued.
     void _discard(SpillFile* spill_file);
 
     /// If current part size >= _max_part_size, close it.

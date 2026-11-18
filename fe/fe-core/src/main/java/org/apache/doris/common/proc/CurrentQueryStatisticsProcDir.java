@@ -46,7 +46,8 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             .add("SpillWriteBytesToLocalStorage").add("SpillReadBytesFromLocalStorage")
             .add("BytesWriteIntoCache")
             .add("TotalTasks").add("FinishedTasks").add("Progress")
-            // Appended last so old FE rows can default these fields during rolling upgrades.
+            // Keep legacy positions: old FE aggregators concatenate remote rows by position.
+            // Only new aggregators normalize by name, so inserting columns would mislabel old FE results.
             .add("SpillWriteBytesToRemoteStorage").add("SpillReadBytesFromRemoteStorage").build();
 
     private static final int EXEC_TIME_INDEX = 5;

@@ -43,7 +43,9 @@ SpillFileWriter::SpillFileWriter(const std::shared_ptr<SpillFile>& spill_file, R
           _data_dir(data_dir),
           _fs(std::move(fs)),
           _spill_dir(std::move(spill_dir)),
-          _max_part_size(config::spill_file_part_size_bytes),
+          _max_part_size(data_dir->is_remote() ? std::max(config::spill_file_part_size_bytes,
+                                                          config::s3_write_buffer_size)
+                                               : config::spill_file_part_size_bytes),
           _resource_ctx(state->get_query_ctx()->resource_ctx()) {
     // Common counters
     RuntimeProfile* common_profile = profile->get_child("CommonCounters");
@@ -90,8 +92,8 @@ void SpillFileWriter::_discard(SpillFile* spill_file) {
         return;
     }
     // Drop the part without a footer or close(). Destruction waits for in-flight uploads
-    // without publishing the object, before the SpillFile deletes its prefix. Incomplete
-    // multipart uploads are left to the bucket lifecycle rule.
+    // without publishing the object, before queuing the SpillFile's prefix for deletion.
+    // Incomplete multipart uploads are left to the bucket lifecycle rule.
     std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
     writer.reset();
     _on_part_closed(nullptr, /*closed=*/false, /*close_ns=*/0);
@@ -119,6 +121,7 @@ Status SpillFileWriter::_open_next_part(const std::shared_ptr<SpillFile>& spill_
     opts.allow_adaptive_file_cache_write = false;
     opts.approximate_bytes_to_write = 0;
     RETURN_IF_ERROR(fs->create_file(_current_part_path, &_file_writer, &opts));
+    _on_part_opened();
     COUNTER_UPDATE(_total_file_count, 1);
     return Status::OK();
 }
@@ -136,13 +139,14 @@ Status SpillFileWriter::_close_current_part(const std::shared_ptr<SpillFile>& sp
     int64_t meta_size = _part_meta.size();
     // The footer must always be written so that the part can be closed; account it
     // without checking the capacity limit.
-    Status status = _data_dir->try_reserve(meta_size, /*force=*/true);
-    if (status.ok()) {
+    _data_dir->reserve(meta_size);
+    Status status;
+    {
         SCOPED_TIMER(_write_file_timer);
         status = _append_to_part(Slice(_part_meta));
-        if (!status.ok()) {
-            _data_dir->release(meta_size);
-        }
+    }
+    if (!status.ok()) {
+        _data_dir->release(meta_size);
     }
 
     if (status.ok()) {
