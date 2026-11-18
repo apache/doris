@@ -36,7 +36,16 @@ suite("test_mongodb_m1", "p0,external") {
         col("bytes", "VARBINARY", ["binData"]),
         col("nested", "ARRAY<STRUCT<amount:DECIMAL(10,2),tags:ARRAY<STRING>>>", ["array"])]
     fields.find { it.name == "bytes" }.subtype = 0
+    List precisionFields = [fields[0]]
+    for (int scale = 0; scale <= 6; scale++) {
+        precisionFields.add(col("time_p${scale}", "DATETIME(${scale})", ["date"], ["observed"]))
+    }
+    for (List spec : [[1, 0], [9, 0], [9, 2], [9, 9], [18, 0], [18, 6], [18, 18], [38, 0], [38, 4], [38, 38]]) {
+        precisionFields.add(col("decimal_p${spec[0]}s${spec[1]}", "DECIMAL(${spec[0]},${spec[1]})",
+            ["decimal"], ["amount"]))
+    }
     Map manifest = ["doris_mongodb_m1.records": [columns: fields],
+        "doris_mongodb_m1.precision_records": [columns: precisionFields],
         "doris_mongodb_m1.dirty": [columns: fields.take(2)],
         "doris_mongodb_m1.collated": [columns: [fields[0], fields[2]]],
         "doris_mongodb_m1.paths": [columns: [fields[0], col("child", "BIGINT", ["long"], ["a", "b"]),
@@ -90,6 +99,34 @@ suite("test_mongodb_m1", "p0,external") {
         "order_qt_json_not_null_${enabled}" """SELECT seq, cast(json_tags AS STRING)
             FROM mongodb_m1_null.doris_mongodb_native.typed_records WHERE json_tags IS NOT NULL"""
         "order_qt_paths_${enabled}" "SELECT seq, child, literal FROM paths"
+        String originalTimeZone = sql("SELECT @@time_zone")[0][0].toString()
+        try {
+            List timeZones = ["UTC", "+08:00", "America/Los_Angeles", "Asia/Kathmandu"]
+            for (int zone = 0; zone < timeZones.size(); zone++) {
+                sql "SET time_zone='${timeZones[zone]}'"
+                // BSON Date and its typed candidate use UTC even when the session crosses midnight.
+                "order_qt_utc_date_${enabled}_${zone}" """SELECT seq, observed, epoch_ms FROM records
+                    WHERE observed >= '1969-12-31 23:59:59.999'
+                      AND observed < '1970-01-01 00:00:00.001'"""
+                "order_qt_utc_timeseries_${enabled}_${zone}" """SELECT observed, device, value
+                    FROM mongodb_m1_null.doris_mongodb_native.measurements
+                    WHERE observed >= '2024-01-01 00:00:00.001'
+                      AND observed < '2024-01-02 00:00:00'"""
+                "order_qt_precision_types_${enabled}_${zone}" """SELECT ${precisionFields.collect { it.name }.join(',')}
+                    FROM precision_records"""
+                "order_qt_precision_filter_${enabled}_${zone}" """SELECT seq, time_p0, time_p3, time_p6,
+                    decimal_p9s2, decimal_p38s4, decimal_p38s38 FROM precision_records
+                    WHERE time_p6 >= '1969-12-31 23:59:59.999' AND decimal_p38s4 >= 123.45"""
+                "order_qt_submillisecond_${enabled}_${zone}" """SELECT seq FROM precision_records
+                    WHERE time_p6 = '1969-12-31 23:59:59.999001'"""
+                "order_qt_dst_boundary_${enabled}_${zone}" """SELECT seq, time_p3, time_p6 FROM precision_records
+                    WHERE time_p6 >= '2024-03-10 09:59:59.999' AND time_p6 <= '2024-03-10 10:00:00'"""
+                "order_qt_high_scale_decimal_${enabled}_${zone}" """SELECT seq, decimal_p38s38 FROM precision_records
+                    WHERE decimal_p38s38 = cast('0.1234567890123456789012345678901234' AS DECIMAL(38,38))"""
+            }
+        } finally {
+            sql "SET time_zone='${originalTimeZone}'"
+        }
         test {
             sql "SELECT seq, n FROM mongodb_m1_error.doris_mongodb_m1.dirty WHERE seq = 1"
             exception "BSON"
@@ -97,6 +134,12 @@ suite("test_mongodb_m1", "p0,external") {
         test {
             sql "SELECT seq, child FROM mongodb_m1_error.doris_mongodb_m1.paths"
             exception "BSON"
+        }
+        for (String field : ["time_p0", "time_p1", "time_p2", "decimal_p1s0", "decimal_p9s2", "decimal_p38s38"]) {
+            test {
+                sql "SELECT ${field} FROM mongodb_m1_error.doris_mongodb_m1.precision_records"
+                exception "BSON"
+            }
         }
     }
     sql "SET enable_mongodb_predicate_pushdown=true"

@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -83,6 +84,9 @@ protected:
                 bool null_on_error = false) {
         return read(type, column, json, binding(), null_on_error);
     }
+    void check_datetime_cell(int scale, int64_t millis);
+    void check_decimal_range(int precision, int scale);
+    void check_decimal_rejection(const DataTypePtr& type, const std::string& json);
 };
 } // namespace
 
@@ -639,6 +643,87 @@ TEST_F(BsonSerdeTest, FloatingPointSpecialValuesAndNarrowingKeepTheContract) {
     ASSERT_TRUE(read(narrow, *narrowed, R"({"v":1.5})").ok());
     EXPECT_TRUE(assert_cast<const ColumnNullable&>(*narrowed).is_null_at(0));
     EXPECT_FALSE(assert_cast<const ColumnNullable&>(*narrowed).is_null_at(1));
+}
+
+void BsonSerdeTest::check_datetime_cell(int scale, int64_t millis) {
+    SCOPED_TRACE("scale=" + std::to_string(scale) + ", millis=" + std::to_string(millis));
+    auto type = std::make_shared<DataTypeDateTimeV2>(scale);
+    auto strict = type->create_column();
+    auto nullable_type = make_nullable(type);
+    auto nullable = nullable_type->create_column();
+    const int64_t quanta[] = {1000, 100, 10, 1, 1, 1, 1};
+    const bool exact = millis % quanta[scale] == 0;
+    std::string json = R"({"v":{"$date":{"$numberLong":")" + std::to_string(millis) + R"("}}})";
+    EXPECT_EQ(read(type, *strict, json).ok(), exact);
+    ASSERT_EQ(strict->size(), exact ? 1 : 0);
+    ASSERT_TRUE(read(nullable_type, *nullable, json, true).ok());
+    EXPECT_EQ(nullable->is_null_at(0), !exact);
+    if (exact) {
+        const auto packed = assert_cast<const ColumnDateTimeV2&>(*strict).get_data().back();
+        DateV2Value<DateTimeV2ValueType> value;
+        memcpy(&value, &packed, sizeof(value));
+        EXPECT_EQ(value.microsecond(), ((millis % 1000 + 1000) % 1000) * 1000);
+        EXPECT_EQ(value.year(), millis < 0 ? 1969 : 1970);
+    }
+}
+
+TEST_F(BsonSerdeTest, EveryDatetimeScaleChecksPositiveAndNegativeMillisecondPrecision) {
+    for (int scale = 0; scale <= 6; ++scale) {
+        for (int64_t millis : {-1001, -1000, -999, -100, -10, -1, 0, 1, 10, 100, 999, 1000, 1001}) {
+            check_datetime_cell(scale, millis);
+        }
+    }
+}
+
+void BsonSerdeTest::check_decimal_rejection(const DataTypePtr& type, const std::string& json) {
+    auto strict = type->create_column();
+    ASSERT_TRUE(read(type, *strict, R"({"v":{"$numberDecimal":"0"}})").ok());
+    EXPECT_FALSE(read(type, *strict, json).ok()) << json;
+    EXPECT_EQ(strict->size(), 1);
+    auto nullable_type = make_nullable(type);
+    auto nullable = nullable_type->create_column();
+    ASSERT_TRUE(read(nullable_type, *nullable, json, true).ok());
+    EXPECT_TRUE(nullable->is_null_at(0));
+}
+
+void BsonSerdeTest::check_decimal_range(int precision, int scale) {
+    SCOPED_TRACE("precision=" + std::to_string(precision) + ", scale=" + std::to_string(scale));
+    auto type = create_decimal(precision, scale, false);
+    auto strict = type->create_column();
+    const auto decimal = [](const std::string& value) {
+        return R"({"v":{"$numberDecimal":")" + value + R"("}})";
+    };
+    // Decimal128 has 34 significant digits. Larger target precisions still accept exact
+    // powers of ten, but must not invent additional significant source digits.
+    const int significant = std::min(precision, 34);
+    std::string digits(significant, '9');
+    const std::string maximum = digits + "E" + std::to_string(precision - scale - significant);
+    std::string expected = digits + std::string(precision - significant, '0');
+    if (scale > 0) {
+        expected.insert(expected.size() - scale, ".");
+    }
+    if (scale == precision) {
+        expected.insert(0, "0");
+    }
+    ASSERT_TRUE(read(type, *strict, decimal(maximum)).ok());
+    EXPECT_EQ(type->to_string(*strict, 0), expected);
+    ASSERT_TRUE(read(type, *strict, decimal("-" + maximum)).ok());
+    EXPECT_EQ(type->to_string(*strict, 1), "-" + expected);
+    for (const auto& invalid :
+         {"1E" + std::to_string(precision - scale), "1E-" + std::to_string(scale + 1),
+          std::string("NaN"), std::string("Infinity"), std::string("-Infinity")}) {
+        check_decimal_rejection(type, decimal(invalid));
+    }
+    ASSERT_TRUE(read(type, *strict, decimal("0E-6176")).ok());
+    ASSERT_TRUE(read(type, *strict, decimal("1E-" + std::to_string(scale))).ok());
+}
+
+TEST_F(BsonSerdeTest, DecimalPrecisionScaleMatrixRejectsOverflowAndRounding) {
+    for (int precision : {1, 9, 10, 18, 19, 38}) {
+        for (int scale : {0, precision / 2, precision}) {
+            check_decimal_range(precision, scale);
+        }
+    }
 }
 
 TEST_F(BsonSerdeTest, RecursiveStructArrayDecimalFailureRestoresEveryOffset) {

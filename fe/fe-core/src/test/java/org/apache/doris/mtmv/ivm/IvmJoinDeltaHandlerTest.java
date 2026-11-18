@@ -25,6 +25,7 @@ import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -46,6 +48,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -53,6 +57,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -64,6 +69,15 @@ import java.util.function.Supplier;
 class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
 
     private final class TestableIvmJoinDeltaHandler {
+        private final DataType sequenceType;
+
+        private TestableIvmJoinDeltaHandler() {
+            this(BigIntType.INSTANCE);
+        }
+
+        private TestableIvmJoinDeltaHandler(DataType sequenceType) {
+            this.sequenceType = sequenceType;
+        }
 
         private IvmDeltaRewriteResult exposeRewritePlan(Plan plan, IvmIncrRefreshContext ctx) {
             return exposeRewritePlanOptional(plan, ctx).orElseThrow(AssertionError::new);
@@ -84,7 +98,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
                 });
                 IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor(
                         new IvmLinearDeltaHandler(), new IvmJoinDeltaHandler(), new IvmAggDeltaHandler(),
-                        new IvmDeltaRewriteState(streams, true, 0, BigIntType.INSTANCE, ImmutableMap.of()));
+                        new IvmDeltaRewriteState(streams, true, 0, sequenceType, ImmutableMap.of()));
                 return visitor.rewritePlan(plan, ctx);
             });
         }
@@ -362,6 +376,28 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         assertContainsSubQueryAlias(postNullProject, "__DORIS_IVM_NULL_SIDE_KEY_DELTA__");
         assertContainsSubQueryAlias(postNullProject, "__DORIS_IVM_NULL_SIDE_POST_SNAPSHOT__");
         assertNoDuplicateScanRelationIds(result.plan);
+    }
+
+    @Test
+    void testNullSideRepairSequenceOrdering() {
+        for (DataType sequenceType : ImmutableList.of(BigIntType.INSTANCE, LargeIntType.INSTANCE)) {
+            for (boolean useEvents : new boolean[] {true, false}) {
+                LogicalOlapScan leftSnapshot = buildSnapshotScanForTable(1, "t1");
+                LogicalOlapScan rightDelta = buildScanForTable(2, "t2");
+                NormalizedOuterJoinPlan bundle = useEvents
+                        ? normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta))
+                        : normalizedOuterJoinWithNonHashOtherConjunct(
+                                rowIdProject(leftSnapshot), rowIdProject(rightDelta));
+                IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler(sequenceType)
+                        .exposeRewritePlan(bundle.topProject,
+                                newRefreshContext(bundle.topProject, bundle.rewriteResult));
+                LogicalUnion union = findOnlyUnion(result.plan);
+                BigInteger deleteSequence = repairSequence((LogicalProject<?>) union.child(1));
+                BigInteger insertSequence = repairSequence((LogicalProject<?>) union.child(2));
+                Assertions.assertTrue(insertSequence.compareTo(deleteSequence) > 0);
+                Assertions.assertEquals(deleteSequence.shiftRight(1), insertSequence.shiftRight(1));
+            }
+        }
     }
 
     @Test
@@ -648,6 +684,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
             Expression dmlFactor = ((Alias) dmlFactorProject).child();
             Assertions.assertInstanceOf(TinyIntLiteral.class, dmlFactor);
             Assertions.assertEquals(expectedDmlFactor, ((TinyIntLiteral) dmlFactor).getValue());
+            Assertions.assertEquals(expectedDmlFactor > 0, repairSequence(project).testBit(0));
         } else {
             Assertions.assertInstanceOf(SlotReference.class, dmlFactorProject);
         }
@@ -668,6 +705,7 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
             Expression dmlFactor = ((Alias) dmlFactorProject).child();
             Assertions.assertInstanceOf(TinyIntLiteral.class, dmlFactor);
             Assertions.assertEquals(expectedDmlFactor, ((TinyIntLiteral) dmlFactor).getValue());
+            Assertions.assertEquals(expectedDmlFactor > 0, repairSequence(project).testBit(0));
         } else {
             Assertions.assertInstanceOf(SlotReference.class, dmlFactorProject);
         }
@@ -697,6 +735,14 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         // sequence is last and comes from the delta-side sub-sequence.
         NamedExpression sequenceProject = project.getProjects().get(size - 1);
         Assertions.assertEquals(Column.SEQUENCE_COL, sequenceProject.getName());
+        Assertions.assertEquals(expectedDmlFactor > 0, repairSequence(project).testBit(0));
+    }
+
+    private BigInteger repairSequence(LogicalProject<?> project) {
+        Alias sequence = (Alias) project.getProjects().get(project.getProjects().size() - 1);
+        Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(sequence.child());
+        Assertions.assertInstanceOf(Literal.class, folded);
+        return new BigInteger(((Literal) folded).getStringValue());
     }
 
     private LogicalUnion nullSideEventUnion(Plan plan) {

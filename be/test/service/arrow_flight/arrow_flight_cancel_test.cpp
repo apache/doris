@@ -41,6 +41,7 @@
 #include "util/brpc_client_cache.h"
 #include "util/client_cache.h"
 #include "util/debug/leakcheck_disabler.h"
+#include "util/defer_op.h"
 #include "util/dns_cache.h"
 
 namespace doris::flight {
@@ -132,6 +133,56 @@ TEST_F(ArrowFlightCancelTest, CloseReleasesSiblingBuffersAfterContextExpires) {
     std::shared_ptr<ArrowFlightResultBlockBuffer> found;
     EXPECT_FALSE(_mgr.find_buffer(sibling_id, found).ok());
     EXPECT_TRUE(arrow_sibling->_result_batch_queue.empty());
+}
+
+TEST_F(ArrowFlightCancelTest, CancelledStatusCoversQueryAndInstanceIds) {
+    fill_buffer();
+    std::shared_ptr<ResultBlockBufferBase> parallel_buffer;
+    ASSERT_TRUE(_mgr.create_sender(_state.query_id(), 16, &parallel_buffer, &_state, true,
+                                   arrow::schema({arrow::field("value", arrow::int64())}))
+                        .ok());
+    const auto failure = Status::InvalidArgument("failed before fetching schema");
+    _mgr.cancel_arrow_flight_buffers(_state.query_id(), failure);
+    EXPECT_TRUE(_buffer->_result_batch_queue.empty());
+    EXPECT_TRUE(_dep->ready());
+    EXPECT_TRUE(_mgr._buffer_map.empty());
+    EXPECT_TRUE(_mgr._arrow_flight_query_buffers.empty());
+    for (const auto& id : {_id, _state.query_id()}) {
+        std::shared_ptr<ArrowFlightResultBlockBuffer> found;
+        const auto status = _mgr.find_buffer(id, found);
+        EXPECT_EQ(status.code(), failure.code());
+        EXPECT_EQ(status.msg(), failure.msg());
+        EXPECT_EQ(found, nullptr);
+    }
+}
+
+TEST_F(ArrowFlightCancelTest, RepeatedCancellationPreservesFirstErrorUntilCleanup) {
+    const auto failure = Status::InvalidArgument("original execution failure");
+    _mgr.cancel_arrow_flight_buffers(_state.query_id(), failure);
+    _mgr.cancel_arrow_flight_buffers(_state.query_id(), Status::Cancelled("later cancellation"));
+    std::shared_ptr<ArrowFlightResultBlockBuffer> found;
+    const auto status = _mgr.find_buffer(_id, found);
+    EXPECT_EQ(status.code(), failure.code());
+    EXPECT_EQ(status.msg(), failure.msg());
+    EXPECT_FALSE(_mgr.cancel(_id, Status::Cancelled("expired result")));
+    EXPECT_NE(_mgr.find_buffer(_id, found).msg().find("no arrow schema"), std::string::npos);
+}
+
+TEST_F(ArrowFlightCancelTest, CancelledStatusExpiresWithoutSinkClose) {
+    const int32_t previous_interval = config::result_buffer_cancelled_interval_time;
+    config::result_buffer_cancelled_interval_time = 0;
+    Defer restore {[&] { config::result_buffer_cancelled_interval_time = previous_interval; }};
+    const auto failure = Status::InvalidArgument("unclaimed query failure");
+    _mgr.cancel_arrow_flight_buffers(_state.query_id(), failure);
+    ASSERT_TRUE(_mgr.init().ok());
+    std::shared_ptr<ArrowFlightResultBlockBuffer> found;
+    for (int attempt = 0; attempt < 200; ++attempt) {
+        if (_mgr.find_buffer(_id, found).msg().find(failure.msg()) == std::string::npos) {
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_NE(_mgr.find_buffer(_id, found).msg().find("no arrow schema"), std::string::npos);
 }
 
 TEST_F(ArrowFlightCancelTest, NormalEofIsNotCancellation) {
@@ -649,6 +700,42 @@ TEST_F(ArrowFlightRemoteCancelTest, SuccessfulFragmentStopPreservesUnreadResults
         EXPECT_TRUE(registered());
         EXPECT_FALSE(_buffer->_result_batch_queue.empty());
     }
+}
+
+TEST_F(ArrowFlightRemoteCancelTest, FragmentFailurePreservesErrorForLateSchemaFetch) {
+    fill_buffer();
+    const auto failure = Status::InvalidArgument("percentile parameter must not be -1");
+    auto stub = _cache.get_client(_statement->result_addr);
+    PCancelPlanFragmentRequest cancel_request;
+    cancel_request.mutable_finst_id()->set_hi(_id.hi);
+    cancel_request.mutable_finst_id()->set_lo(_id.lo);
+    cancel_request.mutable_query_id()->set_hi(_state.query_id().hi);
+    cancel_request.mutable_query_id()->set_lo(_state.query_id().lo);
+    failure.to_protobuf(cancel_request.mutable_cancel_status());
+    PCancelPlanFragmentResult cancel_response;
+    brpc::Controller cancel_controller;
+    cancel_controller.set_timeout_ms(1000);
+    stub->cancel_plan_fragment(&cancel_controller, &cancel_request, &cancel_response, nullptr);
+    ASSERT_FALSE(cancel_controller.Failed()) << cancel_controller.ErrorText();
+    ASSERT_TRUE(Status::create(cancel_response.status()).ok());
+    EXPECT_TRUE(_buffer->_result_batch_queue.empty());
+    EXPECT_TRUE(_dep->ready());
+
+    // Wait for cancellation to complete before fetching schema, so the failure ordering is
+    // deterministic rather than depending on the relative speed of the two BE work pools.
+    PFetchArrowFlightSchemaRequest schema_request;
+    schema_request.mutable_finst_id()->set_hi(_id.hi);
+    schema_request.mutable_finst_id()->set_lo(_id.lo);
+    PFetchArrowFlightSchemaResult schema_response;
+    brpc::Controller schema_controller;
+    schema_controller.set_timeout_ms(1000);
+    stub->fetch_arrow_flight_schema(&schema_controller, &schema_request, &schema_response, nullptr);
+    ASSERT_FALSE(schema_controller.Failed()) << schema_controller.ErrorText();
+    ASSERT_TRUE(schema_response.has_status());
+    const auto schema_status = Status::create(schema_response.status());
+    EXPECT_EQ(schema_status.code(), failure.code()) << schema_status.to_string();
+    // Status serialization adds the backend address and status code to the message.
+    EXPECT_NE(schema_status.msg().find(failure.msg()), std::string::npos);
 }
 
 TEST_F(ArrowFlightRemoteCancelTest, NormalEofDoesNotCancelQuery) {

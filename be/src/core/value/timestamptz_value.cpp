@@ -159,17 +159,19 @@ bool TimestampTzValue::to_datetime(DateV2Value<DateTimeV2ValueType>& dt,
                                        dt.microsecond());
 }
 
-void TimestampTzValue::convert_utc_to_local(const cctz::time_zone& local_time_zone,
-                                            DateV2Value<DateTimeV2ValueType>& dt) const {
+int TimestampTzValue::convert_utc_to_local(const cctz::time_zone& local_time_zone,
+                                           DateV2Value<DateTimeV2ValueType>& dt) const {
     cctz::civil_second utc_cs(_utc_dt.year(), _utc_dt.month(), _utc_dt.day(), _utc_dt.hour(),
                               _utc_dt.minute(), _utc_dt.second());
     cctz::time_point<cctz::seconds> utc_tp = cctz::convert(utc_cs, cctz::utc_time_zone());
-    auto local_cs = cctz::convert(utc_tp, local_time_zone);
+    const auto lookup = local_time_zone.lookup(utc_tp);
+    const auto& local_cs = lookup.cs;
 
     dt.unchecked_set_time((uint16_t)local_cs.year(), (uint8_t)local_cs.month(),
                           (uint8_t)local_cs.day(), (uint8_t)local_cs.hour(),
                           (uint8_t)local_cs.minute(), (uint8_t)local_cs.second(),
                           _utc_dt.microsecond());
+    return lookup.offset;
 }
 
 void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zone,

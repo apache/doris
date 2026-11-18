@@ -104,16 +104,16 @@ Status AsyncResultWriter::start_writer(RuntimeState* state, RuntimeProfile* oper
     // Should set to false here, to
     DCHECK(_finish_dependency);
     _finish_dependency->block();
-    // This is a async thread, should lock the task ctx, to make sure runtimestate and operator_profile
-    // not deconstructed before the thread exit.
+    // Cancellation can destroy the fragment while this callback is queued. Lock its context
+    // before attaching through the raw RuntimeState pointer or accessing writer-owned state.
     auto task_ctx = state->get_task_execution_context();
     RETURN_IF_ERROR(ExecEnv::GetInstance()->fragment_mgr()->get_thread_pool()->submit_func(
             [this, state, operator_profile, task_ctx]() {
-                SCOPED_ATTACH_TASK(state);
                 auto task_lock = task_ctx.lock();
                 if (task_lock == nullptr) {
                     return;
                 }
+                SCOPED_ATTACH_TASK(state);
                 this->process_block(state, operator_profile);
                 task_lock.reset();
             }));

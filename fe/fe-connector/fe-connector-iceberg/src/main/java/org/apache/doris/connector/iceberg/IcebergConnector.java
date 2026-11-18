@@ -65,6 +65,7 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.hive.HiveHadoopUtil;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsStorageCredentials;
+import org.apache.iceberg.rest.DorisRESTSessionCatalog;
 import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
@@ -1213,11 +1214,11 @@ public class IcebergConnector implements Connector {
     /** Builds and initializes a bare Iceberg {@link RESTSessionCatalog} (fresh REST client + OAuth2 token fetch). */
     private RESTSessionCatalog newRestSessionCatalog(String catalogName, Map<String, String> props,
             Configuration conf) {
-        RESTSessionCatalog sessionCatalog = new RESTSessionCatalog(config -> HTTPClient.builder(config)
+        RESTSessionCatalog sessionCatalog = new DorisRESTSessionCatalog(config -> HTTPClient.builder(config)
                 .uri(config.get(CatalogProperties.URI))
                 .withHeaders(RESTUtil.configHeaders(config))
                 .withObjectMapper(IcebergRestSchemaCompatibility.objectMapper())
-                .build(), null);
+                .build(), IcebergConnector::restCatalogFileIO);
         CatalogUtil.configureHadoopConf(sessionCatalog, conf);
         sessionCatalog.initialize(catalogName, props);
         return sessionCatalog;

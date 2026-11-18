@@ -2,6 +2,17 @@
 
 This is the codebase for Apache Doris, an MPP OLAP database. It primarily consists of the Backend module BE (`be/`, execution and storage engine), the Frontend module FE (`fe/`, optimizer and transaction core), and the Cloud module (`cloud/`, storage-compute separation). Your basic development workflow is: modify code, build using standard procedures, add and run tests, and submit relevant changes.
 
+## Development and PR Skills
+
+Unless the user asks otherwise, work through two skills from the `doris-skills` submodule ([apache/doris-skills](https://github.com/apache/doris-skills)):
+
+- `develop-with-evidence` for any task that changes this repository, such as fixing a bug, developing a feature, refactoring, optimizing, or changing tests, CI, configs, or dependencies.
+- `doris-pr-description` for any task that opens or updates a PR, or writes or checks a PR title and description.
+
+A request such as "fix this and submit a PR" takes both, in that order: `develop-with-evidence` leaves a handoff file under `.git/pr-handoff/` with a description draft, which the commit message follows (see Commit Standards), and `doris-pr-description` opens the PR from it.
+
+If your tool has not installed these skills, read `doris-skills/skills/develop-with-evidence/SKILL.md` or `doris-skills/skills/doris-pr-description/SKILL.md` when the task reaches that skill, and follow it; paths in a skill are relative to its own directory. An empty `doris-skills/` means the submodule is not checked out: run `git submodule update --init doris-skills` first, and if that fails, for example without network access, ask the user to run it. Leave a moved `doris-skills` pointer out of your commits unless the task is to update it. The rules in this file still apply while a skill is in use.
+
 ## Security Threat Model
 
 For security scans, vulnerability triage, security reviews, and changes involving authentication, authorization, network boundaries, external catalogs, cloud tenancy, or other security-sensitive behavior, read `SECURITY.md` first, then follow it to `threat-model.md`. Use `threat-model.md` to determine in-scope components, trust boundaries, attacker roles, explicit non-goals, and triage classification. Findings that are out of model or by design under `threat-model.md` should be reported as such, not treated as Doris vulnerabilities. Such reviews will not be conducted unless explicitly requested by the user, and no conclusions regarding this matter need to be provided.
