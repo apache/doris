@@ -18,15 +18,22 @@
 #
 set -euo pipefail
 umask 077
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 fixture_dir=${1:?Usage: generate-tls-fixture.sh OUTPUT_DIRECTORY}
 mkdir -p "$fixture_dir"
 cd "$fixture_dir"
 
 # The prebuilt BE dependency directory can shadow the runnable system CLI with an
 # OpenSSL binary whose shared libraries were removed for static linking.
-openssl_bin=$(command -v openssl)
-if ! "$openssl_bin" version >/dev/null 2>&1; then
-    openssl_bin=$(command -p -v openssl)
+openssl_bin=$(command -v openssl || true)
+if [[ -z "$openssl_bin" ]] || ! "$openssl_bin" version >/dev/null 2>&1; then
+    openssl_bin=$(command -p -v openssl || true)
+fi
+if [[ -z "$openssl_bin" ]] || ! "$openssl_bin" version >/dev/null 2>&1; then
+    # Some build images also omit the system CLI. Use the required JDK instead
+    # of skipping authentication tests or adding runtime libraries to the image.
+    java_bin=${JAVA_HOME:+$JAVA_HOME/bin/}java
+    exec "$java_bin" --source 17 "$script_dir/GenerateTlsFixture.java" "$PWD"
 fi
 
 # Test-only keys are regenerated per invocation; none is distributed with the fixture.

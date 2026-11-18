@@ -56,6 +56,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -101,7 +102,8 @@ class OssPrivateRpcTlsTest {
         Process generation = new ProcessBuilder("bash", script.toString(), certificates.toString())
                 .redirectErrorStream(true).redirectOutput(certificates.resolve("generation.log").toFile()).start();
         Assertions.assertTrue(generation.waitFor(60, TimeUnit.SECONDS));
-        Assertions.assertEquals(0, generation.exitValue());
+        // TempDir cleanup removes the generator log even when setup fails in CI.
+        Assertions.assertEquals(0, generation.exitValue(), Files.readString(certificates.resolve("generation.log")));
         Config.enable_tls = true;
         Config.tls_cert_refresh_interval_seconds = 0;
         Config.tls_verify_mode = "verify_fail_if_no_peer_cert";
