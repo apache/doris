@@ -19,12 +19,15 @@
 
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
 #include "core/column/variant_v2/column_variant_v2.h"
@@ -40,6 +43,8 @@
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
+#include "storage/index/inverted/analysis/text_token_stream.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/snii/snii_index_reader.h"
 #include "storage/index/inverted/snii/snii_query_oracle.h"
@@ -75,6 +80,103 @@ ColumnVariantV2::MutablePtr encode_documents(const std::vector<std::string>& doc
     auto column = ColumnVariantV2::create();
     column->insert_encoded_batch(encoder.finish_batch());
     return column;
+}
+
+Status execute_scalar_match(const FunctionMatchBase& function, const ColumnPtr& values,
+                            std::string_view query, const inverted_index::TextAnalyzerPtr& analyzer,
+                            Block* block) {
+    TQueryOptions options;
+    options.__set_enable_match_without_inverted_index(true);
+    RuntimeState state(options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&state, {}, {});
+    auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+    analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    analyzer_ctx->analyzer = analyzer;
+    context->set_function_state(FunctionContext::FunctionStateScope::FRAGMENT_LOCAL, analyzer_ctx);
+    auto text = ColumnString::create();
+    text->insert_data(query.data(), query.size());
+    block->insert({values, std::make_shared<DataTypeVariantV2>(), "v"});
+    block->insert({std::move(text), std::make_shared<DataTypeString>(), "query"});
+    auto result_type = std::make_shared<DataTypeUInt8>();
+    block->insert({result_type->create_column(), result_type, "result"});
+    return function.execute(context.get(), *block, {0, 1}, 2, values->size());
+}
+
+TEST(VariantValuesIndexTest, ScalarMatchAcrossManyLeavesAndRows) {
+    std::string wide = "[";
+    for (size_t i = 0; i < 8192; ++i) {
+        wide += R"("shared",)";
+    }
+    wide += R"("needle"])";
+    const ColumnPtr values = encode_documents(
+            {wide, R"(["shared","shared"])", R"(["needle"])", R"(["needle","shared"])", "[]"});
+    InvertedIndexAnalyzerConfig config;
+    config.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    auto analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(&config);
+
+    Block any;
+    const auto any_status =
+            execute_scalar_match(FunctionMatchAny {}, values, "shared needle", analyzer, &any);
+    ASSERT_TRUE(any_status.ok()) << any_status;
+    const auto& any_hits =
+            assert_cast<const ColumnUInt8&>(*any.get_by_position(2).column).get_data();
+    EXPECT_EQ((std::vector<uint8_t> {any_hits.begin(), any_hits.end()}),
+              (std::vector<uint8_t> {1, 1, 1, 1, 0}));
+
+    Block all;
+    const auto all_status = execute_scalar_match(FunctionMatchAll {}, values,
+                                                 "shared shared needle", analyzer, &all);
+    ASSERT_TRUE(all_status.ok()) << all_status;
+    const auto& all_hits =
+            assert_cast<const ColumnUInt8&>(*all.get_by_position(2).column).get_data();
+    EXPECT_EQ((std::vector<uint8_t> {all_hits.begin(), all_hits.end()}),
+              (std::vector<uint8_t> {1, 0, 0, 1, 0}));
+}
+
+class FailingLeafTokenizer final : public inverted_index::TextTokenizer {
+public:
+    void reset(std::string_view text) override {
+        if (text == "broken") {
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "test leaf failure");
+        }
+        _text = text;
+    }
+
+    bool next_batch(inverted_index::TokenBatch& batch) override {
+        batch.clear();
+        if (_text.empty()) {
+            return false;
+        }
+        batch.push_copy(_text, 1);
+        _text = {};
+        return true;
+    }
+
+    size_t reserved_bytes() const override { return 0; }
+
+private:
+    std::string_view _text;
+};
+
+class FailingLeafAnalyzer final : public inverted_index::TextAnalyzer {
+public:
+    std::unique_ptr<inverted_index::TextTokenStream> create_stream() const override {
+        return std::make_unique<FailingLeafTokenizer>();
+    }
+};
+
+TEST(VariantValuesIndexTest, ScalarMatchReportsAnalyzerFailureAfterHit) {
+    const ColumnPtr values = encode_documents({R"(["hit","broken"])"});
+    auto analyzer = std::make_shared<FailingLeafAnalyzer>();
+    FunctionMatchAny any;
+    FunctionMatchAll all;
+    for (const FunctionMatchBase* function : {static_cast<const FunctionMatchBase*>(&any),
+                                              static_cast<const FunctionMatchBase*>(&all)}) {
+        Block block;
+        const auto status = execute_scalar_match(*function, values, "hit", analyzer, &block);
+        EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>()) << status;
+        EXPECT_NE(status.to_string().find("analyzing 'broken' failed"), std::string::npos);
+    }
 }
 
 class VariantValuesSegmentTest : public index_storage_test::IndexStorageTestFixture {
