@@ -3141,8 +3141,9 @@ public final class SPMPlanTreeSupport {
             // class mismatch and returning the captured header (a
             // SET_VAR(time_zone='+08:00') v + 1 baseline matching a v + 2 caller
             // reported the frozen v + 1).
-            if (userNode instanceof LogicalSelectHint && userNode.children().size() == 1
-                    && !(rewrittenNode instanceof LogicalSelectHint)) {
+            // HAVING and QUALIFY can become filters below the frozen output list.
+            if ((userNode instanceof LogicalSelectHint || userNode instanceof LogicalHaving
+                    || userNode instanceof LogicalQualify) && userNode.children().size() == 1) {
                 userNode = userNode.child(0);
                 continue;
             }
@@ -5349,6 +5350,22 @@ public final class SPMPlanTreeSupport {
             return sameResolvedExpression(bindKey, bindLabels, resolvedPlan, Map.of(),
                     depth + 1);
         }
+        if (bindKey instanceof SubqueryExpr || planKey instanceof SubqueryExpr) {
+            if (!(bindKey instanceof SubqueryExpr) || !bindKey.getClass().equals(planKey.getClass())
+                    || subqueryNegated(bindKey) != subqueryNegated(planKey)) {
+                return false;
+            }
+            try {
+                compareRelationalNodes(((SubqueryExpr) bindKey).getQueryPlan(),
+                        ((SubqueryExpr) planKey).getQueryPlan(), "the resolved subquery", "",
+                        new IdentityHashMap<>(), false);
+            } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+                return false;
+            }
+            if (bindKey.children().isEmpty()) {
+                return true;
+            }
+        }
         List<Expression> bindChildren = bindKey.children();
         List<Expression> planChildren = planKey.children();
         if (bindChildren.isEmpty() || planChildren.isEmpty()) {
@@ -6669,10 +6686,13 @@ public final class SPMPlanTreeSupport {
         SubqueryExpr subquery = (SubqueryExpr) expression;
         List<Expression> arguments = new ArrayList<>(expression.children());
         arguments.add(new StringLiteral(subquery.getQueryPlan().toSpmDigest()));
-        boolean negated = expression instanceof InSubquery && ((InSubquery) expression).isNot()
+        return new UnboundFunction("<" + expression.getClass().getSimpleName()
+                + (subqueryNegated(expression) ? ":not>" : ">"), arguments);
+    }
+
+    private static boolean subqueryNegated(Expression expression) {
+        return expression instanceof InSubquery && ((InSubquery) expression).isNot()
                 || expression instanceof Exists && ((Exists) expression).isNot();
-        return new UnboundFunction("<" + expression.getClass().getSimpleName() + (negated ? ":not>" : ">"),
-                arguments);
     }
 
     /**

@@ -76,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -298,7 +299,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitNot(Not not, SQLRelation context) {
-        return "NOT (" + not.child().accept(this, context) + ")";
+        return "(NOT (" + not.child().accept(this, context) + "))";
     }
 
     @Override
@@ -545,6 +546,11 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
      * Returns: the SQL text, or null when the shape has no faithful rendering
      */
     public String renderGroupConcat(AggregateFunction fn, SQLRelation context) {
+        return renderGroupConcat(fn, context, false);
+    }
+
+    /** Renders GROUP_CONCAT with DISTINCT restored from an eliminated aggregate stage. */
+    public String renderGroupConcat(AggregateFunction fn, SQLRelation context, boolean restoredDistinct) {
         List<Expression> children = fn.children();
         int firstOrder = children.size();
         for (int i = 0; i < children.size(); i++) {
@@ -567,7 +573,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         // MultiDistinctGroupConcat is the execution shape of GROUP_CONCAT(DISTINCT...):
         // its constructor keeps isDistinct = false, but the dedup contract must survive
         // the freeze
-        boolean distinct = fn.isDistinct() || fn instanceof MultiDistinctGroupConcat;
+        boolean distinct = restoredDistinct || fn.isDistinct() || fn instanceof MultiDistinctGroupConcat;
         StringBuilder sb = new StringBuilder("GROUP_CONCAT(");
         if (distinct) {
             sb.append("DISTINCT ");
@@ -783,6 +789,12 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // reload. Render through the default-mode-safe quote helper (stored text is
             // always re-parsed under MODE_DEFAULT).
             return SPMPlan2SQLBuilder.quoteSqlString(((StringLikeLiteral) literal).getStringValue());
+        }
+        if (literal instanceof DateLiteral || literal instanceof TimeV2Literal) {
+            // Concrete temporal literals (for example in a star REPLACE) must retain
+            // their SQL type and precision when the frozen statement is parsed again.
+            return "CAST(" + SPMPlan2SQLBuilder.quoteSqlString(literal.getStringValue())
+                    + " AS " + literal.getDataType().toSql() + ")";
         }
         return literal.toSql();
     }

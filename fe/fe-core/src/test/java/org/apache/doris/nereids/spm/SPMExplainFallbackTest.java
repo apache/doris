@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.AfterEach;
@@ -127,6 +128,7 @@ public class SPMExplainFallbackTest {
                 bindPlan, expr -> expr.accept(builder, null));
 
         BaselinePlan baseline = new BaselinePlan();
+        baseline.setCreatorSqlMode(SqlModeHelper.currentMode());
         baseline.setBindSql(bindSql);
         baseline.setBindSqlDigest(bindPlan.toSpmDigest());
         baseline.setBindSqlHash(SPMUtils.hashOf(bindPlan.toSpmDigest()));

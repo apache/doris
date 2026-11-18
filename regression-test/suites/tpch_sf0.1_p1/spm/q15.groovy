@@ -28,6 +28,7 @@ suite("spm_tpch_sf01_q15", "spm") {
     sql "SET enable_nereids_timeout = false"
     sql "SET spm_rewrite_timeout_ms = 60000"
     sql "SET enable_spm_fallback = false"
+    sql "SET enable_sql_cache = false"
     sql "SET disable_nereids_rules = PRUNE_EMPTY_PARTITION"
 
     // Inline the revenue1 definition so SPM can capture and replay the Q15 computation.

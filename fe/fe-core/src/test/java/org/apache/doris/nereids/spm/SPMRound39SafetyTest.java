@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -84,6 +85,7 @@ public class SPMRound39SafetyTest {
                 bindPlan, expr -> expr.accept(builder, null));
 
         BaselinePlan baseline = new BaselinePlan();
+        baseline.setCreatorSqlMode(SqlModeHelper.currentMode());
         baseline.setBindSql(bindSql);
         baseline.setBindSqlDigest(bindPlan.toSpmDigest());
         baseline.setBindSqlHash(SPMUtils.hashOf(bindPlan.toSpmDigest()));

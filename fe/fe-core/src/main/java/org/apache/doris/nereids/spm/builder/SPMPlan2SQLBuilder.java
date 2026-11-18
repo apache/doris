@@ -867,10 +867,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // identical replay returned BOTH rows where native execution raises the row-count
         // error. The boundary is therefore materialized HERE, in the only statement form the
         // grammar has for it: the ASSERT_ROWS relation under a plain SELECT *.
-        if (relation.isAssertRows()) {
-            return "SELECT * FROM " + relation.toRelationSQL();
-        }
-        return relation.toSQL();
+        return renderStatement(relation);
+    }
+
+    /** Materializes a pending assertion when a relation is emitted as a standalone SELECT. */
+    private String renderStatement(SQLRelation relation) {
+        return relation.isAssertRows() ? "SELECT * FROM " + relation.toRelationSQL() : relation.toSQL();
     }
 
     /**
@@ -1690,9 +1692,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // visitPhysicalAssertNumRows only sets body.assertRows, which body.toSQL does not
         // consume (only toRelationSQL does), so the definition became a plain filtered SELECT
         // and the identical replay returned the rows the caller's ASSERT_ROWS rejects.
-        String definition = body.isAssertRows()
-                ? "SELECT * FROM " + body.toRelationSQL()
-                : body.toSQL();
+        String definition = renderStatement(body);
         cteDefinitions.add(alias + " AS (" + definition + ")");
         return body;
     }
@@ -1756,7 +1756,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
 
         // body = (anchor) UNION [ALL] (recursive)
         String op = recCte.isUnionAll() ? "UNION ALL" : "UNION";
-        String bodySql = "(" + anchor.toSQL() + ") " + op + " (" + recursive.toSQL() + ")";
+        String bodySql = "(" + renderStatement(anchor) + ") " + op + " (" + renderStatement(recursive) + ")";
 
         // outer reference: WITH RECURSIVE cte(cols) AS (body) SELECT cols FROM cte
         String colList = anchorColNames.stream()
@@ -3145,6 +3145,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         } else if (inner instanceof AggregateExpression) {
             AggregateExpression aggExpr = (AggregateExpression) inner;
             AggregateFunction fn = aggExpr.getFunction();
+            boolean rawInput = !aggExpr.getAggregateParam().aggMode.consumeAggregateBuffer;
+            List<Expression> args = fn.children().isEmpty()
+                    ? new ArrayList<>(aggExpr.children()) : fn.children();
+            List<Expression> bufferArgs = new ArrayList<>(aggExpr.children());
+            boolean distinctFromBuffer = stageHasDistinctMergeBuffer
+                    && (isDistinctMergeArg(bufferArgs) || isDistinctMergeArg(args));
+            boolean distinctFromKey = rawInput && consumesDedupKey(args, dedupKeyIds);
             if (fn instanceof GroupConcat || fn instanceof MultiDistinctGroupConcat) {
                 // Dedicated GROUP_CONCAT grammar: resolve the physical buffer slots first,
                 // then render ([DISTINCT] value [ORDER BY...] [SEPARATOR...]) - a
@@ -3157,7 +3164,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 if (!resolvedChildren.equals(fn.children())) {
                     fn = (AggregateFunction) fn.withChildren(resolvedChildren);
                 }
-                String rendered = exprSqlBuilder.renderGroupConcat(fn, child);
+                String rendered = exprSqlBuilder.renderGroupConcat(fn, child,
+                        distinctMergeCount && (distinctFromBuffer || distinctFromKey));
                 if (rendered == null) {
                     throw new UnsupportedOperationException(
                             "SPM decompile: group_concat shape is not supported yet");
@@ -3171,12 +3179,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 selects.add(Pair.of(output.getExprId(), rendered + " AS " + groupConcatRef));
                 return;
             }
-            List<Expression> args = fn.children().isEmpty()
-                    ? new ArrayList<>(aggExpr.children()) : fn.children();
-            // the aggregate expression's own children are the physical buffer slots it
-            // consumes (the function arguments may already be normalized to the data
-            // column); they carry the distinct-merge provenance (see distinctMergeBuffers)
-            List<Expression> bufferArgs = new ArrayList<>(aggExpr.children());
+
             List<String> argSqls = new ArrayList<>();
             boolean starCountArg = false;
             for (Expression arg : args) {
@@ -3231,7 +3234,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // Restoring the user's multi-column COUNT(DISTINCT a, b) is the only faithful
             // spelling: a scalar DISTINCT would count the shared b once, and a plain count
             // counts the multiplicity (see multiKeyDistinctCountKeys).
-            boolean tupleDedupFoldedBelow = dedupKeyConsumedByExpression(args, dedupKeyIds)
+            boolean tupleDedupFoldedBelow = rawInput && dedupKeyConsumedByExpression(args, dedupKeyIds)
                     && !dedupKeyConsumedByExpression(args, retainedGroupingKeys);
             List<Expression> multiKeyCountKeys = tupleDedupFoldedBelow
                     ? multiKeyDistinctCountKeys(args) : null;
@@ -3253,11 +3256,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     // different value when x has duplicates. An aggregate riding along
                     // the same stage consumes a merge-chain buffer and stays plain (see
                     // distinctMergeBuffers).
-                    distinct = isDistinctMergeArg(bufferArgs) || isDistinctMergeArg(args);
+                    distinct = distinctFromBuffer;
                 } else {
-                    // No buffer of the stage is marked (distinct plans built by other
-                    // shapes): keep the historical blanket behavior for count...
-                    distinct = "count".equalsIgnoreCase(aggName);
+                    // A raw COUNT can consume the distinct input directly. A merge of
+                    // an unmarked partial COUNT still counts the original multiplicity.
+                    distinct = rawInput && "count".equalsIgnoreCase(aggName);
                     // ... EXCEPT for the MULTI-KEY tuple count: count(DISTINCT a, b) is
                     // physically Count(IF(a IS NULL,NULL,b)) over a RETAINED dedup stage
                     // grouped by (a, b), so the deduplication is the kept grouping and the
@@ -3274,8 +3277,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 // all: the dedup key below the stage is the only evidence (see
                 // dedupKeysBelow). A riding-along aggregate consumes a lower partial
                 // buffer, never a bare key, so it stays plain.
-                distinct = distinct || consumesDedupKey(args, dedupKeyIds)
-                        || consumesDedupKey(bufferArgs, dedupKeyIds);
+                distinct = distinct || distinctFromKey;
             } else {
                 distinct = false;
             }

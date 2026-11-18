@@ -196,6 +196,7 @@ public class StmtExecutor {
     private StatementContext statementContext;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
+    private StatementBase parsedStmtBeforeSpm;
     // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
     // reverted, so the audit log (built after execute() returns) can reflect the values that
     // were actually in effect for this statement. Null when no SET_VAR hint was used.
@@ -773,6 +774,10 @@ public class StmtExecutor {
                 if (context.getStatementContext() != null) {
                     context.getStatementContext().resetConnectorStatementScope();
                 }
+                // A new attempt must start with the caller's query and rematch against fresh metadata.
+                if (parsedStmtBeforeSpm != null) {
+                    restoreOriginalStatementAfterSpm();
+                }
                 // Drop the old execution state before replanning.
                 planner = null;
                 setCoord(null);
@@ -1172,7 +1177,6 @@ public class StmtExecutor {
             // A rewritten (frozen-plan replay) tree must never break query availability:
             // when planning it fails (e.g. the decompiled frozen planSql is not valid for
             // some operator combination), the ORIGINAL parsed statement is re-planned.
-            StatementBase parsedStmtBeforeSpm = parsedStmt;
             boolean spmRewriteApplied = false;
             //
             // Flow (whole-query engine): run the three-level match of the whole parsed plan
@@ -1190,6 +1194,7 @@ public class StmtExecutor {
                     SPMPlanner spmPlanner = new SPMPlanner();
                     LogicalPlan rewrittenPlan = spmPlanner.tryRewritePlan(logicalPlan, deadline);
                     if (rewrittenPlan != null) {
+                        parsedStmtBeforeSpm = parsedStmt;
                         parsedStmt = new LogicalPlanAdapter(rewrittenPlan, statementContext);
                         logicalPlan = rewrittenPlan;
                         spmRewriteApplied = true;
@@ -1254,25 +1259,7 @@ public class StmtExecutor {
                     // surface during development / regression debugging.
                     LOG.warn("SPM rewritten plan failed, fallback to original query: {}",
                             getStmtForLogging(originStmt.originStmt), e);
-                    this.parsedStmt = parsedStmtBeforeSpm;
-                    statementContext.setSpmBaselineApplied(false);
-                    // Authorization must never be inherited from the abandoned rewrite: the
-                    // first planning pass already ran (and passed) CheckPrivileges for the
-                    // REWRITTEN tree and set privChecked, which would make the new planning
-                    // pass below skip the privilege check on the ORIGINAL statement - and
-                    // the original statement may reference tables the rewritten tree does
-                    // not (the baseline's frozen planSql is independent of its bindSql).
-                    // Reset the flag so the fallback is authorized exactly like a normal
-                    // execution of the original statement.
-                    statementContext.setPrivChecked(false);
-                    // Drop the abandoned pass's OTHER planner-owned state as well: the
-                    // rewritten pass could have set hintForcePreAggOn from a plan-side
-                    // PREAGGOPEN hint (the original t@incr(...) query would then fail
-                    // with a spurious PREAGGOPEN error), and its resolved-table cache
-                    // still binds the first pass's TableIf objects - after the first
-                    // pass's locks were released, a concurrent DROP / CREATE of t would
-                    // make this fallback plan the OLD table.
-                    statementContext.resetPlannerStateForReplan();
+                    restoreOriginalStatementAfterSpm();
                     planner = new NereidsPlanner(statementContext);
                     try {
                         checkBlockRulesByRegex(originStmt);
@@ -1387,6 +1374,17 @@ public class StmtExecutor {
         if (blockSqlAstNames.contains(clazz.getSimpleName())) {
             throw new UserException("SQL is blocked with AST name: " + clazz.getSimpleName());
         }
+    }
+
+    /** Restores the caller's adapter and clears the abandoned replay's planner state. */
+    private void restoreOriginalStatementAfterSpm() {
+        setParsedStmt(parsedStmtBeforeSpm);
+        parsedStmtBeforeSpm = null;
+        statementContext.setSpmBaselineApplied(false);
+        statementContext.setSpmUsedBaselineId(-1);
+        statementContext.setSpmUsedBaseline(null);
+        statementContext.setPrivChecked(false);
+        statementContext.resetPlannerStateForReplan();
     }
 
     private void parseByNereids() {

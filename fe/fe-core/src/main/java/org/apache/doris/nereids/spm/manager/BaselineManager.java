@@ -4087,17 +4087,9 @@ public class BaselineManager {
         if (seqBefore == null) {
             return List.of();
         }
-        long remainingMillis = deadlineMillis == Long.MAX_VALUE
-                ? Long.MAX_VALUE : deadlineMillis - System.currentTimeMillis();
-        if (remainingMillis <= 0) {
-            // The rewrite budget is already consumed: degrade THIS attempt without the
-            // synchronous read (the next statement retries with a fresh budget).
+        if (System.currentTimeMillis() >= deadlineMillis) {
             return List.of();
         }
-        int timeoutSeconds = remainingMillis == Long.MAX_VALUE
-                ? INTERNAL_QUERY_TIMEOUT_SECONDS
-                : (int) Math.max(1, Math.min(INTERNAL_QUERY_TIMEOUT_SECONDS,
-                        (remainingMillis + 999) / 1000));
         if (!inflightHashLoads.add(hash)) {
             // Another attempt is already loading THIS hash: degrade without a second
             // internal read (the loader publishes atomically below, so the next
@@ -4114,7 +4106,7 @@ public class BaselineManager {
             }
             List<BaselinePlan> rows;
             try {
-                rows = readPersistedRowsByHash(hash, timeoutSeconds);
+                rows = readPersistedRowsByHash(hash, deadlineMillis);
             } catch (RuntimeException e) {
                 LOG.warn("SPM cannot load the baselines of one bindSql for matching (the query"
                         + " runs without SPM): {}", e.getMessage());
@@ -4123,7 +4115,8 @@ public class BaselineManager {
             rows = reconcileMatchingRows(rows);
             stateLock.writeLock().lock();
             try {
-                if (storeGeneration.get() != generationBefore
+                if (System.currentTimeMillis() >= deadlineMillis
+                        || storeGeneration.get() != generationBefore
                         || !Objects.equals(seqBefore, knownHashes.get(hash))) {
                     // A snapshot or mutation superseded the read. Discard it from both the cache and result.
                     return List.of();
@@ -4347,26 +4340,23 @@ public class BaselineManager {
 
     // durable reads by hash (the matching-path miss).
 
-    /**
-     * Reads EVERY durable row of one bindSqlHash (the COMPLETE set of that bind_sql): the
-     * matching path's cache-miss read. Tombstoned rows are filtered out like every other
-     * load path (a revived row must not match). A read failure propagates - the caller
-     * degrades the single match attempt, never caches a partial answer.
-     *
-     * Parameter timeoutSeconds: the statement timeout (the remaining rewrite budget)
-     */
-    private List<BaselinePlan> readPersistedRowsByHash(long hash, int timeoutSeconds) {
-        List<BaselinePlan> rows =
-                new ArrayList<>(persistence.readRowsByHash(hash, timeoutSeconds));
-        if (persistence instanceof TablePersistence) {
-            // the live read already filtered (see readRowsByHashFromTable)
-            return rows;
+    /** Converts the remaining matching budget to the internal SQL statement timeout. */
+    static int remainingReadTimeout(long deadlineMillis) {
+        if (deadlineMillis == Long.MAX_VALUE) {
+            return INTERNAL_QUERY_TIMEOUT_SECONDS;
         }
-        // A substituted store hands the rows out RAW, exactly like the snapshot load (see
-        // readPersistedSnapshot): the same tombstone filter - including its identity-scoped
-        // half, see withIdentityDrops - must run here too, or a substituted store's revived /
-        // late row matched although the live table path would have hidden it.
-        return filterTombstonedDurableRows(rows, timeoutSeconds);
+        long remaining = deadlineMillis - System.currentTimeMillis();
+        if (remaining <= 0) {
+            throw new IllegalStateException("SPM rewrite deadline expired");
+        }
+        return (int) Math.min(INTERNAL_QUERY_TIMEOUT_SECONDS, 1 + (remaining - 1) / 1000);
+    }
+
+    /** Reads a complete hash bucket and verifies its tombstones before publishing it. */
+    private List<BaselinePlan> readPersistedRowsByHash(long hash, long deadlineMillis) {
+        List<BaselinePlan> rows = new ArrayList<>(
+                persistence.readRowsByHash(hash, remainingReadTimeout(deadlineMillis)));
+        return filterTombstonedDurableRows(rows, deadlineMillis);
     }
 
     /** The live implementation half of BaselinePersistence.readRowsByHash(long, int). */
@@ -4389,7 +4379,7 @@ public class BaselineManager {
                 }
             }
         }
-        return filterTombstonedDurableRows(parsed, timeoutSeconds);
+        return parsed;
     }
 
     // internal table persistence (__internal_schema.spm_baselines).
@@ -6810,7 +6800,7 @@ public class BaselineManager {
      * Parameter ids: the ids to look up (an empty collection skips the query entirely)
      */
     private Set<String> readDroppedIdentities(Collection<Long> ids) {
-        return readDroppedIdentities(ids, true, INTERNAL_QUERY_TIMEOUT_SECONDS);
+        return readDroppedIdentities(ids, true, Long.MAX_VALUE);
     }
 
     /**
@@ -6819,20 +6809,20 @@ public class BaselineManager {
      */
     private Set<String> readDroppedIdentities(Collection<Long> ids,
             boolean includeLocalPending) {
-        return readDroppedIdentities(ids, includeLocalPending, INTERNAL_QUERY_TIMEOUT_SECONDS);
+        return readDroppedIdentities(ids, includeLocalPending, Long.MAX_VALUE);
     }
 
     /**
-     * As readDroppedIdentities(Collection, boolean), with an explicit statement timeout:
+     * As readDroppedIdentities(Collection, boolean), with a deadline:
      * the matching-path cache miss bounds this read by the remaining rewrite budget (see
      * completeRowsForHash).
      */
     private Set<String> readDroppedIdentities(Collection<Long> ids,
-            boolean includeLocalPending, int timeoutSeconds) {
+            boolean includeLocalPending, long deadlineMillis) {
         if (ids == null || ids.isEmpty()) {
             return Set.of();
         }
-        Set<String> markers = readDurableDroppedIdentities(ids, timeoutSeconds);
+        Set<String> markers = new HashSet<>(persistence.readDroppedIdentitiesBefore(ids, deadlineMillis));
         // The tombstones this FE failed to append durably (see writeDroppedMarker) still
         // mask their identity - the caller asked about these very ids, so without the
         // in-memory half the delayed-commit row revived on THIS FE; the append is also
@@ -6846,32 +6836,21 @@ public class BaselineManager {
                     continue;
                 }
                 markers.add(marker.key());
-                writeDroppedMarker(marker.id, marker.bindSqlDigest, marker.planSqlHash);
+                if (deadlineMillis == Long.MAX_VALUE) {
+                    writeDroppedMarker(marker.id, marker.bindSqlDigest, marker.planSqlHash);
+                }
             }
         }
         return markers;
     }
 
-    /**
-     * The durable half of readDroppedIdentities: the table / allocator-seam tombstones of
-     * the given ids, WITHOUT the process-local pendingDroppedMarkers fold and without any
-     * retry side effect (see readDroppedIdentitiesDurable).
-     */
-    private Set<String> readDurableDroppedIdentities(Collection<Long> ids, int timeoutSeconds) {
-        return persistence.readDroppedIdentities(ids, timeoutSeconds);
-    }
-
     /** The live implementation half of BaselinePersistence.readDroppedIdentities. */
     private static Set<String> readDroppedIdentitiesFromTable(Collection<Long> ids) {
-        return readDroppedIdentitiesFromTable(ids, INTERNAL_QUERY_TIMEOUT_SECONDS);
+        return readDroppedIdentitiesFromTable(ids, Long.MAX_VALUE);
     }
 
-    /**
-     * As readDroppedIdentitiesFromTable(Collection), with an explicit statement timeout
-     * (see readDroppedIdentities(Collection, boolean, int)).
-     */
-    private static Set<String> readDroppedIdentitiesFromTable(Collection<Long> ids,
-            int timeoutSeconds) {
+    /** Reads each tombstone chunk using the time left in the original budget. */
+    private static Set<String> readDroppedIdentitiesFromTable(Collection<Long> ids, long deadlineMillis) {
         if (!persistenceEnabled()) {
             return Set.of();
         }
@@ -6884,12 +6863,12 @@ public class BaselineManager {
                 }
                 chunk.add(id);
                 if (chunk.size() == DROPPED_MARKER_ID_CHUNK) {
-                    readDroppedIdentitiesChunk(chunk, markers, timeoutSeconds);
+                    readDroppedIdentitiesChunk(chunk, markers, remainingReadTimeout(deadlineMillis));
                     chunk.clear();
                 }
             }
             if (!chunk.isEmpty()) {
-                readDroppedIdentitiesChunk(chunk, markers, timeoutSeconds);
+                readDroppedIdentitiesChunk(chunk, markers, remainingReadTimeout(deadlineMillis));
             }
         } catch (Exception e) {
             throw new RuntimeException("SPM durable drop-marker read failed (retry the"
@@ -7054,6 +7033,11 @@ public class BaselineManager {
      * DROP cannot condemn, even when its reservation metadata is still unreadable. Visible for package tests.
      */
     Set<String> withIdentityDrops(Set<String> tombstones, Collection<BaselinePlan> rows) {
+        return withIdentityDrops(tombstones, rows, Long.MAX_VALUE);
+    }
+
+    private Set<String> withIdentityDrops(Set<String> tombstones, Collection<BaselinePlan> rows,
+            long deadlineMillis) {
         Map<String, List<BaselinePlan>> byIdentity = null;
         for (BaselinePlan row : rows) {
             if (row == null || row.getId() <= 0 || row.getBindSqlDigest() == null
@@ -7092,7 +7076,7 @@ public class BaselineManager {
             Map<Long, BaselinePersistence.SeqReservation> batched;
             try {
                 batched = persistence.readLatestReservations(compactIds,
-                        INTERNAL_QUERY_TIMEOUT_SECONDS);
+                        remainingReadTimeout(deadlineMillis));
             } catch (RuntimeException e) {
                 throw new RuntimeException("SPM durable identity-state read failed (retry the"
                         + " operation): " + e.getMessage(), e);
@@ -7107,7 +7091,7 @@ public class BaselineManager {
                     // a tombstone that may be older than the newest reservation, or a store
                     // without the batched read): reconcile with the history
                     state = persistence.readLatestReservation(first.getBindSqlDigest(),
-                            planSqlHash);
+                            planSqlHash, deadlineMillis);
                 } else if (!namesEveryIncarnation(state, group.getValue())) {
                     // A NON-dropped compact answer only proves the incarnation it NAMES is alive:
                     // the compact copy of a DROP is appended best-effort, so the slot can still
@@ -7119,7 +7103,7 @@ public class BaselineManager {
                     // incarnation, keeps the bounded batched answer and issues no extra query
                     // .
                     state = persistence.readLatestReservation(first.getBindSqlDigest(),
-                            planSqlHash);
+                            planSqlHash, deadlineMillis);
                 }
                 if (state == null || !state.dropped) {
                     continue;
@@ -7249,21 +7233,20 @@ public class BaselineManager {
      * Returns: the rows without dropped identities
      */
     private List<BaselinePlan> filterTombstonedDurableRows(List<BaselinePlan> rows) {
-        return filterTombstonedDurableRows(rows, INTERNAL_QUERY_TIMEOUT_SECONDS);
+        return filterTombstonedDurableRows(rows, Long.MAX_VALUE);
     }
 
     /**
-     * As filterTombstonedDurableRows(List), with an explicit statement timeout for the
-     * tombstone read: the matching-path cache miss bounds its WHOLE read by the remaining
-     * rewrite budget (see completeRowsForHash).
+     * Filters tombstones with the remaining matching budget. Bounded matching reads only mask dropped
+     * rows; refresh and management operations perform any durable repairs.
      */
     private List<BaselinePlan> filterTombstonedDurableRows(List<BaselinePlan> rows,
-            int timeoutSeconds) {
+            long deadlineMillis) {
         if (rows == null || rows.isEmpty()) {
             return rows == null ? new ArrayList<>() : rows;
         }
         Set<String> tombstones = withIdentityDrops(
-                readDroppedIdentities(rowIds(rows), true, timeoutSeconds), rows);
+                readDroppedIdentities(rowIds(rows), true, deadlineMillis), rows, deadlineMillis);
         if (tombstones.isEmpty()) {
             return rows;
         }
@@ -7271,6 +7254,9 @@ public class BaselineManager {
         for (BaselinePlan row : rows) {
             if (row == null || !isTombstonedRow(tombstones, row)) {
                 surviving.add(row);
+                continue;
+            }
+            if (deadlineMillis != Long.MAX_VALUE) {
                 continue;
             }
             LOG.warn("SPM ignores and repairs a durable baseline {} revived after its DROP"
@@ -7732,7 +7718,7 @@ public class BaselineManager {
      * still lags is re-appended (writeDroppedMarker) and retried within the bounded budget.
      *
      * Parameter identities: the identity markers this DROP owes (no id-scoped ones)
-     * Returns: whether every compact slot already exposes a DROP tombstone
+     * Returns: whether every compact slot is absent, dropped, or names a newer allocation
      */
     private boolean compactTombstonesVisible(Collection<PendingDropMarker> identities) {
         if (identities == null || identities.isEmpty()) {
@@ -7769,7 +7755,9 @@ public class BaselineManager {
                 // identity is still alive.
                 continue;
             }
-            if (!state.dropped) {
+            // The verified history tombstone still covers this DROP when the compact
+            // slot now names a later incarnation of the same key.
+            if (!state.dropped && state.id <= identity.id) {
                 return false;
             }
         }
@@ -7783,6 +7771,11 @@ public class BaselineManager {
      */
     private static BaselinePersistence.SeqReservation readPersistedSeqReservation(String bindSqlDigest,
             long planSqlHash) {
+        return readPersistedSeqReservation(bindSqlDigest, planSqlHash, Long.MAX_VALUE);
+    }
+
+    private static BaselinePersistence.SeqReservation readPersistedSeqReservation(String bindSqlDigest,
+            long planSqlHash, long deadlineMillis) {
         Map<String, String> params = new HashMap<>();
         params.put("compactId", String.valueOf(compactSeqId(bindSqlDigest, planSqlHash)));
         params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
@@ -7790,7 +7783,7 @@ public class BaselineManager {
         BaselinePersistence.SeqReservation compactRes;
         try {
             List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                    SELECT_COMPACT_SEQ_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
+                    SELECT_COMPACT_SEQ_SQL, params, remainingReadTimeout(deadlineMillis)));
             compactRes = rows == null || rows.isEmpty() ? null : parseSeqReservation(rows.get(0));
         } catch (Exception e) {
             // fail closed like every other watermark read: without the answer the create
@@ -7818,7 +7811,7 @@ public class BaselineManager {
         BaselinePersistence.SeqReservation historyRes;
         try {
             List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                    SELECT_PENDING_SEQ_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
+                    SELECT_PENDING_SEQ_SQL, params, remainingReadTimeout(deadlineMillis)));
             historyRes = rows == null || rows.isEmpty() ? null : parseSeqReservation(rows.get(0));
         } catch (Exception e) {
             throw new RuntimeException("SPM baseline id sequence identity read failed (retry the"
@@ -8541,7 +8534,7 @@ public class BaselineManager {
                 return readPersistedByKey(bindSqlDigest, planSql);
             }
             rows = durableHashReadAvailable()
-                    ? readPersistedRowsByHash(bindSqlHash, INTERNAL_QUERY_TIMEOUT_SECONDS) : List.of();
+                    ? readPersistedRowsByHash(bindSqlHash, Long.MAX_VALUE) : List.of();
         }
         for (BaselinePlan row : rows) {
             if (Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
@@ -9966,6 +9959,11 @@ public class BaselineManager {
         }
 
         @Override
+        public SeqReservation readLatestReservation(String bindSqlDigest, long planSqlHash, long deadlineMillis) {
+            return readPersistedSeqReservation(bindSqlDigest, planSqlHash, deadlineMillis);
+        }
+
+        @Override
         public Map<Long, SeqReservation> readLatestReservations(Collection<Long> compactIds,
                 int timeoutSeconds) {
             return readLatestReservationsFromTable(compactIds, timeoutSeconds);
@@ -9999,8 +9997,8 @@ public class BaselineManager {
         }
 
         @Override
-        public Set<String> readDroppedIdentities(Collection<Long> ids, int timeoutSeconds) {
-            return readDroppedIdentitiesFromTable(ids, timeoutSeconds);
+        public Set<String> readDroppedIdentitiesBefore(Collection<Long> ids, long deadlineMillis) {
+            return readDroppedIdentitiesFromTable(ids, deadlineMillis);
         }
 
         @Override
