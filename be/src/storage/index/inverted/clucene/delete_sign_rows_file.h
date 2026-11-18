@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 
 #include "common/status.h"
@@ -40,8 +41,9 @@ namespace doris::segment_v2 {
 // Writes `rows` into the index directory `dir`.
 Status write_clucene_delete_sign_rows(lucene::store::Directory* dir, const roaring::Roaring& rows);
 
-// Sets `out` to the rows the index in `dir` records, or to null when it records none.
-Status read_clucene_delete_sign_rows(lucene::store::Directory* dir,
+// Sets `out` to the rows the index in `dir` records, or to null when it records none. `num_docs`
+// is the number of rows of the index's segment: a record with a row past it is corrupted.
+Status read_clucene_delete_sign_rows(lucene::store::Directory* dir, uint32_t num_docs,
                                      std::shared_ptr<const roaring::Roaring>* out);
 
 } // namespace doris::segment_v2

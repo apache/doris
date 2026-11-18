@@ -51,7 +51,7 @@ Status write_clucene_delete_sign_rows(lucene::store::Directory* dir, const roari
     return Status::OK();
 }
 
-Status read_clucene_delete_sign_rows(lucene::store::Directory* dir,
+Status read_clucene_delete_sign_rows(lucene::store::Directory* dir, uint32_t num_docs,
                                      std::shared_ptr<const roaring::Roaring>* out) {
     const char* file_name = InvertedIndexDescriptor::get_delete_sign_rows_file_name();
     ErrorContext error_context;
@@ -75,16 +75,25 @@ Status read_clucene_delete_sign_rows(lucene::store::Directory* dir,
         *out = nullptr;
         return Status::OK();
     }
+    std::shared_ptr<const roaring::Roaring> rows;
     try {
         // readSafe checks the bitmap against the bytes the file holds, so a damaged file fails
         // instead of being read past its end.
-        *out = std::make_shared<const roaring::Roaring>(
+        rows = std::make_shared<const roaring::Roaring>(
                 roaring::Roaring::readSafe(reinterpret_cast<const char*>(buf.data()), buf.size()));
     } catch (const std::runtime_error& e) {
         // CRoaring throws std::runtime_error on a bitmap that does not fit its bytes.
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
                 "the delete sign rows of an index are corrupted: {}", e.what());
     }
+    // As SNII checks its record: a row past the segment would be moved past the rows of the
+    // segment by index compaction and counted as hidden by BM25 statistics.
+    if (!rows->isEmpty() && rows->maximum() >= num_docs) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>(
+                "the delete sign rows of an index are corrupted: row {} of a segment of {} rows",
+                rows->maximum(), num_docs);
+    }
+    *out = std::move(rows);
     return Status::OK();
 }
 

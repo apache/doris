@@ -591,7 +591,8 @@ public:
         auto directory = reader.open(index_meta);
         EXPECT_TRUE(directory.has_value()) << directory.error();
         std::shared_ptr<const roaring::Roaring> rows;
-        const Status st = read_clucene_delete_sign_rows(directory.value().get(), &rows);
+        const Status st = read_clucene_delete_sign_rows(
+                directory.value().get(), std::numeric_limits<uint32_t>::max(), &rows);
         EXPECT_TRUE(st.ok()) << st;
         if (rows == nullptr) {
             return std::nullopt;
@@ -2447,6 +2448,28 @@ TEST_F(InvertedIndexWriterTest, NormsFollowIndexNormsProperty) {
             << "the config must leave an ordinary column index alone";
 
     config::inverted_index_skip_norms_for_variant = original_skip_norms_for_variant;
+}
+
+// A CLucene record of the delete-sign rows reads back as written, an absent one as null, and one
+// with a row past its segment is corrupted rather than moved or counted past the segment's rows.
+TEST_F(InvertedIndexWriterTest, CluceneDeleteSignRowsPastTheSegmentAreCorrupted) {
+    auto* ram_dir = new lucene::store::RAMDirectory();
+    std::shared_ptr<const roaring::Roaring> rows;
+    ASSERT_TRUE(read_clucene_delete_sign_rows(ram_dir, 10, &rows).ok());
+    EXPECT_EQ(rows, nullptr);
+
+    ASSERT_TRUE(write_clucene_delete_sign_rows(ram_dir, roaring::Roaring {2, 9}).ok());
+    ASSERT_TRUE(read_clucene_delete_sign_rows(ram_dir, 10, &rows).ok());
+    ASSERT_NE(rows, nullptr);
+    EXPECT_EQ(*rows, (roaring::Roaring {2, 9}));
+
+    rows = nullptr;
+    const Status st = read_clucene_delete_sign_rows(ram_dir, 9, &rows);
+    EXPECT_TRUE(st.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << st;
+    EXPECT_EQ(rows, nullptr);
+
+    ram_dir->close();
+    _CLLDELETE(ram_dir);
 }
 
 // A merge-on-write segment writer marks the rows written with the delete sign: a text index gives

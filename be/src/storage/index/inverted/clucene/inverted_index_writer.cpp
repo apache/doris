@@ -620,19 +620,23 @@ void InvertedIndexColumnWriter<field_type>::write_null_bitmap(
 template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::finish() {
     if (_dir != nullptr) {
-        if (_delete_sign_rows != nullptr) {
-            // The segment writer has added every row of the segment by now. Written even when
-            // empty: then no row has the sign, and BM25 statistics need not read the delete-sign
-            // column to know it.
-            DORIS_CHECK(_delete_sign_rows->isEmpty() || _delete_sign_rows->maximum() < _rid);
-            RETURN_IF_ERROR(write_clucene_delete_sign_rows(_dir.get(), *_delete_sign_rows));
-        }
         std::unique_ptr<lucene::store::IndexOutput> null_bitmap_out = nullptr;
         std::unique_ptr<lucene::store::IndexOutput> data_out = nullptr;
         std::unique_ptr<lucene::store::IndexOutput> index_out = nullptr;
         std::unique_ptr<lucene::store::IndexOutput> meta_out = nullptr;
         ErrorContext error_context;
         try {
+            if (_delete_sign_rows != nullptr) {
+                // The segment writer has added every row of the segment by now. Written even when
+                // empty: then no row has the sign, and BM25 statistics need not read the
+                // delete-sign column to know it. A failure is thrown, so that the index writer is
+                // closed as on any other error here.
+                DORIS_CHECK(_delete_sign_rows->isEmpty() || _delete_sign_rows->maximum() < _rid);
+                if (Status st = write_clucene_delete_sign_rows(_dir.get(), *_delete_sign_rows);
+                    !st.ok()) {
+                    _CLTHROWA(CL_ERR_IO, st.to_string_no_stack().c_str());
+                }
+            }
             // write bkd file
             if constexpr (field_is_numeric_type(field_type)) {
                 _bkd_writer->max_doc_ = _rid;

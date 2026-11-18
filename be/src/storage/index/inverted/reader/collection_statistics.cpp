@@ -24,6 +24,7 @@
 #include <sstream>
 #include <unordered_set>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
@@ -58,6 +59,7 @@
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
 
@@ -392,6 +394,11 @@ namespace {
 Status read_delete_sign_column(const RowsetSharedPtr& rowset, const RowsetSegmentView& seg,
                                const TabletSchema& tablet_schema, const MowHiddenRows& hidden_rows,
                                const io::IOContext* io_ctx, roaring::Roaring* rows) {
+    // Lets a test tell the record of an index from this read, which gives the same statistics.
+    DBUG_EXECUTE_IF("CollectionStatistics.read_delete_sign_column", {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "debug point: BM25 statistics read the delete-sign column");
+    });
     OlapReaderStatistics stats;
     SegmentCacheHandle cache_handle;
     // The delete sign is column data, read as the query reads its columns.
@@ -839,7 +846,8 @@ Status CollectionStatistics::process_segment(const RowsetSharedPtr& rowset,
                         // their own, as the null bitmap is.
                         auto directory =
                                 DORIS_TRY(idx_file_reader->open(collect_info.index_meta, io_ctx));
-                        return segment_v2::read_clucene_delete_sign_rows(directory.get(), out);
+                        return segment_v2::read_clucene_delete_sign_rows(
+                                directory.get(), cast_set<uint32_t>(index_reader->maxDoc()), out);
                     },
                     &delete_sign_rows));
             RETURN_IF_ERROR(find_hidden_docs(delete_sign_rows.get()));

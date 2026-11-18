@@ -19,6 +19,7 @@
 
 #include <roaring/roaring.hh>
 
+#include "common/cast_set.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_common.h"
 #include "storage/index/index_file_writer.h"
@@ -37,7 +38,8 @@ Status merge_delete_sign_rows(
     std::vector<roaring::Roaring> dest_rows(dest_index_dirs.size());
     for (size_t src = 0; src < src_index_dirs.size(); ++src) {
         std::shared_ptr<const roaring::Roaring> src_rows;
-        RETURN_IF_ERROR(read_clucene_delete_sign_rows(src_index_dirs[src].get(), &src_rows));
+        RETURN_IF_ERROR(read_clucene_delete_sign_rows(
+                src_index_dirs[src].get(), cast_set<uint32_t>(trans_vec[src].size()), &src_rows));
         // A source an older BE wrote or merged holds terms for its rows with the sign, which the
         // merged indexes carry, and does not say which rows they are. The merged indexes record
         // none then, and BM25 statistics read their delete-sign column.
@@ -45,7 +47,6 @@ Status merge_delete_sign_rows(
             return Status::OK();
         }
         for (const uint32_t src_row : *src_rows) {
-            DORIS_CHECK_LT(src_row, trans_vec[src].size());
             const auto [dest, dest_row] = trans_vec[src][src_row];
             // <UINT32_MAX, UINT32_MAX>: the row is not in the output, as base compaction drops
             // the rows written with the delete sign.
