@@ -167,13 +167,13 @@ public class SPMRound44SafetyTest {
         LogicalPlan replayedAsc = parse("SELECT k FROM t ORDER BY k ASC");
         LogicalPlan replayedDesc = parse("SELECT k FROM t ORDER BY k DESC");
         LogicalPlan replayedNone = parse("SELECT k FROM t");
-        Assertions.assertTrue(SPMPlanTreeSupport.orderContractPreserved(replayedAsc, callerAsc),
+        Assertions.assertTrue(SpmTreeTestAccess.orderContractPreserved(replayedAsc, callerAsc),
                 "the same sort survives the replay");
-        Assertions.assertFalse(SPMPlanTreeSupport.orderContractPreserved(replayedDesc, callerAsc),
+        Assertions.assertFalse(SpmTreeTestAccess.orderContractPreserved(replayedDesc, callerAsc),
                 "a flipped direction must not serve the caller's (1,2) request with (2,1)");
-        Assertions.assertFalse(SPMPlanTreeSupport.orderContractPreserved(replayedNone, callerAsc),
+        Assertions.assertFalse(SpmTreeTestAccess.orderContractPreserved(replayedNone, callerAsc),
                 "the caller's uncapped sort must not be dropped by the replay");
-        Assertions.assertTrue(SPMPlanTreeSupport.orderContractPreserved(replayedNone,
+        Assertions.assertTrue(SpmTreeTestAccess.orderContractPreserved(replayedNone,
                         parse("SELECT k FROM t")),
                 "an unordered caller has no ordering contract to preserve");
         // the frozen (decompiled) optimal plan appends deterministic TIE-BREAKER keys
@@ -186,13 +186,13 @@ public class SPMRound44SafetyTest {
         LogicalPlan replayedFewerKeys = parse("SELECT k FROM t ORDER BY k ASC");
         LogicalPlan replayedSecondFlipped = parse("SELECT k FROM t ORDER BY k ASC, k + 1 ASC");
         Assertions.assertTrue(
-                SPMPlanTreeSupport.orderContractPreserved(replayedMoreKeys, callerTwoKeys),
+                SpmTreeTestAccess.orderContractPreserved(replayedMoreKeys, callerTwoKeys),
                 "the frozen tie-breaker keys after the caller's own must not reject the replay");
         Assertions.assertFalse(
-                SPMPlanTreeSupport.orderContractPreserved(replayedFewerKeys, callerTwoKeys),
+                SpmTreeTestAccess.orderContractPreserved(replayedFewerKeys, callerTwoKeys),
                 "a caller key dropped from the replay breaks the visible ordering");
         Assertions.assertFalse(
-                SPMPlanTreeSupport.orderContractPreserved(replayedSecondFlipped, callerTwoKeys),
+                SpmTreeTestAccess.orderContractPreserved(replayedSecondFlipped, callerTwoKeys),
                 "a flipped second caller key must not be accepted");
         List<String> contract = SPMPlanTreeSupport.rootOrderContract(replayedDesc);
         Assertions.assertEquals(1, contract.size(), "one order key, got: " + contract);

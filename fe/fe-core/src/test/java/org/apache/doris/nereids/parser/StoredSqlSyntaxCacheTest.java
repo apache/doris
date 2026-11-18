@@ -19,6 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
+import org.apache.doris.nereids.spm.SpmTreeTestAccess;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -49,7 +50,7 @@ public class StoredSqlSyntaxCacheTest {
             result.add(node.getClass().getSimpleName());
             node.getExpressions().forEach(expr -> result.add(expr.toSql()));
         });
-        result.add(SPMPlanTreeSupport.selectHintsFingerprint(plan));
+        result.add(SpmTreeTestAccess.selectHintsFingerprint(plan));
         return result;
     }
 

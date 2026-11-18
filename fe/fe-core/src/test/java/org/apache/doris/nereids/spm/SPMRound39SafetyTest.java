@@ -148,7 +148,7 @@ public class SPMRound39SafetyTest {
         LogicalPlan plan = parse("SELECT b.k, a.k FROM t PARTITION(p1) b"
                 + " CROSS JOIN t PARTITION(p2) a");
         AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectScanSelectorMismatch(bind, plan,
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, plan,
                         "SELECT a.k, b.k FROM t PARTITION(p1) a CROSS JOIN t PARTITION(p2) b"),
                 "the same selector list attached to SWAPPED aliases must be rejected");
         Assertions.assertTrue(failure.getMessage().contains("DIFFERENT occurrences"),
@@ -160,23 +160,26 @@ public class SPMRound39SafetyTest {
     public void testAlignedSelfJoinOccurrencesAreAccepted() {
         LogicalPlan bind = parse("SELECT a.k, b.k FROM t PARTITION(p1) a"
                 + " CROSS JOIN t PARTITION(p2) b");
-        LogicalPlan plan = parse("SELECT b.k, a.k FROM t PARTITION(p1) a"
+        LogicalPlan plan = parse("SELECT a.k, b.k FROM t PARTITION(p1) a"
                 + " CROSS JOIN t PARTITION(p2) b");
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectScanSelectorMismatch(bind, plan, "bind"));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, plan, "bind"));
+        LogicalPlan swappedOutputs = parse("SELECT b.k, a.k FROM t PARTITION(p1) a"
+                + " CROSS JOIN t PARTITION(p2) b");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, swappedOutputs, "bind"),
+                "aligned selectors do not allow changing the output expressions");
     }
 
-    /**
-     * A single occurrence is compared by its SELECTOR alone: the alias cannot disambiguate
-     * anything, and a manual plan may name its relation differently.
-     */
+    /** Matching selectors do not allow changing aliases checked by the full manual contract. */
     @Test
-    public void testSingleOccurrenceAliasMayDiffer() {
-        LogicalPlan bind = parse("SELECT x.k FROM t PARTITION(p1) x");
-        LogicalPlan plan = parse("SELECT y.k FROM t PARTITION(p1) y2");
-        Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectScanSelectorMismatch(bind, plan, "bind"),
-                "one occurrence: only the selector matters");
+    public void testSingleOccurrenceAliasChangeIsRejectedByManualContract() {
+        LogicalPlan bind = parse("SELECT k FROM t PARTITION(p1) x");
+        LogicalPlan plan = parse("SELECT k FROM t PARTITION(p1) y2");
+        AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, plan, "bind"));
+        Assertions.assertTrue(failure.getMessage().contains("alias differs"),
+                "the scan-selector phase accepts the same pin; topology rejects the changed alias");
     }
 
     /** A genuinely different selector still fails with the selector-mismatch message. */
@@ -185,7 +188,7 @@ public class SPMRound39SafetyTest {
         LogicalPlan bind = parse("SELECT x.k FROM t PARTITION(p1) x");
         LogicalPlan plan = parse("SELECT y.k FROM t PARTITION(p2) y");
         AnalysisException failure = Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectScanSelectorMismatch(bind, plan, "bind"));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, plan, "bind"));
         Assertions.assertTrue(failure.getMessage().contains("selectors"),
                 failure.getMessage());
     }
@@ -208,10 +211,10 @@ public class SPMRound39SafetyTest {
                 + " SELECT k FROM ws_wh ORDER BY k LIMIT 100");
         LogicalPlan replay = parse("WITH t_4 AS (SELECT k FROM t)"
                 + " SELECT k FROM t_4 ORDER BY k LIMIT 100");
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(replay, user),
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(replay, user),
                 "the replayed cap must be recognized as the caller's own although the"
                         + " CTE alias was regenerated");
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, user),
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsSurviveReplay(replay, user),
                 "every caller cap must survive in the replay although the CTE alias"
                         + " was regenerated");
         Assertions.assertEquals(SpmPlanTreeSupportTestAccess.rowLimitKeys(user),
@@ -247,18 +250,18 @@ public class SPMRound39SafetyTest {
         LogicalPlan user = parse("SELECT a1.k FROM t a1 CROSS JOIN t a2 CROSS JOIN t a3"
                 + " ORDER BY 1 LIMIT 100");
         LogicalPlan replay = parse("SELECT a1.k FROM t a1 ORDER BY 1 LIMIT 100");
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, user),
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsSurviveReplay(replay, user),
                 "the strict occurrence-tagged comparison cannot hold across the"
                         + " collapse - the relaxation below is what fixes the suite");
-        Assertions.assertTrue(SPMPlanTreeSupport.topCapContractPreserved(replay, user),
+        Assertions.assertTrue(SpmTreeTestAccess.topCapContractPreserved(replay, user),
                 "the top cap truncates the same result; only the occurrence ordinals"
                         + " differ");
         LogicalPlan otherTable = parse("SELECT a1.k FROM u a1 ORDER BY 1 LIMIT 100");
-        Assertions.assertFalse(SPMPlanTreeSupport.topCapContractPreserved(otherTable, user),
+        Assertions.assertFalse(SpmTreeTestAccess.topCapContractPreserved(otherTable, user),
                 "a DIFFERENT top-level input set must stay rejected");
         LogicalPlan innerCap = parse("SELECT a1.k FROM (SELECT k FROM t LIMIT 5) a1"
                 + " ORDER BY 1 LIMIT 100");
-        Assertions.assertFalse(SPMPlanTreeSupport.topCapContractPreserved(replay, innerCap),
+        Assertions.assertFalse(SpmTreeTestAccess.topCapContractPreserved(replay, innerCap),
                 "a caller whose own tree carries an inner cap must keep the strict"
                         + " comparison (the replay lacks it)");
     }

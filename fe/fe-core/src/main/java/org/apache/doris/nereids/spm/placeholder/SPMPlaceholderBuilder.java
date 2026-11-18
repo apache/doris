@@ -105,10 +105,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     /** Auto-increment placeholder id counter (starts at 1). */
     private long nextId = 1;
 
-    /** Placeholder record list. */
-    private final List<PlaceholderExpr> placeholderExprs = new ArrayList<>();
-
-    private final Map<PlaceholderExpr.MatchKey, PlaceholderExpr> placeholderIndex = new HashMap<>();
+    private final Map<PlaceholderKey, Expression> placeholderIndex = new HashMap<>();
     private final Map<Expression, String> parentSignatures = new IdentityHashMap<>();
 
     /**
@@ -156,7 +153,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * Projection ITEM positions of the SELECT-list slots currently being visited (see
      * enterProjectionItem(int)): SELECT 1 AS x, 1 AS y must give its two
      * literals different placeholder ids although value, parent structure and child
-     * position coincide (see PlaceholderExpr.matches).
+     * position coincide (see PlaceholderKey).
      */
     private final Deque<Integer> projectItemStack = new ArrayDeque<>();
 
@@ -221,21 +218,6 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     @Override
     public void noteParameterizedOrdinalTarget() {
         this.parameterizedOrdinalTarget = true;
-    }
-
-    /**
-     * Parameterizes an ordered list of expression roots in one traversal run. Each list position has a distinct
-     * root ordinal, so equal literals in different entries remain independent. Nested subqueries receive their own
-     * block scopes. Repeating the corresponding list with the same builder can reuse the recorded ids.
-     */
-    public List<Expression> parameterizeExpressions(List<Expression> exprs) {
-        List<Expression> parameterized = new ArrayList<>(exprs.size());
-        startNewTree();
-        for (Expression expr : exprs) {
-            beginExpressionRoot();
-            parameterized.add(expr.accept(this, null));
-        }
-        return parameterized;
     }
 
     /** Starts one expression ROOT of the current block (see nextRootOrdinal). */
@@ -377,10 +359,6 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         return top == null ? -1 : top;
     }
 
-    public List<PlaceholderExpr> getPlaceholderExprs() {
-        return placeholderExprs;
-    }
-
     /** Position of the expression currently being visited inside its direct parent; -1 at a root. */
     private int currentChildIndex() {
         Integer top = childIndexStack.peek();
@@ -393,7 +371,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * root literal). Two equal literals can sit under structurally EQUAL parents at
      * different places of one root ("a = 1 AND a = 1": the parents are the two And
      * children), and only the path tells those independent slots apart - see
-     * PlaceholderExpr.occurrencePath.
+     * PlaceholderKey.occurrencePath.
      */
     private String currentOccurrencePath() {
         if (childIndexStack.isEmpty()) {
@@ -974,11 +952,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         int projectItem = currentProjectItem();
         long rootOrdinal = currentRootOrdinal;
         String occurrencePath = currentOccurrencePath();
-        PlaceholderExpr.MatchKey key = PlaceholderExpr.matchKey(literal, parent, childIndex,
+        PlaceholderKey key = PlaceholderKey.of(literal, parent, childIndex,
                 blockId, projectItem, rootOrdinal, occurrencePath, parentSignatures);
-        PlaceholderExpr existing = placeholderIndex.get(key);
+        Expression existing = placeholderIndex.get(key);
         if (existing != null) {
-            return existing.getPlaceholderExpr();
+            return existing;
         }
         long id = nextId++;
         SpmConstVar placeholder = SpmConstVar.of(id,
@@ -986,10 +964,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                         booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
                         booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent),
                         isContainerElementPosition(parent) && !isNullTypeContainerPosition(parent)));
-        PlaceholderExpr record = new PlaceholderExpr(literal, placeholder, parent, childIndex,
-                blockId, projectItem, rootOrdinal, occurrencePath);
-        placeholderExprs.add(record);
-        placeholderIndex.put(key, record);
+        placeholderIndex.put(key, placeholder);
         return placeholder;
     }
 
@@ -1314,19 +1289,16 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             int projectItem = currentProjectItem();
             long rootOrdinal = currentRootOrdinal;
             String occurrencePath = currentOccurrencePath();
-            PlaceholderExpr.MatchKey key = PlaceholderExpr.matchKey(inPredicate, parent, childIndex,
+            PlaceholderKey key = PlaceholderKey.of(inPredicate, parent, childIndex,
                     blockId, projectItem, rootOrdinal, occurrencePath, parentSignatures);
-            PlaceholderExpr existing = placeholderIndex.get(key);
+            Expression existing = placeholderIndex.get(key);
             if (existing != null) {
-                return existing.getPlaceholderExpr();
+                return existing;
             }
             long id = nextId++;
             SpmConstList list = SpmConstList.of(id, inPredicate.getOptions());
             InPredicate placeholder = new InPredicate(newCompare, ImmutableList.of(list));
-            PlaceholderExpr record = new PlaceholderExpr(inPredicate, placeholder, parent, childIndex,
-                    blockId, projectItem, rootOrdinal, occurrencePath);
-            placeholderExprs.add(record);
-            placeholderIndex.put(key, record);
+            placeholderIndex.put(key, placeholder);
             return placeholder;
         }
 

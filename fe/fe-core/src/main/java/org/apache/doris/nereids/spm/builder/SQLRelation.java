@@ -55,9 +55,6 @@ public class SQLRelation {
     /** SELECT list: (column ExprId, SQL text of that column). An empty list makes toSQL output "*". */
     private List<Pair<ExprId, String>> selects = List.of();
 
-    /** Optional SELECT hint text emitted verbatim by toSQL. */
-    private String hints = "";
-
     /** FROM clause text. */
     private String from = "";
 
@@ -66,9 +63,6 @@ public class SQLRelation {
 
     /** GROUP BY clause text. */
     private String groupBy = "";
-
-    /** HAVING clause text. */
-    private String having = "";
 
     /** ORDER BY clause text. */
     private String orderBy = "";
@@ -109,9 +103,6 @@ public class SQLRelation {
      * FROM without aliases ("Not unique table/alias" on replay).
      */
     private String relationIdentity = null;
-
-    /** Optional reserved column-name metadata exposed through accessors; not consumed by this renderer. */
-    private List<String> reserveNames = null;
 
     /**
      * Marks which catalog relation (table) this relation reads (see
@@ -281,9 +272,6 @@ public class SQLRelation {
             sql.append("WITH ").append(String.join(", ", cte)).append(" ");
         }
         sql.append("SELECT ");
-        if (!hints.isEmpty()) {
-            sql.append(hints);
-        }
         if (selects.isEmpty()) {
             sql.append("*");
         } else {
@@ -298,9 +286,6 @@ public class SQLRelation {
         if (!groupBy.isEmpty()) {
             sql.append(" GROUP BY ").append(groupBy);
         }
-        if (!having.isEmpty()) {
-            sql.append(" HAVING ").append(having);
-        }
         if (!orderBy.isEmpty()) {
             sql.append(" ORDER BY ").append(orderBy);
         }
@@ -312,7 +297,7 @@ public class SQLRelation {
 
     /**
      * Whether this relation carries its own query block (SELECT list / WHERE / GROUP BY /
-     * HAVING / ORDER BY / LIMIT / GROUPING SETS / WITH) on top of its FROM. Such a
+     * ORDER BY / LIMIT / GROUPING SETS / WITH) on top of its FROM. Such a
      * relation MUST be wrapped as a subquery before another FROM-level clause (e.g.
      * LATERAL VIEW) is attached: keeping its clauses on the outer relation would move
      * them AFTER the new clause and change the result (LIMIT 10 would then limit the
@@ -325,7 +310,6 @@ public class SQLRelation {
         return !selects.isEmpty()
                 || !where.isEmpty()
                 || !groupBy.isEmpty()
-                || !having.isEmpty()
                 || !orderBy.isEmpty()
                 || !limit.isEmpty()
                 || !groupings.isEmpty()
@@ -354,14 +338,6 @@ public class SQLRelation {
         this.selects = selects;
     }
 
-    public String getHints() {
-        return hints;
-    }
-
-    public void setHints(String hints) {
-        this.hints = hints;
-    }
-
     public String getFrom() {
         return from;
     }
@@ -378,20 +354,8 @@ public class SQLRelation {
         this.where = where;
     }
 
-    public String getGroupBy() {
-        return groupBy;
-    }
-
     public void setGroupBy(String groupBy) {
         this.groupBy = groupBy;
-    }
-
-    public String getHaving() {
-        return having;
-    }
-
-    public void setHaving(String having) {
-        this.having = having;
     }
 
     public String getOrderBy() {
@@ -422,10 +386,6 @@ public class SQLRelation {
         return relationName;
     }
 
-    public void setRelationName(String relationName) {
-        this.relationName = relationName;
-    }
-
     /** Whether this relation renders as the ASSERT_ROWS relation prefix. */
     public boolean isAssertRows() {
         return assertRows;
@@ -434,14 +394,6 @@ public class SQLRelation {
     /** Marks this relation as the ASSERT_ROWS (SELECT...) t_N form. */
     public void setAssertRows(boolean assertRows) {
         this.assertRows = assertRows;
-    }
-
-    public List<String> getReserveNames() {
-        return reserveNames;
-    }
-
-    public void setReserveNames(List<String> reserveNames) {
-        this.reserveNames = reserveNames;
     }
 
     // table alias counter.

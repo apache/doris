@@ -17,70 +17,82 @@
 
 package org.apache.doris.nereids.spm;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
-/**
- * Planner-test entries for {@link SPMPlanner}: the two UT-only construction paths build a
- * baseline from texts / pre-built plans and are private in production, so the tests reach
- * them through reflection from this helper.
- */
+/** Raw-fallback fixtures built from the production parser, parameterizer and baseline assembly. */
 public final class SpmPlannerTestAccess {
-
     private SpmPlannerTestAccess() {
     }
 
-    private static Method method(String name, Class<?>... params) {
+    public static BaselinePlan buildBaseline(SPMPlanner planner, String bindSql, String planSql)
+            throws UserException {
+        long mode = SqlModeHelper.currentMode();
+        LogicalPlan bind = parse(mode, bindSql, "SPM bindSql must be a SELECT statement: ");
+        LogicalPlan plan = bindSql.equals(planSql) ? bind
+                : parse(mode, planSql, "SPM planSql must be a SELECT statement: ");
+        return buildBaseline(planner, bind, plan, bindSql, planSql, 0.0);
+    }
+
+    public static BaselinePlan buildBaseline(SPMPlanner planner, LogicalPlan bind, LogicalPlan plan,
+            String bindSql, String planSql, double cost) {
         try {
-            Method m = SPMPlanner.class.getDeclaredMethod(name, params);
-            m.setAccessible(true);
-            return m;
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
+            invoke(null, "rejectReplayContextExpressions",
+                    new Class<?>[] {LogicalPlan.class, LogicalPlan.class, String.class}, bind, plan, bindSql);
+            SPMPlanTreeSupport.rejectManualPlanMismatch(bind, plan, bindSql);
+            SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bind, plan);
+            Pair<LogicalPlan, LogicalPlan> trees = invoke(null, "parameterizeWholeTrees",
+                    new Class<?>[] {LogicalPlan.class, LogicalPlan.class, SPMPlaceholderBuilder.class},
+                    bind, plan, new SPMPlaceholderBuilder());
+            ConnectContext ctx = ConnectContext.get();
+            String catalog = invoke(null, "captureCatalogName", new Class<?>[] {ConnectContext.class}, ctx);
+            String database = invoke(null, "captureDatabaseName", new Class<?>[] {ConnectContext.class}, ctx);
+            BaselinePlan baseline = invoke(null, "assembleBaseline", new Class<?>[] {
+                    LogicalPlan.class, LogicalPlan.class, LogicalPlan.class, String.class, String.class,
+                    double.class, String.class, String.class, long.class},
+                    bind, trees.first, trees.second, bindSql, planSql, cost, catalog, database,
+                    SqlModeHelper.currentMode());
+            baseline.setPlanFrozen(false);
+            baseline.setPlanSqlMode(baseline.getCreatorSqlMode());
+            baseline.setSchemaFingerprint(SPMPlanTreeSupport.schemaFingerprint(ctx, bind));
+            return baseline;
+        } catch (UserException e) {
+            throw new RuntimeException(e.getMessage(), e);
         }
     }
 
-    /** UT entry: build a baseline from the two SQL texts. */
-    public static BaselinePlan buildBaseline(SPMPlanner planner, String bindSql, String planSql)
+    private static LogicalPlan parse(long mode, String sql, String message) throws UserException {
+        return invoke(null, "parseSelectIsolated", new Class<?>[] {long.class, String.class, String.class},
+                mode, sql, message + sql);
+    }
+
+    private static <T> T invoke(SPMPlanner receiver, String name, Class<?>[] params, Object... args)
             throws UserException {
         try {
-            return (BaselinePlan) method("buildBaselineFromSqlTexts", String.class, String.class)
-                    .invoke(planner, bindSql, planSql);
+            Method method = SPMPlanner.class.getDeclaredMethod(name, params);
+            method.setAccessible(true);
+            return (T) method.invoke(receiver, args);
         } catch (InvocationTargetException e) {
             Throwable cause = e.getCause();
             if (cause instanceof UserException) {
                 throw (UserException) cause;
             }
-            throw rethrow(cause);
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            if (cause instanceof Error) {
+                throw (Error) cause;
+            }
+            throw new IllegalStateException(cause);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }
-    }
-
-    /** UT entry: build a baseline from the two pre-built plans. */
-    public static BaselinePlan buildBaseline(SPMPlanner planner, LogicalPlan bindPlan, LogicalPlan planPlan,
-            String bindSql, String planSql, double cost) {
-        try {
-            return (BaselinePlan) method("assembleBaselineFromPlans", LogicalPlan.class, LogicalPlan.class,
-                    String.class, String.class, double.class).invoke(planner, bindPlan, planPlan, bindSql, planSql,
-                    cost);
-        } catch (InvocationTargetException e) {
-            throw rethrow(e.getCause());
-        } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private static RuntimeException rethrow(Throwable cause) {
-        if (cause instanceof RuntimeException) {
-            return (RuntimeException) cause;
-        }
-        if (cause instanceof Error) {
-            throw (Error) cause;
-        }
-        return new IllegalStateException(cause);
     }
 }

@@ -22,9 +22,9 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -76,7 +76,7 @@ public class SPMRound85PlannerTest {
         String plan = "SELECT k AS y, v AS x, count(*) AS n FROM t"
                 + " GROUP BY GROUPING SETS((x, y), (x))";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "a GROUPING SETS member that is not a base column groups the block's OUTPUT"
                         + " item, so the permutation subtotals another expression");
     }
@@ -87,7 +87,7 @@ public class SPMRound85PlannerTest {
         String bind = "SELECT k AS x, v AS y, count(*) AS n FROM t"
                 + " GROUP BY GROUPING SETS((x, y), (x))";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     /** Grouping sets over BASE columns keep their meaning under a label swap. */
@@ -98,7 +98,7 @@ public class SPMRound85PlannerTest {
         String plan = "SELECT k AS y, v AS x, count(*) AS n FROM t"
                 + " GROUP BY GROUPING SETS((k, v), (k))";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "both sides subtotal the base column k");
     }
 
@@ -118,7 +118,7 @@ public class SPMRound85PlannerTest {
         String plan = "SELECT id, s MATCH_ANY 'hello' USING ANALYZER standard AS y,"
                 + " s MATCH_ANY 'hello' USING ANALYZER none AS x FROM t ORDER BY x";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "two matches over the same column and pattern with different analyzers are"
                         + " different expressions");
     }
@@ -129,7 +129,7 @@ public class SPMRound85PlannerTest {
         String bind = "SELECT id, s MATCH_ANY 'hello' USING ANALYZER standard AS x,"
                 + " s MATCH_ANY 'hello' USING ANALYZER none AS y FROM t ORDER BY x";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     // ==================== #3: the resolved ALIAS body ====================
@@ -261,12 +261,12 @@ public class SPMRound85PlannerTest {
     /** The scalar placeholder markers of one parameterized statement. */
     private static List<SpmConstVar> markers(String sql) {
         LogicalPlan plan = parse(sql);
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
         List<SpmConstVar> vars = new java.util.ArrayList<>();
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (marker.getPlaceholderExpr() instanceof SpmConstVar) {
-                vars.add((SpmConstVar) marker.getPlaceholderExpr());
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (marker.placeholderExpr() instanceof SpmConstVar) {
+                vars.add((SpmConstVar) marker.placeholderExpr());
             }
         }
         return vars;

@@ -223,7 +223,16 @@ public final class BaselineManagerTestAccess {
     }
 
     public static int cachedHashCount(BaselineManager manager) {
-        return ((Number) invokeOnCache(manager, "entryCount", new Class<?>[0])).intValue();
+        Object cache = get(manager, "baselineCache");
+        synchronized (cache) {
+            try {
+                Field entries = cache.getClass().getDeclaredField("entries");
+                entries.setAccessible(true);
+                return ((Map<?, ?>) entries.get(cache)).size();
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
+            }
+        }
     }
 
     /**
@@ -492,36 +501,34 @@ public final class BaselineManagerTestAccess {
 
     public static Map<Long, BaselinePlan> collectFilteredSnapshot(BaselineManager manager,
             BaselineManager.SnapshotPageReader reader) {
-        return (Map<Long, BaselinePlan>) invoke(manager, "collectFilteredSnapshot",
-                new Class<?>[] {BaselineManager.SnapshotPageReader.class}, reader);
+        int pageSize = ((Number) staticValue("SNAPSHOT_PAGE_SIZE")).intValue();
+        Map<Long, List<BaselinePlan>> rows = collectSnapshotRows(reader, pageSize, new AtomicLong());
+        return (Map<Long, BaselinePlan>) invoke(manager, "filterResurrectedRowsById",
+                new Class<?>[] {Map.class}, rows);
     }
 
     public static Map<Long, BaselinePlan> readStableSnapshot(BaselineManager.SnapshotPageReader reader,
             BaselineManager.SnapshotFenceReader fenceReader) {
-        return (Map<Long, BaselinePlan>) invokeStatic("readStableSnapshot",
-                new Class<?>[] {BaselineManager.SnapshotPageReader.class,
-                        BaselineManager.SnapshotFenceReader.class},
-                reader, fenceReader);
+        Map<Long, List<BaselinePlan>> rows = readStableRawSnapshotWithSettle(reader, fenceReader, null);
+        return (Map<Long, BaselinePlan>) invokeStatic("collapseSnapshotRows", new Class<?>[] {Map.class}, rows);
     }
 
     public static Map<Long, BaselinePlan> collectSnapshotPages(BaselineManager.SnapshotPageReader reader,
             int pageSize) {
-        return (Map<Long, BaselinePlan>) invokeStatic("collectSnapshotPages",
-                new Class<?>[] {BaselineManager.SnapshotPageReader.class, int.class}, reader, pageSize);
+        return collectSnapshotPages(reader, pageSize, new AtomicLong());
     }
 
     public static Map<Long, BaselinePlan> collectSnapshotPages(BaselineManager.SnapshotPageReader reader,
             int pageSize, AtomicLong rowsReadSink) {
-        return (Map<Long, BaselinePlan>) invokeStatic("collectSnapshotPages",
-                new Class<?>[] {BaselineManager.SnapshotPageReader.class, int.class, AtomicLong.class},
-                reader, pageSize, rowsReadSink);
+        Map<Long, List<BaselinePlan>> rows = collectSnapshotRows(reader, pageSize, rowsReadSink);
+        return (Map<Long, BaselinePlan>) invokeStatic("collapseSnapshotRows", new Class<?>[] {Map.class}, rows);
     }
 
     public static Map<Long, List<BaselinePlan>> collectSnapshotRows(BaselineManager.SnapshotPageReader reader,
             int pageSize, AtomicLong rowsReadSink) {
         return (Map<Long, List<BaselinePlan>>) invokeStatic("collectSnapshotRows",
-                new Class<?>[] {BaselineManager.SnapshotPageReader.class, int.class, AtomicLong.class},
-                reader, pageSize, rowsReadSink);
+                new Class<?>[] {BaselineManager.SnapshotPageReader.class, int.class, AtomicLong.class,
+                        BaselineManager.SnapshotCompletion.class}, reader, pageSize, rowsReadSink, null);
     }
 
     public static String snapshotPageSql(Long pageStart, long offset) {

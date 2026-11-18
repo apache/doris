@@ -19,9 +19,9 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -40,22 +40,22 @@ import java.util.Set;
 public class SPMPlaceholderContextTest {
     @Test
     public void testRootOccurrencePathsAreIndependentOfSubqueryCallSite() {
-        SPMPlaceholderBuilder root = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder root = new TestSPMPlaceholderBuilder();
         root.parameterizeExpressions(List.of(new IntegerLiteral(1)));
-        Assertions.assertEquals("", root.getPlaceholderExprs().get(0).getOccurrencePath());
+        Assertions.assertEquals("", root.getPlaceholderExprs().get(0).occurrencePath());
 
-        SPMPlaceholderBuilder builder = parameterize("SELECT 1 AS x FROM t WHERE k = 1"
+        TestSPMPlaceholderBuilder builder = parameterize("SELECT 1 AS x FROM t WHERE k = 1"
                 + " AND (EXISTS (SELECT 1 FROM u WHERE k = 1)"
                 + " OR EXISTS (SELECT 1 FROM v WHERE k = 1))");
         Set<Long> blocks = new HashSet<>();
-        for (PlaceholderExpr record : builder.getPlaceholderExprs()) {
-            blocks.add(record.getBlockId());
-            Assertions.assertFalse(record.getOccurrencePath().contains("-1"));
-            if (record.getParentExpr() == null) {
-                Assertions.assertEquals("", record.getOccurrencePath());
+        for (PlaceholderSnapshot record : builder.getPlaceholderExprs()) {
+            blocks.add(record.blockId());
+            Assertions.assertFalse(record.occurrencePath().contains("-1"));
+            if (record.parentExpr() == null) {
+                Assertions.assertEquals("", record.occurrencePath());
             }
-            if (record.getBlockId() > 0 && record.getChildIndex() == 1) {
-                Assertions.assertEquals("1", record.getOccurrencePath(),
+            if (record.blockId() > 0 && record.childIndex() == 1) {
+                Assertions.assertEquals("1", record.occurrencePath(),
                         "a subquery filter root must not inherit its outer expression path");
             }
         }
@@ -80,17 +80,17 @@ public class SPMPlaceholderContextTest {
         for (String container : containers) {
             String index = container.startsWith("map(") || container.startsWith("map_filter(")
                     ? "'x'" : "1";
-            SPMPlaceholderBuilder builder = parameterize("SELECT k > 0 OR element_at("
+            TestSPMPlaceholderBuilder builder = parameterize("SELECT k > 0 OR element_at("
                     + container + ", " + index + ") AS c FROM t");
             int nulls = 0;
-            for (PlaceholderExpr record : builder.getPlaceholderExprs()) {
-                if (record.getOriginalExpr().isNullLiteral()) {
+            for (PlaceholderSnapshot record : builder.getPlaceholderExprs()) {
+                if (record.originalExpr().isNullLiteral()) {
                     nulls++;
                     Assertions.assertEquals(BooleanType.INSTANCE,
-                            ((SpmConstVar) record.getPlaceholderExpr()).getDataType(), container);
+                            ((SpmConstVar) record.placeholderExpr()).getDataType(), container);
                 } else {
-                    Assertions.assertEquals(record.getOriginalExpr().getDataType(),
-                            ((SpmConstVar) record.getPlaceholderExpr()).getDataType(), container);
+                    Assertions.assertEquals(record.originalExpr().getDataType(),
+                            ((SpmConstVar) record.placeholderExpr()).getDataType(), container);
                 }
             }
             Assertions.assertTrue(nulls > 0, container);
@@ -99,12 +99,12 @@ public class SPMPlaceholderContextTest {
 
     @Test
     public void testBareNullContainerArgumentsRemainArrays() {
-        SPMPlaceholderBuilder builder = parameterize("SELECT k > 0 OR element_at("
+        TestSPMPlaceholderBuilder builder = parameterize("SELECT k > 0 OR element_at("
                 + "array_concat(NULL, array_sort(NULL)), 1) AS c FROM t");
         int arrays = 0;
-        for (PlaceholderExpr record : builder.getPlaceholderExprs()) {
-            if (record.getOriginalExpr().isNullLiteral()) {
-                Assertions.assertTrue(record.getPlaceholderExpr().getDataType()
+        for (PlaceholderSnapshot record : builder.getPlaceholderExprs()) {
+            if (record.originalExpr().isNullLiteral()) {
+                Assertions.assertTrue(record.placeholderExpr().getDataType()
                         instanceof org.apache.doris.nereids.types.ArrayType);
                 arrays++;
             }
@@ -121,13 +121,13 @@ public class SPMPlaceholderContextTest {
                 "array(if(k = NULL, NULL, NULL))"
         };
         for (String container : containers) {
-            SPMPlaceholderBuilder builder = parameterize("SELECT k > 0 OR element_at("
+            TestSPMPlaceholderBuilder builder = parameterize("SELECT k > 0 OR element_at("
                     + container + ", 1) AS c FROM t");
             int typedNulls = 0;
             int untypedNulls = 0;
-            for (PlaceholderExpr record : builder.getPlaceholderExprs()) {
-                if (record.getOriginalExpr().isNullLiteral()) {
-                    Expression marker = record.getPlaceholderExpr();
+            for (PlaceholderSnapshot record : builder.getPlaceholderExprs()) {
+                if (record.originalExpr().isNullLiteral()) {
+                    Expression marker = record.placeholderExpr();
                     if (marker.getDataType().isNullType()) {
                         untypedNulls++;
                     } else {
@@ -153,7 +153,7 @@ public class SPMPlaceholderContextTest {
                 "SELECT * FROM t WHERE EXISTS (SELECT k + 1 AS c FROM u ORDER BY 1 LIMIT 1)"
         };
         for (String query : queries) {
-            SPMPlaceholderBuilder builder = parameterize(query);
+            TestSPMPlaceholderBuilder builder = parameterize(query);
             Assertions.assertTrue(builder.hasParameterizedOrdinalTarget(), query);
         }
     }
@@ -172,8 +172,8 @@ public class SPMPlaceholderContextTest {
         }
     }
 
-    private static SPMPlaceholderBuilder parameterize(String sql) {
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+    private static TestSPMPlaceholderBuilder parameterize(String sql) {
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(parse(sql), builder);
         return builder;
     }

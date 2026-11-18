@@ -21,9 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -74,7 +74,7 @@ public class SPMRound77PlannerTest {
 
         Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(bind, manual,
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, manual,
                         "SELECT * REPLACE(db1.f(k) AS x) FROM t"),
                 "another database's same-named function is a different call target even"
                         + " inside a star REPLACE payload");
@@ -87,7 +87,7 @@ public class SPMRound77PlannerTest {
         LogicalPlan manual = parse("SELECT * REPLACE(db1.f(k) AS x) FROM t");
 
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(bind, manual,
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, manual,
                         "SELECT * REPLACE(db1.f(k) AS x) FROM t"),
                 "the same qualified function in the same payload position is one call target");
     }
@@ -139,12 +139,12 @@ public class SPMRound77PlannerTest {
     @Test
     public void testAllNullNullIfOperandParameterizesBooleanMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR nullif(NULL, NULL)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int nullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
@@ -163,14 +163,14 @@ public class SPMRound77PlannerTest {
     @Test
     public void testNonNullNullIfKeepsItsMarkerTypes() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR nullif(k, NULL) IS NULL");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (marker.getPlaceholderExpr() instanceof SpmConstVar
-                    && ((SpmConstVar) marker.getPlaceholderExpr()).getValue()
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (marker.placeholderExpr() instanceof SpmConstVar
+                    && ((SpmConstVar) marker.placeholderExpr()).getValue()
                             instanceof NullLiteral) {
-                Assertions.assertFalse(((SpmConstVar) marker.getPlaceholderExpr()).getDataType()
+                Assertions.assertFalse(((SpmConstVar) marker.placeholderExpr()).getDataType()
                                 instanceof BooleanType,
                         "only an all-NULL NULLIF is a NullType producer");
             }

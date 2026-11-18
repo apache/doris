@@ -34,7 +34,6 @@ import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashSet;
 import java.util.List;
@@ -296,24 +295,9 @@ public class SPMOptimizerTest {
         StatementContext outer = new StatementContext(ctx, new OriginStatement("SELECT 1", 0));
         ctx.setStatementContext(outer);
         LogicalPlan plan = (LogicalPlan) new NereidsParser().parseSingle("SELECT 1");
-        Set<StatementContext> closedNested = new HashSet<>();
-        List<StatementContext> createdNested = new ArrayList<>();
-        // The nested context the optimizer creates is observed through the factory seam:
-        // production allocates a CaptureStatementContext SUBCLASS, which a construction mock
-        // of StatementContext never sees (the allocation names the subclass).
-        SPMOptimizer.setNestedContextFactoryForTest((nestedCtx, sql) -> {
-            StatementContext nested = new StatementContext(nestedCtx,
-                    new OriginStatement(sql, 0)) {
-                @Override
-                public void close() {
-                    closedNested.add(this);
-                    super.close();
-                }
-            };
-            createdNested.add(nested);
-            return nested;
-        });
-        try {
+        Class<StatementContext> captureType = (Class<StatementContext>) Class.forName(
+                SPMOptimizer.class.getName() + "$CaptureStatementContext");
+        try (MockedConstruction<StatementContext> contexts = Mockito.mockConstruction(captureType)) {
             // SUCCESS: the mocked planner returns a physical plan, so optimize() returns
             try (MockedConstruction<NereidsPlanner> mocked = Mockito.mockConstruction(
                     NereidsPlanner.class, (planner, construction) -> Mockito
@@ -323,11 +307,9 @@ public class SPMOptimizerTest {
                 Assertions.assertEquals(1, mocked.constructed().size(),
                         "the nested plan runs on its own planner");
             }
-            Assertions.assertEquals(1, createdNested.size(),
+            Assertions.assertEquals(1, contexts.constructed().size(),
                     "one nested statement context per optimization");
-            Assertions.assertTrue(closedNested.contains(createdNested.get(0)),
-                    "a SUCCESSFUL nested plan must close its statement context: its connector"
-                            + " scope / planner resources are released only there");
+            Mockito.verify(contexts.constructed().get(0)).close();
             Assertions.assertSame(outer, ctx.getStatementContext(),
                     "the outer context is restored");
 
@@ -342,14 +324,12 @@ public class SPMOptimizerTest {
                         "the nested failure must not be swallowed");
                 Assertions.assertEquals("nested plan failed", failure.getMessage());
             }
-            Assertions.assertEquals(2, createdNested.size(),
+            Assertions.assertEquals(2, contexts.constructed().size(),
                     "the failing optimization still created its own nested context");
-            Assertions.assertTrue(closedNested.contains(createdNested.get(1)),
-                    "a FAILING nested plan must still close its statement context");
+            Mockito.verify(contexts.constructed().get(1)).close();
             Assertions.assertSame(outer, ctx.getStatementContext(),
                     "the outer context is restored on the failure path as well");
         } finally {
-            SPMOptimizer.setNestedContextFactoryForTest(null);
             ConnectContext.remove();
         }
     }

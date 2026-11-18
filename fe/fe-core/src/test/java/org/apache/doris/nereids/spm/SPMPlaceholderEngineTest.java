@@ -21,9 +21,9 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
 import org.apache.doris.nereids.spm.matcher.SPMPlaceholderReplacer;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -50,7 +50,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * M2 milestone test: the placeholder engine (SPMPlaceholderBuilder / SPMAstCheckVisitor /
+ * M2 milestone test: the placeholder engine (TestSPMPlaceholderBuilder / SPMAstCheckVisitor /
  * SPMPlaceholderReplacer).
  *
  * Verifies three core phases:
@@ -62,7 +62,7 @@ import java.util.Map;
  */
 public class SPMPlaceholderEngineTest {
 
-    // ==================== parameterization (SPMPlaceholderBuilder) ====================
+    // ==================== parameterization (TestSPMPlaceholderBuilder) ====================
 
     @Test
     public void testParameterizeSingleLiteral() {
@@ -70,7 +70,7 @@ public class SPMPlaceholderEngineTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         Expression bind = new EqualTo(a, new IntegerLiteral(100));
 
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         Expression parameterized = builder.parameterizeExpressions(List.of(bind)).get(0);
 
         // The EqualTo structure is kept and the right child is replaced with SpmConstVar
@@ -95,7 +95,7 @@ public class SPMPlaceholderEngineTest {
         Expression bind = new And(new EqualTo(a, new IntegerLiteral(100)),
                 new EqualTo(a, new IntegerLiteral(100)));
 
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         Expression parameterized = builder.parameterizeExpressions(List.of(bind)).get(0);
 
         // TWO placeholder records: the two occurrences are independent slots
@@ -124,7 +124,7 @@ public class SPMPlaceholderEngineTest {
         Expression bind = new And(new EqualTo(a, new IntegerLiteral(100)),
                 new EqualTo(b, new IntegerLiteral(100)));
 
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         Expression parameterized = builder.parameterizeExpressions(List.of(bind)).get(0);
 
         Assertions.assertEquals(2, builder.getPlaceholderExprs().size());
@@ -151,7 +151,7 @@ public class SPMPlaceholderEngineTest {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         Expression bind = new EqualTo(a, new Add(new IntegerLiteral(1), new IntegerLiteral(1)));
 
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         Expression parameterized = builder.parameterizeExpressions(List.of(bind)).get(0);
 
         Assertions.assertEquals(2, builder.getPlaceholderExprs().size());
@@ -179,7 +179,7 @@ public class SPMPlaceholderEngineTest {
         InPredicate bind = new InPredicate(a,
                 List.of(new IntegerLiteral(1), b, new IntegerLiteral(1)));
 
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         Expression parameterized = builder.parameterizeExpressions(List.of(bind)).get(0);
 
         Assertions.assertEquals(2, builder.getPlaceholderExprs().size(),
@@ -208,7 +208,7 @@ public class SPMPlaceholderEngineTest {
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         Expression bind = new InPredicate(b, List.of(new IntegerLiteral(2), new IntegerLiteral(3)));
 
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         Expression parameterized = builder.parameterizeExpressions(List.of(bind)).get(0);
 
         Assertions.assertTrue(parameterized instanceof InPredicate);
@@ -333,7 +333,7 @@ public class SPMPlaceholderEngineTest {
         Expression planExpr = new EqualTo(a, new SpmConstVar(1L, new IntegerLiteral(100)));
         Map<Long, Expression> values = Map.of(1L, new IntegerLiteral(42));
 
-        Expression replaced = new SPMPlaceholderReplacer().replace(planExpr, values);
+        Expression replaced = planExpr.accept(new SPMPlaceholderReplacer(), values);
 
         Assertions.assertTrue(replaced instanceof EqualTo);
         Assertions.assertEquals(new IntegerLiteral(42), ((EqualTo) replaced).right());
@@ -348,7 +348,7 @@ public class SPMPlaceholderEngineTest {
         InPredicate userIn = new InPredicate(b, List.of(new IntegerLiteral(9), new IntegerLiteral(10)));
         Map<Long, Expression> values = Map.of(1L, userIn);
 
-        Expression replaced = new SPMPlaceholderReplacer().replace(planExpr, values);
+        Expression replaced = planExpr.accept(new SPMPlaceholderReplacer(), values);
 
         Assertions.assertTrue(replaced instanceof InPredicate);
         InPredicate in = (InPredicate) replaced;
@@ -423,9 +423,9 @@ public class SPMPlaceholderEngineTest {
         Expression bind = new InPredicate(substr,
                 List.of(new StringLiteral("85669"), new StringLiteral("86197")));
 
-        Expression parameterized = new SPMPlaceholderBuilder()
+        Expression parameterized = new TestSPMPlaceholderBuilder()
                 .parameterizeExpressions(List.of(bind)).get(0);
-        String digest = SPMUtils.digest(parameterized);
+        String digest = SpmTreeTestAccess.digest(parameterized);
 
         Assertions.assertTrue(
                 digest.contains("substr(ca_zip, _spm_const_var(1), _spm_const_var(2))"),
@@ -453,7 +453,7 @@ public class SPMPlaceholderEngineTest {
                 1L, new IntegerLiteral(5),
                 2L, userIn);
 
-        Expression replaced = new SPMPlaceholderReplacer().replace(planExpr, values);
+        Expression replaced = planExpr.accept(new SPMPlaceholderReplacer(), values);
 
         Assertions.assertTrue(replaced instanceof InPredicate);
         InPredicate in = (InPredicate) replaced;
@@ -477,7 +477,7 @@ public class SPMPlaceholderEngineTest {
         LogicalPlan bindPlan = parse(
                 "SELECT * FROM t1 WHERE a = 100 "
                         + "AND t1.c IN (SELECT t2.c FROM t2 WHERE t2.b = 1)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(
                 bindPlan, expr -> expr.accept(builder, null));
 
@@ -494,7 +494,7 @@ public class SPMPlaceholderEngineTest {
         String bindSql = "SELECT * FROM t1 WHERE a = 100 "
                 + "AND t1.c IN (SELECT t2.c FROM t2 WHERE t2.b = 1)";
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(
-                parse(bindSql), expr -> expr.accept(new SPMPlaceholderBuilder(), null));
+                parse(bindSql), expr -> expr.accept(new TestSPMPlaceholderBuilder(), null));
         LogicalPlan userPlan = parse("SELECT * FROM t1 WHERE a = 42 "
                 + "AND t1.c IN (SELECT t2.c FROM t2 WHERE t2.b = 2)");
 
@@ -515,7 +515,7 @@ public class SPMPlaceholderEngineTest {
     public void testReplaceSubqueryConstant() throws Exception {
         String bindSql = "SELECT * FROM t1 WHERE a = 100 "
                 + "AND t1.c IN (SELECT t2.c FROM t2 WHERE t2.b = 1)";
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(
                 parse(bindSql), expr -> expr.accept(builder, null));
 
@@ -580,7 +580,7 @@ public class SPMPlaceholderEngineTest {
         LogicalPlan plan = new NereidsParser().parseSingle(
                 "SELECT substr(s, 1, 2), count(*) FROM t GROUP BY substr(s, 1, 2)"
                         + " ORDER BY substr(s, 1, 2)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(plan, builder);
 
         LogicalSort<?> sort = (LogicalSort<?>) findNode(parameterized, LogicalSort.class);
@@ -605,7 +605,7 @@ public class SPMPlaceholderEngineTest {
         LogicalPlan plan = new NereidsParser().parseSingle(
                 "SELECT substr(s, 1, 2), count(*) FROM t GROUP BY substr(s, 1, 2)"
                         + " HAVING substr(s, 1, 2) = 'ab'");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(plan, builder);
 
         LogicalHaving<?> having = (LogicalHaving<?>) findNode(parameterized, LogicalHaving.class);
@@ -632,7 +632,7 @@ public class SPMPlaceholderEngineTest {
         // The PATTERN keeps being parameterized (a similar query with another pattern hits).
         LogicalPlan plan = new NereidsParser().parseSingle(
                 "SELECT k FROM t WHERE s LIKE '%a%' ESCAPE '!'");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(plan, builder);
 
         LogicalFilter<?> filter = (LogicalFilter<?>) findNode(parameterized, LogicalFilter.class);

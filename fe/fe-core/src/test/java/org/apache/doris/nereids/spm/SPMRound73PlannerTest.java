@@ -20,9 +20,9 @@ package org.apache.doris.nereids.spm;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SQLRelation;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -154,16 +154,16 @@ public class SPMRound73PlannerTest {
     @Test
     public void testAllNullIfOperandParameterizesBooleanMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR IF(k = 0, NULL, NULL)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        List<PlaceholderExpr> markers = builder.getPlaceholderExprs();
+        List<PlaceholderSnapshot> markers = builder.getPlaceholderExprs();
         Assertions.assertEquals(4, markers.size(),
                 "both comparison literals and BOTH IF branch NULLs must stay markers: "
                         + markers);
         int nullMarkers = 0;
-        for (PlaceholderExpr marker : markers) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : markers) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
@@ -184,15 +184,15 @@ public class SPMRound73PlannerTest {
     @Test
     public void testProjectedAllNullIfKeepsMarkersForAnOuterBooleanConsumer() {
         LogicalPlan plan = parse("SELECT IF(k = 0, NULL, NULL) AS n FROM t");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(plan, builder);
 
         Expression item = firstProjectItem(parameterized);
         Assertions.assertTrue(item instanceof NamedExpression,
                 "expected the parameterized projection item, got: " + item);
         boolean sawNullMarker = false;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 sawNullMarker = true;
@@ -209,16 +209,16 @@ public class SPMRound73PlannerTest {
     @Test
     public void testConditionalOperandNullIsNotTypedBoolean() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR IF(k = NULL, NULL, NULL)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (!(placeholder instanceof SpmConstVar)
                     || !(((SpmConstVar) placeholder).getValue() instanceof NullLiteral)) {
                 continue;
             }
-            Expression parent = marker.getParentExpr();
+            Expression parent = marker.parentExpr();
             if (parent instanceof org.apache.doris.nereids.trees.expressions.EqualTo) {
                 Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
                                 instanceof NullType,

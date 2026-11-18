@@ -23,9 +23,9 @@ import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SQLRelation;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -77,13 +77,13 @@ public class SPMRound76PlannerTest {
     @Test
     public void testAllNullIfNullOperandParameterizesBooleanMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR ifnull(NULL, NULL)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
-        List<PlaceholderExpr> markers = builder.getPlaceholderExprs();
+        List<PlaceholderSnapshot> markers = builder.getPlaceholderExprs();
         int nullMarkers = 0;
-        for (PlaceholderExpr marker : markers) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : markers) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
@@ -101,12 +101,12 @@ public class SPMRound76PlannerTest {
     @Test
     public void testAllNullNvlOperandParameterizesBooleanMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR nvl(NULL, NULL)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int nullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
@@ -128,12 +128,12 @@ public class SPMRound76PlannerTest {
     @Test
     public void testProjectedAllNullIfNullKeepsMarkersForAnOuterBooleanConsumer() {
         LogicalPlan plan = parse("SELECT ifnull(NULL, NULL) AS x FROM t");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int nullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 nullMarkers++;
@@ -161,7 +161,7 @@ public class SPMRound76PlannerTest {
         org.apache.doris.nereids.exceptions.AnalysisException error =
                 Assertions.assertThrows(
                         org.apache.doris.nereids.exceptions.AnalysisException.class,
-                        () -> SPMPlanTreeSupport.rejectManualPlanDivergence(bind, manual,
+                        () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, manual,
                                 "SELECT db1.f(k) FROM t"),
                         "another database's same-named function is a different call target");
         Assertions.assertTrue(error.getMessage().contains("f"),
@@ -175,7 +175,7 @@ public class SPMRound76PlannerTest {
         LogicalPlan manual = parse("SELECT db1.f(k) AS x FROM t");
 
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(bind, manual,
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, manual,
                         "SELECT db1.f(k) FROM t"));
     }
 

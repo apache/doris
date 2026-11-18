@@ -26,8 +26,8 @@ import org.apache.doris.nereids.spm.builder.SPMPlan2SQLBuilder;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.nereids.spm.matcher.PlaceholderBindings;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -180,8 +180,8 @@ public class SPMPerformanceTest {
         CountingRow row = new CountingRow(0, new IntegerLiteral(1), reads);
         row.extra = List.of(row);
         Plan tree = new LogicalLimit<>(1, 0, LimitPhase.ORIGIN, row);
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsWithin(tree, tree));
-        Assertions.assertTrue(SPMPlanTreeSupport.rowLimitsSurviveReplay(tree, tree));
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsWithin(tree, tree));
+        Assertions.assertTrue(SpmTreeTestAccess.rowLimitsSurviveReplay(tree, tree));
     }
 
     @Test
@@ -198,7 +198,7 @@ public class SPMPerformanceTest {
         separate.extra = List.of(new LogicalLimit<>(3, 0, LimitPhase.ORIGIN,
                         parser.parseSingle("SELECT k FROM t")),
                 new LogicalLimit<>(5, 0, LimitPhase.ORIGIN, parser.parseSingle("SELECT k FROM t")));
-        Assertions.assertFalse(SPMPlanTreeSupport.rowLimitsWithin(outer,
+        Assertions.assertFalse(SpmTreeTestAccess.rowLimitsWithin(outer,
                 new LogicalLimit<>(7, 0, LimitPhase.ORIGIN, separate)));
     }
 
@@ -209,14 +209,14 @@ public class SPMPerformanceTest {
         for (int i = 0; i < 2048; i++) {
             expressions.add(parser.parseExpression("a = " + i));
         }
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         List<Expression> first = builder.parameterizeExpressions(expressions);
         Assertions.assertEquals(2048, builder.getPlaceholderExprs().size());
         Assertions.assertEquals(first, builder.parameterizeExpressions(expressions));
         Assertions.assertEquals(2048, builder.getPlaceholderExprs().size());
         for (int i = 0; i < 2048; i++) {
             Assertions.assertEquals(i + 1L,
-                    ((SpmConstVar) builder.getPlaceholderExprs().get(i).getPlaceholderExpr()).getId());
+                    ((SpmConstVar) builder.getPlaceholderExprs().get(i).placeholderExpr()).getId());
         }
     }
 
@@ -254,7 +254,7 @@ public class SPMPerformanceTest {
     public void testUnorderedMatchingPreservesCallerBindingsAndValues() {
         NereidsParser parser = new NereidsParser();
         LogicalPlan bind = SPMPlanTreeSupport.transform((LogicalPlan) parser.parseSingle(
-                "SELECT a FROM t WHERE a = 1 AND b = 2 AND c = 3"), new SPMPlaceholderBuilder());
+                "SELECT a FROM t WHERE a = 1 AND b = 2 AND c = 3"), new TestSPMPlaceholderBuilder());
         LogicalPlan user = (LogicalPlan) parser.parseSingle(
                 "SELECT a FROM t WHERE c = 9 AND b = 8 AND a = 7");
         Map<Long, Expression> values = new HashMap<>();
@@ -311,7 +311,7 @@ public class SPMPerformanceTest {
         Plan bind = parser.parseSingle("SELECT k FROM t PARTITION(p1) WHERE k > 1");
         Plan plan = parser.parseSingle("SELECT v FROM t PARTITION(p2) WHERE k > 2");
         RuntimeException expected = Assertions.assertThrows(RuntimeException.class,
-                () -> SPMPlanTreeSupport.rejectScanSelectorMismatch(bind, plan, "bind"));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, plan, "bind"));
         RuntimeException combined = Assertions.assertThrows(RuntimeException.class,
                 () -> SPMPlanTreeSupport.rejectManualPlanMismatch(bind, plan, "bind"));
         Assertions.assertEquals(expected.getMessage(), combined.getMessage());

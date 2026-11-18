@@ -163,11 +163,10 @@ public class SPMPlan2SQLBuilderTest {
         relation.setFrom("t1");
         relation.setWhere("a > 100");
         relation.setGroupBy("a");
-        relation.setHaving("sum(b) > 0");
         relation.setOrderBy("a ASC");
         relation.setLimit("10");
         Assertions.assertEquals(
-                "SELECT * FROM t1 WHERE a > 100 GROUP BY a HAVING sum(b) > 0 ORDER BY a ASC LIMIT 10",
+                "SELECT * FROM t1 WHERE a > 100 GROUP BY a ORDER BY a ASC LIMIT 10",
                 relation.toSQL());
     }
 
@@ -762,7 +761,7 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.doReturn(java.util.List.of(guarded)).when(plan).getExpressions();
         Mockito.doReturn(java.util.List.of()).when(plan).children();
         Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> SPMPlan2SQLBuilder.rejectSessionVarGuardedExpressions(plan));
+                () -> SpmTreeTestAccess.rejectUnsupportedExpressions(plan));
     }
 
     @Test

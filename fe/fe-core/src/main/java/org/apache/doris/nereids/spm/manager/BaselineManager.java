@@ -144,7 +144,7 @@ public class BaselineManager {
 
     /**
      * Fence re-reads a paginated snapshot read is allowed before it fails closed (see
-     * readStableSnapshot): one DDL overlapping the loop then converges on the
+     * readStableRawSnapshot): one DDL overlapping the loop then converges on the
      * retry, while a table that never stays stable must not be published as a snapshot.
      */
     private static final int SNAPSHOT_STABILITY_ATTEMPTS = 3;
@@ -1512,10 +1512,6 @@ public class BaselineManager {
                 all.addAll(rows.values());
             }
             return all;
-        }
-
-        synchronized int entryCount() {
-            return entries.size();
         }
 
         synchronized void clear() {
@@ -4261,15 +4257,6 @@ public class BaselineManager {
                     id, e.getMessage());
             return null;
         }
-    }
-
-    /**
-     * Ensures the initial GLOBAL load has completed, waiting or loading inline for management callers and failing
-     * retryably when unavailable. This establishes load readiness; it does not by itself confirm a particular
-     * remotely completed mutation.
-     */
-    public void ensureLoadedConfirmed() {
-        ensureLoadedOrThrow();
     }
 
     /**
@@ -7246,17 +7233,6 @@ public class BaselineManager {
     }
 
     /**
-     * The tombstone-aware snapshot pipeline: raw rows first, DROP TOMBSTONES filtered
-     * per raw identity, and only then the per-id winner (see
-     * filterResurrectedRowsById). Visible for tests.
-     */
-    private Map<Long, BaselinePlan> collectFilteredSnapshot(SnapshotPageReader reader)
-            throws Exception {
-        return filterResurrectedRowsById(
-                collectSnapshotRows(reader, SNAPSHOT_PAGE_SIZE, new AtomicLong()));
-    }
-
-    /**
      * Logs and best-effort repairs one durable row revived after its DROP (see
      * filterResurrectedRows and filterResurrectedRowsById).
      */
@@ -8198,37 +8174,6 @@ public class BaselineManager {
     }
 
     /**
-     * Reads the paginated snapshot only if the table was UNCHANGED for the whole read
-     * (see SELECT_CLOCK_SQL): the fence is read before and after the page loop and the
-     * read is retried while it moved. The publisher of the returned map can therefore
-     * treat it as a single-point-in-time state.
-     *
-     * DDL is rare compared to refreshes, so one retry normally converges; a table that
-     * never stays stable (a write storm) fails CLOSED with a retryable exception instead of
-     * publishing a mixed state - every caller re-reads on the next cycle / retry (the
-     * refresh daemon, SHOW, load).
-     *
-     * Parameter reader: reads one snapshot page (inclusive lower bound on the id)
-     * Parameter fenceReader: reads the SnapshotFence token
-     * Returns: the rows of one stable state, collapsed per id
-     * Throws Exception: when a read fails or the table never stays stable
-     */
-    private static Map<Long, BaselinePlan> readStableSnapshot(SnapshotPageReader reader,
-            SnapshotFenceReader fenceReader) throws Exception {
-        return collapseSnapshotRows(readStableRawSnapshot(reader, fenceReader));
-    }
-
-    /**
-     * The fence-guarded read of readStableSnapshot: the RAW per-id row groups of one
-     * stable state, so the tombstone filter can inspect every row before the per-id
-     * winner is picked (see filterResurrectedRowsById).
-     */
-    private static Map<Long, List<BaselinePlan>> readStableRawSnapshot(SnapshotPageReader reader,
-            SnapshotFenceReader fenceReader) throws Exception {
-        return readStableRawSnapshot(reader, fenceReader, null);
-    }
-
-    /**
      * As readStableRawSnapshot(SnapshotPageReader, SnapshotFenceReader), with a
      * PRE-ATTEMPT callback: the production read settles this FE's held mutation windows
      * here (see settleHeldMutationWindowsBeforeSnapshot) - the quiet gate below rejects a
@@ -8281,7 +8226,7 @@ public class BaselineManager {
         }
     }
 
-    /** The fence of one paginated snapshot read (see readStableSnapshot). */
+    /** The fence of one paginated snapshot read (see readStableRawSnapshot). */
     static final class SnapshotFence {
         final long tickMax;
         final long tickCount;
@@ -8321,7 +8266,7 @@ public class BaselineManager {
         }
     }
 
-    /** Reads the fence token of the snapshot read (see readStableSnapshot). */
+    /** Reads the fence token of the snapshot read (see readStableRawSnapshot). */
     @FunctionalInterface
     interface SnapshotFenceReader {
         SnapshotFence readFence() throws Exception;
@@ -8356,34 +8301,9 @@ public class BaselineManager {
         }
     }
 
-    /**
-     * Collects pages with an inclusive id bound and an offset into the trailing id group, then chooses a durable
-     * winner per id. The reader must use the same total stored-column order for every page. The row counter
-     * records rows returned by page reads for diagnostics; it is not compared with the mutation clock count. The
-     * stable production read separately uses fence checks and end probes.
-     */
-    private static Map<Long, BaselinePlan> collectSnapshotPages(SnapshotPageReader reader, int pageSize,
-            AtomicLong rowsReadSink) throws Exception {
-        return collapseSnapshotRows(collectSnapshotRows(reader, pageSize, rowsReadSink));
-    }
-
-    /**
-     * collectSnapshotPages(SnapshotPageReader, int, AtomicLong) without the row
-     * counter: for tests that only inspect the accumulated snapshot.
-     */
-    private static Map<Long, BaselinePlan> collectSnapshotPages(SnapshotPageReader reader, int pageSize)
-            throws Exception {
-        return collectSnapshotPages(reader, pageSize, new AtomicLong());
-    }
-
     /** Whether readStableRawSnapshot's pagination loop PROVED it reached the table's end. */
     static final class SnapshotCompletion {
         boolean endProven;
-    }
-
-    private static Map<Long, List<BaselinePlan>> collectSnapshotRows(SnapshotPageReader reader,
-            int pageSize, AtomicLong rowsReadSink) throws Exception {
-        return collectSnapshotRows(reader, pageSize, rowsReadSink, null);
     }
 
     /**
@@ -8471,7 +8391,7 @@ public class BaselineManager {
         return probe == null || probe.isEmpty();
     }
 
-    /** Reads one page of the snapshot (see collectSnapshotPages). */
+    /** Reads one page of the snapshot (see collectSnapshotRows). */
     @FunctionalInterface
     interface SnapshotPageReader {
         List<ResultRow> readPage(Long pageStart, long offset) throws Exception;
@@ -9429,36 +9349,6 @@ public class BaselineManager {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    /**
-     * Reconciles an ambiguous write: whether the durable table holds the row with this
-     * (id, key). Identity deletes need no status constraint - DELETE_BY_IDENTITY removes
-     * every status row of the key, so the presence of any of them proves the delete did
-     * NOT land; INSERT reconciliation passes the status it wrote (see below).
-     */
-    private BaselinePersistence.DurablePresence probeDurableRow(long id, String bindSqlDigest,
-            String planSql) {
-        return persistence.probeRow(id, bindSqlDigest, planSql, null, null, null);
-    }
-
-    /**
-     * Reconciles an ambiguous write: whether the durable table holds a row with this
-     * (id, key) AND - when status is given - the EXPECTED status. A read FAILURE
-     * answers UNKNOWN - never ABSENT: an absent row is the ONLY proof a DELETE landed,
-     * and treating an unconfirmable read as proof let dropBaseline remove the cached row
-     * and report success while the durable row stayed (the next refresh / restart
-     * resurrected the dropped baseline).
-     *
-     * The status constraint is what makes an INSERT reconciliation sound: during an
-     * ALTER, persistInsert(durablePlan) can throw BEFORE committing while the old-status
-     * row is still present under the SAME (id, digest, planSql) key - an unconstrained
-     * probe declared the INSERT successful, updateStatus deleted the old row and the
-     * baseline was left with NO durable row at all.
-     */
-    private BaselinePersistence.DurablePresence probeDurableRow(long id, String bindSqlDigest,
-            String planSql, BaselineStatus status) {
-        return persistence.probeRow(id, bindSqlDigest, planSql, status, null, null);
     }
 
     /**

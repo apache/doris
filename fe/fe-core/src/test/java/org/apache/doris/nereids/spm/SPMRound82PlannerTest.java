@@ -26,9 +26,9 @@ import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
@@ -94,7 +94,7 @@ public class SPMRound82PlannerTest {
         String bind = "SELECT CAST(k AS INT) AS x, CAST(k AS DOUBLE) AS y FROM t HAVING x > 0";
         String plan = "SELECT CAST(k AS INT) AS y, CAST(k AS DOUBLE) AS x FROM t HAVING x > 0";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "two casts over the same column are different expressions when their TARGET"
                         + " types differ");
     }
@@ -104,7 +104,7 @@ public class SPMRound82PlannerTest {
     public void testIdenticalCastAliasesAreAccepted() {
         String bind = "SELECT CAST(k AS INT) AS x, CAST(k AS DOUBLE) AS y FROM t HAVING x > 0";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     /** A swap between two casts of the SAME target type still carries the column choice. */
@@ -113,12 +113,12 @@ public class SPMRound82PlannerTest {
         String bind = "SELECT CAST(k AS INT) AS x, CAST(v AS INT) AS y FROM t HAVING x > 0";
         String plan = "SELECT CAST(k AS INT) AS y, CAST(v AS INT) AS x FROM t HAVING x > 0";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "the two casts read DIFFERENT columns, so the permutation still filters another"
                         + " value");
         String sameColumn = "SELECT CAST(k AS INT) AS x, CAST(k AS INT) AS y FROM t HAVING x > 0";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(
                         parse(sameColumn), parse(sameColumn), sameColumn));
     }
 
@@ -303,13 +303,13 @@ public class SPMRound82PlannerTest {
     @Test
     public void testArrayMinOverATypedArrayKeepsItsMarkerType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR array_min(array(NULL, 1))");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
                 Assertions.fail("only an all-NULL array is retyped: "
                         + builder.getPlaceholderExprs());
@@ -322,14 +322,14 @@ public class SPMRound82PlannerTest {
     /** One all-NULL array inside a Boolean consumer must leave BOOLEAN-typed NULL markers. */
     private static void assertBooleanNullMarkers(String sql) {
         LogicalPlan plan = parse(sql);
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
         int booleanNullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getValue().isNullLiteral() && var.getDataType() instanceof BooleanType) {
                 booleanNullMarkers++;
             }

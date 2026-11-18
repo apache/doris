@@ -307,82 +307,6 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 ? java.util.Map.of() : partitionNames;
     }
 
-    /**
-     * Rejects freezing when any expression of the plan carries a
-     * SessionVarGuardExpr (see containsSessionVarGuard): the guard holds the
-     * alias-UDF DEFINITION's saved session variables and has no SQL rendering. Every
-     * expansion of a definition with saved variables retains the guard (see
-     * AliasUdfBuilder), including creators whose variables already matched - the frozen
-     * text would otherwise re-analyze the arithmetic under the CALLER's settings.
-     *
-     * Parameter plan: the physical plan about to be decompiled
-     */
-    public static void rejectSessionVarGuardedExpressions(Plan plan) {
-        org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            for (org.apache.doris.nereids.trees.expressions.Expression expr
-                    : node.getExpressions()) {
-                if (containsSessionVarGuard(expr)) {
-                    throw new UnsupportedOperationException("SPM cannot freeze an expression"
-                            + " carrying a session-variable guard: " + expr);
-                }
-            }
-        });
-    }
-
-    /**
-     * Rejects freezing when any expression of the plan still carries a SUBQUERY.
-     *
-     * This builder renders expressions with SPMExprSqlBuilder, which has no SQL
-     * rendering for a subquery: it emits the structural PSEUDO text
-     * INSUBQUERY(compareExpr)[...] / EXISTS[...] / SCALARSUBQUERY[...]
-     * (see SPMExprSqlBuilder.visitSubqueryExpr) - the digest form, not a query. Stored as frozen
-     * SQL that text is not the user's IN (SELECT...): it is an ordinary, unreserved
-     * function call, so a user alias UDF (or catalog function) of that name with compatible
-     * arguments made capture-time validation SUCCEED, the baseline was stored with
-     * planFrozen = true, and every replay evaluated the user's UDF / array access instead
-     * of the original subquery - returning different rows than the query it claims to replay
-     * . Rejecting here keeps the baseline on the parameterized-plan-tree path,
-     * which handles subqueries natively; the same refusal covers a plan whose subquery survives in
-     * a projection (scalar subquery) or a filter (IN / EXISTS).
-     *
-     * Parameter plan: the physical plan about to be decompiled
-     */
-    public static void rejectSubqueryExpressions(Plan plan) {
-        org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            for (org.apache.doris.nereids.trees.expressions.Expression expr
-                    : node.getExpressions()) {
-                if (containsSubqueryExpression(expr)) {
-                    throw new UnsupportedOperationException("SPM cannot freeze an expression"
-                            + " carrying a subquery (its SQL has no subquery rendering): " + expr);
-                }
-            }
-        });
-    }
-
-    /**
-     * Rejects freezing when the plan references a USER function under one of SPM's INTERNAL
-     * pseudo names (see SPMExprSqlBuilder.INTERNAL_PSEUDO_FUNCTION_NAMES).
-     *
-     * Those names are reserved by SPM: they name the structural markers of the digest text, and
-     * a frozen SQL must never be readable as - or shadowed by - a user function of the same name.
-     * A user (or catalog) function that happens to carry one of them keeps the baseline on the
-     * parameterized-plan-tree path instead of producing text that means two different things.
-     *
-     * Parameter plan: the physical plan about to be decompiled
-     */
-    public static void rejectReservedInternalFunctionNames(Plan plan) {
-        org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            for (org.apache.doris.nereids.trees.expressions.Expression expr
-                    : node.getExpressions()) {
-                if (containsReservedInternalFunction(expr)) {
-                    throw new UnsupportedOperationException("SPM cannot freeze an expression"
-                            + " that calls the reserved internal name of a subquery marker: "
-                            + expr);
-                }
-            }
-        });
-    }
-
     /** Fuses freeze guards while retaining session, subquery, reserved-name error precedence. */
     private static void rejectUnsupportedExpressions(Plan plan) {
         Expression[] unsupported = new Expression[2];
@@ -419,51 +343,6 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         for (Expression child : expression.children()) {
             inspectFreezeExpression(child, root, unsupported);
         }
-    }
-
-    private static boolean containsSubqueryExpression(
-            org.apache.doris.nereids.trees.expressions.Expression expr) {
-        if (expr instanceof org.apache.doris.nereids.trees.expressions.SubqueryExpr) {
-            return true;
-        }
-        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
-            if (containsSubqueryExpression(child)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean containsReservedInternalFunction(
-            org.apache.doris.nereids.trees.expressions.Expression expr) {
-        if (expr instanceof Function) {
-            // the NAME alone reserves it: an internal marker must never be shadowed by (or
-            // confused with) a user function in ANY namespace
-            Function function = (Function) expr;
-            if (SPMExprSqlBuilder.INTERNAL_PSEUDO_FUNCTION_NAMES.contains(
-                    function.getName().toLowerCase(java.util.Locale.ROOT))) {
-                return true;
-            }
-        }
-        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
-            if (containsReservedInternalFunction(child)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean containsSessionVarGuard(
-            org.apache.doris.nereids.trees.expressions.Expression expr) {
-        if (expr instanceof org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr) {
-            return true;
-        }
-        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
-            if (containsSessionVarGuard(child)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
@@ -949,7 +828,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // A residual SUBQUERY has no SQL rendering here (SPMExprSqlBuilder emits the digest
         // pseudo form, which a user function of the same name could legally satisfy), and SPM's
         // pseudo names are reserved - both are refusals, so the baseline stays on the
-        // parameterized-plan-tree path (see rejectSubqueryExpressions).
+        // parameterized-plan-tree path (see rejectUnsupportedExpressions).
         rejectUnsupportedExpressions(plan);
         // reset the per-decompile alias / generated-name sequences: t_N and c_N only
         // need to be unique WITHIN the one produced SQL, so numbering restarts here and
@@ -1228,26 +1107,6 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             return name;
         }
         return "`" + name.replace("`", "``") + "`";
-    }
-
-    /**
-     * Quotes every dot-separated component of a (possibly) qualified metadata name
-     * (catalog.db.table), so a table whose name is not a plain identifier (my-table)
-     * is still emitted as an identifier reference rather than as an expression.
-     */
-    static String quoteQualifiedName(String name) {
-        if (name == null || name.isEmpty()) {
-            return name;
-        }
-        String[] parts = name.split("\\.", -1);
-        StringBuilder sb = new StringBuilder(name.length() + 4);
-        for (int i = 0; i < parts.length; i++) {
-            if (i > 0) {
-                sb.append('.');
-            }
-            sb.append(quoteIdentifier(parts[i]));
-        }
-        return sb.toString();
     }
 
     /**

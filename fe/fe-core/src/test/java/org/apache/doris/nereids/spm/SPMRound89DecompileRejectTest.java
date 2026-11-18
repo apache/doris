@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.analyzer.UnboundFunction;
-import org.apache.doris.nereids.spm.builder.SPMPlan2SQLBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -52,7 +51,7 @@ public class SPMRound89DecompileRejectTest {
         LogicalPlan plan = planOf(List.of(subquery));
 
         Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> SPMPlan2SQLBuilder.rejectSubqueryExpressions(plan),
+                () -> SpmTreeTestAccess.rejectUnsupportedExpressions(plan),
                 "a residual subquery has no SQL rendering: it must be refused");
     }
 
@@ -67,7 +66,7 @@ public class SPMRound89DecompileRejectTest {
         LogicalPlan plan = planOf(List.of(outer));
 
         Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> SPMPlan2SQLBuilder.rejectSubqueryExpressions(plan));
+                () -> SpmTreeTestAccess.rejectUnsupportedExpressions(plan));
     }
 
     /** An ordinary expression plan passes the check (no false refusal). */
@@ -75,7 +74,7 @@ public class SPMRound89DecompileRejectTest {
     public void testPlainExpressionIsFreezable() {
         LogicalPlan plan = planOf(List.of(new UnboundFunction("abs",
                 List.of(new IntegerLiteral(1)))));
-        Assertions.assertDoesNotThrow(() -> SPMPlan2SQLBuilder.rejectSubqueryExpressions(plan));
+        Assertions.assertDoesNotThrow(() -> SpmTreeTestAccess.rejectUnsupportedExpressions(plan));
     }
 
     /**
@@ -88,7 +87,7 @@ public class SPMRound89DecompileRejectTest {
         LogicalPlan plan = planOf(List.of(new UnboundFunction("insubquery",
                 List.of(new IntegerLiteral(1)))));
         Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> SPMPlan2SQLBuilder.rejectReservedInternalFunctionNames(plan),
+                () -> SpmTreeTestAccess.rejectUnsupportedExpressions(plan),
                 "an internal pseudo name is reserved for SPM");
     }
 
@@ -98,7 +97,7 @@ public class SPMRound89DecompileRejectTest {
         LogicalPlan plan = planOf(List.of(new UnboundFunction("db1", "scalarSubquery",
                 List.of(new IntegerLiteral(1)))));
         Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> SPMPlan2SQLBuilder.rejectReservedInternalFunctionNames(plan));
+                () -> SpmTreeTestAccess.rejectUnsupportedExpressions(plan));
     }
 
     /** The SPM placeholders themselves are not user functions and pass the reservation check. */
@@ -107,7 +106,7 @@ public class SPMRound89DecompileRejectTest {
         LogicalPlan plan = planOf(List.of(new UnboundFunction("abs",
                 List.of(new IntegerLiteral(1)))));
         Assertions.assertDoesNotThrow(
-                () -> SPMPlan2SQLBuilder.rejectReservedInternalFunctionNames(plan));
+                () -> SpmTreeTestAccess.rejectUnsupportedExpressions(plan));
     }
 
     private static LogicalPlan planOf(List<Expression> expressions) {

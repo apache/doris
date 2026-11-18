@@ -26,9 +26,9 @@ import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -80,7 +80,7 @@ public class SPMRound86PlannerTest {
         String plan = "SELECT d + INTERVAL 1 DAY AS y, d + INTERVAL 1 MONTH AS x FROM t"
                 + " HAVING x < '2020-01-15'";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "two intervals over the same value with different units are different"
                         + " expressions");
     }
@@ -91,7 +91,7 @@ public class SPMRound86PlannerTest {
         String bind = "SELECT d + INTERVAL 1 DAY AS x, d + INTERVAL 1 MONTH AS y FROM t"
                 + " HAVING x < '2020-01-15'";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     // ==================== #2: the lambda parameter mapping ====================
@@ -108,7 +108,7 @@ public class SPMRound86PlannerTest {
         String plan = "SELECT array_map((p, q) -> p - q, a, b) AS y,"
                 + " array_map((q, p) -> p - q, a, b) AS x FROM t HAVING element_at(x, 1) > 0";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "the same lambda body over swapped parameter names means another expression");
     }
 
@@ -118,7 +118,7 @@ public class SPMRound86PlannerTest {
         String bind = "SELECT array_map((p, q) -> p - q, a, b) AS x,"
                 + " array_map((q, p) -> p - q, a, b) AS y FROM t HAVING element_at(x, 1) > 0";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     // ==================== #3: the UDF executable definition ====================
@@ -170,14 +170,14 @@ public class SPMRound86PlannerTest {
     public void testDerivedArrayOutputKeepsItsMarkers() {
         LogicalPlan plan = parse("SELECT k, k > 0 OR element_at(a, 1) AS c"
                 + " FROM (SELECT k, [NULL] AS a FROM t) x");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
         int booleanArrays = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (!(marker.getPlaceholderExpr() instanceof SpmConstVar)) {
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (!(marker.placeholderExpr() instanceof SpmConstVar)) {
                 continue;
             }
-            SpmConstVar var = (SpmConstVar) marker.getPlaceholderExpr();
+            SpmConstVar var = (SpmConstVar) marker.placeholderExpr();
             if (var.getDataType() instanceof ArrayType
                     && ((ArrayType) var.getDataType()).getItemType() instanceof BooleanType) {
                 booleanArrays++;

@@ -19,8 +19,8 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
 import org.apache.doris.nereids.spm.placeholder.SPMSubquerySupport;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -76,11 +76,11 @@ public class SPMTraversalTest {
         for (String expression : List.of("a = 1", "a IN (1, 2)")) {
             List<Expression> bind = List.of(parser.parseExpression(expression),
                     parser.parseExpression(expression));
-            SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+            TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
             List<Expression> parameterized = builder.parameterizeExpressions(bind);
             Assertions.assertEquals(2, builder.getPlaceholderExprs().size());
-            Assertions.assertEquals(0L, builder.getPlaceholderExprs().get(0).getRootOrdinal());
-            Assertions.assertEquals(1L, builder.getPlaceholderExprs().get(1).getRootOrdinal());
+            Assertions.assertEquals(0L, builder.getPlaceholderExprs().get(0).rootOrdinal());
+            Assertions.assertEquals(1L, builder.getPlaceholderExprs().get(1).rootOrdinal());
 
             String first = expression.contains("IN") ? "a IN (3)" : "a = 3";
             String second = expression.contains("IN") ? "a IN (4, 5, 6)" : "a = 4";
@@ -102,7 +102,7 @@ public class SPMTraversalTest {
         NereidsParser parser = new NereidsParser();
         Expression subquery = parser.parseExpression("(SELECT substr(s, 1, 2) FROM t"
                 + " GROUP BY substr(s, 1, 2) HAVING length(substr(s, 1, 2)) = 2)");
-        SubqueryExpr parameterized = (SubqueryExpr) new SPMPlaceholderBuilder()
+        SubqueryExpr parameterized = (SubqueryExpr) new TestSPMPlaceholderBuilder()
                 .parameterizeExpressions(List.of(subquery)).get(0);
         List<Expression> groupKeys = new ArrayList<>();
         List<Expression> havingKeys = new ArrayList<>();
@@ -149,6 +149,6 @@ public class SPMTraversalTest {
                 "EXISTS (SELECT a FROM t WHERE b = 1 GROUP BY a HAVING count(*) > 2)");
         SubqueryExpr second = (SubqueryExpr) parser.parseExpression(
                 "EXISTS (SELECT a FROM t WHERE b = 9 GROUP BY a HAVING count(*) > 2)");
-        Assertions.assertNotEquals(SPMUtils.digest(first), SPMUtils.digest(second));
+        Assertions.assertNotEquals(SpmTreeTestAccess.digest(first), SpmTreeTestAccess.digest(second));
     }
 }

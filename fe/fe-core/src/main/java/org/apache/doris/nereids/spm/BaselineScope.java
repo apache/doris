@@ -52,20 +52,4 @@ public enum BaselineScope {
         return id >= SESSION_ID_BASE ? SESSION : GLOBAL;
     }
 
-    /**
-     * Parses from a string (case-insensitive).
-     *
-     * Parameter name: the scope name; null / unknown falls back to GLOBAL
-     * Returns: the matching scope
-     */
-    public static BaselineScope fromString(String name) {
-        if (name != null) {
-            for (BaselineScope scope : values()) {
-                if (scope.name.equalsIgnoreCase(name)) {
-                    return scope;
-                }
-            }
-        }
-        return GLOBAL;
-    }
 }

@@ -19,9 +19,9 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.spm.placeholder.PlaceholderExpr;
-import org.apache.doris.nereids.spm.placeholder.SPMPlaceholderBuilder;
+import org.apache.doris.nereids.spm.placeholder.PlaceholderSnapshot;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.spm.placeholder.TestSPMPlaceholderBuilder;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -68,7 +68,7 @@ public class SPMRound79PlannerTest {
         String bind = "SELECT k AS x FROM t HAVING x > 0";
         String plan = "SELECT k AS y FROM t HAVING x > 0";
         Assertions.assertThrows(AnalysisException.class,
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "a HAVING name that addresses the block's output alias cannot be renamed");
     }
 
@@ -77,7 +77,7 @@ public class SPMRound79PlannerTest {
     public void testIdenticalHavingAliasIsAccepted() {
         String bind = "SELECT k AS x FROM t HAVING x > 0";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(bind), bind));
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(bind), bind));
     }
 
     /** A HAVING over a BASE column keeps its meaning under a label change. */
@@ -86,7 +86,7 @@ public class SPMRound79PlannerTest {
         String bind = "SELECT k AS x FROM t HAVING k > 0";
         String plan = "SELECT k AS y FROM t HAVING k > 0";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "`k` addresses the base column on both sides");
     }
 
@@ -96,7 +96,7 @@ public class SPMRound79PlannerTest {
         String bind = "SELECT k AS x FROM t ORDER BY k";
         String plan = "SELECT k AS y FROM t ORDER BY k";
         Assertions.assertDoesNotThrow(
-                () -> SPMPlanTreeSupport.rejectManualPlanDivergence(parse(bind), parse(plan), bind),
+                () -> SPMPlanTreeSupport.rejectManualPlanMismatch(parse(bind), parse(plan), bind),
                 "a pure output label may differ between bind and plan");
     }
 
@@ -111,12 +111,12 @@ public class SPMRound79PlannerTest {
     @Test
     public void testAllNullArrayElementKeepsBooleanMarkers() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at(array(NULL), 1)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
 
         int booleanNullMarkers = 0;
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            Expression placeholder = marker.getPlaceholderExpr();
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            Expression placeholder = marker.placeholderExpr();
             if (placeholder instanceof SpmConstVar
                     && ((SpmConstVar) placeholder).getValue() instanceof NullLiteral) {
                 Assertions.assertTrue(((SpmConstVar) placeholder).getDataType()
@@ -134,13 +134,13 @@ public class SPMRound79PlannerTest {
     @Test
     public void testNonNullArrayElementKeepsItsMarkerType() {
         LogicalPlan plan = parse("SELECT k FROM t WHERE k > 0 OR element_at(array(1), 1)");
-        SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
+        TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
         SPMPlanTreeSupport.transform(plan, builder);
-        for (PlaceholderExpr marker : builder.getPlaceholderExprs()) {
-            if (marker.getPlaceholderExpr() instanceof SpmConstVar
-                    && ((SpmConstVar) marker.getPlaceholderExpr()).getValue()
+        for (PlaceholderSnapshot marker : builder.getPlaceholderExprs()) {
+            if (marker.placeholderExpr() instanceof SpmConstVar
+                    && ((SpmConstVar) marker.placeholderExpr()).getValue()
                             instanceof NullLiteral) {
-                Assertions.assertFalse(((SpmConstVar) marker.getPlaceholderExpr()).getDataType()
+                Assertions.assertFalse(((SpmConstVar) marker.placeholderExpr()).getDataType()
                                 instanceof BooleanType,
                         "only an all-NULL array makes element_at a NullType producer");
             }
@@ -216,7 +216,7 @@ public class SPMRound79PlannerTest {
                 + " SELECT t_3.x, s.y FROM t_3 CROSS JOIN"
                 + " (WITH t_4 AS (SELECT k + 2 AS y FROM u) SELECT * FROM t_4 LIMIT 1) s";
         Assertions.assertTrue(
-                SPMPlanTreeSupport.rowLimitsWithin(parse(replay), parse(caller)),
+                SpmTreeTestAccess.rowLimitsWithin(parse(replay), parse(caller)),
                 "the shadowed CTE reference keeps its own definition index on both sides");
     }
 
@@ -226,7 +226,7 @@ public class SPMRound79PlannerTest {
         String caller = "WITH c AS (SELECT k FROM t) SELECT * FROM c LIMIT 1";
         String replay = "WITH t_3 AS (SELECT k FROM t) SELECT * FROM t_3 LIMIT 1";
         Assertions.assertTrue(
-                SPMPlanTreeSupport.rowLimitsWithin(parse(replay), parse(caller)),
+                SpmTreeTestAccess.rowLimitsWithin(parse(replay), parse(caller)),
                 "a renamed CTE keeps its definition index");
     }
 
