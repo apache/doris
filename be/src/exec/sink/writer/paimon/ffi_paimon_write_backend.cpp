@@ -50,7 +50,6 @@ constexpr size_t MAX_COMMIT_PAYLOAD = 8 * 1024 * 1024;
 constexpr size_t DPCM_HEADER_BYTES = 12;
 constexpr size_t MAX_COMMIT_TOTAL = 64 * 1024 * 1024;
 constexpr size_t MAX_INPUT_BATCH_BYTES = 8 * 1024 * 1024;
-constexpr size_t MAX_INPUT_ROW_BYTES = 1024 * 1024;
 std::mutex rust_writer_admission_mutex;
 int rust_active_writers = 0;
 
@@ -255,14 +254,24 @@ public:
                 for (const auto& item : block) {
                     row_bytes += item.column->serialize_size_at(end);
                 }
-                if (row_bytes > MAX_INPUT_ROW_BYTES) {
-                    return Status::InvalidArgument("Paimon Rust input row exceeds 1 MiB");
+                // Reject a row that cannot fit the admitted writer budget before copying it
+                // into Arrow. Unlike a fixed row limit, this can be raised for a retry.
+                if (std::cmp_greater(row_bytes, _budget)) {
+                    return Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                            "Paimon Rust estimated input row size {} exceeds writer budget {}; "
+                            "raise paimon_rust_writer_memory_limit_bytes or the query memory limit",
+                            row_bytes, _budget);
                 }
-                if (row_bytes > MAX_INPUT_BATCH_BYTES - bytes) {
+                // A row wider than the batch target must still advance the input. Import it
+                // alone; for example, a 9 MiB string forms one batch instead of an empty one.
+                if (end > begin && row_bytes > MAX_INPUT_BATCH_BYTES - bytes) {
                     break;
                 }
                 bytes += row_bytes;
                 ++end;
+                if (bytes >= MAX_INPUT_BATCH_BYTES) {
+                    break;
+                }
             }
             RETURN_IF_CANCELLED(_state);
             std::shared_ptr<arrow::RecordBatch> batch;

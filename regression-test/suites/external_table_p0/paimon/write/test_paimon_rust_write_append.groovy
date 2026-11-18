@@ -101,12 +101,6 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
                     "QueryReservedBytes: 0", "ArrowBufferBytes: 0", "MemoryAccounting"])
         }
         sql "SET parallel_pipeline_task_num = 4"
-        // This Rust-specific error also proves the supported table selected FFI.
-        test {
-            sql """INSERT INTO t_append
-                VALUES (3, repeat('x', 1048576), 0.00, DATE '2026-01-01')"""
-            exception "Paimon Rust input row exceeds 1 MiB"
-        }
         setBeConfigTemporary([paimon_rust_writer_memory_limit_bytes: 1]) {
             test {
                 sql "INSERT INTO t_append VALUES (4, 'over-budget', 0.00, DATE '2026-01-01')"
@@ -126,6 +120,19 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
                 spark_paimon("""SELECT * FROM paimon.test_paimon_rust_write_db.t_append
                     WHERE id < 10 ORDER BY id"""),
                 sql("SELECT * FROM t_append WHERE id < 10 ORDER BY id"))
+
+        // Wide rows must fit the writer budget, rather than a fixed 1 MiB row cap.
+        // The second row is wider than the normal 8 MiB Arrow batch target.
+        sql """INSERT INTO t_append
+            SELECT 3, repeat('x', 1048576), 0.00, DATE '2026-01-01'
+            UNION ALL SELECT 5, repeat('y', 9437184), 1.00, DATE '2026-01-02'"""
+        checkWriter("Rust FFI", "supported_append", ["InputRows", "RustWriteTime",
+                "QueryReservedBytes: 0", "ArrowBufferBytes: 0"])
+        assertSparkDorisResultEquals(
+                spark_paimon("""SELECT id, length(payload), md5(payload), amount, event_date
+                    FROM paimon.test_paimon_rust_write_db.t_append WHERE id IN (3, 5) ORDER BY id"""),
+                sql("""SELECT id, length(payload), md5(payload), amount, event_date
+                    FROM t_append WHERE id IN (3, 5) ORDER BY id"""))
 
         // Partitioned writes select JNI before input is consumed.
         sql "INSERT INTO t_partitioned SELECT 1, 'east' UNION ALL SELECT 2, 'west'"

@@ -360,9 +360,41 @@ TEST_F(FfiPaimonWriteBackendTest, NullableInputUsesPinnedArrowSchema) {
     EXPECT_EQ(file_count(), 0);
 }
 
-TEST_F(FfiPaimonWriteBackendTest, OversizedRowFailsBeforeArrowAllocation) {
+TEST_F(FfiPaimonWriteBackendTest, WideRowsUseIndividualBatches) {
     auto json = _sink.table_desc.schema_json;
     json.replace(json.find("\"INT\""), 5, "\"STRING\"");
+    json.replace(json.find("\"1 b\""), 5, "\"128 mb\"");
+    _sink.table_desc.__set_schema_json(json);
+    ASSERT_TRUE(open().ok());
+    auto values = ColumnString::create();
+    // Cover the removed 1 MiB row cap and a row wider than the 8 MiB batch target.
+    for (const auto size : {1024 * 1024, 9 * 1024 * 1024, 16}) {
+        std::string value(size, 'x');
+        values->insert_data(value.data(), value.size());
+    }
+    Block block({{std::move(values), std::make_shared<DataTypeString>(), "id"}});
+    auto status = write(block);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(counter("InputRows"), 3);
+    EXPECT_EQ(counter("InputBatches"), 3);
+    std::vector<TPaimonCommitMessage> messages;
+    ASSERT_TRUE(_writer->prepare_commit(messages).ok());
+    ASSERT_EQ(messages.size(), 1);
+    ASSERT_TRUE(_writer->abort().ok());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(counter("ArrowBufferBytes"), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
+}
+
+TEST_F(FfiPaimonWriteBackendTest, RowAboveBudgetFailsBeforeArrowAllocationAndCanRetry) {
+    const auto previous = config::paimon_rust_writer_memory_limit_bytes;
+    Defer restore([&] { config::paimon_rust_writer_memory_limit_bytes = previous; });
+    config::paimon_rust_writer_memory_limit_bytes = 1024 * 1024;
+    auto json = _sink.table_desc.schema_json;
+    json.replace(json.find("\"INT\""), 5, "\"STRING\"");
+    json.replace(json.find("\"1 b\""), 5, "\"128 mb\"");
     _sink.table_desc.__set_schema_json(json);
     ASSERT_TRUE(open().ok());
     const auto before = _state->query_mem_tracker()->consumption();
@@ -371,11 +403,34 @@ TEST_F(FfiPaimonWriteBackendTest, OversizedRowFailsBeforeArrowAllocation) {
     values->insert_data(large.data(), large.size());
     Block block({{std::move(values), std::make_shared<DataTypeString>(), "id"}});
     auto status = write(block);
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("exceeds 1 MiB"), std::string::npos);
+    EXPECT_TRUE(status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << status;
+    EXPECT_NE(status.to_string().find("exceeds writer budget"), std::string::npos);
+    EXPECT_EQ(counter("PeakArrowBufferBytes"), 0);
     EXPECT_EQ(_state->query_mem_tracker()->consumption(), before);
     ASSERT_TRUE(_writer->abort().ok());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
     EXPECT_EQ(file_count(), 0);
+
+    config::paimon_rust_writer_memory_limit_bytes = 64 * 1024 * 1024;
+    RuntimeProfile retry_profile {"retry-wide-row"};
+    FfiPaimonWriteBackend retry;
+    ASSERT_TRUE(retry.open(_sink, _state.get(), &retry_profile).ok());
+    std::unique_ptr<IPaimonWriter> retry_writer;
+    ASSERT_TRUE(retry.create_writer(&retry_writer).ok());
+    {
+        SCOPED_ATTACH_TASK(_state.get());
+        status = retry_writer->write(_state.get(), block);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+    std::vector<TPaimonCommitMessage> messages;
+    ASSERT_TRUE(retry_writer->prepare_commit(messages).ok());
+    ASSERT_EQ(messages.size(), 1);
+    ASSERT_TRUE(retry_writer->abort().ok());
+    retry_writer.reset();
+    ASSERT_TRUE(retry.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
 }
 
 TEST_F(FfiPaimonWriteBackendTest, LargeBlockIsSplitBeforeImportingIntoRust) {
@@ -569,6 +624,35 @@ TEST_F(FfiPaimonWriteBackendTest, AdmissionSlotIsReturnedAfterClose) {
     FfiPaimonWriteBackend third;
     ASSERT_TRUE(third.open(_sink, _state.get(), &third_profile).ok());
     ASSERT_TRUE(third.close().ok());
+}
+
+TEST_F(FfiPaimonWriteBackendTest, OnlineConcurrencyIncreaseAdmitsWriterWithoutClosingActiveOne) {
+    const auto previous = config::paimon_rust_writer_max_concurrency;
+    Defer restore([&] { config::paimon_rust_writer_max_concurrency = previous; });
+    config::paimon_rust_writer_max_concurrency = 1;
+    ASSERT_TRUE(open().ok());
+    const auto active_memory = _state->query_mem_tracker()->consumption();
+    RuntimeProfile rejected_profile {"concurrency-rejection"};
+    FfiPaimonWriteBackend rejected;
+    auto status = rejected.open(_sink, _state.get(), &rejected_profile);
+    EXPECT_TRUE(status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << status;
+    EXPECT_NE(status.to_string().find("paimon_rust_writer_max_concurrency"), std::string::npos);
+    ASSERT_TRUE(rejected.close().ok());
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), active_memory);
+
+    config::paimon_rust_writer_max_concurrency = 2;
+    RuntimeProfile retry_profile {"concurrency-retry"};
+    FfiPaimonWriteBackend retry;
+    ASSERT_TRUE(retry.open(_sink, _state.get(), &retry_profile).ok());
+    ASSERT_TRUE(retry.close().ok());
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), active_memory);
+    auto block = input();
+    ASSERT_TRUE(write(block).ok());
+    ASSERT_TRUE(_writer->abort().ok());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
 }
 
 TEST_F(FfiPaimonWriteBackendTest, FailedOpenReturnsBudgetAndAdmissionSlot) {
