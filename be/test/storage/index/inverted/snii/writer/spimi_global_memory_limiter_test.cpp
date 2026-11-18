@@ -272,7 +272,9 @@ TEST(SniiGlobalMemoryLimiter, UnregisteredChurnNeverPerturbsTheDecisionInput) {
     const int64_t registered_baseline = doris::snii::writer::snii_registered_build_bytes();
     MemoryReporter ingestion(doris::snii::writer::snii_build_consume_release(
             doris::snii::writer::BuildMemoryPopulation::kRegistered));
-    ingestion.report(700); // the only registered bytes in flight
+    // The only registered bytes in flight, enough to reach the shared counters at once.
+    constexpr int64_t kRegistered = doris::snii::writer::kBuildBytesPublishStep;
+    ingestion.report(kRegistered);
 
     std::atomic<bool> stop {false};
     std::thread churn([&stop] {
@@ -300,7 +302,7 @@ TEST(SniiGlobalMemoryLimiter, UnregisteredChurnNeverPerturbsTheDecisionInput) {
     for (int i = 0; i < 200000 || !saw_churn; ++i) {
         const int64_t observed =
                 doris::snii::writer::snii_registered_build_bytes() - registered_baseline;
-        ASSERT_EQ(observed, 700) << "unregistered churn leaked into the decision's input";
+        ASSERT_EQ(observed, kRegistered) << "unregistered churn leaked into the decision's input";
         ASSERT_GE(doris::snii::writer::snii_registered_build_bytes(), 0)
                 << "decision input went negative";
         if (tracker->consumption() != tracker_baseline) {
@@ -315,7 +317,7 @@ TEST(SniiGlobalMemoryLimiter, UnregisteredChurnNeverPerturbsTheDecisionInput) {
     EXPECT_TRUE(saw_churn) << "churn thread never moved the observation tracker; the invariant "
                               "above was never actually exercised";
 
-    ingestion.report(-700);
+    ingestion.report(-kRegistered);
     EXPECT_EQ(doris::snii::writer::snii_registered_build_bytes(), registered_baseline);
 }
 
@@ -747,6 +749,104 @@ TEST(SniiSpimiGlobalSpill, AttachRegistersReportsTrackArenaAndDtorUnregisters) {
     // Destruction un-registers: nothing leaks into the process-wide registry.
     EXPECT_EQ(lim.registered_count(), 0U);
     EXPECT_EQ(lim.eligible_arena_bytes(), 0);
+}
+
+// A new term moves the resident total on every token, but the limiter keeps only the
+// arena size, so terms that fit in the current block have nothing to tell it. Taking
+// its mutex for them is what stalled every flush thread on a column of unique terms.
+TEST(SniiSpimiGlobalSpill, NewTermsThatKeepTheArenaStayOffTheLimiter) {
+    std::atomic<int> decisions {0};
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider([&decisions] {
+        decisions.fetch_add(1, std::memory_order_relaxed);
+        return BuildMemorySignals {};
+    });
+    SpimiTermBuffer buf(/*has_positions=*/true, /*spill_threshold_bytes=*/0);
+    buf.attach_global_limiter(&lim);
+
+    buf.add_token(unigram(0), /*docid=*/0, /*pos=*/0); // allocates the first block
+    ASSERT_TRUE(buf.status().ok());
+    const uint64_t arena = buf.arena_bytes_for_test();
+    const uint64_t resident = buf.resident_bytes_for_test();
+    const int decisions_for_first_block = decisions.load();
+    ASSERT_GT(decisions_for_first_block, 0) << "a grown arena must reach the limiter";
+
+    for (uint32_t i = 1; i < 300; ++i) {
+        buf.add_token(unigram(i), /*docid=*/i, /*pos=*/0);
+    }
+    ASSERT_TRUE(buf.status().ok());
+    ASSERT_EQ(buf.arena_bytes_for_test(), arena) << "every term has to fit in the first block";
+    ASSERT_GT(buf.resident_bytes_for_test(), resident)
+            << "without a moving resident total this would pass for the wrong reason";
+    EXPECT_EQ(decisions.load(), decisions_for_first_block);
+}
+
+// The decision also reads the build bytes, which move one publish step at a time, so a
+// resident move of a step reaches the limiter at once even inside one arena block.
+// Capacity doublings of the term tables are such moves: one new term adds MiBs while its
+// first posting still fits in the current block.
+TEST(SniiSpimiGlobalSpill, ResidentStepInsideOneArenaBlockReachesTheLimiter) {
+    std::atomic<int> decisions {0};
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider([&decisions] {
+        decisions.fetch_add(1, std::memory_order_relaxed);
+        return BuildMemorySignals {};
+    });
+    SpimiTermBuffer buf(/*has_positions=*/true, /*spill_threshold_bytes=*/0);
+    buf.attach_global_limiter(&lim);
+
+    bool checked = false;
+    for (uint32_t i = 0; i < (1U << 21) && !checked; ++i) {
+        const uint64_t arena = buf.arena_bytes_for_test();
+        const uint64_t resident = buf.resident_bytes_for_test();
+        const int before = decisions.load();
+        buf.add_token("t" + std::to_string(i), /*docid=*/i, /*pos=*/0);
+        if (buf.arena_bytes_for_test() == arena &&
+            buf.resident_bytes_for_test() >=
+                    resident + doris::snii::writer::kBuildBytesPublishStep) {
+            // One add_token can report twice (interning and accumulating), so this
+            // asks only that the step was decided at this term.
+            EXPECT_GT(decisions.load(), before)
+                    << "the resident step at term " << i << " was not decided";
+            checked = true;
+        }
+    }
+    ASSERT_TRUE(buf.status().ok());
+    ASSERT_TRUE(checked) << "no term grew the resident total by a step inside one arena block";
+}
+
+// Skipping unchanged arenas must not lose the reaction to pressure: pressure that
+// arrives while a block is filling is decided as soon as the arena grows, and the
+// flag is then honored like any other request.
+TEST(SniiSpimiGlobalSpill, PressureIsDecidedWhenTheArenaNextGrows) {
+    snii_testing::reset_global_forced_spills();
+    FakeSignals signals;
+    GlobalMemoryLimiter lim;
+    lim.set_signals_provider(signals.provider());
+    lim.set_min_victim_arena_bytes(1);
+    SpimiTermBuffer buf(/*has_positions=*/true, /*spill_threshold_bytes=*/0);
+    buf.set_forced_spill_min_arena_bytes(1);
+    buf.attach_global_limiter(&lim);
+
+    buf.add_token("hot", /*docid=*/0, /*pos=*/0);
+    ASSERT_TRUE(buf.status().ok());
+    const uint64_t first_block = buf.arena_bytes_for_test();
+    ASSERT_FALSE(buf.global_spill_requested_for_test());
+
+    signals.set_overage(/*overage=*/1);
+    uint32_t docid = 1;
+    while (buf.arena_bytes_for_test() == first_block && buf.run_count_for_test() == 0) {
+        buf.add_token("hot", docid, /*pos=*/0);
+        ++docid;
+        ASSERT_LT(docid, 1000000U) << "the arena never grew";
+    }
+    ASSERT_TRUE(buf.status().ok());
+    // report_arena_delta() runs before the gate reads its request, and a request it
+    // flags for this token is honored by the next one.
+    buf.add_token("hot", docid, /*pos=*/0);
+    ASSERT_TRUE(buf.status().ok());
+    EXPECT_EQ(buf.run_count_for_test(), 1U) << "the limiter never saw the pressure";
+    EXPECT_EQ(snii_testing::global_forced_spills(), 1U);
 }
 
 // End-to-end: two attached buffers, one small and one that grows. The limiter

@@ -31,8 +31,7 @@ services:
         ports:
             - ${DOCKER_ZOOKEEPER_EXTERNAL_PORT}:2181
         healthcheck:
-            # https://github.com/bitnami/charts/blob/62399ed3863e70775d66f9581e28129026a86e5d/bitnami/zookeeper/templates/statefulset.yaml#L404
-            test: /bin/bash -ec ZOO_HC_TIMEOUT=10 /opt/bitnami/scripts/zookeeper/healthcheck.sh
+            test: ["CMD", "/opt/bitnami/zookeeper/bin/zkServer.sh", "status"]
             start_period: 10s
             interval: 5s
             timeout: 60s
@@ -63,7 +62,5 @@ services:
             - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:19193
             - KAFKA_ZOOKEEPER_CONNECT=doris--zookeeper:2181
             - ALLOW_PLAINTEXT_LISTENER=yes
-        volumes:
-            - /var/run/docker.sock:/var/run/docker.sock
         networks:
             - doris--kafka--network

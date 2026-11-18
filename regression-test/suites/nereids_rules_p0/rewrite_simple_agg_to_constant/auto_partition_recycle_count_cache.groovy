@@ -19,9 +19,9 @@ suite("auto_partition_recycle_count_cache", "nonConcurrent") {
     def oldCheckInterval = getFeConfig("dynamic_partition_check_interval_seconds")
 
     try {
-        sql "SET enable_nereids_planner=true"
-        sql "SET enable_fallback_to_original_planner=false"
         sql "DROP TABLE IF EXISTS auto_partition_recycle_count_cache FORCE"
+        // Keep all six partitions while the count cache loads.
+        // A scheduler cycle during this phase must not remove any rows.
         sql """
             CREATE TABLE auto_partition_recycle_count_cache (
                 k0 DATETIME(6) NOT NULL
@@ -31,7 +31,7 @@ suite("auto_partition_recycle_count_cache", "nonConcurrent") {
             DISTRIBUTED BY HASH(k0) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
-                "partition.retention_count" = "3"
+                "partition.retention_count" = "6"
             )
         """
 
@@ -67,9 +67,10 @@ suite("auto_partition_recycle_count_cache", "nonConcurrent") {
             assertTrue(false, "SimpleAggCacheMgr cache did not warm up within 30 seconds")
         }
 
-        def countBeforeRecycle = sql "SELECT count(*) FROM auto_partition_recycle_count_cache"
-        assertEquals(6L, countBeforeRecycle[0][0] as long)
+        order_qt_count_before_recycle "SELECT count(*) FROM auto_partition_recycle_count_cache"
 
+        // Allow recycling only after the cached count has been checked.
+        sql "ALTER TABLE auto_partition_recycle_count_cache SET ('partition.retention_count' = '3')"
         setFeConfig("dynamic_partition_check_interval_seconds", 1)
         def recycled = false
         for (int i = 0; i < 30; i++) {
@@ -82,10 +83,8 @@ suite("auto_partition_recycle_count_cache", "nonConcurrent") {
         }
         assertTrue(recycled, "auto partition retention did not recycle partitions within 30 seconds")
 
-        def countAfterRecycle = sql "SELECT count(*) FROM auto_partition_recycle_count_cache"
-        assertEquals(3L, countAfterRecycle[0][0] as long)
+        order_qt_count_after_recycle "SELECT count(*) FROM auto_partition_recycle_count_cache"
     } finally {
         setFeConfig("dynamic_partition_check_interval_seconds", oldCheckInterval)
-        sql "DROP TABLE IF EXISTS auto_partition_recycle_count_cache FORCE"
     }
 }

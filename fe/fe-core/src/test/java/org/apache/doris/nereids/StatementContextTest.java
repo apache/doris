@@ -23,6 +23,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
@@ -31,6 +32,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -81,6 +83,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InOrder;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
@@ -94,6 +97,47 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class StatementContextTest {
+
+    @Test
+    public void testIdGeneratorContextDoesNotCaptureCurrentConnection() {
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext connection = new ConnectContext();
+        connection.setThreadLocalInfo();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            StatementContext statement = new StatementContext(10000);
+            org.junit.jupiter.api.Assertions.assertNull(statement.getConnectContext());
+            org.junit.jupiter.api.Assertions.assertTrue(statement.getSqlCacheContext().isEmpty());
+            org.junit.jupiter.api.Assertions.assertEquals(10000, statement.getNextExprId().asInt());
+            org.junit.jupiter.api.Assertions.assertEquals(10001, statement.getNextExprId().asInt());
+            mockedEnv.verifyNoInteractions();
+        } finally {
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void testSqlCacheSnapshotIsFreshForEachPreparedExecution() {
+        Env env = Mockito.mock(Env.class);
+        NereidsSqlCacheManager manager = new NereidsSqlCacheManager();
+        Mockito.when(env.getSqlCacheManager()).thenReturn(manager);
+        ConnectContext connection = new ConnectContext();
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            StatementContext statement = new StatementContext(connection, new OriginStatement("select 1", 0));
+            SqlCacheContext firstExecution = statement.getSqlCacheContext().orElseThrow();
+            org.junit.jupiter.api.Assertions.assertTrue(firstExecution.metadataVersionsMatch());
+
+            manager.invalidateAll();
+            org.junit.jupiter.api.Assertions.assertFalse(firstExecution.metadataVersionsMatch());
+            SqlCacheContext nextExecution = statement.createNextExecuteContext().getSqlCacheContext().orElseThrow();
+            org.junit.jupiter.api.Assertions.assertTrue(nextExecution.metadataVersionsMatch());
+            manager.invalidateAll();
+            org.junit.jupiter.api.Assertions.assertFalse(nextExecution.metadataVersionsMatch());
+        }
+    }
 
     @Test
     public void testChangelogReferenceTsoIsStatementScoped() {

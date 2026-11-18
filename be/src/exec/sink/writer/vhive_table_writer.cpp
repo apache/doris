@@ -231,8 +231,8 @@ Status VHiveTableWriter::_filter_block(doris::Block& block, const IColumn::Filte
     ColumnsWithTypeAndName result_columns;
     for (int i = 0; i < columns_with_type_and_name.size(); ++i) {
         const auto& col = columns_with_type_and_name[i];
-        result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
-                                    col.name);
+        // Keep the input owner so filtering copies only this partition's selected rows.
+        result_columns.emplace_back(col.column, col.type, col.name);
     }
     *output_block = {std::move(result_columns)};
 

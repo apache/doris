@@ -17,6 +17,7 @@
 
 #include "storage/segment/variant/binary_column_extract_iterator.h"
 
+#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -25,6 +26,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
@@ -39,6 +41,8 @@
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
 #include "storage/iterators.h"
+#include "storage/segment/variant/sparse_column_merge_iterator.h"
+#include "storage/segment/variant/v2/variant_assembler.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -70,11 +74,12 @@ public:
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
         ++_counters->next_batch;
-        const size_t rows = std::min(*n, _source->size());
-        if (rows == _source->size()) {
+        const size_t rows = std::min(*n, _source->size() - _ordinal);
+        if (_ordinal == 0 && rows == _source->size()) {
+            // Preserve deliberately invalid offsets in corruption tests.
             dst = std::move(_source);
         } else {
-            dst->insert_range_from(*_source, 0, rows);
+            dst->insert_range_from(*_source, _ordinal, rows);
         }
         *n = rows;
         _ordinal += rows;
@@ -410,6 +415,215 @@ TEST(BinaryColumnExtractIteratorV2Test, SharedCacheReusesRowidBatchAcrossPaths) 
     EXPECT_EQ(counters->next_batch, 0);
 }
 
+void check_exact_sparse_promotion_result(const IColumn& dst, const rowid_t* rowids) {
+    ASSERT_EQ(dst.size(), 6);
+    const auto& nullable = assert_cast<const ColumnNullable&>(dst);
+    const auto& variant = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    constexpr std::string_view expected[] {"11", "", "", R"({"c":44})", "null", ""};
+    for (size_t row = 0; row < 6; ++row) {
+        const size_t source_row = rowids != nullptr ? rowids[row] : row;
+        const bool missing = source_row == 1 || source_row == 2 || source_row == 5;
+        EXPECT_EQ(nullable.is_null_at(row), missing) << source_row;
+        if (!missing) {
+            EXPECT_EQ(variant_v2_json_at(variant, row), expected[source_row]);
+        }
+    }
+}
+
+// Compaction promotes one physical path at a time. A row containing only a.b must
+// stay NULL in the promoted a column; hierarchical query assembly reads a.b separately.
+void check_exact_sparse_promotion(const std::string& path, bool by_rowids) {
+    SCOPED_TRACE(path + (by_rowids ? " rowids" : " batch"));
+    auto sparse = variant_util::create_variant_binary_column();
+    auto& map = assert_cast<ColumnMap&>(*sparse);
+    DataTypeInt64 int_type;
+    auto ints = ColumnInt64::create();
+    ints->insert_value(11);
+    ints->insert_value(22);
+    ints->insert_value(33);
+
+    append_storage_cell(map, path, int_type, *ints, 0);
+    map.get_offsets().push_back(1);
+    append_storage_cell(map, path + ".b", int_type, *ints, 1);
+    map.get_offsets().push_back(2);
+    append_storage_cell(map, path + "-", int_type, *ints, 2);
+    map.get_offsets().push_back(3);
+    // Objects stored at the exact path must keep their complete value.
+    append_raw_storage_cell(map, path, jsonb_storage_cell(R"({"c":44})"));
+    map.get_offsets().push_back(4);
+    const char none = static_cast<char>(FieldType::OLAP_FIELD_TYPE_NONE);
+    append_raw_storage_cell(map, path, std::string_view(&none, 1));
+    map.get_offsets().push_back(5);
+    map.get_offsets().push_back(5);
+
+    auto counters = std::make_shared<SparseReadCounters>();
+    auto cache = std::make_shared<BinaryColumnCache>(
+            std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
+            variant_util::create_variant_binary_column());
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
+    BinaryColumnExtractIterator extract(path, std::move(cache), &read_options);
+    ColumnIteratorOptions iterator_options;
+    iterator_options.stats = &stats;
+    ASSERT_TRUE(extract.init(iterator_options).ok());
+    auto dst = make_v2_destination();
+    // Exercise reordered rows as well as the sequential compaction read.
+    const rowid_t rowids[] {3, 1, 0, 5, 4, 2};
+    if (by_rowids) {
+        ASSERT_TRUE(extract.read_by_rowids(rowids, std::size(rowids), dst).ok());
+    } else {
+        ASSERT_TRUE(extract.seek_to_ordinal(0).ok());
+        size_t rows = 6;
+        bool has_null = false;
+        ASSERT_TRUE(extract.next_batch(&rows, dst, &has_null).ok());
+        ASSERT_EQ(rows, 6);
+        EXPECT_TRUE(has_null);
+    }
+    check_exact_sparse_promotion_result(*dst, by_rowids ? rowids : nullptr);
+}
+
+TEST(BinaryColumnExtractIteratorV2Test, PromotionReadsOnlyExactSparseCells) {
+    for (const std::string path : {"a", "p.a"}) {
+        for (const bool by_rowids : {false, true}) {
+            check_exact_sparse_promotion(path, by_rowids);
+        }
+    }
+}
+
+void check_sparse_payload_rows(const IColumn& destination, const std::vector<std::string>& payloads,
+                               const rowid_t* rowids, size_t rows) {
+    const auto& nullable = assert_cast<const ColumnNullable&>(destination);
+    const auto& variant = assert_cast<const ColumnVariantV2&>(nullable.get_nested_column());
+    ASSERT_EQ(destination.size(), rows);
+    for (size_t i = 0; i < rows; ++i) {
+        const size_t source_row = rowids != nullptr ? rowids[i] : i;
+        EXPECT_EQ(nullable.is_null_at(i), source_row >= payloads.size());
+        if (source_row < payloads.size()) {
+            EXPECT_EQ(variant_v2_json_at(variant, i), payloads[source_row]);
+        }
+    }
+}
+
+void check_sparse_promotion_payloads(const std::string& path, bool by_rowids) {
+    SCOPED_TRACE(path + (by_rowids ? " rowids" : " batch"));
+    const std::vector<std::string> payloads {"{}", "[]", R"([1,null,{"x":2}])", R"("")"};
+    auto sparse = variant_util::create_variant_binary_column();
+    auto& map = assert_cast<ColumnMap&>(*sparse);
+    for (const auto& payload : payloads) {
+        append_raw_storage_cell(map, path.substr(0, path.size() - 1), jsonb_storage_cell("901"));
+        append_raw_storage_cell(map, path, jsonb_storage_cell(payload));
+        append_raw_storage_cell(map, path + "%", jsonb_storage_cell("902"));
+        append_raw_storage_cell(map, path + "-", jsonb_storage_cell("903"));
+        append_raw_storage_cell(map, path + ".child", jsonb_storage_cell("904"));
+        append_raw_storage_cell(map, path + "z", jsonb_storage_cell("905"));
+        map.get_offsets().push_back(map.get_keys().size());
+    }
+    append_raw_storage_cell(map, path + ".child", jsonb_storage_cell("905"));
+    map.get_offsets().push_back(map.get_keys().size());
+    map.get_offsets().push_back(map.get_keys().size());
+    auto counters = std::make_shared<SparseReadCounters>();
+    auto cache = std::make_shared<BinaryColumnCache>(
+            std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
+            variant_util::create_variant_binary_column());
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
+    BinaryColumnExtractIterator extract(path, cache, &read_options);
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    ASSERT_TRUE(extract.init(options).ok());
+    auto dst = make_v2_destination();
+    const rowid_t rowids[] {5, 2, 0, 4, 1, 3, 2};
+    size_t rows = payloads.size() + 2;
+    if (by_rowids) {
+        ASSERT_TRUE(extract.read_by_rowids(rowids, std::size(rowids), dst).ok());
+        rows = std::size(rowids);
+    } else {
+        ASSERT_TRUE(extract.seek_to_ordinal(0).ok());
+        bool has_null = false;
+        ASSERT_TRUE(extract.next_batch(&rows, dst, &has_null).ok());
+        EXPECT_TRUE(has_null);
+    }
+    check_sparse_payload_rows(*dst, payloads, by_rowids ? rowids : nullptr, rows);
+}
+
+TEST(BinaryColumnExtractIteratorV2Test, PromotionReadsEncodedAndDeepPathsAmongPrefixNeighbors) {
+    // Encoded literal-dot names and structural paths must remain independent even
+    // when a single sparse bucket contains their byte-order neighbors.
+    for (const std::string path : {"p.q.a", "a%2Eb", "a%252Eb"}) {
+        for (const bool by_rowids : {false, true}) {
+            check_sparse_promotion_payloads(path, by_rowids);
+        }
+    }
+}
+
+void check_cached_ancestor_rows(const IColumn& destination, size_t path_index) {
+    const auto& nullable = assert_cast<const ColumnNullable&>(destination);
+    ASSERT_EQ(nullable.size(), 11);
+    const rowid_t expected_rows[] {0, 1, 2, 3, 2, 0, 1, 2, 3, 1, 2};
+    const size_t expected_counts[] {2, 3, 4};
+    size_t physical_count = 0;
+    for (size_t row = 0; row < nullable.size(); ++row) {
+        EXPECT_EQ(nullable.is_null_at(row), expected_rows[row] != path_index);
+        physical_count += !nullable.is_null_at(row);
+    }
+    EXPECT_EQ(physical_count, expected_counts[path_index]);
+}
+
+void read_cached_ancestor_batch(const std::vector<BinaryColumnExtractIterator*>& readers,
+                                std::vector<MutableColumnPtr>& destinations, ordinal_t offset) {
+    for (size_t i = 0; i < readers.size(); ++i) {
+        ASSERT_TRUE(readers[i]->seek_to_ordinal(offset).ok());
+        size_t rows = 2;
+        ASSERT_TRUE(readers[i]->next_batch(&rows, destinations[i], nullptr).ok());
+        EXPECT_EQ(rows, 2);
+    }
+}
+
+TEST(BinaryColumnExtractIteratorV2Test, AncestorChainSharesCacheAcrossBatchesAndRowids) {
+    auto sparse = variant_util::create_variant_binary_column();
+    auto& map = assert_cast<ColumnMap&>(*sparse);
+    for (const auto& path : {"a", "a.b", "a.b.c"}) {
+        append_raw_storage_cell(map, path, jsonb_storage_cell("11"));
+        map.get_offsets().push_back(map.get_keys().size());
+    }
+    map.get_offsets().push_back(map.get_keys().size());
+    auto counters = std::make_shared<SparseReadCounters>();
+    auto cache = std::make_shared<BinaryColumnCache>(
+            std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
+            variant_util::create_variant_binary_column());
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
+    BinaryColumnExtractIterator a("a", cache, &read_options);
+    BinaryColumnExtractIterator ab("a.b", cache, &read_options);
+    BinaryColumnExtractIterator abc("a.b.c", cache, &read_options);
+    const std::vector<BinaryColumnExtractIterator*> readers {&a, &ab, &abc};
+    ColumnIteratorOptions options;
+    options.stats = &stats;
+    for (auto* reader : readers) {
+        ASSERT_TRUE(reader->init(options).ok());
+    }
+    std::vector<MutableColumnPtr> destinations;
+    for (size_t i = 0; i < readers.size(); ++i) {
+        destinations.push_back(make_v2_destination());
+    }
+    // All readers consume the first batch before moving to the second batch.
+    read_cached_ancestor_batch(readers, destinations, 0);
+    read_cached_ancestor_batch(readers, destinations, 2);
+    EXPECT_EQ(counters->next_batch, 2);
+    const rowid_t rowids[] {2, 0, 1, 2, 3};
+    for (size_t i = 0; i < readers.size(); ++i) {
+        ASSERT_TRUE(readers[i]->read_by_rowids(rowids, std::size(rowids), destinations[i]).ok());
+    }
+    EXPECT_EQ(counters->read_by_rowids, 1);
+    // Changing back from random reads must invalidate the shared cache.
+    read_cached_ancestor_batch(readers, destinations, 1);
+    for (size_t i = 0; i < readers.size(); ++i) {
+        check_cached_ancestor_rows(*destinations[i], i);
+    }
+    EXPECT_EQ(counters->next_batch, 3);
+    EXPECT_EQ(counters->init, 1);
+}
+
 TEST(BinaryColumnExtractIteratorV2Test, RejectsInvalidOffsets) {
     auto sparse = variant_util::create_variant_binary_column();
     auto& map = assert_cast<ColumnMap&>(*sparse);
@@ -576,6 +790,95 @@ TEST(BinaryColumnExtractIteratorV2Test, DoesNotRescanFrozenPathOrdering) {
     auto& nullable = assert_cast<ColumnNullable&>(*dst);
     auto& variant = assert_cast<ColumnVariantV2&>(nullable.get_nested_column());
     EXPECT_EQ(variant_v2_json_at(variant, 0), "7");
+}
+
+// Debug builds must reject a sparse row that violates the byte-order invariant; the check is a
+// DCHECK so release scans and compaction pay nothing.
+#if DCHECK_IS_ON()
+TEST(VariantAssemblerTest, DebugCheckRejectsUnsortedSparseRows) {
+    auto sparse = variant_util::create_variant_binary_column();
+    auto& map = assert_cast<ColumnMap&>(*sparse);
+    DataTypeInt64 int_type;
+    auto ints = ColumnInt64::create();
+    ints->insert_value(1);
+    ints->insert_value(2);
+    append_storage_cell(map, "a.c", int_type, *ints, 0);
+    append_storage_cell(map, "a-b", int_type, *ints, 1);
+    map.get_offsets().push_back(2);
+
+    variant_v2::VariantAssemblerOptions options;
+    options.storage_map_kind = variant_v2::StorageMapKind::SPARSE;
+    auto assembler = variant_v2::VariantAssembler::create(std::move(options));
+    ASSERT_TRUE(assembler.has_value());
+    EXPECT_DEATH(
+            {
+                ColumnNullable::MutablePtr result;
+                (void)(*assembler)
+                        ->assemble({.num_rows = map.size(),
+                                    .materialized_columns = {},
+                                    .storage_map = &map},
+                                   &result);
+            },
+            "is_variant_sparse_row_sorted");
+}
+#endif
+
+// Vertical compaction merges the source sparse row with materialized subcolumns. The interleaving
+// assumes both sides are byte-ordered, and the merged row is what later readers see, so it must
+// keep that invariant.
+TEST(SparseColumnMergeIteratorTest, KeepsByteOrderWhenMergingMaterializedSubcolumn) {
+    auto sparse = variant_util::create_variant_binary_column();
+    auto& map = assert_cast<ColumnMap&>(*sparse);
+    DataTypeInt64 int_type;
+    auto ints = ColumnInt64::create();
+    ints->insert_value(1);
+    ints->insert_value(2);
+    append_storage_cell(map, "a-b", int_type, *ints, 0);
+    append_storage_cell(map, "a.c", int_type, *ints, 1);
+    map.get_offsets().push_back(2);
+
+    auto counters = std::make_shared<SparseReadCounters>();
+    auto cache = std::make_shared<BinaryColumnCache>(
+            std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
+            variant_util::create_variant_binary_column());
+
+    // Materialized path a.d; the dense iterator yields one nullable bigint row: 3.
+    auto dense_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
+    auto dense_values = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
+    assert_cast<ColumnInt64&>(dense_values->get_nested_column()).insert_value(3);
+    dense_values->get_null_map_data().push_back(0);
+    SubstreamReaderTree src_subcolumns;
+    ASSERT_TRUE(src_subcolumns.add(
+            PathInData("a.d"),
+            SubstreamIterator(
+                    ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create()),
+                    std::make_unique<FixedSparseIterator>(std::move(dense_values),
+                                                          std::make_shared<SparseReadCounters>()),
+                    dense_type)));
+
+    VariantCompactionPaths path_set_info;
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
+    SparseColumnMergeIterator iterator(path_set_info, std::move(cache), std::move(src_subcolumns),
+                                       &read_options);
+    ColumnIteratorOptions iterator_options;
+    iterator_options.stats = &stats;
+    ASSERT_TRUE(iterator.init(iterator_options).ok());
+    ASSERT_TRUE(iterator.seek_to_ordinal(0).ok());
+    auto dst = variant_util::create_variant_binary_column();
+    size_t rows = 1;
+    bool has_null = false;
+    ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    ASSERT_EQ(dst->size(), 1);
+    const auto& merged = assert_cast<const ColumnMap&>(*dst);
+    const auto& paths = assert_cast<const ColumnString&>(merged.get_keys());
+    std::vector<std::string> actual;
+    const size_t begin = merged.offset_at(0);
+    const size_t end = begin + merged.size_at(0);
+    for (size_t cell = begin; cell < end; ++cell) {
+        actual.push_back(paths.get_data_at(cell).to_string());
+    }
+    EXPECT_EQ(actual, (std::vector<std::string> {"a-b", "a.c", "a.d"}));
 }
 
 } // namespace

@@ -87,6 +87,13 @@ enableFlussTest=true
 The servers advertise `<host ip>:<published port>`, because Doris FE/BE run on
 the host rather than inside the compose network.
 
+On Linux, when `IP_HOST` is loopback, the launcher detects a host IPv4 address for Fluss
+so the bridge containers can reach its published ports. Override it with
+`FLUSS_HOST_IP` when the host has multiple networks. This must be an address
+reachable from both Doris and the bridge containers; loopback and wildcard
+addresses are rejected. Other components can continue using `IP_HOST=127.0.0.1`.
+On Docker Desktop, set `FLUSS_HOST_IP` explicitly to a mutually reachable address.
+
 The remote-data directory is bind mounted at the same absolute path inside the
 containers and on the host because Doris reads those files directly and the path
 string is recorded rather than translated:

@@ -497,7 +497,7 @@ class IvmJoinDeltaHandler {
             }
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
-        projects.add(new Alias(deltaContext.paddingSequence(), Column.SEQUENCE_COL));
+        projects.add(new Alias(deltaContext.paddingSequence(dmlFactor), Column.SEQUENCE_COL));
         return new LogicalProject<>(projects.build(), source);
     }
 
@@ -595,7 +595,7 @@ class IvmJoinDeltaHandler {
             projects.add(new Alias(new NullLiteral(slot.getDataType()), slot.getName()));
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
-        projects.add(new Alias(deltaContext.paddingSequence(), Column.SEQUENCE_COL));
+        projects.add(new Alias(deltaContext.paddingSequence(dmlFactor), Column.SEQUENCE_COL));
         return new LogicalProject<>(projects.build(), antiJoin);
     }
 
@@ -860,8 +860,10 @@ class IvmJoinDeltaHandler {
             return deltaSideResult;
         }
 
-        private Expression paddingSequence() {
-            return rewriteState.toSequence(maxDeltaIndex);
+        private Expression paddingSequence(Expression dmlFactor) {
+            // A joined subtree can emit cancelling positive/negative rows absent from both snapshots.
+            // Both NULL-row repairs then target the same row-id; keep the positive repair last.
+            return rewriteState.toSequenceByDmlFactor(dmlFactor, maxDeltaIndex);
         }
 
         private SideInput nonDeltaSideInput() {

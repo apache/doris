@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
@@ -592,6 +593,7 @@ public class ExplainRefreshMTMVCommandTest {
 
     private MockedStatic<Env> mockEnvWithMtmv(MTMV mtmv) throws Exception {
         Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database db = Mockito.mock(Database.class);
         AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
@@ -610,6 +612,7 @@ public class ExplainRefreshMTMVCommandTest {
 
     private MockedStatic<Env> mockEnvWithMissingMtmv() throws Exception {
         Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database db = Mockito.mock(Database.class);
         AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);

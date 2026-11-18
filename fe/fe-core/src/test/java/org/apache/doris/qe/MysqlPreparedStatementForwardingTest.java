@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MysqlColType;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
@@ -60,6 +61,7 @@ public class MysqlPreparedStatementForwardingTest {
     @Test
     public void testForwardedExecutionsRetainTypesAndNullBitmap() throws Exception {
         Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         Mockito.when(env.getSelfNode()).thenReturn(new SystemInfoService.HostInfo("127.0.0.1", 9010));
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
                 MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class);

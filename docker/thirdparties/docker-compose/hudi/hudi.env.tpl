@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-CONTAINER_UID=doris--
+CONTAINER_UID=${CONTAINER_UID}
 HUDI_NETWORK=${CONTAINER_UID}hudi-network
 
 # Ports exposed to host

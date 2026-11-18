@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.HashSet;
 
 /**
  * Pins the JDBC connector's driver_url declaration: the engine's operator gate checks exactly these keys,
@@ -36,5 +37,14 @@ public class JdbcConnectorProviderSecuritySurfaceTest {
         Assertions.assertEquals(Arrays.asList("driver_url", "jdbc.driver_url"), surface.jdbcDriverUrlKeys());
         Assertions.assertNull(surface.jdbcDriverUrlFlavorKey());
         Assertions.assertTrue(surface.ssrfEndpointKeys().isEmpty());
+    }
+
+    @Test
+    public void declaresThePasswordInBothSpellings() {
+        // A catalog may write any key with the jdbc. prefix, so the engine has to mask both spellings.
+        ConnectorSecuritySurface surface = new JdbcConnectorProvider().securitySurface();
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("password", "jdbc.password")),
+                new HashSet<>(surface.sensitiveKeys()));
+        Assertions.assertTrue(surface.sensitiveKeyPrefixes().isEmpty());
     }
 }

@@ -269,6 +269,26 @@ public class CreateViewTest extends TestWithFeService {
     }
 
     @Test
+    public void testCreateViewRewritesAfterSupplementaryCharacters() throws Exception {
+        // The parser counts a supplementary character such as an emoji as one character, while
+        // the Java string of the view definition counts it as two.
+        ExceptionChecker.expectThrowsNoException(() -> createView(
+                "create view test.supplementary_char_view as select '😀😀' as e, k1 from test.tbl1;"));
+        ExceptionChecker.expectThrowsNoException(() -> createView(
+                "create view test.supplementary_char_alias_view(c1, c2) as select '😀😀', k1 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("supplementary_char_view");
+        Assertions.assertEquals(
+                "select '😀😀' as `e`, `internal`.`test`.`tbl1`.`k1` from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
+        View aliasView = (View) db.getTableOrDdlException("supplementary_char_alias_view");
+        Assertions.assertEquals(
+                "select '😀😀' AS `c1`, `internal`.`test`.`tbl1`.`k1` AS `c2` from `internal`.`test`.`tbl1`",
+                aliasView.getInlineViewDef());
+    }
+
+    @Test
     public void testViewPreservesVarbinary() throws Exception {
         createView("create view test.vb_view as select X'AB' as vb;");
         PlanChecker.from(connectContext).analyze("select * from test.vb_view").rewrite();

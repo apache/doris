@@ -158,3 +158,13 @@ externalEnvIp="127.0.0.1"
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
+
+// Backup adapter failures, compaction assertions and suite timeouts must remain
+// visible. Do not exclude those suites to turn this lane green.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Preserve the Hong Kong regression fixtures and their public HTTPS endpoint.
+    s3BucketName = "doris-regression-hk"
+    s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+    s3Region = "oss-cn-hongkong"
+    s3Provider = "S3"
+}

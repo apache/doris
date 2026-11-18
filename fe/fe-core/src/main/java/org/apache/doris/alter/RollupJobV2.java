@@ -269,7 +269,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getRowStoreColumnsUniqueIds(tbl.getTableProperty().getCopiedRowStoreColumns()),
                                 objectPool,
                                 tbl.rowStorePageSize(),
-                                tbl.variantEnableFlattenNested(),
+                                tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(),
                                 tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                                 tbl.storageDictPageSize(), null,
                                 tbl.getVerticalCompactionNumColumnsPerGroup(),
@@ -649,6 +649,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     tbl.getIndexIdToSchema(true));
         }
         tbl.rebuildFullSchema();
+        Env.getCurrentEnv().onTableChanged(tbl);
     }
 
     /**

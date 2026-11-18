@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Verifies ServiceLoader discovery on the iceberg classpath: all 7 iceberg providers register and
@@ -125,5 +126,19 @@ public class IcebergMetaStoreProvidersDispatchTest {
         IllegalArgumentException ex = Assertions.assertThrows(IllegalArgumentException.class,
                 () -> MetaStoreProviders.bindForType("glue", props, Collections.emptyMap()).validate());
         Assertions.assertEquals("At least one of glue.access_key or glue.role_arn must be set", ex.getMessage());
+    }
+
+    @Test
+    public void sensitiveKeysCoverEveryFlavorButNoKeytabPath() {
+        // The iceberg connector declares this union on its security surface, whatever flavor a catalog picks.
+        Set<String> keys = MetaStoreProviders.sensitivePropertyKeys();
+        for (String key : new String[] {"iceberg.jdbc.password", "iceberg.rest.oauth2.token",
+                "iceberg.rest.oauth2.credential", "aws.glue.session-token", "glue.secret_key", "dlf.secret_key",
+                "dlf.catalog.securityToken"}) {
+            Assertions.assertTrue(keys.contains(key), key + " missing from " + keys);
+        }
+        Assertions.assertFalse(keys.contains("hive.metastore.client.keytab"), keys.toString());
+        Assertions.assertFalse(keys.contains("hadoop.kerberos.keytab"), keys.toString());
+        Assertions.assertFalse(keys.contains("uri"), keys.toString());
     }
 }

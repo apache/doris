@@ -36,6 +36,7 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
@@ -46,8 +47,25 @@ namespace doris {
 // Helper structure to manage analyzer lifetime
 struct TestInvertedIndexCtx {
     std::unique_ptr<InvertedIndexAnalyzerCtx> ctx;
-    std::shared_ptr<lucene::analysis::Analyzer> analyzer_holder;
+    segment_v2::inverted_index::TextAnalyzerPtr analyzer_holder;
 };
+
+// analyse_data_token() with a stream of its own, as execute_match() gives it one per block.
+std::vector<segment_v2::TermInfo> data_tokens_of(
+        const FunctionMatchBase& function, const std::string& column_name,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx, const ColumnString* string_col, size_t row,
+        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset,
+        const ColumnUInt8::Container* array_element_null_map = nullptr) {
+    std::unique_ptr<segment_v2::inverted_index::TextTokenStream> stream;
+    if (analyzer_ctx != nullptr && analyzer_ctx->requires_analysis() &&
+        analyzer_ctx->analyzer != nullptr) {
+        stream = analyzer_ctx->analyzer->create_stream();
+    }
+    segment_v2::inverted_index::TokenBatch batch;
+    return function.analyse_data_token(column_name, analyzer_ctx, stream.get(), &batch, string_col,
+                                       row, array_offsets, current_src_array_offset,
+                                       array_element_null_map);
+}
 
 // Helper function to create inverted index context
 TestInvertedIndexCtx create_inverted_index_ctx(InvertedIndexParserType parser_type) {
@@ -384,8 +402,8 @@ TEST(FunctionMatchTest, analyse_data_token) {
     {
         auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_NONE);
         int32_t offset = 0;
-        auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 0,
-                                                   nullptr, offset);
+        auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), 0,
+                                     nullptr, offset);
         EXPECT_EQ(tokens.size(), 1);
         std::string actual_term = tokens[0].get_single_term();
         std::string expected_term = "Hello World! This is a test.";
@@ -400,8 +418,8 @@ TEST(FunctionMatchTest, analyse_data_token) {
     {
         auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
         int32_t offset = 0;
-        auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 0,
-                                                   nullptr, offset);
+        auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), 0,
+                                     nullptr, offset);
         // English parser should split into multiple tokens
         EXPECT_GT(tokens.size(), 1);
     }
@@ -431,8 +449,8 @@ TEST(FunctionMatchTest, error_handling_and_edge_cases) {
 
         auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
         int32_t offset = 0;
-        auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 0,
-                                                   nullptr, offset);
+        auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), 0,
+                                     nullptr, offset);
         EXPECT_EQ(tokens.size(), 0);
     }
 }
@@ -455,8 +473,8 @@ TEST(FunctionMatchTest, array_offset_handling) {
     // Test first array [first, second]
     {
         int32_t offset = 0;
-        auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 0,
-                                                   &array_offsets, offset);
+        auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), 0,
+                                     &array_offsets, offset);
         EXPECT_GT(tokens.size(), 0);
         // offset should be updated to 2
         EXPECT_EQ(offset, 2);
@@ -465,8 +483,8 @@ TEST(FunctionMatchTest, array_offset_handling) {
     // Test second array [third, fourth]
     {
         int32_t offset = 2; // Start from where previous ended
-        auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 1,
-                                                   &array_offsets, offset);
+        auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), 1,
+                                     &array_offsets, offset);
         EXPECT_GT(tokens.size(), 0);
         // offset should be updated to 4
         EXPECT_EQ(offset, 4);
@@ -597,8 +615,8 @@ TEST(FunctionMatchTest, array_phrase_respects_analyzer_positions) {
 
     FunctionMatchPhrase match_phrase;
     int32_t unused_offset = 0;
-    auto data_tokens = match_phrase.analyse_data_token("tags", ctx.get(), string_col.get(), 0,
-                                                       nullptr, unused_offset);
+    auto data_tokens = data_tokens_of(match_phrase, "tags", ctx.get(), string_col.get(), 0, nullptr,
+                                      unused_offset);
     ASSERT_EQ(data_tokens.size(), 3);
     EXPECT_EQ(data_tokens[0].position, data_tokens[1].position);
     auto query_tokens = match_phrase.analyse_query_str_token(ctx.get(), "foo-bar baz", "tags");
@@ -643,8 +661,8 @@ TEST(FunctionMatchTest, array_phrase_preserves_leading_analyzer_gap) {
 
     FunctionMatchPhrase match_phrase;
     int32_t unused_offset = 0;
-    auto later_tokens = match_phrase.analyse_data_token("tags", ctx.get(), string_col.get(), 1,
-                                                        nullptr, unused_offset);
+    auto later_tokens = data_tokens_of(match_phrase, "tags", ctx.get(), string_col.get(), 1,
+                                       nullptr, unused_offset);
     ASSERT_EQ(later_tokens.size(), 1);
     EXPECT_EQ(later_tokens[0].position, 2);
 
@@ -885,8 +903,8 @@ TEST(FunctionMatchTest, unicode_and_special_chars) {
 
     for (int i = 0; i < 5; ++i) {
         int32_t offset = 0;
-        auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), i,
-                                                   nullptr, offset);
+        auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), i,
+                                     nullptr, offset);
         // Should handle all text types without crashing
         EXPECT_GE(tokens.size(), 0);
     }
@@ -909,8 +927,8 @@ TEST(FunctionMatchTest, performance_large_data) {
 
     // Test should complete without timeout or crash
     int32_t offset = 0;
-    auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 0,
-                                               nullptr, offset);
+    auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), 0, nullptr,
+                                 offset);
     EXPECT_GT(tokens.size(), 0);
 }
 
@@ -935,8 +953,8 @@ TEST(FunctionMatchTest, different_analyzer_types) {
     for (auto parser_type : parser_types) {
         auto ctx = create_inverted_index_ctx(parser_type);
         int32_t offset = 0;
-        auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 0,
-                                                   nullptr, offset);
+        auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), 0,
+                                     nullptr, offset);
 
         if (parser_type == InvertedIndexParserType::PARSER_NONE) {
             EXPECT_EQ(tokens.size(), 1); // Should be one token
@@ -1030,8 +1048,8 @@ TEST(FunctionMatchTest, custom_analyzer_handling) {
     auto string_col = ColumnString::create();
     string_col->insert_data("TEST QUERY", 10);
     int32_t offset = 0;
-    auto data_tokens = match_any.analyse_data_token("test_col", &analyzer_ctx, string_col.get(), 0,
-                                                    nullptr, offset);
+    auto data_tokens = data_tokens_of(match_any, "test_col", &analyzer_ctx, string_col.get(), 0,
+                                      nullptr, offset);
     ASSERT_EQ(data_tokens.size(), 1);
     ASSERT_TRUE(data_tokens[0].is_single_term());
     EXPECT_EQ(data_tokens[0].get_single_term(), "test query");
@@ -1049,8 +1067,8 @@ TEST(FunctionMatchTest, column_type_validation) {
 
     // Test with valid string column
     int32_t offset = 0;
-    auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 0,
-                                               nullptr, offset);
+    auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), 0, nullptr,
+                                 offset);
     EXPECT_GT(tokens.size(), 0);
 
     // Additional column type tests would go here
@@ -1088,8 +1106,8 @@ TEST(FunctionMatchTest, regex_compilation_handling) {
 
     // Test data analysis (basic setup)
     int32_t offset = 0;
-    auto tokens = match_regexp.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 0,
-                                                  nullptr, offset);
+    auto tokens = data_tokens_of(match_regexp, "test_col", ctx.ctx.get(), string_col.get(), 0,
+                                 nullptr, offset);
     EXPECT_GE(tokens.size(), 0);
 
     // Note: Full regex testing would require proper execute_match context
@@ -1138,8 +1156,8 @@ TEST(FunctionMatchTest, basic_thread_safety) {
             try {
                 auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
                 int32_t offset = 0;
-                auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(),
-                                                           string_col.get(), 0, nullptr, offset);
+                auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(),
+                                             0, nullptr, offset);
                 if (!tokens.empty()) {
                     success_count++;
                 }
@@ -1174,8 +1192,8 @@ TEST(FunctionMatchTest, boundary_conditions) {
     // Test each boundary condition
     for (int i = 0; i < 5; ++i) {
         int32_t offset = 0;
-        auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), i,
-                                                   nullptr, offset);
+        auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), i,
+                                     nullptr, offset);
         // Should handle all cases without crashing
         EXPECT_GE(tokens.size(), 0);
     }
@@ -1194,8 +1212,8 @@ TEST(FunctionMatchTest, nullable_column_handling) {
 
     // Test normal processing
     int32_t offset = 0;
-    auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), 0,
-                                               nullptr, offset);
+    auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), 0, nullptr,
+                                 offset);
     EXPECT_GT(tokens.size(), 0);
 
     // Note: Nullable column testing would require ColumnNullable setup
@@ -1260,8 +1278,8 @@ TEST(FunctionMatchTest, performance_characteristics) {
 
     for (int i = 0; i < 100; ++i) { // Sample some rows
         int32_t offset = 0;
-        auto tokens = match_any.analyse_data_token("test_col", ctx.ctx.get(), string_col.get(), i,
-                                                   nullptr, offset);
+        auto tokens = data_tokens_of(match_any, "test_col", ctx.ctx.get(), string_col.get(), i,
+                                     nullptr, offset);
         EXPECT_GT(tokens.size(), 0);
     }
 

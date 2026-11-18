@@ -271,6 +271,10 @@ public class StatementContext implements Closeable {
     // prepared-statement context drops it per execution via resetConnectorStatementScope() (see
     // ExecuteCommand) so one execution's cached tables never leak into the next.
     private ConnectorStatementScopeImpl connectorStatementScope;
+    // Connector exports are shared per SessionVariable instance until invalidation or an execution reset,
+    // avoiding repeated reflection while observing hints parsed after a view metadata session was created.
+    private Map<String, String> connectorSessionProperties;
+    private SessionVariable connectorSessionPropertySource;
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
@@ -449,9 +453,9 @@ public class StatementContext implements Closeable {
         this(ConnectContext.get(), null, 0);
     }
 
-    // For StatementScopeIdGenerator
+    // For StatementScopeIdGenerator; its fallback only allocates IDs and must not retain a connection.
     public StatementContext(int initialId) {
-        this(ConnectContext.get(), null, initialId);
+        this(null, null, initialId);
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
@@ -469,8 +473,8 @@ public class StatementContext implements Closeable {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
                 // cannot set the queryId here because the queryId for the current query is set
                 // in the subsequent steps.
-                this.sqlCacheContext = new SqlCacheContext(
-                        connectContext.getCurrentUserIdentity());
+                this.sqlCacheContext = new SqlCacheContext(connectContext.getCurrentUserIdentity(),
+                        Env.getCurrentEnv().getSqlCacheManager().newMetadataSnapshot());
                 if (originStatement != null) {
                     this.sqlCacheContext.setOriginSql(originStatement.originStmt);
                 }
@@ -1181,6 +1185,17 @@ public class StatementContext implements Closeable {
         return this.disableRules;
     }
 
+    /** Reuses an immutable export for the same variable instance until invalidation or reset. */
+    public synchronized Map<String, String> getOrComputeConnectorSessionProperties(
+            SessionVariable sessionVariable, Supplier<Map<String, String>> compute) {
+        // Internal-view guards replace and restore SessionVariable without invalidating individual keys.
+        if (this.connectorSessionProperties == null || this.connectorSessionPropertySource != sessionVariable) {
+            this.connectorSessionProperties = Collections.unmodifiableMap(compute.get());
+            this.connectorSessionPropertySource = sessionVariable;
+        }
+        return this.connectorSessionProperties;
+    }
+
     /**
      * Returns this statement's connector scope, lazily creating it on first use (mirrors
      * {@link #getOrCacheDisableRules}). A connector reaches it through
@@ -1236,6 +1251,8 @@ public class StatementContext implements Closeable {
         invalidatePartitionPolicy(true);
         closeConnectorStatementScope();
         this.connectorStatementScope = null;
+        this.connectorSessionProperties = null;
+        this.connectorSessionPropertySource = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
         this.connectorDeleteTargets.clear();
@@ -1278,6 +1295,10 @@ public class StatementContext implements Closeable {
      */
     public synchronized void invalidCache(String cacheKey) {
         contextCacheMap.remove(cacheKey);
+        // External-view hints can change variables after metadata lookup captured a connector session.
+        // Replace the next export while keeping already-built sessions and their statement scope intact.
+        this.connectorSessionProperties = null;
+        this.connectorSessionPropertySource = null;
         if (cacheKey.equalsIgnoreCase(SessionVariable.DISABLE_NEREIDS_RULES)) {
             this.disableRules = null;
         }
