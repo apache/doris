@@ -18,7 +18,9 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.connector.ConnectorPluginManager;
+import org.apache.doris.connector.iceberg.IcebergConnectorProvider;
 import org.apache.doris.connector.maxcompute.MaxComputeConnectorProvider;
+import org.apache.doris.connector.paimon.PaimonConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -36,6 +38,27 @@ import java.util.Map;
 import java.util.Set;
 
 public class DatasourcePrintableMapTest {
+
+    @Test
+    public void testMetastoreDiagnosticAnnotationsPreserveValueAwareRestDisplay() {
+        ConnectorPluginManager manager = new ConnectorPluginManager();
+        manager.registerProvider(new IcebergConnectorProvider());
+        manager.registerProvider(new PaimonConnectorProvider());
+        Map<String, String> raw = Map.of(
+                "uri", "https://api.example.com/v1",
+                "iceberg.rest.uri", "https://api.example.com/v1",
+                "paimon.rest.uri", "https://api.example.com/v1",
+                "iceberg.jdbc.uri", "jdbc:fixture://db.example.com/metadata?password=fixture-uri-secret");
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getProperties()).thenReturn(raw);
+        Map<String, String> shown = CatalogMgr.getCatalogPropertiesWithPrintable(catalog);
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("uri"));
+        for (String key : List.of("uri", "iceberg.rest.uri", "paimon.rest.uri")) {
+            Assertions.assertEquals(raw.get(key), shown.get(key));
+        }
+        Assertions.assertEquals(DatasourcePrintableMap.PASSWORD_MASK, shown.get("iceberg.jdbc.uri"));
+        Assertions.assertTrue(raw.get("iceberg.jdbc.uri").contains("fixture-uri-secret"));
+    }
 
     @Test
     public void testProviderCredentialsAreMaskedAcrossCatalogAndAuditOutputs() {

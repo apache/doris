@@ -106,6 +106,10 @@ final class DatasourcePropertyRedactor {
             if (!address.contains("://") && isPlainHosts(address)) {
                 return address;
             }
+            // URI accepts a later URL as path text after the first host; SDKs may instead split the list.
+            if (address.indexOf(',') >= 0) {
+                return MASK;
+            }
             URI uri = new URI(address);
             if (uri.getScheme() == null || !URI_SCHEMES.contains(uri.getScheme().toLowerCase(Locale.ROOT))
                     || uri.isOpaque() || uri.getHost() == null || uri.getPort() > 65535) {
@@ -113,7 +117,8 @@ final class DatasourcePropertyRedactor {
             }
             String path = uri.getPath();
             // Matrix parameters and nested encodings have no common credential grammar across SDKs.
-            if (path != null && (path.contains(";") || ENCODED_ESCAPE.matcher(path).find())) {
+            if (path != null && (path.contains(";") || path.contains(",") || path.contains("://")
+                    || ENCODED_ESCAPE.matcher(path).find())) {
                 return MASK;
             }
             String query = redactQuery(uri.getRawQuery());

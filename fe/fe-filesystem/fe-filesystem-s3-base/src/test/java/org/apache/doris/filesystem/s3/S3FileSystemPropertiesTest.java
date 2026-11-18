@@ -33,7 +33,7 @@ import java.util.Map;
 class S3FileSystemPropertiesTest {
 
     @Test
-    void toString_masksSecretsButShowsAccessKey() {
+    void toString_masksAllCredentialsWithoutChangingConnectionValues() {
         Map<String, String> raw = new HashMap<>();
         raw.put("s3.endpoint", "https://minio.local");
         raw.put("region", "us-west-2");
@@ -41,13 +41,16 @@ class S3FileSystemPropertiesTest {
         raw.put("s3.secret_key", "s3-sk-plain");
         raw.put("s3.session_token", "s3-token-plain");
 
-        String rendered = S3FileSystemProperties.of(raw).toString();
+        S3FileSystemProperties properties = S3FileSystemProperties.of(raw);
+        String rendered = properties.toString();
 
         Assertions.assertFalse(rendered.contains("s3-sk-plain"), rendered);
         Assertions.assertFalse(rendered.contains("s3-token-plain"), rendered);
         Assertions.assertTrue(rendered.contains("secretKey=***"), rendered);
         Assertions.assertTrue(rendered.contains("sessionToken=***"), rendered);
-        Assertions.assertTrue(rendered.contains("accessKey=s3-ak-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("s3-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
+        Assertions.assertEquals("s3-ak-plain", properties.getAccessKey());
         Assertions.assertTrue(rendered.contains("https://minio.local"), rendered);
     }
 

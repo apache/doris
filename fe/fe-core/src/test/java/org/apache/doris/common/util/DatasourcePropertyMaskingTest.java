@@ -119,6 +119,19 @@ class DatasourcePropertyMaskingTest {
     }
 
     @Test
+    void urlListsCannotHideLaterCredentialsInTheFirstUrlsPath() {
+        for (String value : List.of(
+                "https://host1.example:9200/,https://fixture:fixture-list-password@host2.example:9200/",
+                "https://host1.example:9200/path,https://host2.example:9200/?token=fixture-list-token",
+                "https://host1.example:9200/,//fixture:fixture-list-password@host2.example:9200/",
+                "https://host1.example:9200/,https://host2.example:9200/",
+                "https://host1.example:9200/%2Chttps://fixture:fixture-list-password@host2.example:9200/",
+                "https://api.example.com/?region=east,west")) {
+            assertRendered("hosts", value, MASK);
+        }
+    }
+
+    @Test
     void nestedConnectionStringsAreNotPassedThroughQueryValues() {
         assertRendered("uri", "https://api.example.com/?redirect=https%3A%2F%2Fu%3Ap%40host.example.com", MASK);
         assertRendered("uri", "https://api.example.com/?options=jdbc%3Afixture%3Apassword", MASK);
@@ -187,12 +200,13 @@ class DatasourcePropertyMaskingTest {
         String properties = "('jdbc_url'='jdbc:fixture://db.example.com;password=fixture-jdbc',"
                 + "'uri'='https://fixture:fixture-userinfo@api.example.com/?token=fixture-token&region=east',"
                 + "'fs.s3a.secret.key'='fixture-hadoop','custom.password'='fixture-custom',"
+                + "'hosts'='https://host1.example:9200/,https://fixture:fixture-list-password@host2.example:9200/',"
                 + "'credential'='fixture-sdk')";
         for (String prefix : List.of("CREATE CATALOG masking_catalog PROPERTIES ",
                 "ALTER CATALOG masking_catalog SET PROPERTIES ")) {
             String masked = audit.geneEncryptionSQL(prefix + properties);
             for (String secret : List.of("fixture-jdbc", "fixture-userinfo", "fixture-token", "fixture-hadoop",
-                    "fixture-custom", "fixture-sdk")) {
+                    "fixture-custom", "fixture-sdk", "fixture-list-password")) {
                 Assertions.assertFalse(masked.contains(secret), masked);
             }
             Assertions.assertTrue(masked.contains("https://api.example.com/?token=" + MASK + "&region=east"), masked);

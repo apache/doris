@@ -31,6 +31,7 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
     Map<String, String> policyProperties = [
         'jdbc_url': 'jdbc:fixture://db.example.com;password=fixture-jdbc',
         'hosts': 'https://fixture:fixture-userinfo@api.example.com/v1?token=fixture-url-token&region=east',
+        'list.hosts': 'https://host1.example:9200/,https://fixture:fixture-list-password@host2.example:9200/',
         'token': 'fixture-native-token',
         'credential': 'fixture-native-credential',
         'fs.s3a.secret.key': 'fixture-hadoop-secret',
@@ -42,7 +43,7 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
     String policySql = policyProperties.collect { key, value -> "'${key}' = '${value}'" }.join(',\n')
     List<String> policySecrets = ['fixture-jdbc', 'fixture-userinfo', 'fixture-url-token', 'fixture-native-token',
         'fixture-native-credential', 'fixture-hadoop-secret', 'fixture-account-key', 'fixture-custom-password',
-        'fixture-signature']
+        'fixture-signature', 'fixture-list-password']
 
     // The audit log files CREATE CATALOG under stmt_type OTHER and ALTER CATALOG under ALTER.
     def waitForAuditStatement = { String catalogName, String statement = "create catalog", String stmtType = "OTHER" ->
@@ -105,7 +106,8 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             assertEquals('*XXX', shownProperties['ozone.access_key'])
             policySecrets.each { secret -> assertFalse(shownCredentials.contains(secret)) }
             ['jdbc_url', 'token', 'credential', 'fs.s3a.secret.key',
-                'fs.azure.account.key.fixture.blob.core.windows.net', 'custom.password', 'signed.endpoint'].each { key ->
+                'fs.azure.account.key.fixture.blob.core.windows.net', 'custom.password', 'signed.endpoint',
+                'list.hosts'].each { key ->
                 assertEquals('*XXX', shownProperties[key])
             }
             assertEquals('https://api.example.com/v1?token=*XXX&region=east', shownProperties['hosts'])
