@@ -865,28 +865,52 @@ public class StringArithmetic {
         if (chr.getValue().isEmpty()) {
             return chr;
         }
-        String[] parts = first.getValue().split(Pattern.quote(chr.getValue()), -1);
-        if (Math.abs(number.getValue()) >= parts.length) {
-            return first;
-        }
-        int leftIndex;
-        int rightIndex;
-        if (parts.length < number.getValue() || number.getValue() < (- parts.length) || number.getValue() == 0) {
+        String value = first.getValue();
+        String delim = chr.getValue();
+        int count = number.getValue();
+        if (count == 0) {
             return castStringLikeLiteral(first, "");
-        } else if (number.getValue() < 0) {
-            leftIndex = parts.length + number.getValue();
-            rightIndex = parts.length;
-        } else {
-            leftIndex = 0;
-            rightIndex = number.getValue();
         }
-        StringBuilder sb = new StringBuilder();
-        for (int i = leftIndex; i < rightIndex - 1; i++) {
-            sb.append(parts[i]);
-            sb.append(chr.getValue());
+        if (count > 0) {
+            String[] parts = value.split(Pattern.quote(delim), -1);
+            if (count >= parts.length) {
+                return first;
+            }
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < count - 1; i++) {
+                sb.append(parts[i]);
+                sb.append(delim);
+            }
+            sb.append(parts[count - 1]);
+            return castStringLikeLiteral(first, sb.toString());
         }
-        sb.append(parts[rightIndex - 1]);
-        return castStringLikeLiteral(first, sb.toString());
+        // Search delimiters from right to left for a negative count.
+        int negCount = -count;
+        int offset = value.length();
+        int num = 0;
+        String substr = value;
+        while (num <= negCount && offset >= 0) {
+            offset = substr.lastIndexOf(delim, offset);
+            if (offset == -1) {
+                break;
+            }
+            if (++num == negCount) {
+                break;
+            }
+            int preOffset = offset;
+            offset = offset - 1;
+            substr = value.substring(0, preOffset);
+        }
+        if (offset == -1 && num != 0) {
+            num = num + 1;
+        }
+        if (num == negCount) {
+            if (offset == -1) {
+                return castStringLikeLiteral(first, value);
+            }
+            return castStringLikeLiteral(first, value.substring(offset + delim.length()));
+        }
+        return castStringLikeLiteral(first, value);
     }
 
     /**
