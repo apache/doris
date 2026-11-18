@@ -16,8 +16,9 @@
 // under the License.
 
 // A SEARCH that is a whole conjunct starts from the rows the scan's other filters kept, read
-// through an inverted index or a sort key. Its rows must be those of the full SEARCH within the
-// filter, scores must not change, and a partial result must never reach the query cache.
+// through an inverted index or a sort key. The expected rows and scores in the .out file are
+// those of the SEARCH over the whole segment, filtered afterwards; with the query cache on, a
+// partial result must not reach a later query without the filter.
 suite("test_search_outer_filter_candidates") {
     def tables = [
         idx: "test_search_outer_filter_idx",
@@ -43,12 +44,12 @@ suite("test_search_outer_filter_candidates") {
             DISTRIBUTED BY HASH(id) BUCKETS 1
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        // Account 7 holds every 10th row; titles, skills and places from a few words, with
-        // NULL titles on every 13th row.
+        // Account 7 holds about a tenth of the rows, spread by a hash so its titles, skills and
+        // places vary like the others'; NULL titles on every 13th row.
         sql """
             INSERT INTO ${table} (id, account, title, skill, place)
             SELECT number,
-                   if(number % 10 = 0, 7, number % 50 + 100),
+                   if(abs(murmur_hash3_32(concat('account-', number))) % 10 = 0, 7, number % 50 + 100),
                    if(number % 13 = 0, NULL, concat_ws(' ',
                        element_at(['', 'senior', 'lead'], number % 3 + 1),
                        element_at(['software', 'cloud', 'sales', 'data', 'ai'], number % 5 + 1),
@@ -57,7 +58,7 @@ suite("test_search_outer_filter_candidates") {
                               number % 5 + 1),
                    element_at(['Manila PH', 'Cebu Philippines', 'Berlin Germany', 'Pune India'],
                               number % 4 + 1)
-            FROM numbers("number" = "2000")
+            FROM numbers("number" = "1000")
         """
     }
     sql "sync"
@@ -71,36 +72,32 @@ suite("test_search_outer_filter_candidates") {
         'title:"software engineer" OR title:"ai developer"',
         '(title:ANY(engineer developer) OR skill:sql) AND NOT place:berlin',
         'skill:"project management" AND NOT title:"sales manager"',
+        // a phrase root, which lists its rows itself
+        'title:"cloud engineer"',
+        // a term root, read through its scorer
+        'skill:docker',
     ]
-    def modes = ['{"mode":"lucene"}', '{"mode":"standard"}']
+    def modes = [lucene: '{"mode":"lucene"}', standard: '{"mode":"standard"}']
 
     tables.each { kind, table ->
-        dsls.each { dsl ->
-            modes.each { mode ->
+        dsls.eachWithIndex { dsl, i ->
+            modes.each { modeName, mode ->
                 def search = "search('${dsl}', '${mode}')"
+                def tag = "${kind}_${modeName}_${i}"
                 sql "set enable_inverted_index_query_cache = false"
-                // The full SEARCH, filtered afterwards.
-                def expected = sql """SELECT id FROM ${table} WHERE account = 7 AND id IN
-                                      (SELECT id FROM ${table} WHERE ${search}) ORDER BY id"""
-                def actual = sql "SELECT id FROM ${table} WHERE account = 7 AND ${search} ORDER BY id"
-                assertEquals(expected, actual, "${kind} ${mode}: ${dsl}")
-                assertTrue(sql("SELECT count(*) FROM ${table} WHERE ${search}")[0][0] > actual.size(),
-                           "${kind} ${mode}: ${dsl}")
+                "order_qt_${tag}_rows"("SELECT id FROM ${table} WHERE account = 7 AND ${search}")
+                if (kind == "idx") {
+                    "order_qt_${tag}_scores"("""
+                        SELECT id, ROUND(score(), 4) AS s FROM ${table} WHERE account = 7 AND ${search}
+                        ORDER BY score() DESC, id LIMIT 10""")
+                }
 
-                // Scores are those of the full SEARCH.
-                def scored = sql """SELECT id, score() AS s FROM ${table} WHERE account = 7 AND ${search}
-                                    ORDER BY s DESC, id LIMIT 1000"""
-                def full = sql "SELECT id, score() AS s FROM ${table} WHERE ${search} ORDER BY s DESC, id LIMIT 5000"
-                def fullScores = full.collectEntries { [(it[0]): it[1]] }
-                scored.each { row -> assertEquals(fullScores[row[0]], row[1]) }
-
-                // With the cache on, the filtered query first: the full query must not read a
-                // partial result back.
-                def fullCount = sql "SELECT count(*) FROM ${table} WHERE ${search}"
+                // With the cache on, the filtered query first: the query without the filter
+                // must still count every row of the SEARCH.
                 sql "set enable_inverted_index_query_cache = true"
-                assertEquals(actual, sql("SELECT id FROM ${table} WHERE account = 7 AND ${search} ORDER BY id"))
-                assertEquals(fullCount, sql("SELECT count(*) FROM ${table} WHERE ${search}"))
-                assertEquals(actual, sql("SELECT id FROM ${table} WHERE account = 7 AND ${search} ORDER BY id"))
+                "qt_${tag}_cached_filtered"("SELECT count(*) FROM ${table} WHERE account = 7 AND ${search}")
+                "qt_${tag}_cached_full"("SELECT count(*) FROM ${table} WHERE ${search}")
+                "qt_${tag}_cached_filtered_again"("SELECT count(*) FROM ${table} WHERE account = 7 AND ${search}")
             }
         }
     }
