@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -36,7 +39,19 @@ class ShowCharsetCommandTest extends TestWithFeService {
         connectContext.getState().reset();
         StmtExecutor executor = new StmtExecutor(connectContext, sql);
         ShowCharsetCommand command = (ShowCharsetCommand) new NereidsParser().parseSingle(sql);
-        return command.doRun(connectContext, executor);
+        StatementContext statementContext = connectContext.getStatementContext();
+        TUniqueId queryId = new TUniqueId(1, 2);
+        connectContext.setQueryId(queryId);
+        try {
+            return command.doRun(connectContext, executor);
+        } finally {
+            Assertions.assertSame(connectContext, ConnectContext.get());
+            Assertions.assertSame(executor, connectContext.getExecutor());
+            Assertions.assertSame(statementContext, connectContext.getStatementContext());
+            Assertions.assertSame(queryId, connectContext.queryId());
+            Assertions.assertFalse(connectContext.getState().isInternal());
+            Assertions.assertFalse(connectContext.getState().isQuery());
+        }
     }
 
     @Test
@@ -93,17 +108,23 @@ class ShowCharsetCommandTest extends TestWithFeService {
 
     @Test
     void testSessionValues() throws Exception {
+        boolean originalEnableSqlCache = connectContext.getSessionVariable().isEnableSqlCache();
         String originalCharset = connectContext.getSessionVariable().charsetServer;
         String originalCollation = connectContext.getSessionVariable().collationConnection;
         try {
+            connectContext.getSessionVariable().setEnableSqlCache(true);
+            Assertions.assertEquals(EXPECTED_ROWS, execute("SHOW CHARSET WHERE TRUE").getResultRows());
             connectContext.getSessionVariable().charsetServer = "test_charset";
             connectContext.getSessionVariable().collationConnection = "test_collation";
             List<List<String>> expected = execute("SHOW CHARSET").getResultRows();
             Assertions.assertEquals(expected, execute("SHOW CHARSET LIKE 'test_%'").getResultRows());
+            Assertions.assertEquals(expected, execute("SHOW CHARSET WHERE TRUE").getResultRows());
+            Assertions.assertTrue(connectContext.getSessionVariable().isEnableSqlCache());
             Assertions.assertEquals(expected, execute("SHOW CHARSET WHERE Charset = 'test_charset' "
                     + "AND `Default collation` = 'test_collation'").getResultRows());
             Assertions.assertTrue(execute("SHOW CHARSET WHERE Charset = 'utf8mb4'").getResultRows().isEmpty());
         } finally {
+            connectContext.getSessionVariable().setEnableSqlCache(originalEnableSqlCache);
             connectContext.getSessionVariable().charsetServer = originalCharset;
             connectContext.getSessionVariable().collationConnection = originalCollation;
         }

@@ -20,7 +20,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -32,16 +34,18 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.statistics.repository.ResultRow;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Represents the command for SHOW CHARACTER SET
@@ -72,19 +76,7 @@ public class ShowCharsetCommand extends ShowCommand {
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (whereClause != null) {
-            // Filter the same session-dependent values returned by the unfiltered command.
-            // Let the query analyzer bind output column names and apply SQL expression semantics.
-            List<NamedExpression> projects = ImmutableList.of(
-                    new Alias(new StringLiteral(ctx.getSessionVariable().getCharsetServer()), "Charset"),
-                    new Alias(new StringLiteral("UTF-8 Unicode"), "Description"),
-                    new Alias(new StringLiteral(ctx.getSessionVariable().getCollationConnection()),
-                            "Default collation"),
-                    new Alias(new IntegerLiteral(4), "Maxlen"));
-            LogicalOneRowRelation relation = new LogicalOneRowRelation(
-                    StatementScopeIdGenerator.newRelationId(), projects);
-            LogicalFilter<LogicalOneRowRelation> plan = new LogicalFilter<>(
-                    ExpressionUtils.extractConjunctionToSet(whereClause), relation);
-            return new ShowResultSet(getMetaData(), Utils.executePlan(ctx, executor, new UnboundResultSink<>(plan)));
+            return new ShowResultSet(getMetaData(), filterRows(ctx, executor));
         }
         List<List<String>> rows = Lists.newArrayList();
         if (likePattern != null && !PatternMatcherWrapper.createMysqlPattern(likePattern, false)
@@ -100,6 +92,36 @@ public class ShowCharsetCommand extends ShowCommand {
         rows.add(row);
 
         return new ShowResultSet(getMetaData(), rows);
+    }
+
+    private List<List<String>> filterRows(ConnectContext ctx, StmtExecutor executor) {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(ctx.createInternalQueryContext());
+                StatementContext statementContext = ctx.getStatementContext()
+                        .createShowQueryContext(scope.connectContext)) {
+            ConnectContext internalContext = scope.connectContext;
+            internalContext.setStatementContext(statementContext);
+
+            List<NamedExpression> projects = ImmutableList.of(
+                    new Alias(new StringLiteral(ctx.getSessionVariable().getCharsetServer()), "Charset"),
+                    new Alias(new StringLiteral("UTF-8 Unicode"), "Description"),
+                    new Alias(new StringLiteral(ctx.getSessionVariable().getCollationConnection()),
+                            "Default collation"),
+                    new Alias(new IntegerLiteral(4), "Maxlen"));
+            LogicalOneRowRelation relation = new LogicalOneRowRelation(
+                    StatementScopeIdGenerator.newRelationId(), projects);
+            LogicalFilter<LogicalOneRowRelation> filter = new LogicalFilter<>(
+                    ExpressionUtils.extractConjunctionToSet(whereClause), relation);
+            LogicalPlanAdapter adapter = new LogicalPlanAdapter(new UnboundResultSink<>(filter), statementContext);
+            adapter.setOrigStmt(executor.getOriginStmt());
+            StmtExecutor internalExecutor = new StmtExecutor(internalContext, adapter);
+            internalContext.setExecutor(internalExecutor);
+            executor.setCancelDelegate(internalExecutor::cancel);
+            return internalExecutor.executeInternalQuery().stream()
+                    .map(ResultRow::getValues)
+                    .collect(Collectors.toList());
+        } finally {
+            executor.clearCancelDelegate();
+        }
     }
 
     @Override

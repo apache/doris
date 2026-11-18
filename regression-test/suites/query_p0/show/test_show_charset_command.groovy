@@ -42,6 +42,37 @@ suite("test_show_charset_command", "query,charset") {
     order_qt_where_equals_null "SHOW CHARSET WHERE Charset = NULL"
     order_qt_where_not_null "SHOW CHARSET WHERE Charset IS NOT NULL"
 
+    sql "SET sql_mode = ''"
+    order_qt_like_backspace "SHOW CHARSET LIKE 'utf8m\\b4'"
+    order_qt_like_backslash "SHOW CHARSET LIKE 'utf8m\\\\b4'"
+    sql "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"
+    order_qt_like_no_backslash_escapes "SHOW CHARSET LIKE 'utf8m\\\\b4'"
+    sql "SET sql_mode = DEFAULT"
+
+    sql "SET enable_sql_cache = true"
+    order_qt_where_before_collation_change "SHOW CHARSET WHERE TRUE"
+    sql "SET collation_connection = 'utf8mb4_general_ci'"
+    order_qt_where_after_collation_change "SHOW CHARSET WHERE TRUE"
+    sql "SET collation_connection = DEFAULT"
+    sql "SET enable_sql_cache = DEFAULT"
+
+    sql "SET sql_select_limit = 0"
+    order_qt_where_with_select_limit "SHOW CHARSET WHERE @@sql_select_limit = 0"
+    order_qt_select_limit_still_applies "SELECT 1"
+    sql "SET sql_select_limit = DEFAULT"
+
+    def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, context.dbName, false) +
+            "&emulateUnsupportedPstmts=false"
+    connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
+        context.getConnection().prepareStatement("SHOW CHARSET WHERE Maxlen = ?").withCloseable { stmt ->
+            assertTrue(stmt instanceof com.mysql.cj.jdbc.ServerPreparedStatement)
+            stmt.setInt(1, 4)
+            qe_prepared_match stmt
+            stmt.setInt(1, 5)
+            qe_prepared_no_match stmt
+        }
+    }
+
     test {
         sql "SHOW CHARSET WHERE unknown_column = 'utf8mb4'"
         exception "unknown_column"

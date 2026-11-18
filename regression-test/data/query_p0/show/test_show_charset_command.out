@@ -57,3 +57,26 @@ utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
 -- !where_not_null --
 utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
 
+-- !like_backspace --
+
+-- !like_backslash --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !like_no_backslash_escapes --
+
+-- !where_before_collation_change --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !where_after_collation_change --
+utf8mb4	UTF-8 Unicode	utf8mb4_general_ci	4
+
+-- !where_with_select_limit --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !select_limit_still_applies --
+
+-- !prepared_match --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !prepared_no_match --
+

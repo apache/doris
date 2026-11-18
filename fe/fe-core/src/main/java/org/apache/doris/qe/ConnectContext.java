@@ -462,6 +462,38 @@ public class ConnectContext {
         init();
     }
 
+    /**
+     * Isolate a read-only internal query from the client protocol and statement state while
+     * retaining the caller's session identity, name resolution and variable values.
+     * The caller still owns the session and its cleanup.
+     */
+    public ConnectContext createInternalQueryContext() {
+        return new ConnectContext(this);
+    }
+
+    private ConnectContext(ConnectContext parent) {
+        protocolAdapter = new MysqlProtocolAdapter(new DummyMysqlChannel());
+        command = MysqlCommand.COM_QUERY;
+        state = new QueryState();
+        sessionVariable = VariableMgr.cloneSessionVariable(parent.sessionVariable);
+        userVars.putAll(parent.userVars);
+        env = parent.env;
+        currentUserIdentity = parent.currentUserIdentity;
+        authenticatedPrincipal = parent.authenticatedPrincipal;
+        authenticatedRoles = parent.authenticatedRoles;
+        isTempUser = parent.isTempUser;
+        remoteIP = parent.remoteIP;
+        connectionId = parent.connectionId;
+        startTime = parent.startTime;
+        startTimeInstant = parent.startTimeInstant;
+        lastQueryId = parent.lastQueryId;
+        computeGroup = parent.computeGroup;
+        cloudCluster = parent.cloudCluster;
+        restoreNameSpaceContext(parent.getNameSpaceContext());
+        // Borrow the caller's temporary-table namespace without registering a new session.
+        sessionId = parent.sessionId;
+    }
+
     /** The context of a MySQL client connection. */
     public static ConnectContext forMysql(StreamConnection connection) {
         return new ConnectContext(connection);
