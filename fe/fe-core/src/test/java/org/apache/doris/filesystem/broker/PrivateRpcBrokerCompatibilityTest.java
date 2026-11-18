@@ -38,6 +38,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -71,7 +72,9 @@ class PrivateRpcBrokerCompatibilityTest {
                 generation.destroyForcibly();
                 Assertions.fail("Ephemeral certificate generation timed out");
             }
-            Assertions.assertEquals(0, generation.exitValue());
+            // TempDir cleanup removes the generator log even when setup fails in CI.
+            Assertions.assertEquals(0, generation.exitValue(),
+                    Files.readString(certificates.resolve("generation.log")));
             Config.enable_tls = true;
             Config.tls_excluded_protocols = "http,mysql,arrowflight,bdbje";
             Config.tls_verify_mode = "verify_fail_if_no_peer_cert";
