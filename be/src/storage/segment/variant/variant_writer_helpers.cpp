@@ -405,6 +405,7 @@ Status prepare_subcolumn_writer_target(
     opts.rowset_ctx = base_opts.rowset_ctx;
     opts.file_writer = base_opts.file_writer;
     opts.storage_format = base_opts.storage_format;
+    opts.delete_sign_rows = base_opts.delete_sign_rows;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
 
     const bool need_record_none_null_value_size =

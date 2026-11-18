@@ -17,14 +17,50 @@
 
 #include "storage/index/inverted/clucene/inverted_index_compaction.h"
 
+#include <roaring/roaring.hh>
+
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_common.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/clucene/delete_sign_rows_file.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
+
+Status merge_delete_sign_rows(
+        const std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>& src_index_dirs,
+        const std::vector<lucene::store::Directory*>& dest_index_dirs,
+        const std::vector<std::vector<std::pair<uint32_t, uint32_t>>>& trans_vec) {
+    DORIS_CHECK_EQ(src_index_dirs.size(), trans_vec.size());
+    std::vector<roaring::Roaring> dest_rows(dest_index_dirs.size());
+    for (size_t src = 0; src < src_index_dirs.size(); ++src) {
+        std::shared_ptr<const roaring::Roaring> src_rows;
+        RETURN_IF_ERROR(read_clucene_delete_sign_rows(src_index_dirs[src].get(), &src_rows));
+        // A source an older BE wrote or merged holds terms for its rows with the sign, which the
+        // merged indexes carry, and does not say which rows they are. The merged indexes record
+        // none then, and BM25 statistics read their delete-sign column.
+        if (src_rows == nullptr) {
+            return Status::OK();
+        }
+        for (const uint32_t src_row : *src_rows) {
+            DORIS_CHECK_LT(src_row, trans_vec[src].size());
+            const auto [dest, dest_row] = trans_vec[src][src_row];
+            // <UINT32_MAX, UINT32_MAX>: the row is not in the output, as base compaction drops
+            // the rows written with the delete sign.
+            if (dest == UINT32_MAX) {
+                continue;
+            }
+            dest_rows[dest].add(dest_row);
+        }
+    }
+    for (size_t dest = 0; dest < dest_index_dirs.size(); ++dest) {
+        RETURN_IF_ERROR(write_clucene_delete_sign_rows(dest_index_dirs[dest], dest_rows[dest]));
+    }
+    return Status::OK();
+}
+
 Status compact_column(
         int64_t index_id,
         std::vector<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>>& src_index_dirs,
@@ -74,6 +110,7 @@ Status compact_column(
         _CLTHROWA(CL_ERR_IO,
                   "debug point: compact_column_index_writer_close_error in index compaction");
     })
+    RETURN_IF_ERROR(merge_delete_sign_rows(src_index_dirs, dest_index_dirs, trans_vec));
 
     // delete temporary segment_path, only when inverted_index_ram_dir_enable is false
     if (!config::inverted_index_ram_dir_enable) {

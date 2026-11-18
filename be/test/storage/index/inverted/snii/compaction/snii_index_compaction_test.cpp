@@ -24,6 +24,8 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
+#include <roaring/roaring.hh>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -1070,6 +1072,103 @@ TEST(SniiIndexCompactionTest, StickyExecuteFailureAbortsNewDestinationSession) {
     EXPECT_TRUE(retry_session->finish().is<doris::ErrorCode::INVALID_ARGUMENT>());
     EXPECT_TRUE(retry_compound.finish().is<doris::ErrorCode::INVALID_ARGUMENT>());
     EXPECT_FALSE(retry_file.finalized());
+}
+
+// A merge moves the rows written with the delete sign that its sources record to the rows they
+// become, drops the rows it drops, as base compaction drops these rows, and the destinations
+// record them ahead of their posting regions. An older BE that carries such an index over copies
+// its container up to the end of the sections it knows, and the dictionary ends after the
+// section, so the copy keeps it.
+TEST(SniiIndexCompactionTest, MergesRecordedDeleteSignRowsIntoTheirMergedRows) {
+    OpenedIndex source_zero;
+    OpenedIndex source_one;
+    roaring::Roaring source_zero_rows;
+    source_zero_rows.addMany(2, std::array<uint32_t, 2> {1, 3}.data());
+    roaring::Roaring source_one_rows;
+    source_one_rows.add(2);
+    SniiIndexInput source_zero_input =
+            make_input(/*doc_count=*/4, /*null_docids=*/ {1}, source_zero_terms());
+    source_zero_input.delete_sign_rows = &source_zero_rows;
+    build_index(std::move(source_zero_input), &source_zero,
+                reader::LogicalIndexOpenMode::kCompaction);
+    SniiIndexInput source_one_input =
+            make_input(/*doc_count=*/3, /*null_docids=*/ {2}, source_one_terms());
+    source_one_input.delete_sign_rows = &source_one_rows;
+    build_index(std::move(source_one_input), &source_one);
+
+    const RowIdConversionMap conversion = {
+            {{0, 0}, {0, 2}, {1, 0}, kDeleted},
+            {{0, 1}, {0, 3}, {1, 1}},
+    };
+    const std::vector<uint32_t> destination_rows = {4, 2};
+    auto validated = make_validated_conversion(&conversion, {4, 3}, destination_rows);
+    ASSERT_NE(validated, nullptr);
+    std::optional<std::vector<roaring::Roaring>> merged_rows;
+    assert_ok(compaction::merge_delete_sign_rows({&source_zero.index, &source_one.index},
+                                                 *validated, &merged_rows));
+    ASSERT_TRUE(merged_rows.has_value());
+    ASSERT_EQ(merged_rows->size(), 2);
+    EXPECT_EQ((*merged_rows)[0], roaring::Roaring::bitmapOf(1, 2));
+    EXPECT_EQ((*merged_rows)[1], roaring::Roaring::bitmapOf(1, 1));
+
+    std::unique_ptr<SniiPlainT2MergePlan> plan;
+    assert_ok(SniiPlainT2MergePlan::prepare({&source_zero.index, &source_one.index}, *validated,
+                                            /*total_read_ahead_budget_bytes=*/1U << 20, &plan));
+    std::array<MemoryFile, 2> merged_files;
+    std::array<std::unique_ptr<SniiCompoundWriter>, 2> compounds;
+    std::array<SniiStreamedIndexSession*, 2> sessions = {nullptr, nullptr};
+    for (size_t i = 0; i < compounds.size(); ++i) {
+        compounds[i] = std::make_unique<SniiCompoundWriter>(&merged_files[i]);
+        SniiIndexInput input =
+                make_input(destination_rows[i], plan->destination_null_docids(i), {});
+        input.delete_sign_rows = &(*merged_rows)[i];
+        assert_ok(compounds[i]->begin_streamed_index(std::move(input), &sessions[i]));
+    }
+    assert_ok(plan->execute(sessions));
+    for (size_t i = 0; i < compounds.size(); ++i) {
+        assert_ok(compounds[i]->finish());
+        reader::SniiSegmentReader segment;
+        reader::LogicalIndexReader index;
+        assert_ok(reader::SniiSegmentReader::open(&merged_files[i], &segment));
+        assert_ok(segment.open_index(kIndexId, kIndexSuffix, &index));
+        std::shared_ptr<const roaring::Roaring> recorded;
+        assert_ok(index.read_delete_sign_rows(&recorded));
+        ASSERT_NE(recorded, nullptr);
+        EXPECT_EQ(*recorded, (*merged_rows)[i]);
+        const format::SectionRefs& refs = index.section_refs();
+        EXPECT_LE(refs.delete_sign_rows.offset + refs.delete_sign_rows.length,
+                  refs.posting_region.offset);
+        EXPECT_LE(refs.delete_sign_rows.offset + refs.delete_sign_rows.length,
+                  refs.dict_region.offset + refs.dict_region.length);
+    }
+}
+
+// A source that records no rows written with the delete sign, as an older BE wrote or merged it,
+// holds terms for them, and which rows they are is not known here, so no destination records any.
+TEST(SniiIndexCompactionTest, MergesNoDeleteSignRowsWhenASourceRecordsNone) {
+    OpenedIndex source_zero;
+    OpenedIndex source_one;
+    roaring::Roaring source_zero_rows;
+    source_zero_rows.add(1);
+    SniiIndexInput source_zero_input =
+            make_input(/*doc_count=*/4, /*null_docids=*/ {1}, source_zero_terms());
+    source_zero_input.delete_sign_rows = &source_zero_rows;
+    build_index(std::move(source_zero_input), &source_zero);
+    build_index(make_input(/*doc_count=*/3, /*null_docids=*/ {2}, source_one_terms()), &source_one);
+    std::shared_ptr<const roaring::Roaring> recorded;
+    assert_ok(source_one.index.read_delete_sign_rows(&recorded));
+    EXPECT_EQ(recorded, nullptr);
+
+    const RowIdConversionMap conversion = {
+            {{0, 0}, {0, 2}, {1, 0}, kDeleted},
+            {{0, 1}, {0, 3}, {1, 1}},
+    };
+    auto validated = make_validated_conversion(&conversion, {4, 3}, {4, 2});
+    ASSERT_NE(validated, nullptr);
+    std::optional<std::vector<roaring::Roaring>> merged_rows;
+    assert_ok(compaction::merge_delete_sign_rows({&source_zero.index, &source_one.index},
+                                                 *validated, &merged_rows));
+    EXPECT_FALSE(merged_rows.has_value());
 }
 
 } // namespace

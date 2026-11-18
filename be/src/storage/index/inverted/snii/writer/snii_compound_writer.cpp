@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <roaring/roaring.hh>
 #include <utility>
 
 #include "cloud/config.h"
@@ -30,6 +31,7 @@
 #include "storage/index/inverted/snii/format/bootstrap_header.h"
 #include "storage/index/inverted/snii/format/core_metadata.h"
 #include "storage/index/inverted/snii/format/metadata_directory.h"
+#include "storage/index/inverted/snii/format/null_bitmap.h"
 #include "storage/index/inverted/snii/format/tail_pointer.h"
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
 #include "util/defer_op.h"
@@ -201,13 +203,15 @@ Status SniiCompoundWriter::_add_logical_index(const SniiIndexInput& in,
     RETURN_IF_ERROR(ensure_bootstrap());
     auto liw = std::make_unique<LogicalIndexWriter>(in, std::move(null_docids));
     Placement p;
+    Status status = write_delete_sign_rows(in, &p.delete_sign_rows_off, &p.delete_sign_rows_len);
+    if (!status.ok()) return poison(status);
     // The posting region streams DIRECTLY into the container during build() -- no temp
     // round-trip for the bulk -- followed immediately by this index's compact DICT
     // trailer (produced interleaved into a temp, but laid out right after its posting
     // region, preserving the per-index [posting][dict] layout). Offsets are read off
     // the output writer (the single source of truth -- no separate cursor).
     p.post_off = out_->bytes_written();
-    Status status = liw->build(out_);
+    status = liw->build(out_);
     if (!status.ok()) return poison(status);
     p.post_len = out_->bytes_written() - p.post_off;
     p.dict_off = out_->bytes_written();
@@ -470,8 +474,14 @@ Status SniiCompoundWriter::begin_streamed_index(SniiIndexInput in, TrackedNullDo
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "compound: tracked streamed norms must not also be present in input");
     RETURN_IF_ERROR(ensure_bootstrap());
+    uint64_t delete_sign_rows_off = 0;
+    uint64_t delete_sign_rows_len = 0;
+    Status status = write_delete_sign_rows(in, &delete_sign_rows_off, &delete_sign_rows_len);
+    if (!status.ok()) return poison(status);
     auto s = std::unique_ptr<SniiStreamedIndexSession>(
             new SniiStreamedIndexSession(this, std::move(in), std::move(null_docids)));
+    s->delete_sign_rows_off_ = delete_sign_rows_off;
+    s->delete_sign_rows_len_ = delete_sign_rows_len;
     s->post_off_ = out_->bytes_written();
     RETURN_IF_ERROR(s->writer_->begin_streamed(out_));
     sessions_.push_back(std::move(s));
@@ -489,6 +499,8 @@ Status SniiCompoundWriter::finish_streamed_index(SniiStreamedIndexSession* sessi
     std::vector<uint8_t>().swap(session->input_.encoded_norms);
     session->encoded_norms_reservation_.reset();
     Placement p;
+    p.delete_sign_rows_off = session->delete_sign_rows_off_;
+    p.delete_sign_rows_len = session->delete_sign_rows_len_;
     p.post_off = session->post_off_;
     p.post_len = out_->bytes_written() - p.post_off;
     p.dict_off = out_->bytes_written();
@@ -539,6 +551,24 @@ Status SniiCompoundWriter::write_index_aux_sections(LogicalIndexWriter& writer,
         placement.bsbf_len = out_->bytes_written() - placement.bsbf_off;
         writer.release_bsbf_bytes();
     }
+    return Status::OK();
+}
+
+Status SniiCompoundWriter::write_delete_sign_rows(const SniiIndexInput& in, uint64_t* offset,
+                                                  uint64_t* length) {
+    if (in.delete_sign_rows == nullptr) {
+        return Status::OK();
+    }
+    DORIS_CHECK(in.delete_sign_rows->isEmpty() || in.delete_sign_rows->maximum() < in.doc_count);
+    // Written even when empty: then no row has the sign, and BM25 statistics need not read the
+    // delete-sign column to know it.
+    format::NullBitmapWriter rows;
+    rows.add_bitmap(*in.delete_sign_rows);
+    ByteSink sink;
+    RETURN_IF_ERROR(rows.finish(in.doc_count, &sink));
+    *offset = out_->bytes_written();
+    RETURN_IF_ERROR(append(sink.buffer()));
+    *length = out_->bytes_written() - *offset;
     return Status::OK();
 }
 
@@ -600,6 +630,8 @@ Status SniiCompoundWriter::write_tail() {
         refs.norms = {.offset = p.norms_off, .length = p.norms_len};
         refs.null_bitmap = {.offset = p.null_off, .length = p.null_len};
         refs.bsbf = {.offset = p.bsbf_off, .length = p.bsbf_len};
+        refs.delete_sign_rows = {.offset = p.delete_sign_rows_off,
+                                 .length = p.delete_sign_rows_len};
 
         SerializedMetadataGroup group;
         RETURN_IF_ERROR(w.finish_metadata(refs, p.dict_off, &group));

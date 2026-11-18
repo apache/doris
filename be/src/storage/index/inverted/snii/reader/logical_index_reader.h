@@ -64,6 +64,10 @@ namespace doris::snii::format {
 class NormsPodReader;
 }
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris::snii::reader {
 
 // Forward-declared: this widely-included header only names DictBlockCache* and
@@ -277,6 +281,9 @@ public:
                             const NullDocidsDecodeReservation& reserve_decode =
                                     NullDocidsDecodeReservation()) const;
     Status null_docids_scan_memory(NullDocidsScanMemory* out) const;
+    // The docids written with the delete sign that a merge-on-write index records
+    // (SniiSectionRefsPB.delete_sign_rows), or null when it records none.
+    Status read_delete_sign_rows(std::shared_ptr<const roaring::Roaring>* out) const;
     size_t memory_usage() const;
 
     // Keeps the results of exact lookups in an on-demand dictionary for the queries that share

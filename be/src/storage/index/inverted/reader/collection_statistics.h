@@ -72,23 +72,22 @@ using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
 // The rows of a merge-on-write tablet that its segments still hold but a scan at `version` does
 // not return: rows a later load overwrote or deleted, which the delete bitmap marks, and rows
-// written with the delete sign when the scan filters them out. Compaction removes both, on each
+// written with the delete sign, which queries filter out. Compaction removes both, on each
 // replica at its own time, so statistics counting them would differ between the replicas of a
 // tablet, and so would every BM25 score. Rows deleted by a delete predicate
 // (`enable_mow_light_delete`) are still counted, as the delete bitmap does not mark them.
+//
+// A text index this BE writes gives the rows written with the delete sign no terms and records them
+// (IndexColumnWriter::set_delete_sign_rows). The statistics read those rows from the index, and
+// from the delete-sign column only for a segment none of whose indexes records them, as an older
+// BE wrote it. A query that sets `skip_delete_sign` or `show_hidden_columns` returns these rows,
+// which match nothing on an index that records them, and its statistics leave them out as well.
 //
 // The cache flags carry the query's choices to the segment and column reads of the delete sign;
 // the file cache choices come with the I/O context.
 struct MowHiddenRows {
     std::shared_ptr<DeleteBitmap> delete_bitmap;
     int64_t version = -1;
-    // Whether the scan filters out rows written with the delete sign by `__DORIS_DELETE_SIGN__ = 0`,
-    // which the FE adds unless the query sets `skip_delete_sign` or `show_hidden_columns`. When it
-    // does not, the scan returns those rows and they are scored, so the statistics count them like
-    // any other row: a replica keeps them until base compaction, and one that has removed them
-    // returns them no longer either. Another predicate of the query on the column, such as `= 1`,
-    // leaves them counted, as the statistics follow no predicate of the query.
-    bool filters_delete_sign = true;
     bool use_segment_cache = true;
     bool use_page_cache = true;
 };

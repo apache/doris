@@ -42,6 +42,8 @@ struct SectionRefs {
     RegionRef norms;
     RegionRef null_bitmap;
     RegionRef bsbf;
+    // Empty unless the index records the rows written with the delete sign.
+    RegionRef delete_sign_rows;
 };
 
 // Digest of the highest-df terms of one index: (hash, df) pairs small enough to travel with

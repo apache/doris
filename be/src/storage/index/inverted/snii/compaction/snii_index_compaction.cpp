@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <limits>
 #include <memory>
+#include <roaring/roaring.hh>
 #include <string_view>
 #include <tuple>
 #include <utility>
@@ -100,6 +101,33 @@ SniiPlainT2MergePlan::SniiPlainT2MergePlan(
           destination_encoded_norms_(std::move(destination_encoded_norms)),
           destination_encoded_norms_taken_(destination_encoded_norms_.size(), false),
           read_contexts_(std::move(read_contexts)) {}
+
+Status merge_delete_sign_rows(const std::vector<const reader::LogicalIndexReader*>& source_indexes,
+                              const ValidatedRowIdConversion& rowid_conversion,
+                              std::optional<std::vector<roaring::Roaring>>* destination_rows) {
+    DORIS_CHECK(destination_rows != nullptr);
+    DORIS_CHECK_EQ(source_indexes.size(), rowid_conversion.source_segment_count());
+    destination_rows->reset();
+    std::vector<roaring::Roaring> merged(rowid_conversion.destination_segment_doc_counts().size());
+    for (size_t source_ordinal = 0; source_ordinal < source_indexes.size(); ++source_ordinal) {
+        std::shared_ptr<const roaring::Roaring> source_rows;
+        RETURN_IF_ERROR(source_indexes[source_ordinal]->read_delete_sign_rows(&source_rows));
+        if (source_rows == nullptr) {
+            return Status::OK();
+        }
+        const auto source_mapping = rowid_conversion.source_mapping(source_ordinal);
+        for (const uint32_t source_docid : *source_rows) {
+            DORIS_CHECK_LT(source_docid, source_mapping.size());
+            const auto [destination_segment, destination_docid] = source_mapping[source_docid];
+            if (destination_segment == std::numeric_limits<uint32_t>::max()) {
+                continue;
+            }
+            merged[destination_segment].add(destination_docid);
+        }
+    }
+    *destination_rows = std::move(merged);
+    return Status::OK();
+}
 
 Status SniiPlainT2MergePlan::prepare(std::vector<const reader::LogicalIndexReader*> source_indexes,
                                      const ValidatedRowIdConversion& rowid_conversion,

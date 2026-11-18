@@ -25,7 +25,7 @@ namespace doris::segment_v2 {
 
 const std::unordered_map<std::string, int32_t> InvertedIndexDescriptor::index_file_info_map = {
         {"null_bitmap", 1}, {"segments.gen", 2}, {"segments_", 3}, {"fnm", 4},
-        {"tii", 5},         {"bkd_meta", 6},     {"bkd_index", 7}};
+        {"tii", 5},         {"bkd_meta", 6},     {"bkd_index", 7}, {"delete_sign_rows", 8}};
 
 const std::unordered_map<std::string, int32_t> InvertedIndexDescriptor::normal_file_info_map = {
         {"tis", 1}, {"frq", 2}, {"prx", 3}};

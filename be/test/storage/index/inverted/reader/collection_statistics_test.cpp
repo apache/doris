@@ -465,10 +465,13 @@ protected:
     }
 
     // Writes `rows`, the rows of `null_rows` as NULL whatever their value.
+    // `delete_sign_rows`, when given, are the rows a merge-on-write segment writer marks as
+    // written with the delete sign.
     Status write_legacy_v3_segment(const TabletSchemaSPtr& tablet_schema,
                                    const std::string& segment_path, size_t column_ordinal = 0,
                                    const std::vector<std::string>& rows = {"alpha beta"},
-                                   const std::set<size_t>& null_rows = {}) {
+                                   const std::set<size_t>& null_rows = {},
+                                   const roaring::Roaring* delete_sign_rows = nullptr) {
         std::vector<StorePath> paths;
         paths.emplace_back(test_dir_, 1024);
         auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
@@ -493,6 +496,7 @@ protected:
         std::unique_ptr<segment_v2::IndexColumnWriter> column_writer;
         RETURN_IF_ERROR(segment_v2::IndexColumnWriter::create(&column, &column_writer, &file_writer,
                                                               index_metas[0]));
+        column_writer->set_delete_sign_rows(delete_sign_rows);
         for (size_t row = 0; row < rows.size(); ++row) {
             if (null_rows.contains(row)) {
                 RETURN_IF_ERROR(column_writer->add_nulls(1));
@@ -508,7 +512,9 @@ protected:
     }
 
     // A normal analyzed SNII segment with positions and norms, as emitted for scoring indexes.
-    Status write_snii_scoring_segment(const std::string& segment_path, bool docs_only = false) {
+    // `delete_sign_rows`, when given, are recorded as the rows written with the delete sign.
+    Status write_snii_scoring_segment(const std::string& segment_path, bool docs_only = false,
+                                      const roaring::Roaring* delete_sign_rows = nullptr) {
         const std::string index_path_prefix {
                 segment_v2::InvertedIndexDescriptor::get_index_file_path_prefix(segment_path)};
         io::FileWriterPtr file_writer;
@@ -541,6 +547,7 @@ protected:
         input.config = docs_only ? snii::format::IndexConfig::kDocsOnly
                                  : snii::format::IndexConfig::kDocsPositions;
         input.doc_count = 2;
+        input.delete_sign_rows = delete_sign_rows;
         if (!docs_only) {
             input.encoded_norms = {snii::query::encode_norm(2), snii::query::encode_norm(1)};
             input.terms = {std::move(alpha), std::move(beta)};
@@ -1129,10 +1136,12 @@ TEST_F(CollectionStatisticsTest, NullRowsCountAsDocumentsWithoutTokens) {
     EXPECT_EQ(collect(&null_hidden), std::make_pair(uint64_t {4}, uint64_t {6}));
 }
 
-// With skip_delete_sign or show_hidden_columns the scan returns the rows written with the delete
-// sign, so the statistics count them like any other row: only the rows the delete bitmap marks
-// are left out, and the delete sign column is not read.
-TEST_F(CollectionStatisticsTest, DeleteSignRowsCountWhenTheScanReturnsThem) {
+// A text index this BE writes on a merge-on-write tablet gives the rows written with the delete
+// sign no terms and records them, so the statistics leave them out reading the index alone: the
+// segment's data file, which holds the delete-sign column, is not even there to read. The
+// statistics match a replica that compacted the rows away, with or without rows the delete bitmap
+// hides as well.
+TEST_F(CollectionStatisticsTest, RecordedDeleteSignRowsAreLeftOutLikeCompactedAway) {
     auto tablet_schema = create_legacy_v3_schema();
     TabletColumn delete_sign;
     delete_sign.set_unique_id(2);
@@ -1140,10 +1149,86 @@ TEST_F(CollectionStatisticsTest, DeleteSignRowsCountWhenTheScanReturnsThem) {
     delete_sign.set_type(FieldType::OLAP_FIELD_TYPE_TINYINT);
     tablet_schema->append_column(delete_sign);
     ASSERT_GE(tablet_schema->delete_sign_idx(), 0);
-    const std::string segment_path = test_dir_ + "/delete_sign_returned_0.dat";
-    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, segment_path, 0,
-                                        {"alpha beta", "alpha", "beta gamma delta"})
+    roaring::Roaring delete_sign_rows;
+    delete_sign_rows.add(1);
+    const roaring::Roaring no_delete_sign_rows;
+    const std::string uncompacted_path = test_dir_ + "/delete_sign_uncompacted_0.dat";
+    const std::string compacted_path = test_dir_ + "/delete_sign_compacted_0.dat";
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, uncompacted_path, 0,
+                                        {"alpha beta", "gamma alpha alpha", "beta gamma delta"}, {},
+                                        &delete_sign_rows)
                         .ok());
+    ASSERT_TRUE(write_legacy_v3_segment(tablet_schema, compacted_path, 0,
+                                        {"alpha beta", "beta gamma delta"}, {},
+                                        &no_delete_sign_rows)
+                        .ok());
+
+    struct Collected {
+        uint64_t doc_count;
+        uint64_t token_count;
+        uint64_t alpha_doc_frequency;
+        uint64_t gamma_doc_frequency;
+        bool operator==(const Collected&) const = default;
+    };
+    // The delete bitmap's aggregation cache is keyed by tablet and rowset, and the mock rowsets
+    // share their ids, so each collection uses its own tablet id.
+    int64_t next_tablet_id = 9400;
+    auto collect = [&](const std::string& segment_path,
+                       const std::vector<uint32_t>& bitmap_rows) -> Collected {
+        auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+        auto rowset =
+                std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+        rowset->set_num_segments(1);
+        rowset->set_segment_path(0, segment_path);
+        auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+        std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+        constexpr int64_t kVersion = 4;
+        MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(next_tablet_id++),
+                              .version = kVersion};
+        for (const auto seg : rowset->segments()) {
+            for (const uint32_t row : bitmap_rows) {
+                hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), row);
+            }
+        }
+        CollectionStatistics stats;
+        const Status status =
+                stats.collect(runtime_state_.get(), splits, tablet_schema,
+                              create_match_expr_contexts("alpha gamma"), nullptr, &hidden);
+        EXPECT_TRUE(status.ok()) << status;
+        return {.doc_count = stats.get_doc_num(),
+                .token_count = stats.get_total_term_cnt_by_col(kMatchField),
+                .alpha_doc_frequency = stats.get_term_doc_freq_by_col(kMatchField, L"alpha"),
+                .gamma_doc_frequency = stats.get_term_doc_freq_by_col(kMatchField, L"gamma")};
+    };
+
+    const Collected uncompacted = collect(uncompacted_path, {});
+    EXPECT_EQ(uncompacted, (Collected {.doc_count = 2,
+                                       .token_count = 5,
+                                       .alpha_doc_frequency = 1,
+                                       .gamma_doc_frequency = 1}));
+    EXPECT_EQ(uncompacted, collect(compacted_path, {}));
+    // The delete bitmap hides the last row too: on the replica that compacted the delete sign row
+    // away, the same row is its second.
+    EXPECT_EQ(collect(uncompacted_path, {2}), collect(compacted_path, {1}));
+    EXPECT_EQ(collect(uncompacted_path, {2}).doc_count, 1);
+}
+
+// The same on SNII, whose index records the rows in a section of its own. Here the recorded row
+// holds terms, as a row a merge carries from an index that an older BE wrote would: the statistics
+// leave its terms out too.
+TEST_F(CollectionStatisticsTest, SniiRecordedDeleteSignRowsAreLeftOut) {
+    auto tablet_schema = create_snii_schema();
+    TabletColumn delete_sign;
+    delete_sign.set_unique_id(2);
+    delete_sign.set_name(DELETE_SIGN);
+    delete_sign.set_type(FieldType::OLAP_FIELD_TYPE_TINYINT);
+    tablet_schema->append_column(delete_sign);
+    roaring::Roaring delete_sign_rows;
+    delete_sign_rows.add(1);
+    const std::string segment_path = test_dir_ + "/snii_delete_sign_0.dat";
+    ASSERT_TRUE(
+            write_snii_scoring_segment(segment_path, /*docs_only=*/false, &delete_sign_rows).ok());
 
     auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
     auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
@@ -1151,18 +1236,12 @@ TEST_F(CollectionStatisticsTest, DeleteSignRowsCountWhenTheScanReturnsThem) {
     rowset->set_segment_path(0, segment_path);
     auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
     std::vector<RowSetSplits> splits {RowSetSplits(reader)};
-
-    constexpr int64_t kVersion = 4;
-    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9400),
-                          .version = kVersion,
-                          .filters_delete_sign = false};
-    for (const auto seg : rowset->segments()) {
-        hidden.delete_bitmap->add(seg.delete_bitmap_key(kVersion), 1);
-    }
+    MowHiddenRows hidden {.delete_bitmap = std::make_shared<DeleteBitmap>(9500), .version = 3};
     const Status status = stats_->collect(runtime_state_.get(), splits, tablet_schema,
                                           create_match_expr_contexts("alpha"), nullptr, &hidden);
     ASSERT_TRUE(status.ok()) << status;
-    expect_collected_stats(kMatchField, 2, 5);
+    // Row 0 holds "alpha beta"; row 1, the one with the delete sign, held "alpha".
+    expect_collected_stats(kMatchField, 1, 2);
     expect_collected_term(kMatchField, L"alpha", 1);
 }
 

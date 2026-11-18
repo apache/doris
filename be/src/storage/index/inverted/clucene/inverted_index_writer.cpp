@@ -21,6 +21,7 @@
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/clucene/delete_sign_rows_file.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
@@ -323,6 +324,15 @@ Status InvertedIndexColumnWriter<field_type>::add_array_nulls(const uint8_t* nul
 }
 
 template <FieldType field_type>
+void InvertedIndexColumnWriter<field_type>::set_delete_sign_rows(const roaring::Roaring* rows) {
+    DCHECK_EQ(_rid, 0);
+    // BM25 scores text only, so a BKD index indexes these rows as any other.
+    if constexpr (field_is_slice_type(field_type)) {
+        _delete_sign_rows = rows;
+    }
+}
+
+template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::new_inverted_index_field(const char* field_value_data,
                                                                        size_t field_value_size) {
     try {
@@ -386,8 +396,9 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const uint8_t* values, 
         }
         const auto* v = (Slice*)values;
         for (size_t i = 0; i < count; ++i) {
-            // only ignore_above UNTOKENIZED strings and empty strings not tokenized
-            if ((!_should_analyzer && v->get_size() > _ignore_above) ||
+            // A row written with the delete sign is a document without terms, as are
+            // ignore_above UNTOKENIZED strings and empty strings not tokenized.
+            if (has_delete_sign() || (!_should_analyzer && v->get_size() > _ignore_above) ||
                 (_should_analyzer && v->empty())) {
                 RETURN_IF_ERROR(add_null_document());
             } else {
@@ -427,10 +438,12 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
             // nullmap & value ptr-array may not from offsets[i] because rebase_offsets makes offsets start from the segment's item ordinal which may not be 0, but nullmap & value in this segment is from 0, we only need
             // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
             auto array_elem_size = offsets[i + 1] - offsets[i];
+            // A row written with the delete sign is indexed as an empty array.
+            const auto indexed_elem_size = has_delete_sign() ? 0 : array_elem_size;
             // TODO(Amory).later we use object pool to avoid field creation
             std::unique_ptr<lucene::document::Field> new_field;
             CL_NS(analysis)::TokenStream* ts = nullptr;
-            for (auto j = start_off; j < start_off + array_elem_size; ++j) {
+            for (auto j = start_off; j < start_off + indexed_elem_size; ++j) {
                 if (nested_null_map && nested_null_map[j] == 1) {
                     continue;
                 }
@@ -609,6 +622,13 @@ void InvertedIndexColumnWriter<field_type>::write_null_bitmap(
 template <FieldType field_type>
 Status InvertedIndexColumnWriter<field_type>::finish() {
     if (_dir != nullptr) {
+        if (_delete_sign_rows != nullptr) {
+            // The segment writer has added every row of the segment by now. Written even when
+            // empty: then no row has the sign, and BM25 statistics need not read the delete-sign
+            // column to know it.
+            DORIS_CHECK(_delete_sign_rows->isEmpty() || _delete_sign_rows->maximum() < _rid);
+            RETURN_IF_ERROR(write_clucene_delete_sign_rows(_dir.get(), *_delete_sign_rows));
+        }
         std::unique_ptr<lucene::store::IndexOutput> null_bitmap_out = nullptr;
         std::unique_ptr<lucene::store::IndexOutput> data_out = nullptr;
         std::unique_ptr<lucene::store::IndexOutput> index_out = nullptr;

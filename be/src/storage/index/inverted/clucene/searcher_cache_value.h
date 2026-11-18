@@ -22,6 +22,7 @@
 #include "storage/index/inverted/clucene/inverted_index_searcher.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/norm_length_sums.h"
+#include "storage/index/inverted/common/recorded_delete_sign_rows.h"
 
 namespace doris::segment_v2 {
 
@@ -32,6 +33,8 @@ struct CluceneSearcherCacheValue final : InvertedIndexSearcherCache::CacheValue 
     IndexSearcherPtr searcher;
     // The norm length sums merge-on-write BM25 statistics need of the index.
     NormLengthSums norm_length_sums;
+    // The rows written with the delete sign that the index records, for the same statistics.
+    RecordedDeleteSignRows delete_sign_rows;
 };
 
 } // namespace doris::segment_v2

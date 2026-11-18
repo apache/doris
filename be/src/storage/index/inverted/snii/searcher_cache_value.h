@@ -22,6 +22,7 @@
 
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/norm_length_sums.h"
+#include "storage/index/inverted/common/recorded_delete_sign_rows.h"
 #include "storage/index/inverted/snii/reader/logical_index_reader.h"
 #include "storage/index/inverted/snii/snii_bkd_searcher.h"
 
@@ -39,6 +40,8 @@ struct SniiLogicalReaderCacheValue final : InvertedIndexSearcherCache::CacheValu
     std::unique_ptr<::doris::snii::reader::LogicalIndexReader> reader;
     // The norm length sums merge-on-write BM25 statistics need of the index.
     NormLengthSums norm_length_sums;
+    // The rows written with the delete sign that the index records, for the same statistics.
+    RecordedDeleteSignRows delete_sign_rows;
 };
 
 struct SniiBkdSearcherCacheValue final : InvertedIndexSearcherCache::CacheValue {

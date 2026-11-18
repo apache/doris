@@ -33,6 +33,10 @@
 #include "storage/olap_common.h"
 #include "storage/options.h"
 
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris {
 
 class TabletIndex;
@@ -71,6 +75,14 @@ public:
     // INDEX in index_builder.cpp) never call it and keep the non-direct default.
     // Default no-op: SNII uses it to select the direct-load PRX zstd level.
     virtual void set_direct_load(bool /*is_direct_load*/) {}
+
+    // Write-path fact from the segment writer of a merge-on-write tablet: the rows of the segment
+    // written with the delete sign, forwarded like set_direct_load. The segment writer adds each
+    // row before the writer receives it, and holds them all once finish() runs. A text index
+    // gives these rows no terms and records them, so BM25 statistics leave them out without
+    // reading the delete-sign column: queries filter these rows out, and base compaction removes
+    // them. Default no-op: other indexes index these rows as any other.
+    virtual void set_delete_sign_rows(const roaring::Roaring* /*rows*/) {}
 
     virtual Status finish() = 0;
 

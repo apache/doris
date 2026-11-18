@@ -43,6 +43,10 @@
 #include "storage/index/inverted/snii/writer/term_posting_source.h"
 
 // Builds one logical index's posting region, DICT blocks, and metadata using offsets relative to that region. POD-backed terms append [prx][frq] spans in term order; inline terms keep their bytes in DICT entries. The container writer resolves absolute file offsets.
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris::snii::writer {
 
 class SniiStreamedIndexSession;
@@ -61,6 +65,10 @@ struct SniiIndexInput {
     format::IndexConfig config = format::IndexConfig::kDocsPositions;
     uint32_t doc_count = 0;
     std::vector<uint32_t> null_docids;
+    // Merge-on-write only: the docids written with the delete sign, which the terms leave out and
+    // the container records ahead of the posting region (SniiSectionRefsPB.delete_sign_rows).
+    // Null when the index records none. Read while the index is added, not kept.
+    const roaring::Roaring* delete_sign_rows = nullptr;
     // Per-doc 1-byte encoded norm (length doc_count); only consumed when the
     // config has scoring. May be empty otherwise.
     std::vector<uint8_t> encoded_norms;

@@ -106,6 +106,12 @@ message SniiSectionRefsPB {
     optional SniiRegionRefPB null_bitmap = 3;
     optional SniiRegionRefPB bsbf = 4;
     optional SniiRegionRefPB norms = 5;
+    // Merge-on-write only: the docids of the rows written with the delete sign, which the index
+    // gives no terms, in the null bitmap's format. Absent from other indexes and from those an
+    // older BE wrote, which BM25 statistics then read the delete-sign column for. The section
+    // precedes the index's posting region, so an older BE that copies the container's prefix to
+    // carry the index over copies it as well.
+    optional SniiRegionRefPB delete_sign_rows = 6;
 }
 // Stores the gram scheme used to write the index, so readers can split query
 // patterns the same way. Auto mode is resolved before serialization.
