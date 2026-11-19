@@ -45,6 +45,9 @@ suitePath = "${DORIS_HOME}/regression-test/suites"
 dataPath = "${DORIS_HOME}/regression-test/data"
 pluginPath = "${DORIS_HOME}/regression-test/plugins"
 realDataPath = "${DORIS_HOME}/regression-test/realdata"
+
+// The default private RPC regression provisions its own TLS/plaintext clusters from these local packages.
+privateRpcTlsPackageHome = "${DORIS_HOME}"
 trinoPluginsPath = "/tmp/trino_connector"
 
 // will test <group>/<suite>.groovy

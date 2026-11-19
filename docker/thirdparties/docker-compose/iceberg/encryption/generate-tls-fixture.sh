@@ -17,54 +17,6 @@
 # under the License.
 #
 set -euo pipefail
-umask 077
+# Unit tests and packaged regressions must share the same generated test identities.
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-fixture_dir=${1:?Usage: generate-tls-fixture.sh OUTPUT_DIRECTORY}
-mkdir -p "$fixture_dir"
-cd "$fixture_dir"
-
-# The prebuilt BE dependency directory can shadow the runnable system CLI with an
-# OpenSSL binary whose shared libraries were removed for static linking.
-openssl_bin=$(command -v openssl || true)
-if [[ -z "$openssl_bin" ]] || ! "$openssl_bin" version >/dev/null 2>&1; then
-    openssl_bin=$(command -p -v openssl || true)
-fi
-if [[ -z "$openssl_bin" ]] || ! "$openssl_bin" version >/dev/null 2>&1; then
-    # Some build images also omit the system CLI. Use the required JDK instead
-    # of skipping authentication tests or adding runtime libraries to the image.
-    java_bin=${JAVA_HOME:+$JAVA_HOME/bin/}java
-    exec "$java_bin" --source 17 "$script_dir/GenerateTlsFixture.java" "$PWD"
-fi
-
-# Test-only keys are regenerated per invocation; none is distributed with the fixture.
-for authority in ca untrusted-ca; do
-    "$openssl_bin" req -x509 -newkey rsa:2048 -nodes -days 2 -sha256 \
-        -keyout "$authority.key" -out "$authority.pem" \
-        -subj "/CN=Doris Test $authority" \
-        -addext 'basicConstraints=critical,CA:TRUE' \
-        -addext 'keyUsage=critical,keyCertSign,cRLSign'
-done
-
-for peer in fe be dns-fe wrong-name untrusted; do
-    authority=ca
-    san='DNS:localhost,IP:127.0.0.1'
-    if [[ "$peer" == untrusted ]]; then
-        authority=untrusted-ca
-    elif [[ "$peer" == wrong-name ]]; then
-        san='DNS:wrong.invalid'
-    elif [[ "$peer" == dns-fe ]]; then
-        # A DNS-only identity detects clients that accidentally validate the resolved IP instead.
-        san='DNS:localhost'
-    fi
-    "$openssl_bin" req -new -newkey rsa:2048 -nodes -sha256 \
-        -keyout "$peer.key" -out "$peer.csr" -subj "/CN=$peer"
-    cat > "$peer.ext" <<EOF
-basicConstraints=critical,CA:FALSE
-keyUsage=critical,digitalSignature,keyEncipherment
-extendedKeyUsage=serverAuth,clientAuth
-subjectAltName=$san
-EOF
-    "$openssl_bin" x509 -req -days 2 -sha256 -in "$peer.csr" \
-        -CA "$authority.pem" -CAkey "$authority.key" -CAcreateserial \
-        -extfile "$peer.ext" -out "$peer.pem"
-done
+exec bash "$script_dir/../../../../../regression-test/suites/rpc_p0/tls/generate-tls-fixture.sh" "$@"

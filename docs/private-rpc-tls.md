@@ -48,14 +48,18 @@ callbacks. This does not change metadata access or remote tablet writes that
 execute in local workers. Custom providers retain their existing policy unless
 they explicitly opt out of remote workers.
 
-The opt-in `test_remote_doris_private_rpc_tls` regression runs against two
-independent clusters: private TLS enabled locally, plaintext RPC remotely. Set
-`enablePrivateRpcRemoteDorisTest=true` and the `privateRpcRemoteDorisHost`,
-`privateRpcRemoteDorisHttpPort`, `privateRpcRemoteDorisThriftPort`,
-`privateRpcRemoteDorisArrowPort`, `privateRpcRemoteDorisQueryPort`,
-`privateRpcRemoteDorisUser` and `privateRpcRemoteDorisPassword` regression settings.
-It covers broadcast and shuffle joins in both directions through Arrow Flight,
-local/remote read controls, and early rejection of direct remote execution.
+The default P0/nonConcurrent `rpc_p0/test_remote_doris_private_rpc_tls` regression
+provisions two independent loopback clusters: private TLS enabled locally and
+plaintext RPC remotely. It uses Linux FE/BE packages and the pipeline's MySQL CLI
+on the regression host.
+`privateRpcTlsPackageHome` defaults to `DORIS_HOME`; both a source checkout's
+`output/` and an installed package with `fe/` and `be/` are supported. Certificates
+and unused ports are generated automatically, without a test-specific enable flag
+or remote endpoint settings. The suite verifies mutual authentication before
+testing broadcast/shuffle joins in both directions, local/remote reads, and
+rejection of direct remote execution. The fixture stops its own processes and
+removes test keys on completion, failure, or runner pipe closure; diagnostic logs
+remain under `regression-test/log/`.
 
 ## Configuration and deployment
 
