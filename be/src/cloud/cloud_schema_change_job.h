@@ -27,6 +27,10 @@
 
 namespace doris {
 
+namespace cloud {
+class TabletJobInfoPB;
+}
+
 class CloudSchemaChangeJob {
 public:
     CloudSchemaChangeJob(CloudStorageEngine& cloud_storage_engine, std::string job_id,

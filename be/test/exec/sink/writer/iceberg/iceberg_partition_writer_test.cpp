@@ -21,6 +21,7 @@
 #include <optional>
 
 #include "core/data_type/data_type_number.h"
+#include "cpp/sync_point.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "format/table/iceberg/schema_parser.h"
@@ -82,9 +83,12 @@ protected:
             const TDataSink& sink, const VExprContextSPtrs& output_exprs,
             const iceberg::Schema& schema, const std::string* schema_json,
             const std::map<std::string, std::string>& hadoop_conf,
-            TFileFormatType::type format = TFileFormatType::FORMAT_ORC) {
-        IPartitionWriterBase::WriteInfo write_info;
-        write_info.file_type = TFileType::FILE_LOCAL;
+            TFileFormatType::type format = TFileFormatType::FORMAT_ORC,
+            IcebergOutputLocation location = IcebergOutputLocation(
+                    "/tmp/iceberg_partition_writer_test", "/tmp/iceberg_partition_writer_test")) {
+        IPartitionWriterBase::WriteInfo write_info {.location = std::move(location),
+                                                    .file_type = TFileType::FILE_LOCAL,
+                                                    .broker_addresses = {}};
         return std::make_unique<VIcebergPartitionWriter>(
                 sink, std::vector<std::string> {}, output_exprs, schema, schema_json,
                 std::vector<std::string> {}, std::move(write_info), "data", 0, format,
@@ -126,6 +130,24 @@ TEST_F(VIcebergPartitionWriterTest, OrcSkipsFooterCollectionWhenMetricsAreDisabl
     TIcebergCommitData commit_data;
     ASSERT_TRUE(build_commit_data(writer.get(), &commit_data).ok());
     EXPECT_FALSE(commit_data.__isset.column_stats);
+}
+
+TEST_F(VIcebergPartitionWriterTest, CommitDataRecordsTheTableFormOfTheLocation) {
+    // The file is written through FE's normalized form; the commit must keep the table's own.
+    VExprContextSPtrs output_exprs;
+    iceberg::Schema schema(std::vector<iceberg::NestedField> {});
+    std::string schema_json;
+    std::map<std::string, std::string> hadoop_conf;
+    auto writer =
+            make_writer(make_table_sink(false), output_exprs, schema, &schema_json, hadoop_conf,
+                        TFileFormatType::FORMAT_ORC,
+                        IcebergOutputLocation("s3://b/db/t/data/p=1", "oss://b/db/t/data/p=1"));
+    install_fake_transformer(writer.get(), output_exprs);
+
+    TIcebergCommitData commit_data;
+    ASSERT_TRUE(build_commit_data(writer.get(), &commit_data).ok());
+    EXPECT_EQ("oss://b/db/t/data/p=1/data-0.zlib.orc", commit_data.file_path);
+    EXPECT_EQ(TFileContent::DATA, commit_data.file_content);
 }
 
 TEST_F(VIcebergPartitionWriterTest, ParquetKeepsSplitOffsetsWhenColumnMetricsAreDisabled) {
@@ -182,6 +204,47 @@ TEST_F(VIcebergPartitionWriterTest, MissingPolicyKeepsCollectionEnabledForRollin
                               hadoop_conf);
 
     EXPECT_TRUE(collect_column_stats(*writer));
+}
+
+TEST_F(VIcebergPartitionWriterTest, UnsupportedParquetCodecDoesNotCreateFile) {
+    VExprContextSPtrs output_exprs;
+    iceberg::Schema schema(std::vector<iceberg::NestedField> {});
+    std::string schema_json;
+    std::map<std::string, std::string> hadoop_conf;
+    IPartitionWriterBase::WriteInfo write_info {.location = IcebergOutputLocation(".", "."),
+                                                .file_type = TFileType::FILE_LOCAL,
+                                                .broker_addresses = {}};
+    auto writer = std::make_unique<VIcebergPartitionWriter>(
+            make_table_sink(std::nullopt), std::vector<std::string> {}, output_exprs, schema,
+            &schema_json, std::vector<std::string> {}, std::move(write_info),
+            "unsupported_parquet_codec_" + UniqueId::gen_uid().to_string(), 0,
+            TFileFormatType::FORMAT_PARQUET, TFileCompressType::ZLIB, hadoop_conf);
+
+    auto* sync_point = SyncPoint::get_instance();
+    const bool sync_point_was_enabled = sync_point->get_enable();
+    int create_file_calls = 0;
+    SyncPoint::CallbackGuard callback_guard;
+    sync_point->set_call_back(
+            "LocalFileSystem::create_file_impl", [&](auto&&) { ++create_file_calls; },
+            &callback_guard);
+    sync_point->enable_processing();
+    Defer restore_sync_point([&] {
+        if (!sync_point_was_enabled) {
+            sync_point->disable_processing();
+        }
+    });
+
+    MockRuntimeState state;
+    Status status = writer->open(&state, nullptr, nullptr);
+
+    EXPECT_EQ(0, create_file_calls);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(std::string::npos, status.to_string().find("Unsupported compress type"));
+    EXPECT_EQ(nullptr, writer->_file_writer);
+    ASSERT_NE(nullptr, writer->_fs);
+    bool exists = true;
+    ASSERT_TRUE(writer->_fs->exists(writer->_path, &exists).ok());
+    EXPECT_FALSE(exists);
 }
 
 TEST_F(VIcebergPartitionWriterTest, SortWriterPropagatesUnderlyingCloseFailure) {

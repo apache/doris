@@ -201,3 +201,24 @@ add_thirdparty(icudata LIB64)
 
 
 add_thirdparty(pugixml LIB64)
+
+# Prepare explicit targets without enabling a reader or requiring new prebuilt libraries yet.
+# For example, existing BE targets keep working until a MongoDB reader links mongoc2/bson2.
+add_thirdparty(bson2 LIB64 NOTADD)
+set_target_properties(bson2 PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${THIRDPARTY_DIR}/include/bson-2.0"
+    INTERFACE_COMPILE_DEFINITIONS BSON_STATIC)
+add_thirdparty(mongoc2 LIB64 NOTADD)
+set_target_properties(mongoc2 PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${THIRDPARTY_DIR}/include/mongoc-2.0"
+    INTERFACE_COMPILE_DEFINITIONS MONGOC_STATIC)
+# Threads and the platform DNS resolver are OS/toolchain components, not vendored libraries.
+find_package(Threads REQUIRED)
+target_link_libraries(mongoc2 INTERFACE
+    bson2 snappy zstd libz cyrus-sasl gssapi_krb5 krb5 k5crypto com_err krb5support
+    openssl crypto Threads::Threads ${CMAKE_DL_LIBS})
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_libraries(mongoc2 INTERFACE m resolv)
+elseif(OS_MACOSX)
+    target_link_libraries(mongoc2 INTERFACE resolv)
+endif()

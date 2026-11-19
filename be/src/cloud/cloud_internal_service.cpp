@@ -518,7 +518,7 @@ Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block, size_t 
         auto begin_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                           std::chrono::steady_clock::now().time_since_epoch())
                                           .count();
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->obj_storage_buffer_tracker());
         read_st = file_block->read_to_iobuf(response_attachment, /*read_offset=*/0, read_size,
                                             &bytes_read);
         auto end_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -541,7 +541,7 @@ Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block, size_t 
         auto begin_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                           std::chrono::steady_clock::now().time_since_epoch())
                                           .count();
-        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->obj_storage_buffer_tracker());
         Slice slice(data.data(), data.size());
         read_st = file_block->read(slice, /*read_offset=*/0);
         auto end_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(

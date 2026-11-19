@@ -114,7 +114,7 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
         metaScanRange.setMetadataType(TMetadataType.MATERIALIZED_VIEWS);
         TMaterializedViewsMetadataParams mtmvParam = new TMaterializedViewsMetadataParams();
         mtmvParam.setDatabase(databaseName);
-        mtmvParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
+        mtmvParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentityForRpc());
         metaScanRange.setMaterializedViewsParams(mtmvParam);
         if (LOG.isDebugEnabled()) {
             LOG.debug("getMetaScanRange() end");

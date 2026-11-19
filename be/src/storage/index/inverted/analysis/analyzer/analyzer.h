@@ -17,51 +17,49 @@
 
 #pragma once
 
+#include <map>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
 #include "common/status.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer_provider.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
-#include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_query_type.h"
 #include "storage/index/inverted/common/query_info.h"
 #include "storage/olap_common.h"
 
-namespace lucene {
-namespace util {
-class Reader;
-}
-namespace analysis {
-class Analyzer;
-}
-} // namespace lucene
-
 namespace doris::segment_v2::inverted_index {
-
-using AnalyzerPtr = std::shared_ptr<lucene::analysis::Analyzer>;
 
 class InvertedIndexAnalyzer {
 public:
-    static ReaderPtr create_reader(const CharFilterMap& char_filter_map);
-    // `value` as a builtin analyzer reads it, through the index's character filter.
+    // `value` as the index's character filter leaves it.
     static std::string filter_characters(const CharFilterMap& char_filter_map,
-                                         const std::string& value);
+                                         std::string_view value);
 
     static bool is_builtin_analyzer(const std::string& analyzer_name);
-    static AnalyzerPtr create_builtin_analyzer(InvertedIndexParserType parser_type,
-                                               const std::string& parser_mode,
-                                               const std::string& lower_case,
-                                               const std::string& stop_words);
-    static AnalyzerPtr create_analyzer(const InvertedIndexAnalyzerConfig* config);
+    // The analyzer of a builtin parser. A missing dictionary comes out as an
+    // INVERTED_INDEX_ANALYZER_ERROR doris::Exception.
+    static TextAnalyzerPtr create_builtin_analyzer(InvertedIndexParserType parser_type,
+                                                   const std::string& parser_mode,
+                                                   const std::string& lower_case,
+                                                   const std::string& stop_words);
+    // The analyzer of `config`, behind the index's char filter when it has one: the writers and
+    // the query side read every value through it, whatever the analyzer.
+    static TextAnalyzerPtr create_analyzer(const InvertedIndexAnalyzerConfig* config);
     static AnalyzerProviderPtr create_analyzer_provider(const InvertedIndexAnalyzerConfig* config,
                                                         std::string* resolved_name = nullptr,
                                                         std::string* legacy_name = nullptr);
 
-    static std::vector<TermInfo> get_analyse_result(ReaderPtr reader,
-                                                    lucene::analysis::Analyzer* analyzer);
-
+    // The terms of `text` with their positions, for callers that tokenize many values with one
+    // stream and one batch. An empty term is dropped together with its position increment.
+    static void get_analyse_result(std::string_view text, TextTokenStream& stream,
+                                   TokenBatch& batch, std::vector<TermInfo>* out);
+    // The terms of one value.
+    static std::vector<TermInfo> get_analyse_result(std::string_view text,
+                                                    const TextAnalyzer& analyzer);
     static std::vector<TermInfo> get_analyse_result(
             std::string_view search_str, const std::map<std::string, std::string>& properties);
 

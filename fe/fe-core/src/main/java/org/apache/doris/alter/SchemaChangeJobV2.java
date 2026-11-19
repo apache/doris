@@ -332,7 +332,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     objectPool,
                                     tbl.rowStorePageSize(),
-                                    tbl.variantEnableFlattenNested(),
+                                    tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(),
                                     tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                                     tbl.storageDictPageSize(),
                                     columnSeqMapping,
@@ -856,6 +856,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             tbl.setStorageFormat(storageFormat);
         }
         tbl.setColumnSeqMapping(columnSeqMapping);
+        Env.getCurrentEnv().onTableChanged(tbl);
     }
 
     /*

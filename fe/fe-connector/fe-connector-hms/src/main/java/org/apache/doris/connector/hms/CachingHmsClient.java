@@ -34,6 +34,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -242,6 +243,13 @@ public class CachingHmsClient implements HmsClient {
     }
 
     @Override
+    public List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+        // A filter result has no bounded cache key and must reflect the predicate sent by the current query.
+        // Do not read or populate the full partition-name cache here.
+        return delegate.listPartitionsByFilter(dbName, tableName, filter);
+    }
+
+    @Override
     public List<HmsPartitionInfo> getPartitions(String dbName, String tableName, List<String> partNames) {
         return getPartitionsWithStats(dbName, tableName, partNames).getPartitions();
     }
@@ -262,6 +270,24 @@ public class CachingHmsClient implements HmsClient {
     public HmsPartitionBatchResult getExistingPartitionsWithStats(
             String dbName, String tableName, List<String> partNames) {
         return getPartitionsWithStats(dbName, tableName, partNames, true);
+    }
+
+    @Override
+    public Optional<HmsPartitionBatchResult> getCachedPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames) {
+        long start = System.nanoTime();
+        HmsPartitionRequest request = new HmsPartitionRequest(dbName, tableName, partNames);
+        List<HmsPartitionInfo> cached = new ArrayList<>(partNames.size());
+        for (HmsPartitionIdentity.ParsedPartitionName partition : request.getPartitions()) {
+            HmsPartitionInfo value = partitionsCache.getIfPresent(
+                    new PartitionKey(dbName, tableName, partition.getValues()));
+            if (value == null) {
+                return Optional.empty();
+            }
+            cached.add(value);
+        }
+        return Optional.of(new HmsPartitionBatchResult(cached, HmsPartitionBatchStats.builder()
+                .requestedItems(partNames.size()).logicalElapsedNanos(System.nanoTime() - start).build()));
     }
 
     @Override

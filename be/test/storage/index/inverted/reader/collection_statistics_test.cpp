@@ -147,18 +147,18 @@ private:
 
 class FixedAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
 public:
-    explicit FixedAnalyzerProvider(std::shared_ptr<lucene::analysis::Analyzer> analyzer)
+    explicit FixedAnalyzerProvider(segment_v2::inverted_index::TextAnalyzerPtr analyzer)
             : _analyzer(std::move(analyzer)) {}
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override { return _analyzer; }
+    segment_v2::inverted_index::TextAnalyzerPtr get_analyzer() const override { return _analyzer; }
 
 private:
-    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
+    segment_v2::inverted_index::TextAnalyzerPtr _analyzer;
 };
 
 class FailingAnalyzerProvider final : public segment_v2::inverted_index::AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+    segment_v2::inverted_index::TextAnalyzerPtr get_analyzer() const override {
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "forced missing dictionary failure");
     }
@@ -1626,6 +1626,69 @@ TEST_F(CollectionStatisticsTest, SniiScoringRejectsMissingLogicalIndexForWholeCo
     expect_no_collected_tokens(kMatchField2);
 }
 
+// A VARIANT path can be absent from a segment, as in {"a": 1} next to {"host": "x"}. Unlike the
+// plain index above, whose absence means it was not built, the segment just adds no statistics.
+TEST_F(CollectionStatisticsTest, SniiScoringSkipsVariantPathMissingFromSegment) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    constexpr int32_t kVariantUid = 9002;
+    TabletColumn variant_col;
+    variant_col.set_unique_id(kVariantUid);
+    variant_col.set_name("v");
+    variant_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    tablet_schema->append_column(variant_col);
+
+    TabletColumn sub_col;
+    sub_col.set_unique_id(-1);
+    sub_col.set_name("v.host");
+    sub_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    sub_col.set_parent_unique_id(kVariantUid);
+    sub_col.set_path_info(PathInData("v.host"));
+    tablet_schema->append_column(sub_col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2002);
+    index_pb.set_index_name("variant_subcolumn_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kVariantUid);
+    (*index_pb.mutable_properties())["parser"] = "standard";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
+    TabletIndex sub_index;
+    sub_index.init_from_pb(index_pb);
+    sub_index.set_escaped_escaped_index_suffix_path(sub_col.suffix_path());
+    tablet_schema->append_index(std::move(sub_index));
+
+    constexpr int kSlotId = 43;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kVariantUid);
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("v.host", SlotId(kSlotId)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("alpha"));
+    VExprContextSPtrs expr_contexts {std::make_shared<VExprContext>(match_expr)};
+
+    // The segment holds another logical index only.
+    const std::string segment_path = test_dir_ + "/snii_missing_variant_path_0.dat";
+    auto write_status = write_snii_scoring_segment(segment_path);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+    auto rowset_meta = std::make_shared<collection_statistics::MockRowsetMeta>();
+    auto rowset = std::make_shared<collection_statistics::MockRowset>(tablet_schema, rowset_meta);
+    rowset->set_num_segments(1);
+    rowset->set_segment_path(0, segment_path);
+    auto reader = std::make_shared<collection_statistics::MockRowsetReader>(rowset);
+    std::vector<RowSetSplits> splits {RowSetSplits(reader)};
+
+    auto status =
+            stats_->collect(runtime_state_.get(), splits, tablet_schema, expr_contexts, nullptr);
+
+    ASSERT_TRUE(status.ok()) << status.msg();
+    expect_no_collected_tokens(segment_v2::inverted_index::StringHelper::to_wstring(
+            std::to_string(kVariantUid) + ".v.host"));
+}
+
 TEST_F(CollectionStatisticsTest, CollectWithMultipleRowsetSplits) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
     auto expr_contexts = create_match_expr_contexts();
@@ -2275,6 +2338,69 @@ TEST_F(CollectionStatisticsTest, ExtractCollectInfoForVariantFieldPatternGlobInd
     EXPECT_EQ(it->second.index_meta->index_name(), "variant_field_pattern_glob_idx");
 }
 
+TEST_F(CollectionStatisticsTest, CollectMatchUsesEncodedVariantPath) {
+    auto schema = std::make_shared<TabletSchema>();
+    constexpr int32_t kRootUid = 9004;
+    TabletColumn root;
+    root.set_unique_id(kRootUid);
+    root.set_name("v");
+    root.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    TabletSchemaPB pb;
+    pb.set_variant_escape_dots_in_keys(true);
+    schema->init_from_pb(pb);
+    schema->append_column(root);
+
+    const std::vector<std::vector<std::string>> paths {{"a.b"}, {"a", "b"}, {"a%2Eb"}, {"50%"}};
+    for (size_t i = 0; i < paths.size(); ++i) {
+        std::vector<std::string> encoded;
+        for (const auto& component : paths[i]) {
+            encoded.push_back(encode_variant_path_component(component));
+        }
+        const PathInData path("v", encoded);
+        TabletColumn leaf;
+        leaf.set_unique_id(-1);
+        leaf.set_name(path.get_path());
+        leaf.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+        leaf.set_parent_unique_id(kRootUid);
+        leaf.set_path_info(path);
+        schema->append_column(leaf);
+
+        TabletIndexPB pb;
+        pb.set_index_id(2004 + i);
+        pb.set_index_name("escaped_path_index");
+        pb.set_index_type(IndexType::INVERTED);
+        pb.add_col_unique_id(kRootUid);
+        (*pb.mutable_properties())["parser"] = "standard";
+        (*pb.mutable_properties())["support_phrase"] = "true";
+        TabletIndex index;
+        index.init_from_pb(pb);
+        index.set_escaped_escaped_index_suffix_path(leaf.suffix_path(), true);
+        schema->append_index(std::move(index));
+    }
+    for (size_t i = 0; i < paths.size(); ++i) {
+        // FE sends escaped tables' slot paths in storage spelling.
+        std::vector<std::string> encoded;
+        std::string display_name = "v";
+        for (const auto& component : paths[i]) {
+            encoded.push_back(encode_variant_path_component(component));
+            display_name += "." + encoded.back();
+        }
+        const SlotId slot_id = 50 + i;
+        runtime_state_->_mock_desc_tbl->add_slot_descriptor(slot_id, kRootUid, display_name,
+                                                            encoded);
+        auto match = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        match->_children.push_back(
+                std::make_shared<collection_statistics::MockVSlotRef>(display_name, slot_id));
+        match->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("apple"));
+        MatchPredicateCollector collector;
+        CollectInfoMap infos;
+        auto status = collector.collect(runtime_state_.get(), schema, match, &infos);
+        ASSERT_TRUE(status.ok()) << display_name << ": " << status;
+        ASSERT_EQ(infos.size(), 1);
+        EXPECT_EQ(infos.begin()->second.index_meta->index_id(), 2004 + i);
+    }
+}
+
 // E1: Match predicate whose left subtree contains no VSlotRef.
 // find_slot_ref recurses through children; when it returns nullptr the
 // collector reports INVERTED_INDEX_NOT_SUPPORTED.
@@ -2438,10 +2564,9 @@ TEST_F(CollectionStatisticsTest, CollectNotExtractedColumnSkipsFallback) {
     EXPECT_TRUE(collect_infos.empty());
 }
 
-// L1: Index whose properties do not request an analyzer
-// (should_analyzer returns false). The matching index_meta is iterated
-// but skipped before insertion.
-TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
+// L1: Index whose properties do not request an analyzer (should_analyzer returns false). A keyword
+// MATCH scores like SEARCH on the same field, so its whole value is collected as one term.
+TEST_F(CollectionStatisticsTest, CollectsKeywordIndexValueAsOneTerm) {
     auto tablet_schema = std::make_shared<TabletSchema>();
 
     constexpr int32_t kColUid = 1300;
@@ -2468,7 +2593,7 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
 
     auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
     auto slot_ref = std::make_shared<collection_statistics::MockVSlotRef>("kw", SlotId(kSlotId));
-    auto literal = std::make_shared<collection_statistics::MockVLiteral>("v");
+    auto literal = std::make_shared<collection_statistics::MockVLiteral>("Hello World");
     match_expr->_children.push_back(slot_ref);
     match_expr->_children.push_back(literal);
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
@@ -2476,12 +2601,118 @@ TEST_F(CollectionStatisticsTest, CollectSkipsIndexWithoutAnalyzer) {
     analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
     match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
 
-    MatchPredicateCollector collector;
-    std::unordered_map<std::wstring, CollectInfo> collect_infos;
-    auto status =
-            collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
-    ASSERT_TRUE(status.ok()) << status.msg();
-    EXPECT_TRUE(collect_infos.empty());
+    for (auto op : {TExprOpcode::MATCH_ANY, TExprOpcode::MATCH_ALL, TExprOpcode::MATCH_PHRASE}) {
+        SCOPED_TRACE(op);
+        match_expr->set_opcode(op);
+        MatchPredicateCollector collector;
+        std::unordered_map<std::wstring, CollectInfo> collect_infos;
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+        ASSERT_EQ(collect_infos.size(), 1U);
+        const auto& collect_info = collect_infos.begin()->second;
+        ASSERT_NE(collect_info.index_meta, nullptr);
+        EXPECT_EQ(collect_info.index_meta->index_id(), 2300);
+        EXPECT_EQ(collect_info.unique_terms, std::vector<std::string>({"Hello World"}));
+        ASSERT_EQ(collect_info.logical_scoring_leaves.size(), 1U);
+        EXPECT_EQ(collect_info.logical_scoring_leaves[0].clauses.size(), 1U);
+    }
+}
+
+// A keyword MATCH_PHRASE reads a trailing " ~N" or " ~N+" as its slop and looks up the rest, so the
+// statistics must be collected for that term too; any other MATCH looks up the whole value.
+TEST_F(CollectionStatisticsTest, KeywordPhraseCollectsTermWithoutSlop) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1301;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("kw");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2301);
+    index_pb.set_index_name("kw_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 81;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "kw", {});
+
+    struct Case {
+        TExprOpcode::type op;
+        std::string value;
+        std::string term;
+    };
+    for (const auto& c : {Case {TExprOpcode::MATCH_PHRASE, "Hello World ~1", "Hello World"},
+                          Case {TExprOpcode::MATCH_PHRASE, "Hello World ~2+", "Hello World"},
+                          Case {TExprOpcode::MATCH_ANY, "Hello World ~1", "Hello World ~1"}}) {
+        SCOPED_TRACE(c.value);
+        auto match_expr =
+                std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVSlotRef>("kw", SlotId(kSlotId)));
+        match_expr->_children.push_back(
+                std::make_shared<collection_statistics::MockVLiteral>(c.value));
+        auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();
+        analyzer_ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
+        match_expr->set_analyzer_ctx(std::move(analyzer_ctx));
+        match_expr->set_opcode(c.op);
+
+        MatchPredicateCollector collector;
+        std::unordered_map<std::wstring, CollectInfo> collect_infos;
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+        ASSERT_EQ(collect_infos.size(), 1U);
+        EXPECT_EQ(collect_infos.begin()->second.unique_terms, std::vector<std::string>({c.term}));
+    }
+}
+
+// CAST(n AS STRING) MATCH '1' on an INT column runs as a scalar filter. The index selected for n is
+// a BKD index without terms, so the predicate collects nothing instead of opening it as text.
+TEST_F(CollectionStatisticsTest, MatchOnNumericColumnCollectsNothing) {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    constexpr int32_t kColUid = 1302;
+    TabletColumn col;
+    col.set_unique_id(kColUid);
+    col.set_name("n");
+    col.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    tablet_schema->append_column(col);
+
+    TabletIndexPB index_pb;
+    index_pb.set_index_id(2302);
+    index_pb.set_index_name("n_idx");
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.add_col_unique_id(kColUid);
+    TabletIndex index;
+    index.init_from_pb(index_pb);
+    tablet_schema->append_index(std::move(index));
+
+    constexpr int kSlotId = 82;
+    runtime_state_->_mock_desc_tbl->add_slot_descriptor(SlotId(kSlotId), kColUid, "n", {});
+
+    auto match_expr = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
+    match_expr->_children.push_back(
+            std::make_shared<collection_statistics::MockVSlotRef>("n", SlotId(kSlotId)));
+    match_expr->_children.push_back(std::make_shared<collection_statistics::MockVLiteral>("1"));
+    match_expr->set_analyzer_ctx(std::make_shared<InvertedIndexAnalyzerCtx>());
+
+    for (auto op : {TExprOpcode::MATCH_ANY, TExprOpcode::MATCH_ALL, TExprOpcode::MATCH_PHRASE}) {
+        SCOPED_TRACE(op);
+        match_expr->set_opcode(op);
+        MatchPredicateCollector collector;
+        std::unordered_map<std::wstring, CollectInfo> collect_infos;
+        auto status =
+                collector.collect(runtime_state_.get(), tablet_schema, match_expr, &collect_infos);
+        ASSERT_TRUE(status.ok()) << status.msg();
+        EXPECT_TRUE(collect_infos.empty());
+    }
 }
 
 TEST_F(CollectionStatisticsTest, ExplicitNoneDoesNotSelectNormalizerIndexForScoring) {
@@ -2685,8 +2916,10 @@ TEST_F(CollectionStatisticsTest, CollectPreservesLogicalClauseShapesForSameField
 TEST_F(CollectionStatisticsTest, CollectUsesMatchRequestAnalyzerProvider) {
     auto tablet_schema = create_tablet_schema_with_inverted_index();
 
-    auto analyzer = segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
-            InvertedIndexParserType::PARSER_ENGLISH, "", INVERTED_INDEX_PARSER_FALSE, "none");
+    segment_v2::inverted_index::TextAnalyzerPtr analyzer =
+            segment_v2::inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+                    InvertedIndexParserType::PARSER_ENGLISH, "", INVERTED_INDEX_PARSER_FALSE,
+                    "none");
     auto provider =
             std::make_shared<collection_statistics::FixedAnalyzerProvider>(std::move(analyzer));
     auto analyzer_ctx = std::make_shared<InvertedIndexAnalyzerCtx>();

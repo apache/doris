@@ -514,6 +514,10 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_ttl_col_idx(in.ttl_col_idx());
     out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    // Older schemas omit this field; do not turn absence into an explicit false.
+    if (in.has_variant_escape_dots_in_keys()) {
+        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -572,6 +576,10 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_ttl_col_idx(in.ttl_col_idx());
     out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    // Older schemas omit this field; do not turn absence into an explicit false.
+    if (in.has_variant_escape_dots_in_keys()) {
+        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -643,6 +651,10 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_ttl_col_idx(in.ttl_col_idx());
     out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    // Older schemas omit this field; do not turn absence into an explicit false.
+    if (in.has_variant_escape_dots_in_keys()) {
+        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -702,6 +714,10 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_ttl_col_idx(in.ttl_col_idx());
     out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    // Older schemas omit this field; do not turn absence into an explicit false.
+    if (in.has_variant_escape_dots_in_keys()) {
+        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());

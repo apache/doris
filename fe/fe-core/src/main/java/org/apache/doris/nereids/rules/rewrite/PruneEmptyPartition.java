@@ -29,7 +29,9 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Used to prune empty partition.
@@ -54,6 +56,13 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
                 // In transaction load, need to add empty partitions which have invisible data of sub transactions
                 selectNonEmptyPartitionIdsForTxnLoad(ctx.connectContext.getTxnEntry(), table, scan.getSelectedIndexId(),
                         partitionIdsToPrune, ids);
+            }
+            if (partitionIdsToPrune.size() != ids.size()) {
+                ctx.statementContext.getSqlCacheContext().ifPresent(cache -> {
+                    Set<Long> emptyPartitions = new HashSet<>(partitionIdsToPrune);
+                    emptyPartitions.removeAll(ids);
+                    cache.addPrunedOlapPartitions(table, emptyPartitions);
+                });
             }
             if (ids.isEmpty()) {
                 return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),

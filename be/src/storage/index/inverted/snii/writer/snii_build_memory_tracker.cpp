@@ -18,6 +18,9 @@
 #include "storage/index/inverted/snii/writer/snii_build_memory_tracker.h"
 
 #include <atomic>
+#include <cstdlib>
+#include <memory>
+#include <utility>
 
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
@@ -53,6 +56,62 @@ namespace {
 // maintained directly instead of being derived by subtraction, and why it is a
 // plain atomic rather than a second MemTracker.
 std::atomic<int64_t> g_registered_build_bytes {0};
+
+// One reporter's changes that have not reached the process-wide counters yet.
+// Every change is either in pending_ or published, never both, so the counters
+// add up to the reporter's live bytes minus pending_.
+//
+// Changes publish once pending_ reaches a step, and also whenever the reporter's live
+// bytes are back at zero. A finished text writer's reporter is not destroyed with the
+// writer: IndexFileWriter keeps it until the rowset writer closes, so whatever it held
+// back would stay in the spill decision's input for every later segment of the load.
+// For example +1.5 MiB publishes, -1.25 MiB publishes, and the last -0.25 MiB takes the
+// live bytes to zero and publishes as well. A writer holds its arena for the whole
+// build, so per-term swings never reach zero and this costs one publish per finished
+// writer.
+class HeldBackBuildBytes {
+public:
+    HeldBackBuildBytes(doris::MemTracker* tracker, bool registered)
+            : tracker_(tracker), registered_(registered) {}
+    ~HeldBackBuildBytes() { publish(pending_.exchange(0, std::memory_order_relaxed)); }
+
+    void add(int64_t delta) {
+        const int64_t pending = pending_.fetch_add(delta, std::memory_order_relaxed) + delta;
+        // acq_rel, so that whoever brings live_ to zero sees every change counted in
+        // live_ before it already in pending_ when it exchanges.
+        const int64_t live = live_.fetch_add(delta, std::memory_order_acq_rel) + delta;
+        // At zero only a non-empty remainder is published: a scratch reservation that is
+        // taken and given back per term leaves pending_ at zero too, and must not touch
+        // the shared counters.
+        if (std::abs(pending) >= kBuildBytesPublishStep || (live == 0 && pending != 0)) {
+            publish(pending_.exchange(0, std::memory_order_relaxed));
+        }
+    }
+
+private:
+    // MemTracker and the subset counter are both thread-safe atomics.
+    //
+    // The registered path updates two of them, which is NOT atomic as a pair --
+    // and does not need to be. The decision layer reads only
+    // g_registered_build_bytes; the tracker is observation. Because no consumer
+    // combines the two, there is no window in which they can disagree with each
+    // other in a way anything can observe.
+    void publish(int64_t delta) {
+        if (delta >= 0) {
+            tracker_->consume(delta);
+        } else {
+            tracker_->release(-delta);
+        }
+        if (registered_) {
+            g_registered_build_bytes.fetch_add(delta, std::memory_order_relaxed);
+        }
+    }
+
+    doris::MemTracker* const tracker_;
+    const bool registered_;
+    std::atomic<int64_t> pending_ {0};
+    std::atomic<int64_t> live_ {0};
+};
 } // namespace
 
 int64_t snii_registered_build_bytes() {
@@ -60,27 +119,13 @@ int64_t snii_registered_build_bytes() {
 }
 
 MemoryReporter::ConsumeReleaseFn snii_build_consume_release(BuildMemoryPopulation population) {
-    auto* tracker = snii_build_mem_tracker();
-    // MemTracker and the subset counter are both thread-safe atomics, which is
-    // what MemoryReporter requires of this callback: it is invoked
-    // concurrently, from Reservation destructors, and must not throw.
-    //
-    // The registered path updates two of them, which is NOT atomic as a pair --
-    // and does not need to be. The decision layer reads only
-    // g_registered_build_bytes; the tracker is observation. Because no consumer
-    // combines the two, there is no window in which they can disagree with each
-    // other in a way anything can observe.
-    const bool registered = population == BuildMemoryPopulation::kRegistered;
-    return [tracker, registered](int64_t delta) {
-        if (delta >= 0) {
-            tracker->consume(delta);
-        } else {
-            tracker->release(-delta);
-        }
-        if (registered) {
-            g_registered_build_bytes.fetch_add(delta, std::memory_order_relaxed);
-        }
-    };
+    // pending_ is atomic because MemoryReporter requires this callback to be safe
+    // to invoke concurrently; it is also invoked from Reservation destructors and
+    // must not throw. It is shared because std::function must be copyable: the
+    // last copy to go publishes the remainder.
+    auto held_back = std::make_shared<HeldBackBuildBytes>(
+            snii_build_mem_tracker(), population == BuildMemoryPopulation::kRegistered);
+    return [held_back = std::move(held_back)](int64_t delta) { held_back->add(delta); };
 }
 
 } // namespace doris::snii::writer

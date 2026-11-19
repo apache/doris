@@ -19,9 +19,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <unordered_set>
 
 #include "common/config.h"
 #include "core/custom_allocator.h"
+#include "format_v2/file_scan_context.h"
 #include "runtime/runtime_state.h"
 #include "util/client_cache.h"
 
@@ -45,6 +49,16 @@ public:
      */
     virtual Status get_next(bool* has_next, TFileRangeDesc* range,
                             const std::atomic_bool* scanner_stop) = 0;
+
+    // FileScannerV2 may replace one FE split with several physical children after inspecting file
+    // metadata. These methods are shared by local and remote sources so neither source can report
+    // EOS while a claimed source split is still producing children.
+    Status get_next_split(bool* has_next, FileScanSplit* split,
+                          const std::atomic_bool* scanner_stop = nullptr);
+    bool is_stopped() const { return _stopped.load(std::memory_order_acquire); }
+    Status finish_source_split(const FileScanSplit& source_split,
+                               std::vector<FileScanSplit> generated_splits);
+    void stop();
 
     virtual int num_scan_ranges() = 0;
 
@@ -96,6 +110,16 @@ protected:
 
 protected:
     int _max_scanners;
+
+private:
+    std::mutex _split_lock;
+    std::condition_variable _split_ready;
+    std::deque<FileScanSplit> _generated_splits;
+    std::unordered_set<uint64_t> _active_source_splits;
+    uint64_t _next_source_split_id = 1;
+    bool _source_claim_in_progress = false;
+    bool _source_exhausted = false;
+    std::atomic_bool _stopped {false};
 };
 
 /**

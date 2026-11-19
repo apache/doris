@@ -2,3 +2,81 @@
 -- !cmd --
 utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
 
+-- !character_set --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !like_exact --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !like_percent --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !like_underscore --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !like_case --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !like_no_match --
+
+-- !like_empty --
+
+-- !where_charset --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !where_no_match --
+
+-- !where_like --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !where_not_like --
+
+-- !where_and --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !where_or --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !where_collation --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !where_numeric --
+
+-- !where_expression --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !where_true --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !where_false --
+
+-- !where_null --
+
+-- !where_equals_null --
+
+-- !where_not_null --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !like_backspace --
+
+-- !like_backslash --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !like_no_backslash_escapes --
+
+-- !where_before_collation_change --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !where_after_collation_change --
+utf8mb4	UTF-8 Unicode	utf8mb4_general_ci	4
+
+-- !where_with_select_limit --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !select_limit_still_applies --
+
+-- !prepared_match --
+utf8mb4	UTF-8 Unicode	utf8mb4_0900_bin	4
+
+-- !prepared_no_match --
+

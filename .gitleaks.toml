@@ -59,6 +59,15 @@ paths = ['''^fe/fe-filesystem/fe-filesystem-s3/src/test/java/org/apache/doris/fi
 regexes = ['''(access_key|secret_key).*"(ak-|sk-|canonical|sess-tok)''']
 
 [[rules.allowlists]]
+description = "Ignore the public synthetic key and AAD in native Parquet interoperability tests"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^be/test/format_v2/parquet/parquet_encryption_test\.cpp$''']
+# These exact values are documented with the Java-generated fixture; neither grants service access.
+# Keep both path and value constraints: other credentials in this file must still be detected.
+regexes = ['''^(synthetic-key123|0123456789abcdef)$''']
+
+[[rules.allowlists]]
 description = "Ignore the GPG signing-key fingerprint in the release-tools config template (a public key id, not a secret)"
 condition = "AND"
 regexTarget = "line"

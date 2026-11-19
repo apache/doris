@@ -21,6 +21,7 @@
 #include <arrow/io/api.h>
 #include <gtest/gtest.h>
 #include <parquet/arrow/writer.h>
+#include <parquet/encryption/encryption.h>
 
 #include <filesystem>
 #include <fstream>
@@ -125,9 +126,10 @@ std::shared_ptr<arrow::Array> int32_array(int32_t value) {
     return result.ok() ? *result : nullptr;
 }
 
-void write_mixed_id_position_delete_parquet(const std::string& path,
-                                            std::optional<int32_t> row_id = 2147483544,
-                                            bool include_child_id = true) {
+void write_mixed_id_position_delete_parquet(
+        const std::string& path, std::optional<int32_t> row_id = 2147483544,
+        bool include_child_id = true,
+        const std::shared_ptr<::parquet::FileEncryptionProperties>& encryption = nullptr) {
     auto id = [](int32_t value) {
         return arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(value)});
     };
@@ -163,6 +165,9 @@ void write_mixed_id_position_delete_parquet(const std::string& path,
     ASSERT_TRUE(output.ok()) << output.status();
     ::parquet::WriterProperties::Builder properties;
     properties.compression(::parquet::Compression::UNCOMPRESSED);
+    if (encryption != nullptr) {
+        properties.encryption(encryption);
+    }
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), *output,
                                                       1, properties.build()));
 }
@@ -250,14 +255,52 @@ format::ColumnDefinition table_column(int32_t id, std::string name, DataTypePtr 
     return column;
 }
 
-void run_mixed_id_position_delete_test(format::FileFormat file_format,
-                                       TFileFormatType::type thrift_format,
-                                       const std::string& extension) {
+TFileRangeDesc native_position_delete_range(const std::string& path,
+                                            TFileFormatType::type thrift_format,
+                                            const std::optional<TFileEncryptionInfo>& descriptor,
+                                            bool encrypted) {
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_content(1);
+    delete_file.__set_path(path);
+    delete_file.__set_file_format(thrift_format);
+    if (descriptor.has_value()) {
+        delete_file.__set_encryption_info(*descriptor);
+    }
+    auto range = range_with_delete_file(delete_file);
+    if (encrypted) {
+        TFileEncryptionInfo unrelated;
+        unrelated.__set_version(1);
+        unrelated.__set_key(std::string(16, 'd'));
+        unrelated.__set_aad_prefix("unrelated-data-file-aad");
+        // A position_deletes scan must select its delete descriptor, not the data-file key.
+        range.table_format_params.iceberg_params.__set_encryption_info(unrelated);
+    }
+    range.__set_path(path);
+    range.__set_start_offset(0);
+    range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(path)));
+    return range;
+}
+
+void verify_mixed_id_position_delete_row(const Block& block, bool eos) {
+    ASSERT_FALSE(eos);
+    ASSERT_EQ(1, block.rows());
+    ASSERT_FALSE(struct_child_is_null_at(block, "row", 0, 0));
+    EXPECT_EQ(42, struct_int_at(block, "row", 0, 0));
+    // Once any file field has an Iceberg id, the id-less sibling is absent rather than name-bound.
+    EXPECT_TRUE(struct_child_is_null_at(block, "row", 1, 0));
+}
+
+void run_mixed_id_position_delete_test(
+        format::FileFormat file_format, TFileFormatType::type thrift_format,
+        const std::string& extension,
+        const std::shared_ptr<::parquet::FileEncryptionProperties>& encryption = nullptr,
+        const std::optional<TFileEncryptionInfo>& descriptor = std::nullopt,
+        bool expect_failure = false) {
     doris::test::ScopedTempDirectory temp("iceberg_position_delete_mixed_id_" + extension);
     const auto& test_dir = temp.path();
     const auto path = (test_dir / ("delete." + extension)).string();
     if (file_format == format::FileFormat::PARQUET) {
-        write_mixed_id_position_delete_parquet(path);
+        write_mixed_id_position_delete_parquet(path, 2147483544, true, encryption);
     } else {
         write_mixed_id_position_delete_orc(path);
     }
@@ -297,28 +340,29 @@ void run_mixed_id_position_delete_test(format::FileFormat file_format,
                                     .file_slot_descs = &slots,
                             })
                         .ok());
-    TIcebergDeleteFileDesc delete_file;
-    delete_file.__set_content(1);
-    delete_file.__set_path(path);
-    delete_file.__set_file_format(thrift_format);
-    auto range = range_with_delete_file(delete_file);
-    range.__set_path(path);
-    range.__set_start_offset(0);
-    range.__set_file_size(static_cast<int64_t>(std::filesystem::file_size(path)));
+    auto range =
+            native_position_delete_range(path, thrift_format, descriptor, encryption != nullptr);
     format::SplitReadOptions split_options;
     split_options.current_range = std::move(range);
     split_options.current_split_format = file_format;
-    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    auto status = reader.prepare_split(split_options);
+    if (expect_failure) {
+        if (status.ok()) {
+            Block block = make_output_block(slots);
+            bool eos = false;
+            status = reader.get_block(&block, &eos);
+        }
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(status.to_string().find(std::string(16, 'p')), std::string::npos);
+        ASSERT_TRUE(reader.close().ok());
+        return;
+    }
+    ASSERT_TRUE(status.ok()) << status;
 
     Block block = make_output_block(slots);
     bool eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-    ASSERT_FALSE(eos);
-    ASSERT_EQ(1, block.rows());
-    ASSERT_FALSE(struct_child_is_null_at(block, "row", 0, 0));
-    EXPECT_EQ(42, struct_int_at(block, "row", 0, 0));
-    // Once any file field has an Iceberg id, the id-less sibling is absent rather than name-bound.
-    EXPECT_TRUE(struct_child_is_null_at(block, "row", 1, 0));
+    verify_mixed_id_position_delete_row(block, eos);
 
     ASSERT_TRUE(reader.close().ok());
 }
@@ -615,6 +659,62 @@ TEST(IcebergPositionDeleteSysTableV2ReaderTest, ParquetRowUsesAnyFieldIdMapping)
 TEST(IcebergPositionDeleteSysTableV2ReaderTest, OrcRowUsesAnyFieldIdMapping) {
     run_mixed_id_position_delete_test(format::FileFormat::ORC, TFileFormatType::FORMAT_ORC, "orc");
 }
+
+#if __has_include(<parquet/encryption/encryption_internal.h>)
+TEST(IcebergPositionDeleteSysTableV2ReaderTest, RejectsEncryptedOrcAndPuffinBeforeIo) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("unsupported_encrypted_metadata_delete");
+    TFileScanRangeParams params;
+    std::vector<SlotDescriptor*> slots;
+    IcebergPositionDeleteSysTableV2Reader reader;
+    reader._runtime_state = &state;
+    reader._scanner_profile = &profile;
+    reader._scan_params = &params;
+    reader._file_slot_descs = &slots;
+    TFileEncryptionInfo info;
+    info.__set_version(1);
+    info.__set_key(std::string(16, 'p'));
+    info.__set_aad_prefix("synthetic-delete-aad");
+    for (bool deletion_vector : {false, true}) {
+        TIcebergDeleteFileDesc descriptor;
+        descriptor.__set_content(deletion_vector ? 3 : 1);
+        descriptor.__set_path("missing-delete-file");
+        descriptor.__set_file_format(deletion_vector ? TFileFormatType::FORMAT_PARQUET
+                                                     : TFileFormatType::FORMAT_ORC);
+        descriptor.__set_encryption_info(info);
+        reader._current_range = range_with_delete_file(descriptor);
+        const auto status = reader._init_split();
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("UNSUPPORTED_FILE_FORMAT"), std::string::npos);
+        EXPECT_EQ(reader._position_reader, nullptr);
+    }
+}
+
+TEST(IcebergPositionDeleteSysTableV2ReaderTest, EncryptedParquetRowUsesDeleteFileKeyAndAad) {
+    TFileEncryptionInfo info;
+    info.__set_version(1);
+    info.__set_key(std::string(16, 'p'));
+    info.__set_aad_prefix("synthetic-position-delete-aad");
+    auto encryption = [&]() {
+        ::parquet::FileEncryptionProperties::Builder builder {
+                ::arrow::util::SecureString(std::string(info.key))};
+        return builder.aad_prefix(info.aad_prefix)->disable_aad_prefix_storage()->build();
+    };
+    run_mixed_id_position_delete_test(FileFormat::PARQUET, TFileFormatType::FORMAT_PARQUET,
+                                      "encrypted.parquet", encryption(), info);
+    for (int failure : {0, 1, 2}) {
+        auto bad = info;
+        if (failure == 0) {
+            bad.__set_key(std::string(16, 'd'));
+        } else {
+            bad.__set_aad_prefix("different-delete-aad");
+        }
+        run_mixed_id_position_delete_test(FileFormat::PARQUET, TFileFormatType::FORMAT_PARQUET,
+                                          "invalid.parquet", encryption(),
+                                          failure == 2 ? std::nullopt : std::optional(bad), true);
+    }
+}
+#endif
 
 TEST(IcebergPositionDeleteSysTableV2ReaderTest, ParquetReadsNestedIdlessWrapper) {
     run_v2_nested_wrapper_position_delete_test();

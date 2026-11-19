@@ -37,6 +37,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.UpdateVisibleVersionTask;
 import org.apache.doris.thrift.TPartitionVersionInfo;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.collect.Maps;
@@ -438,11 +439,12 @@ public class PublishVersionDaemon extends MasterDaemon {
                     partitionVersionInfos,
                     createPublishVersionTaskTime);
             task.setBaseTabletsIds(beIdToBaseTabletIds.getOrDefault(backendId, Collections.emptySet()));
-            // add to AgentTaskQueue for handling finish report.
-            // not check return value, because the add will success
+            // Keep rejected tasks in the transaction so a removed backend is not treated as a success.
             AgentTaskQueue.addTask(task);
-            batchTask.addTask(task);
             transactionState.addPublishVersionTask(backendId, task);
+            if (task.getErrorCode() != TStatusCode.ABORTED) {
+                batchTask.addTask(task);
+            }
         }
     }
 }

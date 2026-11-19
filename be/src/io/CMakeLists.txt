@@ -52,7 +52,7 @@ pch_reuse(IO)
 set(IO_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/fs/broker_file_system.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fs/hdfs_file_system.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/fs/s3_file_system.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/fs/obj_storage_file_system.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/fs/http_file_system.cpp)
 file(GLOB_RECURSE IO_UNITY_BENCH_SRCS CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/fs/benchmark/*.cpp

@@ -51,6 +51,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 #include "core/pod_array.h"
@@ -567,11 +568,10 @@ private:
             // truncated result is outside the signed epoch-nanosecond range.
             if constexpr (PType == TYPE_TIMESTAMPTZ) {
                 DateV2Value<DateTimeV2ValueType> local_dt;
-                dt.convert_utc_to_local(timezone, local_dt);
+                const int preferred_offset = dt.convert_utc_to_local(timezone, local_dt);
                 local_dt.template datetime_trunc<Unit>();
                 if constexpr (Unit == TimeUnit::SECOND || Unit == TimeUnit::MINUTE ||
                               Unit == TimeUnit::HOUR) {
-                    const int preferred_offset = dt.utc_offset(timezone);
                     dt.convert_local_to_utc(timezone, local_dt, preferred_offset);
                 } else {
                     dt.convert_local_to_utc(timezone, local_dt);

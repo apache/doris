@@ -326,6 +326,8 @@ CONF_String(priority_networks, "");
 
 CONF_Bool(enable_cluster_name_check, "false");
 
+CONF_Bool(enable_gcs_batch_delete_object, "true");
+
 // Default HTTP scheme used by S3Client when the endpoint has no scheme.
 CONF_String(s3_client_http_scheme, "https");
 CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
@@ -380,6 +382,10 @@ CONF_mInt32(cloud_txn_lazy_commit_fuzzy_possibility, "0");
 CONF_mInt64(max_num_aborted_txn, "100");
 
 CONF_Bool(enable_check_instance_id, "true");
+
+// Reject RPCs naming an instance by instance_id without cloud_unique_id. Management HTTP
+// requests authenticate with a token. Legacy RPC callers need a compatibility setting during upgrade.
+CONF_Bool(enable_strict_instance_auth, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");

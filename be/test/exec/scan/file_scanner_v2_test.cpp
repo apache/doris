@@ -21,9 +21,14 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <future>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <typeinfo>
 #include <unordered_map>
 #include <utility>
@@ -41,6 +46,7 @@
 #include "exec/operator/file_scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/scan/file_scan_io_context.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/split_source_connector.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/runtime_filter_expr.h"
@@ -50,7 +56,10 @@
 #include "exprs/vslot_ref.h"
 #include "format/table/iceberg_scan_semantics.h"
 #include "format_v2/expr/cast.h"
+#include "format_v2/file_scan_context.h"
+#include "format_v2/predicate_snapshot.h"
 #include "format_v2/table/fluss_hybrid_reader.h"
+#include "storage/id_manager.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/timezone_utils.h"
 
@@ -66,6 +75,34 @@ TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type
         range.__set_table_format_params(std::move(table_desc));
     }
     return range;
+}
+
+TEST(FileScannerV2Test, EncryptionNeverFallsThroughToPlainReadersOrCounts) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    EXPECT_TRUE(validate_file_scan_support(params).ok());
+    for (int content : {0, 1, 2, 3}) {
+        auto range = range_with_format("iceberg", TFileFormatType::FORMAT_PARQUET);
+        TFileEncryptionInfo info;
+        info.__set_version(1);
+        info.__set_key(std::string(16, 'k'));
+        info.__set_aad_prefix("");
+        TIcebergFileDesc iceberg;
+        if (content == 0) {
+            iceberg.__set_encryption_info(info);
+        } else {
+            TIcebergDeleteFileDesc file;
+            file.__set_content(content);
+            file.__set_encryption_info(info);
+            iceberg.__set_delete_files({file});
+        }
+        range.table_format_params.__set_iceberg_params(iceberg);
+        EXPECT_NE(validate_file_scan_support(params, &range).to_string().find("READ_UNAVAILABLE"),
+                  std::string::npos);
+        params.__set_table_format_params(range.table_format_params);
+        EXPECT_FALSE(validate_file_scan_support(params).ok());
+        params.__isset.table_format_params = false;
+    }
 }
 
 TEST(FileScannerV2Test, CountStarPlaceholderIsNotASemanticProjection) {
@@ -146,7 +183,10 @@ public:
 class ErrorContextTableReader final : public format::TableReader {
 public:
     Status prepare_split(const format::SplitReadOptions&) override { return prepare_status; }
-    Status refresh_conjuncts(VExprContextSPtrs) override { return refresh_status; }
+    Status refresh_conjuncts(VExprContextSPtrs, std::optional<uint64_t>, bool,
+                             std::shared_ptr<const format::PredicateSnapshot>) override {
+        return refresh_status;
+    }
     Status get_block(Block*, bool* eof) override {
         *eof = false;
         return read_status;
@@ -193,11 +233,29 @@ TEST(FileScannerV2Test, ReaderErrorsRetainCurrentPathAndOrcContext) {
 TEST(FileScannerV2Test, RefreshErrorsRetainCurrentPath) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     RuntimeProfile profile("refresh_error_context");
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    thrift_descriptors.tupleDescriptors.push_back(tuple);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    TPlanNode plan;
+    plan.__set_node_id(0);
+    plan.__set_node_type(TPlanNodeType::FILE_SCAN_NODE);
+    plan.__set_limit(-1);
+    plan.__set_row_tuples({0});
+    TFileScanNode scan;
+    scan.__set_tuple_id(0);
+    plan.__set_file_scan_node(scan);
+    FileScanOperatorX parent(&pool, plan, 0, *descriptors, 1);
+    FileScanLocalState local_state(&state, &parent);
     TFileScanRangeParams params;
     auto reader = std::make_unique<ErrorContextTableReader>();
     reader->refresh_status = Status::InvalidArgument("injected refresh failure");
     FileScannerV2 scanner(&state, &profile, std::move(reader));
     scanner._params = &params;
+    scanner._local_state = &local_state;
     scanner._has_prepared_split = true;
     scanner._applied_rf_num = 1;
     scanner._current_range.__set_path("s3://test-bucket/refresh.parquet");
@@ -455,6 +513,33 @@ TEST(FileScannerV2Test, ConditionCacheDigestIncludesRuntimeFilterPayload) {
               0);
 }
 
+TEST(FileScannerV2Test, PredicateSnapshotSurvivesSplitsAndChangesOnLateRuntimeFilters) {
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("predicate_snapshot");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._is_load = false;
+    scanner._slot_id_to_global_index.emplace(1, format::GlobalIndex(0));
+    scanner._conjuncts = {int_in_runtime_filter({7, 9}, 1)};
+    scanner._applied_rf_num = 1;
+    VExprContextSPtrs conjuncts;
+    ASSERT_TRUE(scanner._build_table_conjuncts(&conjuncts).ok());
+    const auto first = scanner._predicate_snapshot;
+    ASSERT_NE(first, nullptr);
+    const auto digest = first->digest();
+    ASSERT_TRUE(digest.has_value());
+    for (int split = 0; split < 10; ++split) {
+        ASSERT_TRUE(scanner._build_table_conjuncts(&conjuncts).ok());
+        EXPECT_EQ(scanner._predicate_snapshot, first);
+        EXPECT_EQ(scanner._predicate_snapshot->digest(), digest);
+    }
+    scanner._conjuncts.push_back(int_minmax_runtime_filter(10, 2));
+    scanner._applied_rf_num = 2;
+    ASSERT_TRUE(scanner._build_table_conjuncts(&conjuncts).ok());
+    EXPECT_NE(scanner._predicate_snapshot, first);
+    EXPECT_NE(scanner._predicate_snapshot->digest(), digest);
+    EXPECT_EQ(first->digest(), digest);
+}
+
 TEST(FileScannerV2Test, RemoteSplitSourceStopsLocallyWithoutQueryCancellation) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     RemoteSplitSourceConnector source(&state, nullptr, 1, 1, 1);
@@ -652,6 +737,32 @@ TEST(FileScannerV2Test, FileScanIoContextDoesNotMarkLoadAsQueryReader) {
     EXPECT_EQ(io_ctx->remote_scan_cache_write_limiter, nullptr);
 }
 
+// Both scanner generations use this helper, so query options must survive FE/BE version skew.
+TEST(FileScannerV2Test, FileScanIoContextUsesExplicitQueryAdaptorOption) {
+    MockRuntimeState state;
+    state._query_id = make_query_id();
+    state._query_ctx = nullptr;
+    TQueryOptions options;
+    options.__set_query_type(TQueryType::SELECT);
+    state.set_query_options(options);
+    EXPECT_FALSE(create_file_scan_io_context(&state)->enable_file_cache_io_adaptor);
+
+    options.__set_enable_file_cache_io_adaptor(true);
+    state.set_query_options(options);
+    auto enabled = create_file_scan_io_context(&state);
+    EXPECT_TRUE(enabled->enable_file_cache_io_adaptor);
+
+    options.__set_enable_file_cache_io_adaptor(false);
+    state.set_query_options(options);
+    EXPECT_FALSE(create_file_scan_io_context(&state)->enable_file_cache_io_adaptor);
+    EXPECT_TRUE(enabled->enable_file_cache_io_adaptor);
+
+    options.__set_query_type(TQueryType::LOAD);
+    options.__set_enable_file_cache_io_adaptor(true);
+    state.set_query_options(options);
+    EXPECT_FALSE(create_file_scan_io_context(&state)->enable_file_cache_io_adaptor);
+}
+
 // Scenario: FileScannerV2 converts only the file formats implemented by format_v2 readers and
 // rejects everything else before TableReader::init sees an unsupported FileFormat.
 TEST(FileScannerV2Test, FileFormatConversionMatrix) {
@@ -675,6 +786,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
             {TFileFormatType::FORMAT_WAL, format::FileFormat::WAL},
+            {TFileFormatType::FORMAT_LANCE, format::FileFormat::LANCE},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 
@@ -1027,6 +1139,515 @@ TEST(FileScannerV2Test, RewriteSlotRefsToGlobalIndexMatrix) {
         EXPECT_EQ(rewritten_child->column_id(), 2);
         EXPECT_EQ(rewritten_child->column_name(), "rf_value");
     }
+}
+
+TScanRangeParams scan_range_with_path(std::string path) {
+    TScanRangeParams params;
+    TFileRangeDesc range;
+    range.__set_path(std::move(path));
+    params.scan_range.ext_scan_range.file_scan_range.ranges.push_back(std::move(range));
+    return params;
+}
+
+class RemoteStyleSplitSourceConnector final : public SplitSourceConnector {
+public:
+    explicit RemoteStyleSplitSourceConnector(std::vector<TFileRangeDesc> ranges)
+            : _ranges(std::move(ranges)) {}
+
+    Status get_next(bool* has_next, TFileRangeDesc* range, const std::atomic_bool*) override {
+        std::scoped_lock lock(_lock);
+        ++_get_next_calls;
+        *has_next = _next < _ranges.size();
+        if (*has_next) {
+            *range = _ranges[_next++];
+        }
+        return Status::OK();
+    }
+
+    int num_scan_ranges() override { return cast_set<int>(_ranges.size()); }
+
+    TFileScanRangeParams* get_params() override { return &_params; }
+
+    int get_next_calls() const { return _get_next_calls.load(); }
+
+private:
+    std::mutex _lock;
+    std::vector<TFileRangeDesc> _ranges;
+    size_t _next = 0;
+    std::atomic<int> _get_next_calls = 0;
+    TFileScanRangeParams _params;
+};
+
+class BlockingRemoteStyleSplitSourceConnector final : public SplitSourceConnector {
+public:
+    explicit BlockingRemoteStyleSplitSourceConnector(TFileRangeDesc range)
+            : _range(std::move(range)) {}
+
+    Status get_next(bool* has_next, TFileRangeDesc* range, const std::atomic_bool*) override {
+        std::unique_lock lock(_lock);
+        if (!_source_returned) {
+            _source_returned = true;
+            *has_next = true;
+            *range = _range;
+            return Status::OK();
+        }
+        _fetch_started = true;
+        _fetch_cv.notify_all();
+        _fetch_cv.wait(lock, [&]() { return _release_fetch; });
+        *has_next = false;
+        return Status::OK();
+    }
+
+    void wait_for_fetch() {
+        std::unique_lock lock(_lock);
+        _fetch_cv.wait(lock, [&]() { return _fetch_started; });
+    }
+
+    void release_fetch() {
+        {
+            std::scoped_lock lock(_lock);
+            _release_fetch = true;
+        }
+        _fetch_cv.notify_all();
+    }
+
+    int num_scan_ranges() override { return 1; }
+
+    TFileScanRangeParams* get_params() override { return &_params; }
+
+private:
+    std::mutex _lock;
+    std::condition_variable _fetch_cv;
+    TFileRangeDesc _range;
+    bool _source_returned = false;
+    bool _fetch_started = false;
+    bool _release_fetch = false;
+    TFileScanRangeParams _params;
+};
+
+void expect_generated_splits_keep_source_alive(SplitSourceConnector* connector) {
+    FileScanSplit source;
+    bool has_next = false;
+    ASSERT_TRUE(connector->get_next_split(&has_next, &source).ok());
+    ASSERT_TRUE(has_next);
+    ASSERT_TRUE(source.is_source_split);
+
+    auto waiter = std::async(std::launch::async, [&]() {
+        FileScanSplit split;
+        bool waiter_has_next = false;
+        auto status = connector->get_next_split(&waiter_has_next, &split);
+        return std::make_tuple(status, waiter_has_next, std::move(split));
+    });
+    EXPECT_EQ(waiter.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+
+    FileScanSplit child;
+    child.range = source.range;
+    child.range.__set_start_offset(101);
+    child.range.__set_size(17);
+    ASSERT_TRUE(connector->finish_source_split(source, {child}).ok());
+
+    ASSERT_EQ(waiter.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    auto [status, waiter_has_next, generated] = waiter.get();
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(waiter_has_next);
+    EXPECT_FALSE(generated.is_source_split);
+    EXPECT_EQ(generated.range.start_offset, 101);
+    EXPECT_EQ(generated.range.size, 17);
+
+    FileScanSplit end;
+    ASSERT_TRUE(connector->get_next_split(&has_next, &end).ok());
+    EXPECT_FALSE(has_next);
+}
+
+TEST(FileScannerV2Test, LocalSplitSourceWaitsForGeneratedRowGroupSplits) {
+    LocalSplitSourceConnector connector({scan_range_with_path("local.parquet")}, 4);
+    expect_generated_splits_keep_source_alive(&connector);
+}
+
+TEST(FileScannerV2Test, RemoteStyleSplitSourceWaitsForGeneratedRowGroupSplits) {
+    TFileRangeDesc range;
+    range.__set_path("remote.parquet");
+    RemoteStyleSplitSourceConnector connector({range});
+    expect_generated_splits_keep_source_alive(&connector);
+    EXPECT_EQ(connector.get_next_calls(), 2);
+}
+
+TEST(FileScannerV2Test, RemoteFetchDoesNotBlockGeneratedSplitPublication) {
+    TFileRangeDesc range;
+    range.__set_path("remote.parquet");
+    BlockingRemoteStyleSplitSourceConnector connector(std::move(range));
+    FileScanSplit source;
+    bool has_next = false;
+    ASSERT_TRUE(connector.get_next_split(&has_next, &source).ok());
+    ASSERT_TRUE(has_next);
+
+    auto remote_fetch = std::async(std::launch::async, [&]() {
+        FileScanSplit split;
+        bool fetch_has_next = false;
+        auto status = connector.get_next_split(&fetch_has_next, &split);
+        return std::make_pair(status, fetch_has_next);
+    });
+    connector.wait_for_fetch();
+    auto child_waiter = std::async(std::launch::async, [&]() {
+        FileScanSplit split;
+        bool child_available = false;
+        auto status = connector.get_next_split(&child_available, &split);
+        return std::make_tuple(status, child_available, std::move(split));
+    });
+    EXPECT_EQ(child_waiter.wait_for(std::chrono::milliseconds(50)), std::future_status::timeout);
+
+    FileScanSplit child;
+    child.range = source.range;
+    child.range.__set_start_offset(101);
+    auto publish = std::async(std::launch::async,
+                              [&]() { return connector.finish_source_split(source, {child}); });
+    const bool publish_completed_while_fetch_blocked =
+            publish.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+    const bool child_published_while_fetch_blocked =
+            child_waiter.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+    connector.release_fetch();
+
+    const auto publish_status = publish.get();
+    ASSERT_TRUE(publish_status.ok()) << publish_status;
+    ASSERT_TRUE(publish_completed_while_fetch_blocked);
+    ASSERT_TRUE(child_published_while_fetch_blocked);
+    auto [child_status, child_available, generated] = child_waiter.get();
+    ASSERT_TRUE(child_status.ok()) << child_status;
+    ASSERT_TRUE(child_available);
+    EXPECT_EQ(generated.range.start_offset, 101);
+    auto [fetch_status, fetch_has_next] = remote_fetch.get();
+    ASSERT_TRUE(fetch_status.ok()) << fetch_status;
+    EXPECT_FALSE(fetch_has_next);
+}
+
+TEST(FileScannerV2Test, FinalRemoteFetchRechecksChildrenPublishedWhileBlocked) {
+    TFileRangeDesc range;
+    range.__set_path("remote.parquet");
+    BlockingRemoteStyleSplitSourceConnector connector(std::move(range));
+    FileScanSplit source;
+    bool has_next = false;
+    ASSERT_TRUE(connector.get_next_split(&has_next, &source).ok());
+    ASSERT_TRUE(has_next);
+
+    auto remote_fetch = std::async(std::launch::async, [&]() {
+        FileScanSplit split;
+        bool fetch_has_next = false;
+        auto status = connector.get_next_split(&fetch_has_next, &split);
+        return std::make_tuple(status, fetch_has_next, std::move(split));
+    });
+    connector.wait_for_fetch();
+
+    FileScanSplit child;
+    child.range = source.range;
+    child.range.__set_start_offset(101);
+    child.range.__set_size(17);
+    ASSERT_TRUE(connector.finish_source_split(source, {child}).ok());
+    connector.release_fetch();
+
+    ASSERT_EQ(remote_fetch.wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    auto [fetch_status, fetch_has_next, generated] = remote_fetch.get();
+    ASSERT_TRUE(fetch_status.ok()) << fetch_status;
+    ASSERT_TRUE(fetch_has_next);
+    EXPECT_EQ(generated.range.start_offset, 101);
+    EXPECT_EQ(generated.range.size, 17);
+
+    FileScanSplit end;
+    ASSERT_TRUE(connector.get_next_split(&has_next, &end).ok());
+    EXPECT_FALSE(has_next);
+}
+
+TEST(FileScannerV2Test, RawSourceClearsGeneratedChildEnvelope) {
+    LocalSplitSourceConnector connector({scan_range_with_path("next-local.parquet")}, 1);
+    FileScanSplit reused;
+    auto stale_source_range = std::make_shared<TFileRangeDesc>();
+    stale_source_range->__set_path("stale-child.parquet");
+    reused.source_range = std::move(stale_source_range);
+    reused.start_offset = 101;
+    reused.size = 17;
+    reused.clear_table_level_row_count = true;
+    reused.file_context = std::make_shared<const FileContext>();
+    reused.condition_cache_split_context = std::make_shared<ConditionCacheSplitContext>(1);
+    reused.format_split_id = 3;
+
+    bool has_next = false;
+    ASSERT_TRUE(connector.get_next_split(&has_next, &reused).ok());
+    ASSERT_TRUE(has_next);
+    EXPECT_TRUE(reused.is_source_split);
+    EXPECT_EQ(reused.materialize_range().path, "next-local.parquet");
+    EXPECT_EQ(reused.source_range, nullptr);
+    EXPECT_EQ(reused.file_context, nullptr);
+    EXPECT_EQ(reused.condition_cache_split_context, nullptr);
+    EXPECT_EQ(reused.format_split_id, -1);
+    ASSERT_TRUE(connector.finish_source_split(reused, {}).ok());
+}
+
+TEST(FileScannerV2Test, EosKeepsLastRangeIdentityForFinalAccounting) {
+    TFileRangeDesc range;
+    range.__set_path("remote.parquet");
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    range.__set_file_type(TFileType::FILE_S3);
+    auto split_source =
+            std::make_shared<RemoteStyleSplitSourceConnector>(std::vector<TFileRangeDesc> {range});
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    MockRuntimeState state;
+    RuntimeProfile profile("last_range_accounting");
+    FileScannerV2 scanner(&state, &profile, nullptr);
+    scanner._split_source = std::move(split_source);
+    scanner._params = &params;
+
+    bool has_next = false;
+    ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
+    ASSERT_TRUE(has_next);
+    ASSERT_TRUE(scanner._split_source->finish_source_split(scanner._current_split, {}).ok());
+    ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
+    EXPECT_FALSE(has_next);
+    EXPECT_TRUE(scanner._current_range.__isset.file_type);
+    EXPECT_EQ(scanner._current_range.file_type, TFileType::FILE_S3);
+    EXPECT_EQ(scanner._uncached_reader_bytes_storage(scanner._current_range.file_type),
+              FileScannerV2::UncachedReaderBytesStorage::REMOTE);
+
+    range.__set_file_type(TFileType::FILE_STREAM);
+    scanner._split_source =
+            std::make_shared<RemoteStyleSplitSourceConnector>(std::vector<TFileRangeDesc> {range});
+    ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
+    ASSERT_TRUE(has_next);
+    // EOS is observable only after the claimed source is retired; otherwise the connector must
+    // keep waiting for that source to publish generated children.
+    ASSERT_TRUE(scanner._split_source->finish_source_split(scanner._current_split, {}).ok());
+    ASSERT_TRUE(scanner._get_next_scan_range(&has_next).ok());
+    EXPECT_FALSE(has_next);
+    EXPECT_TRUE(scanner._should_update_load_counters());
+}
+
+TEST(FileScannerV2Test, GeneratedChildrenCompleteSourceProgressOnlyOnce) {
+    LocalSplitSourceConnector connector({scan_range_with_path("two-groups.parquet")}, 1);
+    FileScanSplit source;
+    bool has_next = false;
+    ASSERT_TRUE(connector.get_next_split(&has_next, &source).ok());
+    ASSERT_TRUE(has_next);
+    ASSERT_NE(source.source_progress, nullptr);
+
+    FileScanSplit first_child;
+    first_child.range = source.range;
+    first_child.range.__set_start_offset(0);
+    FileScanSplit second_child;
+    second_child.range = source.range;
+    second_child.range.__set_start_offset(100);
+    ASSERT_TRUE(connector.finish_source_split(source, {first_child, second_child}).ok());
+
+    FileScanSplit first;
+    ASSERT_TRUE(connector.get_next_split(&has_next, &first).ok());
+    ASSERT_TRUE(has_next);
+    FileScanSplit second;
+    ASSERT_TRUE(connector.get_next_split(&has_next, &second).ok());
+    ASSERT_TRUE(has_next);
+    ASSERT_NE(first.source_progress, nullptr);
+    EXPECT_EQ(first.source_progress, second.source_progress);
+    EXPECT_FALSE(first.source_progress->complete_one());
+    EXPECT_TRUE(second.source_progress->complete_one());
+}
+
+TEST(FileScannerV2Test, GeneratedChildrenShareAdaptiveBatchHistory) {
+    SourceSplitProgress source_progress;
+    EXPECT_FALSE(source_progress.adaptive_batch_bytes_per_row().has_value());
+
+    EXPECT_TRUE(source_progress.update_adaptive_batch_bytes_per_row(128.0));
+    ASSERT_TRUE(source_progress.adaptive_batch_bytes_per_row().has_value());
+    EXPECT_DOUBLE_EQ(*source_progress.adaptive_batch_bytes_per_row(), 128.0);
+
+    EXPECT_FALSE(source_progress.update_adaptive_batch_bytes_per_row(256.0));
+    ASSERT_TRUE(source_progress.adaptive_batch_bytes_per_row().has_value());
+    EXPECT_DOUBLE_EQ(*source_progress.adaptive_batch_bytes_per_row(), 140.8);
+
+    SourceSplitProgress concurrent_progress;
+    std::atomic<int> first_samples = 0;
+    std::vector<std::thread> publishers;
+    for (int index = 0; index < 8; ++index) {
+        publishers.emplace_back([&] {
+            first_samples += concurrent_progress.update_adaptive_batch_bytes_per_row(64.0);
+        });
+    }
+    for (auto& publisher : publishers) {
+        publisher.join();
+    }
+    EXPECT_EQ(first_samples.load(), 1);
+}
+
+TEST(FileScannerV2Test, PhysicalChildrenDoNotChangeFileNumber) {
+    RuntimeProfile profile("source_file_counter");
+    auto* file_counter = ADD_COUNTER(&profile, "FileNumber", TUnit::UNIT);
+    FileScanSplit source;
+    source.is_source_split = true;
+    FileScannerV2::TEST_update_file_counter(file_counter, source);
+
+    FileScanSplit child;
+    child.is_source_split = false;
+    FileScannerV2::TEST_update_file_counter(file_counter, child);
+    FileScannerV2::TEST_update_file_counter(file_counter, child);
+
+    EXPECT_EQ(file_counter->value(), 1);
+}
+
+TEST(FileScannerV2Test, GeneratedChildrenKeepOneGlobalRowIdSourceMapping) {
+    auto source_range = std::make_shared<TFileRangeDesc>();
+    source_range->__set_path("shared.parquet");
+    source_range->__set_start_offset(64);
+    source_range->__set_size(1024);
+
+    FileScanSplit first;
+    first.source_range = source_range;
+    first.start_offset = 128;
+    first.size = 256;
+    FileScanSplit second;
+    second.source_range = source_range;
+    second.start_offset = 512;
+    second.size = 256;
+
+    EXPECT_NE(first.materialize_range().start_offset, second.materialize_range().start_offset);
+    EXPECT_EQ(first.source_identity_range().start_offset, source_range->start_offset);
+    EXPECT_EQ(second.source_identity_range().start_offset, source_range->start_offset);
+
+    IdFileMap id_file_map(0);
+    const auto first_id = id_file_map.get_file_mapping_id(
+            std::make_shared<FileMapping>(7, first.source_identity_range(), false));
+    const auto second_id = id_file_map.get_file_mapping_id(
+            std::make_shared<FileMapping>(7, second.source_identity_range(), false));
+    EXPECT_EQ(first_id, second_id);
+}
+
+TEST(FileScannerV2Test, IcebergDeleteSplitKeepsInitialScannerCountCap) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("iceberg");
+    TIcebergFileDesc iceberg;
+    TIcebergDeleteFileDesc delete_file;
+    iceberg.__set_delete_files({delete_file});
+    table_format.__set_iceberg_params(iceberg);
+    range.__set_table_format_params(table_format);
+
+    EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+    EXPECT_EQ(FileScanLocalState::TEST_adjust_scanner_count(16, 1, false), 1);
+
+    range.table_format_params.iceberg_params.__set_delete_files({});
+    EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+    EXPECT_EQ(FileScanLocalState::TEST_adjust_scanner_count(16, 1, true), 16);
+
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    range.__set_format_type(TFileFormatType::FORMAT_ORC);
+    EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+    range.table_format_params.iceberg_params.__set_delete_files({delete_file});
+    EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+}
+
+TEST(FileScannerV2Test, NativePaimonOrcCanGeneratePhysicalSplits) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_JNI);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_JNI);
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("paimon");
+    TPaimonFileDesc paimon;
+    paimon.__set_file_format("orc");
+    table_format.__set_paimon_params(paimon);
+    range.__set_table_format_params(table_format);
+
+    EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+}
+
+TEST(FileScannerV2Test, FileReadBytesProfilePublishesOnlyNewScannerDelta) {
+    int64_t reported = 0;
+    EXPECT_EQ(FileScannerV2::TEST_cumulative_profile_delta(100, &reported), 100);
+    EXPECT_EQ(FileScannerV2::TEST_cumulative_profile_delta(150, &reported), 50);
+    EXPECT_EQ(FileScannerV2::TEST_cumulative_profile_delta(150, &reported), 0);
+    EXPECT_EQ(reported, 150);
+}
+
+TEST(FileScannerV2Test, FileReaderProfilePublishesOnlyNewScannerDeltas) {
+    io::FileReaderStats stats;
+    int64_t reported_bytes = 0;
+    int64_t reported_calls = 0;
+    int64_t reported_time = 0;
+    stats.read_bytes = 100;
+    stats.read_calls = 10;
+    stats.read_time_ns = 1000;
+    auto deltas = FileScannerV2::TEST_collect_file_reader_profile_deltas(
+            stats, &reported_bytes, &reported_calls, &reported_time);
+    EXPECT_EQ(deltas.read_bytes, 100);
+    EXPECT_EQ(deltas.read_calls, 10);
+    EXPECT_EQ(deltas.read_time_ns, 1000);
+
+    stats.read_bytes = 150;
+    stats.read_calls = 12;
+    stats.read_time_ns = 1400;
+    deltas = FileScannerV2::TEST_collect_file_reader_profile_deltas(
+            stats, &reported_bytes, &reported_calls, &reported_time);
+    EXPECT_EQ(deltas.read_bytes, 50);
+    EXPECT_EQ(deltas.read_calls, 2);
+    EXPECT_EQ(deltas.read_time_ns, 400);
+}
+
+TEST(FileScannerV2Test, SplitPlanningUsesTheSameIgnoredErrorPolicyAsOpen) {
+    EXPECT_EQ(FileScannerV2::TEST_classify_ignored_split_status(Status::NotFound("missing"), true,
+                                                                false),
+              FileScannerV2::IgnoredSplitStatus::NOT_FOUND);
+    EXPECT_EQ(FileScannerV2::TEST_classify_ignored_split_status(Status::EndOfFile("empty"), false,
+                                                                false),
+              FileScannerV2::IgnoredSplitStatus::EMPTY);
+    EXPECT_EQ(FileScannerV2::TEST_classify_ignored_split_status(Status::EndOfFile("stopped"), false,
+                                                                true),
+              FileScannerV2::IgnoredSplitStatus::NONE);
+}
+
+TEST(FileScannerV2Test, IcebergDeleteFilesDisablePhysicalSplitRefinement) {
+    TFileRangeDesc range;
+    EXPECT_TRUE(FileScannerV2::TEST_can_refine_source_split(range));
+
+    TTableFormatFileDesc table_format;
+    TIcebergFileDesc iceberg;
+    iceberg.__set_delete_files({});
+    table_format.__set_iceberg_params(iceberg);
+    range.__set_table_format_params(table_format);
+    EXPECT_TRUE(FileScannerV2::TEST_can_refine_source_split(range));
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_path("delete.parquet");
+    iceberg.__set_delete_files({delete_file});
+    table_format.__set_iceberg_params(iceberg);
+    range.__set_table_format_params(table_format);
+    EXPECT_FALSE(FileScannerV2::TEST_can_refine_source_split(range));
+}
+
+TEST(FileScannerV2Test, LoadRangesKeepTheirFeBoundaries) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    EXPECT_TRUE(FileScanLocalState::TEST_can_generate_physical_splits(false, params, range));
+    EXPECT_FALSE(FileScanLocalState::TEST_can_generate_physical_splits(true, params, range));
+}
+
+TEST(FileScannerV2Test, PhysicalSplitRefinementRequiresMultipleConstructedScanners) {
+    TFileRangeDesc range;
+    EXPECT_FALSE(FileScannerV2::TEST_should_refine_source_split(range, 1));
+    EXPECT_TRUE(FileScannerV2::TEST_should_refine_source_split(range, 2));
+    for (int64_t target : {0, -1, 64 << 20}) {
+        range.__set_target_split_size(target);
+        EXPECT_TRUE(FileScannerV2::TEST_should_refine_source_split(range, 2));
+    }
+
+    TIcebergDeleteFileDesc delete_file;
+    delete_file.__set_path("delete.parquet");
+    TIcebergFileDesc iceberg;
+    iceberg.__set_delete_files({delete_file});
+    TTableFormatFileDesc table_format;
+    table_format.__set_iceberg_params(iceberg);
+    range.__set_table_format_params(table_format);
+    EXPECT_FALSE(FileScannerV2::TEST_should_refine_source_split(range, 2));
 }
 
 } // namespace doris

@@ -32,6 +32,7 @@
 #include "exprs/function/cast/cast_base.h" // IWYU pragma: keep
 #include "util/asan_util.h"
 #include "util/string_parser.hpp"
+#include "util/timezone_utils.h"
 
 namespace doris {
 // NOLINTBEGIN(readability-function-size)
@@ -707,7 +708,7 @@ FRAC:
                                          "invalid hour offset '{}'", std::string {ptr, end});
             }
             SET_PARAMS_RET_FALSE_IFN(
-                    part[0] < (type == DataTimeCastEnumType::TIMESTAMP_TZ ? 24U : 15U),
+                    part[0] < (type == DataTimeCastEnumType::TIMESTAMP_TZ ? 19U : 15U),
                     "invalid hour offset '{}'", part[0]);
             if (ptr < end) {
                 if (*ptr == ':') {
@@ -733,20 +734,19 @@ FRAC:
                                              "invalid minute offset '{}'", part[1]);
                 }
             }
-            if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
-                // Wire offsets include historical zones outside the session fixed-zone range.
-                // Use the exact offset even when it has no seconds (for example, Guam's -14:21).
-                const auto offset = static_cast<int>(part[0] * 3600 + part[1] * 60 + second_offset);
-                parsed_tz = cctz::fixed_time_zone(cctz::seconds(sign == '-' ? -offset : offset));
-            } else {
+            if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
                 SET_PARAMS_RET_FALSE_IFN(part[0] != 14 || part[1] == 0,
                                          "invalid timezone offset '{}'",
                                          combine_tz_offset(sign, part[0], part[1]));
-                SET_PARAMS_RET_FALSE_IFN(
-                        TimezoneUtils::find_cctz_time_zone(
-                                combine_tz_offset(sign, part[0], part[1]), parsed_tz),
-                        "invalid timezone offset '{}'", combine_tz_offset(sign, part[0], part[1]));
             }
+            if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
+                SET_PARAMS_RET_FALSE_IFN(part[0] != 18 || (part[1] == 0 && second_offset == 0),
+                                         "invalid timezone offset '{}'",
+                                         combine_tz_offset(sign, part[0], part[1]));
+            }
+            const auto offset = static_cast<int>(part[0] * 3600 + part[1] * 60 + second_offset);
+            parsed_tz =
+                    TimezoneUtils::create_fixed_offset_time_zone(sign == '-' ? -offset : offset);
         } else {
             // timezone name
             const auto* start = ptr;
@@ -762,12 +762,12 @@ FRAC:
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
+        const auto given = TimezoneUtils::convert_local_to_instant(cs, parsed_tz);
         if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
-            // if not timestamptz, the given time is in local_time_zone
+            // Display the instant in the session time zone.
             SET_PARAMS_RET_FALSE_IFN(
                     local_time_zone != nullptr,
                     "local time zone required for datetime string without timezone");
-            auto given = cctz::convert(cs, parsed_tz);
             auto local = cctz::convert(given, *local_time_zone);
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
             res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
@@ -776,8 +776,6 @@ FRAC:
             res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
             res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
         } else {
-            // if timestamptz, the given time is in UTC
-            auto given = cctz::convert(cs, parsed_tz);
             auto utc = cctz::convert(given, cctz::utc_time_zone());
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
             res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
@@ -804,7 +802,7 @@ POST_PROCESS:
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
-        auto local = cctz::convert(cs, *local_time_zone);
+        auto local = TimezoneUtils::convert_local_to_instant(cs, *local_time_zone);
         auto utc = cctz::convert(local, cctz::utc_time_zone());
         res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
         res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
@@ -993,7 +991,7 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
                 PROPAGATE_FALSE((consume_digit<UInt32, 2>(ptr, end, hour_offset)));
             }
             SET_PARAMS_RET_FALSE_IFN(
-                    hour_offset < (type == DataTimeCastEnumType::TIMESTAMP_TZ ? 24U : 15U),
+                    hour_offset < (type == DataTimeCastEnumType::TIMESTAMP_TZ ? 19U : 15U),
                     "invalid hour offset '{}'", hour_offset);
             if (ptr < end) {
                 if (*ptr == ':') {
@@ -1016,21 +1014,21 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
                             "invalid minute offset {}", minute_offset);
                 }
             }
-            if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
-                // Match strict parsing: a serialized historical offset is not a session setting.
-                const auto offset =
-                        static_cast<int>(hour_offset * 3600 + minute_offset * 60 + second_offset);
-                parsed_tz = cctz::fixed_time_zone(cctz::seconds(sign == '-' ? -offset : offset));
-            } else {
+            if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
                 SET_PARAMS_RET_FALSE_IFN(hour_offset != 14 || minute_offset == 0,
                                          "invalid timezone offset '{}'",
                                          combine_tz_offset(sign, hour_offset, minute_offset));
+            }
+            if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
                 SET_PARAMS_RET_FALSE_IFN(
-                        TimezoneUtils::find_cctz_time_zone(
-                                combine_tz_offset(sign, hour_offset, minute_offset), parsed_tz),
+                        hour_offset != 18 || (minute_offset == 0 && second_offset == 0),
                         "invalid timezone offset '{}'",
                         combine_tz_offset(sign, hour_offset, minute_offset));
             }
+            const auto offset =
+                    static_cast<int>(hour_offset * 3600 + minute_offset * 60 + second_offset);
+            parsed_tz =
+                    TimezoneUtils::create_fixed_offset_time_zone(sign == '-' ? -offset : offset);
         } else {
             // timezone name
             const auto* start = ptr;
@@ -1046,12 +1044,12 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
+        const auto given = TimezoneUtils::convert_local_to_instant(cs, parsed_tz);
         if constexpr (type == DataTimeCastEnumType::DATE_TIME) {
-            // if not timestamptz, the given time is in local_time_zone
+            // Display the instant in the session time zone.
             SET_PARAMS_RET_FALSE_IFN(
                     local_time_zone != nullptr,
                     "local time zone required for datetime string without timezone");
-            auto given = cctz::convert(cs, parsed_tz);
             auto local = cctz::convert(given, *local_time_zone);
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)local.year());
             res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)local.month());
@@ -1060,8 +1058,6 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
             res.unchecked_set_time_unit<TimeUnit::MINUTE>((uint32_t)local.minute());
             res.unchecked_set_time_unit<TimeUnit::SECOND>((uint32_t)local.second());
         } else {
-            // if timestamptz, the given time is in UTC
-            auto given = cctz::convert(cs, parsed_tz);
             auto utc = cctz::convert(given, cctz::utc_time_zone());
             res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
             res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());
@@ -1096,7 +1092,7 @@ POST_PROCESS:
         cctz::civil_second cs {res.year(), res.month(),  res.day(),
                                res.hour(), res.minute(), res.second()};
 
-        auto local = cctz::convert(cs, *local_time_zone);
+        auto local = TimezoneUtils::convert_local_to_instant(cs, *local_time_zone);
         auto utc = cctz::convert(local, cctz::utc_time_zone());
         res.unchecked_set_time_unit<TimeUnit::YEAR>((uint32_t)utc.year());
         res.unchecked_set_time_unit<TimeUnit::MONTH>((uint32_t)utc.month());

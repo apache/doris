@@ -201,9 +201,9 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan
                 throw new AnalysisException(
                         "Can not find compatible type for " + left + " and " + right + ", " + e.getMessage());
             }
-            Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(
+            Expression newLeft = TypeCoercionUtils.castForCommonTypeWithExactTarget(
                     left, compatibleType);
-            Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrictForTimeStampNsCoercion(
+            Expression newRight = TypeCoercionUtils.castForCommonTypeWithExactTarget(
                     right, compatibleType);
             if (newLeft instanceof Cast) {
                 newLeft = new Alias(newLeft, left.getName());

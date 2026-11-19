@@ -27,8 +27,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * How this connector's two deployment-level settings are resolved: its own {@code iceberg.conf}
- * first, then the fe.conf key each used to live under.
+ * Deployment-level settings use {@code iceberg.conf}; existing shared settings also retain their
+ * legacy fe.conf fallback.
  *
  * <p>Asserted rather than trusted, because both failure directions are silent. Reading fe.conf first
  * would make an administrator's edit to iceberg.conf do nothing. Dropping the fe.conf fallback would
@@ -36,6 +36,16 @@ import java.util.Map;
  * in either file to show why.
  */
 public class IcebergConnectorConfTest {
+
+    @Test
+    public void encryptionReadIsDefaultOffAndUsesOnlyPluginConfiguration() {
+        Assertions.assertFalse(IcebergConf.encryptionReadEnabled(null));
+        Assertions.assertFalse(IcebergConf.encryptionReadEnabled(context(Map.of(), Map.of())));
+        Assertions.assertFalse(IcebergConf.encryptionReadEnabled(
+                context(Map.of(), Map.of(IcebergConf.CONF_ENABLE_ENCRYPTION_READ, "true"))));
+        Assertions.assertTrue(IcebergConf.encryptionReadEnabled(
+                context(Map.of(IcebergConf.CONF_ENABLE_ENCRYPTION_READ, "true"), Map.of())));
+    }
 
     @Test
     public void driversDirPrefersThePluginConfThenFeConf() {

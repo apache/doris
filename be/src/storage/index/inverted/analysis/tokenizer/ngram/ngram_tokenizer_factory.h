@@ -41,30 +41,23 @@ public:
 
     void initialize(const Settings& settings) override;
 
-    TokenizerPtr create() override {
+    std::unique_ptr<TextTokenizer> create() const override {
         if (_gram_scheme.has_value()) {
-            return std::make_shared<GramTokenizer>(*_gram_scheme);
+            return std::make_unique<GramTokenizer>(*_gram_scheme);
         }
         if (_matcher == nullptr) {
-            return std::make_shared<NGramTokenizer>(_min_gram, _max_gram);
-        } else {
-            class NGramTokenizerWithMatcher : public NGramTokenizer {
-            public:
-                NGramTokenizerWithMatcher(int32_t min_gram, int32_t max_gram,
-                                          CharMatcherPtr matcher)
-                        : NGramTokenizer(min_gram, max_gram), _matcher(std::move(matcher)) {}
-
-                bool is_token_char(UChar32 chr) override { return _matcher->is_token_char(chr); }
-
-            private:
-                CharMatcherPtr _matcher;
-            };
-            return std::make_shared<NGramTokenizerWithMatcher>(_min_gram, _max_gram, _matcher);
+            return std::make_unique<NGramTokenizer>(_min_gram, _max_gram);
         }
-    }
+        class NGramTokenizerWithMatcher : public NGramTokenizer {
+        public:
+            NGramTokenizerWithMatcher(int32_t min_gram, int32_t max_gram, CharMatcherPtr matcher)
+                    : NGramTokenizer(min_gram, max_gram), _matcher(std::move(matcher)) {}
+            bool is_token_char(UChar32 chr) override { return _matcher->is_token_char(chr); }
 
-    PositionCapability position_capability() const override {
-        return PositionCapability::kAlwaysUnitIncrement;
+        private:
+            CharMatcherPtr _matcher;
+        };
+        return std::make_unique<NGramTokenizerWithMatcher>(_min_gram, _max_gram, _matcher);
     }
 
     // Returns the scheme for the gram family (the tokenizer properties contain "mode"), and

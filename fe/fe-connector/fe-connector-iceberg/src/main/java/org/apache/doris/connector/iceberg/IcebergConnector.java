@@ -65,6 +65,7 @@ import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.hive.HiveHadoopUtil;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.SupportsStorageCredentials;
+import org.apache.iceberg.rest.DorisRESTSessionCatalog;
 import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
@@ -897,6 +898,10 @@ public class IcebergConnector implements Connector {
         // (CREATE TABLE ... ORDER BY (...)). fe-core admits the ORDER BY clause for a plugin-driven CREATE TABLE
         // ONLY under this capability (replacing the legacy engine-name "iceberg" gate); the sort-column validation
         // (existence / type / duplicates) runs connector-side in IcebergConnectorMetadata.createTable.
+        // SUPPORTS_WRITE_ONLY_DEFAULTS: an iceberg write-default applies to new rows only, so it lives in the
+        // writer schema (IcebergWriteSchemaContext) and not in the read schema. fe-core resolves DEFAULT(column)
+        // against the writer schema pinned for the write target and rejects it in a plain SELECT, instead of
+        // answering NULL from the read schema.
         EnumSet<ConnectorCapability> capabilities = EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
@@ -907,7 +912,8 @@ public class IcebergConnector implements Connector {
                 ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
                 ConnectorCapability.SUPPORTS_METADATA_PRELOAD,
                 ConnectorCapability.SUPPORTS_SORT_ORDER,
-                ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE);
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_SCHEMA_CHANGE,
+                ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS);
         // SUPPORTS_USER_SESSION: only a REST catalog configured iceberg.rest.session=user projects the querying
         // user's delegated credential onto a per-request Iceberg REST SessionCatalog (#63068 re-migration). This
         // gates FE credential injection + shared-cache bypass; every other flavor/config authenticates with a
@@ -1208,11 +1214,11 @@ public class IcebergConnector implements Connector {
     /** Builds and initializes a bare Iceberg {@link RESTSessionCatalog} (fresh REST client + OAuth2 token fetch). */
     private RESTSessionCatalog newRestSessionCatalog(String catalogName, Map<String, String> props,
             Configuration conf) {
-        RESTSessionCatalog sessionCatalog = new RESTSessionCatalog(config -> HTTPClient.builder(config)
+        RESTSessionCatalog sessionCatalog = new DorisRESTSessionCatalog(config -> HTTPClient.builder(config)
                 .uri(config.get(CatalogProperties.URI))
                 .withHeaders(RESTUtil.configHeaders(config))
                 .withObjectMapper(IcebergRestSchemaCompatibility.objectMapper())
-                .build(), null);
+                .build(), IcebergConnector::restCatalogFileIO);
         CatalogUtil.configureHadoopConf(sessionCatalog, conf);
         sessionCatalog.initialize(catalogName, props);
         return sessionCatalog;

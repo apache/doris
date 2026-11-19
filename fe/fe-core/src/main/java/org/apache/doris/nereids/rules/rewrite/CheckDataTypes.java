@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -97,6 +99,16 @@ public class CheckDataTypes implements CustomRewriter {
                 child.accept(this, null);
             }
             return expr;
+        }
+
+        @Override
+        public Expression visitCast(Cast cast, Void unused) {
+            // Expression normalization skips guarded MERGE branches. Check the surviving state
+            // signatures here, where traversal only inspects types and never evaluates a branch.
+            if (cast.getDataType().isAggStateType() && cast.child().getDataType().isAggStateType()) {
+                CheckCast.validate(cast);
+            }
+            return visit(cast, unused);
         }
 
         private void checkTypes(DataType dataType) {

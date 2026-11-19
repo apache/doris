@@ -23,6 +23,7 @@ import java.io.Closeable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -88,7 +89,8 @@ public interface HmsClient extends Closeable {
      * @param dbName    database name
      * @param tableName table name
      * @return table info with SPI-typed columns
-     * @throws HmsClientException if the table is not found or operation fails
+     * @throws HmsClientException if the operation fails; confirmed table absence retains a
+     *         {@link org.apache.doris.connector.spi.ConnectorTableNotFoundException} cause
      */
     HmsTableInfo getTable(String dbName, String tableName);
 
@@ -105,7 +107,8 @@ public interface HmsClient extends Closeable {
      * @param dbName    database name
      * @param tableName table name
      * @return table info with SPI-typed columns, read fresh from the metastore
-     * @throws HmsClientException if the table is not found or operation fails
+     * @throws HmsClientException if the operation fails; confirmed table absence retains a
+     *         {@link org.apache.doris.connector.spi.ConnectorTableNotFoundException} cause
      */
     default HmsTableInfo getTableFresh(String dbName, String tableName) {
         return getTable(dbName, tableName);
@@ -163,6 +166,22 @@ public interface HmsClient extends Closeable {
     }
 
     /**
+     * Lists partitions matching an HMS filter expression.
+     *
+     * <p>This optional operation is used by selective scan planning to avoid enumerating every partition name
+     * before FE-side pruning. Implementations that do not support the metastore filter dialect keep the default
+     * and callers fall back to {@link #listPartitionNames(String, String, int)}.</p>
+     *
+     * @param dbName database name
+     * @param tableName table name
+     * @param filter HMS {@code get_partitions_by_filter} expression
+     * @return matching partition metadata
+     */
+    default List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+        throw new UnsupportedOperationException("listPartitionsByFilter is not supported by this client");
+    }
+
+    /**
      * Get partition metadata by partition names.
      *
      * @param dbName    database name
@@ -197,6 +216,16 @@ public interface HmsClient extends Closeable {
                 .logicalElapsedNanos(System.nanoTime() - startNanos)
                 .build();
         return new HmsPartitionBatchResult(partitions, stats);
+    }
+
+    /**
+     * Returns all requested objects, in request order, only if they are already cached. Never performs remote
+     * I/O or waits for an in-flight load. An empty Optional means at least one object is unavailable locally,
+     * including for clients without a cache. Used to keep warm lookups off the metadata executor.
+     */
+    default Optional<HmsPartitionBatchResult> getCachedPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames) {
+        return Optional.empty();
     }
 
     /**

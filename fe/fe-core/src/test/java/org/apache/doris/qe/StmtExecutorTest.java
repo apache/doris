@@ -18,11 +18,20 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.ResourceMgr;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
@@ -30,6 +39,7 @@ import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager;
@@ -39,20 +49,36 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.connector.ConnectorSessionBuilder;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable.ConnectorFilteredPartitionView;
+import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.Planner;
@@ -60,6 +86,7 @@ import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.statistics.model.ColumnStatisticBuilder;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCounter;
@@ -94,9 +121,12 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -104,6 +134,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class StmtExecutorTest extends TestWithFeService {
     private static final String AI_RESOURCE_LOG_SECRET = "sk-test-secret";
@@ -715,7 +746,8 @@ public class StmtExecutorTest extends TestWithFeService {
                 Assertions.assertFalse(profileText.contains("DetailProfile(" + DebugUtil.printId(firstQueryId) + ")"));
                 Assertions.assertTrue(profileText.contains("DetailProfile(" + DebugUtil.printId(retryQueryId) + ")"));
                 Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(planNodeId)));
-                Assertions.assertEquals(42L, statistics.getActualRowCount());
+                Assertions.assertEquals(42L, profile.getPhysicalPlan().getStats().getActualRowCount());
+                Assertions.assertEquals(-1L, statistics.getActualRowCount());
 
                 profile.writeToStorage(profileDirectory.toString());
                 Profile storedProfile = Profile.read(profile.getProfileStoragePath());
@@ -736,15 +768,70 @@ public class StmtExecutorTest extends TestWithFeService {
     @ResourceLock("global")
     public void outerReplanRetryReplacesClosedConnectorScope() throws Exception {
         int oldRetryTime = Config.max_query_retry_time;
+        ConnectContext previousContext = ConnectContext.get();
         ConnectContext context = Mockito.spy(connectContext);
+        SessionVariable variables = new SessionVariable();
+        variables.setEnableMaterializedViewRewrite(false);
+        variables.setEnableDmlMaterializedViewRewrite(false);
+        variables.setEnableFoldConstantByBe(false);
+        variables.setEnableSqlCache(false);
+        Mockito.doReturn(variables).when(context).getSessionVariable();
+        Mockito.doReturn(UserIdentity.createAnalyzedUserIdentWithIp("partition_retry_user", "%"))
+                .when(context).getCurrentUserIdentity();
+        Env env = Mockito.spy(context.getEnv());
+        AccessControllerManager access = Mockito.spy(
+                new AccessControllerManager(Mockito.mock(Auth.class), true));
+        AuthorizationPlugin plugin = Mockito.mock(AuthorizationPlugin.class);
+        Mockito.when(plugin.getDataMasks(Mockito.any(), Mockito.any(), Mockito.anySet(), Mockito.any()))
+                .thenReturn(Map.of());
+        Mockito.doReturn(plugin).when(access).getAccessControllerOrDefault(Mockito.anyString());
+        Mockito.doReturn(access).when(env).getAccessManager();
+        Mockito.doReturn(env).when(context).getEnv();
         context.setStartTime();
         context.setQueryId(new TUniqueId(0x33040L, 1L));
         StmtExecutor executor = Mockito.spy(new StmtExecutor(context, "select 1"));
         context.setExecutor(executor);
+        StatementContext statement = context.getStatementContext();
+        TableIf internal = Mockito.mock(TableIf.class);
+        Mockito.when(internal.getId()).thenReturn(21L);
+        Mockito.when(internal.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(internal.tryReadLock(1, TimeUnit.MINUTES)).thenReturn(true);
+        PluginDrivenExternalTable hive = Mockito.mock(PluginDrivenExternalTable.class);
+        DatabaseIf<?> database = Mockito.mock(DatabaseIf.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.doReturn(catalog).when(database).getCatalog();
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(catalog.getName()).thenReturn("hive_catalog");
+        Mockito.when(catalog.getConnector()).thenReturn(Mockito.mock(Connector.class));
+        Mockito.when(hive.getCatalog()).thenReturn(catalog);
+        Mockito.doReturn(database).when(hive).getDatabase();
+        Mockito.when(hive.getId()).thenReturn(22L);
+        Mockito.when(hive.getName()).thenReturn("h");
+        Mockito.when(hive.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hive.supportsConnectorPartitionPruning()).thenReturn(true);
+        Column partitionColumn = new Column("p", Type.INT);
+        Mockito.when(hive.getFullSchema(Mockito.any())).thenReturn(List.of(partitionColumn));
+        Mockito.when(hive.getPartitionColumns(Mockito.any())).thenReturn(List.of(partitionColumn));
+        Mockito.when(hive.getSchemaCacheValue(Mockito.any())).thenReturn(Optional.of(
+                new PluginDrivenSchemaCacheValue(
+                        List.of(partitionColumn), List.of(partitionColumn), List.of("p"), Map.of())));
+        AtomicInteger selections = new AtomicInteger();
+        Mockito.when(hive.applyPartitionFilterForScan(Mockito.any(), Mockito.any())).thenAnswer(invocation -> {
+            selections.incrementAndGet();
+            ConnectorFilteredPartitionView view = Mockito.mock(ConnectorFilteredPartitionView.class);
+            Mockito.when(view.getItems()).thenReturn(Map.of("p=1", Mockito.mock(PartitionItem.class)));
+            return Optional.of(view);
+        });
+        statement.getTables().put(List.of("internal_catalog", "db", "i"), internal);
+        statement.getTables().put(List.of("hive_catalog", "db", "h"), hive);
+        String mixedQuery = "select h.p from internal_catalog.db.i i "
+                + "cross join hive_catalog.db.h h where h.p = 1";
         Method parse = StmtExecutor.class.getDeclaredMethod("parseByNereids");
         parse.setAccessible(true);
         parse.invoke(executor);
         AtomicInteger attempts = new AtomicInteger();
+        AtomicReference<ExternalTablePreloadInfo> oldPreload = new AtomicReference<>();
+        AtomicReference<RelationId> oldRelation = new AtomicReference<>();
         List<ConnectorTaskScheduler> groups = Lists.newArrayList();
         FairTaskExecutor splitPool = context.getEnv().getExtMetaCacheMgr()
                 .getQueryTaskExecutor(ConnectorTaskScheduler.Stage.SPLIT);
@@ -758,15 +845,44 @@ public class StmtExecutorTest extends TestWithFeService {
             groups.add(session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT));
             groups.add(session.getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA));
             try {
-                if (attempts.incrementAndGet() == 1) {
+                int attempt = attempts.incrementAndGet();
+                if (attempt == 2) {
+                    Assertions.assertFalse(statement.hasPartitionPolicyObservation(hive));
+                    Assertions.assertTrue(statement.getExternalTablePreloadInfo(hive.getId()).isEmpty());
+                    Assertions.assertTrue(statement.getExternalMetadataPreloadResult().isEmpty());
+                    Assertions.assertFalse(oldPreload.get().hasFilteredScanView(oldRelation.get()));
+                    Assertions.assertTrue(((Set<?>) Deencapsulation.getField(
+                            statement, "usedPartitionPolicyProofs")).isEmpty());
+                }
+                LogicalPlan plan = new NereidsParser().parseSingle(mixedQuery);
+                UnboundRelation relation = plan.<UnboundRelation>collectToList(UnboundRelation.class::isInstance)
+                        .stream().filter(node -> node.getNameParts().contains("h")).findFirst().get();
+                CascadesContext cascades = CascadesContext.initContext(statement, plan, PhysicalProperties.ANY);
+                NereidsPlanner planner = new NereidsPlanner(statement);
+                Deencapsulation.setField(planner, "cascadesContext", cascades);
+                Deencapsulation.invoke(planner, "collectAndLockTable", false, false, true);
+                ExternalTablePreloadInfo preload = statement.getExternalTablePreloadInfo(hive.getId()).get();
+                Assertions.assertTrue(statement.getExternalMetadataPreloadResult().isPresent());
+                Assertions.assertTrue(statement.hasPartitionPolicyObservation(hive));
+                Assertions.assertEquals(1, ((Set<?>) Deencapsulation.getField(
+                        statement, "usedPartitionPolicyProofs")).size());
+                Assertions.assertEquals(Set.of("p=1"),
+                        preload.getFilteredScanView(relation.getRelationId()).get().getItems().keySet());
+                Assertions.assertEquals(attempt, selections.get());
+                if (attempt == 1) {
+                    oldPreload.set(preload);
+                    oldRelation.set(relation.getRelationId());
                     throw new UserException("E-230");
                 }
+                Assertions.assertNotSame(oldPreload.get(), preload);
             } finally {
+                statement.releasePlannerResources();
                 session.getStatementScope().closeAll();
             }
             return null;
         }).when(executor).execute(Mockito.any(TUniqueId.class));
         try {
+            context.setThreadLocalInfo();
             Config.max_query_retry_time = 1;
             Method execute = StmtExecutor.class.getDeclaredMethod("executeWithReplanRetries", TUniqueId.class);
             execute.setAccessible(true);
@@ -776,9 +892,15 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(groups.stream().allMatch(ConnectorTaskScheduler::isClosed));
             Assertions.assertEquals(splitGroupsBefore, splitPool.getGroupCount());
             Assertions.assertEquals(metadataGroupsBefore, metadataPool.getGroupCount());
+            Mockito.verify(hive, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+            Mockito.verify(internal, Mockito.times(2)).tryReadLock(1, TimeUnit.MINUTES);
         } finally {
             Config.max_query_retry_time = oldRetryTime;
             context.getStatementContext().resetConnectorStatementScope();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
         }
     }
 
@@ -827,10 +949,12 @@ public class StmtExecutorTest extends TestWithFeService {
         ProfileManager manager = ProfileManager.getInstance();
         boolean fetchFailure = outcome.startsWith("FETCH_FAILURE_");
         Planner planner = fetchFailure ? Mockito.mock(NereidsPlanner.class) : Mockito.mock(Planner.class);
-        Statistics failedStatistics = Mockito.mock(Statistics.class);
-        Statistics successfulStatistics = Mockito.mock(Statistics.class);
-        Mockito.when(failedStatistics.printColumnStats()).thenReturn("abandoned-plan-column-statistics\n");
-        Mockito.when(successfulStatistics.printColumnStats()).thenReturn("successful-plan-column-statistics\n");
+        SlotReference failedColumn = new SlotReference("abandoned-plan-column-statistics", IntegerType.INSTANCE);
+        SlotReference successfulColumn = new SlotReference("successful-plan-column-statistics", IntegerType.INSTANCE);
+        Statistics failedStatistics = new Statistics(1000,
+                Map.of(failedColumn, new ColumnStatisticBuilder(1000).setNdv(10).build()));
+        Statistics successfulStatistics = new Statistics(42,
+                Map.of(successfulColumn, new ColumnStatisticBuilder(42).setNdv(10).build()));
         Field plannerField = StmtExecutor.class.getDeclaredField("planner");
         plannerField.setAccessible(true);
         Method handle = StmtExecutor.class.getDeclaredMethod("handleQueryWithRetry", TUniqueId.class);
@@ -879,8 +1003,16 @@ public class StmtExecutorTest extends TestWithFeService {
                 }
                 Mockito.when(((NereidsPlanner) planner).getDistributedPlans()).thenReturn(distributedPlans);
                 Mockito.when(((NereidsPlanner) planner).getPhysicalPlan()).thenReturn(plan);
+                PhysicalOlapScan relation = Mockito.mock(PhysicalOlapScan.class);
+                OlapTable table = Mockito.mock(OlapTable.class);
+                Mockito.when(table.getName()).thenReturn("profile_replan");
+                Mockito.when(relation.getTable()).thenReturn(table);
+                Mockito.when(relation.getQualifier()).thenReturn(List.of("test"));
+                Mockito.when(relation.getOperativeSlots()).thenReturn(List.of(
+                        attempts.get() == 1 ? failedColumn : successfulColumn));
+                Mockito.when(relation.getStats()).thenReturn(plan.getStats());
                 Mockito.when(((NereidsPlanner) planner).getPhysicalRelations())
-                        .thenReturn(Collections.singletonList(plan));
+                        .thenReturn(Collections.singletonList(relation));
             }
             plannerField.set(executor, planner);
             try {
@@ -899,6 +1031,10 @@ public class StmtExecutorTest extends TestWithFeService {
             TQueryOptions options = new TQueryOptions();
             options.enable_profile = true;
             Mockito.when(coordinator.getQueryOptions()).thenReturn(options);
+            // A dispatched Flight query registers its cancellation route with these.
+            Mockito.when(coordinator.getQueryId()).thenReturn(queryId);
+            Mockito.when(coordinator.getBackendBrpcAddresses())
+                    .thenReturn(Collections.singletonList(new TNetworkAddress("127.0.0.1", 8060)));
             Mockito.when(coordinator.getExecutionProfile()).thenReturn(execution);
             Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
             Mockito.when(coordinator.mustOutliveDispatch()).thenReturn("FLIGHT_DEFERRED".equals(outcome));
@@ -939,6 +1075,12 @@ public class StmtExecutorTest extends TestWithFeService {
                     }
                     throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
                 }
+                if (flight) {
+                    // As the coordinator does for a query whose results stay on the BEs.
+                    context.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(queryId,
+                            new TNetworkAddress("127.0.0.1", 8070), new TNetworkAddress("127.0.0.1", 8060),
+                            new ArrayList<>()));
+                }
                 return null;
             }).when(coordinator).exec();
         };
@@ -949,9 +1091,7 @@ public class StmtExecutorTest extends TestWithFeService {
                     return coordinator;
                 });
 
-        try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class);
-                MockedConstruction<NereidsCoordinator> coordinators = Mockito.mockConstruction(NereidsCoordinator.class,
-                        (coordinator, construction) -> configureCoordinator.configure(coordinator))) {
+        try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class)) {
             factories.when(EnvFactory::getInstance).thenReturn(factory);
             Config.cloud_unique_id = "profile-replan-test";
             Config.max_query_retry_time = "EXHAUSTED".equals(outcome) ? 0 : 1;
@@ -972,6 +1112,8 @@ public class StmtExecutorTest extends TestWithFeService {
                     Assertions.assertSame(successful, manager.getExecutionProfile(successful.getQueryId()));
                     Assertions.assertSame(executor.getCoord(),
                             QeProcessorImpl.INSTANCE.getCoordinator(successful.getQueryId()));
+                    // The result stays on the BEs, so the query's cancellation route was registered.
+                    Mockito.verify(executor.getCoord()).getBackendBrpcAddresses();
                     Assertions.assertEquals("FLIGHT_DEFERRED".equals(outcome), executor.isDeferredForArrowFlight());
                     if (executor.isDeferredForArrowFlight()) {
                         JsonObject pending = JsonParser.parseString(profile.getSummaryProfile().getExecutionSummary()
@@ -996,7 +1138,7 @@ public class StmtExecutorTest extends TestWithFeService {
                     Assertions.assertFalse(finalText.contains("abandoned-backend-selection"));
                     Assertions.assertFalse(profile.rowsProducedMap.containsKey(String.valueOf(plans.get(0).getId())));
                     Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(plans.get(1).getId())));
-                    Mockito.verify(failedStatistics, Mockito.times(1)).printColumnStats();
+                    Assertions.assertEquals(-1L, failedStatistics.getActualRowCount());
                 }
             } else {
                 Class<? extends Exception> errorType = "RPC".equals(outcome) ? RpcException.class : UserException.class;
@@ -1034,7 +1176,9 @@ public class StmtExecutorTest extends TestWithFeService {
             JsonObject finalAttempt = attemptDetails.getAsJsonObject(DebugUtil.printId(context.queryId()));
             Assertions.assertEquals(context.getState().getStateType() == QueryState.MysqlStateType.ERR ? "FAILED" : "SUCCEEDED",
                     finalAttempt.get("state").getAsString());
-            Assertions.assertEquals(fetchFailure ? 1 : 0, coordinators.constructed().size());
+            // Every dispatch, including a replanned query, now obtains its coordinator from the same factory.
+            Mockito.verify(factory, Mockito.times(executions.size())).createCoordinator(
+                    Mockito.eq(context), Mockito.eq(planner), Mockito.any());
             Assertions.assertNotEquals(Long.MAX_VALUE, profile.getQueryFinishTimestamp());
             Assertions.assertEquals(context.getStartTime(), profile.getSummaryProfile().getQueryBeginTime());
             for (ExecutionProfile execution : executions) {
@@ -1111,7 +1255,8 @@ public class StmtExecutorTest extends TestWithFeService {
                     Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
                     Mockito.doAnswer(dispatch -> {
                         if (!firstAttempt) {
-                            Assertions.assertSame(plan, profile.getPhysicalPlan());
+                            Assertions.assertNotSame(plan, profile.getPhysicalPlan());
+                            Assertions.assertEquals(plan.getId(), ((AbstractPlan) profile.getPhysicalPlan()).getId());
                             Assertions.assertTrue(profile.rowsProducedMap.isEmpty());
                             Assertions.assertEquals(-1L, rootStatistics.getActualRowCount());
                             Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
@@ -1137,7 +1282,8 @@ public class StmtExecutorTest extends TestWithFeService {
                             String firstText = profile.getProfileByLevel();
                             Assertions.assertTrue(firstText.contains("actualRows=1000"));
                             Assertions.assertTrue(firstText.contains("actualRows=500"));
-                            Assertions.assertEquals(500L, childStatistics.getActualRowCount());
+                            Assertions.assertEquals(500L, profile.getPhysicalPlan().child(0).getStats().getActualRowCount());
+                            Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
                             throw new RpcException("test-be", "fetch failed before sending results");
                         }
                         if (terminalFailure) {
@@ -1178,7 +1324,8 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(finalText.contains("actualRows=42"));
             Assertions.assertFalse(finalText.contains("actualRows=1000"));
             Assertions.assertFalse(finalText.contains("actualRows=500"));
-            Assertions.assertEquals(42L, rootStatistics.getActualRowCount());
+            Assertions.assertEquals(42L, profile.getPhysicalPlan().getStats().getActualRowCount());
+            Assertions.assertEquals(-1L, rootStatistics.getActualRowCount());
             Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
             Assertions.assertFalse(profile.rowsProducedMap.containsKey(String.valueOf(child.getId())));
             profile.writeToStorage(profileDirectory.toString());
@@ -1389,10 +1536,7 @@ public class StmtExecutorTest extends TestWithFeService {
         // a query to the master FE), the StmtExecutor is created via the proxy
         // constructor which creates a fresh StatementContext without a
         // parsedStatement. Without the fix, statementContext.getParsedStatement()
-        // remains null, causing SessionVariable.canUseNereidsDistributePlanner()
-        // to return false, which leads EnvFactory.createCoordinator() to create
-        // a legacy Coordinator instead of NereidsCoordinator, resulting in
-        // "fragment has no children" error.
+        // remains null until parsing propagates it to the statement context.
 
         // Simulate the proxy flow: StmtExecutor(ConnectContext, OriginStatement, boolean isProxy)
         StmtExecutor executor = new StmtExecutor(connectContext,

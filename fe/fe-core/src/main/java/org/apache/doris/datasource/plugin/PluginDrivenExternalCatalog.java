@@ -37,6 +37,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.ConnectorFactory;
 import org.apache.doris.connector.ConnectorSessionBuilder;
@@ -433,8 +434,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     /**
      * Parse one endpoint — {@code scheme://host:port} (e.g. {@code thrift://host:9083}) or a bare
-     * {@code host:port} — into host and port for the SSRF probe. Returns null when no concrete host:port
-     * can be extracted (nothing to probe); {@link HostAndPort} handles IPv6 literals in brackets natively.
+     * {@code host:port} — into host and port for the SSRF probe. An http or https URL that names no port is
+     * probed at its scheme's default port. Returns null when no concrete host:port can be extracted (nothing to
+     * probe); {@link HostAndPort} handles IPv6 literals in brackets natively.
      */
     static HostAndPort parseEndpoint(String value) {
         if (value == null || value.isEmpty()) {
@@ -445,10 +447,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 // Match the HMS client's URI semantics: query, fragment and userinfo do not name
                 // the socket destination. HostAndPort.fromParts also strips IPv6 brackets.
                 URI uri = new URI(value);
-                if (uri.getHost() == null || uri.getPort() < 0) {
+                int port = uri.getPort() >= 0 ? uri.getPort() : defaultWebPort(uri.getScheme());
+                if (uri.getHost() == null || port < 0) {
                     return null;
                 }
-                return HostAndPort.fromParts(uri.getHost(), uri.getPort());
+                return HostAndPort.fromParts(uri.getHost(), port);
             }
             String authority = value;
             int slashIdx = authority.indexOf('/');
@@ -463,6 +466,21 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (URISyntaxException | IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /**
+     * The port an http or https client connects to when the URI names none, 80 or 443 (RFC 9110 section 4.2), so a
+     * REST endpoint such as {@code https://host/ns} is probed where it connects; -1 for any other scheme, whose
+     * default, if it has one, is its client's.
+     */
+    private static int defaultWebPort(String scheme) {
+        if ("http".equalsIgnoreCase(scheme)) {
+            return 80;
+        }
+        if ("https".equalsIgnoreCase(scheme)) {
+            return 443;
+        }
+        return -1;
     }
 
     private void checkHiveParquetTimeZone(CatalogProperty property) throws DdlException {
@@ -535,14 +553,19 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public void onRefreshCache(boolean invalidCache) {
-        if (!invalidCache) {
-            super.onRefreshCache(false);
-            return;
-        }
+        beginTableLookupRefresh();
         try {
-            invalidateAllConnectorCachesIfPresent();
+            if (!invalidCache) {
+                super.onRefreshCache(false);
+                return;
+            }
+            try {
+                invalidateAllConnectorCachesIfPresent();
+            } finally {
+                super.onRefreshCache(true);
+            }
         } finally {
-            super.onRefreshCache(true);
+            endTableLookupRefresh();
         }
     }
 
@@ -687,6 +710,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
      */
     @Override
     public void registerDatabaseFromEvent(String remoteDbName, String localDbName) {
+        // The database list leaves out what include_database_list and exclude_database_list keep out; an event must
+        // not add it to the list either.
+        if (!isDatabaseListed(remoteDbName)) {
+            return;
+        }
         long dbId = Util.genIdByName(getName(), localDbName);
         try {
             ExternalDatabase<? extends ExternalTable> db =
@@ -788,9 +816,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public void validateCreateTableProperties(CreateTableInfo createTableInfo) throws DdlException {
         try {
+            PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(
+                    createTableInfo.getProperties());
             // Provider preflight is configuration-only and must run before catalog initialization or remote lookup.
             ConnectorFactory.validateCreateTable(getType(), getProperties());
-        } catch (DorisConnectorException e) {
+        } catch (DorisConnectorException | AnalysisException e) {
             throw new DdlException(e.getMessage(), e);
         }
     }
@@ -1044,20 +1074,25 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     .refreshTableInternal(db.get(), table.get(), info.getUpdateTime());
             return;
         }
-        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        beginTableLookupRefresh();
         try {
-            Connector replayConnector = connector;
-            if (isInitialized() && replayConnector != null) {
-                if (db.isPresent()) {
-                    replayConnector.invalidateDb(db.get().getRemoteName());
-                } else {
-                    replayConnector.invalidateAll();
+            ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            try {
+                Connector replayConnector = connector;
+                if (isInitialized() && replayConnector != null) {
+                    if (db.isPresent()) {
+                        replayConnector.invalidateDb(db.get().getRemoteName());
+                    } else {
+                        replayConnector.invalidateAll();
+                    }
                 }
+            } finally {
+                long dbId = Util.genIdByName(getName(), info.getDb());
+                cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
+                        Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
             }
         } finally {
-            long dbId = Util.genIdByName(getName(), info.getDb());
-            cacheMgr.invalidateTable(getId(), dbId, info.getDb(),
-                    Util.genIdByName(getName(), info.getDb(), info.getTable()), info.getTable());
+            endTableLookupRefresh();
         }
     }
 

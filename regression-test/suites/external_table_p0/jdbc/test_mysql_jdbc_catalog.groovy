@@ -203,7 +203,7 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
         explain {
             sql("select `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
-            contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""
+            contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE ((date(`datetime`)) = '2012-10-25')"""
         }
 
         explain {
@@ -446,12 +446,12 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         explain {
             sql ("select k6, k8 from test1 where nvl(k6, 1) = k6;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(`k6`, 1) = `k6`)"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, 1)) = `k6`)"
         }
         explain {
             sql ("select k6, k8 from test1 where nvl(k6, nvl(k6, 1)) = k6;")
 
-            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE (ifnull(`k6`, ifnull(`k6`, 1)) = `k6`)"
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, ifnull(`k6`, 1))) = `k6`)"
         }
         sql """ set enable_ext_func_pred_pushdown = "false"; """
         explain {
@@ -465,13 +465,13 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1;")
 
-            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 YEAR) = '2023-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE ((date_add(`d_z`, INTERVAL 1 YEAR)) = '2023-01-01')"
         }
         order_qt_date_add_month """ select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1; """
         explain {
             sql("select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1;")
 
-            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 MONTH) = '2022-02-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE ((date_add(`d_z`, INTERVAL 1 MONTH)) = '2022-02-01')"
         }
         order_qt_date_add_week """ select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1; """
         explain {
@@ -508,13 +508,13 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1;")
 
-            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 YEAR) = '2021-01-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE ((date_sub(`d_z`, INTERVAL 1 YEAR)) = '2021-01-01')"
         }
         order_qt_date_sub_month """ select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1; """
         explain {
             sql("select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1;")
 
-            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 MONTH) = '2021-12-01')"
+            contains "QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE ((date_sub(`d_z`, INTERVAL 1 MONTH)) = '2021-12-01')"
         }
         order_qt_date_sub_week """ select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1; """
         explain {
@@ -743,20 +743,20 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         sql "use mysql_function_rules.doris_test"
         explain {
             sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
-            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date_trunc(`datetime`, 'month') = '2013-10-01 00:00:00')"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE ((date_trunc(`datetime`, 'month')) = '2013-10-01 00:00:00')"""
             contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
         }
         sql """alter catalog mysql_function_rules set properties("function_rules" = '');"""
         explain {
             sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
-            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (abs(`tinyint_u`) > 0)"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE ((abs(`tinyint_u`)) > 0)"""
             contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
         }
 
         sql """alter catalog mysql_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["date_trunc"], "unsupported" : ["abs"]}}')"""         
         explain {
             sql """select tinyint_u from all_types where abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
-            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date_trunc(`datetime`, 'month') = '2013-10-01 00:00:00')"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE ((date_trunc(`datetime`, 'month')) = '2013-10-01 00:00:00')"""
             contains """PREDICATES: ((abs(tinyint_u[#0]) > 0) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
         }
 
@@ -764,7 +764,7 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         sql """alter catalog mysql_function_rules set properties("function_rules" = '{"pushdown" : {"supported": ["to_date"], "unsupported" : ["abs"]}, "rewrite" : {"to_date" : "date2"}}');"""
         explain {
             sql """select tinyint_u from all_types where to_date(`datetime`) = "2013-10-01" and abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
-            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date2(`datetime`) = '2013-10-01')"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE ((date2(`datetime`)) = '2013-10-01')"""
             contains """PREDICATES: (((to_date(datetime[#17]) = '2013-10-01') AND (abs(tinyint_u[#0]) > 0)) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
         }
 
@@ -772,7 +772,7 @@ suite("test_mysql_jdbc_catalog", "p0,external") {
         sql """alter catalog mysql_function_rules set properties("function_rules" = '');"""
         explain {
             sql """select tinyint_u from all_types where to_date(`datetime`) = "2013-10-01" and abs(tinyint_u) > 0 and date_trunc(`datetime`, "month") = "2013-10-01 00:00:00";"""
-            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2013-10-01') AND (abs(`tinyint_u`) > 0)"""
+            contains """QUERY: SELECT `tinyint_u`, `datetime` FROM `doris_test`.`all_types` WHERE ((date(`datetime`)) = '2013-10-01') AND ((abs(`tinyint_u`)) > 0)"""
             contains """PREDICATES: (((to_date(datetime[#17]) = '2013-10-01') AND (abs(tinyint_u[#0]) > 0)) AND (date_trunc(datetime[#17], 'month') = '2013-10-01 00:00:00'))"""
         }
 

@@ -18,12 +18,12 @@
 
 docker_container_state_cmd() {
     local container_name="$1"
-    sudo docker inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_name}"
+    docker_cli inspect --format '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_name}"
 }
 
 docker_container_env_cmd() {
     local container_name="$1"
-    sudo docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${container_name}"
+    docker_cli inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "${container_name}"
 }
 
 docker_container_ready() {

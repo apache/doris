@@ -374,16 +374,15 @@ suite("test_ivm_agg_1") {
     def taskStatus = taskResult[0][1].toString()
     logger.info("MIN boundary delete INCREMENTAL task status: " + taskStatus
             + ", error: " + taskResult[0][2])
-    // The task should be FAILED because assert_true guard detected MIN boundary deletion
-    assertTrue(taskStatus == "FAILED",
-            "Expected INCREMENTAL to fail when deleting MIN value, but got: " + taskStatus)
-    def errorMsg = taskResult[0][2].toString()
-    assertTrue(errorMsg.contains("MIN_MAX_BOUNDARY") || errorMsg.contains("IVM")
-                    || errorMsg.contains("assert_true") || errorMsg.contains("fallback"),
-            "Error should mention MIN_MAX_BOUNDARY/IVM/assert_true/fallback but got: " + errorMsg)
+    // The hidden top-K state holds the values around the current MIN, so deleting the MIN value
+    // itself is merged incrementally: MIN moves to the next value (20) and the refresh succeeds.
+    assertTrue(taskStatus == "SUCCESS",
+            "Deleting the current MIN should be maintained incrementally, but got: " + taskStatus)
+    order_qt_minmax_op_after_min_delete """
+        SELECT min_v1, max_v1, cnt FROM test_ivm_agg_mtmv_minmax_op_mv
+    """
 
-    // Step 4: COMPLETE refresh recovers from the failed task. The snapshot excludes deleted k1=1,
-    // so min=20, max=35, cnt=4.
+    // Step 4: A COMPLETE refresh must produce the same state as the incremental merge.
     sql """REFRESH MATERIALIZED VIEW test_ivm_agg_mtmv_minmax_op_mv COMPLETE"""
     waitingMTMVTaskFinishedByMvName("test_ivm_agg_mtmv_minmax_op_mv")
 

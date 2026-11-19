@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/types.pb.h>
 #include <stdint.h>
 
 #include <boost/random/mersenne_twister.hpp>
@@ -33,6 +31,9 @@
 #include "util/uuid_generator.h"
 
 namespace doris {
+
+class TUniqueId;
+class PUniqueId;
 
 // convert int to a hex format string, buf must enough to hold converted hex string
 template <typename T>
@@ -67,8 +68,8 @@ struct UniqueId {
     UniqueId() = default;
     UniqueId(int64_t hi_, int64_t lo_) : hi(hi_), lo(lo_) {}
     UniqueId(const UniqueId& uid) : hi(uid.hi), lo(uid.lo) {}
-    UniqueId(const TUniqueId& tuid) : hi(tuid.hi), lo(tuid.lo) {}
-    UniqueId(const PUniqueId& puid) : hi(puid.hi()), lo(puid.lo()) {}
+    UniqueId(const TUniqueId& tuid);
+    UniqueId(const PUniqueId& puid);
     UniqueId(const std::string& hi_str, const std::string& lo_str) {
         from_hex(&hi, hi_str);
         from_hex(&lo, lo_str);
@@ -101,21 +102,13 @@ struct UniqueId {
         return *this;
     }
 
-    UniqueId& operator=(const PUniqueId puid) {
-        hi = puid.hi();
-        lo = puid.lo();
-        return *this;
-    }
+    UniqueId& operator=(const PUniqueId puid);
 
-    UniqueId& operator=(const TUniqueId tuid) {
-        hi = tuid.hi;
-        lo = tuid.lo;
-        return *this;
-    }
+    UniqueId& operator=(const TUniqueId tuid);
     //compare PUniqueId and UniqueId
-    bool operator==(const PUniqueId& rhs) const { return hi == rhs.hi() && lo == rhs.lo(); }
+    bool operator==(const PUniqueId& rhs) const;
 
-    bool operator!=(const PUniqueId& rhs) const { return hi != rhs.hi() || lo != rhs.lo(); }
+    bool operator!=(const PUniqueId& rhs) const;
 
     // std::map std::set needs this operator
     bool operator<(const UniqueId& right) const {
@@ -134,19 +127,9 @@ struct UniqueId {
 
     bool operator!=(const UniqueId& rhs) const { return hi != rhs.hi || lo != rhs.lo; }
 
-    TUniqueId to_thrift() const {
-        TUniqueId tid;
-        tid.__set_hi(hi);
-        tid.__set_lo(lo);
-        return tid;
-    }
+    TUniqueId to_thrift() const;
 
-    PUniqueId to_proto() const {
-        PUniqueId pid;
-        pid.set_hi(hi);
-        pid.set_lo(lo);
-        return pid;
-    }
+    PUniqueId to_proto() const;
 };
 
 // This function must be called 'hash_value' to be picked up by boost.
@@ -158,13 +141,7 @@ inline std::string generate_uuid_string() {
 }
 
 /// generates a 16 byte UUID
-inline TUniqueId generate_uuid() {
-    auto uuid = boost::uuids::basic_random_generator<boost::mt19937>()();
-    TUniqueId uid;
-    memcpy(&uid.hi, uuid.data, sizeof(int64_t));
-    memcpy(&uid.lo, uuid.data + sizeof(int64_t), sizeof(int64_t));
-    return uid;
-}
+TUniqueId generate_uuid();
 
 std::ostream& operator<<(std::ostream& os, const UniqueId& uid);
 

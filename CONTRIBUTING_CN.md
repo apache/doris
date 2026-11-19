@@ -72,3 +72,5 @@ under the License.
 
 无论是修复 Bug 还是增加 Feature，我们都非常欢迎。如果您希望给 Doris 提交代码，您需要从 GitHub 上 fork 代码库至您的项目空间下，为您提交的代码创建一个新的分支，添加源项目为upstream，并提交PR。
 提交PR的方式可以参考文档 [Pull Request](https://doris.apache.org/zh-CN/community/how-to-contribute/pull-request/)。
+
+如果您借助 AI 编程助手开发，建议优先使用 [apache/doris-skills](https://github.com/apache/doris-skills) 中的两个 skill：用 `develop-with-evidence` 开发并验证改动，用 `doris-pr-description` 按 Doris 的 PR 规范撰写 PR 标题和描述并提交 PR。会读取 [AGENTS.md](AGENTS.md) 的助手（如 Claude Code、Codex）会自动使用它们：在 Doris 代码目录中启动助手，直接让它修复或开发某个问题并提交 PR 即可。这两个 skill 来自 `doris-skills` 子模块，助手发现缺失时会自行检出。如需自己检出（例如助手没有网络权限时），执行 `git submodule update --init doris-skills`；加上 `--remote` 可以取 doris-skills 的最新版本而不是本仓库钉住的版本，此时不要把变动的 `doris-skills` 指针提交进去。

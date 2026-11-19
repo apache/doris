@@ -129,7 +129,7 @@ _get_pr_changed_files_count() {
     REPO="${REPO:=doris}"
     try_times=10
     while [[ ${try_times} -gt 0 ]]; do
-        set -x
+        set +x
         if ret=$(
             curl -s \
                 -H "Accept: application/vnd.github+json" \
@@ -168,7 +168,7 @@ _get_pr_changed_files() {
     while [[ ${changed_files_count} -gt 0 ]]; do
         try_times=10
         while [[ ${try_times} -gt 0 ]]; do
-            set -x
+            set +x
             if curl -s \
                 -H "Accept: application/vnd.github+json" \
                 ${GITHUB_TOKEN:+-H "Authorization: Bearer ${GITHUB_TOKEN}"} \

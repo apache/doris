@@ -3759,7 +3759,7 @@ public class Config extends ConfigBase {
     public static boolean enable_tso_forward_when_counter_full = true;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_notify_be_after_load_txn_commit = false;
+    public static boolean enable_notify_be_after_load_txn_commit = true;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

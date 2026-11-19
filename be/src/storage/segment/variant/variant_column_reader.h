@@ -182,6 +182,8 @@ using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
 
 class VariantColumnReader : public ColumnReader {
 public:
+    uint32_t path_encoding() const { return _path_encoding; }
+
     VariantColumnReader() = default;
 
     Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
@@ -191,7 +193,7 @@ public:
                 const io::IOContext* source_io_ctx = nullptr);
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                        const StorageReadOptions* opt) override;
+                        const StorageReadOptions* opt, bool enable_read_ahead = false) override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
                         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
@@ -418,11 +420,13 @@ private:
             PathToBinaryColumnCache* binary_column_cache_ptr, const std::string& path,
             std::shared_ptr<ColumnReader> binary_column_reader);
 
-    // Protect `_subcolumns_meta_info` and `_statistics` when loading external meta.
+    // Protect the external meta load guard, subcolumn metadata and statistics.
     mutable std::shared_mutex _subcolumns_meta_mutex;
+    std::optional<DorisCallOnce<Status>> _external_meta_load_once {std::in_place};
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     // Sparse column readers (single or bucketized)
     std::shared_ptr<BinaryColumnReader> _binary_column_reader;
+    uint32_t _path_encoding = 0;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
     std::shared_ptr<TabletSchema> _tablet_schema;
@@ -436,8 +440,6 @@ private:
     io::FileReaderSPtr _segment_file_reader;
     uint64_t _num_rows {0};
     uint32_t _root_unique_id {0};
-
-    // call-once guard moved into VariantExternalMetaReader
 
     // NestedGroup readers for array<object> paths
     NestedGroupReaders _nested_group_readers;

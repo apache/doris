@@ -17,16 +17,34 @@
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
+#include <aws/s3/model/CreateMultipartUploadRequest.h>
+#include <aws/s3/model/CreateMultipartUploadResult.h>
+#include <aws/s3/model/DeleteObjectRequest.h>
+#include <aws/s3/model/DeleteObjectResult.h>
+#include <aws/s3/model/DeleteObjectsRequest.h>
+#include <aws/s3/model/DeleteObjectsResult.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
+#include <aws/s3/model/PutObjectRequest.h>
+#include <aws/s3/model/PutObjectResult.h>
+#include <aws/s3/model/ServerSideEncryption.h>
 
-#include "cpp/obj-client/obj_storage_client.h"
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
-#include "cpp/obj-client/s3_obj_storage_client.h"
+#include <type_traits>
+
+#include "cpp/obj-storage/auth/ca_bundle_cache.h"
+#include "cpp/obj-storage/client/bos_obj_storage_client.h"
+#include "cpp/obj-storage/client/cos_obj_storage_client.h"
+#include "cpp/obj-storage/client/gcp_obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
+#include "cpp/obj-storage/client/obs_obj_storage_client.h"
+#include "cpp/obj-storage/client/oss_obj_storage_client.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/client/tos_obj_storage_client.h"
+#include "cpp/obj-storage/rate_limit/rate_limited_obj_storage_client.h"
 #include "gmock/gmock.h"
 #include "io/fs/file_system.h"
-#include "util/s3_util.h"
 #include "util/string_util.h"
 
 using namespace Aws::S3::Model;
@@ -35,6 +53,11 @@ namespace doris::io {
 class MockS3Client : public Aws::S3::S3Client {
 public:
     MockS3Client() {};
+
+    MOCK_METHOD(Aws::S3::Model::PutObjectOutcome, PutObject,
+                (const Aws::S3::Model::PutObjectRequest& request), (const, override));
+    MOCK_METHOD(Aws::S3::Model::CreateMultipartUploadOutcome, CreateMultipartUpload,
+                (const Aws::S3::Model::CreateMultipartUploadRequest& request), (const, override));
 
     MOCK_METHOD(Aws::S3::Model::ListObjectsV2Outcome, ListObjectsV2,
                 (const Aws::S3::Model::ListObjectsV2Request& request), (const, override));
@@ -48,8 +71,8 @@ class CountingGetRateLimitPolicy final : public ObjStorageRateLimitPolicy {
 public:
     explicit CountingGetRateLimitPolicy(size_t* request_count) : request_count_(request_count) {}
 
-    ObjStorageAdmission acquire(S3RateLimitType type, size_t) const override {
-        EXPECT_EQ(type, S3RateLimitType::GET);
+    ObjStorageAdmission acquire(ObjStorageRateLimitType type, size_t) const override {
+        EXPECT_EQ(type, ObjStorageRateLimitType::GET);
         ++*request_count_;
         return {};
     }
@@ -59,7 +82,7 @@ private:
 };
 
 class S3ObjStorageClientMockTest : public testing::Test {
-    static void SetUpTestSuite() { S3ClientFactory::instance(); };
+    static void SetUpTestSuite() { ObjStorageClientFactory::instance(); };
     static void TearDownTestSuite() {};
 
 private:
@@ -68,11 +91,20 @@ private:
 
 Aws::SDKOptions S3ObjStorageClientMockTest::options {};
 
-TEST_F(S3ObjStorageClientMockTest, list_objects_compatibility) {
+template <typename Client>
+class S3ProviderOperationsTest : public S3ObjStorageClientMockTest {};
+
+using S3ProviderClients =
+        testing::Types<S3ObjStorageClient, OssObjStorageClient, CosObjStorageClient,
+                       BosObjStorageClient, ObsObjStorageClient, GcpObjStorageClient,
+                       TosObjStorageClient>;
+TYPED_TEST_SUITE(S3ProviderOperationsTest, S3ProviderClients);
+
+TYPED_TEST(S3ProviderOperationsTest, list_objects_compatibility) {
     // If storage only supports ListObjectsV1, s3_obj_storage_client.list_objects
     // should return an error.
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    auto s3_obj_storage_client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    auto s3_obj_storage_client = std::make_shared<TypeParam>(mock_s3_client);
 
     ListObjectsV2Result result;
     result.SetIsTruncated(true);
@@ -101,10 +133,10 @@ ListObjectsV2Result CreatePageResult(const std::string& nextToken,
     return result;
 }
 
-TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
+TYPED_TEST(S3ProviderOperationsTest, list_objects_with_pagination) {
     auto mock_s3_client = std::make_shared<MockS3Client>();
     size_t get_request_count = 0;
-    auto inner_client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    auto inner_client = std::make_shared<TypeParam>(mock_s3_client);
     auto obj_storage_client = std::make_shared<RateLimitedObjStorageClient>(
             std::move(inner_client),
             std::make_shared<CountingGetRateLimitPolicy>(&get_request_count));
@@ -125,6 +157,10 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
     EXPECT_CALL(*mock_s3_client, ListObjectsV2(testing::_))
             .WillOnce([&](const ListObjectsV2Request& req) {
                 // page1：no ContinuationToken
+                EXPECT_EQ(req.GetBucket(), "dummy-bucket");
+                EXPECT_EQ(req.GetPrefix(),
+                          "S3ObjStorageClientMockTest/list_objects_with_pagination");
+                EXPECT_EQ(req.GetMaxKeys(), 1000);
                 EXPECT_FALSE(req.ContinuationTokenHasBeenSet());
                 return Aws::S3::Model::ListObjectsV2Outcome(
                         CreatePageResult("token1", pages[0], true));
@@ -151,10 +187,10 @@ TEST_F(S3ObjStorageClientMockTest, list_objects_with_pagination) {
     EXPECT_EQ(get_request_count, pages.size());
 }
 
-TEST_F(S3ObjStorageClientMockTest,
-       delete_object_preserves_not_found_and_batch_uses_delete_objects) {
+TYPED_TEST(S3ProviderOperationsTest,
+           delete_object_preserves_not_found_and_batch_uses_delete_objects) {
     auto mock_s3_client = std::make_shared<MockS3Client>();
-    auto s3_obj_storage_client = std::make_shared<S3ObjStorageClient>(mock_s3_client);
+    auto s3_obj_storage_client = std::make_shared<TypeParam>(mock_s3_client);
     auto not_found = [](const DeleteObjectRequest&) {
         Aws::S3::S3Error error;
         error.SetResponseCode(Aws::Http::HttpResponseCode::NOT_FOUND);
@@ -180,6 +216,41 @@ TEST_F(S3ObjStorageClientMockTest,
     response =
             s3_obj_storage_client->delete_objects({.bucket = "dummy-bucket"}, {"missing-object"});
     EXPECT_TRUE(response.ok());
+}
+
+TYPED_TEST(S3ProviderOperationsTest, uploads_preserve_provider_encryption_policy) {
+    auto sdk = std::make_shared<MockS3Client>();
+    std::shared_ptr<ObjStorageClient> client = std::make_shared<TypeParam>(sdk);
+    for (bool sse_enabled : {false, true}) {
+        SCOPED_TRACE(sse_enabled);
+        const bool send_s3_encryption =
+                sse_enabled && !std::is_same_v<TypeParam, GcpObjStorageClient>;
+        const auto expected_encryption =
+                send_s3_encryption ? ServerSideEncryption::AES256 : ServerSideEncryption::NOT_SET;
+        EXPECT_CALL(*sdk, PutObject(testing::_)).WillOnce([&](const PutObjectRequest& request) {
+            EXPECT_EQ(request.GetBucket(), "bucket");
+            EXPECT_EQ(request.GetKey(), "object");
+            EXPECT_EQ(request.GetContentLength(), 4);
+            EXPECT_EQ(request.ServerSideEncryptionHasBeenSet(), send_s3_encryption);
+            EXPECT_EQ(request.GetServerSideEncryption(), expected_encryption);
+            return PutObjectOutcome(PutObjectResult {});
+        });
+        EXPECT_CALL(*sdk, CreateMultipartUpload(testing::_))
+                .WillOnce([&](const CreateMultipartUploadRequest& request) {
+                    EXPECT_EQ(request.GetBucket(), "bucket");
+                    EXPECT_EQ(request.GetKey(), "object");
+                    EXPECT_EQ(request.ServerSideEncryptionHasBeenSet(), send_s3_encryption);
+                    EXPECT_EQ(request.GetServerSideEncryption(), expected_encryption);
+                    CreateMultipartUploadResult result;
+                    result.SetUploadId("upload-id");
+                    return CreateMultipartUploadOutcome(std::move(result));
+                });
+        const ObjStoragePath path {.bucket = "bucket", .key = "object", .sse_enabled = sse_enabled};
+        EXPECT_TRUE(client->put_object(path, "data").ok());
+        auto multipart = client->create_multipart_upload(path);
+        EXPECT_TRUE(multipart.resp.ok());
+        EXPECT_EQ(multipart.upload_id, "upload-id");
+    }
 }
 
 TEST_F(S3ObjStorageClientMockTest, test_ca_cert) {

@@ -34,6 +34,7 @@
 #include "common/metric.h"
 #include "common/network_util.h"
 #include "common/stopwatch.h"
+#include "common/thread_name.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
@@ -145,6 +146,7 @@ void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {
 MetaServerRegister::MetaServerRegister(std::shared_ptr<TxnKv> txn_kv)
         : running_(0), txn_kv_(std::move(txn_kv)) {
     register_thread_.reset(new std::thread([this] {
+        set_current_thread_name("ms_register_thread");
         while (running_.load() == 0) {
             LOG(INFO) << "register thread wait for start";
             std::unique_lock l(mtx_);
@@ -187,7 +189,6 @@ MetaServerRegister::MetaServerRegister(std::shared_ptr<TxnKv> txn_kv)
         }
         LOG(INFO) << "register thread quits";
     }));
-    pthread_setname_np(register_thread_->native_handle(), "ms_register_thread");
 }
 
 MetaServerRegister::~MetaServerRegister() {
@@ -250,7 +251,7 @@ void MetaServerInstanceWatcher::stop() {
 }
 
 void MetaServerInstanceWatcher::watch_instance_loop() {
-    pthread_setname_np(pthread_self(), "ms_instance_watcher");
+    set_current_thread_name("ms_instance_watcher");
 
     LOG(INFO) << "instance watch thread begins to run";
 

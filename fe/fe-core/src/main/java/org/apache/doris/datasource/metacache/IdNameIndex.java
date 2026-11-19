@@ -22,6 +22,8 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentMap;
 
@@ -130,6 +132,20 @@ public final class IdNameIndex {
                 .filter(name -> name.equalsIgnoreCase(requestedName))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /** Retire target aliases while retaining unrelated names for cold numeric lookup. */
+    public synchronized void removeNamesMatching(String name, boolean ignoreCase) {
+        if (!ignoreCase) {
+            removeName(name);
+            return;
+        }
+        String foldedName = name.toLowerCase(Locale.ROOT);
+        for (String candidate : new ArrayList<>(nameToId.keySet())) {
+            if (candidate.toLowerCase(Locale.ROOT).equals(foldedName)) {
+                removeName(candidate);
+            }
+        }
     }
 
     public synchronized void clear() {

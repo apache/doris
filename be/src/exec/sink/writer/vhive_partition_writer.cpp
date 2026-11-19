@@ -27,8 +27,8 @@
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -74,9 +74,9 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
             .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
-    if (auto* s3_fs = dynamic_cast<io::S3FileSystem*>(_fs.get());
-        s3_fs != nullptr &&
-        !hive_multipart_protocol_supported(s3_fs->client_holder()->s3_client_conf().provider,
+    if (auto* obj_fs = dynamic_cast<io::ObjStorageFileSystem*>(_fs.get());
+        obj_fs != nullptr &&
+        !hive_multipart_protocol_supported(storage_provider(obj_fs->client_holder()->config()),
                                            _supports_deferred_azure_multipart)) {
         // An old coordinator cannot publish namespaced Azure block IDs; lease expiry is not a
         // compatibility fence, so reject before creating an upload that it could corrupt.
@@ -85,12 +85,13 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
                 "completion");
     }
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = true};
-    RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
         TParquetCompressionType::type parquet_compression_type =
                 DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_hive_compress_type));
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
         // TODO: INT96 is kept for Hive 2/3 compatibility. Add an explicit option before
         // changing the default Hive parquet timestamp encoding to standard logical types.
         ParquetFileOptions parquet_options = {parquet_compression_type,
@@ -107,12 +108,16 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
                 _hive_compress_type);
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_CSV_PLAIN: {
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
         // TODO(syt): support hive csv table, only hive text file is supportted now
         _file_format_transformer = std::make_unique<VCSVTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, false, "csv", "",
@@ -188,8 +193,8 @@ bool VHivePartitionWriter::_build_s3_mpu_pending_upload(TS3MPUPendingUpload* pen
         return false;
     }
 
-    doris::io::S3FileWriter* s3_mpu_file_writer =
-            dynamic_cast<doris::io::S3FileWriter*>(_file_writer.get());
+    doris::io::ObjStorageFileWriter* s3_mpu_file_writer =
+            dynamic_cast<doris::io::ObjStorageFileWriter*>(_file_writer.get());
     DCHECK(s3_mpu_file_writer != nullptr);
     std::string upload_id = s3_mpu_file_writer->upload_id();
     if (upload_id.empty()) {

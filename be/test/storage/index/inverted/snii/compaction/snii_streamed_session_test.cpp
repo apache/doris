@@ -1022,7 +1022,12 @@ TEST(SniiStreamedWriterSessionTest, TermHashGrowthIsReservedBeforeAllocation) {
 
 TEST(SniiStreamedWriterSessionTest, FinalizesAfterPersistentVocabularyCrossesSpillThreshold) {
     constexpr uint64_t kReporterCap = 384U << 10;
-    constexpr uint32_t kTermCount = 3000;
+    // The vocabulary must stay above the cap even after the forced spill frees the arena, with
+    // either standard library: its strings are charged by sizeof(std::string), 32 bytes with
+    // libstdc++ and 24 with libc++. With libc++ the forced case accounts 371,332 bytes for 3000
+    // terms, under the 393,216-byte cap, and 421,332 for 4000. The in-memory arena stays at
+    // 64 KiB, below the cap / 4 that a spill needs, so the in-memory case still never spills.
+    constexpr uint32_t kTermCount = 4000;
     for (bool force_spill : {false, true}) {
         writer::MemoryReporter reporter(
                 /*consume_release=*/nullptr, kReporterCap,
@@ -1067,14 +1072,17 @@ TEST(SniiStreamedWriterSessionTest, FinalizesAfterPersistentVocabularyCrossesSpi
         uint64_t prx_base = 0;
         assert_ok(index.lookup("term_100000", &found, &entry, &frq_base, &prx_base));
         EXPECT_TRUE(found);
-        assert_ok(index.lookup("term_102999", &found, &entry, &frq_base, &prx_base));
+        assert_ok(index.lookup("term_" + std::to_string(100000 + kTermCount - 1), &found, &entry,
+                               &frq_base, &prx_base));
         EXPECT_TRUE(found);
     }
 }
 
 TEST(SniiStreamedWriterSessionTest, TerminalDrainReleasesLookupStateWithoutUnderAccountingIds) {
     constexpr uint64_t kReporterCap = 384U << 10;
-    constexpr uint32_t kTermCount = 3000;
+    // Sized as in FinalizesAfterPersistentVocabularyCrossesSpillThreshold, so that the
+    // vocabulary exceeds the cap with libc++ as well.
+    constexpr uint32_t kTermCount = 4000;
     for (bool force_spill : {false, true}) {
         writer::MemoryReporter reporter(
                 /*consume_release=*/nullptr, kReporterCap,

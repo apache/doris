@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "format_v2/parquet/native_schema_desc.h"
 #include "format_v2/parquet/parquet_column_schema.h"
+#include "format_v2/parquet/parquet_crypto.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/reader/native/level_reader.h"
 #include "runtime/runtime_profile.h"
@@ -147,10 +148,18 @@ Status CountColumnReader::create(io::FileReaderSPtr file, const NativeParquetMet
     std::unique_ptr<native::LevelReader> level_reader;
     const auto compat = native::parquet_reader_compat(
             thrift_metadata.__isset.created_by ? thrift_metadata.created_by : "");
+    std::shared_ptr<ParquetColumnCrypto> crypto;
+    if (metadata->encryption() != nullptr) {
+        RETURN_IF_ERROR(metadata->encryption()->column_crypto(
+                row_group.columns[leaf_schema->leaf_column_id],
+                row_group.__isset.ordinal ? row_group.ordinal : row_group_id,
+                leaf_schema->leaf_column_id, &crypto));
+    }
     RETURN_IF_ERROR(native::LevelReader::create(
             std::move(file), row_group.columns[leaf_schema->leaf_column_id], leaf_field,
             row_group.num_rows, std::min(max_group_buffer, max_column_buffer), io_ctx,
-            enable_page_cache, page_cache_file_key, compat, &level_reader));
+            enable_page_cache && metadata->encryption() == nullptr, page_cache_file_key, compat,
+            &level_reader, std::move(crypto)));
     reader->reset(new CountColumnReader(leaf_schema->name, std::move(level_reader), profile));
     return Status::OK();
 }
