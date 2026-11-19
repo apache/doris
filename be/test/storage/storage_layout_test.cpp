@@ -519,8 +519,11 @@ TEST(StorageLayoutTest, ObjectBatchSerialisesEveryValue) {
     auto bitmaps = ColumnBitmap::create();
     for (size_t i = 0; i < 3; ++i) {
         BitmapValue bitmap;
-        for (size_t j = 0; j <= i * 3; ++j) {
+        for (size_t j = 0; j <= i * 1024; ++j) {
             bitmap.add(i * 100 + j);
+        }
+        if (i == 1) {
+            bitmap.optimize();
         }
         bitmaps->insert_value(bitmap);
     }
@@ -536,11 +539,14 @@ TEST(StorageLayoutTest, ObjectBatchSerialisesEveryValue) {
     size_t total_size = 0;
     for (size_t row = 0; row < 3; ++row) {
         EXPECT_EQ(cells[row].data, bytes + total_size) << "row " << row;
-        EXPECT_EQ(cells[row].size, values[row].getSizeInBytes()) << "row " << row;
+        BitmapValue expected(values[row]);
+        expected.optimize();
+        EXPECT_EQ(cells[row].size, expected.getSizeInBytes()) << "row " << row;
         EXPECT_EQ(BitmapValue(cells[row].data).to_string(), values[row].to_string());
         total_size += cells[row].size;
     }
     EXPECT_EQ(buffers.bytes.size(), total_size);
+    EXPECT_LT(cells[2].size, values[2].getSizeInBytes());
 
     auto hlls = ColumnHLL::create();
     hlls->insert_value(HyperLogLog(uint64_t(7)));

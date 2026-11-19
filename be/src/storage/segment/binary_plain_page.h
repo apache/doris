@@ -235,7 +235,11 @@ public:
                 RETURN_IF_ERROR(BitmapTypeCode::validate(*(_data.data + last_offset)));
             }
         }
-        dst->insert_many_continuous_binary_data(_data.data, _offsets.data(), max_fetch);
+        if (!_append_segment_bitmaps(dst, max_fetch, [&](size_t i) {
+                return StringRef(_data.data + _offsets[i], _offsets[i + 1] - _offsets[i]);
+            })) {
+            dst->insert_many_continuous_binary_data(_data.data, _offsets.data(), max_fetch);
+        }
 
         *n = max_fetch;
         return Status::OK();
@@ -287,7 +291,8 @@ public:
             read_count++;
         }
 
-        if (LIKELY(read_count > 0)) {
+        if (read_count > 0 &&
+            !_append_segment_bitmaps(dst, read_count, [&](size_t i) { return _binary_data[i]; })) {
             dst->insert_many_strings(_binary_data.data(), read_count);
         }
 
@@ -337,6 +342,25 @@ public:
 
 private:
     static constexpr size_t SIZE_OF_INT32 = sizeof(uint32_t);
+
+    template <typename ValueAt>
+    bool _append_segment_bitmaps(MutableColumnPtr& dst, size_t count, ValueAt value_at) {
+        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
+            // Indexed columns also use bitmap pages but request the original bytes in ColumnString.
+            if (auto* column = check_and_get_column<ColumnBitmap>(*dst)) {
+                auto& values = column->get_data();
+                for (size_t i = 0; i < count; ++i) {
+                    const auto bytes = value_at(i);
+                    auto& value = values.emplace_back();
+                    if (bytes.size != 0) {
+                        value.deserialize_from_segment(bytes.data);
+                    }
+                }
+                return true;
+            }
+        }
+        return false;
+    }
     // Return the offset within '_data' where the string value with index 'idx' can be found.
     uint32_t offset(size_t idx) const {
         if (idx >= _num_elems) {
