@@ -25,7 +25,6 @@
 #include "common/exception.h"
 #include "core/column/columns_common.h"
 #include "exec/common/sip_hash.h"
-#include "exec/sort/sort_block.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
@@ -280,38 +279,6 @@ void ColumnSpatial::deserialize(StringRef* keys, size_t num_rows) {
     }
 }
 
-template <bool positive>
-struct ColumnSpatial::less {
-    const ColumnSpatial& parent;
-    bool operator()(size_t lhs, size_t rhs) const {
-        const int comparison = parent._data[lhs].compare(parent._data[rhs]);
-        return positive ? comparison < 0 : comparison > 0;
-    }
-};
-
-void ColumnSpatial::get_permutation(bool reverse, size_t limit, int /* nan_direction_hint */,
-                                    HybridSorter& sorter, IColumn::Permutation& result) const {
-    result.resize(size());
-    for (size_t i = 0; i < size(); ++i) {
-        result[i] = i;
-    }
-    // SortBlock consumes only the LIMIT prefix for a selective single-key TopN.
-    // Use the same size/8 policy as ColumnVector; zero/nonselective limits retain full sorting.
-    if (limit && static_cast<double>(limit) <= static_cast<double>(size()) / 8.0) {
-        if (reverse) {
-            std::partial_sort(result.begin(), result.begin() + limit, result.end(),
-                              less<false> {*this});
-        } else {
-            std::partial_sort(result.begin(), result.begin() + limit, result.end(),
-                              less<true> {*this});
-        }
-    } else if (reverse) {
-        sorter.sort(result.begin(), result.end(), less<false> {*this});
-    } else {
-        sorter.sort(result.begin(), result.end(), less<true> {*this});
-    }
-}
-
 void ColumnSpatial::insert_many_strings(const StringRef* strings, size_t num) {
     for (size_t i = 0; i < num; ++i) {
         insert_data(strings[i].data, strings[i].size);
@@ -321,12 +288,6 @@ void ColumnSpatial::insert_many_strings(const StringRef* strings, size_t num) {
 void ColumnSpatial::insert_many_strings_overflow(const StringRef* strings, size_t num,
                                                  size_t /* max_length */) {
     insert_many_strings(strings, num);
-}
-
-void ColumnSpatial::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
-                                IColumn::Permutation& perms, EqualRange& range,
-                                bool last_column) const {
-    sorter->sort_column(*this, flags, perms, range, last_column);
 }
 
 } // namespace doris

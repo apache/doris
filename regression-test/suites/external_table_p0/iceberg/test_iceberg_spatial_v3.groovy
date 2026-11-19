@@ -701,12 +701,15 @@ public class CreateIcebergSpatialV3Table {
         map_contains_entry(map(id, id), id, id), map_contains_value(map(id, id), id + 1),
         map_contains_entry(map(id, id), id, id + 1) from geometry_values"""
     for (String spatialColumn : ["geom", "geog"]) {
-        "qt_spatial_multikey_${spatialColumn}"("""select id from geometry_values
-            order by ${spatialColumn} asc nulls last, id""")
-        "qt_spatial_multikey_topn_${spatialColumn}"("""select id from geometry_values
-            order by ${spatialColumn} desc nulls first, id limit 3""")
-        "qt_spatial_multikey_nonnull_${spatialColumn}"("""select id from geometry_values
-            where ${spatialColumn} is not null order by ${spatialColumn}, id""")
+        for (String query : [
+                "select id from geometry_values order by ${spatialColumn} asc nulls last, id",
+                "select id from geometry_values order by ${spatialColumn} desc nulls first, id limit 3",
+                "select id from geometry_values where ${spatialColumn} is not null order by ${spatialColumn}, id"]) {
+            test {
+                sql query
+                exception "ORDER BY does not support spatial keys"
+            }
+        }
     }
     order_qt_ordinary_greatest_least """select id, greatest(id, id + 1), least(id, id + 1),
         greatest(id, if(id = 1, NULL, id + 1)), least(id, if(id = 1, NULL, id + 1))
@@ -786,17 +789,15 @@ public class CreateIcebergSpatialV3Table {
         select id, ST_AsText(any_value(geom)), ST_AsText(any_value(geog)), count(*)
         from geometry_values group by id
     """
-    // Bare Iceberg spatial slots must not generate unsupported IN/Bloom runtime predicates.
+    check_sqls_result_equal(
+            """select l.id, hex(ST_AsBinary(l.geom)), hex(ST_AsBinary(r.geog))
+                from geometry_values l join geometry_values r on l.id = r.id order by l.id""",
+            "select id, hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog)) from geometry_values order by id")
     [geom: "ST_GeometryFromWKBTyped", geog: "ST_GeogFromWKB"].each { column, constructor ->
-        for (int filterType : [1, 2, 8]) {
-            String joinSql = """select /*+ SET_VAR(enable_runtime_filter_prune=false,
-                runtime_filter_type=${filterType}) */ count(*) from geometry_values l
+        test {
+            sql """select count(*) from geometry_values l
                 join [broadcast] geometry_values r on l.${column} = r.${column}"""
-            "qt_spatial_scan_join_${column}_${filterType}"(joinSql)
-            explain {
-                sql joinSql
-                notContains "RF"
-            }
+            exception "JOIN equality does not support spatial keys"
         }
         for (String operator : ["in", "not in"]) {
             test {
@@ -1171,17 +1172,11 @@ public class CreateIcebergSpatialV3Table {
         array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), g_deep['shapes']),
         array_map(x -> hex(ST_AsBinary(struct_element(x, 'shape'))), gg_deep['shapes'])
         from spatial_nested_source"""
-    // Array equality is admitted; real scan slots must bypass scalar runtime-filter factories.
     for (String column : ["g_array", "gg_array"]) {
-        for (int filterType : [1, 2, 8]) {
-            String joinSql = """select /*+ SET_VAR(enable_runtime_filter_prune=false,
-                runtime_filter_type=${filterType}) */ count(*) from spatial_nested_source l
+        test {
+            sql """select count(*) from spatial_nested_source l
                 join [broadcast] spatial_nested_source r on l.${column} = r.${column}"""
-            "qt_spatial_nested_scan_join_${column}_${filterType}"(joinSql)
-            explain {
-                sql joinSql
-                notContains "RF"
-            }
+            exception "JOIN equality does not support spatial keys"
         }
     }
     // MAP/STRUCT equality is rejected by existing analysis, independently of runtime filters.

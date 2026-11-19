@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -132,7 +133,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkExpressionInputTypes(plan);
                     checkUnexpectedExpressions(plan);
                     checkAggregateFunction(plan);
-                    checkSpatialWindowPartitions(plan);
+                    checkSpatialOrderAndWindowPartitionKeys(plan);
                     checkGroupingScalarFunction(plan);
                     checkIvmExpression(plan, ctx.connectContext);
                     return null;
@@ -227,10 +228,15 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         }
     }
 
-    private void checkSpatialWindowPartitions(Plan plan) {
+    private void checkSpatialOrderAndWindowPartitionKeys(Plan plan) {
+        if (plan instanceof LogicalSort) {
+            ((LogicalSort<?>) plan).getOrderKeys().forEach(key -> checkSpatialOrderKey(key.getExpr()));
+        }
         for (Expression expression : plan.getExpressions()) {
             expression.foreachUp(node -> {
-                if (node instanceof WindowExpression) {
+                if (node instanceof OrderExpression) {
+                    checkSpatialOrderKey(((OrderExpression) node).child());
+                } else if (node instanceof WindowExpression) {
                     for (Expression key : ((WindowExpression) node).getPartitionKeys()) {
                         if (key.getDataType().toCatalogDataType().typeContainsSpatialType()) {
                             throw new AnalysisException("Window PARTITION BY does not support spatial keys: "
@@ -239,6 +245,12 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     }
                 }
             });
+        }
+    }
+
+    static void checkSpatialOrderKey(Expression key) {
+        if (key.getDataType().toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("ORDER BY does not support spatial keys: " + key.toSql());
         }
     }
 

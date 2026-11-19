@@ -89,6 +89,25 @@ public class CheckCastTest {
     }
 
     @Test
+    public void testTextAndJsonCastsRejectNestedSpatialLeaves() {
+        for (boolean strict : List.of(false, true)) {
+            for (DataType spatial : List.of(new GeometryType("OGC:CRS84"),
+                    new GeographyType("OGC:CRS84", "spherical"))) {
+                StructType structure = new StructType(List.of(new StructField("shape", spatial, true, "")));
+                for (DataType target : List.of(ArrayType.of(spatial), MapType.of(StringType.INSTANCE, spatial),
+                        structure, ArrayType.of(MapType.of(StringType.INSTANCE, structure)))) {
+                    Assertions.assertFalse(CheckCast.check(StringType.INSTANCE, target, strict), target.toSql());
+                    Assertions.assertFalse(CheckCast.check(JsonType.INSTANCE, target, strict), target.toSql());
+                    Assertions.assertTrue(CheckCast.check(NullType.INSTANCE, target, strict), target.toSql());
+                    Assertions.assertTrue(CheckCast.check(target, target, strict), target.toSql());
+                }
+            }
+            Assertions.assertTrue(CheckCast.check(StringType.INSTANCE, ArrayType.of(IntegerType.INSTANCE), strict));
+            Assertions.assertTrue(CheckCast.check(JsonType.INSTANCE, ArrayType.of(IntegerType.INSTANCE), strict));
+        }
+    }
+
+    @Test
     public void testTimeStampNsCastMatrix() {
         AggStateType aggStateType = new AggStateType("max",
                 Collections.singletonList(TimeStampNsType.INSTANCE),

@@ -442,6 +442,11 @@ public class CheckCast implements ExpressionPatternRuleFactory {
                 return false;
             }
         }
+        // Parsing text or JSON into a container cannot construct typed spatial leaves.
+        if ((originalType instanceof CharacterType || originalType.isJsonType())
+                && targetType.isComplexType() && targetType.toCatalogDataType().typeContainsSpatialType()) {
+            return false;
+        }
         // The following code is old check logic.
         if (originalType instanceof CharacterType && !(targetType instanceof PrimitiveType)) {
             // CharacterType couldn't cast to Object type which contains HllType, BitmapType or QuantileStateType

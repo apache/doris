@@ -160,11 +160,36 @@ suite("test_spatial_wkb_compatibility") {
             select distinct hex(ST_AsBinary(shape)) from shapes""")
         "order_qt_ordinary_key_spatial_value_${kind}"("""with shapes as (${nullableShapes})
             select id % 3, ST_AsText(any_value(shape)), count(shape) from shapes group by id % 3""")
-        // The shared key dispatcher is also used by nullable and NULL-safe equijoins.
-        "qt_single_join_${kind}"("""with shapes as (${nullableShapes})
-            select count(*) from shapes l join shapes r on l.shape = r.shape""")
-        "qt_single_null_safe_join_${kind}"("""with shapes as (${nullableShapes})
-            select count(*) from shapes l join shapes r on l.shape <=> r.shape""")
+        for (String operator : ["=", "<=>"]) {
+            test {
+                sql """with shapes as (${nullableShapes})
+                    select count(*) from shapes l join shapes r on l.shape ${operator} r.shape"""
+                exception "JOIN equality does not support spatial keys"
+            }
+        }
+        for (String query : [
+                "select id from shapes order by shape",
+                "select shape from shapes order by 1 limit 2",
+                "select row_number() over (order by shape) from shapes",
+                "select group_concat(cast(id as string) order by shape) from shapes"]) {
+            test {
+                sql "with shapes as (${nullableShapes}) ${query}"
+                exception "ORDER BY does not support spatial keys"
+            }
+        }
+        for (String input : ["cast(number as string)", "cast(cast(number as string) as json)"]) {
+            test {
+                sql """select cast(${input} as array<${kind}>) from numbers("number" = "3")"""
+                exception "can not cast from origin type"
+            }
+        }
+        check_sqls_result_equal(
+                """with shapes as (${nullableShapes})
+                    select l.id, hex(ST_AsBinary(l.shape)), hex(ST_AsBinary(r.shape))
+                    from shapes l join shapes r on l.id = r.id order by l.id desc limit 4""",
+                """with shapes as (${nullableShapes})
+                    select id, hex(ST_AsBinary(shape)), hex(ST_AsBinary(shape))
+                    from shapes order by id desc limit 4""")
 
         // ANY_VALUE keeps an owning spatial state without defining spatial ordering.
         "qt_single_value_aggregates_${kind}"("""with shapes as (${nullableShapes})

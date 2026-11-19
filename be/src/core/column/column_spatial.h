@@ -18,7 +18,6 @@
 #pragma once
 
 #include <glog/logging.h>
-#include <pdqsort.h>
 
 #include <cstddef>
 #include <memory>
@@ -37,8 +36,6 @@ class ColumnSpatial final : public COWHelper<IColumn, ColumnSpatial> {
 private:
     using Self = ColumnSpatial;
     friend class COWHelper<IColumn, ColumnSpatial>;
-    template <bool positive>
-    struct less;
 
 public:
     using Container = PaddedPODArray<doris::StringView>;
@@ -98,8 +95,6 @@ public:
     void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                               const uint8_t* __restrict null_map) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const override;
-    void get_permutation(bool reverse, size_t limit, int nan_direction_hint, HybridSorter& sorter,
-                         IColumn::Permutation& res) const override;
     size_t get_max_row_byte_size() const override;
     void deserialize(StringRef* keys, size_t num_rows) override;
     void serialize(StringRef* keys, size_t num_rows) const override;
@@ -123,8 +118,6 @@ public:
     void insert_many_strings(const StringRef* strings, size_t num) override;
     void insert_many_strings_overflow(const StringRef* strings, size_t num,
                                       size_t max_length) override;
-    void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
-                     EqualRange& range, bool last_column) const override;
 
 private:
     size_t deserialize_impl(const char* pos) override;
