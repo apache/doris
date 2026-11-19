@@ -47,6 +47,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
+#include "io/object_storage/azure_blob_location.h"
 #include "io/object_storage/be_obj_storage_config_parser.h"
 #include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "load/stream_load/new_load_stream_mgr.h"
@@ -73,6 +74,41 @@ static io::FileReaderOptions with_storage_in_cache_key(const io::FileReaderOptio
     };
     return keyed;
 }
+
+namespace {
+struct ResolvedObjectFile {
+    ObjStorageResourceConfig resource;
+    std::string key;
+    std::optional<io::AzureBlobEndpoint> azure_endpoint;
+};
+
+Result<ResolvedObjectFile> resolve_object_file(const std::map<std::string, std::string>* properties,
+                                               const TAzureClientConfig* azure,
+                                               const std::string& path) {
+    if (azure != nullptr) {
+        io::AzureBlobEndpoint endpoint {.url = azure->endpoint, .account = azure->account_name};
+        auto location = endpoint.resolve(path, azure->container);
+        if (!location.has_value()) {
+            return unexpected(std::move(location).error());
+        }
+        auto resource = parse_be_azure_client_config(*azure, location->container);
+        if (!resource.has_value()) {
+            return unexpected(std::move(resource).error());
+        }
+        return ResolvedObjectFile {.resource = std::move(*resource),
+                                   .key = std::move(location->key),
+                                   .azure_endpoint = std::move(endpoint)};
+    }
+    S3URI uri(path);
+    RETURN_IF_ERROR_RESULT(uri.parse());
+    auto resource = parse_be_obj_storage_config(*properties, uri.get_bucket());
+    if (!resource.has_value()) {
+        return unexpected(std::move(resource).error());
+    }
+    return ResolvedObjectFile {
+            .resource = std::move(*resource), .key = uri.get_key(), .azure_endpoint = std::nullopt};
+}
+} // namespace
 
 io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& option,
                                                       const io::FileDescription& fd) {
@@ -128,16 +164,14 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
                                             *fs_properties.properties, io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_S3: {
-        S3URI s3_uri(file_description.path);
-        RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        auto resource_res =
-                parse_be_obj_storage_config(*fs_properties.properties, s3_uri.get_bucket());
-        // Invalid storage properties must propagate as an error in this Result-returning API.
-        if (!resource_res.has_value()) {
-            return unexpected(std::move(resource_res).error());
+        auto file = resolve_object_file(fs_properties.properties, fs_properties.azure_client_config,
+                                        file_description.path);
+        if (!file.has_value()) {
+            return unexpected(std::move(file).error());
         }
-        auto resource = std::move(resource_res).value();
-        return io::ObjStorageFileSystem::create(std::move(resource), io::FileSystem::TMP_FS_ID);
+        return io::ObjStorageFileSystem::create(std::move(file->resource),
+                                                io::FileSystem::TMP_FS_ID,
+                                                std::move(file->azure_endpoint));
     }
     case TFileType::FILE_HDFS: {
         std::string fs_name = _get_fs_name(file_description);
@@ -180,7 +214,7 @@ std::string FileFactory::_get_fs_name(const io::FileDescription& file_descriptio
 Result<io::FileWriterPtr> FileFactory::create_file_writer(
         TFileType::type type, ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
         const std::map<std::string, std::string>& properties, const std::string& path,
-        const io::FileWriterOptions& options) {
+        const io::FileWriterOptions& options, const TAzureClientConfig* azure_client_config) {
     io::FileWriterPtr file_writer;
     switch (type) {
     case TFileType::FILE_LOCAL: {
@@ -196,21 +230,18 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         return io::BrokerFileWriter::create(env, broker_addresses[index], properties, path);
     }
     case TFileType::FILE_S3: {
-        S3URI s3_uri(path);
-        RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        auto resource_res = parse_be_obj_storage_config(properties, s3_uri.get_bucket());
-        // Invalid storage properties must propagate as an error in this Result-returning API.
-        if (!resource_res.has_value()) {
-            return unexpected(std::move(resource_res).error());
+        auto file = resolve_object_file(&properties, azure_client_config, path);
+        if (!file.has_value()) {
+            return unexpected(std::move(file).error());
         }
-        auto resource = std::move(resource_res).value();
+        auto& resource = file->resource;
         auto client = std::make_shared<io::ObjStorageClientHolder>(
                 std::move(resource.client),
                 ObjStorageRateLimiterManager::policy_for(resource.is_internal_bucket),
                 resource.bucket);
         RETURN_IF_ERROR_RESULT(client->init());
         return std::make_unique<io::ObjStorageFileWriter>(
-                std::move(client), std::move(resource.bucket), s3_uri.get_key(), &options,
+                std::move(client), std::move(resource.bucket), std::move(file->key), &options,
                 resource.sse_enabled);
     }
     case TFileType::FILE_HDFS: {
@@ -251,15 +282,15 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
         return file_reader;
     }
     case TFileType::FILE_S3: {
-        S3URI s3_uri(file_description.path);
-        RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        auto resource_res =
-                parse_be_obj_storage_config(system_properties.properties, s3_uri.get_bucket());
-        // Invalid storage properties must propagate as an error in this Result-returning API.
-        if (!resource_res.has_value()) {
-            return unexpected(std::move(resource_res).error());
+        auto file = resolve_object_file(&system_properties.properties,
+                                        system_properties.azure_client_config
+                                                ? &*system_properties.azure_client_config
+                                                : nullptr,
+                                        file_description.path);
+        if (!file.has_value()) {
+            return unexpected(std::move(file).error());
         }
-        auto resource = std::move(resource_res).value();
+        auto& resource = file->resource;
         const auto* aws = std::get_if<AwsObjStorageConfig>(&resource.client);
         auto storage = aws && aws->use_sdk_endpoint
                                ? fmt::format("aws:{}", aws->region)
@@ -271,7 +302,7 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
                 resource.bucket);
         RETURN_IF_ERROR_RESULT(client_holder->init());
         return io::ObjStorageFileReader::create(std::move(client_holder),
-                                                std::move(resource.bucket), s3_uri.get_key(),
+                                                std::move(resource.bucket), std::move(file->key),
                                                 file_description.file_size, profile)
                 .and_then([&options](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), options);

@@ -105,6 +105,8 @@ private:
     const std::map<std::string, std::string>& _hadoop_conf;
     bool _supports_deferred_azure_multipart = false;
     std::optional<std::string> _hive_parquet_time_zone;
+    // Typed Azure access from THiveTableSink.
+    std::optional<TAzureClientConfig> _azure_client_config;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
 

@@ -20,6 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
+include "ObjectStorage.thrift"
 include "Descriptors.thrift"
 include "Partitions.thrift"
 include "PlanNodes.thrift"
@@ -166,6 +167,7 @@ struct TResultFileSinkOptions {
     // padding, preserving the historical name format. Used to make rollover
     // files sort lexicographically (so _00011 sorts after _00002).
     23: optional i32 file_name_padding
+    24: optional ObjectStorage.TAzureClientConfig azure_client_config
 }
 
 struct TMemoryScratchSink {
@@ -397,6 +399,7 @@ struct THiveTableSink {
     13: optional bool supports_deferred_azure_multipart
     // Absent: legacy session timezone; empty: wall-clock INT96; otherwise: named catalog timezone.
     14: optional string hive_parquet_time_zone
+    15: optional ObjectStorage.TAzureClientConfig azure_client_config
 }
 
 enum TUpdateMode {
@@ -521,6 +524,7 @@ struct TIcebergTableSink {
     // Unset or empty means count nothing: an older FE does not read nan_value_counts back, so counting for it
     // would be pure waste, and a table whose float fields are all metrics-disabled has nothing to report.
     20: optional list<i32> nan_count_field_ids;
+    21: optional ObjectStorage.TAzureClientConfig azure_client_config
 }
 
 struct TIcebergRewritableDeleteFileSet {
@@ -554,6 +558,7 @@ struct TIcebergDeleteSink {
     14: optional i32 format_version
     // Only for format_version >= 3. Existing live delete files that should be merged into the new DV.
     15: optional list<TIcebergRewritableDeleteFileSet> rewritable_delete_file_sets
+    16: optional ObjectStorage.TAzureClientConfig azure_client_config
 }
 
 // Merge sink for Iceberg UPDATE: mix of position delete + data insert
@@ -597,6 +602,7 @@ struct TIcebergMergeSink {
     24: optional i32 format_version
     // Only for format_version >= 3. Existing live delete files that should be merged into the new DV.
     25: optional list<TIcebergRewritableDeleteFileSet> rewritable_delete_file_sets
+    26: optional ObjectStorage.TAzureClientConfig azure_client_config
 }
 
 enum TDictLayoutType {
@@ -646,6 +652,7 @@ struct TTVFTableSink {
     // Zero-pad the per-file index in the output file name to this many digits.
     // 0 or unset means no padding. Mirrors TResultFileSinkOptions.file_name_padding.
     16: optional i32 file_name_padding
+    17: optional ObjectStorage.TAzureClientConfig azure_client_config
 }
 
 struct TMCCommitData {

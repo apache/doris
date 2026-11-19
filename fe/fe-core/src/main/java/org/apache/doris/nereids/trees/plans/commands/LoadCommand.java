@@ -460,6 +460,10 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
             // Ozone) — the exact implementor set of the legacy object-storage marker interface;
             // Azure deliberately stays excluded, matching the legacy instanceof check.
             StorageAdapter storageAdapter = brokerDesc.getStorageAdapter();
+            if (storageAdapter != null && storageAdapter.isAzureTokenAuth()) {
+                throw new AnalysisException("Broker Load supports only SharedKey for Azure, not SAS or OAuth2;"
+                        + " use INSERT INTO ... SELECT * FROM s3(...) instead");
+            }
             if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
                     && storageAdapter != null
                     && storageAdapter.getSpiProperties() instanceof S3CompatibleFileSystemProperties) {

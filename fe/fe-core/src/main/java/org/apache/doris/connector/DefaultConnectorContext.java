@@ -37,6 +37,7 @@ import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.credentials.CredentialUtils;
+import org.apache.doris.datasource.credentials.IcebergAdlsVendedCredentials;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
@@ -267,16 +268,17 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
 
     @Override
     public Map<String, String> vendStorageCredentials(Map<String, String> rawVendedCredentials) {
-        // Map the per-table vended token to the BE-facing AWS_* properties. Fail-soft (empty) on any
-        // error, matching the legacy provider, so a malformed token degrades gracefully rather than
-        // killing the scan. The outer try also covers getBackendPropertiesFromStorageMap so the
-        // fail-soft boundary is byte-identical to the pre-refactor method; buildVendedStorageMap shares
-        // the typed-map build with normalizeStorageUri (single source of truth — no drift).
+        // A malformed table-vended Azure SAS must not select the catalog's static credentials.
+        Map<StorageTypeId, StorageAdapter> map = buildVendedStorageMap(rawVendedCredentials);
+        if (map == null) {
+            return Collections.emptyMap();
+        }
         try {
-            Map<StorageTypeId, StorageAdapter> map = buildVendedStorageMap(rawVendedCredentials);
-            return map == null ? Collections.emptyMap()
-                    : CredentialUtils.getBackendPropertiesFromStorageMap(map);
-        } catch (Exception e) {
+            return CredentialUtils.getBackendPropertiesFromStorageMap(map);
+        } catch (RuntimeException e) {
+            if (map.containsKey(StorageTypeId.AZURE)) {
+                throw e;
+            }
             LOG.warn("Failed to normalize vended credentials", e);
             return Collections.emptyMap();
         }
@@ -289,23 +291,28 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
      * legacy vended-credentials normalization tail exactly, so the BE-credential overlay
      * ({@link #vendStorageCredentials}) and the URI normalization ({@link #normalizeStorageUri(String,
      * Map)}) derive the SAME credentials from the SAME token — no drift. Returns {@code null} when the
-     * token is null/empty, yields no cloud-storage props, or normalization throws — replicating the
-     * legacy "return null → fall back to the base/static map" contract.
+     * token is null/empty or yields no storage properties. Legacy inputs retain their fallback
+     * on normalization errors. An explicitly vended Azure SAS is authoritative for its table.
      */
     private Map<StorageTypeId, StorageAdapter> buildVendedStorageMap(
             Map<String, String> rawVendedCredentials) {
         if (rawVendedCredentials == null || rawVendedCredentials.isEmpty()) {
             return null;
         }
+        Map<String, String> azure = IcebergAdlsVendedCredentials.toAzureProperties(rawVendedCredentials);
         try {
             Map<String, String> filtered = CredentialUtils.filterCloudStorageProperties(rawVendedCredentials);
+            filtered.putAll(azure);
             if (filtered.isEmpty()) {
                 return null;
             }
             List<StorageAdapter> vended = StorageAdapter.ofAll(filtered);
             return vended.stream()
                     .collect(Collectors.toMap(StorageAdapter::getType, Function.identity()));
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
+            if (!azure.isEmpty()) {
+                throw e;
+            }
             LOG.warn("Failed to normalize vended credentials", e);
             return null;
         }
@@ -472,10 +479,16 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         // propagates) — a path that cannot be normalized would otherwise silently corrupt reads (esp. a
         // deletion-vector path on merge-on-read). Single source of truth: the SAME LocationPath
         // normalization legacy/iceberg/hive use, so no drift.
+        //
+        // Azure locations keep their native form (abfss://c@acct.dfs.core.windows.net/k): every path
+        // normalized here ends up in a connector scan range or write sink, and both carry typed
+        // Azure access (FileQueryScanNode / AzureThriftAdapter.bindToWriteSink), so BE parses the
+        // native form and checks its account. The one caller outside scans and writes, the Paimon DLF
+        // connectivity probe, only targets OSS, whose normalization is unchanged.
         Map<StorageTypeId, StorageAdapter> vended = buildVendedStorageMap(rawVendedCredentials);
         Map<StorageTypeId, StorageAdapter> effective =
                 vended != null ? vended : storagePropertiesSupplier.get();
-        return LocationPath.ofAdapters(rawUri, effective).toStorageLocation().toString();
+        return LocationPath.ofAdaptersForNativeAccess(rawUri, effective).toStorageLocation().toString();
     }
 
     @Override
@@ -504,7 +517,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
                     effective = vended != null ? vended : storagePropertiesSupplier.get();
                     built = true;
                 }
-                return LocationPath.ofAdapters(rawUri, effective).toStorageLocation().toString();
+                return LocationPath.ofAdaptersForNativeAccess(rawUri, effective).toStorageLocation().toString();
             }
         };
     }
@@ -519,7 +532,7 @@ public class DefaultConnectorContext implements ConnectorContext, ConnectorStora
         Map<StorageTypeId, StorageAdapter> vended = buildVendedStorageMap(rawVendedCredentials);
         Map<StorageTypeId, StorageAdapter> effective =
                 vended != null ? vended : storagePropertiesSupplier.get();
-        return LocationPath.ofAdapters(rawUri, effective).getTFileTypeForBE().name();
+        return LocationPath.ofAdaptersForNativeAccess(rawUri, effective).getTFileTypeForBE().name();
     }
 
     @Override

@@ -18,6 +18,7 @@
 #include "io/object_storage/be_obj_storage_config_parser.h"
 
 #include <aws/core/client/ClientConfiguration.h>
+#include <gen_cpp/ObjectStorage_types.h>
 
 #include <chrono>
 #include <type_traits>
@@ -57,6 +58,18 @@ Result<ObjStorageResourceConfig> parse_be_obj_storage_config(
             properties, std::move(bucket),
             aws_credential_implementation(config::aws_credentials_provider_version),
             EmptyCredentialsBehavior::ANONYMOUS));
+}
+
+Result<ObjStorageResourceConfig> parse_be_azure_client_config(const TAzureClientConfig& config,
+                                                              const std::string& container) {
+    if (config.__isset.container && !config.container.empty()) {
+        return finish_be_obj_storage_config(
+                ObjStorageConfigParser::from_azure_client_config(config));
+    }
+    // A scan can span containers. Bind this file's target without modifying the shared scan config.
+    auto bound = config;
+    bound.__set_container(container);
+    return finish_be_obj_storage_config(ObjStorageConfigParser::from_azure_client_config(bound));
 }
 
 Result<ObjStorageResourceConfig> parse_be_obj_storage_config(const TS3StorageParam& param) {

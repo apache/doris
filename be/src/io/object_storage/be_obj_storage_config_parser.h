@@ -29,6 +29,7 @@ struct ClientConfiguration;
 
 namespace doris {
 
+class TAzureClientConfig;
 class TS3StorageParam;
 namespace cloud {
 class ObjectStoreInfoPB;
@@ -39,6 +40,8 @@ class ObjectStoreInfoPB;
 Result<ObjStorageResourceConfig> parse_be_obj_storage_config(
         const std::map<std::string, std::string>& properties, std::string bucket);
 Result<ObjStorageResourceConfig> parse_be_obj_storage_config(const TS3StorageParam& param);
+Result<ObjStorageResourceConfig> parse_be_azure_client_config(const TAzureClientConfig& config,
+                                                              const std::string& container);
 Result<ObjStorageResourceConfig> parse_be_obj_storage_config(const cloud::ObjectStoreInfoPB& info);
 
 // Apply BE defaults after parsing, before client validation and cache lookup.

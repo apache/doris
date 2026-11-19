@@ -53,15 +53,12 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/obj_storage_file_system.h"
 #include "io/hdfs_builder.h"
-#include "io/object_storage/be_obj_storage_config_parser.h"
 #include "runtime/descriptors.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/mysql_row_buffer.h"
-#include "util/s3_uri.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -130,7 +127,9 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             {
                     .write_file_cache = false,
                     .sync_file_data = false,
-            }));
+            },
+            _file_opts->azure_client_config.has_value() ? &*_file_opts->azure_client_config
+                                                        : nullptr));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(
@@ -444,13 +443,13 @@ Status VFileResultWriter::_delete_dir() {
                                                        io::FileSystem::TMP_FS_ID));
         return fs->delete_directory(dir);
     }
+    case TStorageBackendType::AZURE:
     case TStorageBackendType::S3: {
-        S3URI s3_uri(dir);
-        RETURN_IF_ERROR(s3_uri.parse());
-        auto storage_config = DORIS_TRY(
-                parse_be_obj_storage_config(_file_opts->broker_properties, s3_uri.get_bucket()));
-        auto fs = DORIS_TRY(
-                io::ObjStorageFileSystem::create(storage_config, io::FileSystem::TMP_FS_ID));
+        io::FSPropertiesRef properties(TFileType::FILE_S3);
+        properties.properties = &_file_opts->broker_properties;
+        properties.azure_client_config =
+                _file_opts->azure_client_config ? &*_file_opts->azure_client_config : nullptr;
+        auto fs = DORIS_TRY(FileFactory::create_fs(properties, {.path = dir, .fs_name {}}));
         return fs->delete_directory(dir);
     }
     default:
