@@ -13201,11 +13201,12 @@ TEST(MetaServiceTest, CreateS3VaultRejectsMixedPathVersionOnSameRoot) {
     legacy->set_prefix("legacy");
     txn->put(key, instance.SerializeAsString());
     // An object vault stored before `obj_path_format_effective` existed. Its data was written with
-    // path_version 0, although its path format says 1.
+    // path_version 0, although its path format says 1. Its id is far above the ids the vaults
+    // added below get ("2", "3", ...), which would otherwise overwrite this key.
     StorageVaultPB unmarked = test_s3_vault("unmarked_v1", "unmarked", "ak0", 1, 1024);
-    unmarked.set_id("2");
-    unmarked.mutable_obj_info()->set_id("2");
-    txn->put(storage_vault_key({instance.instance_id(), "2"}), unmarked.SerializeAsString());
+    unmarked.set_id("100");
+    unmarked.mutable_obj_info()->set_id("100");
+    txn->put(storage_vault_key({instance.instance_id(), "100"}), unmarked.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     auto add_s3_vault = [&](const std::string& name, const std::string& prefix,
