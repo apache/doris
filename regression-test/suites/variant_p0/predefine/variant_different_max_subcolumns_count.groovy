@@ -25,7 +25,7 @@ suite("variant_different_max_subcolumns_count", "p0") {
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "0", "variant_enable_typed_paths_to_sparse" = "false")>,
+            v variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "0")>,
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -47,8 +47,8 @@ suite("variant_different_max_subcolumns_count", "p0") {
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "0", "variant_enable_typed_paths_to_sparse" = "false")>,
-            v2 variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "1", "variant_enable_typed_paths_to_sparse" = "false")>,
+            v variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "0")>,
+            v2 variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "1")>,
             v3 variant,
             v4 variant<'a' : int, 'b' : string, properties("variant_max_subcolumns_count" = "1")>
         )

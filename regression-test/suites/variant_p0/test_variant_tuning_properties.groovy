@@ -18,7 +18,7 @@
 suite("test_variant_tuning_properties") {
     sql """ set describe_extend_variant_column = true """
 
-    // when extraction starts: a data file below variant_subcolumn_extraction_min_rows keeps its dynamic paths in the
+    // when extraction starts: a data file below variant_doc_materialization_min_rows keeps its dynamic paths in the
     // sparse encoding, and compaction extracts them once it writes enough rows; doc mode is a separate switch
     sql "DROP TABLE IF EXISTS test_variant_deferred_subcolumns"
     sql """
@@ -26,8 +26,8 @@ suite("test_variant_tuning_properties") {
             k INT,
             payload VARIANT<PROPERTIES(
                 "variant_max_subcolumns_count" = "128",
-                "variant_subcolumn_extraction_min_rows" = "5",
-                "variant_sparse_hash_shard_count" = "1",
+                "variant_doc_materialization_min_rows" = "5",
+                "variant_doc_hash_shard_count" = "1",
                 "variant_enable_doc_mode" = "false"
             )>
         )
@@ -53,8 +53,8 @@ suite("test_variant_tuning_properties") {
     // the row threshold can change: new data files follow the new one
     sql """ALTER TABLE test_variant_deferred_subcolumns MODIFY COLUMN payload VARIANT<PROPERTIES(
         "variant_max_subcolumns_count" = "128",
-        "variant_subcolumn_extraction_min_rows" = "1000",
-        "variant_sparse_hash_shard_count" = "1",
+        "variant_doc_materialization_min_rows" = "1000",
+        "variant_doc_hash_shard_count" = "1",
         "variant_enable_doc_mode" = "false")>"""
     waitForSchemaChangeDone {
         sql """SHOW ALTER TABLE COLUMN WHERE TableName = 'test_variant_deferred_subcolumns'
@@ -70,8 +70,8 @@ suite("test_variant_tuning_properties") {
             event_id BIGINT NOT NULL,
             payload VARIANT<PROPERTIES(
                 "variant_max_subcolumns_count" = "2",
-                "variant_subcolumn_extraction_min_rows" = "0",
-                "variant_sparse_hash_shard_count" = "1",
+                "variant_doc_materialization_min_rows" = "0",
+                "variant_doc_hash_shard_count" = "1",
                 "variant_enable_doc_mode" = "true"
             )>
         )
@@ -97,8 +97,8 @@ suite("test_variant_tuning_properties") {
             k INT,
             payload VARIANT<PROPERTIES(
                 "variant_max_subcolumns_count" = "0",
-                "variant_subcolumn_extraction_min_rows" = "0",
-                "variant_sparse_hash_shard_count" = "2",
+                "variant_doc_materialization_min_rows" = "0",
+                "variant_doc_hash_shard_count" = "2",
                 "variant_enable_doc_mode" = "false"
             )>
         )
@@ -112,27 +112,29 @@ suite("test_variant_tuning_properties") {
     order_qt_no_extraction_read """SELECT k, payload['source'] FROM test_variant_no_extraction
         WHERE CAST(payload['source'] AS STRING) = 'collector-a'"""
 
-    // the doc mode names of the row threshold and the shard count are not accepted
+    // the shard count of older versions without doc mode is accepted and ignored: variant_doc_hash_shard_count sets
+    // the shard count in either mode
+    sql "DROP TABLE IF EXISTS test_variant_sparse_hash_shard_count"
+    sql """
+        CREATE TABLE test_variant_sparse_hash_shard_count (
+            k INT,
+            v VARIANT<PROPERTIES("variant_max_subcolumns_count" = "0", "variant_sparse_hash_shard_count" = "4")>
+        )
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    qt_sparse_hash_shard_count "DESC test_variant_sparse_hash_shard_count"
+
+    // variant_enable_typed_paths_to_sparse is refused whatever its value
     test {
         sql """
-            CREATE TABLE test_variant_doc_mode_names (
+            CREATE TABLE test_variant_typed_paths_to_sparse (
                 k INT,
-                v VARIANT<PROPERTIES("variant_enable_doc_mode" = "true", "variant_doc_materialization_min_rows" = "10")>
+                v VARIANT<PROPERTIES("variant_enable_typed_paths_to_sparse" = "false")>
             )
             DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
             PROPERTIES ("replication_num" = "1")
         """
-        exception "only support for"
-    }
-    test {
-        sql """
-            CREATE TABLE test_variant_doc_mode_names (
-                k INT,
-                v VARIANT<PROPERTIES("variant_enable_doc_mode" = "true", "variant_doc_hash_shard_count" = "4")>
-            )
-            DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
-            PROPERTIES ("replication_num" = "1")
-        """
-        exception "only support for"
+        exception "variant_enable_typed_paths_to_sparse is not supported"
     }
 }

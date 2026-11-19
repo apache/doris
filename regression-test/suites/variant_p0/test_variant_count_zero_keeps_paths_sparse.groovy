@@ -17,10 +17,10 @@
 
 suite("test_variant_count_zero_keeps_paths_sparse") {
     sql " set default_variant_enable_doc_mode = false "
-    sql " set default_variant_subcolumn_extraction_min_rows = 0 "
+    sql " set default_variant_doc_materialization_min_rows = 0 "
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_max_sparse_column_statistics_size = 10 """
-    sql """ set default_variant_sparse_hash_shard_count = 0 """
+    sql """ set default_variant_doc_hash_shard_count = 0 """
     sql """ set describe_extend_variant_column = true """
 
     // a count of 0 keeps every dynamic path sparse, while template paths and a positive count give subcolumns
@@ -93,4 +93,9 @@ suite("test_variant_count_zero_keeps_paths_sparse") {
         """
         exception "only support for"
     }
+
+    // SHOW CREATE TABLE shows it in a comment, which the parser skips
+    def zeroDdl = sql("SHOW CREATE TABLE test_variant_count_zero")[0][1]
+    assertTrue(zeroDdl.contains("`zero` variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"0\","), zeroDdl)
+    assertTrue(zeroDdl.contains(")> /* variant_serialize_type = v2 */ NULL"), zeroDdl)
 }

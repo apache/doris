@@ -19,7 +19,7 @@ import groovy.json.JsonOutput
 
 suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
     sql "SET default_variant_enable_doc_mode = false"
-    sql "SET default_variant_subcolumn_extraction_min_rows = 0"
+    sql "SET default_variant_doc_materialization_min_rows = 0"
     sql "SET describe_extend_variant_column = true"
     def backendIPs = [:]
     def backendHttpPorts = [:]
@@ -50,7 +50,7 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
     sql "DROP TABLE IF EXISTS sparse_ancestor_extended_deep"
     sql """CREATE TABLE sparse_ancestor_extended_deep (id INT, v VARIANT<PROPERTIES(
         "variant_max_subcolumns_count"="1", "variant_enable_nested_group"="false",
-        "variant_sparse_hash_shard_count"="1")>)
+        "variant_doc_hash_shard_count"="1")>)
         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES("replication_num"="1", "disable_auto_compaction"="true",
                    "storage_format"="V3")"""
@@ -114,7 +114,7 @@ suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
     sql "DROP TABLE IF EXISTS sparse_ancestor_extended_mow"
     sql """CREATE TABLE sparse_ancestor_extended_mow (id INT, v VARIANT<PROPERTIES(
         "variant_max_subcolumns_count"="1", "variant_enable_nested_group"="false",
-        "variant_sparse_hash_shard_count"="1")>) UNIQUE KEY(id)
+        "variant_doc_hash_shard_count"="1")>) UNIQUE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES("replication_num"="1",
         "disable_auto_compaction"="true", "enable_unique_key_merge_on_write"="true",
         "storage_format"="V3")"""

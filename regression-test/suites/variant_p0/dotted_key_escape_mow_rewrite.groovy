@@ -20,7 +20,7 @@ suite("dotted_key_escape_mow_rewrite", "p0,nonConcurrent") {
     sql "drop table if exists dotted_key_escape_mow_versions"
     sql """create table dotted_key_escape_mow_versions(id int, v variant<properties(
         "variant_enable_nested_group"="false",
-        "variant_max_subcolumns_count"="1", "variant_sparse_hash_shard_count"="3",
+        "variant_max_subcolumns_count"="1", "variant_doc_hash_shard_count"="3",
         "variant_max_sparse_column_statistics_size"="10000")>,padding int default '0')
         unique key(id) distributed by hash(id) buckets 1 properties("variant_escape_dots_in_keys"="true", "replication_num"="1",
         "disable_auto_compaction"="true", "enable_unique_key_merge_on_write"="true")"""

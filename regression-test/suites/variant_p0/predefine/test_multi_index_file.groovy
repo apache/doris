@@ -21,13 +21,13 @@ suite("test_variant_multi_index_file", "p0, nonConcurrent"){
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
     sql "set default_variant_max_subcolumns_count = 100"
-    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
+    sql """ set default_variant_doc_materialization_min_rows = 0 """
 
     def tableName = "test_variant_multi_index_nonCurrent"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,
-        `var` variant<properties("variant_enable_typed_paths_to_sparse" = "false")> NOT NULL,
+        `var` variant NOT NULL,
         INDEX idx_a_d (var) USING INVERTED PROPERTIES("parser"="unicode", "support_phrase" = "true") COMMENT '',
         INDEX idx_a_d_2 (var) USING INVERTED
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")"""

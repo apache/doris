@@ -24,20 +24,19 @@ suite("test_variant_create_table_like", "p0") {
     sql """ set default_variant_enable_doc_mode = false """
     sql """ set default_variant_enable_nested_group = false """
     sql """ set default_variant_max_subcolumns_count = 2048 """
-    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
+    sql """ set default_variant_doc_materialization_min_rows = 0 """
     sql """ DROP TABLE IF EXISTS variant_create_like_src """
     sql """
         CREATE TABLE variant_create_like_src (
             id INT,
             v VARIANT<MATCH_NAME 'a.b':INT, PROPERTIES(
                 "variant_max_subcolumns_count" = "3",
-                "variant_enable_typed_paths_to_sparse" = "false",
                 "variant_max_sparse_column_statistics_size" = "10000",
-                "variant_sparse_hash_shard_count" = "1")>,
+                "variant_doc_hash_shard_count" = "1")>,
             d VARIANT<PROPERTIES(
                 "variant_enable_doc_mode" = "true",
-                "variant_subcolumn_extraction_min_rows" = "0",
-                "variant_sparse_hash_shard_count" = "4")>,
+                "variant_doc_materialization_min_rows" = "0",
+                "variant_doc_hash_shard_count" = "4")>,
             n VARIANT<PROPERTIES("variant_enable_nested_group" = "true")>
         )
         DUPLICATE KEY(id)

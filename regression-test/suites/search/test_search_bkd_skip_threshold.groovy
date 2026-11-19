@@ -27,7 +27,7 @@ suite("test_search_bkd_skip_threshold", "p0") {
     sql """ set default_variant_enable_doc_mode = false """
     // Keep both v.n and v.p as indexed subcolumns; a fuzzy budget of 1 would push one to sparse.
     sql """ set default_variant_max_subcolumns_count = 2048 """
-    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
+    sql """ set default_variant_doc_materialization_min_rows = 0 """
 
     sql "DROP TABLE IF EXISTS test_search_bkd_skip_threshold_t"
     sql """

@@ -78,7 +78,7 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
                     + "    k int,\n"
                     + "    v variant<properties(\"variant_max_subcolumns_count\"=\"2048\",\n"
                     + "        \"variant_max_sparse_column_statistics_size\"=\"321\",\n"
-                    + "        \"variant_sparse_hash_shard_count\"=\"4\")>\n"
+                    + "        \"variant_doc_hash_shard_count\"=\"4\")>\n"
                     + ")\n"
                     + "duplicate key(k)\n"
                     + "distributed by hash(k) buckets 1\n"

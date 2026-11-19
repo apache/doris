@@ -62,10 +62,25 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
         OlapTable table = createTableWithOldColumn("t_replay");
         List<String> createTableStmt = Lists.newArrayList();
         Env.getDdlStmt(table, createTableStmt, null, null, false, true, -1L);
+        // the DDL shows the stored serialize type in a comment, which the parser skips
+        Assertions.assertTrue(createTableStmt.get(0).contains("> /* variant_serialize_type = v1 */ NULL"),
+                createTableStmt.get(0));
         List<ColumnDefinition> columns = ((CreateTableCommand) new NereidsParser().parseSingle(createTableStmt.get(0)))
                 .getCreateTableInfo().getColumnDefinitions();
         Assertions.assertEquals(TVariantSerializeType.V2,
                 ((org.apache.doris.nereids.types.VariantType) columns.get(1).getType()).getVariantSerializeType());
+    }
+
+    @Test
+    public void testPrintedDdlShowsSerializeTypeOfNewColumn() throws Exception {
+        createTable("CREATE TABLE variant_serialize_type.t_print_v2 (k INT, v " + COUNT_ZERO + ") "
+                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1')");
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrMetaException("variant_serialize_type").getTableOrMetaException("t_print_v2");
+        List<String> createTableStmt = Lists.newArrayList();
+        Env.getDdlStmt(table, createTableStmt, null, null, false, true, -1L);
+        Assertions.assertTrue(createTableStmt.get(0).contains("> /* variant_serialize_type = v2 */ NULL"),
+                createTableStmt.get(0));
     }
 
     @Test

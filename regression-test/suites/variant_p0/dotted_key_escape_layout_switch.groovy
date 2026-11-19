@@ -17,14 +17,14 @@
 
 suite("dotted_key_escape_layout_switch", "p0,nonConcurrent") {
     // the layout depends on the row threshold and DESC prints it, which fuzzy mode picks at random
-    sql "set default_variant_subcolumn_extraction_min_rows = 0"
+    sql "set default_variant_doc_materialization_min_rows = 0"
     sql "set default_variant_enable_doc_mode=false"
     sql "set describe_extend_variant_column=true"
     [1, 2].each { width ->
         sql "drop table if exists dotted_key_escape_switch"
         sql """create table dotted_key_escape_switch(id int, v variant<properties(
             "variant_enable_nested_group"="false",
-            "variant_max_subcolumns_count"="1", "variant_sparse_hash_shard_count"="3",
+            "variant_max_subcolumns_count"="1", "variant_doc_hash_shard_count"="3",
             "variant_max_sparse_column_statistics_size"="10000")>)
             duplicate key(id) distributed by hash(id) buckets 1
             properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
@@ -67,7 +67,7 @@ suite("dotted_key_escape_layout_switch", "p0,nonConcurrent") {
             sql "drop table if exists dotted_key_escape_cap"
             sql """create table dotted_key_escape_cap(id int, v variant<properties(
                 "variant_enable_nested_group"="false",
-                "variant_max_subcolumns_count"="${cap}", "variant_sparse_hash_shard_count"="3",
+                "variant_max_subcolumns_count"="${cap}", "variant_doc_hash_shard_count"="3",
                 "variant_max_sparse_column_statistics_size"="10000")>)
                 duplicate key(id) distributed by hash(id) buckets 1
                 properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
