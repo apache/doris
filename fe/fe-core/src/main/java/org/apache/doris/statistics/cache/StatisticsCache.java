@@ -60,7 +60,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -276,26 +275,12 @@ public class StatisticsCache {
     }
 
     public void refreshColStatsSync(long ctlId, long dbId, long tblId, long idxId, String colName) {
-        refresh(columnStatisticsCache, new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
+        StatisticsCacheLoader.refresh(columnStatisticsCache,
+                new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
     }
 
     public void refreshHistogramSync(long ctlId, long dbId, long tblId, long idxId, String colName) {
-        refresh(histogramCache, new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
-    }
-
-    private <K, V> void refresh(AsyncLoadingCache<K, V> cache, K key) {
-        CompletableFuture<V> previous = cache.asMap().get(key);
-        try {
-            cache.synchronous().refresh(key).whenComplete((value, error) -> {
-                if (error instanceof CancellationException && previous != null) {
-                    // Explicit refresh may precede refreshAfterWrite. Do not keep the old value
-                    // for another full refresh interval, or remove a concurrently published value.
-                    cache.asMap().remove(key, previous);
-                }
-            });
-        } catch (RejectedExecutionException e) {
-            // A missing key has no old value to invalidate.
-        }
+        StatisticsCacheLoader.refresh(histogramCache, new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
     }
 
     public void preHeat() {

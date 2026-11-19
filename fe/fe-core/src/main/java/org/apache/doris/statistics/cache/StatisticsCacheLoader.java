@@ -18,19 +18,51 @@
 package org.apache.doris.statistics.cache;
 
 import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
+import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
+import com.github.benmanes.caffeine.cache.Ticker;
+import com.google.common.annotations.VisibleForTesting;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /** Keeps statistics SQL off the cache maintenance executor. */
 final class StatisticsCacheLoader<K, V> implements AsyncCacheLoader<K, V> {
+    @VisibleForTesting
+    static final long REFRESH_RETRY_DELAY_NANOS = TimeUnit.SECONDS.toNanos(1);
+    private static final ThreadLocal<Boolean> EXPLICIT_REFRESH = new ThreadLocal<>();
+
     private final BasicAsyncCacheLoader<K, V> delegate;
     private final Executor executor;
+    private final Ticker ticker;
+    private final AtomicLong retryAfter;
+    private final CompletableFuture<V> skippedRefresh = new CompletableFuture<>();
 
     StatisticsCacheLoader(BasicAsyncCacheLoader<K, V> delegate, Executor executor) {
+        this(delegate, executor, Ticker.systemTicker());
+    }
+
+    @VisibleForTesting
+    StatisticsCacheLoader(BasicAsyncCacheLoader<K, V> delegate, Executor executor, Ticker ticker) {
         this.delegate = delegate;
         this.executor = executor;
+        this.ticker = ticker;
+        retryAfter = new AtomicLong(ticker.read());
+        skippedRefresh.cancel(false);
+    }
+
+    static <K, V> void refresh(AsyncLoadingCache<K, V> cache, K key) {
+        // Caffeine invokes asyncReload synchronously while submitting an explicit refresh.
+        EXPLICIT_REFRESH.set(true);
+        try {
+            cache.synchronous().refresh(key);
+        } catch (RejectedExecutionException e) {
+            // A cold load was rejected before publishing a future.
+        } finally {
+            EXPLICIT_REFRESH.remove();
+        }
     }
 
     @Override
@@ -41,13 +73,18 @@ final class StatisticsCacheLoader<K, V> implements AsyncCacheLoader<K, V> {
 
     @Override
     public CompletableFuture<V> asyncReload(K key, V oldValue, Executor ignored) {
+        boolean explicit = Boolean.TRUE.equals(EXPLICIT_REFRESH.get());
+        if (!explicit && retryAfter.get() - ticker.read() > 0) {
+            return skippedRefresh;
+        }
         try {
             return asyncLoad(key, ignored);
         } catch (RejectedExecutionException e) {
-            // Caffeine retains the old value on cancellation without logging each rejected refresh.
-            CompletableFuture<V> cancelled = new CompletableFuture<>();
-            cancelled.cancel(false);
-            return cancelled;
+            long nextRetry = ticker.read() + REFRESH_RETRY_DELAY_NANOS;
+            retryAfter.accumulateAndGet(nextRetry, (current, next) -> next - current > 0 ? next : current);
+            // A null reload removes only the old entry Caffeine captured for an explicit refresh.
+            // An automatic refresh cancellation preserves the old value during backoff.
+            return explicit ? CompletableFuture.completedFuture(null) : skippedRefresh;
         }
     }
 }
