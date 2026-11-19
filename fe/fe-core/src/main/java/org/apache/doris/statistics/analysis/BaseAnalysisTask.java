@@ -34,7 +34,6 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
-import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.util.DBObjects;
@@ -484,14 +483,8 @@ public abstract class BaseAnalysisTask {
     protected void doPartitionTable() throws Exception {
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
-        // Find jobInfo for this task.
-        AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
-        // Synchronous jobs have no history record.
-        boolean isSync = jobInfo == null;
-        jobInfo = isSync ? job.getJobInfo() : jobInfo;
-
         // 1. Remove not exist partition stats
-        deleteNotExistPartitionStats(jobInfo);
+        deleteNotExistPartitionStats(job.getJobInfo());
 
         // 2. Get stats of each partition
         Map<String, String> params = buildSqlParams();
@@ -517,14 +510,14 @@ public abstract class BaseAnalysisTask {
                 if (partitionRowCount > hugePartitionThreshold && AnalysisInfo.JobType.SYSTEM.equals(info.jobType)) {
                     hasHughPartition = true;
                     // -1 means it's skipped because this partition is too large.
-                    job.putPartitionUpdateRowsIfAbsent(jobInfo, partition.getId(), -1L);
+                    job.putPartitionUpdateRowsIfAbsent(partition.getId(), -1L);
                     LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
                     continue;
                 }
                 batchRowCount += partitionRowCount;
                 // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
                 // and insert before first analyze, set partition update rows to 0.
-                job.putPartitionUpdateRowsIfAbsent(jobInfo, partition.getId(), 0L);
+                job.putPartitionUpdateRowsIfAbsent(partition.getId(), 0L);
             }
             params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
             // Skip partitions that not changed after last analyze.
@@ -571,18 +564,7 @@ public abstract class BaseAnalysisTask {
         // 4. Skip large partition and fallback to sample analyze if large partition exists.
         if (hasHughPartition) {
             tableSample = new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
-            if (!isSync) {
-                synchronized (job) {
-                    if (!job.isTerminated() && !job.isHistoryDropped()) {
-                        AnalysisInfo current = analysisManager.findJobInfo(jobInfo.jobId);
-                        AnalysisInfo source = current == null ? jobInfo : current;
-                        AnalysisInfo sample = new AnalysisInfoBuilder(source)
-                                .setAnalysisMethod(AnalysisMethod.SAMPLE).build();
-                        sample.markStartTime(source.startTime);
-                        analysisManager.replayCreateAnalysisJob(sample);
-                    }
-                }
-            }
+            job.markSampleFallback();
             if (tableStatsStatus == null || columnStatsMeta == null
                     || tableStatsStatus.updatedRows.get() > columnStatsMeta.updatedRows) {
                 doSample();
@@ -681,11 +663,8 @@ public abstract class BaseAnalysisTask {
             }
             // Update index row count after analyze.
             if (this instanceof OlapAnalysisTask) {
-                AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);
-                // Synchronous jobs have no history record.
-                jobInfo = jobInfo == null ? job.getJobInfo() : jobInfo;
                 long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
-                jobInfo.addIndexRowCount(indexId, colStatsData.count);
+                job.recordIndexRowCount(indexId, colStatsData.count);
             }
             Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());

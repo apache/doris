@@ -59,6 +59,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -426,20 +428,23 @@ public class AnalysisManagerTest {
                 "shared map must be cleared when a running job is killed");
     }
 
-    @Test
-    public void testDropRunningJobDoesNotRestoreHistoryAtCompletion() throws DdlException {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testDropRunningJobDoesNotRestoreHistoryAtCompletion(boolean sampleBeforeDrop) throws DdlException {
         AnalysisManager manager = Mockito.spy(new AnalysisManager());
         Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
         AnalysisInfo jobInfo = new AnalysisInfoBuilder().setJobId(1)
                 .setCatalogId(10001L).setDBId(20001L).setTblId(30001L)
-                .setState(AnalysisState.RUNNING).setJobType(JobType.MANUAL).build();
+                .setState(AnalysisState.RUNNING).setJobType(JobType.MANUAL).setAnalysisMethod(AnalysisMethod.FULL).build();
         BaseAnalysisTask task = Mockito.mock(BaseAnalysisTask.class);
         task.info = new AnalysisInfoBuilder(jobInfo).setTaskId(2).build();
         manager.constructJob(jobInfo, List.of(task));
         manager.registerSysJob(jobInfo, Map.of(2L, task));
         manager.replayCreateAnalysisTask(task.info);
-        AnalysisInfo sample = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
-        manager.replayCreateAnalysisJob(sample);
+        task.job.recordIndexRowCount(9L, 10L);
+        if (sampleBeforeDrop) {
+            task.job.markSampleFallback();
+        }
 
         MoreFieldsThread.setConnectContext(new ConnectContext());
         Env env = Mockito.mock(Env.class);
@@ -456,12 +461,18 @@ public class AnalysisManagerTest {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             stats.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L)).thenReturn(dbObjects);
             manager.dropAnalyzeJob(new DropAnalyzeJobCommand(1));
+            if (!sampleBeforeDrop) {
+                task.job.markSampleFallback();
+            }
             task.job.taskDoneWithoutData(task);
         } finally {
             MoreFieldsThread.removeConnectContext();
         }
 
+        AnalysisInfo sample = task.job.getJobInfo();
         Mockito.verify(manager).updateTableStats(sample);
+        Assertions.assertEquals(AnalysisMethod.SAMPLE, sample.analysisMethod);
+        Assertions.assertEquals(10L, sample.indexesRowCount.get(9L));
         Assertions.assertEquals(AnalysisState.FINISHED, task.info.state);
         Assertions.assertNull(manager.findJobInfo(1));
         Assertions.assertTrue(manager.findTasks(1).isEmpty());

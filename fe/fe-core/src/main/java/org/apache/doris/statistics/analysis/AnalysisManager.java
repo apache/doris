@@ -493,7 +493,7 @@ public class AnalysisManager implements Writable {
 
     public void updateTaskStatus(AnalysisInfo info, AnalysisState taskState, String message, long time) {
         AnalysisJob runningJob = findRunningJob(info.jobId);
-        if (runningJob == null || !analysisJobIdToTaskMap.containsKey(info.jobId)) {
+        if (runningJob == null || !isAsyncJob(info.jobId)) {
             return;
         }
         synchronized (runningJob) {
@@ -501,7 +501,7 @@ public class AnalysisManager implements Writable {
                     || (runningJob.isTerminated() && taskState != AnalysisState.FAILED)) {
                 return;
             }
-            AnalysisInfo job = analysisJobInfoMap.getOrDefault(info.jobId, runningJob.getJobInfo());
+            AnalysisInfo job = runningJob.getJobInfo();
             info.state = taskState;
             if (taskState == AnalysisState.FINISHED || taskState == AnalysisState.FAILED) {
                 info.timeCostInMs = time - info.lastExecTimeInMs;
@@ -527,29 +527,26 @@ public class AnalysisManager implements Writable {
                 String skipMessage = String.format("%s:[%s] ", info.colName, info.message);
                 job.message = job.message == null ? skipMessage : job.message + skipMessage;
             }
-            if (!runningJob.isHistoryDropped()) {
-                if (info.jobType == JobType.MANUAL) {
-                    logCreateAnalysisTask(info);
-                } else {
-                    replayCreateAnalysisTask(info);
-                }
+            if (runningJob.isHistoryDropped()) {
+                return;
+            }
+            if (info.jobType == JobType.MANUAL) {
+                logCreateAnalysisTask(info);
+            } else {
+                replayCreateAnalysisTask(info);
             }
         }
     }
 
     void finishJob(AnalysisJob runningJob, AnalysisState state, String reason) {
-        AnalysisInfo job;
-        synchronized (runningJob) {
-            AnalysisInfo originalJob = runningJob.getJobInfo();
-            job = analysisJobInfoMap.getOrDefault(originalJob.jobId, originalJob);
-        }
+        AnalysisInfo job = runningJob.getJobInfo();
         if (state == AnalysisState.FAILED) {
             job.markFailed();
             job.message = reason;
         } else {
             job.markFinished();
         }
-        if (!analysisJobIdToTaskMap.containsKey(job.jobId)) {
+        if (!isAsyncJob(job.jobId)) {
             return; // Synchronous ANALYZE leaves table stats and its response to the caller.
         }
         if (state == AnalysisState.FAILED) {
@@ -1170,7 +1167,7 @@ public class AnalysisManager implements Writable {
         } else {
             // Serialize deletion with status callbacks and the final history journal write.
             synchronized (runningJob) {
-                runningJob.dropHistory(analysisJobInfoMap.getOrDefault(jobId, runningJob.getJobInfo()));
+                runningJob.markHistoryDropped();
                 dropJobHistory(jobId);
             }
         }
@@ -1658,6 +1655,10 @@ public class AnalysisManager implements Writable {
 
     AnalysisJob findRunningJob(long id) {
         return idToAnalysisJob.get(id);
+    }
+
+    boolean isAsyncJob(long id) {
+        return analysisJobIdToTaskMap.containsKey(id);
     }
 
     public void removeJob(long id) {

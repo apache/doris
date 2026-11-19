@@ -23,6 +23,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TStatusCode;
@@ -51,8 +52,8 @@ public class AnalysisJob {
     // Guarded by this. A writer relinquishes ownership under the same lock used to append results.
     private boolean flushing;
 
-    private final AnalysisInfo jobInfo;
-    private volatile AnalysisInfo droppedHistory;
+    private volatile AnalysisInfo jobInfo;
+    private boolean historyDropped;
     private final AnalysisManager analysisManager;
 
     public AnalysisJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> queryingTask) {
@@ -243,9 +244,29 @@ public class AnalysisJob {
         return failure;
     }
 
-    synchronized void putPartitionUpdateRowsIfAbsent(AnalysisInfo info, long partitionId, long rows) {
+    synchronized void putPartitionUpdateRowsIfAbsent(long partitionId, long rows) {
         if (!isTerminated()) {
-            info.partitionUpdateRows.putIfAbsent(partitionId, rows);
+            jobInfo.partitionUpdateRows.putIfAbsent(partitionId, rows);
+        }
+    }
+
+    synchronized void recordIndexRowCount(long indexId, long rowCount) {
+        if (!isTerminated()) {
+            jobInfo.addIndexRowCount(indexId, rowCount);
+        }
+    }
+
+    synchronized void markSampleFallback() {
+        if (isTerminated() || !analysisManager.isAsyncJob(jobInfo.jobId)
+                || jobInfo.analysisMethod == AnalysisMethod.SAMPLE) {
+            return;
+        }
+        AnalysisInfo sample = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
+        sample.markStartTime(jobInfo.startTime);
+        sample.indexesRowCount.putAll(jobInfo.indexesRowCount);
+        jobInfo = sample;
+        if (!historyDropped) {
+            analysisManager.replayCreateAnalysisJob(sample);
         }
     }
 
@@ -282,17 +303,16 @@ public class AnalysisJob {
         return state != AnalysisState.RUNNING;
     }
 
-    // Keep the latest statistics metadata if DROP removes an active job's history record.
-    void dropHistory(AnalysisInfo currentInfo) {
-        droppedHistory = currentInfo;
+    // Called under this monitor, which serializes history deletion and publication.
+    void markHistoryDropped() {
+        historyDropped = true;
     }
 
     boolean isHistoryDropped() {
-        return droppedHistory != null;
+        return historyDropped;
     }
 
     public AnalysisInfo getJobInfo() {
-        AnalysisInfo dropped = droppedHistory;
-        return dropped == null ? jobInfo : dropped;
+        return jobInfo;
     }
 }

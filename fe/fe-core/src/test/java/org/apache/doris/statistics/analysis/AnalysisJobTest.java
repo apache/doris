@@ -241,10 +241,10 @@ public class AnalysisJobTest {
 
     @Test
     public void testPartitionUpdatesCannotRepopulateCancelledJob() throws Exception {
-        job.putPartitionUpdateRowsIfAbsent(info, 20L, 200L);
+        job.putPartitionUpdateRowsIfAbsent(20L, 200L);
         Assertions.assertEquals(200L, info.partitionUpdateRows.get(20L));
         job.cancel();
-        job.putPartitionUpdateRowsIfAbsent(info, 30L, 300L);
+        job.putPartitionUpdateRowsIfAbsent(30L, 300L);
         Assertions.assertTrue(info.partitionUpdateRows.isEmpty());
         assertReleased();
     }
