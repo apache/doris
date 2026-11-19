@@ -148,8 +148,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
             return offset.toBuilder()
                     .setBaseRowCount(sample.getBaseRowCount())
-                    .setChangelogRowCount(sample.getChangelogRowCount())
-                    .setSourceEpoch(sample.cloudSourceEpoch()).build();
+                    .setChangelogRowCount(sample.getChangelogRowCount()).build();
         }).collect(Collectors.toList());
         Set<Long> basePartitionIdSet = new HashSet<>(basePartitionIds);
         Set<Long> offsetPartitionIds = initialOffsets.stream()

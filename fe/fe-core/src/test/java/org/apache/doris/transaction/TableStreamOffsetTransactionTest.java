@@ -218,7 +218,7 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
             Assertions.assertEquals(200L, recovered.getOffset());
             Assertions.assertEquals(50L, recovered.getBaseRowCount());
             Assertions.assertEquals(100L, recovered.getChangelogRowCount());
-            Assertions.assertTrue(recovered.matches(source, pid, 200L));
+            Assertions.assertTrue(recovered.matchesOffset(200L));
         } finally {
             stream.writeUnlock();
         }

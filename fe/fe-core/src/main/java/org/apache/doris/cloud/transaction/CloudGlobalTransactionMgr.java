@@ -73,7 +73,6 @@ import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cloud.proto.Cloud.TableStreamIdentityPB;
 import org.apache.doris.cloud.proto.Cloud.TableStreamPartitionUpdatePB;
-import org.apache.doris.cloud.proto.Cloud.TableStreamSourceEpochPB;
 import org.apache.doris.cloud.proto.Cloud.TableStreamUpdatePB;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
@@ -895,10 +894,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 PartitionStreamState state = next.getPartitionUpdates().get(partition.getPartitionId()).getNextState();
                 partition.setBaseRowCount(state.getBaseRowCount());
                 partition.setChangelogRowCount(state.getChangelogRowCount());
-                TableStreamSourceEpochPB sourceEpoch = state.cloudSourceEpoch();
-                if (sourceEpoch != null) {
-                    partition.setSourceEpoch(sourceEpoch);
-                }
             }
             builder.setTableStreamUpdates(i, serialized);
         }

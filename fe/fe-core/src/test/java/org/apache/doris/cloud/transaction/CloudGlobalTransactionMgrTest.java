@@ -594,7 +594,6 @@ public class CloudGlobalTransactionMgrTest {
         Mockito.when(proxy.commitTxn(Mockito.any())).thenAnswer(invocation -> {
             CommitTxnRequest request = invocation.getArgument(0);
             Cloud.TableStreamPartitionUpdatePB sample = request.getTableStreamUpdates(0).getPartitionUpdates(0);
-            Assertions.assertTrue(sample.hasSourceEpoch());
             if (accepted.compareAndSet(null, sample)) {
                 Assertions.assertEquals(50L, sample.getBaseRowCount());
                 Assertions.assertEquals(100L, sample.getChangelogRowCount());
@@ -622,8 +621,7 @@ public class CloudGlobalTransactionMgrTest {
         Cloud.TableStreamPartitionReadStatePB read = Cloud.TableStreamPartitionReadStatePB.newBuilder()
                 .setPartitionId(1003L).setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
                 .setOffsetTso(200L).setEndTso(300L).setVisibleVersion(3L)
-                .setBaseRowCount(first.getBaseRowCount()).setChangelogRowCount(first.getChangelogRowCount())
-                .setSourceEpoch(first.getSourceEpoch()).build();
+                .setBaseRowCount(first.getBaseRowCount()).setChangelogRowCount(first.getChangelogRowCount()).build();
         OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(stream, source, List.of());
         wrapper.installCloudReadStates(Map.of(1003L, read));
         Assertions.assertEquals(30L, wrapper.estimateChangelogRead(List.of(1003L),

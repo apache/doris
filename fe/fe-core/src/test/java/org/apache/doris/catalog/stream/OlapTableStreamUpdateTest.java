@@ -165,7 +165,7 @@ public class OlapTableStreamUpdateTest {
             Assertions.assertEquals(200L, committed.getOffset());
             Assertions.assertEquals(50L, committed.getBaseRowCount());
             Assertions.assertEquals(100L, committed.getChangelogRowCount());
-            Assertions.assertTrue(committed.matches(fixture.source, 10L, 200L));
+            Assertions.assertTrue(committed.matchesOffset(200L));
             OlapTableStreamUpdate unchanged = new OlapTableStreamUpdate(
                     Map.of(10L, new PartitionUpdate(200L, PartitionStreamState.initial().atOffset(200L))));
             fixture.stream.unprotectedPrepareStreamUpdate(unchanged);
@@ -196,11 +196,11 @@ public class OlapTableStreamUpdateTest {
             Assertions.assertEquals(200L, replayed.getOffset());
             Assertions.assertEquals(50L, replayed.getBaseRowCount());
             Assertions.assertEquals(100L, replayed.getChangelogRowCount());
-            Assertions.assertTrue(replayed.matches(fixture.source, 10L, 200L));
+            Assertions.assertTrue(replayed.matchesOffset(200L));
             OlapTableStream image = GsonUtils.GSON.fromJson(
                     GsonUtils.GSON.toJson(fixture.stream), OlapTableStream.class);
             Assertions.assertEquals(replayed, image.getPartitionState(10L));
-            Assertions.assertTrue(image.getPartitionState(10L).matches(fixture.source, 10L, 200L));
+            Assertions.assertTrue(image.getPartitionState(10L).matchesOffset(200L));
         }
     }
 

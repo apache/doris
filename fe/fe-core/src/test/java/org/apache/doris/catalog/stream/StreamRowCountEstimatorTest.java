@@ -18,16 +18,11 @@
 package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.stream.BaseTableStream.StreamScanType;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
-import org.apache.doris.cloud.catalog.CloudPartition;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 public class StreamRowCountEstimatorTest {
     private static final long UNKNOWN = StreamRowCountEstimator.UNKNOWN_ROW_COUNT;
@@ -147,48 +142,15 @@ public class StreamRowCountEstimatorTest {
     }
 
     @Test
-    public void testOffsetEpochAndTabletReplacementBinding() {
-        OlapTable table = Mockito.mock(OlapTable.class);
-        MaterializedIndex index = new MaterializedIndex(1L, MaterializedIndex.IndexState.NORMAL);
-        index.setRowCount(50);
-        Partition partition = new Partition(10L, "p", index, new RandomDistributionInfo(1));
-        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
-        Mockito.when(table.getPartition(10L)).thenReturn(partition);
-        PartitionStreamState state = PartitionStreamState.restored(
-                100L, -1, null, -1L, -1L).withRowCounts(table, 10);
-        Assertions.assertEquals(50, state.getBaseRowCount());
-        Assertions.assertTrue(state.matches(table, 10, 100L));
-        Assertions.assertFalse(state.matches(table, 10, 200L));
-        // Reports and compaction do not change topology identity.
-        index.setRowCount(70);
-        Assertions.assertTrue(state.matches(table, 10, 100L));
-        index.clearTabletsForRestore();
-        Assertions.assertFalse(state.matches(table, 10, 100L));
-        state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
-        partition.updateVersionForRestore(3L);
-        Assertions.assertFalse(state.matches(table, 10, 100L));
-        state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
-        Mockito.when(table.getPartition(10L)).thenReturn(Mockito.mock(Partition.class));
-        Assertions.assertFalse(state.matches(table, 10, 100L));
-    }
+    public void testBaselineMatchesConsumedOrHistoricalOffset() {
+        PartitionStreamState consumed = PartitionStreamState.restored(100L, 1L, null, 50L, 20L);
+        Assertions.assertTrue(consumed.matchesOffset(100L));
+        Assertions.assertFalse(consumed.matchesOffset(200L));
+        Assertions.assertFalse(consumed.matchesOffset(null));
 
-    @Test
-    public void testCloudRestoreInvalidatesBaselineWithTheSameTabletIds() {
-        OlapTable table = Mockito.mock(OlapTable.class);
-        MaterializedIndex index = new MaterializedIndex(1L, MaterializedIndex.IndexState.NORMAL);
-        index.setRowCount(50);
-        Partition partition = new CloudPartition(10L, "p", index, new RandomDistributionInfo(1), 2L, 3L);
-        Mockito.when(table.getBaseIndexId()).thenReturn(1L);
-        Mockito.when(table.getPartition(10L)).thenReturn(partition);
-        PartitionStreamState state = PartitionStreamState.restored(
-                100L, -1, null, -1L, -1L).withRowCounts(table, 10);
-        Assertions.assertTrue(state.matches(table, 10, 100L));
-        long topology = index.getDataEpoch();
-        partition.updateVersionForRestore(3L);
-        Assertions.assertEquals(topology, index.getDataEpoch());
-        Assertions.assertFalse(state.matches(table, 10, 100L));
-        Assertions.assertTrue(PartitionStreamState.restored(
-                200L, -1, null, -1L, -1L).withRowCounts(table, 10).matches(table, 10, 200L));
+        PartitionStreamState initialSnapshot = consumed.atHistoricalTso(200L);
+        Assertions.assertTrue(initialSnapshot.matchesOffset(200L));
+        Assertions.assertFalse(initialSnapshot.matchesOffset(100L));
+        Assertions.assertFalse(initialSnapshot.matchesOffset(null));
     }
-
 }

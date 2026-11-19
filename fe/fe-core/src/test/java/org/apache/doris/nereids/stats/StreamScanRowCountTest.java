@@ -256,16 +256,16 @@ public class StreamScanRowCountTest extends TestWithFeService {
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("stream_on_base");
         long id = base.getPartitionIds().get(0);
         OlapTableStream restored = new OlapTableStream(stream.getId(), stream.getName(), base);
-        Cloud.TableStreamSourceEpochPB epoch = stream.getPartitionState(id).cloudSourceEpoch();
-        for (boolean validEpoch : new boolean[] {true, false}) {
+        for (boolean hasCounts : new boolean[] {true, false}) {
             OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(restored, base, base.getPartitionIds());
-            wrapper.installCloudReadStates(ImmutableMap.of(id, Cloud.TableStreamPartitionReadStatePB.newBuilder()
+            Cloud.TableStreamPartitionReadStatePB.Builder state = Cloud.TableStreamPartitionReadStatePB.newBuilder()
                     .setPartitionId(id)
                     .setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
-                    .setOffsetTso(START_TSO + 50).setEndTso(END_TSO).setVisibleVersion(3L)
-                    .setBaseRowCount(BASE_TABLE_ROW_COUNT).setChangelogRowCount(1000L)
-                    .setSourceEpoch(validEpoch ? epoch : epoch.toBuilder()
-                            .setPartitionEpoch(epoch.getPartitionEpoch() + 1).build()).build()));
+                    .setOffsetTso(START_TSO + 50).setEndTso(END_TSO).setVisibleVersion(3L);
+            if (hasCounts) {
+                state.setBaseRowCount(BASE_TABLE_ROW_COUNT).setChangelogRowCount(1000L);
+            }
+            wrapper.installCloudReadStates(ImmutableMap.of(id, state.build()));
             // The plan uses MS's baseline even without local stream state; TTL clipping only changes the scan range.
             Map<Long, Pair<Long, Long>> ranges = ImmutableMap.of(id, Pair.of(START_TSO + 80, END_TSO + 1));
             long rows = wrapper.estimateChangelogRead(base.getPartitionIds(), ranges,
@@ -273,7 +273,7 @@ public class StreamScanRowCountTest extends TestWithFeService {
             LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                     new OlapChangelogTableWrapper(base, Map.of(id,
                             new PartitionScanState(ranges.get(id), 3L, rows))));
-            Assertions.assertEquals(validEpoch ? 700L : 1200L, new StatsCalculator(null).computeOlapScan(scan)
+            Assertions.assertEquals(hasCounts ? 700L : 1200L, new StatsCalculator(null).computeOlapScan(scan)
                     .getRowCount());
         }
     }
@@ -286,7 +286,7 @@ public class StreamScanRowCountTest extends TestWithFeService {
         OlapTableStream restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(stream), OlapTableStream.class);
         OlapTable restoredBase = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(base), OlapTable.class);
         long id = base.getPartitionIds().get(0);
-        Assertions.assertTrue(restored.getPartitionState(id).matches(restoredBase, id, START_TSO));
+        Assertions.assertTrue(restored.getPartitionState(id).matchesOffset(START_TSO));
         OlapTableStreamWrapper wrapper = new OlapTableStreamWrapper(restored, restoredBase, List.of(id));
         Map<Long, Pair<Long, Long>> ranges = Map.of(id, Pair.of(START_TSO + 1, END_TSO + 1));
         long rows = wrapper.estimateChangelogRead(List.of(id), ranges, BaseTableStream.StreamScanType.APPEND_ONLY)

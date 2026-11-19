@@ -167,8 +167,7 @@ public class CloudInternalCatalogTableStreamTest {
                 Mockito.verify(proxy).commitPartition(offsets.capture());
                 Assertions.assertEquals(900L, offsets.getValue().getTableStreamOffsets(0).getOffsetTso());
                 Assertions.assertEquals(50L, offsets.getValue().getTableStreamOffsets(0).getBaseRowCount());
-                Assertions.assertEquals(index.getId(),
-                        offsets.getValue().getTableStreamOffsets(0).getSourceEpoch().getBaseIndexId());
+                Assertions.assertEquals(partition.getId(), offsets.getValue().getTableStreamOffsets(0).getPartitionId());
                 Assertions.assertEquals(-1L, offsets.getValue().getTableStreamOffsets(0).getChangelogRowCount());
             }
         } finally {

@@ -463,7 +463,7 @@ public class OlapTableStreamWrapper extends OlapTable {
         Pair<Long, Long> originalRange = getOutputUpdate(partitionId);
         // This is the authoritative consumption offset BEFORE scan-bound conversion or TTL pruning.
         Long offset = originalRange == null ? null : originalRange.first;
-        return state != null && state.matches(baseTable, partitionId, offset) ? state : null;
+        return state != null && state.matchesOffset(offset) ? state : null;
     }
 
     private long estimatePartitionChangeRecords(long partitionId, Pair<Long, Long> range,
