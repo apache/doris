@@ -51,10 +51,10 @@ std::string to_hex(StringRef value) {
 }
 
 template <typename ColumnType>
-class BinaryParquetConsumerBase : public ParquetFixedValueConsumer,
-                                  public ParquetBinaryValueConsumer {
+class BinaryParquetConsumer final : public ParquetFixedValueConsumer,
+                                    public ParquetBinaryValueConsumer {
 public:
-    explicit BinaryParquetConsumerBase(ColumnType& column) : _column(column) {}
+    explicit BinaryParquetConsumer(ColumnType& column) : _column(column) {}
 
     Status consume(const uint8_t* values, size_t num_values, size_t value_width) override {
         for (size_t row = 0; row < num_values; ++row) {
@@ -85,26 +85,12 @@ private:
     ColumnType& _column;
 };
 
-class VarbinaryParquetConsumer final : public BinaryParquetConsumerBase<ColumnVarbinary> {
-public:
-    using BinaryParquetConsumerBase<ColumnVarbinary>::BinaryParquetConsumerBase;
-};
-
-class GeoParquetConsumer final : public BinaryParquetConsumerBase<ColumnSpatial> {
-public:
-    using BinaryParquetConsumerBase<ColumnSpatial>::BinaryParquetConsumerBase;
-};
-
-template <typename ColumnType>
-using ParquetConsumerFor = std::conditional_t<std::is_same_v<ColumnType, ColumnSpatial>,
-                                              GeoParquetConsumer, VarbinaryParquetConsumer>;
-
 } // namespace
 
 template <typename ColumnType>
 Status DataTypeVarbinarySerDeBase<ColumnType>::read_parquet_dictionary(
         IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context) const {
-    ParquetConsumerFor<ColumnType> consumer(assert_cast<ColumnType&>(column));
+    BinaryParquetConsumer<ColumnType> consumer(assert_cast<ColumnType&>(column));
     return source.decode_dictionary(consumer, consumer);
 }
 
@@ -112,7 +98,7 @@ template <typename ColumnType>
 Status DataTypeVarbinarySerDeBase<ColumnType>::read_column_from_parquet(
         IColumn& column, ParquetDecodeSource& source, const ParquetDecodeContext& context,
         size_t num_values, ParquetMaterializationState& state) const {
-    ParquetConsumerFor<ColumnType> consumer(assert_cast<ColumnType&>(column));
+    BinaryParquetConsumer<ColumnType> consumer(assert_cast<ColumnType&>(column));
     if (context.encoding != ParquetValueEncoding::DICTIONARY) {
         if (context.physical_type == ParquetPhysicalType::BYTE_ARRAY) {
             return source.decode_binary_values(num_values, consumer);
