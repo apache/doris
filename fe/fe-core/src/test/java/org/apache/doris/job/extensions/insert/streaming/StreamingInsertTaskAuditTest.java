@@ -329,6 +329,75 @@ public class StreamingInsertTaskAuditTest {
     }
 
     @Test
+    public void testNativeQuerySuffixSpellingsRemainDistinctInFinalAudit() throws Exception {
+        for (List<String> names : List.of(List.of("data?x=1;y=2.csv", "data?x=1&y=2.csv"),
+                List.of("data?x=1&&y=2.csv", "data?x=1&y=2.csv"),
+                List.of("data?;x=1;&y=2.csv&", "data?x=1&y=2.csv"),
+                List.of("data?tag=100%.csv", "data?tag=101%.csv"),
+                List.of("data?tag=literal%252F.csv", "data?tag=other%252F.csv"),
+                List.of("data?tag=plus+percent%.csv", "data?tag=other+percent%.csv"),
+                List.of("data?tag=space value.csv", "data?tag=space  value.csv"))) {
+            List<TBrokerFileStatus> files = List.of(
+                    new TBrokerFileStatus("s3://bucket/logs/" + names.get(0), false, 10, true),
+                    new TBrokerFileStatus("s3://bucket/logs/" + names.get(1), false, 20, true));
+            for (List<TBrokerFileStatus> batch : List.of(List.of(files.get(0)), files)) {
+                for (boolean fail : List.of(false, true)) {
+                    AuditEvent event = runTask(fail ? new RuntimeException("insert failed") : null,
+                            S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true, batch, () -> { });
+                    Assertions.assertTrue(event.stmt.contains(names.get(0).split("\\?", 2)[1]), event.stmt);
+                    if (batch.size() > 1) {
+                        Assertions.assertTrue(event.stmt.contains(names.get(1).split("\\?", 2)[1]), event.stmt);
+                    }
+                    Assertions.assertFalse(event.stmt.contains("private-value"), event.stmt);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testNotificationPreservesNativeQuerySuffixInFinalAudit() throws Exception {
+        List<String> keys = List.of("logs/data?x=1;y=2.csv", "logs/data?x=1&y=2.csv");
+        List<TBrokerFileStatus> files = List.of(
+                new TBrokerFileStatus("s3://bucket/" + keys.get(0), false, 10, true),
+                new TBrokerFileStatus("s3://bucket/" + keys.get(1), false, 20, true));
+        S3EventSourceOffsetProvider provider = Mockito.mock(S3EventSourceOffsetProvider.class);
+        Mockito.when(provider.getSourceType()).thenReturn("s3");
+        for (boolean fail : List.of(false, true)) {
+            AuditEvent event = runTask(fail ? new RuntimeException("insert failed") : null,
+                    S3_SQL, provider, new S3EventOffset(keys, files), true, files, () -> { });
+            Assertions.assertTrue(event.stmt.contains("x=1;y=2.csv"), event.stmt);
+            Assertions.assertTrue(event.stmt.contains("x=1&y=2.csv"), event.stmt);
+        }
+    }
+
+    @Test
+    public void testNativeQueryCannotHideJdbcBehindFormSpaces() throws Exception {
+        for (String prefix : List.of("+", "%2B", "%252B", "%25252B", "%2525252B")) {
+            String path = "s3://bucket/logs/data?redirect=" + prefix
+                    + "jdbc:oracle:thin:fixture/fixture-password@host";
+            List<TBrokerFileStatus> files = List.of(new TBrokerFileStatus(path, false, 10, true));
+            AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
+                    files, () -> { });
+            Assertions.assertTrue(event.stmt.contains("\"uri\" = \"*XXX\""), event.stmt);
+            Assertions.assertFalse(event.stmt.contains("fixture-password"), event.stmt);
+        }
+    }
+
+    @Test
+    public void testNativeQueryCredentialsPreserveNonsecretSyntax() throws Exception {
+        String path = "s3://fixture:fixture-userinfo@bucket/logs/data?;%74oken=fixture-token&&x=1;y=2.csv;";
+        List<TBrokerFileStatus> files = List.of(new TBrokerFileStatus(path, false, 10, true));
+        AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
+                files, () -> { });
+        // The batch renders the mask as literal glob text before SQL quoting.
+        Assertions.assertTrue(event.stmt.contains(";%74oken=\\\\*XXX&&x=1;y=2.csv;"), event.stmt);
+        for (String secret : List.of("fixture-userinfo", "fixture-token", "private-value")) {
+            Assertions.assertFalse(event.stmt.contains(secret), event.stmt);
+        }
+        Assertions.assertEquals(path, files.get(0).getPath());
+    }
+
+    @Test
     public void testLiteralPercentNamesRemainDistinctInFinalAudit() throws Exception {
         for (List<String> names : List.of(List.of("100%.csv", "101%.csv"),
                 List.of("literal%GG.csv", "other%GG.csv"), List.of("literal%2F.csv", "other%2F.csv"),
@@ -451,7 +520,11 @@ public class StreamingInsertTaskAuditTest {
         for (String path : List.of("unknown://fixture:fixture-password@host/file.csv",
                 "s3://bucket/input/file.csv,https://fixture:fixture-password@host/other.csv",
                 "s3://bucket/input/file.csv,//fixture:fixture-password@host/other.csv",
-                "s3://bucket/input/file.csv?redirect=https%3A%2F%2Ffixture%3Afixture-password%40host")) {
+                "s3://bucket/input/file.csv?redirect=https%3A%2F%2Ffixture%3Afixture-password%40host",
+                "s3://bucket/input/file.csv?redirect=https%3A%2F%2Ffixture:fixture-password@host%",
+                "s3://bucket/input/file.csv?redirect=https%253A%252F%252Ffixture:fixture-password%2540host%",
+                "s3://bucket/input/file.csv?redirect=https%2525253A%2525252F%2525252Ffixture:fixture-password@host",
+                "s3://bucket/input/file.csv?;x=1&&X-Amz-Signature=fixture-password;")) {
             List<TBrokerFileStatus> files = List.of(new TBrokerFileStatus(path, false, 10, true));
             AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
                     files, () -> { });

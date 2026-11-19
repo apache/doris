@@ -23,8 +23,6 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -69,6 +67,8 @@ final class DatasourcePropertyRedactor {
                     + "app(?:lication)?[._-]?key|authorization|^auth$|^key$");
     private static final Pattern SIGNATURE = Pattern.compile("(?i)signature|(?:^|[._-])(?:sig|sas)(?:$|[._-])");
     private static final Pattern ENCODED_ESCAPE = Pattern.compile("%[a-fA-F0-9]{2}");
+    private static final Pattern LITERAL_PERCENT = Pattern.compile("%(?![a-fA-F0-9]{2})");
+    private static final int NATIVE_QUERY_DECODE_PASSES = 3;
     private static volatile NamePattern namePattern = new NamePattern(Config.datasource_sensitive_property_pattern);
 
     private DatasourcePropertyRedactor() {
@@ -130,8 +130,9 @@ final class DatasourcePropertyRedactor {
             String encodedPath = new URI(null, "placeholder", path, null, null).getRawPath();
             // Selected keys are already decoded: '#' is literal, including in a query-shaped suffix.
             String rawQuery = parts.group(4) == null ? null : parts.group(4).substring(1);
+            String encodedQuery = rawQuery == null ? null : new URI(null, null, null, rawQuery, null).getRawQuery();
             String address = parts.group(1) + "://" + parts.group(2) + encodedPath
-                    + (rawQuery == null ? "" : "?" + rawQuery.replace("#", "%23"));
+                    + (encodedQuery == null ? "" : "?" + encodedQuery);
             return redactAddress(address, path, rawQuery);
         } catch (URISyntaxException | IllegalArgumentException e) {
             return MASK;
@@ -194,7 +195,7 @@ final class DatasourcePropertyRedactor {
                     || (resolvedPath == null && ENCODED_ESCAPE.matcher(path).find()))) {
                 return MASK;
             }
-            String query = redactQuery(resolvedPath == null ? uri.getRawQuery() : resolvedQuery);
+            String query = redactQuery(resolvedPath == null ? uri.getRawQuery() : resolvedQuery, resolvedPath != null);
             if (MASK.equals(query)) {
                 return MASK;
             }
@@ -246,35 +247,71 @@ final class DatasourcePropertyRedactor {
         return true;
     }
 
-    private static String redactQuery(String rawQuery) {
+    private static String redactQuery(String rawQuery, boolean nativeQuery) {
         if (rawQuery == null) {
             return null;
         }
-        List<String> parameters = new ArrayList<>();
-        for (String parameter : rawQuery.split("[&;]", -1)) {
-            if (parameter.isEmpty()) {
+        StringBuilder result = new StringBuilder(rawQuery.length());
+        int start = 0;
+        for (int end = 0; end <= rawQuery.length(); end++) {
+            if (end < rawQuery.length() && rawQuery.charAt(end) != '&' && rawQuery.charAt(end) != ';') {
                 continue;
             }
-            int equal = parameter.indexOf('=');
-            String rawName = equal < 0 ? parameter : parameter.substring(0, equal);
-            String name = URLDecoder.decode(rawName, StandardCharsets.UTF_8);
-            if (!QUERY_NAME.matcher(name).matches() || SIGNATURE.matcher(name).find()) {
-                return MASK;
-            }
-            if (DatasourcePrintableMap.isSensitiveKey(name) || QUERY_CREDENTIAL.matcher(name).find()) {
-                parameters.add(rawName + "=" + MASK);
-            } else {
-                String value = equal < 0 ? ""
-                        : URLDecoder.decode(parameter.substring(equal + 1), StandardCharsets.UTF_8);
-                // A nested connection string needs its own parser; mask the outer URL instead of leaking it.
-                if (value.contains("://") || value.regionMatches(true, 0, "jdbc:", 0, 5)
-                        || ENCODED_ESCAPE.matcher(value).find()) {
+            if (end > start) {
+                String parameter = redactQueryParameter(rawQuery.substring(start, end), nativeQuery);
+                if (MASK.equals(parameter)) {
                     return MASK;
                 }
-                parameters.add(parameter);
+                if (!nativeQuery && result.length() > 0) {
+                    result.append('&');
+                }
+                result.append(parameter);
             }
+            // Non-secret delimiters and empty components identify a native key; only ordinary URLs normalize them.
+            if (nativeQuery && end < rawQuery.length()) {
+                result.append(rawQuery.charAt(end));
+            }
+            start = end + 1;
         }
-        return String.join("&", parameters);
+        return result.toString();
+    }
+
+    private static String redactQueryParameter(String parameter, boolean nativeQuery) {
+        int equal = parameter.indexOf('=');
+        String rawName = equal < 0 ? parameter : parameter.substring(0, equal);
+        String name = URLDecoder.decode(rawName, StandardCharsets.UTF_8);
+        if (!QUERY_NAME.matcher(name).matches() || SIGNATURE.matcher(name).find()) {
+            return MASK;
+        }
+        if (DatasourcePrintableMap.isSensitiveKey(name) || QUERY_CREDENTIAL.matcher(name).find()) {
+            return rawName + "=" + MASK;
+        }
+        String value = equal < 0 ? "" : parameter.substring(equal + 1);
+        return isUnsafeQueryValue(value, nativeQuery) ? MASK : parameter;
+    }
+
+    private static boolean isUnsafeQueryValue(String value, boolean nativeQuery) {
+        if (!nativeQuery) {
+            String decoded = URLDecoder.decode(value, StandardCharsets.UTF_8);
+            return isNestedConnection(decoded) || ENCODED_ESCAPE.matcher(decoded).find();
+        }
+        // Inspect bounded decoded views without changing native text or letting a literal '%' hide an encoded URL.
+        String view = value;
+        for (int pass = 0; pass < NATIVE_QUERY_DECODE_PASSES; pass++) {
+            // Include form-space views for JDBC detection while emitting the original literal '+' unchanged.
+            if (isNestedConnection(view.replace('+', ' '))) {
+                return true;
+            }
+            if (!ENCODED_ESCAPE.matcher(view).find()) {
+                return false;
+            }
+            view = URLDecoder.decode(LITERAL_PERCENT.matcher(view).replaceAll("%25"), StandardCharsets.UTF_8);
+        }
+        return isNestedConnection(view.replace('+', ' ')) || ENCODED_ESCAPE.matcher(view).find();
+    }
+
+    private static boolean isNestedConnection(String value) {
+        return value.contains("://") || value.trim().regionMatches(true, 0, "jdbc:", 0, 5);
     }
 
     private static final class NamePattern {

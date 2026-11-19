@@ -81,6 +81,10 @@ class DatasourcePropertyMaskingTest {
         assertRendered("uri", "s3://bucket/logs/file#1.csv", "s3://bucket/logs/file");
         assertRendered("uri", "s3://bucket/logs/100%.csv", MASK);
         assertRendered("uri", "s3://bucket/logs/literal%252F.csv", MASK);
+        assertRendered("endpoint", "https://api.example.com/data?x=1;;y=2&&",
+                "https://api.example.com/data?x=1&y=2");
+        assertRendered("endpoint", "https://api.example.com/data?target=%20jdbc:oracle:thin:"
+                + "fixture/fixture-query-password@db.example.com:1521/service", MASK);
         assertRendered("uri", "https://fixture:fixture-password@api.example.com/v1?region=east&token=fixture-token",
                 "https://api.example.com/v1?region=east&token=" + MASK);
         assertRendered("iceberg.rest.uri", "https://api.example.com/v1?Password=one;password=two&scope=read",
