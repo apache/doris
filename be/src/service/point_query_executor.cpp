@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_serde.h"
+#include "exec/common/variant_util.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -359,6 +360,11 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
         if (uuid != 0) {
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         }
+    }
+    // Also validate cached query contexts against this tablet's persisted storage policy.
+    for (const auto* slot : _reusable->tuple_desc()->slots()) {
+        RETURN_IF_ERROR(variant_util::check_variant_execution(
+                _tablet->tablet_schema()->variant_escape_dots_in_keys(), slot->type()));
     }
     _init_remote_scan_cache_write_limiter();
     // Set timezone from request for functions like from_unixtime()

@@ -16,7 +16,9 @@
 // under the License.
 
 #include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/variant/v2/variant_assembler.h"
 
 namespace doris::segment_v2 {
 
@@ -24,8 +26,8 @@ namespace doris::segment_v2 {
 
 class VariantDocValueCompactIterator : public ColumnIterator {
 public:
-    VariantDocValueCompactIterator(ColumnIteratorUPtr&& column_iterator)
-            : _doc_value_iterator(std::move(column_iterator)) {}
+    VariantDocValueCompactIterator(ColumnIteratorUPtr&& column_iterator, uint32_t path_encoding = 0)
+            : _doc_value_iterator(std::move(column_iterator)), _path_encoding(path_encoding) {}
 
     Status init(const ColumnIteratorOptions& opts) override {
         return _doc_value_iterator->init(opts);
@@ -55,15 +57,35 @@ public:
 private:
     Status _set_doc_value_into_variant(MutableColumnPtr& dst, MutableColumnPtr&& doc_value_column,
                                        size_t count) const {
-        auto& variant = assert_cast<ColumnVariant&>(*dst);
-        auto container = ColumnVariant::create(variant.max_subcolumns_count(),
-                                               variant.enable_doc_mode(), count);
-        container->set_doc_value_column(std::move(doc_value_column));
-        variant.insert_range_from(*container, 0, count);
-        return Status::OK();
+        if (check_and_get_column<ColumnVariantV2>(dst.get()) == nullptr) {
+            if (_path_encoding != 0) {
+                return Status::NotSupported("Escaped Variant storage requires a V2 destination");
+            }
+            auto& variant = assert_cast<ColumnVariant&>(*dst);
+            auto container = ColumnVariant::create(variant.max_subcolumns_count(),
+                                                   variant.enable_doc_mode(), count);
+            container->set_doc_value_column(std::move(doc_value_column));
+            variant.insert_range_from(*container, 0, count);
+            return Status::OK();
+        }
+        auto* storage_map = check_and_get_column<ColumnMap>(doc_value_column.get());
+        if (storage_map == nullptr) {
+            return Status::Corruption("Variant doc compact input is not Map<String,String>");
+        }
+        variant_v2::VariantAssemblerOptions options;
+        options.path_encoding = _path_encoding;
+        options.storage_map_kind = variant_v2::StorageMapKind::DOC;
+        auto assembler = DORIS_TRY(variant_v2::VariantAssembler::create(std::move(options)));
+        variant_v2::VariantAssemblerBatchView batch;
+        batch.num_rows = count;
+        batch.storage_map = storage_map;
+        ColumnNullable::MutablePtr assembled;
+        RETURN_IF_ERROR(assembler->assemble(batch, &assembled));
+        return variant_v2::append_assembled_variant(dst, std::move(assembled));
     }
 
     ColumnIteratorUPtr _doc_value_iterator;
+    uint32_t _path_encoding;
 };
 
 #include "common/compile_check_end.h"

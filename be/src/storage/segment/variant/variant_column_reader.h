@@ -185,6 +185,8 @@ using PathToBinaryColumnCacheUPtr = std::unique_ptr<PathToBinaryColumnCache>;
 
 class VariantColumnReader : public ColumnReader {
 public:
+    uint32_t path_encoding() const { return _path_encoding; }
+
     VariantColumnReader() = default;
 
     Status init(const ColumnReaderOptions& opts, ColumnMetaAccessor* accessor,
@@ -219,7 +221,8 @@ public:
     // Return shared_ptr to ensure the lifetime of TabletIndex objects
     TabletIndexes find_subcolumn_tablet_indexes(const TabletColumn& target_column,
                                                 const DataTypePtr& data_type,
-                                                OlapReaderStatistics* stats = nullptr);
+                                                OlapReaderStatistics* stats = nullptr,
+                                                const TabletSchema* read_schema = nullptr);
 
     bool exist_in_sparse_column(const PathInData& path) const;
 
@@ -312,6 +315,7 @@ private:
     // does not create any concrete ColumnIterator.
     enum class ReadKind {
         ROOT_FLAT,          // root variant using `VariantRootColumnIterator`
+        LEGACY_V2_PATH,     // project an escaped path from a reconstructed legacy root
         HIERARCHICAL,       // hierarchical merge (root + subcolumns + sparse)
         HIERARCHICAL_DOC,   // hierarchical merge (root + doc)
         LEAF,               // direct leaf reader
@@ -426,6 +430,7 @@ private:
     std::unique_ptr<SubcolumnColumnMetaInfo> _subcolumns_meta_info;
     // Sparse column readers (single or bucketized)
     std::shared_ptr<BinaryColumnReader> _binary_column_reader;
+    uint32_t _path_encoding = 0;
     std::shared_ptr<ColumnReader> _root_column_reader;
     std::unique_ptr<VariantStatistics> _statistics;
     std::shared_ptr<TabletSchema> _tablet_schema;
@@ -451,8 +456,8 @@ class VariantRootColumnIterator : public ColumnIterator {
 public:
     VariantRootColumnIterator() = delete;
 
-    explicit VariantRootColumnIterator(FileColumnIteratorUPtr iter)
-            : _inner_iter(std::move(iter)) {}
+    explicit VariantRootColumnIterator(FileColumnIteratorUPtr iter, DataTypePtr v2_type = nullptr)
+            : _inner_iter(std::move(iter)), _v2_type(std::move(v2_type)) {}
 
     ~VariantRootColumnIterator() override = default;
 
@@ -483,6 +488,7 @@ private:
     Status _process_root_column(MutableColumnPtr& dst, MutableColumnPtr& root_column,
                                 const DataTypePtr& most_common_type);
     std::unique_ptr<FileColumnIterator> _inner_iter;
+    DataTypePtr _v2_type;
 };
 
 class DefaultNestedColumnIterator : public ColumnIterator {

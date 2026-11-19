@@ -36,9 +36,12 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
 #include "exec/common/variant_util.h"
+#include "exprs/function/function_variant_element_v2.h"
 #include "io/fs/file_reader.h"
 #include "runtime/descriptors.h"
 #include "storage/key_coder.h"
@@ -177,6 +180,69 @@ private:
     std::shared_ptr<ColumnReader> _owner;
 };
 
+// A legacy segment's physical paths are unescaped. Reconstruct its logical value before
+// projecting an escaped path, so a literal dot cannot accidentally bind to a nested path or
+// a percent-encoded spelling to an unrelated legacy key. This also covers sparse/doc storage.
+class LegacyVariantV2PathIterator final : public ColumnIterator {
+public:
+    LegacyVariantV2PathIterator(ColumnIteratorUPtr inner, DataTypePtr root_type,
+                                std::unique_ptr<ResolvedVariantElementV2Path> path)
+            : _inner(std::move(inner)), _root_type(std::move(root_type)), _path(std::move(path)) {}
+
+    Status init(const ColumnIteratorOptions& opts) override { return _inner->init(opts); }
+    Status seek_to_ordinal(ordinal_t ordinal) override { return _inner->seek_to_ordinal(ordinal); }
+    ordinal_t get_current_ordinal() const override { return _inner->get_current_ordinal(); }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        auto root = _root_type->create_column();
+        RETURN_IF_ERROR(_inner->next_batch(n, root, has_null));
+        RETURN_IF_ERROR(_project(root, dst));
+        *has_null = assert_cast<const ColumnNullable&>(*dst).has_null();
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        auto root = _root_type->create_column();
+        RETURN_IF_ERROR(_inner->read_by_rowids(rowids, count, root));
+        return _project(root, dst);
+    }
+
+    Status init_prefetcher(const SegmentPrefetchParams& params) override {
+        return _inner->init_prefetcher(params);
+    }
+    void collect_prefetchers(
+            std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
+            PrefetcherInitMethod method) override {
+        _inner->collect_prefetchers(prefetchers, method);
+    }
+
+private:
+    Status _project(const MutableColumnPtr& root, MutableColumnPtr& dst) {
+        std::span<const uint8_t> nulls;
+        const IColumn* values = root.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(values)) {
+            nulls = nullable->get_null_map_data();
+            values = &nullable->get_nested_column();
+        }
+        ColumnPtr projected;
+        RETURN_IF_ERROR(extract_variant_element_v2(assert_cast<const ColumnVariantV2&>(*values),
+                                                   *_path, nulls, &projected));
+        RETURN_IF_CATCH_EXCEPTION(dst->insert_range_from(*projected, 0, projected->size()));
+        return Status::OK();
+    }
+    ColumnIteratorUPtr _inner;
+    DataTypePtr _root_type;
+    std::unique_ptr<ResolvedVariantElementV2Path> _path;
+};
+
+bool needs_legacy_path_projection(uint32_t encoding, const TabletColumn& column,
+                                  const TabletSchema* schema) {
+    return encoding == 0 && schema != nullptr && schema->variant_escape_dots_in_keys() &&
+           column.has_path_info() &&
+           column.path_info_ptr()->get_relative_path().find('%') != std::string_view::npos;
+}
+
 } // namespace
 
 const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_path(
@@ -188,6 +254,9 @@ const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_
     }
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
+    if (_path_encoding == 1) {
+        return nullptr;
+    }
     auto path = PathInData(relative_path.get_path());
     node = _subcolumns_meta_info->find_leaf(path);
     return node;
@@ -296,7 +365,7 @@ Status VariantColumnReader::_create_hierarchical_reader(
     }
     RETURN_IF_ERROR(HierarchicalDataIterator::create(
             reader, col_uid, path, node, std::move(sparse_iter), std::move(root_column_reader),
-            column_reader_cache, stats, read_type, use_variant_v2, io_ctx));
+            column_reader_cache, stats, read_type, use_variant_v2, io_ctx, _path_encoding));
     return Status::OK();
 }
 
@@ -501,9 +570,8 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
 
         if (relative_path.empty()) {
             // root path, use VariantRootColumnIterator
-            // ROOT_FLAT is the legacy ColumnVariant compaction/checksum path.
-            // TODO: Remove it together with legacy ColumnVariant readers.
-            DORIS_CHECK(!target_col.variant_is_v2());
+            // Read only the physical root sidecar. Reconstructing children here would write
+            // them twice when compaction handles the extracted columns in separate groups.
             plan->kind = ReadKind::ROOT_FLAT;
             plan->type = create_variant_storage_type(target_col);
             plan->relative_path = relative_path;
@@ -847,6 +915,17 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
     RETURN_IF_ERROR(_validate_access_paths_debug(target_col, opt, col_uid, relative_path));
 
+    if (needs_legacy_path_projection(_path_encoding, target_col,
+                                     opt ? opt->tablet_schema.get() : nullptr) &&
+        !_need_read_flat_leaves(opt)) {
+        plan->kind = ReadKind::LEGACY_V2_PATH;
+        TabletColumn v2_column = target_col;
+        v2_column.set_variant_is_v2(true);
+        plan->type = make_nullable(create_variant_storage_type(v2_column));
+        plan->relative_path = relative_path;
+        return Status::OK();
+    }
+
     // If the variant column has extracted columns and is a compaction reader, then read flat leaves
     // Otherwise read hierarchical data, since the variant subcolumns are flattened in
     // variant_util::get_compaction_schema. For checksum reader, we need to read flat leaves to
@@ -865,7 +944,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
-    if (node == nullptr) {
+    if (node == nullptr && _path_encoding == 0) {
         relative_path = PathInData(relative_path.get_path());
         node = _subcolumns_meta_info->find_exact(relative_path);
     }
@@ -1012,12 +1091,42 @@ Status VariantColumnReader::_create_iterator_from_plan(
         const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
         PathToBinaryColumnCache* binary_column_cache_ptr) {
     switch (plan.kind) {
+    case ReadKind::LEGACY_V2_PATH: {
+        TabletColumn root_col = target_col;
+        root_col.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        root_col.set_variant_is_v2(true);
+        root_col.set_unique_id(target_col.unique_id() >= 0 ? target_col.unique_id()
+                                                           : target_col.parent_unique_id());
+        root_col.set_path_info(PathInData(std::vector<std::string> {
+                std::string(target_col.path_info_ptr()->get_parts().front().key)}));
+        ReadPlan root_plan;
+        RETURN_IF_ERROR(_build_read_plan(&root_plan, root_col, opt, column_reader_cache,
+                                         binary_column_cache_ptr));
+        ColumnIteratorUPtr root_iterator;
+        RETURN_IF_ERROR(_create_iterator_from_plan(&root_iterator, root_plan, root_col, opt,
+                                                   column_reader_cache, binary_column_cache_ptr));
+        std::vector<std::string> keys;
+        keys.reserve(plan.relative_path.get_parts().size());
+        for (const auto& part : plan.relative_path.get_parts()) {
+            RETURN_IF_ERROR(decode_variant_path_component(part.key, &keys.emplace_back()));
+        }
+        std::vector<VariantElementV2PathSegment> segments;
+        for (const auto& key : keys) {
+            segments.push_back(VariantElementV2PathSegment::object_key(StringRef(key)));
+        }
+        std::unique_ptr<ResolvedVariantElementV2Path> path;
+        RETURN_IF_ERROR(resolve_variant_element_v2_path(segments, &path));
+        *iterator = std::make_unique<LegacyVariantV2PathIterator>(std::move(root_iterator),
+                                                                  root_plan.type, std::move(path));
+        return Status::OK();
+    }
     case ReadKind::ROOT_FLAT: {
         // ROOT_FLAT reads the persisted root column itself. It does not rebuild root `v` from
         // regular extracted columns such as `v.keep` / `v.owner`; only the optional root-merge
         // wrapper below may fold NestedGroup data back into the root view.
         *iterator = std::make_unique<VariantRootColumnIterator>(
-                std::make_unique<FileColumnIterator>(_root_column_reader));
+                std::make_unique<FileColumnIterator>(_root_column_reader),
+                target_col.variant_is_v2() ? plan.type : nullptr);
         return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::HIERARCHICAL: {
@@ -1076,7 +1185,8 @@ Status VariantColumnReader::_create_iterator_from_plan(
         DCHECK(plan.binary_column_reader);
         ColumnIteratorUPtr inner_iter;
         RETURN_IF_ERROR(plan.binary_column_reader->new_iterator(&inner_iter, nullptr));
-        *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter));
+        *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter),
+                                                                     _path_encoding);
         return Status::OK();
     }
     case ReadKind::HIERARCHICAL_DOC: {
@@ -1143,15 +1253,21 @@ Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                                          const StorageReadOptions* opt,
                                          ColumnReaderCache* column_reader_cache,
                                          PathToBinaryColumnCache* binary_column_cache_ptr) {
+    const bool escaped_storage =
+            _path_encoding != 0 ||
+            (opt && opt->tablet_schema && opt->tablet_schema->variant_escape_dots_in_keys());
+    if (escaped_storage && target_col->is_variant_type() && !target_col->variant_is_v2()) {
+        return Status::NotSupported("Escaped Variant storage requires a V2 destination");
+    }
     ReadPlan plan;
     RETURN_IF_ERROR(_build_read_plan(&plan, *target_col, opt, column_reader_cache,
                                      binary_column_cache_ptr));
     // Caller of this overload does not need the storage type; only iterator is used.
     RETURN_IF_ERROR(_create_iterator_from_plan(iterator, plan, *target_col, opt,
                                                column_reader_cache, binary_column_cache_ptr));
-    const bool needs_reader_owner = plan.needs_root_merge ||
-                                    plan.kind == ReadKind::NESTED_GROUP_WHOLE ||
-                                    plan.kind == ReadKind::NESTED_GROUP_CHILD;
+    const bool needs_reader_owner =
+            plan.needs_root_merge || plan.kind == ReadKind::LEGACY_V2_PATH ||
+            plan.kind == ReadKind::NESTED_GROUP_WHOLE || plan.kind == ReadKind::NESTED_GROUP_CHILD;
     if (needs_reader_owner) {
         *iterator = std::make_unique<ReaderOwnedColumnIterator>(std::move(*iterator),
                                                                 shared_from_this());
@@ -1194,8 +1310,13 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
                                              &_root_column_reader));
     }
 
-    _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
+    _path_encoding = self_column_pb.variant_path_encoding();
+    if (_path_encoding > 1) {
+        return Status::Corruption("Unknown Variant path encoding {} for column {}", _path_encoding,
+                                  column_uid);
+    }
     _root_unique_id = self_column_pb.unique_id();
+    _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
     const bool should_record_path_stats = variant_util::should_record_variant_path_stats(
             opts.tablet_schema->column_by_uid(self_column_pb.unique_id()));
     const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());
@@ -1354,7 +1475,9 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         // Rebuild via the string constructor when the path has neither typed
         // nor nested metadata, so the tree matches the new shape.
         if (!relative_path.get_is_typed() && !relative_path.has_nested_part()) {
-            relative_path = PathInData(relative_path.get_path());
+            if (_path_encoding == 0) {
+                relative_path = PathInData(relative_path.get_path());
+            }
         }
         _subcolumns_meta_info->add(
                 relative_path,
@@ -1473,7 +1596,13 @@ Status VariantColumnReader::load_external_meta_once(OlapReaderStatistics* stats,
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,
                                                                  const DataTypePtr& data_type,
-                                                                 OlapReaderStatistics* stats) {
+                                                                 OlapReaderStatistics* stats,
+                                                                 const TabletSchema* read_schema) {
+    // The physical legacy index names cannot identify an escaped special-key path.
+    // Evaluate predicates on the reconstructed value instead of pruning with a different key.
+    if (needs_legacy_path_projection(_path_encoding, column, read_schema)) {
+        return {};
+    }
     TabletSchema::SubColumnInfo sub_column_info;
     const auto& parent_index = _tablet_schema->inverted_indexs(column.parent_unique_id());
     auto relative_path = column.path_info_ptr()->copy_pop_front();
@@ -1524,7 +1653,8 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
                                                  {.unique_id = -1,
                                                   .parent_unique_id = column.parent_unique_id(),
                                                   .path_info = index_path});
-        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column);
+        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column,
+                                    _path_encoding == 1);
         for (const auto& index : sub_column_info.indexes) {
             add_variant_search_binding_diagnostic(
                     stats,
@@ -1596,6 +1726,21 @@ Status VariantColumnReader::infer_data_type_for_path(DataTypePtr* type, const Ta
 Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
                                                        MutableColumnPtr& root_column,
                                                        const DataTypePtr& most_common_type) {
+    if (_v2_type) {
+        ColumnPtr converted;
+        RETURN_IF_ERROR(variant_util::cast_column(
+                {root_column->get_ptr(), most_common_type, "variant_root"}, make_nullable(_v2_type),
+                &converted));
+        if (!_v2_type->is_nullable()) {
+            converted = remove_nullable(converted);
+        }
+        if (dst->empty()) {
+            dst = IColumn::mutate(std::move(converted));
+        } else {
+            RETURN_IF_CATCH_EXCEPTION(dst->insert_range_from(*converted, 0, converted->size()));
+        }
+        return Status::OK();
+    }
     auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
                                              assert_cast<ColumnNullable&>(*dst).get_nested_column())
                                    : assert_cast<ColumnVariant&>(*dst);
@@ -1631,12 +1776,7 @@ Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
 
 Status VariantRootColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     // read root column
-    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
-                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
-                                   : assert_cast<ColumnVariant&>(*dst);
-
-    auto most_common_type =
-            obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
+    auto most_common_type = ColumnVariant::get_most_common_type();
     auto root_column = most_common_type->create_column();
     RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
 
@@ -1646,12 +1786,7 @@ Status VariantRootColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, b
 Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
                                                  MutableColumnPtr& dst) {
     // read root column
-    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
-                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
-                                   : assert_cast<ColumnVariant&>(*dst);
-
-    auto most_common_type =
-            obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
+    auto most_common_type = ColumnVariant::get_most_common_type();
     auto root_column = most_common_type->create_column();
     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
 

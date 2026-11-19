@@ -36,6 +36,7 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -57,6 +58,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
 #include "core/types.h"
+#include "exec/common/variant_util.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
@@ -428,6 +430,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
     std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
     // read row by row
+    std::unordered_set<int64_t> checked_tablets;
     for (int i = 0; i < request.row_locs_size(); ++i) {
         const auto& row_loc = request.row_locs(i);
         MonotonicStopWatch watch;
@@ -443,6 +446,13 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         rowset_id.init(row_loc.rowset_id());
         if (!tablet) {
             continue;
+        }
+        if (tablet->tablet_schema()->variant_escape_dots_in_keys() &&
+            checked_tablets.insert(tablet->tablet_id()).second) {
+            for (const auto& slot : slots) {
+                RETURN_IF_ERROR(variant_util::check_variant_execution(
+                        tablet->tablet_schema()->variant_escape_dots_in_keys(), slot.type()));
+            }
         }
         // We ensured it's rowset is not released when init Tablet reader param, rowset->update_delayed_expired_timestamp();
         BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
@@ -1488,6 +1498,10 @@ Status RowIdStorageReader::read_doris_format_row(
                     row_ids[0]);
         }
 
+        for (const auto& slot : slots) {
+            RETURN_IF_ERROR(variant_util::check_variant_execution(
+                    tablet->tablet_schema()->variant_escape_dots_in_keys(), slot.type()));
+        }
         rowset = std::static_pointer_cast<BetaRowset>(scope_timer_run(
                 [&]() { return id_file_map->get_temp_rowset(tablet_id, rowset_id); },
                 acquire_rowsets_ms));

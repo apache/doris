@@ -18,7 +18,7 @@
 import org.apache.doris.regression.util.SqlUtils
 
 suite("rqg7", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
+    setFeConfigTemporary([enable_variant_v2: false, enable_variant_escape_dots_in_keys: false]) {
         assertFalse(getFeConfig("enable_variant_v2").toBoolean())
         StringBuilder sqlBuilder = new StringBuilder()
         sqlBuilder.append($/
