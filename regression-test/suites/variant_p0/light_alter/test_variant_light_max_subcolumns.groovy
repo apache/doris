@@ -16,6 +16,13 @@
 // under the License.
 
 suite("test_variant_light_max_subcolumns", "p0,nonConcurrent") {
+    // These ALTERs exercise the ordinary sparse layout even with fuzzy session defaults.
+    sql """SET default_variant_enable_doc_mode = false,
+        default_variant_enable_nested_group = false,
+        default_variant_enable_typed_paths_to_sparse = false,
+        default_variant_max_subcolumns_count = 2048,
+        default_variant_max_sparse_column_statistics_size = 10000,
+        default_variant_sparse_hash_shard_count = 0"""
     def rows = [
         """(1, parse_to_variant('{"a":1,"b":2,"c":3,"d":4}'))""",
         """(2, parse_to_variant('{"a":5,"b":6,"c":7,"d":8}'))""",

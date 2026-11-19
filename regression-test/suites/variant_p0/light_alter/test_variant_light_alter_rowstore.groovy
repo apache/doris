@@ -16,6 +16,13 @@
 // under the License.
 
 suite("test_variant_light_alter_rowstore", "p0,nonConcurrent") {
+    // These ALTERs exercise the ordinary sparse layout even with fuzzy session defaults.
+    sql """SET default_variant_enable_doc_mode = false,
+        default_variant_enable_nested_group = false,
+        default_variant_enable_typed_paths_to_sparse = false,
+        default_variant_max_subcolumns_count = 2048,
+        default_variant_max_sparse_column_statistics_size = 10000,
+        default_variant_sparse_hash_shard_count = 0"""
     def compareWithControl = { String tag, String cols, String where = "" ->
         // Compare independent extraction from the whole row, not another subpath read.
         def inconsistent = ['a', 'b', 'c', 'd', 'e', 'f'].collect { path ->

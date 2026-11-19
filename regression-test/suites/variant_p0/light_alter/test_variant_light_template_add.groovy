@@ -16,6 +16,13 @@
 // under the License.
 
 suite("test_variant_light_template_add", "p0,nonConcurrent") {
+    // These ALTERs exercise the ordinary sparse layout even with fuzzy session defaults.
+    sql """SET default_variant_enable_doc_mode = false,
+        default_variant_enable_nested_group = false,
+        default_variant_enable_typed_paths_to_sparse = false,
+        default_variant_max_subcolumns_count = 2048,
+        default_variant_max_sparse_column_statistics_size = 10000,
+        default_variant_sparse_hash_shard_count = 0"""
     // Stored BOOLEAN -> STRING compaction casts true to "1", while a mixed fresh load can
     // shred it as "true". Use a string here; c=10 still covers conversion to the new template.
     def rows = [
