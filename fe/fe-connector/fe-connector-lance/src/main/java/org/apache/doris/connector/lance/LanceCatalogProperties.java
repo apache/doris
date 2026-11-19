@@ -84,7 +84,7 @@ public final class LanceCatalogProperties {
     /**
      * What the engine's CREATE / ALTER CATALOG gates and the masking of catalog properties need to know: the
      * REST server and S3-compatible storage endpoints the FE connects to, and the secrets. An extra REST
-     * header is sent as written, so the header
+     * header value is sent as written, so the header
      * namespace is declared with the words a credential-bearing header name carries, a cookie included.
      */
     static final ConnectorSecuritySurface SECURITY_SURFACE = ConnectorSecuritySurface.ofSsrfEndpoints(
@@ -133,6 +133,7 @@ public final class LanceCatalogProperties {
     private String apiKey;
 
     private final Map<String, String> raw;
+    private final Map<String, String> restHeaders = new HashMap<>();
     private List<String> parentNamespace;
 
     private LanceCatalogProperties(Map<String, String> properties) {
@@ -272,7 +273,16 @@ public final class LanceCatalogProperties {
             if (!key.startsWith(REST_HEADER_PREFIX)) {
                 throw new IllegalArgumentException("Unsupported Lance REST property '" + key + "'");
             }
-            validateRestHeader(key.substring(REST_HEADER_PREFIX.length()), entry.getValue());
+            String headerName = key.substring(REST_HEADER_PREFIX.length());
+            String headerValue = entry.getValue();
+            validateRestHeader(headerName, headerValue);
+            // ALTER preserves case-sensitive property keys, but HTTP header names are case-insensitive.
+            headerName = headerName.toLowerCase(Locale.ROOT);
+            String previous = restHeaders.putIfAbsent(headerName, headerValue);
+            if (previous != null && !previous.equals(headerValue)) {
+                throw new IllegalArgumentException("Conflicting values for HTTP header '" + headerName
+                        + "' in Lance REST properties");
+            }
         }
     }
 
@@ -323,11 +333,7 @@ public final class LanceCatalogProperties {
         Map<String, String> properties = new HashMap<>();
         properties.put("uri", StringUtils.stripEnd(restUri.trim(), "/"));
         properties.put("delimiter", namespaceDelimiter);
-        raw.forEach((key, value) -> {
-            if (key.startsWith(REST_HEADER_PREFIX)) {
-                properties.put("header." + key.substring(REST_HEADER_PREFIX.length()), value);
-            }
-        });
+        restHeaders.forEach((name, value) -> properties.put("header." + name, value));
         if (SECURITY_BEARER.equals(securityType)) {
             properties.put("header.Authorization", "Bearer " + bearerToken);
         } else if (SECURITY_API_KEY.equals(securityType)) {

@@ -260,7 +260,7 @@ class LanceCatalogPropertiesTest {
 
     /** The credentials go in their own header: one sent as an extra header would dodge the security type. */
     @Test
-    void restHeadersAreSentAsWrittenButNeverCarryTheCredentials() {
+    void restHeaderValuesAreSentAsWrittenButNeverCarryTheCredentials() {
         Map<String, String> properties = rest("lance.rest.security.type", "api_key");
         properties.put("lance.rest.api-key", "test-api-key");
         properties.put("lance.rest.header.x-tenant", " doris-test ");
@@ -282,6 +282,86 @@ class LanceCatalogPropertiesTest {
                 rejection(rest("lance.rest.header.", "v")));
         Assertions.assertEquals("Invalid HTTP header value in property 'lance.rest.header.x-tenant'",
                 rejection(rest("lance.rest.header.x-tenant", "a\r\nX-Injected: true")));
+    }
+
+    @Test
+    void restHeadersRejectConflictingCaseVariants() {
+        Map<String, String> properties = rest("lance.rest.header.X-Tenant", "old");
+        properties.put("lance.rest.header.x-tenant", "new");
+        Assertions.assertEquals("Conflicting values for HTTP header 'x-tenant' in Lance REST properties",
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> new LanceConnectorProvider().validateProperties(properties)).getMessage());
+
+        properties.put("lance.rest.header.x-tenant", "OLD");
+        Assertions.assertEquals("Conflicting values for HTTP header 'x-tenant' in Lance REST properties",
+                rejection(properties));
+    }
+
+    @Test
+    void restHeadersCoalesceCaseVariantsAndPreserveRawProperties() {
+        Map<String, String> properties = rest("lance.rest.header.X-Tenant", " doris-test ");
+        properties.put("lance.rest.header.x-tenant", " doris-test ");
+        properties.put("lance.rest.header.X-Empty", "");
+        properties.put("lance.rest.header.x-empty", "");
+        LanceCatalogProperties parsed = LanceCatalogProperties.of(properties);
+        Assertions.assertEquals(Map.of("uri", "http://127.0.0.1:19102", "delimiter", "$",
+                "header.x-tenant", " doris-test ", "header.x-empty", ""), parsed.restNamespaceProperties());
+        Assertions.assertEquals(properties, parsed.getRaw());
+    }
+
+    @Test
+    void alterRejectsConflictingHeaderCaseVariantsButAllowsAnUnambiguousUpdate() {
+        Map<String, String> properties = rest("lance.rest.header.X-Tenant", "old");
+        LanceConnectorProvider provider = new LanceConnectorProvider();
+        Assertions.assertEquals("Conflicting values for HTTP header 'x-tenant' in Lance REST properties",
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> provider.validatePropertiesForUpdate(properties,
+                                Map.of("lance.rest.header.x-tenant", "new"))).getMessage());
+        Assertions.assertEquals("old", properties.get("lance.rest.header.X-Tenant"));
+        Assertions.assertFalse(properties.containsKey("lance.rest.header.x-tenant"));
+
+        Map<String, String> updates = Map.of("lance.rest.header.X-Tenant", "new",
+                "lance.rest.header.x-tenant", "new");
+        provider.validatePropertiesForUpdate(properties, updates);
+        properties.putAll(updates);
+        Assertions.assertEquals(Map.of("uri", "http://127.0.0.1:19102", "delimiter", "$",
+                "header.x-tenant", "new"), LanceCatalogProperties.of(properties).restNamespaceProperties());
+    }
+
+    @Test
+    void headerConflictsAreRejectedDuringAuthenticationTransitions() {
+        for (String from : List.of("none", "bearer", "api_key")) {
+            for (String to : List.of("none", "bearer", "api_key")) {
+                if (from.equals(to)) {
+                    continue;
+                }
+                Map<String, String> properties = rest("lance.rest.security.type", from);
+                properties.put("lance.rest.bearer-token", from.equals("bearer") ? "old-token" : "");
+                properties.put("lance.rest.api-key", from.equals("api_key") ? "old-key" : "");
+                properties.put("lance.rest.header.X-Tenant", "old");
+                Map<String, String> updates = new HashMap<>();
+                updates.put("lance.rest.security.type", to);
+                updates.put("lance.rest.bearer-token", to.equals("bearer") ? "new-token" : "");
+                updates.put("lance.rest.api-key", to.equals("api_key") ? "new-key" : "");
+                updates.put("lance.rest.header.x-tenant", "new");
+                LanceConnectorProvider provider = new LanceConnectorProvider();
+                Assertions.assertEquals("Conflicting values for HTTP header 'x-tenant' in Lance REST properties",
+                        Assertions.assertThrows(IllegalArgumentException.class,
+                                () -> provider.validatePropertiesForUpdate(properties, updates)).getMessage());
+
+                updates.put("lance.rest.header.X-Tenant", "new");
+                provider.validatePropertiesForUpdate(properties, updates);
+                properties.putAll(updates);
+                Map<String, String> expected = new HashMap<>(Map.of("uri", "http://127.0.0.1:19102",
+                        "delimiter", "$", "header.x-tenant", "new"));
+                if (to.equals("bearer")) {
+                    expected.put("header.Authorization", "Bearer new-token");
+                } else if (to.equals("api_key")) {
+                    expected.put("header.x-api-key", "new-key");
+                }
+                Assertions.assertEquals(expected, LanceCatalogProperties.of(properties).restNamespaceProperties());
+            }
+        }
     }
 
     /** What SHOW CREATE CATALOG masks is what provider errors must never echo back. */

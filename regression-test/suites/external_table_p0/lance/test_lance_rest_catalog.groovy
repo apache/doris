@@ -43,6 +43,15 @@ suite("test_lance_rest_catalog", "p0,external") {
     String bearerToken = "doris-lance-rest-test-token"
     String restUri = "http://${externalEnvIp}:${lanceRestPort}"
 
+    sql """DROP CATALOG IF EXISTS test_lance_rest_header_conflict"""
+    test {
+        sql """CREATE CATALOG test_lance_rest_header_conflict PROPERTIES (
+            "type" = "lance", "lance.catalog.type" = "rest",
+            "lance.rest.uri" = "${restUri}",
+            "lance.rest.header.X-Tenant" = "old", "lance.rest.header.x-tenant" = "new")"""
+        exception "Conflicting values for HTTP header 'x-tenant'"
+    }
+
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     sql """
         CREATE CATALOG `${catalogName}` PROPERTIES (
@@ -51,6 +60,7 @@ suite("test_lance_rest_catalog", "p0,external") {
             "lance.rest.uri" = "${restUri}",
             "lance.rest.security.type" = "bearer",
             "lance.rest.bearer-token" = "${bearerToken}",
+            "lance.rest.header.X-Tenant" = "old",
             "lance.namespace.root_database" = "default",
             "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
             "s3.region" = "us-east-1",
@@ -58,6 +68,14 @@ suite("test_lance_rest_catalog", "p0,external") {
             "test_connection" = "true"
         )
     """
+
+    // ALTER retains case-sensitive property keys. Update the original spelling, or all aliases together.
+    test {
+        sql """ALTER CATALOG `${catalogName}` SET PROPERTIES ("lance.rest.header.x-tenant" = "new")"""
+        exception "Conflicting values for HTTP header 'x-tenant'"
+    }
+    sql """ALTER CATALOG `${catalogName}` SET PROPERTIES ("lance.rest.header.X-Tenant" = "new")"""
+    sql """ALTER CATALOG `${catalogName}` SET PROPERTIES ("lance.rest.header.x-tenant" = "new")"""
 
     // ALTER merges properties and cannot remove keys. Clear the inactive credential while
     // exercising every authentication transition, then read with the fixture's bearer token.

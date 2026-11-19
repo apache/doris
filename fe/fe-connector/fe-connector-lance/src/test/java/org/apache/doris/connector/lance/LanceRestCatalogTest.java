@@ -94,7 +94,33 @@ class LanceRestCatalogTest {
         assertConnects(properties);
         Assertions.assertTrue(requests.stream().allMatch(request ->
                 ("Bearer " + BEARER_TOKEN).equals(request.authorization) && request.apiKey == null
-                        && "doris-test".equals(request.tenant)), requests.toString());
+                        && List.of("doris-test").equals(request.tenants)), requests.toString());
+    }
+
+    @Test
+    void headerCaseVariantsSendOneValueAcrossAuthenticationTransitions() {
+        Map<String, String> properties = rest(restUri);
+        properties.put("lance.rest.header.X-Tenant", "old");
+        assertConnects(properties);
+        // Reopen the client after each of the six directed authentication transitions.
+        for (String mode : List.of("bearer", "api_key", "none", "api_key", "bearer", "none")) {
+            Map<String, String> updates = Map.of(
+                    "lance.rest.security.type", mode,
+                    "lance.rest.bearer-token", mode.equals("bearer") ? BEARER_TOKEN : "",
+                    "lance.rest.api-key", mode.equals("api_key") ? "test-api-key" : "",
+                    "lance.rest.header.X-Tenant", "tenant-" + mode,
+                    "lance.rest.header.x-tenant", "tenant-" + mode);
+            new LanceConnectorProvider().validatePropertiesForUpdate(properties, updates);
+            properties.putAll(updates);
+            requests.clear();
+            assertConnects(properties);
+            for (Request request : requests) {
+                Assertions.assertEquals(List.of("tenant-" + mode), request.tenants);
+                Assertions.assertEquals(mode.equals("bearer") ? "Bearer " + BEARER_TOKEN : null,
+                        request.authorization);
+                Assertions.assertEquals(mode.equals("api_key") ? "test-api-key" : null, request.apiKey);
+            }
+        }
     }
 
     @Test
@@ -240,7 +266,7 @@ class LanceRestCatalogTest {
         String path = exchange.getRequestURI().getPath();
         requests.add(new Request(path, body, exchange.getRequestHeaders().getFirst("Authorization"),
                 exchange.getRequestHeaders().getFirst("x-api-key"),
-                exchange.getRequestHeaders().getFirst("x-tenant")));
+                exchange.getRequestHeaders().getOrDefault("x-tenant", List.of())));
 
         int status = 200;
         String response;
@@ -293,19 +319,19 @@ class LanceRestCatalogTest {
         private final String body;
         private final String authorization;
         private final String apiKey;
-        private final String tenant;
+        private final List<String> tenants;
 
-        private Request(String path, String body, String authorization, String apiKey, String tenant) {
+        private Request(String path, String body, String authorization, String apiKey, List<String> tenants) {
             this.path = path;
             this.body = body;
             this.authorization = authorization;
             this.apiKey = apiKey;
-            this.tenant = tenant;
+            this.tenants = tenants;
         }
 
         @Override
         public String toString() {
-            return path + " Authorization=" + authorization + " x-api-key=" + apiKey + " x-tenant=" + tenant;
+            return path + " Authorization=" + authorization + " x-api-key=" + apiKey + " x-tenant=" + tenants;
         }
     }
 }
