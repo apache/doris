@@ -5566,6 +5566,11 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
         msg = "a non-negative db_id and a positive limit are required";
         return;
     }
+    if (request->max_scan_keys() < 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "max_scan_keys must be non-negative";
+        return;
+    }
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -5595,14 +5600,20 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
         const auto db_prefix = txn_label_key_prefix({instance_id, db_id, ""});
         std::string_view suffix(start);
         suffix.remove_prefix(db_prefix.size() - 1); // Keep the label's BYTES_TAG for decoding.
-        if (decode_bytes(&suffix, nullptr) == 0 && suffix.size() == 20 && suffix.front() == '\0' &&
-            suffix[1] >= '0' && suffix[1] <= '9') {
+        const bool decoded_label = decode_bytes(&suffix, nullptr) == 0;
+        if (decoded_label && suffix.size() == 20 && suffix.front() == '\0' && suffix[1] >= '0' &&
+            suffix[1] <= '9') {
             const char* last = suffix.data() + suffix.size();
             auto [ptr, ec] = std::from_chars(suffix.data() + 1, last, resume_txn_id);
             if (ec == std::errc() && ptr == last) {
                 begin.resize(start.size() - suffix.size());
                 resume_label_key = begin;
             }
+        }
+        if (resume_label_key.empty() && !(decoded_label && suffix == "\x01")) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "invalid txn label scan start_key";
+            return;
         }
     }
 
@@ -5677,7 +5688,7 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
             const int batch_limit = std::min<int64_t>(
                     {info_batch_size, attempts_left, limit - response->txn_infos_size(),
                      std::max<int64_t>(progressed ? 0 : 1, max_scan_keys - scanned_keys)});
-            if (batch_limit == 0 || duration_exceeded()) {
+            if ((batch_limit == 0 && scanned_keys < max_scan_keys) || duration_exceeded()) {
                 if (last_label_key.empty()) {
                     response->set_next_key(std::move(begin));
                 } else if (next_attempt < label.txn_ids_size()) {
@@ -5692,8 +5703,14 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
             std::string_view first_attempt_key;
             int64_t first_attempt_id = 0;
             // Keep the current label across batches so a heavily retried label cannot overfill one.
-            while (info_keys.size() < static_cast<size_t>(batch_limit) && !duration_exceeded()) {
+            // A spent read budget still lets us drain fetched labels with no pending attempts.
+            while ((batch_limit == 0 || info_keys.size() < static_cast<size_t>(batch_limit)) &&
+                   !duration_exceeded()) {
                 if (next_attempt < label.txn_ids_size()) {
+                    if (batch_limit == 0) {
+                        set_next_attempt(last_label_key, label.txn_ids(next_attempt));
+                        return;
+                    }
                     const int64_t id = label.txn_ids(next_attempt++);
                     if (info_keys.empty()) {
                         first_attempt_key = last_label_key;

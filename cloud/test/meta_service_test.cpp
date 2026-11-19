@@ -4999,6 +4999,18 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     EXPECT_EQ(response.txn_infos(0).status(), TXN_STATUS_ABORTED);
     EXPECT_FALSE(response.has_next_key());
 
+    const auto load_a_key = txn_label_key({mock_instance, db_id, "load-a"});
+    for (const auto& invalid_cursor :
+         {load_a_key, load_a_key + '\0' + "000000000000000011",
+          load_a_key + '\0' + "9223372036854775808", load_a_key + ":11"}) {
+        request.set_start_key(invalid_cursor);
+        EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+    request.clear_start_key();
+
+    request.set_max_scan_keys(-1);
+    EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
     request.set_max_scan_keys(1);
     response = scan();
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
@@ -5172,6 +5184,40 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     }
 }
 
+TEST(MetaServiceTest, ScanTxnLabelFinishesAtExactBudget) {
+    auto meta_service = get_meta_service();
+    constexpr int64_t db_id = 0x0102;
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TxnLabelPB label;
+    for (int64_t id : {10, 11}) {
+        label.add_txn_ids(id);
+        TxnInfoPB info;
+        info.set_txn_id(id);
+        txn->put(txn_info_key({mock_instance, db_id, id}), info.SerializeAsString());
+    }
+    txn->atomic_set_ver_value(txn_label_key({mock_instance, db_id, "exact-a"}),
+                              label.SerializeAsString());
+    txn->atomic_set_ver_value(txn_label_key({mock_instance, db_id, "exact-b"}), "");
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ScanTxnLabelRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_db_id(db_id);
+    request.set_label_prefix("exact-");
+    request.set_limit(10);
+    request.set_max_scan_keys(4); // Range limit 3, so two labels leave more() false.
+    brpc::Controller cntl;
+    ScanTxnLabelResponse response;
+    meta_service->scan_txn_label(&cntl, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(response.txn_infos_size(), 2);
+    EXPECT_EQ(response.txn_infos(0).txn_id(), 10);
+    EXPECT_EQ(response.txn_infos(1).txn_id(), 11);
+    EXPECT_EQ(response.scanned_keys(), 4);
+    EXPECT_FALSE(response.has_next_key());
+}
+
 TEST(MetaServiceTest, ScanTxnLabelResumesAfterSecondRangeGetFails) {
     auto meta_service = get_meta_service();
     constexpr int64_t db_id = 0x0102;
@@ -5223,7 +5269,8 @@ TEST(MetaServiceTest, ScanTxnLabelResumesAfterSecondRangeGetFails) {
         request.set_db_id(db_id);
         request.set_label_prefix("range-");
         request.set_limit(first_range_size + 1);
-        request.set_max_scan_keys(2 * (first_range_size + 1));
+        // Leave room for a two-key range limit on resume. MemTxnKv sets more() at the limit.
+        request.set_max_scan_keys(2 * (first_range_size + 1) + 1);
         std::vector<int64_t> ids;
         for (int page = 0; page < 2; ++page) {
             brpc::Controller cntl;
