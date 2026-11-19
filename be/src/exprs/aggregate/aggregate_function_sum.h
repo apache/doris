@@ -153,11 +153,24 @@ public:
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            size_t num_rows, Arena&) const override {
-        streaming_agg_serialize_to_column_with_null_map(columns, dst, num_rows, nullptr);
+        streaming_agg_serialize_to_column_with_null_map<false>(columns, dst, num_rows, nullptr);
     }
 
     // Nullable streaming writes the native fixed-width state directly. NULL rows get the
     // empty state without constructing one temporary aggregate object per input row.
+    void streaming_agg_serialize_to_column_with_null_map(const IColumn** columns,
+                                                         MutableColumnPtr& dst, size_t num_rows,
+                                                         const UInt8* null_map) const {
+        // Select the loop once per batch. A map can contain only zeros, so its
+        // presence does not mean that the batch contains a NULL row.
+        if (null_map) {
+            streaming_agg_serialize_to_column_with_null_map<true>(columns, dst, num_rows, null_map);
+        } else {
+            streaming_agg_serialize_to_column_with_null_map<false>(columns, dst, num_rows, nullptr);
+        }
+    }
+
+    template <bool has_null_map>
     void streaming_agg_serialize_to_column_with_null_map(const IColumn** columns,
                                                          MutableColumnPtr& dst, size_t num_rows,
                                                          const UInt8* null_map) const {
@@ -168,18 +181,25 @@ public:
         col.resize(num_rows);
         auto* src_data = src.get_data().data();
         auto* dst_data = col.get_data().data();
-        if (null_map && !simd::contain_zero(null_map, num_rows)) {
-            // A fully masked load can still be slow. For an all-NULL batch, write
-            // empty states without loading the input values. For example, NULL
-            // with a hidden payload of 7 must produce a zero SUM state.
-            std::fill_n(reinterpret_cast<Data*>(dst_data), num_rows, Data {});
-            return;
+        if constexpr (has_null_map) {
+            if (!simd::contain_zero(null_map, num_rows)) {
+                // A fully masked load can still be slow. For an all-NULL batch, write
+                // empty states without loading the input values. For example, NULL
+                // with a hidden payload of 7 must produce a zero SUM state.
+                std::fill_n(reinterpret_cast<Data*>(dst_data), num_rows, Data {});
+                return;
+            }
         }
         using ResultType = typename PrimitiveTypeTraits<TResult>::CppType;
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
-            // Select the value before the store. Each row needs one output store.
-            state.sum = null_map && null_map[i] ? ResultType {} : ResultType(src_data[i]);
+            if constexpr (has_null_map) {
+                // Select the value before the store. Each row needs one output store.
+                state.sum = null_map[i] ? ResultType {} : ResultType(src_data[i]);
+            } else {
+                // This loop neither tests nor reads a NULL map.
+                state.sum = ResultType(src_data[i]);
+            }
         }
     }
 
