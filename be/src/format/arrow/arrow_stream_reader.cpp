@@ -22,6 +22,7 @@
 #include "arrow/ipc/reader.h"
 #include "arrow/record_batch.h"
 #include "arrow/result.h"
+#include "common/check.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
@@ -50,7 +51,10 @@ ArrowStreamReader::ArrowStreamReader(RuntimeState* state, RuntimeProfile* profil
           _file_slot_descs(file_slot_descs),
           _io_ctx(io_ctx),
           _file_reader(nullptr) {
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _ctzz);
+    // Arrow timestamps convert to DATETIME in the load's time zone (the Stream Load `timezone`
+    // header, else the session time zone), as the Parquet reader does.
+    DORIS_CHECK(state != nullptr);
+    _ctzz = state->timezone_obj();
 }
 
 ArrowStreamReader::~ArrowStreamReader() = default;
