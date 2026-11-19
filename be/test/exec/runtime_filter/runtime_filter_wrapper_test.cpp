@@ -1372,16 +1372,14 @@ TEST_F(RuntimeFilterWrapperTest, TestMergeInWithBloomCopiesBloomFilter) {
             std::all_of(final_res.begin(), final_res.end(), [](uint8_t i) -> bool { return i; }));
 }
 
-// When the caller tells merge() that `other` is exclusively owned (e.g. an RPC-only filter with
-// no other reader, see `RuntimeFilterMergeControllerEntity::merge`), the bloom filter is taken
-// over directly instead of cloned.
-TEST_F(RuntimeFilterWrapperTest, TestMergeInWithBloomExclusivelyOwnedTakesOwnership) {
+// A null-aware IN input must be inserted into a private copy of the Bloom input.
+TEST_F(RuntimeFilterWrapperTest, TestMergeInWithBloomCopiesNullAwareInput) {
     using DataType = DataTypeInt32;
     auto make_params = [](int32_t max_in_num) {
         return RuntimeFilterParams {.filter_id = 0,
                                     .filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER,
                                     .column_return_type = PrimitiveType::TYPE_INT,
-                                    .null_aware = false,
+                                    .null_aware = true,
                                     .max_in_num = max_in_num,
                                     .runtime_bloom_filter_min_size = 64,
                                     .runtime_bloom_filter_max_size = 128,
@@ -1396,6 +1394,8 @@ TEST_F(RuntimeFilterWrapperTest, TestMergeInWithBloomExclusivelyOwnedTakesOwners
     std::vector<int> data_vector(10);
     std::iota(data_vector.begin(), data_vector.end(), 0);
     ASSERT_TRUE(wrapper->insert(ColumnHelper::create_column<DataType>(data_vector), 0).ok());
+    wrapper->hybrid_set()->insert((const void*)nullptr);
+    ASSERT_TRUE(wrapper->contain_null());
 
     auto bloom_params = make_params(8);
     auto bloom_wrapper = std::make_shared<RuntimeFilterWrapper>(&bloom_params);
@@ -1407,12 +1407,24 @@ TEST_F(RuntimeFilterWrapperTest, TestMergeInWithBloomExclusivelyOwnedTakesOwners
                         .ok());
     bloom_wrapper->set_state(RuntimeFilterWrapper::State::READY);
     auto bloom_filter_func_before_merge = bloom_wrapper->bloom_filter_func();
+    char* bloom_data = nullptr;
+    int bloom_len = 0;
+    bloom_filter_func_before_merge->get_data(&bloom_data, &bloom_len);
+    ASSERT_GT(bloom_len, 0);
+    const std::string snapshot(bloom_data, bloom_len);
+    ASSERT_FALSE(bloom_wrapper->contain_null());
 
-    ASSERT_TRUE(wrapper->merge(bloom_wrapper.get(), /*other_exclusively_owned=*/true).ok());
+    ASSERT_TRUE(wrapper->merge(bloom_wrapper.get()).ok());
     EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
-    // No clone: the merger took over `other`'s bloom filter directly.
-    EXPECT_EQ(wrapper->bloom_filter_func(), bloom_filter_func_before_merge);
-    EXPECT_EQ(wrapper->bloom_filter_func(), bloom_wrapper->bloom_filter_func());
+    EXPECT_NE(wrapper->bloom_filter_func(), bloom_filter_func_before_merge);
+    char* merged_data = nullptr;
+    int merged_len = 0;
+    wrapper->bloom_filter_func()->get_data(&merged_data, &merged_len);
+    EXPECT_NE(merged_data, bloom_data);
+    EXPECT_EQ(merged_len, bloom_len);
+    EXPECT_EQ(snapshot, std::string(bloom_data, bloom_len));
+    EXPECT_FALSE(bloom_wrapper->contain_null());
+    EXPECT_TRUE(wrapper->contain_null());
 
     std::vector<int> final_data_vector(20);
     std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
@@ -1438,6 +1450,23 @@ TEST_F(RuntimeFilterWrapperTest, TestClone) {
                                     .build_bf_by_runtime_size = false,
                                     .bloom_filter_size_calculated_by_ndv = true};
     };
+    {
+        // An initialized empty IN filter still needs a separately mutable set.
+        auto params = make_params(RuntimeFilterType::IN_FILTER, false, 8);
+        auto wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
+        ASSERT_TRUE(wrapper->init(0).ok());
+        wrapper->set_state(RuntimeFilterWrapper::State::READY);
+        std::shared_ptr<RuntimeFilterWrapper> cloned;
+        ASSERT_TRUE(wrapper->clone(&cloned).ok());
+        EXPECT_NE(cloned, wrapper);
+        EXPECT_NE(cloned->hybrid_set(), wrapper->hybrid_set());
+        EXPECT_EQ(cloned->hybrid_set()->size(), 0);
+        EXPECT_FALSE(cloned->contain_null());
+        int32_t one = 1;
+        cloned->hybrid_set()->insert(&one);
+        EXPECT_EQ(wrapper->hybrid_set()->size(), 0);
+        EXPECT_EQ(cloned->hybrid_set()->size(), 1);
+    }
     {
         // In filter, the copy owns its hybrid set independently.
         auto params = make_params(RuntimeFilterType::IN_FILTER, true, 8);
