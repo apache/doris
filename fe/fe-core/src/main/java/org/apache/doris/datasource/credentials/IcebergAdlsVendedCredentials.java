@@ -21,7 +21,10 @@ package org.apache.doris.datasource.credentials;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /**
@@ -52,35 +55,31 @@ public final class IcebergAdlsVendedCredentials {
 
     /**
      * Returns the Azure storage properties for the vended SAS, or an empty map when the
-     * credentials carry no Azure SAS.
+     * credentials carry no nonblank Azure SAS.
      *
      * @throws IllegalArgumentException when SAS tokens are vended for more than one storage
-     *         account, or one account is vended different tokens
+     *         account, one account is vended different tokens, or a matching expiry is invalid
      */
     public static Map<String, String> toAzureProperties(Map<String, String> rawVendedCredentials) {
         // Keyed by account; TreeMap keeps the error message stable.
         Map<String, String> tokenByAccount = new TreeMap<>();
-        Map<String, String> hostByAccount = new HashMap<>();
-        Map<String, Long> expiryByAccount = new HashMap<>();
+        Set<String> tokenHosts = new LinkedHashSet<>();
         for (Map.Entry<String, String> entry : rawVendedCredentials.entrySet()) {
             // "adls.sas-token-expires-at-ms." does not start with "adls.sas-token.".
             if (entry.getKey() == null || !entry.getKey().startsWith(SAS_TOKEN_PREFIX)
                     || StringUtils.isBlank(entry.getValue())) {
                 continue;
             }
-            String host = entry.getKey().substring(SAS_TOKEN_PREFIX.length());
+            String host = entry.getKey().substring(SAS_TOKEN_PREFIX.length()).toLowerCase(Locale.ROOT);
             String account = accountOf(host);
             // A dfs and a blob host of one account may both be vended; they must carry one token.
-            String previous = tokenByAccount.putIfAbsent(account, entry.getValue());
-            if (previous != null && !previous.equals(entry.getValue())) {
+            String token = StringUtils.removeStart(entry.getValue(), "?");
+            String previous = tokenByAccount.putIfAbsent(account, token);
+            if (previous != null && !previous.equals(token)) {
                 throw new IllegalArgumentException("Iceberg REST catalog vended different Azure SAS tokens "
                         + "for storage account " + account);
             }
-            hostByAccount.putIfAbsent(account, host);
-            String expiry = rawVendedCredentials.get(SAS_TOKEN_EXPIRES_AT_MS_PREFIX + host);
-            if (StringUtils.isNotBlank(expiry)) {
-                expiryByAccount.merge(account, Long.parseLong(expiry.trim()), Math::min);
-            }
+            tokenHosts.add(host);
         }
         if (tokenByAccount.isEmpty()) {
             return new HashMap<>();
@@ -89,17 +88,41 @@ public final class IcebergAdlsVendedCredentials {
             throw new IllegalArgumentException("Iceberg REST catalog vended Azure SAS tokens for storage accounts "
                     + tokenByAccount.keySet() + "; Doris supports one storage account per table");
         }
-        String account = tokenByAccount.keySet().iterator().next();
+        String host = tokenHosts.iterator().next();
+        String account = accountOf(host);
         Map<String, String> props = new HashMap<>();
         props.put("azure.auth_type", "SAS");
         props.put("azure.account_name", account);
-        props.put("azure.endpoint", blobEndpointOf(hostByAccount.get(account)));
+        props.put("azure.endpoint", blobEndpointOf(host));
         props.put("azure.sas_token", tokenByAccount.get(account));
-        Long expiresAtMs = expiryByAccount.get(account);
+        Long expiresAtMs = earliestExpiry(rawVendedCredentials, tokenHosts);
         if (expiresAtMs != null) {
             props.put("azure.sas_token_expires_at_ms", Long.toString(expiresAtMs));
         }
         return props;
+    }
+
+    private static Long earliestExpiry(Map<String, String> credentials, Set<String> tokenHosts) {
+        Long earliest = null;
+        for (Map.Entry<String, String> entry : credentials.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || !key.startsWith(SAS_TOKEN_EXPIRES_AT_MS_PREFIX)
+                    || StringUtils.isBlank(entry.getValue())) {
+                continue;
+            }
+            String host = key.substring(SAS_TOKEN_EXPIRES_AT_MS_PREFIX.length()).toLowerCase(Locale.ROOT);
+            if (!tokenHosts.contains(host)) {
+                continue;
+            }
+            try {
+                long expiry = Long.parseLong(entry.getValue().trim());
+                earliest = earliest == null ? expiry : Math.min(earliest, expiry);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Invalid Iceberg REST property " + key
+                        + ": expected Unix epoch milliseconds");
+            }
+        }
+        return earliest;
     }
 
     // "acct.dfs.core.windows.net" -> "acct".

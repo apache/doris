@@ -52,16 +52,31 @@ class IcebergAdlsVendedCredentialsTest {
     }
 
     @Test
+    void mixedCaseHostKeepsItsEarliestExpiry() {
+        Map<String, String> props = IcebergAdlsVendedCredentials.toAzureProperties(Map.of(
+                "adls.sas-token.Acct.DFS.Core.ChinaCloudApi.CN", "?sv=2024&sig=AbC%2B",
+                "adls.sas-token-expires-at-ms.acct.dfs.core.chinacloudapi.cn", " 1000 ",
+                "adls.sas-token-expires-at-ms.ACCT.DFS.CORE.CHINACLOUDAPI.CN", "2000",
+                "adls.sas-token-expires-at-ms.acct.blob.core.chinacloudapi.cn", "unused"));
+
+        Assertions.assertEquals("acct", props.get("azure.account_name"));
+        Assertions.assertEquals("https://acct.blob.core.chinacloudapi.cn", props.get("azure.endpoint"));
+        Assertions.assertEquals("sv=2024&sig=AbC%2B", props.get("azure.sas_token"));
+        Assertions.assertEquals("1000", props.get("azure.sas_token_expires_at_ms"));
+    }
+
+    @Test
     void dfsAndBlobHostsOfOneAccountShareTheToken() {
         Map<String, String> vended = new HashMap<>();
-        vended.put("adls.sas-token.acct.dfs.core.windows.net", "sig=abc");
-        vended.put("adls.sas-token.acct.blob.core.windows.net", "sig=abc");
+        vended.put("adls.sas-token.Acct.DFS.core.windows.net", "?sig=AbC");
+        vended.put("adls.sas-token.acct.blob.core.windows.net", "sig=AbC");
         vended.put("adls.sas-token-expires-at-ms.acct.dfs.core.windows.net", "2000");
         vended.put("adls.sas-token-expires-at-ms.acct.blob.core.windows.net", "1000");
 
         Map<String, String> props = IcebergAdlsVendedCredentials.toAzureProperties(vended);
 
         Assertions.assertEquals("acct", props.get("azure.account_name"));
+        Assertions.assertEquals("sig=AbC", props.get("azure.sas_token"));
         // The earlier expiry applies.
         Assertions.assertEquals("1000", props.get("azure.sas_token_expires_at_ms"));
     }
@@ -72,8 +87,22 @@ class IcebergAdlsVendedCredentialsTest {
         vended.put("s3.access-key-id", "ak");
         vended.put("adls.refresh-credentials-endpoint", "https://example.com/credentials");
         vended.put("adls.sas-token.acct.dfs.core.windows.net", "");
+        vended.put("adls.sas-token.acct.blob.core.windows.net", "  ");
+        vended.put("adls.sas-token-expires-at-ms.acct.blob.core.windows.net", "unused");
 
         Assertions.assertTrue(IcebergAdlsVendedCredentials.toAzureProperties(vended).isEmpty());
+    }
+
+    @Test
+    void invalidExpiryIdentifiesTheOriginalProperty() {
+        String key = "adls.sas-token-expires-at-ms.ACCT.Dfs.core.windows.net";
+        Map<String, String> vended = Map.of(
+                "adls.sas-token.acct.dfs.core.windows.net", "sig=Fixture", key, "bad-value");
+        IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> IcebergAdlsVendedCredentials.toAzureProperties(vended));
+        Assertions.assertTrue(error.getMessage().contains(key));
+        Assertions.assertFalse(error.getMessage().contains("bad-value"));
+        Assertions.assertFalse(error.getMessage().contains("sig=Fixture"));
     }
 
     @Test
@@ -90,8 +119,8 @@ class IcebergAdlsVendedCredentialsTest {
     @Test
     void differentTokensForOneAccountAreRejected() {
         Map<String, String> vended = new HashMap<>();
-        vended.put("adls.sas-token.acct.dfs.core.windows.net", "sig=a");
-        vended.put("adls.sas-token.acct.blob.core.windows.net", "sig=b");
+        vended.put("adls.sas-token.acct.dfs.core.windows.net", "?sig=ABC");
+        vended.put("adls.sas-token.acct.blob.core.windows.net", "sig=abc");
 
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> IcebergAdlsVendedCredentials.toAzureProperties(vended));

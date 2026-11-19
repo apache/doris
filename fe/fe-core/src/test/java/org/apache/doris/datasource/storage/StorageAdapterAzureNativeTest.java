@@ -80,7 +80,7 @@ public class StorageAdapterAzureNativeTest {
     void testIcebergRestVendedSasYieldsSasCredential() {
         // What Databricks Unity Catalog vends with an Iceberg table, plus a key Doris ignores.
         Map<String, String> vended = new HashMap<>();
-        vended.put("adls.sas-token.acct.dfs.core.windows.net", "sv=2024&se=2030-01-01&sig=abc");
+        vended.put("adls.sas-token.Acct.DFS.core.windows.net", "?sv=2024&se=2030-01-01&sig=abc");
         vended.put("adls.sas-token-expires-at-ms.acct.dfs.core.windows.net", "1893456000000");
         vended.put("adls.refresh-credentials-endpoint", "https://example.cloud.databricks.com/credentials");
 

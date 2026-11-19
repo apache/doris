@@ -87,7 +87,8 @@ Result<ResolvedObjectFile> resolve_object_file(const std::map<std::string, std::
                                                const std::string& path) {
     if (azure != nullptr) {
         io::AzureBlobEndpoint endpoint {.url = azure->endpoint, .account = azure->account_name};
-        auto location = endpoint.resolve(path, azure->container);
+        auto location = endpoint.resolve(
+                path, azure->__isset.container ? azure->container : std::string_view {});
         if (!location.has_value()) {
             return unexpected(std::move(location).error());
         }

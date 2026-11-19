@@ -156,6 +156,9 @@ TEST(AzureTypedAccessTest, EachFileBindsItsOwnContainer) {
     credential.__set_sas(sas);
     auto config = typed_access_shared_key_config();
     config.__set_credential(credential);
+    // Only the Thrift presence bit binds a container, even if the member still holds a value.
+    config.container = "stale";
+    ASSERT_FALSE(config.__isset.container);
     for (const auto* container : {"blue", "green"}) {
         auto fs = typed_access_create_fs(
                 config, std::string("abfss://") + container + "@acct.dfs.core.windows.net/file");
