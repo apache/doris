@@ -87,6 +87,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
                                                             TUnit::UNIT, parquet_profile, 1);
     variant_leaf_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "VariantLeafProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
+    variant_residual_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "VariantResidualProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
     variant_full_projection_row_group_columns = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "VariantFullProjectionRowGroupColumns", TUnit::UNIT, parquet_profile, 1);
     pages_skipped_by_data_page_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
@@ -148,6 +150,10 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "VariantDirectLeafPathMisses", TUnit::UNIT, parquet_profile);
     variant->variant_direct_leaf_residual_fallbacks = add_persistent_counter(
             profile, "VariantDirectLeafResidualFallbacks", TUnit::UNIT, parquet_profile);
+    variant->variant_direct_leaf_residual_merged_rows = add_persistent_counter(
+            profile, "VariantDirectLeafResidualMergedRows", TUnit::UNIT, parquet_profile);
+    variant->variant_residual_seek_rows = add_persistent_counter(profile, "VariantResidualSeekRows",
+                                                                 TUnit::UNIT, parquet_profile);
     variant->variant_direct_leaf_unsupported_fallbacks = add_persistent_counter(
             profile, "VariantDirectLeafUnsupportedFallbacks", TUnit::UNIT, parquet_profile);
     variant_counters = std::move(variant);
