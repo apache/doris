@@ -34,10 +34,7 @@ protected:
     void SetUp() override {
         RuntimeFilterTest::SetUp();
         _dependency = std::make_shared<CountedFinishDependency>(0, 0, "TEST_DEP");
-        _dependency->add();
-        _wrapper = std::make_shared<RuntimeFilterWrapper>(
-                PrimitiveType::TYPE_INT, RuntimeFilterType::BLOOM_FILTER, /*filter_id=*/0,
-                RuntimeFilterWrapper::State::UNINITED);
+        _producer = make_waiting_producer(_dependency);
     }
 
     std::shared_ptr<QueryContext> make_query_ctx(bool ignore_rf_error) {
@@ -50,13 +47,9 @@ protected:
                                     fe_address, QuerySource::INTERNAL_FRONTEND);
     }
 
-    std::shared_ptr<SyncSizeCallback> make_callback(
-            std::weak_ptr<QueryContext> ctx = {}, std::shared_ptr<Dependency> dep = nullptr,
-            std::shared_ptr<RuntimeFilterWrapper> wrapper = nullptr,
-            std::vector<std::weak_ptr<RuntimeFilterProducer>> producers = {}) {
-        return SyncSizeCallback::create_shared(dep ? dep : _dependency,
-                                               wrapper ? wrapper : _wrapper, std::move(ctx),
-                                               std::move(producers));
+    std::shared_ptr<SyncSizeCallback> make_callback(std::weak_ptr<QueryContext> ctx = {}) {
+        return SyncSizeCallback::create_shared(
+                std::move(ctx), std::vector<std::weak_ptr<RuntimeFilterProducer>> {_producer});
     }
 
     // A producer of a local merge with two producers, which sent its size and now waits for the
@@ -83,9 +76,22 @@ protected:
         return producer;
     }
 
+    bool released() const {
+        return _dependency->_counter == 0 &&
+               _producer->_wrapper->get_state() == RuntimeFilterWrapper::State::DISABLED;
+    }
+
     std::shared_ptr<CountedFinishDependency> _dependency;
-    std::shared_ptr<RuntimeFilterWrapper> _wrapper;
+    std::shared_ptr<RuntimeFilterProducer> _producer;
 };
+
+// A callback always has at least the producer which sent the request.
+TEST_F(SyncSizeCallbackTest, requires_producers) {
+    EXPECT_DEATH(
+            SyncSizeCallback::create_shared(std::weak_ptr<QueryContext> {},
+                                            std::vector<std::weak_ptr<RuntimeFilterProducer>> {}),
+            "Check failed");
+}
 
 // ==================== cntl_->Failed() path ====================
 
@@ -96,12 +102,8 @@ TEST_F(SyncSizeCallbackTest, rpc_fail_cancels_query_when_ignore_rf_error_false) 
 
     callback->call();
 
-    // Query should be cancelled
     ASSERT_TRUE(ctx->is_cancelled());
-    // Wrapper should be disabled
-    ASSERT_EQ(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    // Dependency should have been subbed (counter back to 0 -> ready)
-    ASSERT_TRUE(_dependency->ready());
+    ASSERT_TRUE(released());
 }
 
 TEST_F(SyncSizeCallbackTest, rpc_fail_does_not_cancel_query_when_ignore_rf_error_true) {
@@ -111,12 +113,8 @@ TEST_F(SyncSizeCallbackTest, rpc_fail_does_not_cancel_query_when_ignore_rf_error
 
     callback->call();
 
-    // Query should NOT be cancelled
     ASSERT_FALSE(ctx->is_cancelled());
-    // Wrapper should still be disabled
-    ASSERT_EQ(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    // Dependency should have been subbed
-    ASSERT_TRUE(_dependency->ready());
+    ASSERT_TRUE(released());
 }
 
 // ==================== response error status path ====================
@@ -124,19 +122,14 @@ TEST_F(SyncSizeCallbackTest, rpc_fail_does_not_cancel_query_when_ignore_rf_error
 TEST_F(SyncSizeCallbackTest, response_error_cancels_query_when_ignore_rf_error_false) {
     auto ctx = make_query_ctx(false);
     auto callback = make_callback(ctx);
-    // Set a non-OK status in the response
     auto* status_pb = callback->response_->mutable_status();
     status_pb->set_status_code(TStatusCode::INTERNAL_ERROR);
     status_pb->add_error_msgs("injected response error");
 
     callback->call();
 
-    // Query should be cancelled
     ASSERT_TRUE(ctx->is_cancelled());
-    // Wrapper should be disabled
-    ASSERT_EQ(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    // Dependency should have been subbed
-    ASSERT_TRUE(_dependency->ready());
+    ASSERT_TRUE(released());
 }
 
 TEST_F(SyncSizeCallbackTest, response_error_does_not_cancel_query_when_ignore_rf_error_true) {
@@ -148,12 +141,8 @@ TEST_F(SyncSizeCallbackTest, response_error_does_not_cancel_query_when_ignore_rf
 
     callback->call();
 
-    // Query should NOT be cancelled
     ASSERT_FALSE(ctx->is_cancelled());
-    // Wrapper should still be disabled
-    ASSERT_EQ(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    // Dependency should have been subbed
-    ASSERT_TRUE(_dependency->ready());
+    ASSERT_TRUE(released());
 }
 
 // ==================== success path ====================
@@ -165,84 +154,41 @@ TEST_F(SyncSizeCallbackTest, success_path_no_cancel_no_sub) {
 
     callback->call();
 
-    // Query should NOT be cancelled
     ASSERT_FALSE(ctx->is_cancelled());
-    // Wrapper should NOT be disabled
-    ASSERT_NE(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    // Dependency should NOT have been subbed (still blocked)
-    ASSERT_FALSE(_dependency->ready());
+    // The merge node syncs the size later; nothing is released here.
+    ASSERT_EQ(_dependency->_counter, 1U);
+    ASSERT_NE(_producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
 }
 
-// ==================== merged producers ====================
-
-// A failed sync releases every producer whose size is merged into the request, through the
-// producer, and not the legacy `dependency` of the callback.
-TEST_F(SyncSizeCallbackTest, rpc_fail_releases_merged_producers) {
-    auto ctx = make_query_ctx(true);
-    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "MERGED_DEP");
-    auto producer = make_waiting_producer(dependency);
-    auto callback = make_callback(ctx, nullptr, nullptr, {producer});
-    callback->cntl_->SetFailed("injected failure");
-
-    callback->call();
-
-    ASSERT_FALSE(ctx->is_cancelled());
-    ASSERT_EQ(dependency->_counter, 0U);
-    ASSERT_TRUE(dependency->ready());
-    ASSERT_EQ(producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    ASSERT_FALSE(_dependency->ready());
-}
-
-TEST_F(SyncSizeCallbackTest, response_error_releases_merged_producers) {
-    auto ctx = make_query_ctx(true);
-    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "MERGED_DEP");
-    auto producer = make_waiting_producer(dependency);
-    auto callback = make_callback(ctx, nullptr, nullptr, {producer});
-    auto* status_pb = callback->response_->mutable_status();
-    status_pb->set_status_code(TStatusCode::INTERNAL_ERROR);
-    status_pb->add_error_msgs("injected response error");
-
-    callback->call();
-
-    ASSERT_EQ(dependency->_counter, 0U);
-    ASSERT_EQ(producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-}
+// ==================== late sync and release ====================
 
 // The merge node may still sync a producer released on an error response, e.g. when it failed to
 // sync another BE. Neither that nor a second release subs the dependency again, which would throw
 // on underflow.
 TEST_F(SyncSizeCallbackTest, released_producer_ignores_later_sync) {
-    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "MERGED_DEP");
-    auto producer = make_waiting_producer(dependency);
+    _producer->release_on_sync_size_error("injected failure");
+    ASSERT_TRUE(released());
 
-    producer->release_on_sync_size_error("injected failure");
-    ASSERT_EQ(dependency->_counter, 0U);
-
-    ASSERT_NO_THROW(producer->set_synced_size(124));
-    ASSERT_NO_THROW(producer->release_on_sync_size_error("released twice"));
-    ASSERT_EQ(dependency->_counter, 0U);
-    ASSERT_EQ(producer->_synced_size, -1);
-    ASSERT_EQ(producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
+    ASSERT_NO_THROW(_producer->set_synced_size(124));
+    ASSERT_NO_THROW(_producer->release_on_sync_size_error("released twice"));
+    ASSERT_EQ(_dependency->_counter, 0U);
+    ASSERT_EQ(_producer->_synced_size, -1);
 }
 
 // A producer synced before the error arrives keeps its synced size and filter.
 TEST_F(SyncSizeCallbackTest, synced_producer_ignores_later_release) {
-    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "MERGED_DEP");
-    auto producer = make_waiting_producer(dependency);
+    _producer->set_synced_size(124);
+    ASSERT_EQ(_dependency->_counter, 0U);
 
-    producer->set_synced_size(124);
-    ASSERT_EQ(dependency->_counter, 0U);
-
-    ASSERT_NO_THROW(producer->release_on_sync_size_error("late failure"));
-    ASSERT_EQ(dependency->_counter, 0U);
-    ASSERT_EQ(producer->_synced_size, 124);
-    ASSERT_NE(producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
+    ASSERT_NO_THROW(_producer->release_on_sync_size_error("late failure"));
+    ASSERT_EQ(_dependency->_counter, 0U);
+    ASSERT_EQ(_producer->_synced_size, 124);
+    ASSERT_NE(_producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
 }
 
 // ==================== expired weak_ptr paths ====================
 
 TEST_F(SyncSizeCallbackTest, rpc_fail_with_expired_query_context_no_crash) {
-    // Create a temporary QueryContext that will be destroyed
     std::weak_ptr<QueryContext> expired_ctx;
     {
         auto fe_address = TNetworkAddress();
@@ -253,52 +199,43 @@ TEST_F(SyncSizeCallbackTest, rpc_fail_with_expired_query_context_no_crash) {
                                      fe_address, true, fe_address, QuerySource::INTERNAL_FRONTEND);
         expired_ctx = tmp_ctx;
     }
-    // expired_ctx is now expired
 
     auto callback = make_callback(expired_ctx);
     callback->cntl_->SetFailed("injected failure");
 
-    // Should not crash
     callback->call();
 
-    // Wrapper should be disabled
-    ASSERT_EQ(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    // Dependency should have been subbed
-    ASSERT_TRUE(_dependency->ready());
+    ASSERT_TRUE(released());
 }
 
-TEST_F(SyncSizeCallbackTest, rpc_fail_with_expired_wrapper_no_crash) {
-    auto ctx = make_query_ctx(false);
-    auto tmp_wrapper = std::make_shared<RuntimeFilterWrapper>(
-            PrimitiveType::TYPE_INT, RuntimeFilterType::BLOOM_FILTER, /*filter_id=*/1,
-            RuntimeFilterWrapper::State::UNINITED);
-    auto callback = make_callback(ctx, _dependency, tmp_wrapper);
-    // Destroy the wrapper before calling
-    tmp_wrapper.reset();
-
+TEST_F(SyncSizeCallbackTest, rpc_fail_with_expired_producer_no_crash) {
+    auto ctx = make_query_ctx(true);
+    auto desc = TRuntimeFilterDescBuilder().build();
+    std::shared_ptr<RuntimeFilterProducer> producer;
+    ASSERT_TRUE(RuntimeFilterProducer::create(_query_ctx.get(), &desc, &producer).ok());
+    auto callback = SyncSizeCallback::create_shared(
+            ctx, std::vector<std::weak_ptr<RuntimeFilterProducer>> {producer});
+    // The rpc may return after the query context, which owns the producers, is destroyed.
+    producer.reset();
     callback->cntl_->SetFailed("injected failure");
 
-    // Should not crash even though wrapper is expired
     callback->call();
 
-    // Query should be cancelled (ignore_runtime_filter_error defaults to false)
-    ASSERT_TRUE(ctx->is_cancelled());
-    // Dependency should have been subbed
-    ASSERT_TRUE(_dependency->ready());
+    ASSERT_FALSE(ctx->is_cancelled());
 }
 
 TEST_F(SyncSizeCallbackTest, auto_release_closure_requires_external_callback_owner) {
     auto ctx = make_query_ctx(false);
     auto request = std::make_shared<PSendFilterSizeRequest>();
     auto* closure = new AutoReleaseClosure<PSendFilterSizeRequest, SyncSizeCallback>(
-            request, SyncSizeCallback::create_shared(_dependency, _wrapper, ctx));
+            request, make_callback(ctx));
     closure->cntl_->SetFailed("injected failure");
 
     closure->Run();
 
     ASSERT_FALSE(ctx->is_cancelled());
-    ASSERT_NE(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    ASSERT_FALSE(_dependency->ready());
+    ASSERT_EQ(_dependency->_counter, 1U);
+    ASSERT_NE(_producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
 }
 
 // =====================================================================

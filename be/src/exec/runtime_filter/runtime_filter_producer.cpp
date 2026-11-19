@@ -171,8 +171,7 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
     auto request = std::make_shared<PSendFilterSizeRequest>();
     request->set_stage(_stage);
     // when failed, will check `ignore_runtime_filter_error` in callback to decide cancel or not
-    _sync_size_callback = SyncSizeCallback::create_shared(_dependency, _wrapper,
-                                                          state->get_query_ctx()->weak_from_this(),
+    _sync_size_callback = SyncSizeCallback::create_shared(state->get_query_ctx()->weak_from_this(),
                                                           std::move(merged_producers));
     // RuntimeFilter maybe deconstructed before the rpc finished, so that could not use
     // a raw pointer in closure. Has to use the context's shared ptr.
