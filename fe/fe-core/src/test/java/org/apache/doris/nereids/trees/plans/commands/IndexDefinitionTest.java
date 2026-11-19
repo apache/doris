@@ -173,6 +173,7 @@ public class IndexDefinitionTest {
                 Map.entry(Map.of("analyzer", ""), "requires a parser or analyzer"),
                 Map.entry(Map.of("normalizer", "lowercase"), "requires a parser or analyzer"),
                 Map.entry(Map.of("parser", "english", "support_phrase", "true"), "support_phrase=true"),
+                Map.entry(Map.of("parser", "english", "norms", "true"), "norms=true"),
                 Map.entry(Map.of("parser", "english", "field_pattern", "a"), "field_pattern"),
                 Map.entry(Map.of("parser", "english", "variant_index_scope", "paths"), "variant_index_scope"),
                 Map.entry(Map.of("parser", "english", "variant_index_scope", "all_values"), "variant_index_scope"));
@@ -201,6 +202,13 @@ public class IndexDefinitionTest {
                 "support_phrase", "false", "lower_case", "true"), persisted);
         Assertions.assertDoesNotThrow(() -> valuesIndex(persisted).checkColumn(variant,
                 KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.SNII));
+        Column catalogVariant = new Column("col1", Type.VARIANT, true);
+        AnalysisException normsError = Assertions.assertThrows(AnalysisException.class,
+                () -> valuesIndex(Map.of("parser", "english", "norms", "true")).checkColumn(
+                        catalogVariant, KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.SNII));
+        Assertions.assertTrue(normsError.getMessage().contains("norms=true"), normsError.getMessage());
+        Assertions.assertDoesNotThrow(() -> valuesIndex(Map.of("parser", "english", "norms", "false"))
+                .checkColumn(catalogVariant, KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.SNII));
         Assertions.assertThrows(AnalysisException.class, () -> values.checkColumn(variant,
                 KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V2));
     }

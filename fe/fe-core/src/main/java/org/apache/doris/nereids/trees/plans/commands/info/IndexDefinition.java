@@ -609,6 +609,9 @@ public class IndexDefinition {
         if ("true".equals(properties.get(InvertedIndexUtil.INVERTED_INDEX_SUPPORT_PHRASE_KEY))) {
             throw new AnalysisException("VARIANT values index does not support support_phrase=true");
         }
+        if ("true".equals(properties.get(InvertedIndexUtil.INVERTED_INDEX_NORMS_KEY))) {
+            throw new AnalysisException("VARIANT values index does not support norms=true");
+        }
         String analyzer = properties.getOrDefault(InvertedIndexUtil.INVERTED_INDEX_ANALYZER_NAME_KEY, "").trim();
         if (InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(
                 InvertedIndexProperties.getInvertedIndexParser(properties))
