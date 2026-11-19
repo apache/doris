@@ -75,14 +75,13 @@ public:
 
 private:
     Status _build_and_save(Int64 min_train_rows, Int64 effective_min_rows);
+    void _release_build_resources();
 
 #ifdef BE_TEST
     friend class TestAnnIndexColumnWriter;
 #endif
 
-    // VectorIndex shoule be managed by some cache.
-    // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
-    // This should be a weak_ptr
+    // The build index is owned by this writer and released when the segment is finished.
     std::shared_ptr<VectorIndex> _vector_index;
     PODArray<float> _buffered_vectors;
     int64_t _total_rows = 0;
