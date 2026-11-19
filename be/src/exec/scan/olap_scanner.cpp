@@ -70,6 +70,7 @@
 #include "util/debug_points.h"
 #endif
 #include "util/json/path_in_data.h"
+#include "util/time.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
@@ -129,8 +130,8 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.get_timer != 0 || stats.set_timer != 0 || stats.async_cache_write_submitted != 0 ||
            stats.async_cache_write_rejected != 0 ||
            stats.async_cache_write_buffer_alloc_fail != 0 ||
-           stats.async_cache_write_drop_stale_epoch != 0 ||
-           stats.inflight_write_buffer_index_hit != 0 ||
+           stats.async_cache_write_drop_stale_epoch != 0 || stats.async_copy_to_user_timer != 0 ||
+           stats.async_submit_write_timer != 0 || stats.inflight_write_buffer_index_hit != 0 ||
            stats.inflight_write_buffer_index_miss != 0 || stats.probe_downloaded_hit != 0 ||
            stats.probe_downloading_hit != 0 || stats.probe_miss != 0 ||
            stats.block_wait_success != 0 || stats.block_wait_timeout != 0 ||
@@ -1017,6 +1018,10 @@ void OlapScanner::_collect_profile_before_close() {
     auto& tablet = _tablet_reader_params.tablet;
     tablet->query_scan_bytes->increment(local_state->_read_uncompressed_counter->value());
     tablet->query_scan_rows->increment(local_state->_scan_rows->value());
+    // Timestamp first: the report walk reads the counter and the timestamp without a
+    // lock, so the reverse order lets it see a fresh delta paired with a stale timestamp
+    // and drop the tablet as inactive.
+    tablet->last_query_scan_time_ms.store(UnixMillis(), std::memory_order_relaxed);
     tablet->query_scan_count->increment(1);
 
     COUNTER_UPDATE(local_state->_ann_range_search_filter_counter,

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.proc.CurrentQueryStatisticsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
@@ -35,12 +36,19 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * show proc command
  */
 public class ShowProcCommand extends ShowCommand {
+    // Match the repeated slashes and whitespace accepted by ProcService.open().
+    private static final Pattern LOCAL_QUERY_PATH = Pattern.compile(
+            "[ \\t\\r\\n]*/+(?:current_queries|current_query_stmts|current_backend_instances)/*(?:[ \\t\\r\\n].*)?",
+            Pattern.DOTALL);
+
     private final String path;
 
     /**
@@ -74,6 +82,28 @@ public class ShowProcCommand extends ShowCommand {
         return ShowResultSetMetaData.builder().build();
     }
 
+    /** Resolve a static PROC header, or return null when discovery would require fetching rows. */
+    public ShowResultSetMetaData getMetaData(ConnectContext ctx) throws AnalysisException {
+        // PROC headers belong to the resolved node and require the same privilege as reading it.
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN_OR_NODE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+        // Even opening nested nodes can perform remote lookups. Only use known static headers.
+        List<String> names;
+        if ("/".equals(path)) {
+            names = Collections.singletonList("name");
+        } else if ("/current_queries".equals(path)) {
+            names = CurrentQueryStatisticsProcDir.TITLE_NAMES;
+        } else {
+            return null;
+        }
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        for (String name : names) {
+            builder.addColumn(new Column(name, ScalarType.createVarchar(30)));
+        }
+        return builder.build();
+    }
+
     private ShowResultSet handleShowProc(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkGlobalPriv(ctx, PrivPredicate.ADMIN_OR_NODE)) {
@@ -98,6 +128,10 @@ public class ShowProcCommand extends ShowCommand {
 
     @Override
     public RedirectStatus toRedirectStatus() {
+        // These nodes read this FE's coordinators, not cluster-wide query state.
+        if (LOCAL_QUERY_PATH.matcher(path).matches()) {
+            return RedirectStatus.NO_FORWARD;
+        }
         if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
             return RedirectStatus.FORWARD_NO_SYNC;
         } else {

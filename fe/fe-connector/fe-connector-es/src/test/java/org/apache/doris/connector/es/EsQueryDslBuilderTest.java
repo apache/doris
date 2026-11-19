@@ -18,6 +18,7 @@
 package org.apache.doris.connector.es;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 public class EsQueryDslBuilderTest {
 
@@ -60,6 +62,27 @@ public class EsQueryDslBuilderTest {
     }
 
     @Test
+    void udfNamedEsqueryIsEvaluatedByDoris() {
+        List<ConnectorExpression> args = Arrays.asList(new ConnectorColumnRef("name", ConnectorType.of("VARCHAR")),
+                ConnectorLiteral.ofString("{\"term\":{\"name\":\"one\"}}"));
+        ConnectorExpression esquery = new ConnectorFunctionCall("esquery", ConnectorType.of("BOOLEAN"), args);
+        ConnectorExpression udf = new ConnectorFunctionCall("esquery", ConnectorType.of("BOOLEAN"), args, false);
+        EsQueryDslResult pushed = buildWithTracking(esquery);
+        Assertions.assertEquals("{\"term\":{\"name\":\"one\"}}", pushed.getQueryDsl());
+        Assertions.assertTrue(pushed.getNotPushedIndices().isEmpty());
+        EsQueryDslResult local = buildWithTracking(udf);
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), local.getQueryDsl());
+        Assertions.assertEquals(Collections.singletonList(0), local.getNotPushedIndices());
+        // In an OR that cannot be pushed, the builtin has no BE implementation to fall back to; the UDF has.
+        ConnectorExpression unpushable = new ConnectorFunctionCall("unsupported_predicate", ConnectorType.of("BOOLEAN"),
+                Collections.singletonList(new ConnectorColumnRef("name", ConnectorType.of("VARCHAR"))));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> buildWithTracking(new ConnectorOr(Arrays.asList(esquery, unpushable))));
+        Assertions.assertEquals(Collections.singletonList(0),
+                buildWithTracking(new ConnectorOr(Arrays.asList(udf, unpushable))).getNotPushedIndices());
+    }
+
+    @Test
     void orWithPartiallyPushableAndRemainsLocal() {
         EsQueryDslResult result = buildWithTracking(new ConnectorOr(
                 Arrays.asList(partiallyPushableAnd(), keywordEquals("two"))));
@@ -82,6 +105,76 @@ public class EsQueryDslBuilderTest {
             EsQueryDslResult result = buildWithTracking(expression);
             Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
             Assertions.assertNotEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+        }
+    }
+
+    @Test
+    void retainedRangeNotComplementsTheOriginalExistentialQuery() {
+        ConnectorColumnRef column = new ConnectorColumnRef("value", ConnectorType.of("BIGINT"));
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.LT,
+                ConnectorComparison.Operator.LE, ConnectorComparison.Operator.GT, ConnectorComparison.Operator.GE)) {
+            ConnectorExpression comparison = new ConnectorComparison(op, column, ConnectorLiteral.ofLong(2));
+            EsQueryDslResult result = buildWithTracking(new ConnectorNot(comparison));
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must_not\":"
+                    + buildWithTracking(comparison).getQueryDsl()), result.getQueryDsl());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must\":{\"exists\":{\"field\":\"value\"}}"));
+        }
+    }
+
+    @Test
+    void retainedNotComparisonsPreserveNullRejection() {
+        ConnectorColumnRef column = new ConnectorColumnRef("value", ConnectorType.of("BIGINT"));
+        ConnectorComparison.Operator[] operators = {ConnectorComparison.Operator.EQ, ConnectorComparison.Operator.NE};
+        ConnectorComparison.Operator[] inverses = {ConnectorComparison.Operator.NE, ConnectorComparison.Operator.EQ};
+        for (int i = 0; i < operators.length; i++) {
+            ConnectorExpression expression = new ConnectorComparison(operators[i], column, ConnectorLiteral.ofLong(1));
+            ConnectorExpression inverse = new ConnectorComparison(inverses[i], column, ConnectorLiteral.ofLong(1));
+            Assertions.assertEquals(buildWithTracking(inverse).getQueryDsl(),
+                    buildWithTracking(new ConnectorNot(expression)).getQueryDsl());
+            Assertions.assertEquals(buildWithTracking(expression).getQueryDsl(),
+                    buildWithTracking(new ConnectorNot(new ConnectorNot(expression))).getQueryDsl());
+        }
+        ConnectorExpression eq = new ConnectorComparison(ConnectorComparison.Operator.EQ, column,
+                ConnectorLiteral.ofLong(1));
+        ConnectorExpression ne = new ConnectorComparison(ConnectorComparison.Operator.NE, column,
+                ConnectorLiteral.ofLong(1));
+        Assertions.assertEquals(buildWithTracking(new ConnectorAnd(Arrays.asList(ne, eq))).getQueryDsl(),
+                buildWithTracking(new ConnectorNot(new ConnectorOr(Arrays.asList(eq, ne)))).getQueryDsl());
+    }
+
+    @Test
+    void arrayLiteralComparisonsRemainLocal() {
+        ConnectorType stringArray = ConnectorType.arrayOf(ConnectorType.of("VARCHAR"));
+        ConnectorColumnRef tags = new ConnectorColumnRef("tags", stringArray);
+        ConnectorLiteral array = new ConnectorLiteral(stringArray, Arrays.asList("red", "blue"));
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                ConnectorComparison.Operator.NE, ConnectorComparison.Operator.LT)) {
+            for (ConnectorExpression comparison : Arrays.asList(new ConnectorComparison(op, tags, array),
+                    new ConnectorComparison(op, array, tags))) {
+                EsQueryDslResult result = EsQueryDslBuilder.buildQueryDslWithResult(comparison,
+                        Collections.emptyMap(), Collections.emptyMap(), true, Collections.emptyList());
+                Assertions.assertEquals(Collections.singletonList(0), result.getNotPushedIndices(), comparison.toString());
+                Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+            }
+        }
+        EsQueryDslResult partial = EsQueryDslBuilder.buildQueryDslWithResult(new ConnectorAnd(Arrays.asList(
+                keywordEquals("one"), new ConnectorComparison(ConnectorComparison.Operator.EQ, tags, array))),
+                Collections.emptyMap(), Collections.singletonMap("name", "keyword"), true, Collections.emptyList());
+        Assertions.assertEquals(Collections.singletonList(1), partial.getNotPushedIndices());
+        Assertions.assertEquals("{\"term\":{\"name\":\"one\"}}", partial.getQueryDsl());
+    }
+
+    @Test
+    void notEqualExcludesMissingValuesForEveryNonNullLiteral() {
+        for (ConnectorLiteral literal : Arrays.asList(ConnectorLiteral.ofLong(1),
+                ConnectorLiteral.ofString("one"), ConnectorLiteral.ofString(""), ConnectorLiteral.ofBoolean(true))) {
+            ConnectorExpression comparison = new ConnectorComparison(ConnectorComparison.Operator.NE,
+                    new ConnectorColumnRef("value", literal.getType()), literal);
+            EsQueryDslResult result = EsQueryDslBuilder.buildQueryDslWithResult(comparison,
+                    Collections.emptyMap(), Collections.emptyMap(), true, Collections.emptyList());
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must\":{\"exists\":{\"field\":\"value\"}}"));
         }
     }
 

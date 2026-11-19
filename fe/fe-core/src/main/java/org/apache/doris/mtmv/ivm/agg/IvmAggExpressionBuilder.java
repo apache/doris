@@ -143,8 +143,6 @@ public class IvmAggExpressionBuilder {
                 return target.stateColumnName(IvmAggStateKey.SUM);
             case MIN:
             case MAX:
-            case MIN_COUNT:
-            case MAX_COUNT:
             case BITMAP_UNION:
                 return IvmUtil.ivmAggHiddenColumnName(target.getOrdinal(), slotKind.name());
             default:

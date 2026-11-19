@@ -251,6 +251,10 @@ extArrowFlightHttpPort= 8030
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
 iceberg_scan_planning_rest_uri_port=18182
+// Avoid the hms_port suffix: shared CI rewrites it for the default Hive service.
+iceberg_encryption_metastore_port=18383
+iceberg_encryption_kms_port=18384
+iceberg_encryption_fixture_port=18385
 iceberg_minio_port=19001
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
@@ -281,6 +285,12 @@ trino_jdbc_port = 8080
 
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
+
+// Optional MongoDB fixture: run-thirdparties-docker.sh -c mongodb.
+enableMongoDBTest = false
+mongodb_port = 27017
+mongodb_user = "mongodb_test"
+mongodb_password = "mongodb_test"
 
 enableKerberosTest=false
 kerberosHmsPort=9883

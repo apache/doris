@@ -89,6 +89,9 @@ public:
     static void set_io_thread_pool_for_test(ThreadPool* pool);
     // Test-only: forget the measured read latency, so the next batch is judged afresh.
     static void reset_read_latency_for_test();
+    // Test-only: whether a slow read sends the rest of an inline batch to the pool. Any read can be
+    // slow on a busy host, so a test that a batch stays on the calling thread turns this off.
+    static void set_slow_read_hand_off_for_test(bool enabled);
 
 private:
     static io::IOContext _make_index_io_context(const io::IOContext* io_ctx);

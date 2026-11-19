@@ -22,6 +22,7 @@
 #include <map>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -89,6 +90,7 @@ public:
      * @param cluster cluster to update, only cluster name and cluster id are concered
      * @param action update operation code snippet
      * @param replace_if_existing_empty_target_cluster, find cluster.cluster_name is a empty cluster(no node), drop it
+     * @param allow_cluster_name_fallback allow an empty ID when the cluster name is set
      * @filter filter condition
      * @return empty string for success, otherwise failure reason returned
      */
@@ -97,7 +99,8 @@ public:
             std::function<bool(const ClusterPB&)> filter,
             std::function<std::string(ClusterPB&, std::vector<ClusterPB>& clusters_in_instance)>
                     action,
-            bool replace_if_existing_empty_target_cluster = false);
+            bool replace_if_existing_empty_target_cluster = false,
+            bool allow_cluster_name_fallback = false);
 
     /**
      * Get instance from underlying storage with given transaction.
@@ -130,10 +133,12 @@ public:
      * @param err Output parameter to store any error message if validation fails.
      * @param check_master_num Flag indicating whether to check the number of master nodes.
      * @param check_cluster_name Flag indicating whether to check the cluster name is empty, just add_cluster need.
+     * @param creating_instance_id Instance created with this cluster, if any.
      * @return True if the parameters are valid, false otherwise.
      */
     bool check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
-                                    bool check_master_num, bool check_cluster_name);
+                                    bool check_master_num, bool check_cluster_name,
+                                    std::string_view creating_instance_id = {});
 
     /**
      * Validates the cluster name against a regex pattern.
@@ -154,7 +159,8 @@ public:
      * @param check_master_num Flag indicating whether to check master and follower counts.
      * @return true if the nodes are valid, false otherwise.
      */
-    bool validate_nodes(const ClusterPB& cluster, std::string* err, bool check_master_num);
+    bool validate_nodes(const ClusterPB& cluster, std::string* err, bool check_master_num,
+                        std::string_view creating_instance_id);
 
     /**
      * Validates the counts of master and follower nodes for SQL clusters.

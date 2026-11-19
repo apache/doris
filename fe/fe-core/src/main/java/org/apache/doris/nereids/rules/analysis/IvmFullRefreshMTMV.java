@@ -86,7 +86,12 @@ public class IvmFullRefreshMTMV extends OneRewriteRuleFactory {
         Optional<Set<Long>> resetPartitionIds =
                 rewriteContext.getFullRefreshResetPartitionIds(baseTableInfo);
         StreamReadMode readMode;
-        if (resetPartitionIds.isPresent()) {
+        if (rewriteContext.isExplain() || resetPartitionIds.isPresent()) {
+            // EXPLAIN plans every base table it reads through a stream with RESET, whatever the
+            // batch or the MV's partitioning would make a real refresh read: one plan stands for
+            // the whole refresh, and RESET is the read it starts with. A real refresh instead
+            // resets only the base partitions a table it partitions by has mapped (the scope
+            // carried in resetPartitionIds) and reads later batches at the stream offset.
             readMode = StreamReadMode.RESET;
         } else {
             boolean isPctTable = mtmv.getMvPartitionInfo().getPctInfos().stream()

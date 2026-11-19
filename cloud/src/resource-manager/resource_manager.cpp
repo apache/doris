@@ -139,7 +139,8 @@ std::string ResourceManager::get_node(const std::string& cloud_unique_id,
 }
 
 bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
-                                                 bool check_master_num, bool check_cluster_name) {
+                                                 bool check_master_num, bool check_cluster_name,
+                                                 std::string_view creating_instance_id) {
     // Check if the cluster has a type
     if (!cluster.has_type()) {
         *err = "cluster must have type arg";
@@ -152,7 +153,7 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     }
 
     // Validate nodes
-    if (!validate_nodes(cluster, err, check_master_num)) {
+    if (!validate_nodes(cluster, err, check_master_num, creating_instance_id)) {
         return false;
     }
 
@@ -183,7 +184,7 @@ bool ResourceManager::validate_cluster_name(const ClusterPB& cluster, std::strin
 }
 
 bool ResourceManager::validate_nodes(const ClusterPB& cluster, std::string* err,
-                                     bool check_master_num) {
+                                     bool check_master_num, std::string_view creating_instance_id) {
     std::stringstream ss;
     bool no_err = true;
     int master_num = 0;
@@ -193,7 +194,12 @@ bool ResourceManager::validate_nodes(const ClusterPB& cluster, std::string* err,
         // check here cloud_unique_id
         std::string cloud_unique_id = n.cloud_unique_id();
         auto [is_degrade_format, instance_id] = get_instance_id_by_cloud_unique_id(cloud_unique_id);
-        if (config::enable_check_instance_id && is_degrade_format) {
+        if (is_degrade_format && !creating_instance_id.empty() &&
+            instance_id != creating_instance_id) {
+            *err = "derived initial FE identity does not match the instance";
+            return false;
+        }
+        if (config::enable_check_instance_id && is_degrade_format && creating_instance_id.empty()) {
             InstanceInfoPB instance;
             auto [code, msg] = get_instance(nullptr, instance_id, &instance);
             { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &code); }
@@ -781,14 +787,15 @@ std::string ResourceManager::update_cluster(
         const std::string& instance_id, const ClusterInfo& cluster,
         std::function<bool(const ClusterPB&)> filter,
         std::function<std::string(ClusterPB&, std::vector<ClusterPB>& clusters_in_instance)> action,
-        bool replace_if_existing_empty_target_cluster) {
+        bool replace_if_existing_empty_target_cluster, bool allow_cluster_name_fallback) {
     std::stringstream ss;
     std::string msg;
 
     std::string cluster_id = cluster.cluster.has_cluster_id() ? cluster.cluster.cluster_id() : "";
     std::string cluster_name =
             cluster.cluster.has_cluster_name() ? cluster.cluster.cluster_name() : "";
-    if (cluster_id.empty()) {
+    const bool can_fallback_to_name = allow_cluster_name_fallback && !cluster_name.empty();
+    if (cluster_id.empty() && !can_fallback_to_name) {
         ss << "missing cluster_id=" << cluster_id;
         msg = ss.str();
         LOG(INFO) << msg;
@@ -916,6 +923,7 @@ std::string ResourceManager::update_cluster(
               << " instance json=" << proto_to_json(instance);
 
     refresh_instance(instance_id, instance);
+    TEST_INJECTION_POINT("ResourceManager::node_update:after_refresh");
 
     return msg;
 }
@@ -1383,6 +1391,7 @@ std::string ResourceManager::modify_nodes(const std::string& instance_id,
     }
 
     refresh_instance(instance_id, instance);
+    TEST_INJECTION_POINT("ResourceManager::node_update:after_refresh");
 
     return "";
 }

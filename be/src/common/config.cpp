@@ -276,6 +276,8 @@ DEFINE_mInt32(report_task_interval_seconds, "10");
 DEFINE_mInt32(report_disk_state_interval_seconds, "30");
 // the interval time(seconds) for agent report olap table to FE
 DEFINE_mInt32(report_tablet_interval_seconds, "60");
+DEFINE_mInt32(report_active_tablet_max_num, "5000");
+DEFINE_mInt32(report_active_tablet_window_second, "3600");
 // the max download speed(KB/s)
 DEFINE_mInt32(max_download_speed_kbps, "50000");
 // download low speed limit(KB/s)
@@ -1139,7 +1141,8 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Int32(min_peer_race_s3_thread_num, "0");
-DEFINE_Int32(max_peer_race_s3_thread_num, "32"); // aligned with default max_concurrent_peer_races
+// Effective max threads = max(this value, max_concurrent_peer_races); a smaller value has no effect.
+DEFINE_Int32(max_peer_race_s3_thread_num, "32");
 
 DEFINE_Bool(enable_time_lut, "true");
 
@@ -1233,6 +1236,26 @@ DEFINE_Validator(variant_max_json_key_length,
 DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
+// Lance uses one BE-wide session so metadata/index caches and the optional Foyer data-file cache
+// can be shared by all Lance dataset readers.
+DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
+DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
+DEFINE_Bool(enable_lance_data_cache, "true");
+DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");
+DEFINE_Int64(lance_data_cache_disk_capacity_bytes, "107374182400"); // 100GB
+DEFINE_Int64(lance_data_cache_read_block_size_bytes, "1048576");    // 1MB
+
+// I/O buffering budget per Lance scanner, not a cap on its total memory usage.
+// Runtime changes apply to newly created scanners.
+DEFINE_mInt64(lance_io_buffer_size_bytes, "2147483648"); // 2 GiB
+DEFINE_Validator(lance_io_buffer_size_bytes, [](int64_t value) { return value > 0; });
+
+// Read-ahead limits per Lance scanner. Runtime changes apply to newly created scanners.
+DEFINE_mInt32(lance_batch_readahead, "5");
+DEFINE_Validator(lance_batch_readahead, [](int32_t value) { return value > 0; });
+DEFINE_mInt32(lance_fragment_readahead, "5");
+DEFINE_Validator(lance_fragment_readahead, [](int32_t value) { return value > 0; });
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
@@ -1318,6 +1341,11 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+
+// Larger values favor remote reads when a query enables the file-cache IO adaptor.
+DEFINE_mDouble(file_cache_io_adaptor_skip_read_factor, "1.0");
+DEFINE_Validator(file_cache_io_adaptor_skip_read_factor,
+                 [](double v) { return std::isfinite(v) && v > 0; });
 
 // async file cache write
 DEFINE_mBool(enable_async_file_cache_write, "false");
@@ -1437,10 +1465,11 @@ DEFINE_mInt32(snii_prx_zstd_level, "3");
 DEFINE_mInt32(snii_prx_zstd_min_saving_percent, "-1");
 // Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
 DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
-// Handing a few small page-cache reads to the shared prefetch pool costs more than the reads: a
-// query that issues thousands of them queues on the pool lock. Remote, larger and slow (cold)
-// batches still fan out, so overlapping disk reads keep their parallelism.
-DEFINE_mInt32(snii_inline_read_max_segments, "4");
+// Handing small page-cache reads to the shared prefetch pool costs more than the reads: a query
+// that issues thousands of them queues on the pool lock. Remote, larger and slow (cold) batches
+// still fan out, so overlapping disk reads keep their parallelism. 16 covers the batches of a
+// phrase prefix, which reads the postings of every term the prefix expands to.
+DEFINE_mInt32(snii_inline_read_max_segments, "16");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default
 // (64 KiB). Larger blocks compress better under the per-block zstd (the dict
 // is the dominant physical section on high-cardinality corpora) at the cost
@@ -1608,6 +1637,11 @@ DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
 DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+DEFINE_mBool(enable_compressed_rowid_conversion, "true");
+// Compress only when physical input rows * 8 exceeds this many bytes (500 MiB).
+DEFINE_mInt64(compressed_rowid_conversion_threshold_bytes, "524288000");
+DEFINE_Validator(compressed_rowid_conversion_threshold_bytes,
+                 [](int64_t value) { return value >= 0; });
 // missing rows correctness check when compaction for mow table
 DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
@@ -1796,7 +1830,7 @@ DEFINE_mInt64(s3_put_requests_per_second_max, "0");
 // Note: the derived per-BE bytes/s should not be set below the single IO upper bound
 // per second (s3_write_buffer_size, 5MB by default). A single IO larger than 1 second
 // of quota only reserves 1 second worth of tokens; the excess bytes are not accounted
-// (reservation clamp in S3RateLimitGuard).
+// (reservation clamp in ObjStorageRateLimitGuard).
 DEFINE_mInt64(s3_get_bytes_per_second_per_core, "-1");
 DEFINE_mInt64(s3_put_bytes_per_second_per_core, "-1");
 // Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
@@ -2108,7 +2142,16 @@ DEFINE_mInt64(load_reader_max_block_bytes, "67108864");
 
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.
+// Auto sizing shares the CPU count captured on first use with ann_index_build_threads_per_task.
 DEFINE_Int32(omp_threads_limit, "-1");
+
+// OpenMP threads reserved by each ANN index train/add call, capped by omp_threads_limit.
+// -1 means auto: 1 thread below 32 available CPU cores, otherwise 4 threads.
+// The CPU count is captured once on first use and reused until BE restart.
+// A call waits until its entire reservation is available. Requires a BE restart.
+DEFINE_Int32(ann_index_build_threads_per_task, "-1");
+DEFINE_Validator(ann_index_build_threads_per_task,
+                 [](int32_t value) { return value == -1 || value > 0; });
 
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
@@ -2145,9 +2188,9 @@ DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
 DEFINE_Validator(concurrency_stats_dump_interval_ms,
                  [](const int32_t config) -> bool { return config >= 10; });
 
-DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "false");
 
-DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
+DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "true");
 DEFINE_mBool(enable_cloud_random_segment_id, "false");
 DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 

@@ -122,12 +122,6 @@ Status SegmentFlusher::transform_block(Block* block, int32_t segment_id,
 Status SegmentFlusher::close() {
     RETURN_IF_ERROR(_seg_files.close());
     RETURN_IF_ERROR(_preload_segment_indexes_to_file_cache());
-    // Index compaction appends postings after data segments are flushed. Seal the compound
-    // files only now, when all of their raw-built and compacted indexes are present.
-    if (_context.has_index_compaction()) {
-        RETURN_IF_ERROR(_idx_files.begin_close());
-    }
-    RETURN_IF_ERROR(_idx_files.finish_close());
     return Status::OK();
 }
 

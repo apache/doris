@@ -179,7 +179,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
 
         catalog.notifyPropertiesUpdated(Collections.singletonMap("endpoint", "new-source"));
 
-        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
     }
 
     @Test
@@ -191,7 +191,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
                 Collections.singletonMap("endpoint", "new-source"));
         cleanup.run();
 
-        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
     }
 
     @Test
@@ -202,7 +202,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         catalog.notifyPropertiesUpdated(Collections.singletonMap(
                 ExternalCatalog.SCHEMA_CACHE_TTL_SECOND, "10"));
 
-        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
         Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(Mockito.anyLong());
     }
 
@@ -214,7 +214,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
         catalog.notifyPropertiesUpdated(Collections.singletonMap(
                 MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY, "1KB"));
 
-        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
         Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(Mockito.anyLong());
     }
 
@@ -227,7 +227,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
                 "meta.cache.iceberg.table.max-weight", "1KB"));
 
         Mockito.verify(cacheMgr, Mockito.never()).removeCatalogByEngine(Mockito.anyLong(), Mockito.anyString());
-        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
     }
 
     @Test
@@ -264,7 +264,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
                         "core budget retirement must be fenced against makeSureInitialized");
                 oldCore.close();
                 return null;
-            }).when(cacheMgr).removeCatalog(1L);
+            }).when(cacheMgr).removeCatalog(1L, "test-catalog");
 
             try {
                 catalog.modifyCatalogPropsWithDeferredResourceCleanup(
@@ -289,7 +289,7 @@ public class PluginDrivenExternalCatalogConcurrencyTest {
                 "meta.cache.default.schema.max-weight", "1KB"));
 
         Mockito.verify(cacheMgr, Mockito.never()).removeCatalogByEngine(1L, "default");
-        Mockito.verify(cacheMgr).removeCatalog(1L);
+        Mockito.verify(cacheMgr).removeCatalog(1L, "test-catalog");
     }
 
     /**

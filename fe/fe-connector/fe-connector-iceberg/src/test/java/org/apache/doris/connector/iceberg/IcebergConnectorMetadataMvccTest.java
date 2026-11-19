@@ -622,13 +622,17 @@ public class IcebergConnectorMetadataMvccTest {
     }
 
     @Test
-    public void listPartitionNamesDegradesToEmptyWhenTableMissing() {
+    public void listPartitionNamesPreservesTableAbsence() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.throwNoSuchTableOnLoadTable = true;
-        List<String> names =
-                new IcebergConnectorMetadata(ops, IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext())
-                        .listPartitionNames(null, handle());
-        Assertions.assertTrue(names.isEmpty());
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops,
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+        org.apache.doris.connector.spi.ConnectorTableNotFoundException missing = Assertions.assertThrows(
+                org.apache.doris.connector.spi.ConnectorTableNotFoundException.class,
+                () -> metadata.listPartitionNames(null, handle()));
+        Assertions.assertEquals("db1", missing.getDatabaseName());
+        Assertions.assertEquals("t1", missing.getTableName());
+        Assertions.assertTrue(missing.getCause() instanceof org.apache.iceberg.exceptions.NoSuchTableException);
     }
 
     @Test

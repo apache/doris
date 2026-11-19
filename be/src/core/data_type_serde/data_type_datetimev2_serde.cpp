@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/orc_timestamp_decode_context.h"
@@ -663,6 +664,37 @@ Status DataTypeDateTimeV2SerDe::write_column_to_paimon_arrow(
     return write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
 }
 
+// The UTC date and time of an epoch second, as DateV2Value::from_unixtime gives it for the UTC zone, without
+// a time zone lookup: proleptic Gregorian days from the epoch (H. Hinnant's civil_from_days).
+static bool utc_from_unixtime(DateV2Value<DateTimeV2ValueType>& value, int64_t seconds) {
+    int64_t days = seconds / 86400;
+    int64_t second_of_day = seconds % 86400;
+    if (second_of_day < 0) {
+        second_of_day += 86400;
+        --days;
+    }
+    days += 719468;
+    const int64_t era = (days >= 0 ? days : days - 146096) / 146097;
+    const int64_t day_of_era = days - era * 146097;
+    const int64_t year_of_era =
+            (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146096) / 365;
+    const int64_t day_of_year =
+            day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    const int64_t shifted_month = (5 * day_of_year + 2) / 153;
+    const int64_t day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    const int64_t month = shifted_month < 10 ? shifted_month + 3 : shifted_month - 9;
+    const int64_t year = year_of_era + era * 400 + (month <= 2);
+    // Check before narrowing: an Arrow timestamp in year 65537 must not wrap to year 1.
+    if (year < 0 || year > 9999) {
+        return false;
+    }
+    value.unchecked_set_time(static_cast<uint16_t>(year), static_cast<uint8_t>(month),
+                             static_cast<uint8_t>(day), static_cast<uint8_t>(second_of_day / 3600),
+                             static_cast<uint8_t>(second_of_day / 60 % 60),
+                             static_cast<uint16_t>(second_of_day % 60), 0);
+    return true;
+}
+
 Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                        const arrow::Array* arrow_array,
                                                        int64_t start, int64_t end,
@@ -701,6 +733,7 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         // A timezone-naive Arrow timestamp is a wall-clock value. Decode its epoch-based
         // representation in UTC so the session timezone does not shift its date/time fields.
         const cctz::time_zone& real_ctz = type->timezone().empty() ? cctz::utc_time_zone() : ctz;
+        const bool utc = real_ctz == cctz::utc_time_zone();
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
@@ -723,7 +756,38 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                 --seconds;
                 remainder += divisor;
             }
-            v.from_unixtime(seconds, real_ctz);
+            if (utc) {
+                if (!utc_from_unixtime(v, seconds)) {
+                    return Status::DataQualityError(
+                            "Arrow timestamp {} of type {} is outside the DATETIMEV2 range",
+                            date_value, type->ToString());
+                }
+            } else {
+                // from_unixtime() narrows the cctz year to uint16_t without a check, so an instant
+                // whose civil year in real_ctz is outside 0000..9999 would read as another value:
+                // timestamp(us) 2005980768000000000 (65537-01-01) as 0001-01-01, and the years
+                // 10000..65535 as dates DATETIMEV2 cannot hold. Check the civil year before packing,
+                // as orc_timestamp_to_datetime() does for ORC.
+                const auto civil = cctz::convert(
+                        cctz::time_point<cctz::seconds>(cctz::seconds(seconds)), real_ctz);
+                if (civil.year() < 0 || civil.year() > 9999) {
+                    return Status::DataQualityError(
+                            "Arrow timestamp {} of type {} is outside the DATETIMEV2 range",
+                            date_value, type->ToString());
+                }
+                v.unchecked_set_time(
+                        static_cast<uint16_t>(civil.year()), static_cast<uint8_t>(civil.month()),
+                        static_cast<uint8_t>(civil.day()), static_cast<uint8_t>(civil.hour()),
+                        static_cast<uint8_t>(civil.minute()), static_cast<uint16_t>(civil.second()),
+                        0);
+            }
+            // cctz counts year 0 as a leap year and Doris does not (is_leap(0) is false), so the
+            // civil date 0000-02-29 passes the year check but is not a DATETIMEV2 value.
+            if (!v.is_valid_date()) {
+                return Status::DataQualityError(
+                        "Arrow timestamp {} of type {} is not a valid DATETIMEV2 value", date_value,
+                        type->ToString());
+            }
             // Get the fractional part.
             // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
             // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
@@ -1052,6 +1116,45 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_timestamp_orc_values(column, view);
+}
+
+Status DataTypeDateTimeV2SerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                                  const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_DATE_TIME) {
+        return Status::InvalidArgument("BSON DATETIME requires a date source");
+    }
+    int64_t millis = value.value.value.v_datetime;
+    int64_t seconds = millis / 1000;
+    int64_t remainder = millis % 1000;
+    if (remainder < 0) {
+        --seconds;
+        remainder += 1000;
+    }
+    int64_t quantum = 1;
+    for (int i = _scale; i < 3; ++i) {
+        quantum *= 10;
+    }
+    if (remainder % quantum != 0) {
+        return Status::InvalidArgument("BSON date requires rounding at the target datetime scale");
+    }
+    const auto civil = cctz::convert(cctz::time_point<cctz::seconds>(cctz::seconds(seconds)),
+                                     cctz::utc_time_zone());
+    if (civil.year() < 0 || civil.year() > 9999) {
+        return Status::InvalidArgument("BSON date is outside the DATETIMEV2 range");
+    }
+    DateV2Value<DateTimeV2ValueType> result;
+    result.unchecked_set_time(
+            static_cast<uint16_t>(civil.year()), static_cast<uint8_t>(civil.month()),
+            static_cast<uint8_t>(civil.day()), static_cast<uint8_t>(civil.hour()),
+            static_cast<uint8_t>(civil.minute()), static_cast<uint16_t>(civil.second()),
+            static_cast<uint32_t>(remainder * 1000));
+    if (!result.is_valid_date()) {
+        return Status::InvalidArgument("BSON date is not representable as DATETIMEV2");
+    }
+    assert_cast<ColumnDateTimeV2&>(column).insert_value(
+            binary_cast<decltype(result), UInt64>(result));
+    return Status::OK();
 }
 
 } // namespace doris

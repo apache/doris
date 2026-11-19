@@ -18,12 +18,10 @@
 
 #pragma once
 
+#include <cctz/time_zone.h>
+
 #include <cstdint>
 #include <string>
-
-namespace cctz {
-class time_zone;
-} // namespace cctz
 
 namespace doris {
 
@@ -33,12 +31,28 @@ namespace doris {
 // The whole timezone function is powered by system tzdata, which offered by TZDIR or `/usr/share/zoneinfo`
 class TimezoneUtils {
 public:
+    // Use the offset before a transition: gap input moves forward by the gap length,
+    // and repeated local times use their first occurrence. For example, New York
+    // 2024-03-10 02:30 becomes 03:30-04:00 (07:30 UTC), rather than 03:00.
+    // Callers handle fractional seconds separately.
+    static cctz::time_point<cctz::seconds> convert_local_to_instant(
+            const cctz::civil_second& local, const cctz::time_zone& timezone) {
+        return timezone.lookup(local).pre;
+    }
+
     static void load_timezones_to_cache();
 
-    static bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz);
+    [[nodiscard]] static bool find_cctz_time_zone(const std::string& timezone,
+                                                  cctz::time_zone& ctz);
+
+    // The caller validates the offset according to its parsing policy.
+    static cctz::time_zone create_fixed_offset_time_zone(int32_t offset_seconds);
 
     static bool try_get_fixed_offset_seconds(const cctz::time_zone& timezone,
                                              int32_t* offset_seconds);
+
+    // Normalize recognized UTC aliases and fixed offsets, e.g. GMT+08:00 to +08:00.
+    static bool normalize_timezone_name(const std::string& timezone, std::string* normalized);
 
     static const std::string default_time_zone;
 
@@ -48,8 +62,6 @@ private:
     static size_t cache_size();
 
     static void load_offsets_to_cache();
-
-    static bool normalize_timezone_name(const std::string& timezone, std::string* normalized);
 
     static bool parse_tz_offset_string(const std::string& timezone, cctz::time_zone& ctz);
 };

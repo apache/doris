@@ -159,16 +159,18 @@ uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num);
 
 void get_field_info(const Field& field, FieldInfo* info);
 
-// inherit index from parent column
+// inherit index from parent column. escape_dots is the owning tablet schema's
+// variant_escape_dots_in_keys; it also escapes '%' in the index suffix.
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
                    TabletIndexes& sub_column_indexes, FieldType column_type,
-                   const std::string& suffix_path, bool is_array_nested_type = false);
+                   const std::string& suffix_path, bool is_array_nested_type, bool escape_dots);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& sub_column_indexes, const TabletColumn& column);
+                   TabletIndexes& sub_column_indexes, const TabletColumn& column, bool escape_dots);
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,
-                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb);
+                   TabletIndexes& sub_column_indexes, const segment_v2::ColumnMetaPB& column_pb,
+                   bool escape_dots);
 
 Status update_least_schema_internal(const std::map<PathInData, DataTypes>& subcolumns_types,
                                     TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id,

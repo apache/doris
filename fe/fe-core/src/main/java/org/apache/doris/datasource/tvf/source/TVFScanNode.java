@@ -114,7 +114,7 @@ public class TVFScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected boolean isFileStreamType() {
+    public boolean isFileStreamType() {
         return tableValuedFunction.getTFileType() == TFileType.FILE_STREAM;
     }
 
@@ -179,9 +179,18 @@ public class TVFScanNode extends FileQueryScanNode {
         return super.classifyColumn(slot, partitionKeys);
     }
 
-    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) {
+    @Override
+    protected long coarseSplitSizeForBeRefinement() {
+        // HTTP discovery has no stable mtime/version. BE refuses refinement for that identity,
+        // so a coarse FE range would lose the parallelism supplied by legacy byte ranges.
+        return tableValuedFunction.getTFileType() == TFileType.FILE_HTTP
+                ? -1 : super.coarseSplitSizeForBeRefinement();
+    }
+
+    private long determineTargetFileSplitSize(List<TBrokerFileStatus> fileStatuses) throws UserException {
         if (sessionVariable.getFileSplitSize() > 0) {
-            return sessionVariable.getFileSplitSize();
+            return selectFeSplitSizeForBe(sessionVariable.getFileSplitSize(), getFileFormatType(),
+                    !isTableLevelCountStarPushdown());
         }
         long result = sessionVariable.getMaxInitialSplitSize();
         long totalFileSize = 0;
@@ -194,8 +203,10 @@ public class TVFScanNode extends FileQueryScanNode {
             }
         }
         result = exceedInitialThreshold ? sessionVariable.getMaxSplitSize() : result;
-        result = applyMaxFileSplitNumLimit(result, totalFileSize);
-        return result;
+        result = selectFeSplitSizeForBe(result, getFileFormatType(), !isTableLevelCountStarPushdown());
+        // Coarse sizing must not replace the independent non-batch FE memory bound. For example,
+        // max_file_split_num=1 still keeps a 2 GiB file whole with the 512 MiB coarse target.
+        return applyMaxFileSplitNumLimit(result, totalFileSize);
     }
 
     @Override

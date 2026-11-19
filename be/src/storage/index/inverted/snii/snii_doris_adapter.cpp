@@ -44,23 +44,35 @@ constexpr size_t kMaxConcurrentReads = 16;
 
 // A batch is read on the calling thread only if it is small and reads have been fast lately. The
 // pool pays off when reads miss the page cache, because a few of them then overlap; it costs more
-// than the reads when they hit it. The average is of the duration of one small physical read
-// (1/8 weight), shared by every reader: a page-cache hit takes a few microseconds, a miss on flash
-// ten times that or more. On NVMe, cold phrase queries ran 4-8% slower with the threshold at 40 us
-// and level with the pool at 25 us and below, while the warm gain held from 15 us up. It starts at
-// zero, so a cold start reads its first batches inline until the average has caught up.
+// than the reads when they hit it. A read counts by how much longer it took than copying its bytes
+// out of the page cache: a hit takes a few microseconds more, a miss on flash ten times that or
+// more. The average of that excess (1/8 weight) is shared by every reader. On NVMe, cold phrase
+// queries ran 4-8% slower with the threshold at 40 us and level with the pool at 25 us and below,
+// while the warm gain held from 15 us up. It starts at zero, so a cold start reads its first
+// batches inline until the average has caught up, and a batch read inline sends the segments it
+// has left to the pool as soon as one of its reads is slow.
 constexpr size_t kInlineMaxBatchBytes = 256 * 1024;
 constexpr int64_t kSlowSmallReadNs = 20 * 1000;
+// The low end of what one thread copies out of the page cache, so a hit is not taken for a miss.
+constexpr int64_t kPageCacheBytesPerNs = 4;
 std::atomic<int64_t> g_small_read_ns {0};
+std::atomic<bool> g_slow_read_hand_off {true}; // only tests turn this off
 
-void note_small_read(int64_t ns) {
+// Notes how much longer than copying its `len` bytes a read took; returns whether it was slow.
+bool note_read(int64_t ns, size_t len) {
+    const int64_t excess = ns - static_cast<int64_t>(len) / kPageCacheBytesPerNs;
     const int64_t average = g_small_read_ns.load(std::memory_order_relaxed);
-    g_small_read_ns.store(average + (ns - average) / 8, std::memory_order_relaxed);
+    g_small_read_ns.store(average + (excess - average) / 8, std::memory_order_relaxed);
+    return excess >= kSlowSmallReadNs;
 }
 } // namespace
 
 void DorisSniiFileReader::reset_read_latency_for_test() {
     g_small_read_ns.store(0, std::memory_order_relaxed);
+}
+
+void DorisSniiFileReader::set_slow_read_hand_off_for_test(bool enabled) {
+    g_slow_read_hand_off.store(enabled, std::memory_order_relaxed);
 }
 
 thread_local const io::IOContext* DorisSniiFileReader::_scoped_io_ctx = nullptr;
@@ -271,7 +283,8 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         read_bytes += cast_set<int64_t>(seg.len);
     }
 
-    // Run the planned physical reads, concurrently when a pool is available.
+    // Run the planned physical reads, concurrently when a pool is available. Returns whether the
+    // read was timed and slow, i.e. probably missed the page cache.
     auto run_segment = [&](size_t s) {
         // Only local reads are timed: the average decides about local readers, and a remote or
         // cached-remote read takes a millisecond that says nothing about the page cache.
@@ -279,25 +292,17 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         const auto begin =
                 timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point {};
         seg_status[s] = _read_at(segs[s].offset, segs[s].len, &outs->buffers[s], &seg_io_ctx[s]);
-        if (timed && seg_status[s].ok()) {
-            note_small_read(std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                    std::chrono::steady_clock::now() - begin)
-                                    .count());
+        if (!timed || !seg_status[s].ok()) {
+            return false;
         }
+        return note_read(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                 std::chrono::steady_clock::now() - begin)
+                                 .count(),
+                         segs[s].len);
     };
     ThreadPool* pool = _select_io_pool();
-    // Submitting to the shared pool and waiting costs far more than a small read from the page
-    // cache, and a query that issues thousands of such batches queues on the pool's lock. Only
-    // local files take this path: a remote or cached-remote read is slow enough that fanning out
-    // pays, and so is a local read that misses the page cache.
-    const int32_t inline_max_segments = config::snii_inline_read_max_segments;
-    const bool inline_read = _local_fs && inline_max_segments > 0 &&
-                             num_segs <= static_cast<size_t>(inline_max_segments) &&
-                             read_bytes <= static_cast<int64_t>(kInlineMaxBatchBytes) &&
-                             g_small_read_ns.load(std::memory_order_relaxed) < kSlowSmallReadNs;
-    // A read on the calling thread is one dependent round per segment.
-    const size_t serial_rounds = inline_read ? num_segs : _compute_num_waves(num_segs);
-    if (pool != nullptr && num_segs > 1 && !inline_read) {
+    // Reads segments [first, num_segs) on the pool, at most kMaxConcurrentReads at a time.
+    auto fan_out = [&](size_t first) {
         // Carried onto the pool threads below. They are "Orphan" threads with no MemTrackerLimiter
         // of their own (buffered_reader.cpp:426), and the read does allocate down there: in cloud
         // mode _read_at reaches CachedRemoteFileReader::read_at_impl ->
@@ -307,7 +312,7 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
         // Same shape as the hedged-read path in cached_remote_file_reader.cpp:500-505.
         const std::shared_ptr<ResourceContext> parent_resource_ctx =
                 thread_context()->resource_ctx();
-        for (size_t base = 0; base < num_segs; base += kMaxConcurrentReads) {
+        for (size_t base = first; base < num_segs; base += kMaxConcurrentReads) {
             const size_t wave_end = std::min(base + kMaxConcurrentReads, num_segs);
             ::doris::CountDownLatch latch(cast_set<int>(wave_end - base));
             for (size_t s = base; s < wave_end; ++s) {
@@ -329,6 +334,34 @@ Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Rang
             }
             latch.wait();
         }
+    };
+    // Submitting to the shared pool and waiting costs far more than a small read from the page
+    // cache, and a query that issues thousands of such batches queues on the pool's lock. Only
+    // local files take this path: a remote or cached-remote read is slow enough that fanning out
+    // pays, and so is a local read that misses the page cache.
+    const int32_t inline_max_segments = config::snii_inline_read_max_segments;
+    const bool inline_read = _local_fs && inline_max_segments > 0 &&
+                             num_segs <= static_cast<size_t>(inline_max_segments) &&
+                             read_bytes <= static_cast<int64_t>(kInlineMaxBatchBytes) &&
+                             g_small_read_ns.load(std::memory_order_relaxed) < kSlowSmallReadNs;
+    size_t serial_rounds = _compute_num_waves(num_segs);
+    if (inline_read) {
+        // A read on the calling thread is one dependent round per segment. A slow one means the
+        // page cache missed although recent reads hit it, so the segments left overlap in the pool.
+        size_t next = 0;
+        while (next < num_segs) {
+            const bool slow = run_segment(next++);
+            if (slow && pool != nullptr && num_segs - next > 1 &&
+                g_slow_read_hand_off.load(std::memory_order_relaxed)) {
+                break;
+            }
+        }
+        serial_rounds = next + _compute_num_waves(num_segs - next);
+        if (next < num_segs) {
+            fan_out(next);
+        }
+    } else if (pool != nullptr && num_segs > 1) {
+        fan_out(0);
     } else {
         // Serial fallback: no executor (e.g. tools without ExecEnv) or a single
         // segment (avoids micro-batch scheduling overhead).

@@ -44,11 +44,13 @@ std::unique_ptr<iceberg::Schema> build_position_delete_schema() {
 }
 
 VIcebergDeleteFileWriter::VIcebergDeleteFileWriter(TFileContent::type delete_type,
-                                                   const std::string& output_path,
+                                                   const IcebergOutputLocation& location,
+                                                   const std::string& file_name,
                                                    TFileFormatType::type file_format,
                                                    TFileCompressType::type compress_type)
         : _delete_type(delete_type),
-          _output_path(output_path),
+          _write_path(location.write_path(file_name)),
+          _commit_path(location.commit_path(file_name)),
           _file_format(file_format),
           _compress_type(compress_type) {}
 
@@ -74,17 +76,18 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
         fs_properties.broker_addresses = &broker_addresses;
     }
 
-    io::FileDescription file_description = {.path = _output_path, .fs_name {}};
+    io::FileDescription file_description = {.path = _write_path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
 
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
-    RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
     // Create file format transformer based on format type
     switch (_file_format) {
     case TFileFormatType::FORMAT_PARQUET: {
         TParquetCompressionType::type parquet_compression_type =
                 DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_compress_type));
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
         ParquetFileOptions parquet_options = {parquet_compression_type,
                                               TParquetVersion::PARQUET_1_0, false, false};
@@ -94,6 +97,8 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
         return _file_format_transformer->open();
     }
     case TFileFormatType::FORMAT_ORC: {
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
         _file_format_transformer.reset(new VOrcTransformer(state, _file_writer.get(), output_exprs,
                                                            "", column_names, false, _compress_type,
                                                            _position_delete_schema.get()));
@@ -131,7 +136,7 @@ Status VIcebergDeleteFileWriter::close(TIcebergCommitData& commit_data) {
     }
 
     // Fill commit data (use __set_ to mark optional fields as present)
-    commit_data.__set_file_path(_output_path);
+    commit_data.__set_file_path(_commit_path);
     commit_data.__set_row_count(_written_rows);
     commit_data.__set_affected_rows(_written_rows);
     commit_data.__set_file_size(_file_size);
@@ -152,9 +157,10 @@ Status VIcebergDeleteFileWriter::close(TIcebergCommitData& commit_data) {
 
 // Factory method
 std::unique_ptr<VIcebergDeleteFileWriter> VIcebergDeleteFileWriterFactory::create_writer(
-        TFileContent::type delete_type, const std::string& output_path,
-        TFileFormatType::type file_format, TFileCompressType::type compress_type) {
-    return std::make_unique<VIcebergDeleteFileWriter>(delete_type, output_path, file_format,
+        TFileContent::type delete_type, const IcebergOutputLocation& location,
+        const std::string& file_name, TFileFormatType::type file_format,
+        TFileCompressType::type compress_type) {
+    return std::make_unique<VIcebergDeleteFileWriter>(delete_type, location, file_name, file_format,
                                                       compress_type);
 }
 

@@ -93,26 +93,21 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     if (!_write_info.broker_addresses.empty()) {
         fs_properties.broker_addresses = &(_write_info.broker_addresses);
     }
-    _path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
+    _path = _write_info.location.write_path(_get_target_file_name());
     io::FileDescription file_description = {.path = _path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
-    RETURN_IF_ERROR(_fs->create_file(file_description.path, &_file_writer, &file_writer_options));
 
     Status open_status;
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        auto parquet_compression_type =
-                ParquetBuildHelper::to_parquet_compression_type(_compress_type);
-        if (!parquet_compression_type.has_value()) {
-            // The target file is already created, so let the shared cleanup below remove it
-            // instead of returning early.
-            open_status = parquet_compression_type.error();
-            break;
-        }
+        TParquetCompressionType::type parquet_compression_type =
+                DORIS_TRY(ParquetBuildHelper::to_parquet_compression_type(_compress_type));
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
         // Parquet 1.0 coerces Arrow nanoseconds to microseconds, including nested fields.
         ParquetFileOptions parquet_options = {
-                .compression_type = parquet_compression_type.value(),
+                .compression_type = parquet_compression_type,
                 .parquet_version = contains_nanosecond_timestamp(_schema.root_struct())
                                            ? TParquetVersion::PARQUET_2_LATEST
                                            : TParquetVersion::PARQUET_1_0,
@@ -125,6 +120,8 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
         break;
     }
     case TFileFormatType::FORMAT_ORC: {
+        RETURN_IF_ERROR(
+                _fs->create_file(file_description.path, &_file_writer, &file_writer_options));
         _file_format_transformer = std::make_unique<VOrcTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, "", _write_column_names, false,
                 _compress_type, &_schema, _fs, _nan_count_field_ids);
@@ -210,8 +207,7 @@ Status VIcebergPartitionWriter::_build_iceberg_commit_data(TIcebergCommitData* c
     DCHECK(commit_data != nullptr);
     DCHECK(_file_format_transformer != nullptr);
 
-    commit_data->__set_file_path(
-            fmt::format("{}/{}", _write_info.original_write_path, _get_target_file_name()));
+    commit_data->__set_file_path(_write_info.location.commit_path(_get_target_file_name()));
     commit_data->__set_row_count(_row_count);
     commit_data->__set_affected_rows(_row_count);
     commit_data->__set_file_size(_file_format_transformer->written_len());

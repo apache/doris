@@ -249,8 +249,7 @@ public class SessionVariablesTest extends TestWithFeService {
         VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
         Assertions.assertEquals(
                 "Controls the number of producer BEs for each broadcast join runtime filter in "
-                        + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
-                        + "The legacy Coordinator path keeps the existing behavior.",
+                        + "the Nereids distributed planner. Values less than or equal to 0 disable the limit.",
                 varAttr.description());
     }
 
@@ -565,12 +564,15 @@ public class SessionVariablesTest extends TestWithFeService {
                 SessionVariable.ENABLE_BUCKET_SHUFFLE_JOIN, SessionVariable.ENABLE_COST_BASED_JOIN_REORDER,
                 SessionVariable.ENABLE_CTE_MATERIALIZE, SessionVariable.ENABLE_DECOUPLED_RUNTIME_FILTER,
                 SessionVariable.ENABLE_DISTINCT_STREAMING_AGGREGATION,
+                SessionVariable.ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH,
                 SessionVariable.ENABLE_DPHYP_OPTIMIZER, SessionVariable.ENABLE_LOCAL_EXCHANGE,
-                SessionVariable.ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, SessionVariable.ENABLE_PARALLEL_OUTFILE,
+                SessionVariable.ENABLE_LOCAL_EXCHANGE_BEFORE_AGG,
+                SessionVariable.ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, SessionVariable.ENABLE_PARALLEL_OUTFILE,
                 SessionVariable.ENABLE_PARTITION_TOPN, SessionVariable.ENABLE_PUSH_DOWN_NO_GROUP_AGG,
                 SessionVariable.ENABLE_SHARED_EXCHANGE_SINK_BUFFER, SessionVariable.ENABLE_SQL_CACHE,
+                SessionVariable.ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH,
                 SessionVariable.EXCHANGE_MULTI_BLOCKS_BYTE_SIZE,
-                SessionVariable.EXPAND_RUNTIME_FILTER_BY_INNER_JION,
+                SessionVariable.EXPAND_RUNTIME_FILTER_BY_INNER_JION, SessionVariable.FORCE_TO_LOCAL_SHUFFLE,
                 SessionVariable.GLOBAL_PARTITION_TOPN_THRESHOLD, SessionVariable.IGNORE_RUNTIME_FILTER_IDS,
                 SessionVariable.INLINE_CTE_REFERENCED_THRESHOLD,
                 SessionVariable.LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT,

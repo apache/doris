@@ -128,102 +128,109 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) {
         checkTable(ctx);
 
-        Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        Map<String, Expression> partialUpdateColNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (EqualTo equalTo : assignments) {
-            List<String> colNameParts = ((UnboundSlot) equalTo.left()).getNameParts();
-            checkAssignmentColumn(ctx, colNameParts, this.nameParts, this.tableAlias);
-            colNameToExpression.put(colNameParts.get(colNameParts.size() - 1), equalTo.right());
-            partialUpdateColNameToExpression.put(colNameParts.get(colNameParts.size() - 1), equalTo.right());
-        }
-        // check if any key in update clause
-        if (targetTable.getFullSchema().stream().filter(Column::isKey)
-                .anyMatch(column -> partialUpdateColNameToExpression.containsKey(column.getName()))) {
-            throw new AnalysisException("Only value columns of unique table could be updated");
-        }
-        List<NamedExpression> selectItems = Lists.newArrayList();
-        String tableName = tableAlias != null ? tableAlias : Util.getTempTableDisplayName(targetTable.getName());
-        Expression setExpr = null;
-        for (Column column : targetTable.getFullSchema()) {
-            // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
-            if (!column.isVisible() && !column.isSequenceColumn()
-                    && !(column.isTtlColumn() && targetTable.isDirectRowTtl())) {
-                continue;
+        // Light schema changes rebuild the column metadata in place under the table write lock.
+        // Keep all schema reads consistent until the UPDATE logical plan has been constructed.
+        targetTable.readLock();
+        try {
+            Map<String, Expression> colNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            Map<String, Expression> partialUpdateColNameToExpression = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+            for (EqualTo equalTo : assignments) {
+                List<String> colNameParts = ((UnboundSlot) equalTo.left()).getNameParts();
+                checkAssignmentColumn(ctx, colNameParts, this.nameParts, this.tableAlias);
+                colNameToExpression.put(colNameParts.get(colNameParts.size() - 1), equalTo.right());
+                partialUpdateColNameToExpression.put(colNameParts.get(colNameParts.size() - 1), equalTo.right());
             }
-            if (colNameToExpression.containsKey(column.getName())) {
-                Expression expr = colNameToExpression.get(column.getName());
-                // when updating the sequence map column, the real sequence column need to set with the same value.
-                boolean isSequenceMapColumn = targetTable.hasSequenceCol()
-                        && targetTable.getSequenceMapCol() != null
-                        && column.getName().equalsIgnoreCase(targetTable.getSequenceMapCol());
-                if (setExpr == null && isSequenceMapColumn) {
-                    setExpr = expr;
-                }
-                selectItems.add(expr instanceof UnboundSlot
-                        ? ((NamedExpression) expr)
-                        : new UnboundAlias(expr));
-                colNameToExpression.remove(column.getName());
-            } else {
-                if (column.isSequenceColumn() && setExpr != null) {
-                    selectItems.add(new UnboundAlias(setExpr, column.getName()));
-                } else if (column.hasOnUpdateDefaultValue()) {
-                    Expression defualtValueExpression =
-                            new NereidsParser().parseExpression(column.getOnUpdateDefaultValueSql());
-                    selectItems.add(new UnboundAlias(defualtValueExpression, column.getName()));
-                } else {
-                    selectItems.add(new UnboundSlot(tableName, column.getName()));
-                }
+            // check if any key in update clause
+            if (targetTable.getFullSchema().stream().filter(Column::isKey)
+                    .anyMatch(column -> partialUpdateColNameToExpression.containsKey(column.getName()))) {
+                throw new AnalysisException("Only value columns of unique table could be updated");
             }
-        }
-        if (!colNameToExpression.isEmpty()) {
-            throw new AnalysisException("unknown column in assignment list: "
-                    + String.join(", ", colNameToExpression.keySet()));
-        }
-
-        // Read unchanged columns in the query for TTL tables; BE partial updates cannot rely
-        // on an expired row still being physically present after compaction.
-        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
-                && !targetTable.hasRowTtl()
-                && selectItems.size() < targetTable.getColumns().size()
-                && targetTable.getSequenceCol() == null
-                && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10
-                && !targetTable.isUniqKeyMergeOnWriteWithClusterKeys();
-
-        List<String> partialUpdateColNames = new ArrayList<>();
-        List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
-        if (isPartialUpdate) {
+            List<NamedExpression> selectItems = Lists.newArrayList();
+            String tableName = tableAlias != null ? tableAlias : Util.getTempTableDisplayName(targetTable.getName());
+            Expression setExpr = null;
             for (Column column : targetTable.getFullSchema()) {
-                Expression expr = new UnboundSlot(tableName, column.getName());
-                boolean existInExpr = false;
-                for (String colName : partialUpdateColNameToExpression.keySet()) {
-                    if (colName.equalsIgnoreCase(column.getName())) {
-                        expr = partialUpdateColNameToExpression.get(column.getName());
-                        existInExpr = true;
-                        break;
-                    }
+                // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
+                if (!column.isVisible() && !column.isSequenceColumn()
+                        && !(column.isTtlColumn() && targetTable.isDirectRowTtl())) {
+                    continue;
                 }
-                boolean isGeneratedColumnDependency = column.getGeneratedColumnInfo() == null
-                        && CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis());
-                boolean shouldReadGeneratedColumnDependency = isGeneratedColumnDependency
-                        && !column.hasOnUpdateDefaultValue();
-                if (column.isKey() || existInExpr || shouldReadGeneratedColumnDependency) {
-                    partialUpdateSelectItems.add(expr instanceof UnboundSlot
+                if (colNameToExpression.containsKey(column.getName())) {
+                    Expression expr = colNameToExpression.get(column.getName());
+                    // when updating the sequence map column, the real sequence column need to set with the same value.
+                    boolean isSequenceMapColumn = targetTable.hasSequenceCol()
+                            && targetTable.getSequenceMapCol() != null
+                            && column.getName().equalsIgnoreCase(targetTable.getSequenceMapCol());
+                    if (setExpr == null && isSequenceMapColumn) {
+                        setExpr = expr;
+                    }
+                    selectItems.add(expr instanceof UnboundSlot
                             ? ((NamedExpression) expr)
                             : new UnboundAlias(expr));
-                    partialUpdateColNames.add(column.getName());
+                    colNameToExpression.remove(column.getName());
+                } else {
+                    if (column.isSequenceColumn() && setExpr != null) {
+                        selectItems.add(new UnboundAlias(setExpr, column.getName()));
+                    } else if (column.hasOnUpdateDefaultValue()) {
+                        Expression defualtValueExpression =
+                                new NereidsParser().parseExpression(column.getOnUpdateDefaultValueSql());
+                        selectItems.add(new UnboundAlias(defualtValueExpression, column.getName()));
+                    } else {
+                        selectItems.add(new UnboundSlot(tableName, column.getName()));
+                    }
                 }
             }
-        }
+            if (!colNameToExpression.isEmpty()) {
+                throw new AnalysisException("unknown column in assignment list: "
+                        + String.join(", ", colNameToExpression.keySet()));
+            }
 
-        logicalQuery = new LogicalProject<>(isPartialUpdate ? partialUpdateSelectItems : selectItems, logicalQuery);
-        if (cte.isPresent()) {
-            logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+            // Read unchanged columns in the query for TTL tables; BE partial updates cannot rely
+            // on an expired row still being physically present after compaction.
+            boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
+                    && !targetTable.hasRowTtl()
+                    && selectItems.size() < targetTable.getColumns().size()
+                    && targetTable.getSequenceCol() == null
+                    && partialUpdateColNameToExpression.size() <= targetTable.getFullSchema().size() * 3 / 10
+                    && !targetTable.isUniqKeyMergeOnWriteWithClusterKeys();
+
+            List<String> partialUpdateColNames = new ArrayList<>();
+            List<NamedExpression> partialUpdateSelectItems = new ArrayList<>();
+            if (isPartialUpdate) {
+                for (Column column : targetTable.getFullSchema()) {
+                    Expression expr = new UnboundSlot(tableName, column.getName());
+                    boolean existInExpr = false;
+                    for (String colName : partialUpdateColNameToExpression.keySet()) {
+                        if (colName.equalsIgnoreCase(column.getName())) {
+                            expr = partialUpdateColNameToExpression.get(column.getName());
+                            existInExpr = true;
+                            break;
+                        }
+                    }
+                    boolean isGeneratedColumnDependency = column.getGeneratedColumnInfo() == null
+                            && CollectionUtils.isNotEmpty(column.getGeneratedColumnsThatReferToThis());
+                    boolean shouldReadGeneratedColumnDependency = isGeneratedColumnDependency
+                            && !column.hasOnUpdateDefaultValue();
+                    if (column.isKey() || existInExpr || shouldReadGeneratedColumnDependency) {
+                        partialUpdateSelectItems.add(expr instanceof UnboundSlot
+                                ? ((NamedExpression) expr)
+                                : new UnboundAlias(expr));
+                        partialUpdateColNames.add(column.getName());
+                    }
+                }
+            }
+
+            logicalQuery = new LogicalProject<>(isPartialUpdate ? partialUpdateSelectItems : selectItems, logicalQuery);
+            if (cte.isPresent()) {
+                logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
+            }
+            // make UnboundTableSink
+            return UnboundTableSinkCreator.createUnboundTableSink(nameParts,
+                    isPartialUpdate ? partialUpdateColNames : ImmutableList.of(), ImmutableList.of(),
+                    false, ImmutableList.of(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
+                    DMLCommandType.UPDATE, logicalQuery);
+        } finally {
+            targetTable.readUnlock();
         }
-        // make UnboundTableSink
-        return UnboundTableSinkCreator.createUnboundTableSink(nameParts,
-                isPartialUpdate ? partialUpdateColNames : ImmutableList.of(), ImmutableList.of(),
-                false, ImmutableList.of(), isPartialUpdate, TPartialUpdateNewRowPolicy.APPEND,
-                DMLCommandType.UPDATE, logicalQuery);
     }
 
     /**

@@ -18,7 +18,6 @@
 #pragma once
 
 #include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stdint.h>
 
@@ -132,7 +131,8 @@ public:
 
 // UT
 #ifdef BE_TEST
-    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {
+    TabletMeta(TabletSchemaSPtr tablet_schema, int64_t tablet_id = 0) : _schema(tablet_schema) {
+        _tablet_id = tablet_id;
         _row_ttl_config.set_duration_us(tablet_schema->row_ttl_duration_us());
         _disable_auto_compaction.store(tablet_schema->disable_auto_compaction());
     }
