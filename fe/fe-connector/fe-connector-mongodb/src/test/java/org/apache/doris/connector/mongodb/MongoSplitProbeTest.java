@@ -59,6 +59,7 @@ class MongoSplitProbeTest {
         int dataHasNext;
         int cursorsClosed;
         int sessionsClosed;
+        int sessionsStarted;
         boolean cancelAfterFirst;
         boolean sourceFailure;
         boolean closeQueryAfterFirst;
@@ -175,7 +176,10 @@ class MongoSplitProbeTest {
             });
             return proxy(MongoClient.class, (p, method, args) -> switch (method.getName()) {
                 case "getDatabase" -> database;
-                case "startSession" -> session;
+                case "startSession" -> {
+                    sessionsStarted++;
+                    yield session;
+                }
                 case "close" -> null;
                 default -> throw new UnsupportedOperationException(method.getName());
             });
@@ -235,6 +239,79 @@ class MongoSplitProbeTest {
         Assertions.assertEquals(1, driver.dataHasNext);
         Assertions.assertEquals(2, driver.cursorsClosed);
         Assertions.assertEquals(1, driver.sessionsClosed);
+    }
+
+    @Test
+    void wildcardBeforeOrdinaryIndexDoesNotBecomeTheSampleHint() {
+        for (int direction : List.of(1, -1)) {
+            var driver = new Driver();
+            driver.indexes = List.of(new Document("name", "compound_wildcard")
+                            .append("key", new Document("sequence", direction).append("payload.$**", 1)),
+                    new Document("name", "regular_compound")
+                            .append("key", new Document("sequence", direction).append("suffix", 1)));
+            Assertions.assertTrue(run(driver).indexed());
+            Assertions.assertEquals("regular_compound", driver.hint);
+            Assertions.assertEquals(1, driver.sessionsStarted);
+            Assertions.assertEquals(1, driver.sessionsClosed);
+        }
+    }
+
+    @Test
+    void wildcardOnlyIndexDoesNotOpenASampleSession() {
+        var driver = new Driver();
+        driver.indexes = List.of(new Document("name", "compound_wildcard")
+                .append("key", new Document("sequence", 1).append("payload.$**", 1)));
+        Assertions.assertFalse(run(driver).indexed());
+        Assertions.assertEquals(0, driver.sessionsStarted);
+        Assertions.assertNull(driver.hint);
+        Assertions.assertEquals(0, driver.dataHasNext);
+        Assertions.assertEquals(0, driver.sessionsClosed);
+        Assertions.assertEquals(1, driver.cursorsClosed);
+    }
+
+    @Test
+    void wildcardOnlyIndexUsesTheExistingAutoFallbackAndRangeRejection() {
+        for (String strategy : List.of("auto", "range")) {
+            var driver = new Driver();
+            driver.indexes = List.of(new Document("name", "compound_wildcard")
+                    .append("key", new Document("sequence", 1).append("payload.$**", 1)));
+            var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017"));
+            var table = new MongoTableHandle("sample", new Document("name", "records")
+                    .append("type", "collection").append("info", new Document("uuid",
+                            new org.bson.types.Binary((byte) 4, new byte[16]))), properties);
+            var scope = new MongoSnapshotPlanTest.Scope();
+            var session = new MongoScanPlanTest.Session(Map.of("mongodb_read_concern", "snapshot",
+                    "mongodb_split_strategy", strategy, "mongodb_split_field", "sequence")) {
+                @Override
+                public org.apache.doris.connector.spi.ConnectorStatementScope getStatementScope() {
+                    return scope;
+                }
+            };
+            try (var catalog = new MongoDriverCatalogClient(driver.client(), properties)) {
+                var client = new MongoSnapshotPlanTest.Client() {
+                    @Override
+                    public MongoSplitProbe probeSplits(MongoTableHandle handle, String field, String preference,
+                            TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+                        return catalog.probeSplits(handle, field, preference, snapshot, rows, timeoutMs,
+                                checkCancelled);
+                    }
+                };
+                var provider = new MongoScanPlanProvider(properties, () -> client);
+                var request = org.apache.doris.connector.spi.scan.ConnectorScanRequest.builder(table, List.of()).build();
+                if ("auto".equals(strategy)) {
+                    Assertions.assertEquals(1, provider.planScan(session, request).size());
+                    Assertions.assertEquals("missing_index", provider.getScanNodeProperties(session, table,
+                            List.of(), java.util.Optional.empty()).get("split_reason"));
+                } else {
+                    var error = Assertions.assertThrows(IllegalArgumentException.class,
+                            () -> provider.planScan(session, request));
+                    Assertions.assertTrue(error.getMessage().contains("missing_index"));
+                }
+                Assertions.assertEquals(0, driver.sessionsStarted);
+                Assertions.assertEquals(0, driver.sessionsClosed);
+                Assertions.assertEquals(0, driver.dataHasNext);
+            }
+        }
     }
 
     @Test

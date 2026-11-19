@@ -232,7 +232,10 @@ After `--prepare-only`, enable the retained SQL suite with `enableMongoSplitTest
 and set `mongodb_split_uri` from the corresponding `split_reader_uris` entry in the
 private fixture state. Run `test_mongodb_splits` with the regression runner, including
 `-d external_table_p0/mongodb` with `-s test_mongodb_splits`. The ordinary basic-read
-and snapshot suites remain required independently. Remove only fixture-owned
+and snapshot suites remain required independently. The split suite covers compound
+wildcard indexes before an ordinary compound index, plus wildcard-only collections:
+it verifies ordinary-index selection, `auto` fallback and explicit `range` rejection
+in both synchronous and streaming reads. Remove only fixture-owned
 containers with `snapshot_fixture.py --state-dir ./snapshot-state --remove`.
 
 For a second Doris BE, rerun with `--oracle-only --require-cross-backend` so the

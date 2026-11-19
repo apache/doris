@@ -38,6 +38,10 @@ suite("test_mongodb_splits", "p0,external") {
     manifest["doris_mongodb_splits.predicate_records"] = [columns: [
         [name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"],
         [name: "text", path: ["text"], bson_types: ["string"], doris_type: "STRING"]]]
+    for (String name : ["compound_wildcard_records", "wildcard_only_records"]) {
+        manifest["doris_mongodb_splits.${name}"] = [columns: [
+            [name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"]]]
+    }
     def create = { String catalog, String policy ->
         sql "DROP CATALOG IF EXISTS ${catalog}"
         def properties = ["type": "mongodb", "mongodb.uri": uri, "mongodb.databases": "doris_mongodb_splits",
@@ -131,6 +135,22 @@ suite("test_mongodb_splits", "p0,external") {
         qt_large_final_predicate """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
             file_split_size=1,max_file_split_num=8) */ count(*),sum(seq)
             FROM ${namespace}.predicate_records WHERE text='${literal}'"""
+        for (boolean streaming : [false, true]) {
+            "qt_wildcard_regular_${streaming}" """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
+                mongodb_split_field='split_key',file_split_size=1,max_file_split_num=8,
+                enable_external_table_batch_mode=${streaming}) */ count(*),sum(seq)
+                FROM ${namespace}.compound_wildcard_records"""
+            "qt_wildcard_auto_${streaming}" """SELECT /*+ SET_VAR(mongodb_split_strategy='auto',
+                mongodb_split_field='split_key',file_split_size=1,max_file_split_num=8,
+                enable_external_table_batch_mode=${streaming}) */ count(*),sum(seq)
+                FROM ${namespace}.wildcard_only_records"""
+            test {
+                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_field='split_key',
+                    file_split_size=1,max_file_split_num=8,enable_external_table_batch_mode=${streaming}) */
+                    count(*) FROM ${namespace}.wildcard_only_records"""
+                exception "missing_index"
+            }
+        }
         qt_statement_restored "SELECT @@mongodb_split_strategy,length(@@mongodb_split_field)"
     } finally {
         sql "SET mongodb_read_concern='${original[0]}'"
