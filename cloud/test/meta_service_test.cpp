@@ -13138,12 +13138,24 @@ TEST(MetaServiceTest, CreateS3VaultWithPathFormat) {
     ASSERT_TRUE(vault.has_path_format());
     ASSERT_EQ(vault.path_format().path_version(), 1);
     ASSERT_EQ(vault.path_format().shard_num(), 1024);
+    // Readers follow the path format of an object vault only with this mark
+    ASSERT_TRUE(vault.obj_path_format_effective());
 
     vault = test_s3_vault("s3_vault_path_absent", "prefix_absent", "ak", 0);
     vault.clear_path_format();
     res = alter_vault(meta_service.get(), vault);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
     ASSERT_FALSE(get_vault(res.storage_vault_id()).has_path_format());
+    ASSERT_TRUE(get_vault(res.storage_vault_id()).obj_path_format_effective());
+
+    // A vault added through add_vault_into_instance is marked too
+    res = alter_vault(meta_service.get(),
+                      test_s3_vault("s3_vault_via_add_vault", "prefix_add_vault", "ak", 1, 16),
+                      AlterObjStoreInfoRequest::ADD_HDFS_INFO);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    vault = get_vault(res.storage_vault_id());
+    ASSERT_EQ(vault.path_format().path_version(), 1);
+    ASSERT_TRUE(vault.obj_path_format_effective());
 
     std::vector<std::pair<int64_t, int64_t>> invalid_path_formats {
             {1, 0}, {1, -1}, {2, 16}, {-1, 0}};
@@ -13188,6 +13200,12 @@ TEST(MetaServiceTest, CreateS3VaultRejectsMixedPathVersionOnSameRoot) {
     legacy->set_bucket("test_bucket");
     legacy->set_prefix("legacy");
     txn->put(key, instance.SerializeAsString());
+    // An object vault stored before `obj_path_format_effective` existed. Its data was written with
+    // path_version 0, although its path format says 1.
+    StorageVaultPB unmarked = test_s3_vault("unmarked_v1", "unmarked", "ak0", 1, 1024);
+    unmarked.set_id("2");
+    unmarked.mutable_obj_info()->set_id("2");
+    txn->put(storage_vault_key({instance.instance_id(), "2"}), unmarked.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     auto add_s3_vault = [&](const std::string& name, const std::string& prefix,
@@ -13235,6 +13253,13 @@ TEST(MetaServiceTest, CreateS3VaultRejectsMixedPathVersionOnSameRoot) {
     ASSERT_EQ(status.code(), MetaServiceCode::INVALID_ARGUMENT);
     EXPECT_NE(status.msg().find("obj_info id=1 already uses"), std::string::npos) << status.msg();
     ASSERT_EQ(add_s3_vault("v0_legacy", "legacy", "ak2", 0).code(), MetaServiceCode::OK);
+    // An unmarked object vault is path_version 0 whatever its path format says
+    status = add_s3_vault("v1_unmarked", "unmarked", "ak1", 1);
+    ASSERT_EQ(status.code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(status.msg().find("vault unmarked_v1 already uses"), std::string::npos)
+            << status.msg();
+    EXPECT_NE(status.msg().find("path_version=0"), std::string::npos) << status.msg();
+    ASSERT_EQ(add_s3_vault("v0_unmarked", "unmarked", "ak2", 0).code(), MetaServiceCode::OK);
 
     SyncPoint::get_instance()->disable_processing();
     SyncPoint::get_instance()->clear_all_call_backs();

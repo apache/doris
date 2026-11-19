@@ -751,6 +751,15 @@ static bool validate_path_format(const StorageVaultPB& vault, MetaServiceCode& c
     return true;
 }
 
+// The object key layout version a stored vault is written with. Object vaults created before
+// `obj_path_format_effective` existed were written with version 0 whatever `path_format` said.
+static int64_t effective_path_version(const StorageVaultPB& vault) {
+    if (vault.has_obj_info() && !vault.obj_path_format_effective()) {
+        return 0;
+    }
+    return vault.path_format().path_version();
+}
+
 // An S3 root (bucket and prefix) must hold a single path_version: v0 tablet 10005 and v1 shard
 // 10005 are both data/10005/, and recycling the tablet would delete the other vault's objects.
 // The endpoint is not compared, one bucket has several endpoint names (e.g. http/https).
@@ -798,9 +807,9 @@ static bool check_s3_root_path_version(Transaction* txn, const InstanceInfoPB& i
                 return false;
             }
             if (vault.has_obj_info() && same_root(vault.obj_info()) &&
-                vault.path_format().path_version() != path_version) {
+                effective_path_version(vault) != path_version) {
                 return reject(fmt::format("vault {}", vault.name()),
-                              vault.path_format().path_version());
+                              effective_path_version(vault));
             }
             if (!it->has_next()) {
                 start = k;
@@ -976,6 +985,7 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
 
     vault_param.mutable_obj_info()->CopyFrom(vault_param.obj_info());
     vault_param.set_id(vault_param.obj_info().id());
+    vault_param.set_obj_path_format_effective(true);
     auto vault_key = storage_vault_key({instance.instance_id(), vault_param.obj_info().id()});
     *instance.mutable_resource_ids()->Add() = vault_param.id();
     *instance.mutable_storage_vault_names()->Add() = vault_param.name();
@@ -1756,6 +1766,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         if (request->vault().has_path_format()) {
             vault.mutable_path_format()->CopyFrom(request->vault().path_format());
         }
+        vault.set_obj_path_format_effective(true);
         auto vault_key = storage_vault_key({instance.instance_id(), last_item.id()});
         txn->put(vault_key, vault.SerializeAsString());
         if (request->has_set_as_default_storage_vault() &&

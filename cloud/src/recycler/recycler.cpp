@@ -760,7 +760,7 @@ int InstanceRecycler::init_storage_vault_accessors() {
         }
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
                                  &accessor_map_, &vault);
-        auto path_format = path_format_from_pb(vault.path_format());
+        auto path_format = path_format_from_pb(vault);
         if (!path_format.is_supported()) {
             // Recycling with a wrong layout would miss or wrongly delete objects
             LOG_WARNING("failed to init accessor for vault because of unsupported path format")

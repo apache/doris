@@ -7798,7 +7798,21 @@ TEST(RecyclerTest, vault_path_format) {
     EXPECT_FALSE((RemotePathFormat {.path_version = 1, .shard_num = 0}).is_supported());
     EXPECT_FALSE((RemotePathFormat {.path_version = 2, .shard_num = 16}).is_supported());
     StorageVaultPB vault;
-    EXPECT_EQ(path_format_from_pb(vault.path_format()).path_version, 0);
+    EXPECT_EQ(path_format_from_pb(vault).path_version, 0);
+    // An object vault follows its path format only when the meta-service marked it effective
+    vault.mutable_obj_info()->set_bucket("bucket");
+    vault.mutable_path_format()->set_path_version(1);
+    vault.mutable_path_format()->set_shard_num(1000);
+    EXPECT_EQ(path_format_from_pb(vault).path_version, 0);
+    vault.set_obj_path_format_effective(true);
+    EXPECT_EQ(path_format_from_pb(vault).path_version, 1);
+    EXPECT_EQ(path_format_from_pb(vault).shard_num, 1000);
+    // HDFS vaults always follow their path format
+    StorageVaultPB hdfs_vault;
+    hdfs_vault.mutable_hdfs_info()->mutable_build_conf()->set_fs_name("hdfs://nn");
+    hdfs_vault.mutable_path_format()->set_path_version(1);
+    hdfs_vault.mutable_path_format()->set_shard_num(16);
+    EXPECT_EQ(path_format_from_pb(hdfs_vault).path_version, 1);
 
     // object key splitting, file name is normalized to path_version 0 form
     int64_t tablet_id = 0;

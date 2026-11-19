@@ -735,7 +735,7 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
         }
         TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
                                  &accessor_map_, &vault);
-        auto path_format = path_format_from_pb(vault.path_format());
+        auto path_format = path_format_from_pb(vault);
         if (!path_format.is_supported()) {
             LOG_WARNING("failed to init accessor for vault because of unsupported path format")
                     .tag("instance_id", instance_id_)

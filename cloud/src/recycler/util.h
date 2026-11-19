@@ -65,8 +65,14 @@ void finish_instance_recycle_job(TxnKv* txn_kv, std::string_view key,
 int lease_instance_recycle_job(TxnKv* txn_kv, std::string_view key, const std::string& instance_id,
                                const std::string& ip_port);
 
-// Shorthands for the layout in `cpp/remote_path.h`, the default format is path_version 0
-inline RemotePathFormat path_format_from_pb(const StorageVaultPB::PathFormat& path_format) {
+// Shorthands for the layout in `cpp/remote_path.h`, the default format is path_version 0.
+// An object vault follows its `path_format` only if `obj_path_format_effective` is set, older
+// BEs wrote every object vault with path_version 0 whatever its `path_format` said.
+inline RemotePathFormat path_format_from_pb(const StorageVaultPB& vault) {
+    if (vault.has_obj_info() && !vault.obj_path_format_effective()) {
+        return {};
+    }
+    const auto& path_format = vault.path_format();
     return {.path_version = path_format.path_version(), .shard_num = path_format.shard_num()};
 }
 

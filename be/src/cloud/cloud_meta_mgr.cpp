@@ -1916,8 +1916,12 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
         } else if (vault.has_obj_info()) {
             const auto& id = vault.id().empty() ? vault.obj_info().id() : vault.id();
             // Older BEs wrote every object vault with layout 0, even when its metadata
-            // contained path_version=1. Keep those committed rowsets readable on upgrade.
-            vault_infos->emplace_back(id, vault.obj_info(), StorageVaultPB_PathFormat {});
+            // contained path_version=1. Keep those committed rowsets readable on upgrade: only
+            // a vault the meta-service marked `obj_path_format_effective` follows its format.
+            vault_infos->emplace_back(id, vault.obj_info(),
+                                      vault.obj_path_format_effective()
+                                              ? vault.path_format()
+                                              : StorageVaultPB_PathFormat {});
         }
     }
 

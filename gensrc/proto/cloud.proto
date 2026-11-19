@@ -357,6 +357,11 @@ message StorageVaultPB {
     optional PathFormat path_format = 5;
     // Set this filed when the user tries to alter name to alter_name
     optional string alter_name = 6;
+    // Set by the meta-service on every object vault it creates. Before it, object vaults were
+    // always written with path_version 0, even when `path_format` said otherwise, so the
+    // `path_format` of an `obj_info` vault applies only when this is true. It does not affect
+    // HDFS vaults, which always follow `path_format`.
+    optional bool obj_path_format_effective = 7;
 }
 
 message HdfsBuildConf {
