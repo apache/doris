@@ -30,8 +30,10 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -479,6 +481,19 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             return false;
         }
         return repeat.child().accept(this, ctx);
+    }
+
+    @Override
+    public Boolean visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,
+            PushDownContext ctx) {
+        // Filtering the input can hide a row count violation.
+        return false;
+    }
+
+    @Override
+    public Boolean visitPhysicalLimit(PhysicalLimit<? extends Plan> limit, PushDownContext ctx) {
+        // Filtering the input can change which rows the limit selects.
+        return false;
     }
 
     @Override
