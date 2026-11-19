@@ -73,26 +73,30 @@ import java.util.Set;
  *   <li>delta side is the null side: emit joined rows, plus repair rows for old/new null-side MV rows</li>
  * </ul>
  *
- * <p>For each contribution below, B carries the delta and A is the opposite snapshot. In LEFT/RIGHT
- * joins the table applies when B is the null-producing side. A delta on the preserved side uses the
+ * <p>For each contribution below, B is the changing input and A is the opposite snapshot. In LEFT/RIGHT
+ * joins these cases apply when B is the null-producing side. A delta on the preserved side uses the
  * original directional outer join directly. For FULL joins either side can play B.
  *
- * <table>
- * <caption>Outer join rewrite by ON condition and uniqueness of B's equality slots</caption>
- * <tr><th>ON condition</th><th>B key</th><th>LEFT/RIGHT</th><th>FULL</th></tr>
- * <tr><td>Pure deterministic equality</td><td>Proven unique</td>
- *     <td>Probe A with detail and signed key-aggregate events</td>
- *     <td>Outer detail + probe A with signed key repairs</td></tr>
- * <tr><td>Pure deterministic equality</td><td>Unproven</td>
- *     <td>Probe A with detail and pre/post ANTI events</td>
- *     <td>Outer detail + probe A with pre/post ANTI events</td></tr>
- * <tr><td>Deterministic equality with residual; repeatable A with exact scalar ON inputs</td><td>Proven unique</td>
- *     <td>Inner detail + signed repair per A predicate tuple</td>
- *     <td>Outer detail + signed repair per A predicate tuple</td></tr>
- * <tr><td>Other conditions</td><td>No applicable proof</td>
- *     <td>Inner detail + pre/post SEMI/ANTI repair branches</td>
- *     <td>Outer detail + pre/post SEMI/ANTI repair branches</td></tr>
- * </table>
+ * <pre>
+ * Case 1. Pure deterministic equality. B's keys support value-preserving grouping
+ *         and the equality slots prove B unique.
+ *   LEFT/RIGHT, B changes. Join A once to the union of B detail and signed key repair events.
+ *   FULL, B changes. Keep unmatched B rows in outer join detail. Join A separately to signed key repairs.
+ *
+ * Case 2. Pure deterministic equality. B's keys support value-preserving grouping
+ *         and B's uniqueness is unproven.
+ *   LEFT/RIGHT, B changes. Join A once to the union of B detail and two pre/post key ANTI events.
+ *   FULL, B changes. Keep unmatched B rows in outer join detail. Join A to the two key ANTI events.
+ *
+ * Case 3. Deterministic equality plus a residual predicate. The equality slots prove B unique,
+ *         A is repeatable and A's ON inputs support value-preserving grouping.
+ *   LEFT/RIGHT, B changes. Inner join detail plus signed repair per A predicate tuple.
+ *   FULL, B changes. Directional outer join detail plus the same tuple repair.
+ *
+ * Case 4. All remaining conditions, including equality keys that cannot be grouped safely.
+ *   LEFT/RIGHT, B changes. Inner join detail plus pre/post SEMI/ANTI repair.
+ *   FULL, B changes. Directional outer join detail plus the same SEMI/ANTI repair.
+ * </pre>
  *
  * <p>Equality here means extractable, ordinary equality keys. Uniqueness must hold for direct B slots
  * on the original relation. A signed repair emits the negative change in match count, since a unique
@@ -240,17 +244,21 @@ class IvmJoinDeltaHandler {
     /**
      * Delta from the null side may change both joined rows and null-side rows.
      *
-     * <p>LEFT/RIGHT OUTER JOIN null-side delta can use the optimized event path for pure deterministic equality
-     * predicates. FULL OUTER JOIN keeps unmatched delta rows in a separate outer-join branch
+     * <p>LEFT/RIGHT OUTER JOIN null-side delta can use the event path for pure deterministic equality with
+     * value-preserving keys. FULL OUTER JOIN keeps unmatched delta rows in a separate outer-join branch
      * and probes only the repair events.
      */
     private IvmDeltaRewriteResult rewriteNullSideDelta(NullSideDeltaContext deltaContext) {
         LogicalJoin<? extends Plan, ? extends Plan> join = deltaContext.join;
         EquiJoinKeys equiJoinKeys = extractEquiJoinKeys(join);
-        if (equiJoinKeys != null) {
-            if (!equiJoinKeys.hasResidual) {
-                return rewriteNullSideDeltaWithNullSideEvents(deltaContext, equiJoinKeys);
-            }
+        // Both event paths group the delta keys before probing the retained side. Grouping can merge
+        // floating-point signed zeros that a hash join distinguishes.
+        if (equiJoinKeys != null && !equiJoinKeys.hasResidual
+                && deltaContext.deltaSideKeyExpressions(equiJoinKeys).stream()
+                        .allMatch(key -> key.getDataType().supportsValuePreservingGrouping())) {
+            return rewriteNullSideDeltaWithNullSideEvents(deltaContext, equiJoinKeys);
+        }
+        if (equiJoinKeys != null && equiJoinKeys.hasResidual) {
             Set<Slot> retainedInputs = deltaContext.isDeltaOnLeft
                     ? join.getRightConditionSlot() : join.getLeftConditionSlot();
             if (hasUniqueNullSideKeys(deltaContext, equiJoinKeys)

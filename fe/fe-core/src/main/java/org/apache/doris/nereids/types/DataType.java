@@ -877,7 +877,8 @@ public abstract class DataType {
      * Whether grouping and null-safe equality can be used to replace a value by its group
      * representative in deterministic expressions. Both operations must identify the same
      * values, and expressions must observe the same value for all members of a group.
-     * For example, floating-point grouping can merge signed zeros that SIGNBIT distinguishes.
+     * For example, {@code signbit(CAST('+0.0' AS DOUBLE))} is false and
+     * {@code signbit(CAST('-0.0' AS DOUBLE))} is true, even though both zeros belong to the same group.
      */
     public boolean supportsValuePreservingGrouping() {
         return false;

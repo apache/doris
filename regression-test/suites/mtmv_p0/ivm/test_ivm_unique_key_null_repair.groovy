@@ -219,4 +219,85 @@ suite("test_ivm_unique_key_null_repair") {
     sql "INSERT INTO ivm_unique_repair_details VALUES (3, 2, 10, 32), (8, 1, 40, 8)"
     sql "DELETE FROM ivm_unique_repair_details WHERE id = 8"
     refreshAndCheck('batch_cancellation')
+
+    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_signed_zero_unique"
+    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_signed_zero_right"
+    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_signed_zero_full_unique"
+    sql "DROP MATERIALIZED VIEW IF EXISTS ivm_signed_zero_nonunique"
+    sql "DROP TABLE IF EXISTS ivm_signed_zero_a"
+    sql "DROP TABLE IF EXISTS ivm_signed_zero_b"
+    sql """
+        CREATE TABLE ivm_signed_zero_a (
+            id INT NOT NULL, k INT NOT NULL, score DOUBLE NOT NULL, score_f FLOAT NOT NULL
+        )
+        UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true"
+        )
+    """
+    sql """
+        CREATE TABLE ivm_signed_zero_b (k INT NOT NULL, score DOUBLE NOT NULL, score_f FLOAT NOT NULL, v INT)
+        UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true"
+        )
+    """
+    sql """INSERT INTO ivm_signed_zero_a VALUES
+        (1, 1, CAST('+0.0' AS DOUBLE), CAST('+0.0' AS FLOAT)),
+        (2, 1, CAST('-0.0' AS DOUBLE), CAST('-0.0' AS FLOAT))
+    """
+    sql "INSERT INTO ivm_signed_zero_b VALUES (1, CAST('+0.0' AS DOUBLE), CAST('+0.0' AS FLOAT), 101)"
+    def signedZeroJoins = [
+        ['ivm_signed_zero_unique', 'ivm_signed_zero_a a LEFT JOIN ivm_signed_zero_b b',
+            'a.k = b.k AND a.score = b.score', 2],
+        ['ivm_signed_zero_right', 'ivm_signed_zero_b b RIGHT JOIN ivm_signed_zero_a a',
+            'a.k = b.k AND a.score_f = b.score_f', 2],
+        ['ivm_signed_zero_full_unique', 'ivm_signed_zero_a a FULL OUTER JOIN ivm_signed_zero_b b',
+            'a.k = b.k AND a.score = b.score', 4],
+        ['ivm_signed_zero_nonunique', 'ivm_signed_zero_a a FULL OUTER JOIN ivm_signed_zero_b b',
+            'a.score = b.score', 4]
+    ]
+    signedZeroJoins.each { mv, from, predicate, repairBranches ->
+        sql """
+            CREATE MATERIALIZED VIEW ${mv}
+            BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL DISTRIBUTED BY RANDOM BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+            AS SELECT a.id, b.v FROM ${from} ON ${predicate}
+        """
+        refresh(mv, 'COMPLETE')
+        explain {
+            sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL WITH ALL STREAMS"
+            multiContains "type=LEFT_SEMI_JOIN,", repairBranches
+            multiContains "type=LEFT_ANTI_JOIN,", repairBranches
+        }
+    }
+    def checkSignedZeroJoins = { String stage ->
+        signedZeroJoins.each { mv, from, predicate, repairBranches ->
+            refresh(mv, 'INCREMENTAL')
+            delegate.quickRunTest("order_${stage}_${mv}_difference", """
+                SELECT id, v, SUM(weight)
+                FROM (
+                    SELECT id, v, 1 AS weight FROM ${mv}
+                    UNION ALL
+                    SELECT a.id, b.v, -1 AS weight FROM ${from} ON ${predicate}
+                ) differences
+                GROUP BY id, v
+                HAVING SUM(weight) <> 0
+            """, true)
+        }
+    }
+
+    // A hash join distinguishes signed zeros. The update switches which A row needs NULL padding.
+    sql "INSERT INTO ivm_signed_zero_b VALUES (1, CAST('-0.0' AS DOUBLE), CAST('-0.0' AS FLOAT), 202)"
+    checkSignedZeroJoins('sign_flip')
+    sql """INSERT INTO ivm_signed_zero_b VALUES
+        (1, CAST('+0.0' AS DOUBLE), CAST('+0.0' AS FLOAT), 303),
+        (2, CAST('-0.0' AS DOUBLE), CAST('-0.0' AS FLOAT), 404)
+    """
+    checkSignedZeroJoins('sign_flip_and_insert')
+    sql "INSERT INTO ivm_signed_zero_a VALUES (3, 2, CAST('-0.0' AS DOUBLE), CAST('-0.0' AS FLOAT))"
+    sql "DELETE FROM ivm_signed_zero_b WHERE k = 1"
+    checkSignedZeroJoins('last_match_and_both_sides')
 }

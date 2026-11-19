@@ -193,3 +193,27 @@
 
 -- !order_batch_cancellation_difference_6 --
 
+-- !order_sign_flip_ivm_signed_zero_unique_difference --
+
+-- !order_sign_flip_ivm_signed_zero_right_difference --
+
+-- !order_sign_flip_ivm_signed_zero_full_unique_difference --
+
+-- !order_sign_flip_ivm_signed_zero_nonunique_difference --
+
+-- !order_sign_flip_and_insert_ivm_signed_zero_unique_difference --
+
+-- !order_sign_flip_and_insert_ivm_signed_zero_right_difference --
+
+-- !order_sign_flip_and_insert_ivm_signed_zero_full_unique_difference --
+
+-- !order_sign_flip_and_insert_ivm_signed_zero_nonunique_difference --
+
+-- !order_last_match_and_both_sides_ivm_signed_zero_unique_difference --
+
+-- !order_last_match_and_both_sides_ivm_signed_zero_right_difference --
+
+-- !order_last_match_and_both_sides_ivm_signed_zero_full_unique_difference --
+
+-- !order_last_match_and_both_sides_ivm_signed_zero_nonunique_difference --
+
