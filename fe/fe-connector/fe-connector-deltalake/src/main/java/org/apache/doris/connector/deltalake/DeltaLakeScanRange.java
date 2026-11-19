@@ -25,16 +25,20 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** A native Parquet byte range. Partition values and deletion vectors describe the whole data file. */
 final class DeltaLakeScanRange implements ConnectorScanRange {
     private static final long serialVersionUID = 1L;
+    private static final HexFormat HEX = HexFormat.of().withUpperCase();
     private final String path;
     private final long start;
     private final long length;
@@ -42,16 +46,25 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
     private final long modificationTime;
     private final long targetSize;
     private final Map<String, String> partitions;
+    private final Set<String> varbinaryPartitions;
     private final TDeltaLakeFileDesc descriptor;
     private final long rowCount;
 
     DeltaLakeScanRange(String path, long start, long length, long fileSize, long modificationTime,
             long targetSize, Map<String, String> partitions, TDeltaLakeFileDesc descriptor) {
-        this(path, start, length, fileSize, modificationTime, targetSize, partitions, descriptor, -1);
+        this(path, start, length, fileSize, modificationTime, targetSize, partitions, descriptor, Set.of());
+    }
+
+    DeltaLakeScanRange(String path, long start, long length, long fileSize, long modificationTime,
+            long targetSize, Map<String, String> partitions, TDeltaLakeFileDesc descriptor,
+            Set<String> varbinaryPartitions) {
+        this(path, start, length, fileSize, modificationTime, targetSize, partitions, descriptor, varbinaryPartitions,
+                -1);
     }
 
     private DeltaLakeScanRange(String path, long start, long length, long fileSize, long modificationTime,
-            long targetSize, Map<String, String> partitions, TDeltaLakeFileDesc descriptor, long rowCount) {
+            long targetSize, Map<String, String> partitions, TDeltaLakeFileDesc descriptor,
+            Set<String> varbinaryPartitions, long rowCount) {
         this.path = path;
         this.start = start;
         this.length = length;
@@ -59,6 +72,7 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
         this.modificationTime = modificationTime;
         this.targetSize = targetSize;
         this.partitions = Collections.unmodifiableMap(new LinkedHashMap<>(partitions));
+        this.varbinaryPartitions = Set.copyOf(varbinaryPartitions);
         this.descriptor = descriptor.deepCopy();
         this.rowCount = rowCount;
     }
@@ -68,12 +82,12 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
             return this;
         }
         return new DeltaLakeScanRange(path, offset, size, fileSize, modificationTime, targetSize,
-                partitions, descriptor, -1);
+                partitions, descriptor, varbinaryPartitions, -1);
     }
 
     DeltaLakeScanRange withRowCount(long count) {
         return new DeltaLakeScanRange(path, start, length, fileSize, modificationTime, targetSize,
-                partitions, descriptor, count);
+                partitions, descriptor, varbinaryPartitions, count);
     }
 
     // Conservative range-payload estimate for the planning memo. Count shared strings per range;
@@ -175,8 +189,14 @@ final class DeltaLakeScanRange implements ConnectorScanRange {
         List<Boolean> nulls = new ArrayList<>(partitions.size());
         partitions.forEach((key, value) -> {
             keys.add(key);
-            values.add(value == null ? "" : value);
             nulls.add(value == null);
+            // The BE VARBINARY partition reader decodes a 0x-prefixed hex string. Keep the log value
+            // for FE partition names and predicates, and use the separate null flag for SQL NULL.
+            if (value != null && varbinaryPartitions.contains(key)) {
+                values.add("0x" + HEX.formatHex(value.getBytes(StandardCharsets.UTF_8)));
+            } else {
+                values.add(value == null ? "" : value);
+            }
         });
         // Override generic Hive path decoding, preserving literal null-sentinel strings as strings.
         rangeDesc.setColumnsFromPathKeys(keys);

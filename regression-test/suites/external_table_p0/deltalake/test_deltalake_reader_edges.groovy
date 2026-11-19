@@ -149,6 +149,15 @@ suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
                 checkFiles("scalar_empty_${column}_eq", "${column} = ${value}", "select 3", 1, scalars)
             }
 
+            String binary = "${db}.binary_partitions"
+            compare("binary_projection", "select id, hex(p) from ${binary} order by id",
+                    """select 1 as id, '' union all select 2, cast(null as string)
+                       union all select 3, '6B6E6F776E' union all select 4, '307834313432'
+                       union all select 5, '00C3A92F25' order by id""")
+            compare("binary_is_null", "select id from ${binary} where p is null order by id", "select 2")
+            compare("binary_empty", "select id from ${binary} where hex(p) = '' order by id", "select 1")
+            compare("binary_hex_text", "select id from ${binary} where hex(p) = '307834313432' order by id", "select 4")
+
             compare("plain_name", "select id, p from ${db}.plain order by id", "select 41, 'west'")
             compare("plain_filter", "select id from ${db}.plain where p='west' order by id", "select 41")
         }

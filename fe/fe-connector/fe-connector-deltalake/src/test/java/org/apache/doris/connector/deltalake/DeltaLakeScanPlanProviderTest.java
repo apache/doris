@@ -43,6 +43,7 @@ import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.delta.kernel.types.BinaryType;
 import io.delta.kernel.types.BooleanType;
 import io.delta.kernel.types.DateType;
 import io.delta.kernel.types.DoubleType;
@@ -510,6 +511,40 @@ class DeltaLakeScanPlanProviderTest {
             ConnectorTableHandle invalid = metadata.getTableHandle(null, "db", "table").orElseThrow();
             Assertions.assertThrows(DorisConnectorException.class,
                     () -> connector.getScanPlanProvider().planScan(null, request(invalid).build()));
+        }
+    }
+
+    @Test
+    void encodesBinaryPartitionBytesOnlyForVarbinaryScanSlots() throws Exception {
+        DeltaLakeTestTables.commit(warehouse.resolve("db/table"), 0, "table-id",
+                new StructType().add("id", LongType.LONG).add("p", BinaryType.BINARY), List.of("p"));
+        String raw = "0x4142/é";
+        appendStatsFile("binary.parquet", raw, 1, 1);
+        for (boolean mapVarbinary : List.of(false, true)) {
+            Map<String, String> properties = Map.of("warehouse", warehouse.toString(),
+                    "enable.mapping.varbinary", Boolean.toString(mapVarbinary));
+            TestingConnectorSession session = new TestingConnectorSession("binary-partition");
+            try (Connector connector = new DeltaLakeConnectorProvider().create(properties,
+                    new RecordingConnectorContext());
+                    ConnectorMetadata metadata = connector.getMetadata(session)) {
+                ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
+                Map<String, String> logicalValues = Map.of("p", raw);
+                Assertions.assertEquals(logicalValues,
+                        metadata.listPartitions(session, handle, Optional.empty()).get(0).getPartitionValues());
+                ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+                DeltaLakeScanRange data = (DeltaLakeScanRange) provider.planScan(session, request(handle).build())
+                        .get(0);
+                ConnectorScanRange count = provider.planScan(session, request(handle).countPushdown(true).build())
+                        .get(0);
+                Assertions.assertEquals(1, count.getPushDownRowCount());
+                for (ConnectorScanRange range : List.of(data, data.withByteRange(0, 5), count)) {
+                    Assertions.assertEquals(logicalValues, range.getPartitionValues());
+                    TFileRangeDesc thrift = new TFileRangeDesc();
+                    range.populateRangeParams(new TTableFormatFileDesc(), thrift);
+                    Assertions.assertEquals(List.of(mapVarbinary ? "0x3078343134322FC3A9" : raw),
+                            thrift.getColumnsFromPath());
+                }
+            }
         }
     }
 

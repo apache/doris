@@ -68,7 +68,7 @@ final class DeltaLakeConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new DeltaLakeScanPlanProvider(runtime(), statisticsCache);
+        return new DeltaLakeScanPlanProvider(runtime(), statisticsCache, properties.isMapVarbinary());
     }
 
     private synchronized DeltaLakeRuntime runtime() {

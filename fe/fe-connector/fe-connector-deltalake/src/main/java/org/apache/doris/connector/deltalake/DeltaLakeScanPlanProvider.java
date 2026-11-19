@@ -38,6 +38,8 @@ import io.delta.kernel.Snapshot;
 import io.delta.kernel.data.Row;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.expressions.Predicate;
+import io.delta.kernel.types.BinaryType;
+import io.delta.kernel.types.StructType;
 import io.delta.kernel.utils.CloseableIterator;
 import io.delta.kernel.utils.FileStatus;
 
@@ -53,24 +55,38 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     private static final String SCHEMA_MAPPING = "deltalake.schema_mapping";
     private static final long DEFAULT_SPLIT_SIZE = 128L << 20;
     private final DeltaLakeRuntime runtime;
     private final DeltaLakeStatisticsCache statistics;
+    private final boolean mapVarbinary;
     // The connector creates a provider per scan node. The gate runs before that node opens its source.
     private boolean streamingCount;
     private volatile DeltaLakeScanMetrics.Result scanMetrics;
     private boolean planningReuseHit;
 
-    DeltaLakeScanPlanProvider(DeltaLakeRuntime runtime, DeltaLakeStatisticsCache statistics) {
+    DeltaLakeScanPlanProvider(DeltaLakeRuntime runtime, DeltaLakeStatisticsCache statistics, boolean mapVarbinary) {
         this.runtime = runtime;
         this.statistics = statistics;
+        this.mapVarbinary = mapVarbinary;
     }
 
     private record ScanFilter(Optional<Predicate> kernelPredicate,
             java.util.function.Predicate<Map<String, String>> partitionPredicate) {
+    }
+
+    private record FileSchema(boolean mapped, Set<String> varbinaryPartitions) {
+    }
+
+    private FileSchema fileSchema(Snapshot snapshot) {
+        StructType schema = snapshot.getSchema();
+        Set<String> varbinaryPartitions = mapVarbinary ? snapshot.getPartitionColumnNames().stream()
+                .filter(name -> schema.get(name).getDataType() instanceof BinaryType)
+                .collect(Collectors.toUnmodifiableSet()) : Set.of();
+        return new FileSchema(DeltaLakeSchemaBuilder.hasColumnMapping(snapshot), varbinaryPartitions);
     }
 
     @Override
@@ -115,7 +131,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         private final ZoneId zone;
         private final ScanFilter filter;
         private final long targetSize;
-        private final boolean mapped;
+        private final FileSchema fileSchema;
         private final boolean countPushdown;
         private final ConnectorScanContext scanContext;
         private final boolean partitionsPrunedToEmpty;
@@ -135,7 +151,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             zone = DeltaLakePartitionValues.sessionZone(session);
             filter = scanFilter(zone, snapshot, request);
             targetSize = targetSplitSize(session);
-            mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
+            fileSchema = fileSchema(snapshot);
             scanContext = request.getScanContext();
             partitionsPrunedToEmpty = request.isPartitionsPrunedToEmpty();
             countPushdown = streamingCount && request.getFilter().isEmpty()
@@ -198,7 +214,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                         if (!filter.partitionPredicate().test(partitions)) {
                             continue;
                         }
-                        file = fileRange(row, handle, partitions, targetSize, mapped);
+                        file = fileRange(row, handle, partitions, targetSize, fileSchema);
                         metrics.file(file.getPartitionValues());
                         offset = 0;
                     }
@@ -295,7 +311,6 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             return Collections.emptyList();
         }
         long targetSize = targetSplitSize(session);
-        boolean mapped = DeltaLakeSchemaBuilder.hasColumnMapping(snapshot);
         if (request.isCountPushdown() && request.getFilter().isEmpty()
                 && request.getRequiredPartitions().isEmpty()) {
             CountSummary summary = countSummary(session, handle);
@@ -309,6 +324,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         List<ConnectorScanRange> ranges = new ArrayList<>();
+        FileSchema fileSchema = fileSchema(snapshot);
         ZoneId zone = DeltaLakePartitionValues.sessionZone(session);
         ScanFilter filter = scanFilter(zone, snapshot, request);
         Engine engine = metrics.engine(runtime.engine(handle.reference()));
@@ -319,7 +335,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             if (!filter.partitionPredicate().test(partitions)) {
                 return;
             }
-            DeltaLakeScanRange file = fileRange(row, handle, partitions, targetSize, mapped);
+            DeltaLakeScanRange file = fileRange(row, handle, partitions, targetSize, fileSchema);
             metrics.file(partitions);
             for (long offset = 0; offset < file.getFileSize();) {
                 DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
@@ -333,14 +349,14 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     private DeltaLakeScanRange fileRange(Row row, DeltaLakeTableHandle handle,
-            Map<String, String> partitions, long targetSize, boolean mapped) {
+            Map<String, String> partitions, long targetSize, FileSchema fileSchema) {
         FileStatus file = DeltaKernelCompat.fileStatus(row);
         if (file.getSize() <= 0) {
             throw new DorisConnectorException("Invalid Delta Parquet file size for " + file.getPath());
         }
         String path = runtime.storageContext.getStorageContext().normalizeStorageUri(file.getPath());
         TDeltaLakeFileDesc descriptor = new TDeltaLakeFileDesc();
-        if (mapped) {
+        if (fileSchema.mapped()) {
             descriptor.setSchemaId(DeltaLakeSchemaBuilder.FILE_SCHEMA_ID);
         }
         DeltaKernelCompat.deletionVector(row, handle.getPath()).ifPresent(dv -> {
@@ -350,7 +366,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             descriptor.setDeletionVector(dv);
         });
         return new DeltaLakeScanRange(path, 0, file.getSize(), file.getSize(), file.getModificationTime(),
-                targetSize, partitions, descriptor);
+                targetSize, partitions, descriptor, fileSchema.varbinaryPartitions());
     }
 
     private ScanFilter scanFilter(ZoneId zone, Snapshot snapshot, ConnectorScanRequest request) {
@@ -394,8 +410,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                             partitions.add(values);
                         }
                         if (first[0] == null) {
-                            first[0] = fileRange(row, handle, values, targetSplitSize(session),
-                                    DeltaLakeSchemaBuilder.hasColumnMapping(snapshot));
+                            first[0] = fileRange(row, handle, values, targetSplitSize(session), fileSchema(snapshot));
                         }
                         count.add(row);
                     });
