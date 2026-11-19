@@ -303,9 +303,19 @@ TEST_F(PaimonRustTableReaderTest, OrdinaryScanKeepsSyntheticDistanceNamedColumn)
     // it would drop the column from the read projection and fill NULLs through
     // _fill_non_arrow_columns).
     PaimonRustTableReader reader;
-    reader.TEST_set_projected_columns(
-            {make_column("id", std::make_shared<DataTypeInt32>()),
-             make_column(kPaimonSearchDistanceColumn, std::make_shared<DataTypeString>())});
+    // Projection construction consults scan_params to distinguish SQL and TVF
+    // distances. Follow the production lifecycle so that pointer is initialized.
+    ASSERT_TRUE(
+            reader.init({.projected_columns = {make_column("id", std::make_shared<DataTypeInt32>()),
+                                               make_column(kPaimonSearchDistanceColumn,
+                                                           std::make_shared<DataTypeString>())},
+                         .conjuncts = {},
+                         .format = FileFormat::JNI,
+                         .scan_params = nullptr,
+                         .io_ctx = nullptr,
+                         .runtime_state = _runtime_state.get(),
+                         .scanner_profile = nullptr})
+                    .ok());
 
     // Ordinary split: the same-named real column rides in the projection.
     TFileRangeDesc ordinary = make_rust_range();

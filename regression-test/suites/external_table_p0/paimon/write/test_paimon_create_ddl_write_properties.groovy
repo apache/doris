@@ -258,16 +258,12 @@ suite("test_paimon_create_ddl_write_properties", "p0,external,paimon") {
                 (3, 'added', 30)
         """
         String lookupAfter = latestSnapshotId("t_create_lookup")
-        def lookupChanges = spark_paimon """
+        def lookupChanges = spark_paimon_incremental(dbName, lookupBefore, lookupAfter, """
             SELECT rowkind, id, name, score
-            FROM paimon_incremental_query(
-                'paimon.${dbName}.`t_create_lookup\$audit_log`',
-                '${lookupBefore}',
-                '${lookupAfter}'
-            )
+            FROM paimon.${dbName}.`t_create_lookup\$audit_log`
             ORDER BY id,
                 CASE rowkind WHEN '-U' THEN 0 WHEN '+U' THEN 1 ELSE 2 END
-        """
+        """)
         assertEquals([
                 ["-U", 1, "old", 10],
                 ["+U", 1, "new", 11],
