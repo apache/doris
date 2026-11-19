@@ -23,7 +23,6 @@ import org.apache.doris.common.Pair;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import com.google.common.math.LongMath;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -46,7 +45,7 @@ public class OlapTableWrapper extends OlapTable {
     // Fields are optional independently: SN has no fixed version, and ordinary wrappers have
     // no explicit estimate. Keep the participating partitions in one immutable snapshot.
     private final Map<Long, PartitionScanState> partitionScanStates;
-    private final int estimatedPartitionCount;
+    private final boolean hasRowCountEstimates;
     private final boolean fixedVisibleVersions;
 
     public static class PartitionScanState {
@@ -69,15 +68,13 @@ public class OlapTableWrapper extends OlapTable {
         this.setBaseIndexId(originTable.getBaseIndexId());
         this.setQualifiedDbName(originTable.getQualifiedDbName());
         this.partitionScanStates = ImmutableMap.copyOf(partitionScanStates);
-        int estimates = 0;
+        boolean estimates = false;
         boolean fixedVersions = false;
-        for (PartitionScanState state : partitionScanStates.values()) {
-            if (state.rowCount != null) {
-                estimates++;
-            }
+        for (PartitionScanState state : this.partitionScanStates.values()) {
+            estimates |= state.rowCount != null;
             fixedVersions |= state.visibleVersion != null;
         }
-        this.estimatedPartitionCount = estimates;
+        this.hasRowCountEstimates = estimates;
         this.fixedVisibleVersions = fixedVersions;
     }
 
@@ -206,51 +203,12 @@ public class OlapTableWrapper extends OlapTable {
     }
 
     /**
-     * Row counts are derived from the partitions of the table, and this wrapper holds none of its
-     * own -- it only delegates partition lookups to the table it wraps. The inherited methods
-     * iterate the wrapper's private partition map, so every scan over a wrapper would be estimated
-     * at zero rows, which the statistics calculator raises to one; a reset read of a
-     * four-billion-row table would then look like a one-row build side to the optimizer.
-     *
-     * <p>Delegating answers the read with the table it is over: a reset read, and a snapshot read
-     * whose offsets already reached the end, see exactly that table's content, and a snapshot read
-     * of an older offset is bounded by it (the table only grows for the duplicate-key tables this
-     * wrapper serves in that way).
-     *
-     * <p>A caller which knows what the read returns records it per partition and overrides this:
-     * a stream read answers with a range of change rows, or with the image at an offset, and
-     * neither is the row count of the table it reads.
+     * Returns the wrapped table's whole-index row count. The optimizer aggregates scan row
+     * counts over the selected partitions through {@link #getRowCountForPartitionIndex}.
      */
     @Override
     public long getRowCountForIndex(long indexId, boolean strict) {
-        if (!hasRowCountEstimates(indexId)) {
-            return originTable.getRowCountForIndex(indexId, strict);
-        }
-        long total = 0;
-        long unknown = 0;
-        for (Map.Entry<Long, Long> entry : getPartitionRowCounts().entrySet()) {
-            long rows = entry.getValue();
-            if (rows < 0) {
-                rows = originTable.getRowCountForPartitionIndex(entry.getKey(), indexId, strict);
-            }
-            if (rows < 0) {
-                unknown++;
-            } else {
-                total = LongMath.saturatedAdd(total, rows);
-            }
-        }
-        if (unknown > 0) {
-            // Whole-index totals cover permanent partitions only. A scan may select temporary partitions.
-            int tablePartitions = originTable.getPartitionNum();
-            long tableRows = tablePartitions > 0 ? originTable.getRowCountForIndex(indexId, strict)
-                    : TableIf.UNKNOWN_ROW_COUNT;
-            if (tableRows < 0 && unknown == estimatedPartitionCount) {
-                return TableIf.UNKNOWN_ROW_COUNT;
-            }
-            long fallback = tableRows < 0 ? unknown : Math.max(unknown, tableRows * unknown / tablePartitions);
-            total = LongMath.saturatedAdd(total, fallback);
-        }
-        return total;
+        return originTable.getRowCountForIndex(indexId, strict);
     }
 
     @Override
@@ -263,16 +221,8 @@ public class OlapTableWrapper extends OlapTable {
         return originTable.getRowCountForPartitionIndex(partitionId, indexId, strict);
     }
 
-    /**
-     * The row count the caller recorded for this scan, or {@code -1} when the table it wraps
-     * answers instead.
-     */
-    public long getRowCountEstimate() {
-        return estimatedPartitionCount == 0 ? TableIf.UNKNOWN_ROW_COUNT : getRowCountForIndex(getBaseIndexId(), true);
-    }
-
     public boolean hasRowCountEstimates(long indexId) {
-        return indexId == getBaseIndexId() && estimatedPartitionCount > 0;
+        return indexId == getBaseIndexId() && hasRowCountEstimates;
     }
 
     @Override
@@ -297,11 +247,6 @@ public class OlapTableWrapper extends OlapTable {
     private Map<Long, Pair<Long, Long>> getPartitionOffsetMap() {
         return Maps.transformValues(Maps.filterValues(partitionScanStates, state -> state.offsets != null),
                 state -> state.offsets);
-    }
-
-    private Map<Long, Long> getPartitionRowCounts() {
-        return Maps.transformValues(Maps.filterValues(partitionScanStates, state -> state.rowCount != null),
-                state -> state.rowCount);
     }
 
     @Override

@@ -496,15 +496,13 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     private double getOrdinaryOlapTableRowCount(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
-        OlapTable statisticsTable = olapTable instanceof OlapTableWrapper
-                ? ((OlapTableWrapper) olapTable).getOriginTable() : olapTable;
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
         double rowCount = -1;
         if (tableMeta != null && tableMeta.userInjected) {
             rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId());
         } else {
-            rowCount = statisticsTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
+            rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
             if (rowCount == -1) {
                 if (tableMeta != null) {
                     // The collected row count and the rows loaded since it was collected are read as one

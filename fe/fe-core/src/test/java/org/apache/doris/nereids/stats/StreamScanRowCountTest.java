@@ -492,7 +492,7 @@ public class StreamScanRowCountTest extends TestWithFeService {
                 new PartitionScanState(Pair.of(null, END_TSO + 1), null, -1L)));
         LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), wrapper)
                 .withSelectedPartitionIds(List.of(id));
-        Assertions.assertEquals(-1L, wrapper.getRowCountEstimate());
+        Assertions.assertEquals(0L, wrapper.getRowCountForIndex(changelogIndexId, true));
         Assertions.assertEquals(-1, StatsCalculator.getMaxTableRowCount(List.of(scan), null));
         Assertions.assertEquals(1L, streamScanRowCount("select * from stream_temp_source temporary partition(tp)",
                 "stream_temp_base"));
