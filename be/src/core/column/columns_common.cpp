@@ -45,7 +45,7 @@ size_t count_bytes_in_filter(const IColumn::Filter& filt) {
     const Int8* pos = reinterpret_cast<const Int8*>(filt.data());
     const Int8* end = pos + filt.size();
 
-#if defined(__SSE2__) || defined(__aarch64__) && defined(__POPCNT__)
+#if defined(__SSE2__) || defined(__aarch64__)
     const __m128i zero16 = _mm_setzero_si128();
     const Int8* end64 = pos + filt.size() / 64 * 64;
 
