@@ -35,6 +35,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableOperations;
 
@@ -239,8 +240,8 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
         Function<Table, List<RewriteDataGroup>> planTasks = table -> {
             IcebergSchemaUtils.validateNoUnknownForWrite(table.schema());
-            return planner.planAndOrganizeTasks(IcebergScanPlanning.requiresServerSideScanPlanning(table)
-                    ? table : wrapTableForProcedure(table));
+            return planRewriteGroups(IcebergScanPlanning.requiresServerSideScanPlanning(table)
+                    ? table : wrapTableForProcedure(table), handle, planner);
         };
         List<RewriteDataGroup> groups;
         if (context == null) {
@@ -259,6 +260,17 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
             }
         }
         return groups.stream().map(IcebergProcedureOps::toConnectorRewriteGroup).collect(Collectors.toList());
+    }
+
+    private List<RewriteDataGroup> planRewriteGroups(Table table, IcebergTableHandle handle,
+            RewriteDataFilePlanner planner) {
+        Long snapshotId = handle.isSnapshotResolved() ? Long.valueOf(handle.getSnapshotId()) : null;
+        Schema schema = handle.getSchemaId() < 0 ? table.schema() : table.schemas().get((int) handle.getSchemaId());
+        if (schema == null) {
+            throw new DorisConnectorException("Rewrite read schema " + handle.getSchemaId()
+                    + " is no longer available for iceberg table " + handle.getDbName() + "." + handle.getTableName());
+        }
+        return planner.planAndOrganizeTasks(table, snapshotId, schema);
     }
 
     /**

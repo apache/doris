@@ -43,10 +43,12 @@ import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -245,10 +247,26 @@ public class ConnectorExecuteActionTest {
         Mockito.when(f.procedureOps.buildRewriteResult(Mockito.anyString(), Mockito.any()))
                 .thenReturn(rewriteResult("0", "0", "0", "0"));
 
+        PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.doReturn(f.table.getCatalog()).when(table).getCatalog();
+        Mockito.when(table.getRemoteDbName()).thenReturn(REMOTE_DB);
+        Mockito.when(table.getRemoteName()).thenReturn(REMOTE_TBL);
+        StatementContext statementContext = Mockito.mock(StatementContext.class);
+        Mockito.when(table.getColumn("a")).thenAnswer(invocation -> {
+            Mockito.verify(statementContext).loadSnapshots(table, Optional.empty(), Optional.empty());
+            return f.table.getColumn("a");
+        });
+
         Expression where = new GreaterThan(new UnboundSlot("a"), new IntegerLiteral(5));
         ConnectorExecuteAction action = new ConnectorExecuteAction("rewrite_data_files",
-                f.props, Optional.empty(), Optional.of(where), f.table);
-        ResultSet rs = action.execute(f.table);
+                f.props, Optional.empty(), Optional.of(where), table);
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+        ResultSet rs;
+        try (MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
+            ctxStatic.when(ConnectContext::get).thenReturn(ctx);
+            rs = action.execute(table);
+        }
         Mockito.verify(f.metadata).getTableHandle(f.session, REMOTE_DB, REMOTE_TBL);
 
         ArgumentCaptor<ConnectorPredicate> captor = ArgumentCaptor.forClass(ConnectorPredicate.class);

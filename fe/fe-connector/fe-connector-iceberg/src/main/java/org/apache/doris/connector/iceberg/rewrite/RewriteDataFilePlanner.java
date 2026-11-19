@@ -27,8 +27,11 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.ContentFile;
+import org.apache.iceberg.DataTableScan;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaAwareDataTableScan;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.data.GenericRecord;
@@ -44,6 +47,7 @@ import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -82,7 +86,16 @@ public class RewriteDataFilePlanner {
      * Plan and organize file scan tasks into rewrite groups
      */
     public List<RewriteDataGroup> planAndOrganizeTasks(Table icebergTable) {
-        try (CloseableIterable<FileScanTask> allTasks = planFileScanTasks(icebergTable)) {
+        return planAndOrganizeTasks(() -> planFileScanTasks(icebergTable));
+    }
+
+    /** Plans input files against the operation's read snapshot and bound schema. */
+    public List<RewriteDataGroup> planAndOrganizeTasks(Table icebergTable, Long snapshotId, Schema schema) {
+        return planAndOrganizeTasks(() -> planFileScanTasks(icebergTable, snapshotId, schema));
+    }
+
+    private List<RewriteDataGroup> planAndOrganizeTasks(Supplier<CloseableIterable<FileScanTask>> taskPlanner) {
+        try (CloseableIterable<FileScanTask> allTasks = taskPlanner.get()) {
             // Step 1: Plan FileScanTask from Iceberg table
             // Step 2: First layer - Group tasks by partition (without filtering files)
             Map<StructLikeWrapper, List<FileScanTask>> filesByPartition = groupTasksByPartition(allTasks);
@@ -105,11 +118,22 @@ public class RewriteDataFilePlanner {
      * Plan FileScanTask from Iceberg table
      */
     CloseableIterable<FileScanTask> planFileScanTasks(Table icebergTable) {
+        return planFileScanTasks(icebergTable, null, icebergTable.schema());
+    }
+
+    CloseableIterable<FileScanTask> planFileScanTasks(Table icebergTable, Long snapshotId, Schema schema) {
         // Create table scan with optional filters
         TableScan tableScan = icebergTable.newScan();
+        if (snapshotId != null && tableScan.getClass() == DataTableScan.class) {
+            // Partition specs must use the operation schema even after a metadata-only schema commit.
+            // Catalog-specific scans retain their own planning behavior.
+            tableScan = SchemaAwareDataTableScan.newScan(icebergTable);
+        }
+        tableScan = tableScan.project(schema);
 
-        // Use current snapshot if available
-        if (icebergTable.currentSnapshot() != null) {
+        if (snapshotId != null && snapshotId >= 0) {
+            tableScan = tableScan.useSnapshot(snapshotId);
+        } else if (snapshotId == null && icebergTable.currentSnapshot() != null) {
             tableScan = tableScan.useSnapshot(icebergTable.currentSnapshot().snapshotId());
         }
 
@@ -124,7 +148,7 @@ public class RewriteDataFilePlanner {
         if (parameters.hasWhereCondition()) {
             ConnectorExpression where = parameters.getWhereCondition().getExpression();
             List<Expression> predicates = IcebergPredicateConverter.forTable(
-                    icebergTable, icebergTable.schema(), sessionZone,
+                    icebergTable, schema, sessionZone,
                     IcebergPredicateConverter.Mode.REWRITE).convert(where);
             if (predicates.size() < countTopLevelConjuncts(where)) {
                 throw new DorisConnectorException(
@@ -138,6 +162,10 @@ public class RewriteDataFilePlanner {
         // Ignore residuals to avoid reading data files unnecessarily
         tableScan = tableScan.ignoreResiduals();
 
+        // A resolved empty read must stay empty if the first append arrived after the operation began.
+        if (snapshotId != null && snapshotId < 0) {
+            return CloseableIterable.empty();
+        }
         return tableScan.planFiles();
     }
 
