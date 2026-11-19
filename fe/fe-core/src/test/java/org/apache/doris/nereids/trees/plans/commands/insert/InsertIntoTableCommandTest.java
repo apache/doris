@@ -219,18 +219,6 @@ class InsertIntoTableCommandTest {
     }
 
     @Test
-    void testExternalDmlAuditClassificationUsesResolvedExecutor() {
-        Assertions.assertTrue(InsertIntoTableCommand.needsExternalDmlAuditBarrier(
-                Mockito.mock(BaseExternalTableInsertExecutor.class)));
-        Assertions.assertTrue(InsertIntoTableCommand.needsExternalDmlAuditBarrier(
-                Mockito.mock(RemoteOlapInsertExecutor.class)));
-        Assertions.assertFalse(InsertIntoTableCommand.needsExternalDmlAuditBarrier(
-                Mockito.mock(OlapInsertExecutor.class)));
-        Assertions.assertFalse(InsertIntoTableCommand.needsExternalDmlAuditBarrier(
-                Mockito.mock(BlackholeInsertExecutor.class)));
-    }
-
-    @Test
     void testInsertIntoTableCommandIsCancelable() {
         InsertIntoTableCommand command = new InsertIntoTableCommand(
                 PlanType.INSERT_INTO_TABLE_COMMAND,

@@ -28,13 +28,14 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
-#include "storage/index/inverted/analysis/normalizer/custom_normalizer.h"
+#include "storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+#include "storage/index/inverted/analysis/analyzer/custom_analyzer_config.h"
+#include "storage/index/inverted/analysis/setting.h"
 
 namespace doris {
 
 using Policys = std::unordered_map<int64_t, TIndexPolicy>;
-using AnalyzerPtr = std::shared_ptr<lucene::analysis::Analyzer>;
+using TextAnalyzerPtr = segment_v2::inverted_index::TextAnalyzerPtr;
 using AnalyzerProviderPtr = segment_v2::inverted_index::AnalyzerProviderPtr;
 
 class IndexPolicyMgr {
@@ -46,16 +47,17 @@ public:
                               const std::vector<int64_t>& policies_to_delete);
 
     Policys get_index_policys();
-    AnalyzerPtr get_policy_by_name(const std::string& name);
-    AnalyzerPtr get_analyzer_by_name(const std::string& name);
-    AnalyzerProviderPtr get_analyzer_provider_by_name(
-            const std::string& name,
-            const std::map<std::string, std::string>& outer_char_filter_map = {},
-            std::string* resolved_name = nullptr, std::string* legacy_name = nullptr);
+    TextAnalyzerPtr get_policy_by_name(const std::string& name);
+    TextAnalyzerPtr get_analyzer_by_name(const std::string& name);
+    // The analyzer comes without the index's char filter, which InvertedIndexAnalyzer puts in
+    // front of every analyzer.
+    AnalyzerProviderPtr get_analyzer_provider_by_name(const std::string& name,
+                                                      std::string* resolved_name = nullptr,
+                                                      std::string* legacy_name = nullptr);
     // The per-character part of a named analyzer or normalizer, which prefix and wildcard terms
     // go through instead of analysis: its char filters and the token filters that neither split
     // nor drop tokens. nullptr for an analyzer that has neither.
-    AnalyzerPtr get_normalizer_by_name(const std::string& name);
+    TextAnalyzerPtr get_normalizer_by_name(const std::string& name);
 
     // Whether the name is one of the normalizers built into Doris rather than a policy.
     static bool is_builtin_normalizer(const std::string& name);
@@ -64,10 +66,9 @@ private:
     segment_v2::inverted_index::CustomAnalyzerConfigPtr build_analyzer_config_from_policy(
             const TIndexPolicy& index_policy_analyzer);
     AnalyzerProviderPtr build_analyzer_provider_from_config(
-            segment_v2::inverted_index::CustomAnalyzerConfigPtr config,
-            const std::map<std::string, std::string>& outer_char_filter_map);
-    AnalyzerPtr build_analyzer_from_policy(const TIndexPolicy& index_policy_analyzer);
-    AnalyzerPtr build_normalizer_from_policy(const TIndexPolicy& index_policy_normalizer);
+            segment_v2::inverted_index::CustomAnalyzerConfigPtr config);
+    TextAnalyzerPtr build_analyzer_from_policy(const TIndexPolicy& index_policy_analyzer);
+    TextAnalyzerPtr build_normalizer_from_policy(const TIndexPolicy& index_policy_normalizer);
 
     void process_filter_configs(
             const TIndexPolicy& index_policy_analyzer, const std::string& prop_name,
@@ -75,7 +76,7 @@ private:
             std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
                     add_config_func);
 
-    AnalyzerPtr build_builtin_normalizer(const std::string& name);
+    TextAnalyzerPtr build_builtin_normalizer(const std::string& name);
 
     const TIndexPolicy* find_policy_by_name_locked(const std::string& name) const;
     const TIndexPolicy* find_top_level_policy_locked(const std::string& name,

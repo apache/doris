@@ -316,6 +316,23 @@ TEST(TokenBatchTest, ReleaseOversizedKeepsAtMostTheHighWaterMark) {
     EXPECT_EQ(long_terms.tokens()[0].term(), "again");
 }
 
+// release_all() frees what release_oversized() keeps, and takes a batch that still holds tokens:
+// the consumer may give up on a value in the middle of it.
+TEST(TokenBatchTest, ReleaseAllFreesEverything) {
+    TokenBatch batch;
+    for (size_t i = 0; i < TextTokenStream::kBatchTokens; ++i) {
+        batch.push_copy("word", 1);
+    }
+    ASSERT_GT(batch.capacity_bytes(), 0);
+    ASSERT_LE(batch.capacity_bytes(), ANALYZER_SCRATCH_HIGH_WATER_BYTES);
+    batch.release_all();
+    EXPECT_EQ(batch.size(), 0);
+    EXPECT_EQ(batch.capacity_bytes(), 0);
+
+    batch.push_copy("again", 1);
+    EXPECT_EQ(batch.tokens()[0].term(), "again");
+}
+
 TEST(PerTokenStreamTest, TokenizerCopiesEveryTermOutOfItsScratch) {
     WordTokenizer tokenizer;
     EXPECT_EQ(collect_checked(tokenizer, " alpha  beta gamma "),

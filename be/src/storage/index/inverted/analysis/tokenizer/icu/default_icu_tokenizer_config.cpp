@@ -49,7 +49,7 @@ void DefaultICUTokenizerConfig::initialize(const std::string& dictPath) {
                 if (U_FAILURE(status)) {
                     std::string error_msg = "Failed to create CJK BreakIterator: ";
                     error_msg += u_errorName(status);
-                    _CLTHROWT(CL_ERR_IllegalArgument, error_msg.c_str());
+                    throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
                 }
 
                 read_break_iterator(default_break_iterator_, dictPath + "/uax29/Default.txt");
@@ -88,7 +88,7 @@ icu::BreakIterator* DefaultICUTokenizerConfig::get_break_iterator(int32_t script
     if (clone == nullptr) {
         std::string error_msg = "UBreakIterator clone failed: ";
         error_msg += u_errorName(status);
-        _CLTHROWT(CL_ERR_Runtime, error_msg.c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
     }
     return clone;
 }
@@ -98,7 +98,7 @@ void DefaultICUTokenizerConfig::read_break_iterator(BreakIteratorPtr& rbbi,
     std::ifstream in(filename, std::ios::binary);
     if (!in) {
         std::string error_msg = "Unable to open the file: " + filename;
-        _CLTHROWT(CL_ERR_IO, error_msg.c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
     }
 
     std::ostringstream ss;
@@ -114,14 +114,14 @@ void DefaultICUTokenizerConfig::read_break_iterator(BreakIteratorPtr& rbbi,
     if (U_FAILURE(status)) {
         std::string error_msg = "ubrk_openRules failed: ";
         error_msg += u_errorName(status);
-        _CLTHROWT(CL_ERR_IllegalArgument, error_msg.c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
     }
     if (parseErr.line != 0 || parseErr.offset != 0) {
         std::string error_msg = "Syntax error in break rules at line ";
         error_msg += std::to_string(parseErr.line);
         error_msg += ", offset ";
         error_msg += std::to_string(parseErr.offset);
-        _CLTHROWT(CL_ERR_IllegalArgument, error_msg.c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
     }
 }
 

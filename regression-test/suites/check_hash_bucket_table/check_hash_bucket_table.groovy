@@ -90,7 +90,10 @@ suite("check_hash_bucket_table") {
     def checkDb = { String db ->
         sql "use `${db}`;"
         dbNum.incrementAndGet()
-        def tables = sql("show full tables").stream().filter{ it[1] == "BASE TABLE" }.collect{ it[0] }.toList()
+        def tables = sql("""
+            SELECT TABLE_NAME FROM information_schema.tables
+            WHERE TABLE_SCHEMA = DATABASE() AND ENGINE = 'Doris'
+        """).collect { it[0] }
         def asyncMVs = sql_return_maparray("""select * from mv_infos("database"="${db}");""").collect{ it.Name }.toSet()
         tables.each {
             def tblName = it

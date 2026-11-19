@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <thread>
 
 #include "common/config.h"
@@ -42,6 +43,12 @@
 namespace doris {
 
 namespace {
+
+std::optional<std::string> snapshot_env(const char* name) {
+    // A missing variable and an empty value must remain distinct when restoring it.
+    const char* value = std::getenv(name);
+    return value == nullptr ? std::nullopt : std::optional<std::string>(value);
+}
 
 void reap_direct_child_if_present(pid_t pid) {
     siginfo_t child_info {};
@@ -64,10 +71,11 @@ void reap_direct_child_if_present(pid_t pid) {
 class CdcClientMgrTest : public testing::Test {
 public:
     void SetUp() override {
-        // Save original environment variables
-        _original_doris_home = getenv("DORIS_HOME");
-        _original_log_dir = getenv("LOG_DIR");
-        _original_java_home = getenv("JAVA_HOME");
+        // Missing-env tests call unsetenv("JAVA_HOME"), which can free getenv()'s storage.
+        // Own the saved values until TearDown() and any intermediate restores finish.
+        _original_doris_home = snapshot_env("DORIS_HOME");
+        _original_log_dir = snapshot_env("LOG_DIR");
+        _original_java_home = snapshot_env("JAVA_HOME");
 
         // Use existing DORIS_HOME
         const char* doris_home = std::getenv("DORIS_HOME");
@@ -102,19 +110,19 @@ public:
     void TearDown() override {
         // Restore original environment variables
         if (_original_doris_home) {
-            setenv("DORIS_HOME", _original_doris_home, 1);
+            setenv("DORIS_HOME", _original_doris_home->c_str(), 1);
         } else {
             unsetenv("DORIS_HOME");
         }
 
         if (_original_log_dir) {
-            setenv("LOG_DIR", _original_log_dir, 1);
+            setenv("LOG_DIR", _original_log_dir->c_str(), 1);
         } else if (_log_dir_set) {
             unsetenv("LOG_DIR");
         }
 
         if (_original_java_home) {
-            setenv("JAVA_HOME", _original_java_home, 1);
+            setenv("JAVA_HOME", _original_java_home->c_str(), 1);
         } else {
             unsetenv("JAVA_HOME");
         }
@@ -132,9 +140,9 @@ protected:
     std::string _log_dir;
     std::string _lib_dir;
     std::string _jar_path;
-    const char* _original_doris_home = nullptr;
-    const char* _original_log_dir = nullptr;
-    const char* _original_java_home = nullptr;
+    std::optional<std::string> _original_doris_home;
+    std::optional<std::string> _original_log_dir;
+    std::optional<std::string> _original_java_home;
     bool _jar_created = false;
     bool _log_dir_set = false;
     std::unique_ptr<ClusterInfo> _cluster_info;
@@ -444,7 +452,7 @@ TEST_F(CdcClientMgrTest, RequestCdcClientImplStartFailed) {
 
     // Restore JAVA_HOME
     if (_original_java_home) {
-        setenv("JAVA_HOME", _original_java_home, 1);
+        setenv("JAVA_HOME", _original_java_home->c_str(), 1);
     }
 }
 
@@ -973,7 +981,7 @@ TEST_F(CdcClientMgrTest, StartCdcClientMissingEnv) {
 
     // Restore JAVA_HOME
     if (_original_java_home) {
-        setenv("JAVA_HOME", _original_java_home, 1);
+        setenv("JAVA_HOME", _original_java_home->c_str(), 1);
     }
 }
 
@@ -1079,7 +1087,7 @@ TEST_F(CdcClientMgrTest, MultipleRequestCalls) {
 // Test behavior when DORIS_HOME has trailing slash
 TEST_F(CdcClientMgrTest, DorisHomeWithTrailingSlash) {
     if (_original_doris_home) {
-        std::string doris_home_with_slash = std::string(_original_doris_home) + "/";
+        std::string doris_home_with_slash = *_original_doris_home + "/";
         setenv("DORIS_HOME", doris_home_with_slash.c_str(), 1);
 
         CdcClientMgr mgr;
@@ -1090,7 +1098,7 @@ TEST_F(CdcClientMgrTest, DorisHomeWithTrailingSlash) {
         EXPECT_TRUE(status.ok());
 
         // Restore original
-        setenv("DORIS_HOME", _original_doris_home, 1);
+        setenv("DORIS_HOME", _original_doris_home->c_str(), 1);
     }
 }
 
@@ -1172,7 +1180,7 @@ TEST_F(CdcClientMgrTest, StartAfterFailedStart) {
 
     // Restore JAVA_HOME
     if (_original_java_home) {
-        setenv("JAVA_HOME", _original_java_home, 1);
+        setenv("JAVA_HOME", _original_java_home->c_str(), 1);
     }
 
     // Second attempt: should succeed now

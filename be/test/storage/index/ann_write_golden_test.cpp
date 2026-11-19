@@ -41,6 +41,7 @@
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/golden_file.h"
+#include "testutil/tmp_file_dirs_util.h"
 #include "util/hash_util.hpp"
 
 namespace doris::segment_v2 {
@@ -191,6 +192,7 @@ std::map<std::string, SubFile> sub_files(const std::string& prefix,
 class AnnWriteGolden : public testing::Test {
 protected:
     void SetUp() override {
+        test::ensure_tmp_file_dirs();
         _saved_omp_threads_limit = config::omp_threads_limit;
         config::omp_threads_limit = 1;
         ASSERT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());

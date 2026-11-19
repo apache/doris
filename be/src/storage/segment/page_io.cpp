@@ -37,12 +37,12 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/read_ahead_metrics.h"
+#include "io/fs/read_ahead_range_buffer.h"
 #include "runtime/runtime_profile.h"
 #include "storage/cache/page_cache.h"
 #include "storage/olap_common.h"
 #include "storage/segment/encoding_info.h"
 #include "storage/segment/page_handle.h"
-#include "storage/segment/segment_read_ahead.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
 #include "util/concurrency_stats.h"
@@ -175,14 +175,13 @@ Status PageIO::read_and_decompress_page_(const PageReadOptions& opts, PageHandle
         auto read_page = [&]() -> Status {
             auto* reader = opts.file_reader;
             if (opts.type == DATA_PAGE && opts.stats->read_ahead_stats != nullptr) {
-                if (auto* read_ahead = dynamic_cast<SegmentReadAheadFileReader*>(reader)) {
+                if (auto* read_ahead = opts.read_ahead) {
                     Status status;
-                    if (read_ahead->try_read_page(opts.page_pointer.offset, page_slice, &status) &&
+                    if (read_ahead->try_read(opts.page_pointer.offset, page_slice, &status) &&
                         status.ok()) {
                         bytes_read = page_size;
                         return Status::OK();
                     }
-                    reader = read_ahead->inner_reader().get();
                 }
                 // Count only data-page source reads in a read-ahead-enabled reader. This also
                 // covers admission rejection and retries using the original reader after decode

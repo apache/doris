@@ -40,6 +40,7 @@ import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.UnboundExpressionToConnectorPredicateConverter;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
@@ -160,12 +161,17 @@ public class ConnectorExecuteAction implements ExecuteAction {
             tableHandle = metadata.getTableHandle(session, table.getRemoteDbName(), table.getRemoteName())
                     .orElseThrow(() -> new AnalysisException("Table not found: " + table.getRemoteDbName()
                             + "." + table.getRemoteName() + " in catalog " + catalog.getName()));
+            ConnectContext ctx = ConnectContext.get();
+            if (whereCondition.isPresent() && table instanceof MvccTable) {
+                // WHERE column lookup uses the ambient schema. Seed the same read pin the driver will use.
+                ctx.getStatementContext().loadSnapshots(table, Optional.empty(), Optional.empty());
+            }
             ConnectorPredicate loweredWhere = whereCondition.isPresent()
                     ? UnboundExpressionToConnectorPredicateConverter.convert(whereCondition.get(), table)
                     : null;
-            ConnectorRewriteDriver driver = new ConnectorRewriteDriver(ConnectContext.get(), table, catalog,
+            ConnectorRewriteDriver driver = new ConnectorRewriteDriver(ctx, table, catalog,
                     metadata, procedureOps, session, tableHandle, actionType, properties, partitionNames,
-                    loweredWhere, ConnectContext.get() == null ? null : ConnectContext.get().getExecutor());
+                    loweredWhere, ctx == null ? null : ctx.getExecutor());
             try {
                 ConnectorProcedureResult result = driver.run();
                 return wrapResult(result);

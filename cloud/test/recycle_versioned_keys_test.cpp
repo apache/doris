@@ -49,6 +49,7 @@
 #include "recycler/recycler.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/util.h"
+#include "scoped_legacy_instance_rpc.h"
 
 using namespace doris;
 using namespace doris::cloud;
@@ -550,6 +551,7 @@ void get_instance(MetaServiceProxy* meta_service, const std::string& cloud_uniqu
 }
 
 void drop_instance(MetaServiceProxy* meta_service, const std::string& instance_id) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     brpc::Controller cntl;
     AlterInstanceRequest req;
     AlterInstanceResponse res;

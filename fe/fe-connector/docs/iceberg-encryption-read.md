@@ -23,7 +23,7 @@ The initial target matrix is:
 
 | Dimension | Initial target | Current admission |
 | --- | --- | --- |
-| Catalog | HMS with the SDK standard encryption manager and an operator-configured KMS | Other catalogs are rejected |
+| Catalog | HMS or REST with the SDK standard encryption manager and an operator-configured KMS | Other catalogs are rejected |
 | Table format | Iceberg v3 | Other versions are rejected for encrypted reads |
 | Data and delete files | Native Parquet modular encryption, `AES_GCM_V1` | No encrypted ranges are emitted yet |
 | Manifest/list files | SDK-managed encryption | No plaintext fallback is allowed |
@@ -51,7 +51,7 @@ Errors contain a stable `Iceberg encryption [CLASSIFICATION]` prefix:
 | Classification | Meaning |
 | --- | --- |
 | `READ_DISABLED` | Encrypted reads were not enabled in the plugin configuration |
-| `UNSUPPORTED_CATALOG` | The catalog is outside the initial HMS scope |
+| `UNSUPPORTED_CATALOG` | The catalog is outside the HMS/REST scope |
 | `UNSUPPORTED_TABLE_FORMAT` | The encrypted table is not v3 |
 | `UNSUPPORTED_ENCRYPTION_MANAGER` | Encryption detection observed a custom SDK encryption manager |
 | `BACKEND_CAPABILITY_UNAVAILABLE` | The engine cannot prove encrypted-read support |
@@ -183,3 +183,88 @@ disabled streaming; normal-scan fallback would retain all file tasks and ranges
 before the dispatch guard rejects them. This deterministic rejection must not
 trigger the manifest cache's SDK retry. Plaintext COUNT retains its existing
 collapse and cache-failure fallback behavior.
+
+## REST Catalog encrypted metadata
+
+REST catalogs use the same default-off read admission and v3/standard-encryption
+requirements as HMS. The SDK REST operations used by this connector do not attach
+an encryption manager themselves; a small package-access adapter retains the
+original REST table, scan capabilities, REST credentials and refresh protocol while
+adding lazy, read-only encrypted metadata FileIO. It uses the effective FileIO
+properties after SDK catalog defaults, server overrides and table config merging.
+No KMS client is initialized merely to load a table or reject an encrypted query.
+
+The table-owned adapter closes its KMS client once. It closes a table-specific
+FileIO, but leaves a shared Catalog FileIO to the catalog owner. Refresh replaces
+the encrypted metadata generation without discarding retained historical keys.
+Missing KMS configuration or a removed table-key property is rejected explicitly;
+retained keys must never make the SDK select a plaintext manager.
+Encrypted REST writes and maintenance operations remain unsupported, and the
+common SQL execution fence remains in place pending protected key transport and
+native execution admission. Changing the REST allowlist does not bypass that fence.
+
+`test_iceberg_encrypted_rest_metadata` reuses the mandatory encryption fixture's
+`/rest` endpoint and existing ports; no extra enable flag is required. Its dedicated
+namespace and object locations do not reset the HMS regression's tables. An
+independent SDK reference view reads real encrypted Parquet and manifest/list
+files using metadata loaded through REST, checks historical rows, and verifies
+missing KMS, rejected credentials, denied decrypt and wrong-key failures. Doris
+SQL covers plaintext reads and counts, table-cache and batch/count settings,
+repeated encrypted admission, historical and metadata-table reads, and refresh.
+The fixture is a read-only protocol test service, not a production REST catalog.
+
+```sh
+bash run-regression-test.sh --run -d external_table_p0/iceberg \
+    -s test_iceberg_encrypted_rest_metadata
+```
+
+## Encrypted metadata cache ownership
+
+An encrypted table's SDK encryption manager can cache unwrapped keys. Such a
+table owner is therefore never retained by the cross-query table cache, under
+either count or weight limits. Concurrent cache misses have separate load scopes
+until classification, and each encrypted statement keeps its own owner alive
+through a table lease. Catalog invalidation or close retires cache ownership;
+active statements release their owners when their final leases close. A later
+statement reloads the table and performs its own SDK/KMS authorization.
+
+Each statement resolves one manifest reader bound to its frozen table lease.
+Synchronous reads, future observers and cached-only probes for data and delete
+manifests use that reader. Its identity coalesces concurrent unclassified loads
+within the statement; different statements have separate in-flight reads.
+Encrypted tables and manifest descriptors bypass shared entries, including a
+plaintext entry previously published for the same path.
+
+Decoded manifests are private to current consumers when either the table or manifest
+is encrypted. This includes an encrypted manifest containing only plaintext data
+files: its decoded contents must not bypass the next caller's manifest-key
+validation. An otherwise plaintext manifest containing data, position-delete or
+equality-delete key metadata is declined by the cache as well. Both synchronous
+and future loads isolate unclassified misses, before their contents are known.
+The adapter disables the SDK manifest byte cache for these reads; otherwise a
+path-only cache hit could reuse previously decrypted bytes with a missing current
+descriptor. Encrypted statement snapshots use the same uncached IO view for SDK
+planning. Failed reads are not cached, so correcting the current descriptor
+permits a fresh attempt. Completed in-flight registrations are removed before
+notifying consumers, so consumed private results do not accumulate until statement
+end. The existing query-wide admission and prefetch window bound active reads and
+queued results. Cancelled futures leave actual I/O leases held until the callable
+exits; statement teardown releases the reader's base lease after its active calls.
+
+Completed plaintext entries continue to use the configured caches. Concurrent
+cold misses from different statements may perform independent loads before a plaintext
+value has been published; warm cache hits are unchanged. Key-bearing table metadata is
+not weighed or serialized just to admit it to a shared cache. This bounds ownership;
+it does not promise deterministic zeroization of SDK or JVM memory.
+
+`MetaCacheRetentionTest` covers count and weight limits, load scopes, synchronous
+and future loads, direct/bulk publication, replacement and refresh cleanup.
+`IcebergEncryptedCacheTest` uses real SDK encrypted manifests to verify that KMS
+revocation after a successful statement is observed, invalid current descriptors
+cannot reuse a warm result, and concurrent statements retain distinct managers
+through catalog retirement. Manifest reader tests additionally cover concurrent
+data/delete coalescing, isolated observer cancellation, descriptor-key changes,
+plaintext cache hits, bounded private retention and losing reader-registration
+races. These tests do not enable encrypted SQL admission;
+transport, native reader lifetime and end-to-end acceptance remain separate
+requirements.

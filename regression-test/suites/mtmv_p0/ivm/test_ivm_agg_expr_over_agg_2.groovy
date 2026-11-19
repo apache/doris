@@ -399,7 +399,7 @@ suite("test_ivm_agg_expr_over_agg_2") {
         CREATE MATERIALIZED VIEW test_ivm_expr_over_agg_min_boundary
         BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1')
+        PROPERTIES ('replication_num' = '1', 'ivm_minmax_top_k' = '1')
         AS SELECT k, MIN(v) * 2 AS m2 FROM test_ivm_expr_over_agg_min_base GROUP BY k;
     """
     sql """set show_hidden_columns=true"""
