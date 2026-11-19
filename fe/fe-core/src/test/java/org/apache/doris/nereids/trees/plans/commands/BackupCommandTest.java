@@ -19,12 +19,14 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.qe.ConnectContext;
 
@@ -73,6 +75,19 @@ public class BackupCommandTest {
                 result = true;
             }
         };
+    }
+
+    @Test
+    public void testAnalyzePropertiesWithTimeout() {
+        BackupCommand command = (BackupCommand) new NereidsParser().parseSingle(
+                "BACKUP SNAPSHOT test_db.test_snapshot TO test_repo "
+                        + "PROPERTIES (\"timeout\" = \"3600\", \"type\" = \"full\", \"content\" = \"metadata_only\")");
+
+        Deencapsulation.invoke(command, "analyzeProperties");
+
+        Assertions.assertEquals(3600L * 1000, command.getTimeoutMs());
+        Assertions.assertEquals(BackupCommand.BackupType.FULL, command.getBackupType());
+        Assertions.assertEquals(BackupCommand.BackupContent.METADATA_ONLY, command.getContent());
     }
 
     @Test
