@@ -57,7 +57,7 @@ def columns(table):
     result = []
     for position, field in enumerate(json.loads(metadata["schemaString"])["fields"]):
         name, field_type = field["name"], field["type"]
-        type_name = "INT" if field_type == "integer" else field_type.upper()
+        type_name = "INT" if field_type == "integer" else field_type.partition("(")[0].upper()
         column = dict(name=name, type_name=type_name, type_json=json.dumps(field),
                       type_text="bigint" if field_type == "long" else field_type,
                       position=position, nullable=field["nullable"])

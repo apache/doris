@@ -52,15 +52,21 @@ import io.delta.kernel.types.TypeChange;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 class DeltaLakePredicateConverterTest {
     private final ConnectorColumnRef column = new ConnectorColumnRef("mixed", ConnectorType.of("BIGINT"));
@@ -244,6 +250,51 @@ class DeltaLakePredicateConverterTest {
                 dates.convert(new ConnectorAnd(List.of(emptyDate, otherDate))).orElseThrow().toString());
         Assertions.assertTrue(dates.convert(new ConnectorIsNull(new ConnectorColumnRef("label",
                 ConnectorType.of("STRING")), false)).isPresent());
+    }
+
+    private static Stream<Arguments> emptyScalarPartitions() {
+        StructField ntz = new StructField("p", TimestampNTZType.TIMESTAMP_NTZ, true);
+        ConnectorLiteral midnight = ConnectorLiteral.ofDatetime(LocalDate.of(2024, 2, 29).atStartOfDay());
+        return Stream.of(
+                Arguments.of(new StructField("p", ByteType.BYTE, true), "7", ConnectorLiteral.ofInt(7)),
+                Arguments.of(new StructField("p", ShortType.SHORT, true), "300", ConnectorLiteral.ofInt(300)),
+                Arguments.of(new StructField("p", LongType.LONG, true), "4294967296",
+                        ConnectorLiteral.ofLong(4_294_967_296L)),
+                Arguments.of(new StructField("p", FloatType.FLOAT, true), "-0.0",
+                        new ConnectorLiteral(ConnectorType.of("FLOAT"), 0.0f)),
+                Arguments.of(new StructField("p", DoubleType.DOUBLE, true), "1.25", ConnectorLiteral.ofDouble(1.25)),
+                Arguments.of(new StructField("p", new DecimalType(9, 2), true), "12.34",
+                        ConnectorLiteral.ofDecimal(new BigDecimal("12.34"), 9, 2)),
+                Arguments.of(ntz, "2024-02-29 00:00:00", midnight),
+                Arguments.of(ntz.withTypeChanges(List.of(DeltaLakeFeatureCheck.DATE_TO_TIMESTAMP_NTZ)),
+                        "2024-02-29", midnight));
+    }
+
+    @ParameterizedTest
+    @MethodSource("emptyScalarPartitions")
+    void filtersExplicitEmptyAndJsonNullAfterNormalization(StructField field, String raw, ConnectorLiteral literal) {
+        StructType schema = new StructType().add(field);
+        List<String> names = schema.fieldNames();
+        DeltaLakePredicateConverter converter = new DeltaLakePredicateConverter(schema, ZoneOffset.UTC, names, names);
+        ConnectorColumnRef p = new ConnectorColumnRef("p", DeltaLakeTypeMapping.toConnectorType(
+                field.getDataType(), true, true));
+        ConnectorExpression isNull = new ConnectorIsNull(p, false);
+        ConnectorExpression equals = new ConnectorComparison(ConnectorComparison.Operator.EQ, p, literal);
+        Assertions.assertTrue(converter.convert(isNull).isEmpty());
+        Assertions.assertTrue(converter.convert(equals).isEmpty());
+        Engine engine = DefaultEngine.create(new Configuration());
+        var nullFilter = converter.normalizedPartitionFilter(isNull, engine).orElseThrow();
+        var equalFilter = converter.normalizedPartitionFilter(equals, engine).orElseThrow();
+        Map<String, String> empty = DeltaLakePartitionValues.normalize(
+                schema, names, false, Map.of("p", ""), ZoneOffset.UTC, ignored -> { });
+        Map<String, String> jsonNull = Collections.singletonMap("p", null);
+        Assertions.assertEquals(jsonNull, empty);
+        Map<String, String> valid = DeltaLakePartitionValues.normalize(
+                schema, names, false, Map.of("p", raw), ZoneOffset.UTC, ignored -> { });
+        Assertions.assertTrue(nullFilter.test(empty));
+        Assertions.assertFalse(nullFilter.test(valid));
+        Assertions.assertFalse(equalFilter.test(empty));
+        Assertions.assertTrue(equalFilter.test(valid));
     }
 
     @Test

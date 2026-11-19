@@ -117,11 +117,11 @@ suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
             compare("typed_empty_projection", "select id, p_int, p_bool, p_ts from ${typed} order by id",
                     """select 1 as id, cast(null as int), cast(null as boolean), cast(null as timestamptz(6))
                        union all select 2, null, null, null union all select 3, 7, true, ${instant} order by id""")
-            def checkFiles = { String label, String predicate, String expected, int selectedFiles ->
+            def checkFiles = { String label, String predicate, String expected, int selectedFiles, String table = typed ->
                 checkCase(label) { tag ->
                     String token = UUID.randomUUID().toString()
                     quickTest(tag, expected, """select /*+ SET_VAR(enable_profile=true) */ /* ${token} */ id
-                            from ${typed} where ${predicate} order by id""")
+                            from ${table} where ${predicate} order by id""")
                     String profile = profiles.getProfileBySql(token, ["Delta Scan Metrics", "EnumerationComplete: true"])
                     assertTrue(profile.readLines()*.trim().contains("- SelectedFiles: " + selectedFiles), profile)
                 }
@@ -134,6 +134,20 @@ suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
             checkFiles("typed_empty_partition_or", "p_int = 7 or bucket = cast('1.0' as float)", "select 3", 1)
             checkFiles("typed_empty_data_or", "p_int is null or id = 3",
                     "select 1 as id union all select 2 union all select 3 order by id", 3)
+
+            // ID 1 has explicit empty strings, ID 2 JSON nulls, and ID 3 valid values from before p_wide widened.
+            String scalars = "${db}.empty_scalar_partitions"
+            def valid = [p_byte: "cast(-8 as tinyint)", p_short: "cast(300 as smallint)",
+                         p_long: "cast(4294967296 as bigint)", p_float: "cast(1.25 as float)",
+                         p_double: "cast(2.5 as double)", p_decimal: "cast(12.34 as decimal(9,2))",
+                         p_ntz: "cast('2024-03-01 12:34:56.123456' as datetimev2(6))", p_wide: midnight]
+            String expected = valid.values().collect { "if(number = 2, ${it}, null)" }.join(", ")
+            compare("scalar_empty_projection", "select * from ${scalars} order by id",
+                    "select number + 1 as id, ${expected} from numbers('number'='3') order by id")
+            valid.each { column, value ->
+                checkFiles("scalar_empty_${column}_null", "${column} is null", bothIds, 2, scalars)
+                checkFiles("scalar_empty_${column}_eq", "${column} = ${value}", "select 3", 1, scalars)
+            }
 
             compare("plain_name", "select id, p from ${db}.plain order by id", "select 41, 'west'")
             compare("plain_filter", "select id from ${db}.plain where p='west' order by id", "select 41")

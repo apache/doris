@@ -138,6 +138,10 @@ class DeltaLakePartitionValuesTest {
                 schema, columns, false, Map.of("p", date, "native_ntz", date)));
         Assertions.assertThrows(DorisConnectorException.class, () -> normalize(
                 schema, List.of("p"), false, Map.of("p", "2023-02-29")));
+        Set<String> observed = new HashSet<>();
+        Assertions.assertNull(DeltaLakePartitionValues.normalize(
+                schema, List.of("p"), false, Map.of("p", ""), ZoneOffset.UTC, observed::add).get("p"));
+        Assertions.assertEquals(Set.of("p"), observed);
     }
 
     @Test
@@ -165,8 +169,9 @@ class DeltaLakePartitionValuesTest {
         FieldMetadata key = FieldMetadata.builder().putString("delta.columnMapping.physicalName", "old_key").build();
         FieldMetadata label = FieldMetadata.builder()
                 .putString("delta.columnMapping.physicalName", "old_label").build();
-        for (DataType type : List.of(DateType.DATE, IntegerType.INTEGER, BooleanType.BOOLEAN,
-                TimestampType.TIMESTAMP)) {
+        for (DataType type : List.of(BooleanType.BOOLEAN, ByteType.BYTE, ShortType.SHORT, IntegerType.INTEGER,
+                LongType.LONG, FloatType.FLOAT, DoubleType.DOUBLE, new DecimalType(9, 2), DateType.DATE,
+                TimestampType.TIMESTAMP, TimestampNTZType.TIMESTAMP_NTZ)) {
             StructType schema = new StructType().add(new StructField("Key", type, true, key))
                     .add(new StructField("label", StringType.STRING, true, label));
             List<String> names = List.of("Key", "label");
@@ -192,7 +197,7 @@ class DeltaLakePartitionValuesTest {
 
     @Test
     void rejectsInvalidTypedValuesInsteadOfCoercingThem() {
-        for (String value : Arrays.asList("128", "", "null")) {
+        for (String value : List.of("128", "null")) {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> normalizeValue(ByteType.BYTE, value));
         }

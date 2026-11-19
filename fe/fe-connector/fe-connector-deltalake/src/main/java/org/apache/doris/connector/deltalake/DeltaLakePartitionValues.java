@@ -24,9 +24,15 @@ import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.types.BinaryType;
 import io.delta.kernel.types.BooleanType;
+import io.delta.kernel.types.ByteType;
 import io.delta.kernel.types.DataType;
 import io.delta.kernel.types.DateType;
+import io.delta.kernel.types.DecimalType;
+import io.delta.kernel.types.DoubleType;
+import io.delta.kernel.types.FloatType;
 import io.delta.kernel.types.IntegerType;
+import io.delta.kernel.types.LongType;
+import io.delta.kernel.types.ShortType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
@@ -104,8 +110,10 @@ final class DeltaLakePartitionValues {
     }
 
     static boolean emptyStringIsNull(DataType type) {
-        return type instanceof DateType || type instanceof IntegerType
-                || type instanceof BooleanType || type instanceof TimestampType;
+        return type instanceof BooleanType || type instanceof ByteType || type instanceof ShortType
+                || type instanceof IntegerType || type instanceof LongType || type instanceof FloatType
+                || type instanceof DoubleType || type instanceof DecimalType || type instanceof DateType
+                || type instanceof TimestampType || type instanceof TimestampNTZType;
     }
 
     static String normalizeValue(StructField field, String value, ZoneId zone,

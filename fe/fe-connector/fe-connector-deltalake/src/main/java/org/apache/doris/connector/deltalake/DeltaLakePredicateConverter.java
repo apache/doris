@@ -115,7 +115,8 @@ final class DeltaLakePredicateConverter {
         }
         // Reuse the same AND/OR/NOT conversion on just the referenced partition fields. A disjunction
         // with a data column stays residual; a disjunction with another partition key can be evaluated here.
-        StructType partitions = new StructType(fields);
+        // These values already have their current types, including midnight for a widened DATE.
+        StructType partitions = new StructType(fields.stream().map(field -> field.withTypeChanges(List.of())).toList());
         return new DeltaLakePredicateConverter(partitions, zone, partitionColumns, List.of()).convert(expression)
                 .map(predicate -> DeltaKernelCompat.normalizedPartitionFilter(engine, partitions, predicate));
     }
