@@ -608,6 +608,43 @@ class LanceStorageOptionsTest {
     }
 
     @Test
+    void incompleteVendedOssCredentialsAreRejectedBeforeAuthenticationInference() {
+        for (Map<String, String> vended : List.of(
+                map("access_key_id", "vended-ak"),
+                map("access_key_secret", "vended-sk"),
+                map("OSS_ACCESS_KEY_ID", "vended-ak", "oss_secret_access_key", ""),
+                map("oss_access_key_id", "", "Access_Key_Secret", "vended-sk"),
+                map("access_key_secret", "vended-sk", "allow_anonymous", "true"),
+                map("access_key_id", "vended-ak", "skip_signature", "false"))) {
+            for (List<StorageProperties> storage : List.of(Collections.<StorageProperties>emptyList(),
+                    catalog(anonymousOss()))) {
+                String message = conflict(OSS_URI, storage, vended);
+                Assertions.assertTrue(message.contains("both access key and secret key"), message);
+                Assertions.assertFalse(message.contains("vended-ak"));
+                Assertions.assertFalse(message.contains("vended-sk"));
+            }
+        }
+    }
+
+    @Test
+    void ossCredentialValidationUsesTheMergedPair() {
+        for (Map<String, String> vended : List.of(map("access_key_id", "vended-ak"),
+                map("access_key_secret", "vended-sk"))) {
+            Map<String, String> merged = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                    OSS_URI, catalog(oss()), vended);
+            Assertions.assertEquals(vended.getOrDefault("access_key_id", "oss-ak"), merged.get("oss_access_key_id"));
+            Assertions.assertEquals(vended.getOrDefault("access_key_secret", "oss-sk"),
+                    merged.get("oss_secret_access_key"));
+            Assertions.assertEquals("false", merged.get("allow_anonymous"));
+            Assertions.assertEquals("false", merged.get("skip_signature"));
+        }
+        for (String key : List.of("access_key_id", "access_key_secret")) {
+            Assertions.assertTrue(conflict(OSS_URI, catalog(oss()), map(key, ""))
+                    .contains("both access key and secret key"));
+        }
+    }
+
+    @Test
     void ossAliasesCollapseAndConflictsAreRejected() {
         Assertions.assertEquals("same", LanceStorageOptions.fromDorisAndVendedStorageOptions(OSS_URI,
                 Collections.emptyList(), map("access_key_id", "ak", "access_key_secret", "same",

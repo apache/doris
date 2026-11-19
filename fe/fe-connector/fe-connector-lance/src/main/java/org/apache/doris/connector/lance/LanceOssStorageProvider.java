@@ -113,6 +113,16 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
     }
 
     @Override
+    public void validateStorageOptions(List<StorageProperties> storageProperties,
+            Map<String, String> effectiveOptions) {
+        // Check the merged identity: either side may be supplied by the catalog or the namespace.
+        if (StringUtils.isNotEmpty(effectiveOptions.get(ACCESS_KEY_ID))
+                != StringUtils.isNotEmpty(effectiveOptions.get(SECRET_ACCESS_KEY))) {
+            throw new IllegalArgumentException("Lance OSS signing requires both access key and secret key");
+        }
+    }
+
+    @Override
     public Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions) {
         Map<String, String> inferred = new HashMap<>();
         boolean hasSigningConfiguration = hasSigningConfiguration(effectiveOptions);
