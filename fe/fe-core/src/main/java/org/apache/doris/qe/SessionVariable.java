@@ -1042,12 +1042,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEBUG_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
                                                             "debug_variant_max_sparse_column_statistics_size";
-    public static final String DEBUG_VARIANT_SPARSE_HASH_SHARD_COUNT = "debug_variant_sparse_hash_shard_count";
 
     public static final String DEBUG_VARIANT_ENABLE_DOC_MODE = "debug_variant_enable_doc_mode";
 
-    public static final String DEBUG_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS =
-            "debug_variant_subcolumn_extraction_min_rows";
+    public static final String DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "debug_variant_doc_materialization_min_rows";
+
+    public static final String DEBUG_VARIANT_DOC_HASH_SHARD_COUNT = "debug_variant_doc_hash_shard_count";
 
     public static final String DEBUG_VARIANT_ENABLE_NESTED_GROUP = "debug_variant_enable_nested_group";
 
@@ -3785,15 +3786,6 @@ public class SessionVariable implements Serializable, Writable {
             description = "Whether to fall back to RE2 when Hyperscan cannot compile a regular expression")
     public boolean enableHyperscanFallback = true;
 
-    @VarAttrDef.VarAttr(
-            name = DEBUG_VARIANT_SPARSE_HASH_SHARD_COUNT,
-            flag = VarAttrDef.INVISIBLE,
-            needForward = true,
-            checker = "checkDefaultVariantSettable",
-            fuzzy = true
-    )
-    public int defaultVariantSparseHashShardCount = 0;
-
     @VarAttrDef.VarAttr(name = CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
             description = "Whether cache is used for the visible_version column"
                     + "in the partitions system table on cloud mode")
@@ -3809,14 +3801,23 @@ public class SessionVariable implements Serializable, Writable {
     public boolean defaultVariantEnableDocMode = false;
 
     @VarAttrDef.VarAttr(
-            name = DEBUG_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS,
+            name = DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
-            fuzzy = true,
-            description = "Value of variant_subcolumn_extraction_min_rows for a VARIANT column defined without it."
+            fuzzy = true
     )
-    public long defaultVariantSubcolumnExtractionMinRows = 0L;
+    public long defaultVariantDocMaterializationMinRows = 0L;
+
+    // the shard count with and without doc mode
+    @VarAttrDef.VarAttr(
+            name = DEBUG_VARIANT_DOC_HASH_SHARD_COUNT,
+            flag = VarAttrDef.INVISIBLE,
+            needForward = true,
+            checker = "checkDefaultVariantSettable",
+            fuzzy = true
+    )
+    public int defaultVariantDocHashShardCount = 0;
 
     @VarAttrDef.VarAttr(
             name = DEBUG_VARIANT_ENABLE_NESTED_GROUP,
@@ -3910,12 +3911,12 @@ public class SessionVariable implements Serializable, Writable {
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
-        this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
+        this.defaultVariantDocHashShardCount = random.nextInt(5) + 1;
         this.useV3StorageFormat = random.nextBoolean();
         this.defaultVariantEnableDocMode = random.nextBoolean();
         boolean zeroOrOne = random.nextBoolean();
         // the row threshold applies with and without doc mode
-        this.defaultVariantSubcolumnExtractionMinRows = zeroOrOne ? 0 : random.nextInt(20);
+        this.defaultVariantDocMaterializationMinRows = zeroOrOne ? 0 : random.nextInt(20);
         if (this.defaultVariantEnableDocMode) {
             this.defaultEnableTypedPathsToSparse = false;
         } else {
@@ -6983,10 +6984,6 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantMaxSparseColumnStatisticsSize;
     }
 
-    public int getDefaultVariantSparseHashShardCount() {
-        return defaultVariantSparseHashShardCount;
-    }
-
     public boolean getCloudPartitionsTableUseCachedVisibleVersion() {
         return cloudPartitionsTableUseCachedVisibleVersion;
     }
@@ -6995,8 +6992,12 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantEnableDocMode;
     }
 
-    public long getDefaultVariantSubcolumnExtractionMinRows() {
-        return defaultVariantSubcolumnExtractionMinRows;
+    public long getDefaultVariantDocMaterializationMinRows() {
+        return defaultVariantDocMaterializationMinRows;
+    }
+
+    public int getDefaultVariantDocHashShardCount() {
+        return defaultVariantDocHashShardCount;
     }
 
     public boolean getDefaultVariantEnableNestedGroup() {

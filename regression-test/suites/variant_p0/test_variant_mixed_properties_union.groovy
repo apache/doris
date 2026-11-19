@@ -23,8 +23,7 @@ suite("test_variant_mixed_properties_union", "p0") {
         CREATE TABLE variant_mixed_properties_union (
             id INT NOT NULL,
             typed_paths VARIANT<'nested.b': INT, 'kind': STRING, PROPERTIES (
-                "variant_max_subcolumns_count" = "0",
-                "variant_enable_typed_paths_to_sparse" = "false")>,
+                "variant_max_subcolumns_count" = "0")>,
             encoded_paths VARIANT<PROPERTIES (
                 "variant_max_subcolumns_count" = "1")>
         ) ENGINE = OLAP

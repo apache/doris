@@ -113,7 +113,7 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
                 'float_':decimalv3(26,9),
                 'boolean_':boolean,
                 'varchar_': text,
-                properties("variant_max_subcolumns_count" = "6", "variant_enable_typed_paths_to_sparse" = "false")
+                properties("variant_max_subcolumns_count" = "6")
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1");

@@ -833,7 +833,7 @@ public class Column implements GsonPostProcessable {
             // threshold would break in compaction, so it takes none.
             if (!this.getVariantEnableDocMode() && this.getVariantSerializeType() == TVariantSerializeType.V1
                     && this.getVariantMaxSubcolumnsCount() == 0 && other.getvariantDocMaterializationMinRows() != 0) {
-                throw new DdlException("Can not set variant_subcolumn_extraction_min_rows on a column of an older "
+                throw new DdlException("Can not set variant_doc_materialization_min_rows on a column of an older "
                         + "version whose variant_max_subcolumns_count is 0");
             }
             if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
@@ -932,6 +932,12 @@ public class Column implements GsonPostProcessable {
             sb.append(type.hideVersionForVersionColumn(true, true));
         } else {
             sb.append(typeStr);
+        }
+        if (isCompatible && type.isVariantType()) {
+            // The DDL of an internal table shows the serialize type in a comment, which the parser skips: a column
+            // the DDL creates is new (V2) whatever it says.
+            sb.append(" /* variant_serialize_type = ")
+                    .append(getVariantSerializeType() == TVariantSerializeType.V2 ? "v2" : "v1").append(" */");
         }
         if (aggregationType != null && aggregationType != AggregateType.NONE && !isUniqueTable
                 && !isAggregationTypeImplicit) {

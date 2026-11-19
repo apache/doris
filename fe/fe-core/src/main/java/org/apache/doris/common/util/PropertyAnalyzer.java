@@ -353,14 +353,18 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
             "variant_max_sparse_column_statistics_size";
-    // Number of shards of the sparse encoding, with or without doc mode.
+    // The shard count of the sparse encoding before variant_doc_hash_shard_count took both modes: accepted, so that
+    // the DDL older versions print still runs, and ignored.
     public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
 
     public static final String PROPERTIES_VARIANT_ENABLE_DOC_MODE = "variant_enable_doc_mode";
 
     // Rows a data file needs before it extracts subcolumns, with or without doc mode.
-    public static final String PROPERTIES_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS =
-            "variant_subcolumn_extraction_min_rows";
+    public static final String PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
+            "variant_doc_materialization_min_rows";
+
+    // Number of shards of the sparse encoding, or of the document with doc mode.
+    public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
 
     // stream properties
     public static final String PROPERTIES_STREAM_TYPE = "type";
@@ -2391,18 +2395,13 @@ public class PropertyAnalyzer {
 
     // variant_enable_typed_paths_to_sparse is internal now: a column of an older version keeps its value, and a new one
     // takes it from the session variable debug_variant_enable_typed_paths_to_sparse, which only tests set. The
-    // property still takes `false`, which released versions print in SHOW CREATE TABLE, but not `true`.
+    // property is refused whatever its value.
     public static boolean analyzeEnableTypedPathsToSparse(Map<String, String> properties,
                         boolean defaultValue) throws AnalysisException {
-        boolean enableTypedPathsToSparse = defaultValue;
         if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
-            if (Boolean.parseBoolean(properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE))) {
-                throw new AnalysisException("variant_enable_typed_paths_to_sparse = true is not supported");
-            }
-            enableTypedPathsToSparse = false;
-            properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
+            throw new AnalysisException("variant_enable_typed_paths_to_sparse is not supported");
         }
-        return enableTypedPathsToSparse;
+        return defaultValue;
     }
 
     public static boolean analyzeEnableNestedGroup(Map<String, String> properties,
@@ -2474,24 +2473,44 @@ public class PropertyAnalyzer {
         return enableVariantDocMode;
     }
 
-    public static long analyzeVariantSubcolumnExtractionMinRows(Map<String, String> properties, long defaultValue)
+    public static long analyzeVariantDocMaterializationMinRows(Map<String, String> properties,
+                                                               long defaultValue)
                                                                                 throws AnalysisException {
         long minRows = defaultValue;
-        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS)) {
-            String minRowsStr = properties.get(PROPERTIES_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS);
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS)) {
+            String minRowsStr = properties.get(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS);
             try {
                 minRows = Long.parseLong(minRowsStr);
                 if (minRows < 0 || minRows > 1_000_000_000) {
                     throw new AnalysisException(
-                            "variant_subcolumn_extraction_min_rows must between 0 and 1000000000 ");
+                            "variant_doc_materialization_min_rows must between 0 and 1000000000 ");
                 }
             } catch (Exception e) {
                 throw new AnalysisException(
-                        "variant_subcolumn_extraction_min_rows format error:" + e.getMessage());
+                        "variant_doc_materialization_min_rows format error:" + e.getMessage());
             }
-            properties.remove(PROPERTIES_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS);
+            properties.remove(PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS);
         }
         return minRows;
+    }
+
+    public static int analyzeVariantDocHashShardCount(Map<String, String> properties, int defaultValue)
+            throws AnalysisException {
+        int shardCount = defaultValue;
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT)) {
+            String shardCountStr = properties.get(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+            try {
+                shardCount = Integer.parseInt(shardCountStr);
+                if (shardCount < 0 || shardCount > 1024) {
+                    throw new AnalysisException("variant_doc_hash_shard_count must between 0 and 1024 ");
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(
+                        "variant_doc_hash_shard_count format error:" + e.getMessage());
+            }
+            properties.remove(PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+        }
+        return shardCount;
     }
 
     public static final String PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS = "variant_escape_dots_in_keys";

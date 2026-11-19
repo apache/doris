@@ -23,7 +23,7 @@ suite("test_variant_search_historical_rowset_index", "p0") {
     // A tokenized index uses full schema change and rebuilds the historical rowsets.
     sql "SET enable_add_index_for_new_data = true"
     sql "SET debug_variant_enable_doc_mode = false"
-    sql "SET debug_variant_subcolumn_extraction_min_rows = 0"
+    sql "SET debug_variant_doc_materialization_min_rows = 0"
     sql "DROP TABLE IF EXISTS test_variant_search_historical_rowset_index"
     sql """
         CREATE TABLE test_variant_search_historical_rowset_index (

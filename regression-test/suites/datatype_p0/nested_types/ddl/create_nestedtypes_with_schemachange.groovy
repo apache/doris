@@ -23,9 +23,9 @@ suite("create_nestedtypes_with_schemachange", "p0") {
         sql "set debug_variant_max_subcolumns_count = 0"
         sql "set debug_variant_enable_typed_paths_to_sparse = false"
         sql "set debug_variant_max_sparse_column_statistics_size = 1"
-        sql "set debug_variant_sparse_hash_shard_count = 0"
+        sql "set debug_variant_doc_hash_shard_count = 0"
         sql "set debug_variant_enable_doc_mode = false"
-        sql "set debug_variant_subcolumn_extraction_min_rows = 0"
+        sql "set debug_variant_doc_materialization_min_rows = 0"
         sql "DROP TABLE IF EXISTS $testTablex"
         sql """ CREATE TABLE $testTablex (
                      col0 BIGINT NOT NULL,  col2 int NOT NULL, col3 array<int> NULL, col4 map<int, int> NULL, col5 struct<f1: int> NULL

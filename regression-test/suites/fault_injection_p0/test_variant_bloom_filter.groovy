@@ -62,8 +62,7 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
         CREATE TABLE test_variant_typed_int_bloom_filter (
             k bigint,
             v variant<'int_1' : int, properties(
-                "variant_max_subcolumns_count" = "2",
-                "variant_enable_typed_paths_to_sparse" = "false"
+                "variant_max_subcolumns_count" = "2"
             )>
         )
         DUPLICATE KEY(`k`)

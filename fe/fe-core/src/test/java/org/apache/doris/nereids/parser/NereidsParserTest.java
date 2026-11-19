@@ -1723,7 +1723,7 @@ public class NereidsParserTest extends ParserTestBase {
     @Test
     public void testVariantPropertyCombinations() {
         // The combinations BE VariantCompactionSchemaMatrixTest covers parse, except typed paths to sparse, which is
-        // internal now: the property takes only `false`, as released versions print it. The conflicting ones do not.
+        // internal now: the property is refused whatever its value. The conflicting ones do not.
         NereidsParser parser = new NereidsParser();
         List<String> allowed = new ArrayList<>();
         for (String template : new String[] {"", "'t':INT, "}) {
@@ -1732,9 +1732,8 @@ public class NereidsParserTest extends ParserTestBase {
                 for (int shards : new int[] {0, 2}) {
                     for (int minRows : new int[] {0, 10, 100}) {
                         allowed.add(head + "\"variant_max_subcolumns_count\" = \"" + count
-                                + "\", \"variant_enable_typed_paths_to_sparse\" = \"false"
-                                + "\", \"variant_sparse_hash_shard_count\" = \"" + shards
-                                + "\", \"variant_subcolumn_extraction_min_rows\" = \"" + minRows + "\")>");
+                                + "\", \"variant_doc_hash_shard_count\" = \"" + shards
+                                + "\", \"variant_doc_materialization_min_rows\" = \"" + minRows + "\")>");
                     }
                 }
             }
@@ -1743,13 +1742,16 @@ public class NereidsParserTest extends ParserTestBase {
                     for (int shards : new int[] {1, 2}) {
                         allowed.add(head + "\"variant_enable_doc_mode\" = \"true\", "
                                 + "\"variant_max_subcolumns_count\" = \"" + count
-                                + "\", \"variant_subcolumn_extraction_min_rows\" = \"" + minRows
-                                + "\", \"variant_sparse_hash_shard_count\" = \"" + shards + "\")>");
+                                + "\", \"variant_doc_materialization_min_rows\" = \"" + minRows
+                                + "\", \"variant_doc_hash_shard_count\" = \"" + shards + "\")>");
                     }
                 }
             }
             allowed.add(head + "\"variant_enable_nested_group\" = \"true\", "
                     + "\"variant_max_subcolumns_count\" = \"0\")>");
+            // the sparse shard count of older versions is accepted and ignored, with and without doc mode
+            allowed.add(head + "\"variant_enable_doc_mode\" = \"true\", \"variant_sparse_hash_shard_count\" = \"8\")>");
+            allowed.add(head + "\"variant_sparse_hash_shard_count\" = \"8\")>");
         }
         for (String type : allowed) {
             Assertions.assertDoesNotThrow(() -> parser.parseDataType(type), type);
@@ -1757,14 +1759,15 @@ public class NereidsParserTest extends ParserTestBase {
         String doc = "\"variant_enable_doc_mode\" = \"true\"";
         String[] rejected = {
                 "variant<PROPERTIES(\"variant_enable_typed_paths_to_sparse\" = \"true\")>",
+                "variant<PROPERTIES(\"variant_enable_typed_paths_to_sparse\" = \"false\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_enable_typed_paths_to_sparse\" = \"true\")>",
+                "variant<PROPERTIES(" + doc + ", \"variant_enable_typed_paths_to_sparse\" = \"false\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_max_sparse_column_statistics_size\" = \"100\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_enable_nested_group\" = \"true\")>",
                 "variant<PROPERTIES(\"variant_enable_nested_group\" = \"true\", "
                         + "\"variant_max_subcolumns_count\" = \"3\")>",
-                // the doc mode names of the row threshold and the shard count are not accepted
-                "variant<PROPERTIES(" + doc + ", \"variant_doc_materialization_min_rows\" = \"2\")>",
-                "variant<PROPERTIES(" + doc + ", \"variant_doc_hash_shard_count\" = \"2\")>"};
+                "variant<PROPERTIES(\"variant_sparse_hash_shard_count\" = \"2000\")>",
+                "variant<PROPERTIES(\"variant_subcolumn_extraction_min_rows\" = \"2\")>"};
         for (String type : rejected) {
             Assertions.assertThrows(Exception.class, () -> parser.parseDataType(type), type);
         }
@@ -1776,7 +1779,7 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser parser = new NereidsParser();
         org.apache.doris.nereids.types.VariantType deferred = (org.apache.doris.nereids.types.VariantType)
                 parser.parseDataType("variant<PROPERTIES(\"variant_max_subcolumns_count\" = \"128\", "
-                        + "\"variant_subcolumn_extraction_min_rows\" = \"1000\", "
+                        + "\"variant_doc_materialization_min_rows\" = \"1000\", "
                         + "\"variant_enable_doc_mode\" = \"false\")>");
         Assertions.assertEquals(128, deferred.getVariantMaxSubcolumnsCount());
         Assertions.assertEquals(1000L, deferred.getvariantDocMaterializationMinRows());
@@ -1784,7 +1787,7 @@ public class NereidsParserTest extends ParserTestBase {
 
         org.apache.doris.nereids.types.VariantType documents = (org.apache.doris.nereids.types.VariantType)
                 parser.parseDataType("variant<PROPERTIES(\"variant_max_subcolumns_count\" = \"2\", "
-                        + "\"variant_subcolumn_extraction_min_rows\" = \"0\", "
+                        + "\"variant_doc_materialization_min_rows\" = \"0\", "
                         + "\"variant_enable_doc_mode\" = \"true\")>");
         Assertions.assertEquals(2, documents.getVariantMaxSubcolumnsCount());
         Assertions.assertTrue(documents.getEnableVariantDocMode());
@@ -1792,31 +1795,42 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertTrue(documents.toSql().contains("\"variant_max_subcolumns_count\" = \"2\""),
                 documents.toSql());
 
-        // one shard count, stored in the field of the mode
+        // one shard count, stored in the field of the mode; the sparse shard count of older versions is ignored
         for (boolean docMode : new boolean[] {true, false}) {
             org.apache.doris.nereids.types.VariantType sharded = (org.apache.doris.nereids.types.VariantType)
                     parser.parseDataType("variant<PROPERTIES(\"variant_enable_doc_mode\" = \"" + docMode
-                            + "\", \"variant_sparse_hash_shard_count\" = \"4\")>");
+                            + "\", \"variant_doc_hash_shard_count\" = \"4\", "
+                            + "\"variant_sparse_hash_shard_count\" = \"8\")>");
             Assertions.assertEquals(docMode ? 0 : 4, sharded.getVariantSparseHashShardCount());
             Assertions.assertEquals(docMode ? 4 : 0, sharded.getVariantDocShardCount());
-            Assertions.assertTrue(sharded.toSql().contains("\"variant_sparse_hash_shard_count\" = \"4\""),
+            Assertions.assertTrue(sharded.toSql().contains("\"variant_doc_hash_shard_count\" = \"4\""),
                     sharded.toSql());
+            Assertions.assertFalse(sharded.toSql().contains("variant_sparse_hash_shard_count"), sharded.toSql());
         }
     }
 
     @Test
     public void testVariantDdlOfReleasedVersions() {
-        // what released versions print in SHOW CREATE TABLE without doc mode parses
+        // What released versions print in SHOW CREATE TABLE. With doc mode it parses and keeps its shard count.
         NereidsParser parser = new NereidsParser();
-        org.apache.doris.nereids.types.VariantType ordinary = (org.apache.doris.nereids.types.VariantType)
-                parser.parseDataType("variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\","
+        org.apache.doris.nereids.types.VariantType documents = (org.apache.doris.nereids.types.VariantType)
+                parser.parseDataType("variant<PROPERTIES (\"variant_enable_doc_mode\" = \"true\","
+                        + "\"variant_doc_materialization_min_rows\" = \"100\","
+                        + "\"variant_doc_hash_shard_count\" = \"64\")>");
+        Assertions.assertTrue(documents.getEnableVariantDocMode());
+        Assertions.assertEquals(100L, documents.getvariantDocMaterializationMinRows());
+        Assertions.assertEquals(64, documents.getVariantDocShardCount());
+        Assertions.assertTrue(documents.toSql().contains("\"variant_doc_hash_shard_count\" = \"64\""),
+                documents.toSql());
+        Assertions.assertTrue(documents.toSql().contains("\"variant_doc_materialization_min_rows\" = \"100\""),
+                documents.toSql());
+
+        // without doc mode it states variant_enable_typed_paths_to_sparse, which is refused
+        Assertions.assertThrows(Exception.class, () -> parser.parseDataType(
+                "variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\","
                         + "\"variant_enable_typed_paths_to_sparse\" = \"false\","
                         + "\"variant_max_sparse_column_statistics_size\" = \"10000\","
-                        + "\"variant_sparse_hash_shard_count\" = \"4\")>");
-        Assertions.assertEquals(4, ordinary.getVariantSparseHashShardCount());
-        Assertions.assertEquals(0, ordinary.getVariantDocShardCount());
-        Assertions.assertTrue(ordinary.toSql().contains("\"variant_sparse_hash_shard_count\" = \"4\""),
-                ordinary.toSql());
+                        + "\"variant_sparse_hash_shard_count\" = \"4\")>"));
     }
 
     @Test

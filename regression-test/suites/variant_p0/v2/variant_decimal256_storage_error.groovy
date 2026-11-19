@@ -26,8 +26,7 @@ suite("variant_decimal256_storage_error", "p0,nonConcurrent") {
             var VARIANT<
                 'decimal256_': DECIMAL(76, 2),
                 PROPERTIES(
-                    "variant_max_subcolumns_count" = "1",
-                    "variant_enable_typed_paths_to_sparse" = "false")
+                    "variant_max_subcolumns_count" = "1")
             >
         ) ENGINE = OLAP
         DUPLICATE KEY(id)
@@ -80,8 +79,7 @@ suite("variant_decimal256_storage_error", "p0,nonConcurrent") {
             var VARIANT<
                 'array_decimal256_': ARRAY<DECIMAL(76, 2)>,
                 PROPERTIES(
-                    "variant_max_subcolumns_count" = "1",
-                    "variant_enable_typed_paths_to_sparse" = "false")
+                    "variant_max_subcolumns_count" = "1")
             >
         ) ENGINE = OLAP
         DUPLICATE KEY(id)

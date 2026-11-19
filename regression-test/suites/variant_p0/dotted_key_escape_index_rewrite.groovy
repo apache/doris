@@ -17,7 +17,7 @@
 
 suite("dotted_key_escape_index_rewrite", "p0,nonConcurrent") {
     // the layout depends on the row threshold and DESC prints it, which fuzzy mode picks at random
-    sql "set debug_variant_subcolumn_extraction_min_rows = 0"
+    sql "set debug_variant_doc_materialization_min_rows = 0"
     sql "set debug_variant_enable_doc_mode=false"
     ["V2", "V3"].each { format ->
         sql "drop table if exists dotted_key_escape_index_rewrite"

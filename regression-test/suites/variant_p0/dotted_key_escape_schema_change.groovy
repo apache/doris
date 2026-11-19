@@ -37,8 +37,8 @@ suite("dotted_key_escape_schema_change", "p0") {
     for (def storageFormat : ["V2", "V3"]) {
         for (def docMode : [false, true]) {
             def layout = docMode
-                    ? '"variant_enable_doc_mode"="true", "variant_sparse_hash_shard_count"="3", "variant_subcolumn_extraction_min_rows"="1"'
-                    : '"variant_max_subcolumns_count"="1", "variant_sparse_hash_shard_count"="3"'
+                    ? '"variant_enable_doc_mode"="true", "variant_doc_hash_shard_count"="3", "variant_doc_materialization_min_rows"="1"'
+                    : '"variant_max_subcolumns_count"="1", "variant_doc_hash_shard_count"="3"'
 
             String name = "dotted_key_escape_schema_change_${storageFormat}_${docMode}"
             sql "drop table if exists ${name}"

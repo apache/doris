@@ -22,8 +22,8 @@ suite("dotted_key_escape_doc_threshold", "p0,nonConcurrent") {
     sql "drop table if exists dotted_key_escape_doc_threshold"
     sql """create table dotted_key_escape_doc_threshold(id int, v variant<properties(
         "variant_enable_nested_group"="false",
-        "variant_enable_doc_mode"="true", "variant_subcolumn_extraction_min_rows"="4",
-        "variant_sparse_hash_shard_count"="3")>)
+        "variant_enable_doc_mode"="true", "variant_doc_materialization_min_rows"="4",
+        "variant_doc_hash_shard_count"="3")>)
         duplicate key(id) distributed by hash(id) buckets 1
         properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""
     sql """insert into dotted_key_escape_doc_threshold values

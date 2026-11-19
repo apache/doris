@@ -17,7 +17,7 @@
 
 suite("dotted_key_escape_complex_rewrite", "p0,nonConcurrent") {
     // the layout depends on the row threshold and DESC prints it, which fuzzy mode picks at random
-    sql "set debug_variant_subcolumn_extraction_min_rows = 0"
+    sql "set debug_variant_doc_materialization_min_rows = 0"
     sql "set debug_variant_enable_doc_mode=false"
     sql "set describe_extend_variant_column=true"
     sql "drop table if exists dotted_key_escape_complex"
@@ -25,7 +25,7 @@ suite("dotted_key_escape_complex_rewrite", "p0,nonConcurrent") {
     // The frequent 'hot' field occupies the sole materialized-column slot.
     sql """create table dotted_key_escape_complex(id int, v variant<properties(
         "variant_enable_nested_group"="false",
-        "variant_max_subcolumns_count"="1", "variant_sparse_hash_shard_count"="1",
+        "variant_max_subcolumns_count"="1", "variant_doc_hash_shard_count"="1",
         "variant_max_sparse_column_statistics_size"="10000")>)
         duplicate key(id) distributed by hash(id) buckets 1
         properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "disable_auto_compaction"="true")"""

@@ -105,7 +105,7 @@ suite("test_match_keyword_score", "p0") {
         sql "set debug_variant_max_subcolumns_count = 2048"
         sql "set debug_variant_enable_typed_paths_to_sparse = false"
         sql "set debug_variant_enable_doc_mode = false"
-        sql "set debug_variant_subcolumn_extraction_min_rows = 0"
+        sql "set debug_variant_doc_materialization_min_rows = 0"
         sql "DROP TABLE IF EXISTS test_match_keyword_score_variant"
         sql """
             CREATE TABLE test_match_keyword_score_variant (

@@ -20,7 +20,7 @@ suite("test_all_prdefine_type_to_sparse", "p0,nonConcurrent") {
 
     sql """ set describe_extend_variant_column = true """
     sql """ set debug_variant_enable_doc_mode = false """
-    sql """ set debug_variant_subcolumn_extraction_min_rows = 0 """
+    sql """ set debug_variant_doc_materialization_min_rows = 0 """
 
     def tableName = "test_all_prdefine_type_to_sparse"
     sql "DROP TABLE IF EXISTS ${tableName}"
@@ -66,7 +66,7 @@ suite("test_all_prdefine_type_to_sparse", "p0,nonConcurrent") {
                 'array_ipv6_*':array<ipv6>,
                 properties (
                     "variant_max_subcolumns_count" = "1",
-                    "variant_sparse_hash_shard_count" = "3"
+                    "variant_doc_hash_shard_count" = "3"
                 )
             > NOT NULL
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")

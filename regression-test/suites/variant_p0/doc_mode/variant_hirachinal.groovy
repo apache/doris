@@ -18,7 +18,7 @@
 suite("variant_hirachinal_doc_value", "nonConcurrent"){
     def variantV2Function = "parse_to_variant"
     sql """ set debug_variant_enable_doc_mode = true """
-    sql """ set debug_variant_subcolumn_extraction_min_rows = 0 """
+    sql """ set debug_variant_doc_materialization_min_rows = 0 """
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -72,7 +72,7 @@ suite("variant_hirachinal_doc_value", "nonConcurrent"){
 
     sql "DROP TABLE IF EXISTS ${table_name}"
 
-    sql """ set debug_variant_subcolumn_extraction_min_rows = 0 """
+    sql """ set debug_variant_doc_materialization_min_rows = 0 """
     // typed paths to sparse is internal: only the session variable sets it
     sql "set debug_variant_enable_typed_paths_to_sparse = true"
     sql """

@@ -1229,7 +1229,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         }
     }
 
-    // The rows this compaction writes, compared with variant_subcolumn_extraction_min_rows below.
+    // The rows this compaction writes, compared with variant_doc_materialization_min_rows below.
     // A load decides per segment; here the whole output stands for its segments.
     int64_t input_rows = 0;
     for (const auto& rs : rowsets) {

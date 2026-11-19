@@ -20,7 +20,7 @@ suite("dotted_key_escape_score", "p0") {
     sql "set debug_variant_enable_doc_mode=false"
     // every path a subcolumn: a count of 0 keeps the dynamic paths sparse on a new column
     sql "set debug_variant_max_subcolumns_count=2048"
-    sql "set debug_variant_subcolumn_extraction_min_rows=0"
+    sql "set debug_variant_doc_materialization_min_rows=0"
     sql "set group_commit='off_mode'"
     sql "DROP TABLE IF EXISTS dotted_key_escape_score"
     sql """CREATE TABLE dotted_key_escape_score (

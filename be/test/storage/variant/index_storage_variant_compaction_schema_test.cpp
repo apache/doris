@@ -224,7 +224,7 @@ TEST_F(IndexStorageVariantCompactionSchemaTest,
     EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "cold"));
 }
 
-// A compaction can write fewer rows than variant_subcolumn_extraction_min_rows although its inputs
+// A compaction can write fewer rows than variant_doc_materialization_min_rows although its inputs
 // already extracted subcolumns, when an ALTER raised the threshold or an earlier compaction
 // extracted them from more rows than it kept (rows merged or deleted): those paths go to the sparse
 // column instead of being dropped.
