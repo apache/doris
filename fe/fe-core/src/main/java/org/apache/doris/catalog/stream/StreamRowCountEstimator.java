@@ -81,14 +81,13 @@ public final class StreamRowCountEstimator {
         return unique && type != StreamScanType.APPEND_ONLY ? LongMath.saturatedMultiply(records, 2) : records;
     }
 
-    /** Complete snapshot scale; UNIQUE reconstruction instead estimates its branches separately. */
-    public static long estimateSnapshotRead(boolean appendOnly, long storedBaseRowCount,
-            long currentBaseRowCount, long changeRecords, LongSupplier tableRowCount) {
+    /** Row count for a DUP historical base scan. */
+    static long estimateSnapshotRead(long storedBaseRowCount, long currentBaseRowCount, LongSupplier tableRowCount) {
         if (storedBaseRowCount >= 0) {
             return storedBaseRowCount;
         }
         if (currentBaseRowCount >= 0) {
-            return !appendOnly && changeRecords >= 0 ? currentBaseRowCount + changeRecords : currentBaseRowCount;
+            return currentBaseRowCount;
         }
         return tableRowCount.getAsLong();
     }

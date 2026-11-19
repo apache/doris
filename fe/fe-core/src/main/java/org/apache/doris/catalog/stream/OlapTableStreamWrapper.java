@@ -424,8 +424,7 @@ public class OlapTableStreamWrapper extends OlapTable {
             PartitionStreamState state = matchingBaseline(partitionId);
             long storedBase = state == null ? StreamRowCountEstimator.UNKNOWN_ROW_COUNT : state.getBaseRowCount();
             long currentBase = getPartitionRowCount(partitionId, baseTable.getBaseIndexId());
-            long rows = StreamRowCountEstimator.estimateSnapshotRead(keysType == KeysType.DUP_KEYS,
-                    storedBase, currentBase, StreamRowCountEstimator.UNKNOWN_ROW_COUNT, fallback);
+            long rows = StreamRowCountEstimator.estimateSnapshotRead(storedBase, currentBase, fallback);
             estimates.put(partitionId, rows);
         }
         return estimates;

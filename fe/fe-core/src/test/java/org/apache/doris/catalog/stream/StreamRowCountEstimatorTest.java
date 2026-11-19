@@ -110,18 +110,13 @@ public class StreamRowCountEstimatorTest {
 
     @Test
     public void testSnapshotPrefersConsumptionBaselineIncludingZero() {
-        Assertions.assertEquals(500, StreamRowCountEstimator.estimateSnapshotRead(true, 500, 700, 300, () -> 9999));
-        Assertions.assertEquals(800, StreamRowCountEstimator.estimateSnapshotRead(false, 800, 700, 300, () -> 9999));
-        Assertions.assertEquals(0, StreamRowCountEstimator.estimateSnapshotRead(true, 0, 700, 300, () -> 9999));
-        Assertions.assertEquals(700, StreamRowCountEstimator.estimateSnapshotRead(true, UNKNOWN, 700, 300, () -> 9999));
-        Assertions.assertEquals(1000,
-                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, 700, 300, () -> 9999));
-        Assertions.assertEquals(700,
-                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, 700, UNKNOWN, () -> 9999));
-        Assertions.assertEquals(9999,
-                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, () -> 9999));
+        Assertions.assertEquals(500, StreamRowCountEstimator.estimateSnapshotRead(500, 700, () -> 9999));
+        Assertions.assertEquals(0, StreamRowCountEstimator.estimateSnapshotRead(0, 700, () -> 9999));
+        Assertions.assertEquals(700, StreamRowCountEstimator.estimateSnapshotRead(UNKNOWN, 700, () -> 9999));
+        Assertions.assertEquals(0, StreamRowCountEstimator.estimateSnapshotRead(UNKNOWN, 0, () -> 9999));
+        Assertions.assertEquals(9999, StreamRowCountEstimator.estimateSnapshotRead(UNKNOWN, UNKNOWN, () -> 9999));
         Assertions.assertEquals(UNKNOWN,
-                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, () -> UNKNOWN));
+                StreamRowCountEstimator.estimateSnapshotRead(UNKNOWN, UNKNOWN, () -> UNKNOWN));
     }
 
     @Test
