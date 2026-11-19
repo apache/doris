@@ -104,7 +104,7 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
         setBeConfigTemporary([paimon_rust_writer_memory_limit_bytes: 1]) {
             test {
                 sql "INSERT INTO t_append VALUES (4, 'over-budget', 0.00, DATE '2026-01-01')"
-                exception "exhausted its resource budget"
+                exception "exceeds writer budget 1"
             }
         }
         // Failed input must not change the committed snapshot. Read Rust output
