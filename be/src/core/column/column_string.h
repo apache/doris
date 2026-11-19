@@ -641,8 +641,6 @@ public:
 
     ColumnPtr convert_column_if_overflow() override;
 
-    void erase(size_t start, size_t length) override;
-
     void deserialize(StringRef* keys, const size_t num_rows) override;
     void serialize(StringRef* keys, const size_t num_rows) const override;
     size_t serialize_impl(char* pos, size_t row) const override;
