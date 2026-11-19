@@ -42,6 +42,10 @@ Status check_rowid_memory_limit(size_t reserved_memory) {
             GlobalMemoryArbitrator::process_mem_log_str(), tracker->label(),
             tracker->peak_consumption(), tracker->consumption()));
 }
+} // namespace
+
+// Storage's variant alternatives and their member types need external linkage
+// for GCC's -Wsubobject-linkage check in unity builds.
 
 // Both uncompressed layouts store segment/row pairs as the writer advances.
 struct RowIdDestination {
@@ -194,7 +198,6 @@ struct CompressedRowIdStorage {
     uint64_t next_global_row = 0;
     bool finalized = false;
 };
-} // namespace
 
 struct RowIdConversion::Storage {
     explicit Storage(Mode mode) {
