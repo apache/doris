@@ -54,7 +54,22 @@ class LanceS3StorageNativeTest {
         assertExplicitIdentityOverridesTheEnvironment("to-path");
     }
 
+    @Test
+    void inheritedEndpointFollowsAnAlternateTrueValue() throws Exception {
+        assertExplicitIdentityOverridesTheEnvironment("to-virtual", "on");
+    }
+
+    @Test
+    void inheritedEndpointFollowsAnAlternateFalseValue() throws Exception {
+        assertExplicitIdentityOverridesTheEnvironment("to-path", "off");
+    }
+
     private void assertExplicitIdentityOverridesTheEnvironment(String mode) throws Exception {
+        assertExplicitIdentityOverridesTheEnvironment(mode, String.valueOf("to-virtual".equals(mode)));
+    }
+
+    private void assertExplicitIdentityOverridesTheEnvironment(String mode, String vendedVirtualHostedStyle)
+            throws Exception {
         LanceNativeTestSupport.requireNativeLibraries();
         AtomicReference<String> authorization = new AtomicReference<>();
         AtomicReference<String> token = new AtomicReference<>();
@@ -85,7 +100,7 @@ class LanceS3StorageNativeTest {
                     Paths.get(System.getProperty("java.home"), "bin", "java").toString(),
                     "-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
                     LanceS3StorageNativeTest.class.getName(), "http://127.0.0.1:" + server.getAddress().getPort(),
-                    mode)
+                    mode, vendedVirtualHostedStyle)
                     .redirectErrorStream(true);
             builder.environment().keySet().removeIf(key -> key.startsWith("AWS_"));
             builder.environment().put("AWS_ACCESS_KEY_ID", "ambient-ak");
@@ -124,7 +139,7 @@ class LanceS3StorageNativeTest {
                             .endpoint("http://storage.example:9000").region("us-east-1")
                             .accessKey("catalog-ak").secretKey("catalog-sk")
                             .usePathStyle(String.valueOf(virtual))),
-                    Map.of("virtual_hosted_style_request", String.valueOf(virtual), "proxy_url", args[0]));
+                    Map.of("virtual_hosted_style_request", args[2], "proxy_url", args[0]));
             Assertions.assertTrue(Dataset.listManifestLocations("s3://warehouse/all_types.lance", options).isEmpty());
             return;
         }

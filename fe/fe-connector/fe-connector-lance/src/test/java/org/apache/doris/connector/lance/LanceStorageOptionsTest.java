@@ -209,6 +209,32 @@ class LanceStorageOptionsTest {
     }
 
     @Test
+    void inheritedS3EndpointsUseTheNativeBooleanGrammar() {
+        for (boolean virtualHostedStyle : new boolean[] {true, false}) {
+            String[] values = virtualHostedStyle
+                    ? new String[] {"1", "true", "on", "yes", "y", "TRUE", "On", "YeS", "Y"}
+                    : new String[] {"0", "false", "off", "no", "n", "FALSE", "Off", "nO", "N"};
+            for (String value : values) {
+                Map<String, String> options = LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI,
+                        catalog(minio().usePathStyle(String.valueOf(virtualHostedStyle))),
+                        map("virtual_hosted_style_request", value));
+                String expected = virtualHostedStyle ? "http://warehouse.minio:9000" : "http://minio:9000";
+                Assertions.assertEquals(expected, options.get("aws_endpoint"), value);
+                Assertions.assertEquals(expected, options.get("aws_endpoint_url_s3"), value);
+                Assertions.assertEquals(value, options.get("aws_virtual_hosted_style_request"));
+            }
+        }
+    }
+
+    @Test
+    void inheritedS3EndpointsRejectInvalidBooleanValues() {
+        for (String value : new String[] {"", "invalid", " true", "true "}) {
+            Assertions.assertTrue(conflict(S3_URI, catalog(minio()),
+                    map("virtual_hosted_style_request", value)).contains("Unrecognized value"));
+        }
+    }
+
+    @Test
     void explicitVendedS3EndpointsKeepTheirNativeMeaning() {
         for (String endpointKey : new String[] {"endpoint", "aws_endpoint_url_s3"}) {
             Map<String, String> options = LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI,

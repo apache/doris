@@ -24,6 +24,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -206,9 +207,32 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
             // Only Doris endpoints need bucket qualification. Namespace endpoints already use
             // object_store's native vocabulary and must keep the meaning the namespace assigned.
             LanceStorageOptions.putIfNotEmpty(merged, ENDPOINT, endpointForDataset(datasetUri,
-                    catalogOptions.get(ENDPOINT), Boolean.parseBoolean(merged.get(VIRTUAL_HOSTED_STYLE))));
+                    catalogOptions.get(ENDPOINT), parseObjectStoreBoolean(
+                            merged.getOrDefault(VIRTUAL_HOSTED_STYLE, "false"))));
         }
         return merged;
+    }
+
+    /** Matches object_store's {@code ConfigValue<bool>} parser, including case-insensitive alternate spellings. */
+    private static boolean parseObjectStoreBoolean(String value) {
+        switch (value.toLowerCase(Locale.ROOT)) {
+            case "1":
+            case "true":
+            case "on":
+            case "yes":
+            case "y":
+                return true;
+            case "0":
+            case "false":
+            case "off":
+            case "no":
+            case "n":
+                return false;
+            default:
+                throw new IllegalArgumentException("Unrecognized value for S3 storage option '"
+                        + VIRTUAL_HOSTED_STYLE + "': '" + value
+                        + "'. Expected one of 1, true, on, yes, y, 0, false, off, no, n");
+        }
     }
 
     @Override
