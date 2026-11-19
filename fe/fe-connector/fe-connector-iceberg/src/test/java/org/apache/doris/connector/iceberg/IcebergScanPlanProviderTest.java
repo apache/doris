@@ -5611,8 +5611,8 @@ public class IcebergScanPlanProviderTest {
                 .withFormat(FileFormat.PARQUET).withFileSizeInBytes(100)
                 .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds)).build()).commit();
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
-        ManifestCacheValue full = IcebergManifestReader.read(manifest, table, manifest.content(), false);
-        ManifestCacheValue projected = IcebergManifestReader.uncachedLoader(table,
+        ManifestCacheValue full = IcebergManifestLoader.read(manifest, table, manifest.content(), false);
+        ManifestCacheValue projected = IcebergManifestLoader.uncachedLoader(table,
                 SchemaAwareDataTableScan.manifestColumns(table.newScan()), () -> { }).apply(manifest);
         Assertions.assertEquals(bounds, full.getDataFiles().get(0).lowerBounds());
         Assertions.assertNull(projected.getDataFiles().get(0).lowerBounds());

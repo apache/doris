@@ -99,7 +99,9 @@ final class IcebergManifestLoader {
 
     static ManifestCacheValue read(ManifestFile manifest, Table table,
             ManifestContent content, boolean estimateWeight) {
-        return read(manifest, table, new IcebergScanFileIO(table.io(), () -> { }), content, estimateWeight, null, null, DataFile::copy, () -> { });
+        // Avoid the SDK byte cache until the parsed value has been classified as plaintext.
+        return read(manifest, table, new IcebergScanFileIO(table.io(), () -> { }), content, estimateWeight,
+                null, null, DataFile::copy, () -> { });
     }
 
     static Function<ManifestFile, ManifestCacheValue> uncachedLoader(Table table, List<String> columns,

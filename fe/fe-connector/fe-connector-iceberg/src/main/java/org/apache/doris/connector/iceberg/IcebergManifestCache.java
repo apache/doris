@@ -24,7 +24,6 @@ import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
-import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Table;
 
