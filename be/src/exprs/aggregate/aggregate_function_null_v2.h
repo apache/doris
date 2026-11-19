@@ -84,6 +84,11 @@ protected:
     // Other non-nullable results use the nested empty state and need no prefix.
     static constexpr bool needs_state_flag = result_is_nullable || needs_empty_input_state_marker;
 
+    // Internal flags: 0 means no valid input; 1 means valid input, including an empty
+    // bitmap. This third value records a decoded [0] marker. It keeps that marker
+    // through old-schema compaction. The internal value 2 is never written to the wire.
+    static constexpr char EMPTY_INPUT_FROM_MARKER = 2;
+
     static void init_flag(AggregateDataPtr __restrict place) noexcept {
         if constexpr (needs_state_flag) {
             place[0] = false;
@@ -110,7 +115,7 @@ protected:
             if (*buf.data() == 0) {
                 buf.add_offset(1);
                 if (!get_flag(place)) {
-                    place[0] = 2;
+                    place[0] = EMPTY_INPUT_FROM_MARKER;
                 }
                 return false;
             }
@@ -282,21 +287,25 @@ public:
             set_flag(place);
             nested_function->merge(nested_place(place), nested_place(rhs), arena);
         } else if constexpr (needs_empty_input_state_marker) {
-            // State 2 is an empty contribution decoded from the new persistent marker.
-            // Preserve it through old-schema compaction, whose function version can be 19.
-            if (rhs[0] == 2 && !get_flag(place)) {
-                place[0] = 2;
+            // Keep a decoded no-input marker through compaction of a version-19 column.
+            // A valid destination, including a real empty bitmap, must stay valid.
+            if (rhs[0] == EMPTY_INPUT_FROM_MARKER && !get_flag(place)) {
+                place[0] = EMPTY_INPUT_FROM_MARKER;
             }
         }
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        bool flag = get_flag(place);
+        const bool flag = get_flag(place);
         if constexpr (needs_empty_input_state_marker) {
-            if (!flag &&
-                (this->version >= USE_UNIFIED_NULLABLE_AGGREGATION_VERSION || place[0] == 2)) {
-                // Legacy non-NULL bitmap payloads begin with a varint-length byte in [1,9].
-                // Zero is a self-describing no-input state; a real empty bitmap stays [1,1,0].
+            // Preserve a decoded [0] even when the column's type version is 19. Replacing
+            // it with an empty bitmap would make a later intersection with {1} empty.
+            // A fresh empty state can use [0] only in version 20 or later; old peers need
+            // the legacy bitmap payload. A decoded marker is never a valid state (flag 1).
+            if (place[0] == EMPTY_INPUT_FROM_MARKER ||
+                (!flag && this->version >= USE_UNIFIED_NULLABLE_AGGREGATION_VERSION)) {
+                // Valid Bitmap payloads start with a length byte in [1,9]. Thus [0]
+                // means no input, while [1,1,0] still means a real empty bitmap.
                 buf.write_char(0);
                 return;
             }
