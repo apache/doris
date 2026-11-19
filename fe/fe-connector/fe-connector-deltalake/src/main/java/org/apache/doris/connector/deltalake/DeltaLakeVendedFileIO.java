@@ -37,6 +37,7 @@ import org.apache.hadoop.fs.Path;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
 
 /** Hadoop loads S3A providers in the FE class loader. Give its built-in session provider a UC READ grant. */
@@ -74,6 +75,9 @@ final class DeltaLakeVendedFileIO extends DeltaLakeFileIO {
     }
 
     static final class Clients implements AutoCloseable {
+        private static final int MAX_CLIENTS_PER_CATALOG = 64;
+        private static final int MAX_CLIENTS_PER_GRANT = 8;
+        private static final long BORROW_TIMEOUT_MILLIS = 30_000L;
         private final Configuration base;
         private final ConnectorContext context;
         private final GenericKeyedObjectPool<Grant, DeltaLakeFileIO> pool;
@@ -94,8 +98,13 @@ final class DeltaLakeVendedFileIO extends DeltaLakeFileIO {
             this.context = context;
             GenericKeyedObjectPoolConfig config = new GenericKeyedObjectPoolConfig();
             config.setJmxEnabled(false);
-            config.setMaxTotalPerKey(-1);
+            // A stream holds its client until close. Bound both concurrent readers of one grant
+            // and the aggregate across tables and credential rotations in this catalog.
+            config.setMaxTotal(MAX_CLIENTS_PER_CATALOG);
+            config.setMaxTotalPerKey(MAX_CLIENTS_PER_GRANT);
             config.setMaxIdlePerKey(2);
+            config.setBlockWhenExhausted(true);
+            config.setMaxWaitMillis(BORROW_TIMEOUT_MILLIS);
             config.setMinEvictableIdleTimeMillis(60_000);
             config.setTimeBetweenEvictionRunsMillis(60_000);
             config.setNumTestsPerEvictionRun(-1);
@@ -130,6 +139,9 @@ final class DeltaLakeVendedFileIO extends DeltaLakeFileIO {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IOException("Interrupted opening UC table storage", e);
+            } catch (NoSuchElementException e) {
+                throw new IOException("UC table storage client pool exhausted (borrow timeout "
+                        + pool.getMaxWaitMillis() + " ms)", e);
             } catch (Exception e) {
                 throw new IOException("Failed to open UC table storage", e);
             }
