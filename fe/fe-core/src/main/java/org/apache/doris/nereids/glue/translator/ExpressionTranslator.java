@@ -266,8 +266,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         }
         Column column = slot.getOriginalColumn().orElse(null);
         OlapTable olapTbl = getOlapTableDirectly(slot);
-        if (match.left() instanceof SlotReference && match.left().getDataType().isVariantType()
-                && !slot.hasSubColPath()) {
+        if (Match.isVariantRootSlot(match.left())) {
             invertedIndex = column != null && olapTbl != null
                     ? olapTbl.getVariantValuesIndex(column, analyzer) : null;
             if (invertedIndex == null) {

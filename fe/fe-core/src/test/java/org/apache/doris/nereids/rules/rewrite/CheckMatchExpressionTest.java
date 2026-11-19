@@ -18,7 +18,10 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -45,6 +48,8 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 class CheckMatchExpressionTest {
 
@@ -60,7 +65,10 @@ class CheckMatchExpressionTest {
 
     @Test
     void testAllowsBoundRootAndAliasSlots() {
-        SlotReference root = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), null,
+        OlapTable table = new OlapTable();
+        table.setIndexes(List.of(new Index(1, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "english"), "")));
+        SlotReference root = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), table,
                 new Column("v", Type.VARIANT), Arrays.asList());
         SlotReference alias = (SlotReference) new Alias(root, "renamed").toSlot();
         for (SlotReference slot : Arrays.asList(root, alias)) {
