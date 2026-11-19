@@ -573,7 +573,7 @@ public abstract class BaseAnalysisTask {
             tableSample = new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
             if (!isSync) {
                 synchronized (job) {
-                    if (!job.isTerminated()) {
+                    if (!job.isTerminated() && !job.isHistoryDropped()) {
                         AnalysisInfo current = analysisManager.findJobInfo(jobInfo.jobId);
                         AnalysisInfo source = current == null ? jobInfo : current;
                         AnalysisInfo sample = new AnalysisInfoBuilder(source)

@@ -512,7 +512,9 @@ public class AnalysisManager implements Writable {
                 if (job.state == AnalysisState.PENDING) {
                     job.state = AnalysisState.RUNNING;
                     job.markStartTime(System.currentTimeMillis());
-                    replayCreateAnalysisJob(job);
+                    if (!runningJob.isHistoryDropped()) {
+                        replayCreateAnalysisJob(job);
+                    }
                 }
                 return;
             }
@@ -525,16 +527,22 @@ public class AnalysisManager implements Writable {
                 String skipMessage = String.format("%s:[%s] ", info.colName, info.message);
                 job.message = job.message == null ? skipMessage : job.message + skipMessage;
             }
-            if (info.jobType == JobType.MANUAL) {
-                logCreateAnalysisTask(info);
-            } else {
-                replayCreateAnalysisTask(info);
+            if (!runningJob.isHistoryDropped()) {
+                if (info.jobType == JobType.MANUAL) {
+                    logCreateAnalysisTask(info);
+                } else {
+                    replayCreateAnalysisTask(info);
+                }
             }
         }
     }
 
-    void finishJob(AnalysisInfo originalJob, AnalysisState state, String reason) {
-        AnalysisInfo job = analysisJobInfoMap.getOrDefault(originalJob.jobId, originalJob);
+    void finishJob(AnalysisJob runningJob, AnalysisState state, String reason) {
+        AnalysisInfo job;
+        synchronized (runningJob) {
+            AnalysisInfo originalJob = runningJob.getJobInfo();
+            job = analysisJobInfoMap.getOrDefault(originalJob.jobId, originalJob);
+        }
         if (state == AnalysisState.FAILED) {
             job.markFailed();
             job.message = reason;
@@ -558,7 +566,11 @@ public class AnalysisManager implements Writable {
                 LOG.warn("Failed to update table statistics for analysis job {}", job.jobId, e);
             }
         }
-        logCreateAnalysisJob(job);
+        synchronized (runningJob) {
+            if (!runningJob.isHistoryDropped()) {
+                logCreateAnalysisJob(job);
+            }
+        }
     }
 
     @VisibleForTesting
@@ -1152,6 +1164,19 @@ public class AnalysisManager implements Writable {
         }
         checkPriv(jobInfo);
         long jobId = analyzeJobCommand.getJobId();
+        AnalysisJob runningJob = findRunningJob(jobId);
+        if (runningJob == null) {
+            dropJobHistory(jobId);
+        } else {
+            // Serialize deletion with status callbacks and the final history journal write.
+            synchronized (runningJob) {
+                runningJob.dropHistory(analysisJobInfoMap.getOrDefault(jobId, runningJob.getJobInfo()));
+                dropJobHistory(jobId);
+            }
+        }
+    }
+
+    private void dropJobHistory(long jobId) {
         AnalyzeDeletionLog analyzeDeletionLog = new AnalyzeDeletionLog(jobId);
         Env.getCurrentEnv().getEditLog().logDeleteAnalysisJob(analyzeDeletionLog);
         replayDeleteAnalysisJob(analyzeDeletionLog);

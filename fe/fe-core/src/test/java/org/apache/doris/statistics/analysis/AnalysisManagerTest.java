@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AnalyzeTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropAnalyzeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillAnalyzeJobCommand;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
@@ -423,6 +424,49 @@ public class AnalysisManagerTest {
         Assertions.assertEquals(AnalysisState.FAILED, job.state);
         Assertions.assertTrue(partitionRows.isEmpty(),
                 "shared map must be cleared when a running job is killed");
+    }
+
+    @Test
+    public void testDropRunningJobDoesNotRestoreHistoryAtCompletion() throws DdlException {
+        AnalysisManager manager = Mockito.spy(new AnalysisManager());
+        Mockito.doNothing().when(manager).updateTableStats(Mockito.any());
+        AnalysisInfo jobInfo = new AnalysisInfoBuilder().setJobId(1)
+                .setCatalogId(10001L).setDBId(20001L).setTblId(30001L)
+                .setState(AnalysisState.RUNNING).setJobType(JobType.MANUAL).build();
+        BaseAnalysisTask task = Mockito.mock(BaseAnalysisTask.class);
+        task.info = new AnalysisInfoBuilder(jobInfo).setTaskId(2).build();
+        manager.constructJob(jobInfo, List.of(task));
+        manager.registerSysJob(jobInfo, Map.of(2L, task));
+        manager.replayCreateAnalysisTask(task.info);
+        AnalysisInfo sample = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
+        manager.replayCreateAnalysisJob(sample);
+
+        MoreFieldsThread.setConnectContext(new ConnectContext());
+        Env env = Mockito.mock(Env.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(accessManager.checkTblPriv(Mockito.any(ConnectContext.class), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any())).thenReturn(true);
+        Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        DBObjects dbObjects = new DBObjects(Mockito.mock(CatalogIf.class), Mockito.mock(DatabaseIf.class),
+                Mockito.mock(TableIf.class));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedStatic<StatisticsUtil> stats = Mockito.mockStatic(StatisticsUtil.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            stats.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L)).thenReturn(dbObjects);
+            manager.dropAnalyzeJob(new DropAnalyzeJobCommand(1));
+            task.job.taskDoneWithoutData(task);
+        } finally {
+            MoreFieldsThread.removeConnectContext();
+        }
+
+        Mockito.verify(manager).updateTableStats(sample);
+        Assertions.assertEquals(AnalysisState.FINISHED, task.info.state);
+        Assertions.assertNull(manager.findJobInfo(1));
+        Assertions.assertTrue(manager.findTasks(1).isEmpty());
+        Assertions.assertNull(manager.findRunningJob(1));
+        Assertions.assertFalse(manager.analysisJobIdToTaskMap.containsKey(1L));
     }
 
     @Test

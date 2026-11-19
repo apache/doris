@@ -52,6 +52,7 @@ public class AnalysisJob {
     private boolean flushing;
 
     private final AnalysisInfo jobInfo;
+    private volatile AnalysisInfo droppedHistory;
     private final AnalysisManager analysisManager;
 
     public AnalysisJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> queryingTask) {
@@ -254,7 +255,7 @@ public class AnalysisJob {
 
     private void complete(String reason) {
         try {
-            analysisManager.finishJob(jobInfo, state, reason);
+            analysisManager.finishJob(this, state, reason);
         } finally {
             analysisManager.removeJob(jobInfo.jobId);
             synchronized (this) {
@@ -281,7 +282,17 @@ public class AnalysisJob {
         return state != AnalysisState.RUNNING;
     }
 
+    // Keep the latest statistics metadata if DROP removes an active job's history record.
+    void dropHistory(AnalysisInfo currentInfo) {
+        droppedHistory = currentInfo;
+    }
+
+    boolean isHistoryDropped() {
+        return droppedHistory != null;
+    }
+
     public AnalysisInfo getJobInfo() {
-        return jobInfo;
+        AnalysisInfo dropped = droppedHistory;
+        return dropped == null ? jobInfo : dropped;
     }
 }
