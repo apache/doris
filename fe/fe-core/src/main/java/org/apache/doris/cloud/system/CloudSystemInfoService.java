@@ -40,6 +40,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.RandomIdentifierGenerator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.metric.MetricRepo;
@@ -1831,7 +1832,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         Cloud.ClusterStatus lastLoggedStatus = clusterStatus;
         boolean lastLoggedExistAliveBe = existAliveBe;
 
-        while ((clusterStatus != Cloud.ClusterStatus.NORMAL || !existAliveBe)
+        while ((clusterStatus != Cloud.ClusterStatus.NORMAL || !existAliveBe || pauseForResumeDebugPoint())
             && retryTime < retryTimes) {
             hasAutoStart = true;
             ++retryTime;
@@ -1878,6 +1879,13 @@ public class CloudSystemInfoService extends SystemInfoService {
         if (hasAutoStart) {
             LOG.info("auto start cluster {}, start cost {} ms", clusterName, stopWatch.getTime());
         }
+    }
+
+    private boolean pauseForResumeDebugPoint() {
+        DebugPointUtil.DebugPoint pause =
+                DebugPointUtil.getDebugPoint("CloudSystemInfoService.waitForClusterToResume.pause");
+        ConnectContext ctx = ConnectContext.get();
+        return pause != null && ctx != null && ctx.getConnectionId() == pause.param("connection_id", -1);
     }
 
     /**

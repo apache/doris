@@ -21,12 +21,15 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.util.FetchRemoteTabletSchemaUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /*
  * SHOW PROC /dbs/dbId/tableId/index_schema/indexId
@@ -52,7 +55,27 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
         table.readLock();
         try {
             int maxFetchCount = ConnectContext.get().getSessionVariable().maxFetchRemoteTabletCount;
+            if (Config.isCloudMode()) {
+                List<Partition> partitions = List.copyOf(table.getPartitions());
+                return new RemoteIndexSchemaProcNode(baseSchema, bfColumns,
+                        () -> snapshotCloudTablets(partitions, maxFetchCount).fetch());
+            }
             return new RemoteIndexSchemaProcNode(baseSchema, bfColumns, table.getSampleTablets(maxFetchCount));
+        } finally {
+            table.readUnlock();
+        }
+    }
+
+    private FetchRemoteTabletSchemaUtil snapshotCloudTablets(List<Partition> partitions, int maxFetchCount) {
+        // A cache miss in CloudPartition.getVisibleVersion can call Meta Service.
+        List<Partition> nonEmptyPartitions = partitions.stream()
+                .filter(partition -> partition.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
+                .collect(Collectors.toCollection(ArrayList::new));
+        table.readLock();
+        try {
+            // A partition can be replaced while the version requests are in flight.
+            nonEmptyPartitions.removeIf(partition -> table.getPartition(partition.getId()) != partition);
+            return new FetchRemoteTabletSchemaUtil(OlapTable.getSampleTablets(nonEmptyPartitions, maxFetchCount));
         } finally {
             table.readUnlock();
         }

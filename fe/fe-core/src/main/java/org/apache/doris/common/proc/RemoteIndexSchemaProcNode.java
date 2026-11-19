@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * Fetches extended column metadata for a snapshot of an index or its selected partitions.
@@ -32,17 +33,22 @@ import java.util.Set;
 public class RemoteIndexSchemaProcNode implements ProcNodeInterface {
     private final ProcResult baseSchema;
     private final Set<String> bfColumns;
-    private final FetchRemoteTabletSchemaUtil remoteSchemaFetcher;
+    private final Supplier<List<Column>> remoteSchemaFetcher;
 
     public RemoteIndexSchemaProcNode(ProcResult baseSchema, Set<String> bfColumns, List<Tablet> tablets) {
+        this(baseSchema, bfColumns, new FetchRemoteTabletSchemaUtil(tablets)::fetch);
+    }
+
+    public RemoteIndexSchemaProcNode(ProcResult baseSchema, Set<String> bfColumns,
+            Supplier<List<Column>> remoteSchemaFetcher) {
         this.baseSchema = baseSchema;
         this.bfColumns = bfColumns;
-        this.remoteSchemaFetcher = new FetchRemoteTabletSchemaUtil(tablets);
+        this.remoteSchemaFetcher = remoteSchemaFetcher;
     }
 
     @Override
     public ProcResult fetchResult() {
-        List<Column> remoteSchema = remoteSchemaFetcher.fetch();
+        List<Column> remoteSchema = remoteSchemaFetcher.get();
         ProcResult remoteResult = IndexSchemaProcNode.createResult(remoteSchema, bfColumns, Collections.emptyList());
         BaseProcResult result = new BaseProcResult(baseSchema.getColumnNames(), new ArrayList<>(baseSchema.getRows()));
         result.addRows(remoteResult.getRows());

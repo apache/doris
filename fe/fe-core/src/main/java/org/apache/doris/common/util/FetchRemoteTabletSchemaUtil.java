@@ -27,7 +27,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.proto.InternalService.PFetchRemoteSchemaRequest;
 import org.apache.doris.proto.InternalService.PFetchRemoteSchemaResponse;
 import org.apache.doris.proto.InternalService.PTabletsLocation;
@@ -62,17 +66,46 @@ public class FetchRemoteTabletSchemaUtil {
     private static final Logger LOG = LogManager.getLogger(FetchRemoteTabletSchemaUtil.class);
 
     private final Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
+    private final List<Pair<Long, CloudReplica>> cloudReplicas = Lists.newArrayList();
 
     public FetchRemoteTabletSchemaUtil(List<Tablet> tablets) {
-        // Snapshot tablet locations while the caller holds the table lock.
+        // Capture Cloud replicas without resolving their compute group under the table lock.
         for (Tablet tablet : tablets) {
             for (Replica replica : tablet.getReplicas()) {
                 if (replica.isAlive()) {
-                    beIdToTabletId.computeIfAbsent(replica.getBackendIdWithoutException(), id -> Sets.newHashSet())
-                            .add(tablet.getId());
+                    if (replica instanceof CloudReplica) {
+                        cloudReplicas.add(Pair.of(tablet.getId(), (CloudReplica) replica));
+                    } else {
+                        beIdToTabletId.computeIfAbsent(replica.getBackendIdWithoutException(), id -> Sets.newHashSet())
+                                .add(tablet.getId());
+                    }
                 }
             }
         }
+    }
+
+    private Map<Long, Set<Long>> resolveTabletLocations() {
+        if (cloudReplicas.isEmpty()) {
+            return beIdToTabletId;
+        }
+        // Resolve once per request. This may start a suspended compute group.
+        String clusterId;
+        try {
+            clusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCurrentClusterId();
+        } catch (ComputeGroupException e) {
+            LOG.debug("Could not resolve compute group for remote schema", e);
+            return Collections.emptyMap();
+        }
+        Map<Long, Set<Long>> locations = Maps.newHashMap();
+        for (Pair<Long, CloudReplica> tablet : cloudReplicas) {
+            try {
+                long backendId = tablet.second.getBackendIdWithClusterId(clusterId);
+                locations.computeIfAbsent(backendId, id -> Sets.newHashSet()).add(tablet.first);
+            } catch (ComputeGroupException e) {
+                LOG.debug("Could not route tablet {} for remote schema", tablet.first, e);
+            }
+        }
+        return locations;
     }
 
     private static final Map<String, Type> typeMap = new HashMap<>();
@@ -132,7 +165,7 @@ public class FetchRemoteTabletSchemaUtil {
         // Two BE provide a retry opportunity with the second one in case the first attempt fails.
         List<PTabletsLocation> locations = Lists.newArrayList();
         List<Backend> coordinatorBackend = Lists.newArrayList();
-        for (Map.Entry<Long, Set<Long>> entry : beIdToTabletId.entrySet()) {
+        for (Map.Entry<Long, Set<Long>> entry : resolveTabletLocations().entrySet()) {
             Long backendId = entry.getKey();
             Set<Long> tabletIds = entry.getValue();
             Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(backendId);
