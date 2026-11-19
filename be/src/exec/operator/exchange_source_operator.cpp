@@ -26,6 +26,7 @@
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/exchange/vdata_stream_recvr.h"
 #include "exec/operator/operator.h"
+#include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/exec_env.h"
@@ -144,6 +145,16 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     create_merger_timer = ADD_TIMER(custom_profile(), "CreateMergerTime");
     custom_profile()->add_info_string("InstanceID", print_id(state->fragment_instance_id()));
 
+    auto& p = _parent->cast<ExchangeSourceOperatorX>();
+    if (!p.runtime_filter_descs().empty()) {
+        _runtime_filter_consumer_helper =
+                std::make_unique<RuntimeFilterConsumerHelper>(p.runtime_filter_descs());
+        // Receiver targets only consume filters that have arrived. Waiting here would add
+        // an RF dependency to a source that must remain able to drain exchange data.
+        RETURN_IF_ERROR(_runtime_filter_consumer_helper->register_consumers(
+                state, p.is_serial_operator(), p.node_id()));
+    }
+
     return Status::OK();
 }
 
@@ -152,6 +163,10 @@ Status ExchangeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
+    if (_runtime_filter_consumer_helper) {
+        RETURN_IF_ERROR(_runtime_filter_consumer_helper->acquire_runtime_filter(
+                state, _runtime_filter_conjuncts, p.operator_row_desc_before_projection()));
+    }
     if (p.is_merging()) {
         ordering_expr_ctxs.resize(p._ordering_expr_ctxs.size());
         for (size_t i = 0; i < p._ordering_expr_ctxs.size(); i++) {
@@ -170,7 +185,8 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
           _partition_type(tnode.exchange_node.__isset.partition_type
                                   ? tnode.exchange_node.partition_type
                                   : TPartitionType::UNPARTITIONED),
-          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {}
+          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0),
+          _runtime_filter_descs(tnode.runtime_filters) {}
 
 Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::init(tnode, state));
@@ -247,6 +263,20 @@ Status ExchangeSourceOperatorX::get_block_impl(RuntimeState* state, Block* block
             local_state.set_num_rows_returned(_limit);
         }
     }
+    if (local_state._runtime_filter_consumer_helper) {
+        SCOPED_TIMER(local_state.filter_timer);
+        int arrived_rf_num = 0;
+        RETURN_IF_ERROR(
+                local_state._runtime_filter_consumer_helper->try_append_late_arrival_runtime_filter(
+                        state, operator_row_desc_before_projection(), arrived_rf_num,
+                        local_state._runtime_filter_conjuncts));
+        // Keep RFs separate from static conjuncts: LIMIT/OFFSET select the receiver's rows
+        // before RF pruning. For example, LIMIT 2 on [1, 2, 3] with RF {3} must not return 3.
+        // get_block_after_projects() projects only after this function returns, so these
+        // expressions still see the receiver's input slots, including on a final nonempty block.
+        RETURN_IF_ERROR(VExprContext::filter_block(local_state._runtime_filter_conjuncts, block,
+                                                   block->columns()));
+    }
     return Status::OK();
 }
 
@@ -255,6 +285,9 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
+    }
+    if (_runtime_filter_consumer_helper) {
+        _runtime_filter_consumer_helper->collect_realtime_profile(custom_profile());
     }
     const auto& queues = stream_recvr->sender_queues();
     for (size_t i = 0; i < deps.size(); i++) {
