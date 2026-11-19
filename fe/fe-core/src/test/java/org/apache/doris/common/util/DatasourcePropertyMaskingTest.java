@@ -92,6 +92,58 @@ class DatasourcePropertyMaskingTest {
     }
 
     @Test
+    void azureStorageUrisPreserveTheirContainer() {
+        for (String scheme : List.of("abfs", "abfss", "wasb", "wasbs", "ABFSS")) {
+            for (String container : List.of("warehouse", "data-archive", "c", "a".repeat(63))) {
+                String uri = scheme + "://" + container + "@account.dfs.core.windows.net/tables";
+                assertRendered("warehouse", uri, uri);
+            }
+        }
+    }
+
+    @Test
+    void azureStorageUrisStillMaskQueryCredentialsAndSignatures() {
+        for (String scheme : List.of("abfs", "abfss", "wasb", "wasbs")) {
+            String uri = scheme + "://warehouse@account.dfs.core.windows.net/tables";
+            assertRendered("warehouse", uri + "?token=fixture-token&region=east",
+                    uri + "?token=" + MASK + "&region=east");
+            for (String query : List.of("sig=fixture&se=2030", "%73ig=fixture", "sas=fixture")) {
+                assertRendered("warehouse", uri + "?" + query, MASK);
+            }
+        }
+    }
+
+    @Test
+    void malformedAzureAuthoritiesFailClosed() {
+        for (String scheme : List.of("abfs", "abfss", "wasb", "wasbs")) {
+            for (String authority : List.of("account.dfs.core.windows.net", "@account.dfs.core.windows.net",
+                    "warehouse:fixture-password@account.dfs.core.windows.net",
+                    "BadName@account.dfs.core.windows.net", "bad-@account.dfs.core.windows.net",
+                    "ab@account.dfs.core.windows.net", "bad_name@account.dfs.core.windows.net",
+                    "a".repeat(64) + "@account.dfs.core.windows.net",
+                    "%77arehouse@account.dfs.core.windows.net", "warehouse%3Afixture@account.dfs.core.windows.net",
+                    "warehouse@fixture@account.dfs.core.windows.net")) {
+                assertRendered("warehouse", scheme + "://" + authority + "/tables", MASK);
+            }
+        }
+    }
+
+    @Test
+    void azureAuditPreservesTheContainerAndMasksCredentials() {
+        NeedAuditEncryption audit = () -> true;
+        for (String scheme : List.of("abfs", "abfss", "wasb", "wasbs")) {
+            String uri = scheme + "://warehouse@account.dfs.core.windows.net/tables";
+            for (String prefix : List.of("CREATE CATALOG masking_catalog PROPERTIES ",
+                    "ALTER CATALOG masking_catalog SET PROPERTIES ")) {
+                String masked = audit.geneEncryptionSQL(prefix
+                        + "('warehouse'='" + uri + "?token=fixture-azure-token&region=east')");
+                Assertions.assertTrue(masked.contains(uri + "?token=" + MASK + "&region=east"), masked);
+                Assertions.assertFalse(masked.contains("fixture-azure-token"), masked);
+            }
+        }
+    }
+
+    @Test
     void encodedNamesAndFragmentsDoNotExposeCredentials() {
         assertRendered("uri", "https://api.example.com/?%74oken=fixture&safe=yes",
                 "https://api.example.com/?%74oken=" + MASK + "&safe=yes");

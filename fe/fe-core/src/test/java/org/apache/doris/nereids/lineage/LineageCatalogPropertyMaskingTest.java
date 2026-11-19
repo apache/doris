@@ -36,6 +36,7 @@ class LineageCatalogPropertyMaskingTest {
                 "uri", "https://fixture:fixture-userinfo@api.example.com/?token=fixture-token&region=east",
                 "custom.connection", "jdbc:fixture://host.example.com;password=fixture-nested",
                 "hosts", "https://host1.example:9200/,https://fixture:fixture-list-password@host2.example:9200/",
+                "warehouse", "abfss://warehouse@account.dfs.core.windows.net/tables?token=fixture-azure&region=east",
                 "endpoint", "host.example.com:9000");
         CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
         Mockito.when(catalog.getProperties()).thenReturn(raw);
@@ -50,6 +51,8 @@ class LineageCatalogPropertyMaskingTest {
         Assertions.assertEquals("https://api.example.com/?token=*XXX&region=east", exported.get("uri"));
         Assertions.assertEquals("*XXX", exported.get("custom.connection"));
         Assertions.assertEquals("*XXX", exported.get("hosts"));
+        Assertions.assertEquals("abfss://warehouse@account.dfs.core.windows.net/tables?token=*XXX&region=east",
+                exported.get("warehouse"));
         Assertions.assertEquals("host.example.com:9000", exported.get("endpoint"));
         Assertions.assertFalse(exported.toString().contains("fixture-"));
         Assertions.assertTrue(raw.get("uri").contains("fixture-token"));

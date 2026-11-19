@@ -52,6 +52,9 @@ final class DatasourcePropertyRedactor {
     private static final Pattern HOST_PATTERN = Pattern.compile(HOST);
     private static final Set<String> URI_SCHEMES = Set.of("http", "https", "thrift", "hdfs", "s3", "s3a", "s3n",
             "oss", "cos", "cosn", "obs", "gs", "abfs", "abfss", "wasb", "wasbs");
+    private static final Set<String> AZURE_STORAGE_SCHEMES = Set.of("abfs", "abfss", "wasb", "wasbs");
+    // Match AzureUri's container grammar, including its single-character compatibility form.
+    private static final Pattern AZURE_CONTAINER_NAME = Pattern.compile("[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?");
     private static final Pattern QUERY_NAME = Pattern.compile("[a-zA-Z0-9_.~-]+");
     private static final Pattern QUERY_CREDENTIAL = Pattern.compile(
             "(?i)password|passwd|pwd|secret|token|credential|access[._-]?key|api[._-]?key|"
@@ -111,7 +114,11 @@ final class DatasourcePropertyRedactor {
                 return MASK;
             }
             URI uri = new URI(address);
-            if (uri.getScheme() == null || !URI_SCHEMES.contains(uri.getScheme().toLowerCase(Locale.ROOT))
+            if (uri.getScheme() == null) {
+                return MASK;
+            }
+            String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+            if (!URI_SCHEMES.contains(scheme)
                     || uri.isOpaque() || uri.getHost() == null || uri.getPort() > 65535) {
                 return MASK;
             }
@@ -126,7 +133,15 @@ final class DatasourcePropertyRedactor {
                 return MASK;
             }
             String authority = uri.getRawAuthority();
-            authority = authority.substring(authority.lastIndexOf('@') + 1);
+            if (AZURE_STORAGE_SCHEMES.contains(scheme)) {
+                // ABFS/WASB place the container in userinfo; validation prevents retaining password-bearing authority.
+                String container = uri.getRawUserInfo();
+                if (container == null || !AZURE_CONTAINER_NAME.matcher(container).matches()) {
+                    return MASK;
+                }
+            } else {
+                authority = authority.substring(authority.lastIndexOf('@') + 1);
+            }
             return uri.getScheme() + "://" + authority + uri.getRawPath()
                     + (query == null ? "" : "?" + query);
         } catch (URISyntaxException | IllegalArgumentException e) {

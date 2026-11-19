@@ -40,10 +40,19 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
         'signed.endpoint': 'https://api.example.com/v1?X-Amz-Signature=fixture-signature',
         'safe.endpoint': 'host.example.com:9000'
     ]
+    Map<String, String> azureLocations = [
+        'azure.abfs.uri': 'abfs://warehouse@account.dfs.core.windows.net/tables',
+        'azure.abfss.uri': 'abfss://warehouse@account.dfs.core.windows.net/tables',
+        'azure.wasb.uri': 'wasb://warehouse@account.blob.core.windows.net/tables',
+        'azure.wasbs.uri': 'wasbs://warehouse@account.blob.core.windows.net/tables'
+    ]
+    azureLocations.each { key, location ->
+        policyProperties[key] = "${location}?token=fixture-azure-token&region=east"
+    }
     String policySql = policyProperties.collect { key, value -> "'${key}' = '${value}'" }.join(',\n')
     List<String> policySecrets = ['fixture-jdbc', 'fixture-userinfo', 'fixture-url-token', 'fixture-native-token',
         'fixture-native-credential', 'fixture-hadoop-secret', 'fixture-account-key', 'fixture-custom-password',
-        'fixture-signature', 'fixture-list-password']
+        'fixture-signature', 'fixture-list-password', 'fixture-azure-token']
 
     // The audit log files CREATE CATALOG under stmt_type OTHER and ALTER CATALOG under ALTER.
     def waitForAuditStatement = { String catalogName, String statement = "create catalog", String stmtType = "OTHER" ->
@@ -112,6 +121,11 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             }
             assertEquals('https://api.example.com/v1?token=*XXX&region=east', shownProperties['hosts'])
             assertEquals('host.example.com:9000', shownProperties['safe.endpoint'])
+            azureLocations.each { key, location ->
+                String rendered = "${location}?token=*XXX&region=east"
+                assertEquals(rendered, shownProperties[key])
+                assertTrue(shownCredentials.contains(rendered))
+            }
             def tvfProperties = sql("""select `Property`, `Value` from catalogs()
                     where CatalogName = '${credentialCatalog}' order by `Property`""").collectEntries { row ->
                 [(row[0].toString()): row[1].toString()]
@@ -184,6 +198,9 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             assertTrue(credentialStmt.contains('"ozone.access_key" = "*XXX"'))
             policySecrets.each { secret -> assertFalse(credentialStmt.contains(secret)) }
             assertTrue(credentialStmt.contains('https://api.example.com/v1?token=*XXX&region=east'))
+            azureLocations.each { key, location ->
+                assertTrue(credentialStmt.contains("${location}?token=*XXX&region=east"))
+            }
 
             String tokenStmt = waitForAuditStatement(tokenCatalog)
             assertFalse(tokenStmt.contains(oauthToken))
