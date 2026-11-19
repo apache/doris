@@ -373,8 +373,14 @@ public class IcebergScanPlanProviderTest {
         if (cached) {
             Assertions.assertTrue(cache.size() > 0, "must exercise the manifest-cache planner");
             if (manifestConcurrency == 1) {
-                // Parallel loads may finish speculatively; serial loading makes the stop position exact.
-                Assertions.assertEquals(2, cache.size(), "must stop before reading the tail manifest");
+                // The encrypted descriptor is statement-owned and cannot count as a retained entry.
+                // Probe the plaintext tail directly to prove serial planning stops before loading it.
+                List<ManifestFile> manifests = table.currentSnapshot().dataManifests(table.io());
+                Assertions.assertNotNull(cache.getCachedManifestValue(manifests.get(0), null));
+                Assertions.assertNull(cache.getCachedManifestValue(manifests.get(1), null));
+                Assertions.assertNull(cache.getCachedManifestValue(manifests.get(2), null),
+                        "must stop before reading the tail manifest");
+                Assertions.assertEquals(1, cache.size());
             }
         } else {
             Assertions.assertTrue(encryptedConsumed.get());
@@ -5657,11 +5663,13 @@ public class IcebergScanPlanProviderTest {
         Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
         CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch bothReading = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger reads = new AtomicInteger();
         FileIO fileIO = manifestReadObserver(table.io(), Collections.singleton(manifest.path()), path -> {
             reads.incrementAndGet();
             reading.countDown();
+            bothReading.countDown();
             try {
                 Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
             } catch (InterruptedException e) {
@@ -5687,13 +5695,19 @@ public class IcebergScanPlanProviderTest {
                             ConnectorScanRequest.builder(handle, Collections.emptyList()).build()));
                 });
                 Assertions.assertTrue(consumerStarted.await(10, TimeUnit.SECONDS));
+                Assertions.assertTrue(bothReading.await(10, TimeUnit.SECONDS),
+                        "unclassified manifest loads must not share possible file-key metadata");
                 scanContext.cancel();
                 release.countDown();
                 ExecutionException stopped = Assertions.assertThrows(ExecutionException.class,
                         () -> cancelled.get(10, TimeUnit.SECONDS));
                 Assertions.assertInstanceOf(CancellationException.class, stopped.getCause());
                 Assertions.assertEquals(3, healthy.get(10, TimeUnit.SECONDS).size());
-                Assertions.assertEquals(1, reads.get(), "shared loading must remain single-flight and valid");
+                Assertions.assertEquals(2, reads.get(), "each unclassified read owns its IO");
+                Assertions.assertNotNull(cache.getCachedManifestValue(manifest, "completed"));
+                Assertions.assertEquals(3, drain(provider.streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList()).build())).size());
+                Assertions.assertEquals(2, reads.get(), "completed plaintext entries remain reusable");
             } finally {
                 release.countDown();
                 workers.shutdownNow();
@@ -5759,6 +5773,9 @@ public class IcebergScanPlanProviderTest {
         int manifestCount = 2 * workersInSdk + 3;
         Table table = createTable("sdk_cancel", SCHEMA, PartitionSpec.unpartitioned(),
                 ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        // On large hosts the worker count exceeds automatic manifest merging's threshold. Keep one
+        // manifest per append so this fixture can saturate every SDK worker before cancellation.
+        table.updateProperties().set(TableProperties.MANIFEST_MERGE_ENABLED, "false").commit();
         Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1,
                 Conversions.toByteBuffer(Types.IntegerType.get(), 1));
         for (int i = 0; i < manifestCount; i++) {
@@ -5838,6 +5855,8 @@ public class IcebergScanPlanProviderTest {
         int workersInSdk = ThreadPools.WORKER_THREAD_POOL_SIZE;
         int manifestCount = 2 * workersInSdk + 3;
         Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        // Automatic merging would collapse the queued reads when the SDK discovers many host CPUs.
+        table.updateProperties().set(TableProperties.MANIFEST_MERGE_ENABLED, "false").commit();
         for (int i = 0; i < manifestCount; i++) {
             table.newRowDelta().addDeletes(positionDeleteFile("/d/sdk-delete" + i + ".parquet",
                     FileFormat.PARQUET, null, null)).commit();
