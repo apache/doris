@@ -37,6 +37,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilder;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.AppliedAwareRule.AppliedAwareRuleCondition;
@@ -67,6 +68,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
@@ -101,6 +103,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.BooleanType;
@@ -113,6 +116,7 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -1895,7 +1899,7 @@ public class BindExpression implements AnalysisRuleFactory {
         return rewriteProjectForDisabledFullGroupBy(boundSort).orElse(boundSort);
     }
 
-    private LogicalTVFRelation bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {
+    private Plan bindTableValuedFunction(MatchingContext<UnboundTVFRelation> ctx) {
         UnboundTVFRelation unboundTVFRelation = ctx.root;
         StatementContext statementContext = ctx.statementContext;
         Env env = statementContext.getConnectContext().getEnv();
@@ -1913,8 +1917,36 @@ public class BindExpression implements AnalysisRuleFactory {
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setCannotProcessExpression(true);
         }
-        return new LogicalTVFRelation(unboundTVFRelation.getRelationId(),
-                (TableValuedFunction) bindResult.first, ImmutableList.of());
+        TableValuedFunction function = (TableValuedFunction) bindResult.first;
+        LogicalTVFRelation relation = new LogicalTVFRelation(unboundTVFRelation.getRelationId(),
+                function, ImmutableList.of());
+        if (!(function instanceof VectorSearch)) {
+            return relation;
+        }
+        VectorSearchTableValuedFunction search = (VectorSearchTableValuedFunction) function.getCatalogFunction();
+        Plan input = relation;
+        LogicalFilter<Plan> postfilter = null;
+        if (search.getFilter().isPresent()) {
+            Expression predicate = buildSimpleExprAnalyzer(relation, ctx.cascadesContext,
+                    ImmutableList.of(relation)).analyze(
+                            new NereidsParser().parseExpression(search.getFilter().get()));
+            LogicalFilter<Plan> filtered = new LogicalFilter<>(
+                    ImmutableSet.copyOf(ExpressionUtils.extractConjunction(predicate)), relation);
+            search.bindFilter(filtered, ctx.cascadesContext);
+            if (search.isPrefilter()) {
+                input = filtered;
+            } else {
+                postfilter = filtered;
+            }
+        }
+        Slot distance = relation.getOutput().stream()
+                .filter(slot -> VectorSearchTableValuedFunction.DISTANCE_COLUMN.equals(slot.getName()))
+                .findFirst().get();
+        Plan result = new LogicalTopN<>(ImmutableList.of(new OrderKey(distance, true, false)),
+                search.getTopK(), search.getOffset(), input);
+        // A postfilter sees the snapshot-wide TopK. Filtering each bucket's candidates before the
+        // merge would refill a rejected global neighbor from a different bucket.
+        return postfilter == null ? result : postfilter.withChildren(result);
     }
 
     private void checkIfOutputAliasNameDuplicatedForGroupBy(Collection<Expression> expressions,

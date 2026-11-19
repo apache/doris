@@ -157,13 +157,11 @@ suite("test_paimon_write_sequence_rowkind", "p0,external,paimon") {
             SELECT id, payload FROM t_rowkind ORDER BY id
         """
 
-        def auditRows = spark_paimon """
+        def auditRows = spark_paimon_incremental(dbName, rowkindBefore, rowkindAfter, """
             SELECT rowkind, id, payload
-            FROM paimon_incremental_query(
-                'paimon.${dbName}.`t_rowkind\$audit_log`',
-                '${rowkindBefore}', '${rowkindAfter}')
+            FROM paimon.${dbName}.`t_rowkind\$audit_log`
             ORDER BY id
-        """
+        """)
         assertEquals([
                 ["+U", 1, "new-1"],
                 ["-D", 2, "old-2"],

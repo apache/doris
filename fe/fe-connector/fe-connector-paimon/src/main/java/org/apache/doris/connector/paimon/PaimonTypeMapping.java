@@ -41,6 +41,7 @@ import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
+import org.apache.paimon.types.VectorType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -104,6 +105,8 @@ public final class PaimonTypeMapping {
                 return ConnectorType.of("VARIANT_COMPUTE_V2");
             case ARRAY:
                 return toArrayType((ArrayType) dataType, options);
+            case VECTOR:
+                return ConnectorType.arrayOf(toConnectorType(((VectorType) dataType).getElementType(), options));
             case MAP:
                 return toMapType((MapType) dataType, options);
             case ROW:

@@ -18,6 +18,8 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.scan.ConnectorVectorSearch;
+import org.apache.doris.thrift.TExternalSearchRequest;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.catalog.Catalog;
@@ -41,6 +43,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Ported from upstream {@code PaimonScanParamsTest} (#65984). Two adaptations, both forced by this
@@ -415,6 +418,15 @@ public class PaimonScanParamsTest {
             Assertions.assertEquals(Long.valueOf(1234L),
                     PaimonScanParams.getPinnedFileCreationTime(resolved).orElse(null));
             Assertions.assertFalse(resolved.containsKey("scan.file-creation-time-millis"));
+            // Admission sees the resolved marker, not the original query option. It must
+            // decline before resolving a vector plan that would ignore the file predicate.
+            PaimonTableHandle handle = new PaimonTableHandle("db", "test",
+                    Collections.emptyList(), Collections.emptyList()).withScanOptions(resolved);
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(
+                    PaimonCatalogProperties.of(Collections.emptyMap()), null);
+            Assertions.assertTrue(provider.prepareVectorSearch(null, handle,
+                    new ConnectorVectorSearch(new TExternalSearchRequest(), "", false, Optional.empty()),
+                    Collections.emptySet()).isEmpty());
         }
     }
 

@@ -21,7 +21,9 @@ import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
@@ -60,6 +62,7 @@ import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
+import org.apache.doris.connector.spi.scan.ConnectorVectorSearch;
 import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.datasource.ExternalTable;
@@ -401,6 +404,17 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * volatile write of the holder safely publishes the pair to concurrent readers (no torn new-key/old-provider
      * view). {@code provider} may be {@code null} for a connector without scan capability.
      */
+    private ConnectorVectorSearch vectorSearch;
+    private List<Expr> vectorPrefilter = Collections.emptyList();
+
+    public void setVectorSearch(ConnectorVectorSearch vectorSearch) {
+        this.vectorSearch = vectorSearch;
+    }
+
+    public void setVectorPrefilter(List<Expr> prefilter) {
+        this.vectorPrefilter = prefilter;
+    }
+
     private static final class ResolvedScanProvider {
         private final ConnectorTableHandle handle;
         private final ConnectorScanPlanProvider provider;
@@ -660,6 +674,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     @Override
     public String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
+        if (vectorSearch != null) {
+            org.apache.doris.thrift.TVectorSearchParams vector =
+                    vectorSearch.getRequest().getSearchQuery().getVectorSearch();
+            output.append(prefix).append("annSortColumnName=").append(vector.getColumn())
+                    .append(", annSortLimit=").append(vector.getTopK())
+                    .append(", annMetric=").append(vector.getMetric()).append("\n");
+        }
         if (currentHandle instanceof PassthroughQueryTableHandle) {
             output.append(prefix).append("TABLE VALUE FUNCTION\n");
             String query = ((PassthroughQueryTableHandle) currentHandle).getQuery();
@@ -865,6 +886,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * A connector with no scan provider (no scan capability) contributes no special columns ({@code DEFAULT}).
      */
     ConnectorColumnCategory classifyColumnByConnector(String columnName) {
+        if (vectorSearch != null && vectorSearch.getDistanceColumn().equalsIgnoreCase(columnName)) {
+            return ConnectorColumnCategory.SYNTHESIZED;
+        }
         ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
             return ConnectorColumnCategory.DEFAULT;
@@ -892,7 +916,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         Set<String> columns = onPluginClassLoader(scanProvider,
                 () -> scanProvider.getMustReadColumns(connectorSession, currentHandle));
-        return columns == null ? Collections.emptySet() : columns;
+        Set<String> required = columns == null ? new HashSet<>() : new HashSet<>(columns);
+        if (vectorSearch != null) {
+            for (Expr predicate : vectorPrefilter) {
+                List<SlotRef> slots = new ArrayList<>();
+                predicate.collect(SlotRef.class, slots);
+                slots.forEach(slot -> required.add(slot.getColumnName()));
+            }
+        }
+        return required;
     }
 
     /**
@@ -1533,7 +1565,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
             List<Column> boundColumns = new ArrayList<>();
             for (SlotDescriptor slot : desc.getSlots()) {
-                if (slot.getColumn() != null) {
+                if (slot.getColumn() != null && (vectorSearch == null
+                        || !vectorSearch.getDistanceColumn().equalsIgnoreCase(slot.getColumn().getName()))) {
                     boundColumns.add(slot.getColumn());
                 }
             }
@@ -1944,6 +1977,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         boolean countPushdown = isTableLevelCountStarPushdown() && !applySample;
         ConnectorScanRequest request = ConnectorScanRequest.builder(currentHandle, columns)
                 .filter(remainingFilter)
+                .vectorSearch(Optional.ofNullable(vectorSearch))
                 .limit(sourceLimit)
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
@@ -2169,6 +2203,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     private boolean computeBatchMode() {
+        if (vectorSearch != null) {
+            return false;
+        }
         // The query-level switch governs both partition batching and connector streaming. Check it
         // before probing the provider, which may access remote metadata to estimate file counts.
         if (!sessionVariable.getEnableExternalTableBatchMode()) {
@@ -2661,6 +2698,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             injectPushdownFacts(scanProps, limit, conjuncts.isEmpty());
             onPluginClassLoader(scanProvider, () -> {
                 scanProvider.populateScanLevelParams(params, scanProps);
+                if (vectorSearch != null) {
+                    scanProvider.populateVectorSearchParams(params, vectorSearch,
+                            vectorPrefilter.stream().map(ExprToThriftVisitor::treeToThrift)
+                                    .collect(Collectors.toList()));
+                }
                 return null;
             });
         }

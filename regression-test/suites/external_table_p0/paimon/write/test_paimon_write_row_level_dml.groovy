@@ -271,15 +271,11 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
         }
 
         def incrementalAuditLog = { tableName, columns, beforeSnapshot, afterSnapshot ->
-            spark_paimon """
+            spark_paimon_incremental(dbName, beforeSnapshot, afterSnapshot, """
                 SELECT ${columns}
-                FROM paimon_incremental_query(
-                    'paimon.${dbName}.`${tableName}\$audit_log`',
-                    '${beforeSnapshot}',
-                    '${afterSnapshot}'
-                )
+                FROM paimon.${dbName}.`${tableName}\$audit_log`
                 ORDER BY id, rowkind
-            """
+            """)
         }
 
         sql """INSERT INTO t_dml VALUES

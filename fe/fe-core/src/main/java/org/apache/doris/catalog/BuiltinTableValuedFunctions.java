@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Partitions;
 import org.apache.doris.nereids.trees.expressions.functions.table.Query;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
+import org.apache.doris.nereids.trees.expressions.functions.table.VectorSearch;
 
 import com.google.common.collect.ImmutableList;
 
@@ -71,6 +72,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Jobs.class, "jobs"),
             tableValued(Tasks.class, "tasks"),
             tableValued(Query.class, "query"),
+            tableValued(VectorSearch.class, "vector_search"),
             tableValued(PartitionValues.class, "partition_values"),
             tableValued(File.class, "file"),
             tableValued(Http.class, "http"),

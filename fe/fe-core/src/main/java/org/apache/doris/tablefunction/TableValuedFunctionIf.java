@@ -94,6 +94,8 @@ public abstract class TableValuedFunctionIf {
             }
             case GroupCommitTableValuedFunction.NAME:
                 return new GroupCommitTableValuedFunction(params);
+            case VectorSearchTableValuedFunction.NAME:
+                return new VectorSearchTableValuedFunction(params);
             case QueryTableValueFunction.NAME:
                 return QueryTableValueFunction.createQueryTableValueFunction(params);
             case PartitionValuesTableValuedFunction.NAME:

@@ -48,6 +48,7 @@ public final class ConnectorScanRequest {
     private final List<ConnectorColumnHandle> columns;
     private final Optional<ConnectorExpression> filter;
     private final long limit;
+    private final Optional<ConnectorVectorSearch> vectorSearch;
     private final List<String> requiredPartitions;
     private final boolean partitionsPrunedToEmpty;
     private final boolean countPushdown;
@@ -59,11 +60,13 @@ public final class ConnectorScanRequest {
     private ConnectorScanRequest(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions,
             boolean partitionsPrunedToEmpty, boolean countPushdown, boolean aggregatePushdown, boolean explainOnly,
-            Set<String> backendCapabilities, ConnectorScanContext scanContext) {
+            Set<String> backendCapabilities, ConnectorScanContext scanContext,
+            Optional<ConnectorVectorSearch> vectorSearch) {
         this.tableHandle = tableHandle;
         this.columns = columns;
         this.filter = filter;
         this.limit = limit;
+        this.vectorSearch = vectorSearch;
         this.requiredPartitions = requiredPartitions;
         this.partitionsPrunedToEmpty = partitionsPrunedToEmpty;
         this.countPushdown = countPushdown;
@@ -97,6 +100,10 @@ public final class ConnectorScanRequest {
     /** The filter remaining after pushdown, or empty when there is none to push. */
     public Optional<ConnectorExpression> getFilter() {
         return filter;
+    }
+
+    public Optional<ConnectorVectorSearch> getVectorSearch() {
+        return vectorSearch;
     }
 
     /** The maximum number of rows to return, or {@code -1} for no limit. */
@@ -178,7 +185,7 @@ public final class ConnectorScanRequest {
     public ConnectorScanRequest withRequiredPartitions(List<String> partitions) {
         return new ConnectorScanRequest(tableHandle, columns, filter, limit,
                 normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, aggregatePushdown, explainOnly,
-                backendCapabilities, scanContext);
+                backendCapabilities, scanContext, vectorSearch);
     }
 
     private static List<String> normalizePartitions(List<String> partitions) {
@@ -192,6 +199,7 @@ public final class ConnectorScanRequest {
         private final List<ConnectorColumnHandle> columns;
         private Optional<ConnectorExpression> filter = Optional.empty();
         private long limit = -1;
+        private Optional<ConnectorVectorSearch> vectorSearch = Optional.empty();
         private List<String> requiredPartitions = Collections.emptyList();
         private boolean partitionsPrunedToEmpty;
         private boolean countPushdown;
@@ -207,6 +215,11 @@ public final class ConnectorScanRequest {
 
         public Builder filter(Optional<ConnectorExpression> filter) {
             this.filter = Objects.requireNonNull(filter, "filter");
+            return this;
+        }
+
+        public Builder vectorSearch(Optional<ConnectorVectorSearch> vectorSearch) {
+            this.vectorSearch = Objects.requireNonNull(vectorSearch, "vectorSearch");
             return this;
         }
 
@@ -259,7 +272,7 @@ public final class ConnectorScanRequest {
         public ConnectorScanRequest build() {
             return new ConnectorScanRequest(tableHandle, columns, filter, limit,
                     requiredPartitions, partitionsPrunedToEmpty, countPushdown, aggregatePushdown, explainOnly,
-                    backendCapabilities, scanContext);
+                    backendCapabilities, scanContext, vectorSearch);
         }
     }
 }
