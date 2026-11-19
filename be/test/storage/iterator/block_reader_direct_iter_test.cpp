@@ -16,9 +16,8 @@
 // under the License.
 
 // With config::enable_new_block_iterator on, a DUP_KEYS query that does not ask for key order
-// reads the union of its rowsets: BlockReader reads the rowsets one after another, each through its
-// rowset reader, without VCollectIterator. These tests write rowsets, read them through BlockReader
-// and check that
+// reads through DirectIterator: the rowsets one after another, each through its rowset reader,
+// without VCollectIterator. These tests write rowsets, read them through BlockReader and check that
 //   - a query returns every row, rowset by rowset in version order and segment by segment within
 //     a rowset, also when a rowset is empty, the same rows as through VCollectIterator with the
 //     config off;
@@ -26,7 +25,7 @@
 //     both paths;
 //   - a rowset is released as soon as it is read;
 //   - a compaction of the same rowsets still merges them by key through VCollectIterator, and only
-//     DUP_KEYS queries that do not ask for key order read the union, only with the config on.
+//     DUP_KEYS queries that do not ask for key order use DirectIterator, only with the config on.
 
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
@@ -105,12 +104,12 @@ constexpr std::array kBatchSizes = {1, 2, 3, 100};
 
 } // namespace
 
-class BlockReaderRowsetsUnionTest : public testing::Test {
+class BlockReaderDirectIterTest : public testing::Test {
 protected:
     void SetUp() override {
         char buffer[kMaxPathLen];
         EXPECT_NE(getcwd(buffer, kMaxPathLen), nullptr);
-        _absolute_dir = std::string(buffer) + "/ut_dir/block_reader_rowsets_union_test";
+        _absolute_dir = std::string(buffer) + "/ut_dir/block_reader_direct_iter_test";
         auto st = io::global_local_filesystem()->delete_directory(_absolute_dir);
         ASSERT_TRUE(st.ok()) << st;
         st = io::global_local_filesystem()->create_directory(_absolute_dir + "/tablet_path");
@@ -263,15 +262,15 @@ protected:
         return params;
     }
 
-    // Read every row of `params` through BlockReader with `batch_size` rows per Block. A read of
-    // the union must return rows with every OK and none with the end of the read.
+    // Read every row of `params` through BlockReader with `batch_size` rows per Block. A read
+    // through DirectIterator must return rows with every OK and none with the end of the read.
     static std::vector<Row> read(const TabletReader::ReaderParams& params, int batch_size,
-                                 bool expect_union) {
+                                 bool expect_direct_iter) {
         BlockReader reader;
         reader.set_batch_size(batch_size);
         Status st = reader.init(params);
         EXPECT_TRUE(st.ok()) << st;
-        EXPECT_EQ(reader._rowsets_union != nullptr, expect_union);
+        EXPECT_EQ(reader._direct_iter != nullptr, expect_direct_iter);
         std::vector<Row> rows;
         bool eof = !st.ok();
         while (!eof) {
@@ -281,7 +280,7 @@ protected:
             if (!st.ok()) {
                 break;
             }
-            if (expect_union) {
+            if (expect_direct_iter) {
                 EXPECT_EQ(block.rows() == 0, eof);
                 EXPECT_LE(block.rows(), static_cast<size_t>(batch_size));
             }
@@ -298,9 +297,9 @@ protected:
 };
 
 // A query reads the rowsets in version order and the segments of a rowset in their order, through
-// the union as through VCollectIterator: the overlapping segments of a rowset are not merged, and
-// an empty rowset gives no rows. A compaction of the same rowsets merges them by key.
-TEST_F(BlockReaderRowsetsUnionTest, QueryReadsTheRowsetsOneAfterAnother) {
+// DirectIterator as through VCollectIterator: the overlapping segments of a rowset are not merged,
+// and an empty rowset gives no rows. A compaction of the same rowsets merges them by key.
+TEST_F(BlockReaderDirectIterTest, QueryReadsTheRowsetsOneAfterAnother) {
     auto schema = make_schema(KeysType::DUP_KEYS);
     auto tablet = create_tablet(*schema);
     std::vector<RowsetSharedPtr> rowsets = {
@@ -308,10 +307,10 @@ TEST_F(BlockReaderRowsetsUnionTest, QueryReadsTheRowsetsOneAfterAnother) {
             write_rowset(schema, {}, /*version=*/3),
             write_rowset(schema, {{{0, 40}, {5, 50}}}, /*version=*/4),
     };
-    const std::vector<Row> union_rows = {{1, 10}, {3, 30}, {2, 20}, {3, 31}, {0, 40}, {5, 50}};
+    const std::vector<Row> query_rows = {{1, 10}, {3, 30}, {2, 20}, {3, 31}, {0, 40}, {5, 50}};
 
-    auto sorted_union_rows = union_rows;
-    std::ranges::sort(sorted_union_rows);
+    auto sorted_query_rows = query_rows;
+    std::ranges::sort(sorted_query_rows);
 
     for (bool new_block_iterator : {true, false}) {
         config::enable_new_block_iterator = new_block_iterator;
@@ -319,24 +318,24 @@ TEST_F(BlockReaderRowsetsUnionTest, QueryReadsTheRowsetsOneAfterAnother) {
             SCOPED_TRACE("new_block_iterator=" + std::to_string(new_block_iterator) +
                          " batch_size=" + std::to_string(batch_size));
             EXPECT_EQ(read(make_params(tablet, schema, rowsets, ReaderType::READER_QUERY),
-                           batch_size, /*expect_union=*/new_block_iterator),
-                      union_rows);
+                           batch_size, /*expect_direct_iter=*/new_block_iterator),
+                      query_rows);
 
             auto merged = read(
                     make_params(tablet, schema, rowsets, ReaderType::READER_CUMULATIVE_COMPACTION),
-                    batch_size, /*expect_union=*/false);
+                    batch_size, /*expect_direct_iter=*/false);
             EXPECT_TRUE(std::ranges::is_sorted(merged, {}, [](const Row& row) { return row[0]; }));
             std::ranges::sort(merged);
-            EXPECT_EQ(merged, sorted_union_rows);
+            EXPECT_EQ(merged, sorted_query_rows);
         }
     }
 }
 
 // A pushed-down LIMIT is a row budget of every segment: every rowset reader gets it for its
 // segments, and the first segment caps its first read at it, though the Block could hold all its
-// rows; the same through the union and through VCollectIterator. Like the scanner, the read stops
-// once the LIMIT is reached.
-TEST_F(BlockReaderRowsetsUnionTest, PushesTheLimitDownToEverySegment) {
+// rows; the same through DirectIterator and through VCollectIterator. Like the scanner, the read
+// stops once the LIMIT is reached.
+TEST_F(BlockReaderDirectIterTest, PushesTheLimitDownToEverySegment) {
     auto schema = make_schema(KeysType::DUP_KEYS);
     auto tablet = create_tablet(*schema);
     std::vector<RowsetSharedPtr> rowsets = {
@@ -358,7 +357,7 @@ TEST_F(BlockReaderRowsetsUnionTest, PushesTheLimitDownToEverySegment) {
         BlockReader reader;
         reader.set_batch_size(100);
         ASSERT_TRUE(reader.init(params).ok());
-        EXPECT_EQ(reader._rowsets_union != nullptr, new_block_iterator);
+        EXPECT_EQ(reader._direct_iter != nullptr, new_block_iterator);
         for (const auto& rs_reader : rs_readers) {
             EXPECT_EQ(static_cast<BetaRowsetReader*>(rs_reader.get())->_topn_limit, 2U);
         }
@@ -370,10 +369,10 @@ TEST_F(BlockReaderRowsetsUnionTest, PushesTheLimitDownToEverySegment) {
     }
 }
 
-// The union holds a rowset reader, and with it the rowset, only until the rowset is read: once a
-// scanner has dropped its own references after init, a rowset is released when the read moves on
+// DirectIterator holds a rowset reader, and with it the rowset, only until the rowset is read: once
+// a scanner has dropped its own references after init, a rowset is released when the read moves on
 // to the next one.
-TEST_F(BlockReaderRowsetsUnionTest, ReleasesARowsetOnceItIsRead) {
+TEST_F(BlockReaderDirectIterTest, ReleasesARowsetOnceItIsRead) {
     // VCollectIterator holds its last rowset until the reader is destroyed.
     config::enable_new_block_iterator = true;
     auto schema = make_schema(KeysType::DUP_KEYS);
@@ -393,7 +392,7 @@ TEST_F(BlockReaderRowsetsUnionTest, ReleasesARowsetOnceItIsRead) {
     ASSERT_TRUE(reader.init(params).ok());
     // As OlapScanner::_open_impl does.
     params.rs_splits.clear();
-    RuntimeProfile profile("BlockReaderRowsetsUnionTest");
+    RuntimeProfile profile("BlockReaderDirectIterTest");
     bool eof = false;
     auto next_rows = [&]() {
         Block block = params.read_schema->create_read_block();
@@ -416,49 +415,49 @@ TEST_F(BlockReaderRowsetsUnionTest, ReleasesARowsetOnceItIsRead) {
     reader.update_profile(&profile);
 }
 
-// Only a DUP_KEYS query that does not ask for key order reads the union, and only with
+// Only a DUP_KEYS query that does not ask for key order uses DirectIterator, and only with
 // config::enable_new_block_iterator on. A key TopN or a changelog MIN_DELTA or DETAIL scan sets
 // read_orderby_key, and compactions and the other key types merge.
-TEST_F(BlockReaderRowsetsUnionTest, OnlyDupQueriesWithoutKeyOrderReadTheUnion) {
+TEST_F(BlockReaderDirectIterTest, OnlyDupQueriesWithoutKeyOrderUseTheDirectIterator) {
     struct Case {
         KeysType keys_type;
         ReaderType reader_type;
         bool read_orderby_key;
-        bool unions_rowsets;
+        bool uses_direct_iter;
     };
     const std::array cases = {
             Case {.keys_type = KeysType::DUP_KEYS,
                   .reader_type = ReaderType::READER_QUERY,
                   .read_orderby_key = false,
-                  .unions_rowsets = true},
+                  .uses_direct_iter = true},
             Case {.keys_type = KeysType::DUP_KEYS,
                   .reader_type = ReaderType::READER_QUERY,
                   .read_orderby_key = true,
-                  .unions_rowsets = false},
+                  .uses_direct_iter = false},
             Case {.keys_type = KeysType::DUP_KEYS,
                   .reader_type = ReaderType::READER_CUMULATIVE_COMPACTION,
                   .read_orderby_key = false,
-                  .unions_rowsets = false},
+                  .uses_direct_iter = false},
             Case {.keys_type = KeysType::DUP_KEYS,
                   .reader_type = ReaderType::READER_BASE_COMPACTION,
                   .read_orderby_key = false,
-                  .unions_rowsets = false},
+                  .uses_direct_iter = false},
             Case {.keys_type = KeysType::DUP_KEYS,
                   .reader_type = ReaderType::READER_ALTER_TABLE,
                   .read_orderby_key = false,
-                  .unions_rowsets = false},
+                  .uses_direct_iter = false},
             Case {.keys_type = KeysType::DUP_KEYS,
                   .reader_type = ReaderType::READER_CHECKSUM,
                   .read_orderby_key = false,
-                  .unions_rowsets = false},
+                  .uses_direct_iter = false},
             Case {.keys_type = KeysType::UNIQUE_KEYS,
                   .reader_type = ReaderType::READER_QUERY,
                   .read_orderby_key = false,
-                  .unions_rowsets = false},
+                  .uses_direct_iter = false},
             Case {.keys_type = KeysType::AGG_KEYS,
                   .reader_type = ReaderType::READER_QUERY,
                   .read_orderby_key = false,
-                  .unions_rowsets = false},
+                  .uses_direct_iter = false},
     };
     for (bool new_block_iterator : {true, false}) {
         config::enable_new_block_iterator = new_block_iterator;
@@ -472,7 +471,7 @@ TEST_F(BlockReaderRowsetsUnionTest, OnlyDupQueriesWithoutKeyOrderReadTheUnion) {
             TabletReader::ReaderParams params;
             params.reader_type = c.reader_type;
             params.read_orderby_key = c.read_orderby_key;
-            EXPECT_EQ(reader._unions_rowsets(params), new_block_iterator && c.unions_rowsets);
+            EXPECT_EQ(reader._uses_direct_iter(params), new_block_iterator && c.uses_direct_iter);
         }
     }
 }

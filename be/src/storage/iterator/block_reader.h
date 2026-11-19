@@ -22,6 +22,7 @@
 #include <sys/types.h>
 
 #include <cstdint>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -38,10 +39,13 @@
 
 namespace doris {
 class ColumnPredicate;
+class DirectIterator;
 class RuntimeProfile;
 
 class BlockReader final : public TabletReader {
 public:
+    // Out of line, as the destructor: the header only declares DirectIterator.
+    BlockReader();
     ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
@@ -49,13 +53,7 @@ public:
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;
 
-    void update_profile(RuntimeProfile* profile) override {
-        if (_rowsets_union != nullptr) {
-            _rowsets_union->update_profile(profile);
-            return;
-        }
-        _vcollect_iter.update_profile(profile);
-    }
+    void update_profile(RuntimeProfile* profile) override;
 
     // Returns the configured preferred output block byte budget; 0 when adaptive is disabled.
     size_t preferred_block_size_bytes() const override {
@@ -64,12 +62,12 @@ public:
 
 private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
-    // Used by the reads that do not fold rows and are not _rowsets_union's: merge-on-write and
-    // direct-mode queries of the other key types, and the DUP_KEYS reads that _unions_rowsets()
+    // Used by the reads that do not fold rows and are not _direct_iter's: merge-on-write and
+    // direct-mode queries of the other key types, and the DUP_KEYS reads that _uses_direct_iter()
     // does not pick.
     Status _direct_next_block(Block* block, bool* eof);
-    // The next Block of _rowsets_union.
-    Status _rowsets_union_next_block(Block* block, bool* eof);
+    // The next Block of _direct_iter.
+    Status _direct_iter_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
     Status _agg_key_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
@@ -97,12 +95,12 @@ private:
 
     Status _init_collect_iter(const ReaderParams& read_params);
 
-    // Whether this read is the union of its rowsets, read one after another without
-    // VCollectIterator: with config::enable_new_block_iterator on, a DUP_KEYS query that does not
-    // ask for key order. It has nothing to merge or fold.
-    bool _unions_rowsets(const ReaderParams& read_params) const;
-    // Set up _rowsets_union for the reads that _unions_rowsets() picks.
-    Status _init_rowsets_union(const ReaderParams& read_params);
+    // Whether this read goes through _direct_iter instead of VCollectIterator: with
+    // config::enable_new_block_iterator on, a DUP_KEYS query that does not ask for key order. It
+    // has nothing to merge or fold.
+    bool _uses_direct_iter(const ReaderParams& read_params) const;
+    // Set up _direct_iter for the reads that _uses_direct_iter() picks.
+    Status _init_direct_iter(const ReaderParams& read_params);
 
     Status _init_agg_state(const ReaderParams& read_params);
 
@@ -131,9 +129,8 @@ private:
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 
-    // The rowsets of a read that _unions_rowsets() picks, in version order. Of several rowsets,
-    // each is released once it is read.
-    RowwiseIteratorUPtr _rowsets_union;
+    // For the reads that _uses_direct_iter() picks.
+    std::unique_ptr<DirectIterator> _direct_iter;
 
     std::vector<AggregateFunctionPtr> _agg_functions;
     std::vector<AggregateDataPtr> _agg_places;
