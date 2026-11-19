@@ -75,9 +75,8 @@ final class LanceStorageOptions {
     private static Map<String, String> buildStorageOptions(String datasetUri,
             List<StorageProperties> storageProperties, Map<String, String> vendedOptions) {
         LanceStorageProvider provider = LanceStorageProvider.forDataset(datasetUri);
-        Map<String, String> result = new HashMap<>(
-                provider.normalizeDorisStorageOptions(datasetUri, storageProperties));
-        result.forEach((key, value) -> rejectUntransportable(key, value,
+        Map<String, String> catalogOptions = provider.normalizeDorisStorageOptions(datasetUri, storageProperties);
+        catalogOptions.forEach((key, value) -> rejectUntransportable(key, value,
                 "Doris storage configuration"));
         Map<String, String> normalizedVended = new HashMap<>();
         if (vendedOptions != null && !vendedOptions.isEmpty()) {
@@ -86,7 +85,7 @@ final class LanceStorageOptions {
             // with an empty string, so it cannot introduce a NUL missed by validation above.
             normalizedVended = provider.normalizeVendedStorageOptions(vendedOptions);
         }
-        result.putAll(normalizedVended);
+        Map<String, String> result = provider.mergeStorageOptions(datasetUri, catalogOptions, normalizedVended);
         provider.validateStorageOptions(storageProperties, result);
         provider.inferStorageOptions(result).forEach(result::putIfAbsent);
         result.forEach((key, value) -> rejectUntransportable(key, value,

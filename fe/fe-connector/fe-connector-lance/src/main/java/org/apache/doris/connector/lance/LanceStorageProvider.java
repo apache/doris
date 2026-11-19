@@ -19,6 +19,7 @@ package org.apache.doris.connector.lance;
 
 import org.apache.doris.filesystem.properties.StorageProperties;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -66,6 +67,14 @@ interface LanceStorageProvider {
      * one it contributes to itself.
      */
     Map<String, String> normalizeVendedStorageOptions(Map<String, String> vendedOptions);
+
+    /** Merges canonical options, reconciling provider settings that depend on one another. */
+    default Map<String, String> mergeStorageOptions(String datasetUri, Map<String, String> catalogOptions,
+            Map<String, String> vendedOptions) {
+        Map<String, String> merged = new HashMap<>(catalogOptions);
+        merged.putAll(vendedOptions);
+        return merged;
+    }
 
     /** Checks authentication after namespace-vended options have replaced the catalog's options. */
     default void validateStorageOptions(List<StorageProperties> storageProperties,

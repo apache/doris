@@ -196,6 +196,28 @@ class LanceStorageOptionsTest {
         Assertions.assertEquals("false", options.get("aws_virtual_hosted_style_request"));
     }
 
+    @Test
+    void inheritedS3EndpointsFollowTheVendedAddressingMode() {
+        for (boolean catalogPathStyle : new boolean[] {true, false}) {
+            Map<String, String> options = LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI,
+                    catalog(minio().usePathStyle(String.valueOf(catalogPathStyle))),
+                    map("virtual_hosted_style_request", String.valueOf(catalogPathStyle)));
+            String expected = catalogPathStyle ? "http://warehouse.minio:9000" : "http://minio:9000";
+            Assertions.assertEquals(expected, options.get("aws_endpoint"));
+            Assertions.assertEquals(expected, options.get("aws_endpoint_url_s3"));
+        }
+    }
+
+    @Test
+    void explicitVendedS3EndpointsKeepTheirNativeMeaning() {
+        for (String endpointKey : new String[] {"endpoint", "aws_endpoint_url_s3"}) {
+            Map<String, String> options = LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI,
+                    catalog(minio()), map(endpointKey, "http://table.example:9000",
+                            "virtual_hosted_style_request", "true"));
+            Assertions.assertEquals("http://table.example:9000", options.get("aws_endpoint_url_s3"));
+        }
+    }
+
     /** Naming a dialect is a choice; the generic S3 binding is also what a heuristic match lands on. */
     @Test
     void concreteDialectWinsOverTheGenericS3Binding() {
@@ -281,8 +303,8 @@ class LanceStorageOptionsTest {
         Assertions.assertEquals("vended-token", merged.get("aws_session_token"));
         Assertions.assertEquals("eu-west-1", merged.get("aws_region"));
         Assertions.assertEquals("true", merged.get("aws_virtual_hosted_style_request"));
-        // The catalog's endpoint is untouched, and no unprefixed twin survives anywhere.
-        Assertions.assertEquals("http://minio:9000", merged.get("aws_endpoint"));
+        // The inherited endpoint follows the final style, and no unprefixed twin survives.
+        Assertions.assertEquals("http://warehouse.minio:9000", merged.get("aws_endpoint"));
         for (String alias : vended.keySet()) {
             Assertions.assertNull(merged.get(alias), alias + " must not survive beside its twin");
         }
@@ -420,7 +442,8 @@ class LanceStorageOptionsTest {
                 "oss_access_key_id", "oss-ak", "oss_secret_access_key", "oss-sk", "oss_region", "cn-hangzhou",
                 "oss_security_token", "oss-token",
                 // Stated rather than implied, so the host environment cannot decide it.
-                "addressing_style", "virtual", "allow_anonymous", "false"), options);
+                "addressing_style", "virtual", "allow_anonymous", "false", "skip_signature", "false",
+                "role_arn", ""), options);
     }
 
     @Test
@@ -431,6 +454,46 @@ class LanceStorageOptionsTest {
                 catalog(oss())).get("addressing_style"));
         Assertions.assertThrows(IllegalArgumentException.class, () -> LanceStorageOptions.fromDorisStorageProperties(
                 OSS_URI, catalog(oss().usePathStyle("invalid"))));
+    }
+
+    @Test
+    void vendedOssAddressingStyleIsCaseInsensitive() {
+        Map<String, String> options = LanceStorageOptions.fromDorisAndVendedStorageOptions(OSS_URI,
+                catalog(oss()), map("ADDRESSING_STYLE", "path"));
+        Assertions.assertEquals("path", options.get("addressing_style"));
+        Assertions.assertFalse(options.containsKey("ADDRESSING_STYLE"));
+        Assertions.assertTrue(conflict(OSS_URI, catalog(oss()),
+                map("ADDRESSING_STYLE", "path", "addressing_style", "virtual"))
+                .contains("conflicting values"));
+    }
+
+    @Test
+    void permanentOssKeysDoNotInheritAnotherIdentitysToken() {
+        Assertions.assertEquals("", LanceStorageOptions.fromDorisStorageProperties(OSS_URI, catalog(oss()))
+                .get("oss_security_token"));
+        for (List<StorageProperties> storage : Arrays.asList(Collections.<StorageProperties>emptyList(),
+                catalog(oss().sessionToken("catalog-token")))) {
+            for (Map<String, String> keys : Arrays.asList(
+                    map("access_key_id", "vended-ak", "access_key_secret", "vended-sk"),
+                    map("OSS_ACCESS_KEY_ID", "vended-ak", "OSS_SECRET_ACCESS_KEY", "vended-sk"))) {
+                Map<String, String> options = LanceStorageOptions.fromDorisAndVendedStorageOptions(
+                        OSS_URI, storage, keys);
+                Assertions.assertEquals("", options.get("oss_security_token"));
+            }
+        }
+    }
+
+    @Test
+    void ossExplicitIdentitiesOverrideAmbientAuthenticationSelectors() {
+        Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(OSS_URI, catalog(oss()));
+        Assertions.assertEquals("false", options.get("skip_signature"));
+        Assertions.assertEquals("", options.get("role_arn"));
+        Map<String, String> vended = LanceStorageOptions.fromDorisAndVendedStorageOptions(OSS_URI,
+                catalog(oss()), map("ROLE_ARN", "namespace-role", "security_token", "namespace-token",
+                        "SKIP_SIGNATURE", "off"));
+        Assertions.assertEquals("namespace-role", vended.get("role_arn"));
+        Assertions.assertEquals("namespace-token", vended.get("oss_security_token"));
+        Assertions.assertEquals("off", vended.get("skip_signature"));
     }
 
     @Test
@@ -455,7 +518,7 @@ class LanceStorageOptionsTest {
         Assertions.assertNull(anonymous.get("oss_security_token"));
         Assertions.assertEquals("false", LanceStorageOptions.fromDorisStorageProperties(OSS_URI, catalog(oss()))
                 .get("allow_anonymous"));
-        Assertions.assertEquals(Collections.singletonMap("allow_anonymous", "true"),
+        Assertions.assertEquals(map("allow_anonymous", "true", "skip_signature", "true"),
                 LanceStorageOptions.fromDorisStorageProperties(OSS_URI, null));
         // The engine accepts a whitespace key pair as both set: signing and the flag must agree.
         Map<String, String> blank = LanceStorageOptions.fromDorisStorageProperties(OSS_URI,
@@ -470,7 +533,7 @@ class LanceStorageOptionsTest {
      */
     @Test
     void anOssDatasetNeverReadsTheS3Binding() {
-        Assertions.assertEquals(Collections.singletonMap("allow_anonymous", "true"),
+        Assertions.assertEquals(map("allow_anonymous", "true", "skip_signature", "true"),
                 LanceStorageOptions.fromDorisStorageProperties(OSS_URI, catalog(minio())));
         Assertions.assertEquals("oss-ak", LanceStorageOptions.fromDorisStorageProperties(S3_URI, catalog(oss()))
                 .get("aws_access_key_id"));
@@ -528,7 +591,11 @@ class LanceStorageOptionsTest {
         Assertions.assertEquals("true", LanceStorageOptions.fromDorisAndVendedStorageOptions(OSS_URI,
                 Collections.emptyList(), map("allow_anonymous", "true", "skip_signature", "true"))
                 .get("allow_anonymous"));
-        conflict(OSS_URI, Collections.emptyList(), map("allow_anonymous", "true", "skip_signature", "false"));
+        // These are separate native fields combined with OR, rather than conflicting aliases.
+        Map<String, String> mixed = LanceStorageOptions.fromDorisAndVendedStorageOptions(OSS_URI,
+                Collections.emptyList(), map("allow_anonymous", "true", "skip_signature", "false"));
+        Assertions.assertEquals("true", mixed.get("allow_anonymous"));
+        Assertions.assertEquals("false", mixed.get("skip_signature"));
         Map<String, String> unknown = LanceStorageOptions.fromDorisAndVendedStorageOptions(OSS_URI,
                 Collections.emptyList(), map("unknown_provider_option", "value"));
         Assertions.assertEquals("value", unknown.get("unknown_provider_option"));
@@ -554,6 +621,8 @@ class LanceStorageOptionsTest {
         }
         Assertions.assertTrue(conflict(OSS_URI, Collections.emptyList(), map("allow_anonymous", "yes"))
                 .contains("Unrecognized value"));
+        Assertions.assertTrue(conflict(OSS_URI, Collections.emptyList(), map("skip_signature", "yes"))
+                .contains("Unrecognized value"));
     }
 
     @Test
@@ -561,7 +630,7 @@ class LanceStorageOptionsTest {
         Map<String, String> explicit = LanceStorageOptions.fromDorisAndVendedStorageOptions(OSS_URI,
                 Collections.emptyList(), map("skip_signature", "false"));
         Assertions.assertEquals("false", explicit.get("allow_anonymous"));
-        Assertions.assertFalse(explicit.containsKey("skip_signature"));
+        Assertions.assertEquals("false", explicit.get("skip_signature"));
         Map<String, String> inferred = LanceStorageOptions.fromDorisStorageProperties(OSS_URI, catalog(oss()));
         Assertions.assertEquals(inferred, LanceStorageOptions.fromDorisAndVendedStorageOptions(OSS_URI,
                 Collections.emptyList(), inferred));

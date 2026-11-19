@@ -123,7 +123,9 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
         // unrelated AWS_SESSION_TOKEN from the FE or BE environment. An explicit empty value blocks it.
         String token = properties.getSessionToken();
         result.put(SESSION_TOKEN, token == null ? "" : token);
-        LanceStorageOptions.putIfNotEmpty(result, ENDPOINT, endpointForDataset(datasetUri, properties));
+        // Keep the service endpoint until vending has selected the final addressing mode.
+        LanceStorageOptions.putIfNotEmpty(result, ENDPOINT,
+                endpointForDataset(datasetUri, properties.getEndpoint(), false));
         LanceStorageOptions.putIfNotEmpty(result, REGION, properties.getRegion());
         result.put(VIRTUAL_HOSTED_STYLE, String.valueOf(!properties.isUsePathStyle()));
 
@@ -131,15 +133,14 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
     }
 
     /** object_store expects a bucket-qualified endpoint when virtual-hosted addressing is enabled. */
-    private static String endpointForDataset(String datasetUri, S3CompatibleFileSystemProperties properties) {
-        String endpoint = properties.getEndpoint();
+    private static String endpointForDataset(String datasetUri, String endpoint, boolean virtualHostedStyle) {
         if (endpoint == null || endpoint.isEmpty()) {
             return endpoint;
         }
         if (!endpoint.contains("://")) {
             endpoint = "https://" + endpoint;
         }
-        if (properties.isUsePathStyle()) {
+        if (!virtualHostedStyle) {
             return endpoint;
         }
         URI service = URI.create(endpoint);
@@ -194,6 +195,20 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
             normalized.putIfAbsent(SESSION_TOKEN, "");
         }
         return normalized;
+    }
+
+    @Override
+    public Map<String, String> mergeStorageOptions(String datasetUri, Map<String, String> catalogOptions,
+            Map<String, String> vendedOptions) {
+        Map<String, String> merged = LanceStorageProvider.super.mergeStorageOptions(
+                datasetUri, catalogOptions, vendedOptions);
+        if (!vendedOptions.containsKey(ENDPOINT)) {
+            // Only Doris endpoints need bucket qualification. Namespace endpoints already use
+            // object_store's native vocabulary and must keep the meaning the namespace assigned.
+            LanceStorageOptions.putIfNotEmpty(merged, ENDPOINT, endpointForDataset(datasetUri,
+                    catalogOptions.get(ENDPOINT), Boolean.parseBoolean(merged.get(VIRTUAL_HOSTED_STYLE))));
+        }
+        return merged;
     }
 
     @Override

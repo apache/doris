@@ -43,6 +43,7 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
     private static final String ADDRESSING_STYLE = "addressing_style";
     private static final String SKIP_SIGNATURE = "skip_signature";
     private static final String ALLOW_ANONYMOUS = "allow_anonymous";
+    private static final String ROLE_ARN = "role_arn";
 
     /**
      * Lance exposes the {@code oss_*} names as its public storage-option vocabulary and normalizes
@@ -60,9 +61,10 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
             Map.entry(REGION, REGION),
             Map.entry("security_token", SECURITY_TOKEN),
             Map.entry(SECURITY_TOKEN, SECURITY_TOKEN),
-            // OpenDAL 0.57 renamed this option to skip_signature, but lance-c 0.1.6 still uses
-            // OpenDAL 0.56. Emit the old spelling, which newer OpenDAL keeps as an alias.
-            Map.entry(SKIP_SIGNATURE, ALLOW_ANONYMOUS),
+            Map.entry(ADDRESSING_STYLE, ADDRESSING_STYLE),
+            Map.entry(ROLE_ARN, ROLE_ARN),
+            // The pinned OpenDAL versions keep both fields and OR them when deciding to sign.
+            Map.entry(SKIP_SIGNATURE, SKIP_SIGNATURE),
             Map.entry(ALLOW_ANONYMOUS, ALLOW_ANONYMOUS));
 
     private LanceOssStorageProvider() {
@@ -84,6 +86,10 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
         LanceStorageOptions.putIfNotEmpty(result, ACCESS_KEY_ID, properties.getAccessKey());
         LanceStorageOptions.putIfNotEmpty(result, SECRET_ACCESS_KEY, properties.getSecretKey());
         LanceStorageOptions.putIfNotEmpty(result, SECURITY_TOKEN, properties.getSessionToken());
+        if (result.containsKey(ACCESS_KEY_ID) && result.containsKey(SECRET_ACCESS_KEY)) {
+            // A permanent key pair must not acquire a session token from the host environment.
+            result.putIfAbsent(SECURITY_TOKEN, "");
+        }
 
         // Lance snapshots the host's OSS_*/AWS_*/ALIBABA_CLOUD_* environment into the same config
         // map before storage options are applied, so state both addressing styles explicitly the
@@ -98,30 +104,50 @@ final class LanceOssStorageProvider implements LanceStorageProvider {
 
     @Override
     public Map<String, String> normalizeVendedStorageOptions(Map<String, String> options) {
-        return LanceStorageOptions.normalizeAliases(options, PUBLIC_BY_ALIAS);
+        Map<String, String> normalized = LanceStorageOptions.normalizeAliases(options, PUBLIC_BY_ALIAS);
+        if (normalized.containsKey(ACCESS_KEY_ID) && normalized.containsKey(SECRET_ACCESS_KEY)) {
+            // Replacing an identity also replaces its token, just as for the S3 provider.
+            normalized.putIfAbsent(SECURITY_TOKEN, "");
+        }
+        return normalized;
     }
 
     @Override
     public Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions) {
         Map<String, String> inferred = new HashMap<>();
         boolean hasSigningConfiguration = hasSigningConfiguration(effectiveOptions);
-        String allowAnonymous = effectiveOptions.get(ALLOW_ANONYMOUS);
-        if (allowAnonymous != null) {
-            Boolean anonymous = parseOpenDalBoolean(allowAnonymous);
-            if (anonymous == null) {
-                throw new IllegalArgumentException("Unrecognized value for OSS storage option '"
-                        + ALLOW_ANONYMOUS + "': '" + allowAnonymous
-                        + "'. Expected one of true, on, false, off");
-            }
-            if (anonymous && hasSigningConfiguration) {
-                throw new IllegalArgumentException(
-                        "Conflicting OSS authentication: anonymous access is enabled but signing "
-                                + "credentials are also configured");
-            }
-            return inferred;
+        Boolean allowAnonymous = readBoolean(effectiveOptions, ALLOW_ANONYMOUS);
+        Boolean skipSignature = readBoolean(effectiveOptions, SKIP_SIGNATURE);
+        boolean anonymous = allowAnonymous == null && skipSignature == null
+                ? !hasSigningConfiguration : Boolean.TRUE.equals(allowAnonymous) || Boolean.TRUE.equals(skipSignature);
+        if (anonymous && hasSigningConfiguration) {
+            throw new IllegalArgumentException(
+                    "Conflicting OSS authentication: anonymous access is enabled but signing "
+                            + "credentials are also configured");
         }
-        inferred.put(ALLOW_ANONYMOUS, String.valueOf(!hasSigningConfiguration));
+        // Both fields can arrive from the process environment independently. Fill both so an
+        // explicit identity never becomes anonymous on just the FE or just the BE.
+        inferred.put(ALLOW_ANONYMOUS, String.valueOf(anonymous));
+        inferred.put(SKIP_SIGNATURE, String.valueOf(anonymous));
+        if (hasSigningConfiguration) {
+            // OpenDAL deserializes an empty optional string as None. Clearing the imported role
+            // keeps explicit keys from becoming source credentials for an unrelated ambient role.
+            inferred.put(ROLE_ARN, "");
+        }
         return inferred;
+    }
+
+    private static Boolean readBoolean(Map<String, String> options, String key) {
+        String value = options.get(key);
+        if (value == null) {
+            return null;
+        }
+        Boolean parsed = parseOpenDalBoolean(value);
+        if (parsed == null) {
+            throw new IllegalArgumentException("Unrecognized value for OSS storage option '" + key + "': '"
+                    + value + "'. Expected one of true, on, false, off");
+        }
+        return parsed;
     }
 
     /**
