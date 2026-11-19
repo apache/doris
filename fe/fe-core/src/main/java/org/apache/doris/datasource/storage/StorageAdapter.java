@@ -429,9 +429,8 @@ public final class StorageAdapter {
      * and writes, see {@code AzureThriftAdapter}). Identical to {@link #validateAndNormalizeUri}
      * except that Azure locations keep their native form: BE parses them with the Azure rules and
      * checks their account against the client config, which the s3-style rewrite would make
-     * impossible by dropping the account. Requests without typed access (Broker Load, Export,
-     * Outfile, backup, ...) must keep using {@link #validateAndNormalizeUri}, because their BE
-     * entries only parse s3-style locations.
+     * impossible by dropping the account. Requests without typed access, such as Broker Load and
+     * backup, use {@link #validateAndNormalizeUri} for their legacy BE path.
      */
     public String validateAndNormalizeUriForNativeAccess(String uri) {
         if ("AZURE".equals(providerKey)) {

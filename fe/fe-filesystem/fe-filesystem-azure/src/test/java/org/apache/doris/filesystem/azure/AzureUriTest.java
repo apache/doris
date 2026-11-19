@@ -25,6 +25,39 @@ import java.io.IOException;
 class AzureUriTest {
 
     @Test
+    void resolvePathStyleServicePreservesTheContainerRoot() throws IOException {
+        AzureUri.ServiceEndpoint endpoint = new AzureUri.ServiceEndpoint("http://storage.test:10000/accounts/dev");
+        String container = "http://STORAGE.test:10000/accounts/dev/blue/";
+        AzureUri file = AzureUri.parse(container + "dir/with%20space//file.parquet", endpoint);
+        Assertions.assertEquals("blue", file.container());
+        Assertions.assertEquals("dir/with space//file.parquet", file.key());
+        Assertions.assertEquals(container, file.containerUri());
+        AzureUri escaped = AzureUri.parse(container + "a+%20b%2520%23%3F.parquet", endpoint);
+        Assertions.assertEquals("a+ b%20#?.parquet", escaped.key());
+        Assertions.assertEquals(container + "a+%20b%2520%23%3F.parquet",
+                escaped.appendListedKey(container, escaped.key()));
+        Assertions.assertThrows(IOException.class,
+                () -> AzureUri.parse("http://storage.test:10000/accounts/dev2/blue/file", endpoint));
+        Assertions.assertThrows(IOException.class,
+                () -> AzureUri.parse("http://storage.test:10001/accounts/dev/blue/file", endpoint));
+        Assertions.assertThrows(IOException.class, () -> AzureUri.parse("wasb://blue@backup.test/file", endpoint));
+    }
+
+    @Test
+    void resolveStandardHostUsesAccountCloudAndPort() throws IOException {
+        AzureUri.ServiceEndpoint endpoint = new AzureUri.ServiceEndpoint("https://acct.blob.core.usgovcloudapi.net:443");
+        String root = "abfss://blue@ACCT.dfs.core.usgovcloudapi.net/";
+        Assertions.assertEquals(root, AzureUri.parse(root + "key", endpoint).containerUri());
+        Assertions.assertThrows(IOException.class,
+                () -> AzureUri.parse("abfss://blue@acct.dfs.core.windows.net/key", endpoint));
+        Assertions.assertThrows(IOException.class,
+                () -> AzureUri.parse("https://acct.blob.core.usgovcloudapi.net:8443/blue/key", endpoint));
+        AzureUri.ServiceEndpoint oneLake = new AzureUri.ServiceEndpoint("https://onelake.blob.fabric.microsoft.com");
+        Assertions.assertEquals("blue", AzureUri.parse("abfss://blue@onelake.dfs.fabric.microsoft.com/key",
+                oneLake).container());
+    }
+
+    @Test
     void parseWasbScheme() throws IOException {
         AzureUri uri = AzureUri.parse("wasb://mycontainer@myaccount.blob.core.windows.net/path/to/file");
         Assertions.assertEquals("wasb", uri.scheme());

@@ -36,6 +36,7 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileScanRange;
+import org.apache.doris.thrift.TParquetMetadataParams;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTypeNodeType;
@@ -51,6 +52,8 @@ import org.mockito.Mockito;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -77,6 +80,29 @@ public class S3TableValuedFunctionTest {
         ConnectContext.remove();
         if (previousContext != null) {
             previousContext.setThreadLocalInfo();
+        }
+    }
+
+    @Test
+    public void azureTvfsKeepTheServiceAndContainerInNativeLocations() throws AnalysisException {
+        for (Map<String, String> auth : List.of(Map.of("azure.account_key", "fixture"),
+                Map.of("azure.auth_type", "SAS", "azure.sas_token", "fixture"))) {
+            for (String path : List.of("http://localhost:10000/devstoreaccount1/blue/test.parquet",
+                    "abfss://blue@devstoreaccount1.dfs.core.windows.net/test.parquet", "s3://blue/test.parquet")) {
+                Map<String, String> props = new HashMap<>(auth);
+                props.put("provider", "azure");
+                props.put("azure.account_name", "devstoreaccount1");
+                props.put("azure.endpoint", path.startsWith("http:") ? "http://localhost:10000/devstoreaccount1"
+                        : "https://devstoreaccount1.blob.core.windows.net");
+                props.put("uri", path);
+                TParquetMetadataParams params = new ParquetMetadataTableValuedFunction(props)
+                        .getMetaScanRange(List.of()).getParquetParams();
+                Assertions.assertEquals(List.of(path), params.getPaths());
+                Assertions.assertEquals(props.get("azure.endpoint"), params.getAzureClientConfig().getEndpoint());
+
+                props.put("format", "parquet");
+                Assertions.assertEquals(path, new S3TableValuedFunction(props, List.of()).getFilePath());
+            }
         }
     }
 

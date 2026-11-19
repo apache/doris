@@ -39,6 +39,7 @@ import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -74,12 +75,11 @@ public final class AzureFileSystemProperties
     public static final String OAUTH2_AUTH = "OAuth2";
     public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
 
-    private static final String[] AZURE_BLOB_HOST_SUFFIXES = {
+    static final List<String> AZURE_BLOB_HOST_SUFFIXES = List.of(
             "blob.core.windows.net",
             "blob.core.chinacloudapi.cn",
             "blob.core.usgovcloudapi.net",
-            "blob.core.cloudapi.de"
-    };
+            "blob.core.cloudapi.de");
 
     // In each @ConnectorProperty below, the first name is the canonical key, kept as a
     // constant because other code references it. The remaining literal names are legacy
@@ -259,7 +259,9 @@ public final class AzureFileSystemProperties
         //
         // Every arm also carries the neutral AZURE_* keys (see nativeBackendProperties()), which
         // fe-core turns into the typed TAzureClientConfig for FILE_S3 scans. That is how SAS and
-        // OAuth2 reach the native BE client; the S3-style keys stay for BEs without that field.
+        // OAuth2 reach the native BE client. The SharedKey aliases support legacy s3:// paths.
+        // Upgrade participating BEs before FEs: an existing SharedKey catalog can also send
+        // native abfss:// locations, which an old BE's property-map reader cannot parse.
         Map<String, String> props;
         if (isOauth2Auth()) {
             props = new HashMap<>(oauth2BackendProperties());

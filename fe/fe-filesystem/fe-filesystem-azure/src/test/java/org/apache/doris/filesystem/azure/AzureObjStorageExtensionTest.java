@@ -17,19 +17,28 @@
 
 package org.apache.doris.filesystem.azure;
 
+import org.apache.doris.filesystem.GlobListing;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
 
+import com.azure.core.http.rest.PagedIterable;
+import com.azure.core.http.rest.PagedResponse;
+import com.azure.core.util.IterableStream;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClient;
+import com.azure.storage.blob.models.BlobItem;
+import com.azure.storage.blob.models.BlobItemProperties;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.models.ListBlobsOptions;
 import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.azure.storage.common.StorageSharedKeyCredential;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
@@ -43,6 +52,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Unit tests for the cloud extension methods added to {@link AzureObjStorage}:
@@ -52,6 +62,42 @@ import java.util.UUID;
  * <p>Cloud calls are replaced with mocks or overrides; no real Azure credentials are required.
  */
 class AzureObjStorageExtensionTest {
+
+    @Test
+    void pathStyleListingUsesTheContainerAfterTheServicePath() throws IOException {
+        String endpoint = "http://localhost:10000/devstoreaccount1";
+        String base = endpoint + "/blue/";
+        String key = "data/test+ %20.parquet";
+        String file = base + "data/test+%20%2520.parquet";
+        BlobItem blob = new BlobItem().setName(key).setProperties(new BlobItemProperties().setContentLength(12L));
+        @SuppressWarnings("unchecked")
+        PagedResponse<BlobItem> page = Mockito.mock(PagedResponse.class);
+        Mockito.when(page.getElements()).thenReturn(new IterableStream<>(List.of(blob)));
+        @SuppressWarnings("unchecked")
+        PagedIterable<BlobItem> blobs = Mockito.mock(PagedIterable.class);
+        Mockito.when(blobs.iterableByPage()).thenReturn(List.of(page));
+        BlobContainerClient container = Mockito.mock(BlobContainerClient.class);
+        Mockito.when(container.listBlobs(Mockito.any(ListBlobsOptions.class), Mockito.isNull(), Mockito.isNull()))
+                .thenReturn(blobs);
+        BlobServiceClient service = Mockito.mock(BlobServiceClient.class);
+        Mockito.when(service.getBlobContainerClient("blue")).thenReturn(container);
+
+        Map<String, String> props = Map.of("azure.account_name", "devstoreaccount1", "azure.account_key", "fixture",
+                "azure.endpoint", endpoint);
+        AzureFileSystem fs = new AzureFileSystem(new TestableAzureObjStorage(props, service));
+        GlobListing exact = fs.globListWithLimit(Location.of(file), "", 0, 0);
+        Assertions.assertEquals("blue", exact.getBucket());
+        Assertions.assertEquals(file, exact.getFiles().get(0).location().uri());
+        Assertions.assertEquals(file,
+                fs.listFiles(Location.of(base + "data/*.parquet")).get(0).location().uri());
+        Assertions.assertEquals(file,
+                fs.listFiles(Location.of(base + "*/*.parquet")).get(0).location().uri());
+
+        ArgumentCaptor<ListBlobsOptions> options = ArgumentCaptor.forClass(ListBlobsOptions.class);
+        Mockito.verify(container, Mockito.times(3)).listBlobs(options.capture(), Mockito.isNull(), Mockito.isNull());
+        Assertions.assertEquals(List.of(key, "data/", ""), options.getAllValues().stream()
+                .map(ListBlobsOptions::getPrefix).collect(Collectors.toList()));
+    }
 
     // ------------------------------------------------------------------
     // getPresignedUrl tests

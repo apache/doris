@@ -52,9 +52,7 @@ public class S3TableValuedFunction extends ExternalFileTableValuedFunction {
         this.storageAdapter = StorageAdapter.of(props);
         this.backendConnectProperties.putAll(storageAdapter.getBackendConfigProperties());
         String uri = storageAdapter.validateAndGetUri(props);
-        filePath = storageAdapter.isAzureTokenAuth()
-                ? storageAdapter.validateAndNormalizeUriForNativeAccess(uri)
-                : storageAdapter.validateAndNormalizeUri(uri);
+        filePath = storageAdapter.validateAndNormalizeUriForNativeAccess(uri);
         this.backendConnectProperties.put(URI_KEY, filePath);
         if (!FeConstants.runningUnitTest) {
             parseFile(files);

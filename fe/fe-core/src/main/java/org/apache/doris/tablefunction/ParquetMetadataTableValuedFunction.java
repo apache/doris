@@ -237,7 +237,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
         Map<String, String> backendProps = storageAdapter.getBackendConfigProperties();
         String normalizedPath;
         try {
-            normalizedPath = storageAdapter.validateAndNormalizeUri(parsedPath);
+            normalizedPath = storageAdapter.validateAndNormalizeUriForNativeAccess(parsedPath);
         } catch (RuntimeException e) {
             // legacy wrapped checked UserException here; keep the classification and message
             throw new AnalysisException(

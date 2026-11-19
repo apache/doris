@@ -75,6 +75,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
     private final AzureFileSystemProperties properties;
+    private final AzureUri.ServiceEndpoint serviceEndpoint;
     private volatile BlobServiceClient client;
 
     public AzureObjStorage(Map<String, String> properties) {
@@ -83,6 +84,11 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     public AzureObjStorage(AzureFileSystemProperties properties) {
         this.properties = properties;
+        this.serviceEndpoint = new AzureUri.ServiceEndpoint(properties.getEndpoint());
+    }
+
+    AzureUri.ServiceEndpoint serviceEndpoint() {
+        return serviceEndpoint;
     }
 
     @Override
@@ -129,7 +135,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException {
         try {
-            AzureUri uri = AzureUri.parse(remotePath);
+            AzureUri uri = AzureUri.parse(remotePath, serviceEndpoint);
             ListBlobsOptions options = new ListBlobsOptions().setPrefix(uri.key());
             BlobContainerClient containerClient = getClient().getBlobContainerClient(uri.container());
             PagedIterable<BlobItem> pagedBlobs = containerClient.listBlobs(options, continuationToken, null);
@@ -167,7 +173,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public RemoteObject headObject(String remotePath) throws IOException {
         try {
-            AzureUri uri = AzureUri.parse(remotePath);
+            AzureUri uri = AzureUri.parse(remotePath, serviceEndpoint);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key());
             BlobProperties props = blobClient.getProperties();
@@ -184,7 +190,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public void putObject(String remotePath, RequestBody requestBody) throws IOException {
         try {
-            AzureUri uri = AzureUri.parse(remotePath);
+            AzureUri uri = AzureUri.parse(remotePath, serviceEndpoint);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key());
             blobClient.upload(requestBody.content(), requestBody.contentLength(), true);
@@ -196,7 +202,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public void deleteObject(String remotePath) throws IOException {
         try {
-            AzureUri uri = AzureUri.parse(remotePath);
+            AzureUri uri = AzureUri.parse(remotePath, serviceEndpoint);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key());
             blobClient.delete();
@@ -211,8 +217,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public void copyObject(String srcPath, String dstPath) throws IOException {
         try {
-            AzureUri srcUri = AzureUri.parse(srcPath);
-            AzureUri dstUri = AzureUri.parse(dstPath);
+            AzureUri srcUri = AzureUri.parse(srcPath, serviceEndpoint);
+            AzureUri dstUri = AzureUri.parse(dstPath, serviceEndpoint);
             BlobClient srcClient = getClient().getBlobContainerClient(srcUri.container())
                     .getBlobClient(srcUri.key());
             BlobClient dstClient = getClient().getBlobContainerClient(dstUri.container())
@@ -234,7 +240,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
             RequestBody body) throws IOException {
         try {
-            AzureUri uri = AzureUri.parse(remotePath);
+            AzureUri uri = AzureUri.parse(remotePath, serviceEndpoint);
             BlockBlobClient blockBlobClient = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key()).getBlockBlobClient();
             String blockId = multipartBlockId(uploadId, partNum);
@@ -250,7 +256,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     public void completeMultipartUpload(String remotePath, String uploadId,
             List<UploadPartResult> parts) throws IOException {
         try {
-            AzureUri uri = AzureUri.parse(remotePath);
+            AzureUri uri = AzureUri.parse(remotePath, serviceEndpoint);
             BlobContainerClient containerClient = getClient().getBlobContainerClient(uri.container());
             List<String> blockIds = new ArrayList<>();
             List<UploadPartResult> sorted = new ArrayList<>(parts);
@@ -283,7 +289,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
      */
     InputStream openInputStream(String remotePath) throws IOException {
         try {
-            AzureUri uri = AzureUri.parse(remotePath);
+            AzureUri uri = AzureUri.parse(remotePath, serviceEndpoint);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key());
             return blobClient.openInputStream();
@@ -301,7 +307,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
         try {
-            AzureUri uri = AzureUri.parse(remotePath);
+            AzureUri uri = AzureUri.parse(remotePath, serviceEndpoint);
             BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key());
             com.azure.storage.blob.options.BlobInputStreamOptions opts =
@@ -322,7 +328,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public long headObjectLastModified(String remotePath) throws IOException {
         try {
-            AzureUri uri = AzureUri.parse(remotePath);
+            AzureUri uri = AzureUri.parse(remotePath, serviceEndpoint);
             BlobProperties props = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key()).getProperties();
             return props.getLastModified() != null ? props.getLastModified().toInstant().toEpochMilli() : 0L;
@@ -360,7 +366,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         }
         AzureUri uri;
         try {
-            uri = AzureUri.parse(objectKey);
+            uri = AzureUri.parse(objectKey, serviceEndpoint);
         } catch (Exception e) {
             throw new IOException("Cannot parse Azure object key: " + objectKey, e);
         }
@@ -421,7 +427,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
         String fullKey = prefix + subKey;
         try {
-            AzureUri uri = AzureUri.parse(fullKey);
+            AzureUri uri = AzureUri.parse(fullKey, serviceEndpoint);
             BlobProperties props = getClient()
                     .getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key())

@@ -186,6 +186,55 @@ TEST(AzureTypedAccessTest, ResolvesCustomServicePathAndRelativeKeys) {
     EXPECT_EQ(relative->key, "relative");
 }
 
+TEST(AzureTypedAccessTest, BindsCustomLocationsToTheConfiguredService) {
+    AzureBlobEndpoint service {.url = "http://storage.test:10000/accounts/dev", .account = "dev"};
+    for (const auto* path : {"http://STORAGE.test:10000/accounts/dev/blue/dir/key",
+                             "wasb://blue@storage.test:10000/dir/key", "s3://blue/dir/key"}) {
+        auto location = service.resolve(path, "blue");
+        ASSERT_TRUE(location.has_value()) << location.error();
+        EXPECT_EQ(location->key, "dir/key");
+    }
+    for (const auto* path :
+         {"http://backup.test:10000/accounts/dev/blue/dir/key",
+          "http://storage.test:10001/accounts/dev/blue/dir/key",
+          "http://storage.test:10000/accounts/development/blue/dir/key",
+          "abfs://blue@backup.test:10000/dir/key", "wasb://blue@storage.test:10001/dir/key"}) {
+        auto location = service.resolve(path, "");
+        ASSERT_FALSE(location.has_value()) << path;
+        EXPECT_TRUE(location.error().is<ErrorCode::INVALID_ARGUMENT>());
+    }
+    AzureBlobEndpoint custom {.url = "https://storage.test", .account = "acct"};
+    EXPECT_FALSE(custom.resolve("https://backup.test/blue/key", "blue").has_value());
+    EXPECT_FALSE(custom.resolve("http://storage.test:80/blue/key", "blue").has_value());
+}
+
+TEST(AzureTypedAccessTest, BlobAndDfsAliasesRequireTheSameAccountCloudAndPort) {
+    AzureBlobEndpoint service {.url = "https://acct.blob.core.usgovcloudapi.net:443",
+                               .account = "acct"};
+    EXPECT_TRUE(service.resolve("abfss://blue@ACCT.dfs.core.usgovcloudapi.net/key", "blue")
+                        .has_value());
+    for (const auto* path : {"abfss://blue@acct.dfs.core.windows.net/key",
+                             "https://acct.dfs.core.usgovcloudapi.net:8443/blue/key",
+                             "https://storage.test/blue/key"}) {
+        EXPECT_FALSE(service.resolve(path, "blue").has_value()) << path;
+    }
+    AzureBlobEndpoint onelake {.url = "https://onelake.blob.fabric.microsoft.com", .account = ""};
+    EXPECT_TRUE(onelake.resolve("abfss://blue@onelake.dfs.fabric.microsoft.com/key", "blue")
+                        .has_value());
+}
+
+TEST(AzureTypedAccessTest, HttpBlobNamesAreUnescapedOnceAfterResolvingTheContainer) {
+    AzureBlobEndpoint service {.url = "http://localhost:10000/dev", .account = "dev"};
+    auto file =
+            service.resolve("http://localhost:10000/dev/blue/a+%20b%2520%23%3F.parquet", "blue");
+    ASSERT_TRUE(file.has_value()) << file.error();
+    EXPECT_EQ(file->key, "a+ b%20#?.parquet");
+    auto logical = service.resolve("s3://blue/a%20b.parquet", "blue");
+    ASSERT_TRUE(logical.has_value()) << logical.error();
+    EXPECT_EQ(logical->key, "a%20b.parquet");
+    EXPECT_FALSE(service.resolve("http://localhost:10000/dev/blue/bad%2", "blue").has_value());
+}
+
 TEST(AzureTypedAccessTest, CreateFileWriterUsesTheNativeLocation) {
     auto config = typed_access_shared_key_config();
     std::map<std::string, std::string> properties;

@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface.SensitiveKeyPrefix;
+import org.apache.doris.filesystem.properties.AzureBackendPropertyKeys;
 import org.apache.doris.foundation.util.BasicPrintableMap;
 
 import com.google.common.collect.Sets;
@@ -117,7 +118,8 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
                 "iceberg.rest.secret-access-key", "s3.secret-access-key",
                 "gs.access_key", "gs.secret_key",
                 "azure.account_name", "azure.access_key", "azure.account_key", "azure.secret_key",
-                "azure.oauth2_client_secret",
+                "azure.oauth2_client_secret", "azure.sas_token", AzureBackendPropertyKeys.ACCOUNT_KEY,
+                AzureBackendPropertyKeys.SAS_TOKEN, AzureBackendPropertyKeys.CLIENT_SECRET,
                 "oss.access_key", "oss.secret_key", "oss.session_token",
                 "dlf.access_key", "dlf.catalog.accessKeyId", "dlf.secret_key", "dlf.catalog.secret_key",
                 "fs.oss.accessKeyId", "fs.oss.accessKeySecret", "fs.oss.securityToken",
