@@ -28,9 +28,6 @@ import java.util.function.LongSupplier;
 public final class StreamRowCountEstimator {
     public static final long UNKNOWN_ROW_COUNT = -1L;
 
-    record ChangeEstimate(long records, String source) {
-    }
-
     private StreamRowCountEstimator() {
     }
 
@@ -44,12 +41,12 @@ public final class StreamRowCountEstimator {
     }
 
     /** Record scale before changelog scan-type expansion. Only offsets can prove an empty range. */
-    static ChangeEstimate estimateChangeRecords(Long start, Long end, long storedChangelog, long storedBase,
+    static long estimateChangeRecords(Long start, Long end, long storedChangelog, long storedBase,
             long currentChangelog, long currentBase, boolean mergeOnWrite, StreamScanType scanType,
             LongSupplier tableFallback) {
         if (start != null && end != null) {
             if (end <= start) {
-                return new ChangeEstimate(0, "empty-offset-range");
+                return 0;
             }
             long changelogEstimate = currentChangelog >= 0 && storedChangelog >= 0
                     ? currentChangelog - storedChangelog : currentChangelog;
@@ -62,22 +59,19 @@ public final class StreamRowCountEstimator {
                 long deltaBase = currentBase - storedBase;
                 baseEstimate = useBaseDecline ? Math.abs(deltaBase) : deltaBase;
             }
-            if (changelogEstimate > 0 && changelogEstimate >= baseEstimate) {
-                return new ChangeEstimate(changelogEstimate, storedChangelog >= 0
-                        ? "changelog-delta" : "changelog-index-without-baseline");
-            }
-            if (baseEstimate > 0) {
-                return new ChangeEstimate(baseEstimate, currentBase < storedBase ? "base-decline" : "base-growth");
+            long estimate = Math.max(changelogEstimate, baseEstimate);
+            if (estimate > 0) {
+                return estimate;
             }
         }
         if (currentChangelog > 0) {
-            return new ChangeEstimate(currentChangelog, "changelog-index");
+            return currentChangelog;
         }
         if (currentBase > 0) {
-            return new ChangeEstimate(currentBase, "base-index");
+            return currentBase;
         }
         long fallback = tableFallback.getAsLong();
-        return new ChangeEstimate(fallback > 0 ? fallback : UNKNOWN_ROW_COUNT, "table-fallback");
+        return fallback > 0 ? fallback : UNKNOWN_ROW_COUNT;
     }
 
     public static long outputRows(long records, boolean unique, BaseTableStream.StreamScanType type) {

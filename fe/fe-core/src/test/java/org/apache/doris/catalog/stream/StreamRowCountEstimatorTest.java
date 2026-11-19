@@ -34,7 +34,7 @@ public class StreamRowCountEstimatorTest {
     private long records(long c0, long b0, long c1, long b1,
             boolean mergeOnWrite, StreamScanType scanType, long fallback) {
         return StreamRowCountEstimator.estimateChangeRecords(
-                100L, 200L, c0, b0, c1, b1, mergeOnWrite, scanType, () -> fallback).records();
+                100L, 200L, c0, b0, c1, b1, mergeOnWrite, scanType, () -> fallback);
     }
 
     @Test
@@ -85,16 +85,16 @@ public class StreamRowCountEstimatorTest {
     public void testOnlyResolvedOffsetsProveEmpty() {
         Assertions.assertEquals(0,
                 StreamRowCountEstimator.estimateChangeRecords(100L, 100L, UNKNOWN, 1000, 800, 800,
-                        true, StreamScanType.DETAIL, () -> 9999).records());
+                        true, StreamScanType.DETAIL, () -> 9999));
         Assertions.assertEquals(0,
                 StreamRowCountEstimator.estimateChangeRecords(110L, 100L, 0, 0, 800, 800,
-                        false, StreamScanType.APPEND_ONLY, () -> 9999).records());
+                        false, StreamScanType.APPEND_ONLY, () -> 9999));
         Assertions.assertEquals(800,
                 StreamRowCountEstimator.estimateChangeRecords(null, 200L, 100, 100, 800, 900,
-                        false, StreamScanType.APPEND_ONLY, () -> 9999).records());
+                        false, StreamScanType.APPEND_ONLY, () -> 9999));
         Assertions.assertEquals(800,
                 StreamRowCountEstimator.estimateChangeRecords(100L, null, 1000, 1000, 800, 900,
-                        true, StreamScanType.DETAIL, () -> 9999).records());
+                        true, StreamScanType.DETAIL, () -> 9999));
     }
 
     @Test
