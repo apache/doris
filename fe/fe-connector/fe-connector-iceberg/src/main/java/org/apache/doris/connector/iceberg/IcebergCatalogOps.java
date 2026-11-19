@@ -26,6 +26,8 @@ import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.connector.spi.ddl.TagChange;
 
 import com.google.common.base.Splitter;
+import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -33,6 +35,9 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
@@ -45,7 +50,10 @@ import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.jdbc.JdbcCatalog;
+import org.apache.iceberg.rest.DorisRESTSessionCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.view.View;
@@ -511,11 +519,71 @@ public interface IcebergCatalogOps {
         @Override
         public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
             withTable(dbName, tableName, table -> {
-                UpdateProperties updateProperties = table.updateProperties();
+                UpdateProperties updateProperties = properties.containsKey(TableProperties.FORMAT_VERSION)
+                        ? rowLineageAwareProperties(table) : table.updateProperties();
                 properties.forEach(updateProperties::set);
                 updateProperties.commit();
                 return null;
             });
+        }
+
+        private UpdateProperties rowLineageAwareProperties(Table table) {
+            if (!(table instanceof HasTableOperations)) {
+                throw new DorisConnectorException(
+                        "Cannot safely set Iceberg format version without metadata operations: " + table.name());
+            }
+            TableOperations operations = ((HasTableOperations) table).operations();
+            // Iceberg refreshes the base on each retry. Validate in the commit hook, after that refresh.
+            return new BaseTable(new RowLineageUpgradeOperations(operations, restFlavor), table.name())
+                    .updateProperties();
+        }
+
+        private static final class RowLineageUpgradeOperations implements TableOperations {
+            private final TableOperations delegate;
+            private final boolean restFlavor;
+
+            private RowLineageUpgradeOperations(TableOperations delegate, boolean restFlavor) {
+                this.delegate = delegate;
+                this.restFlavor = restFlavor;
+            }
+
+            @Override
+            public TableMetadata current() {
+                return delegate.current();
+            }
+
+            @Override
+            public TableMetadata refresh() {
+                return delegate.refresh();
+            }
+
+            @Override
+            public void commit(TableMetadata base, TableMetadata updated) {
+                if (base.formatVersion() < IcebergSchemaUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
+                        && updated.formatVersion() >= IcebergSchemaUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+                    IcebergSchemaUtils.validateRowLineageSchema(base.schema());
+                    if (restFlavor || DorisRESTSessionCatalog.isRestTableOperations(delegate)) {
+                        DorisRESTSessionCatalog.commitWithCurrentSchema(delegate, base, updated);
+                        return;
+                    }
+                }
+                delegate.commit(base, updated);
+            }
+
+            @Override
+            public FileIO io() {
+                return delegate.io();
+            }
+
+            @Override
+            public String metadataFileLocation(String fileName) {
+                return delegate.metadataFileLocation(fileName);
+            }
+
+            @Override
+            public LocationProvider locationProvider() {
+                return delegate.locationProvider();
+            }
         }
 
         @Override

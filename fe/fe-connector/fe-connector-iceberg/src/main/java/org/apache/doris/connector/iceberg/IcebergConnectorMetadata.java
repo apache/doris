@@ -166,7 +166,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final String DORIS_ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
     private static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
     private static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
-    private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
 
     // Snapshot-summary keys for table-level row count (getTableStatistics). Local literal copies of the
     // spec-stable iceberg strings — byte-identical to legacy IcebergUtils.TOTAL_*. These remain optimizer
@@ -615,7 +614,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // setIsVisible(false)/setUniqueId. Appended AFTER the data columns (legacy append order). Metadata
         // (system) tables report format-version 2 (BaseMetadataTable.properties() is empty), so the gate
         // naturally excludes them — matching legacy, which injects lineage only for data tables.
-        if (getFormatVersion(table) >= ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+        if (getFormatVersion(table) >= IcebergSchemaUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            IcebergSchemaUtils.validateRowLineageSchema(schema);
             // reservedPassthrough() marks these as engine-recognized passthrough columns so fe-core MERGE/UPDATE
             // and sink binding pass them through generically (via Column.isReservedPassthrough()) instead of
             // string-matching the iceberg names — the engine no longer knows _row_id / _last_updated_sequence_number.
@@ -1225,7 +1225,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         for (ConnectorColumn column : request.getColumns()) {
             String name = column.getName();
             rejectReservedMetadataColumn(name);
-            if (formatVersion >= ICEBERG_ROW_LINEAGE_MIN_VERSION
+            if (formatVersion >= IcebergSchemaUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
                     && (ICEBERG_ROW_ID_COL.equalsIgnoreCase(name)
                     || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(name))) {
                 throw new DorisConnectorException("Cannot create Iceberg v" + formatVersion
