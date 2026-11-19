@@ -242,6 +242,49 @@ public class IcebergScanPlanProviderTest {
         }
     }
 
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    public void boundedManifestStreamingPreservesCoarseSplits(boolean cached, boolean withDelete) throws IOException {
+        long mb = 1024L * 1024L;
+        Table table = createTable("coarse_manifests", SCHEMA, PartitionSpec.unpartitioned(),
+                Map.of("format-version", "2"));
+        for (FileFormat format : Arrays.asList(FileFormat.PARQUET, FileFormat.ORC)) {
+            table.newFastAppend().appendFile(dataFile(table.spec(), "/d/coarse." + format.name().toLowerCase(
+                    java.util.Locale.ROOT), 96 * mb, null, null, format)).commit();
+        }
+        if (withDelete) {
+            Map<Integer, ByteBuffer> deleteBounds = Map.of(MetadataColumns.DELETE_FILE_PATH.fieldId(),
+                    Conversions.toByteBuffer(Types.StringType.get(), "/d/coarse.parquet"));
+            table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                    .withPath("/d/coarse_delete.parquet").withFormat(FileFormat.PARQUET)
+                    .withReferencedDataFile("/d/coarse.parquet").withFileSizeInBytes(100)
+                    .withMetrics(new Metrics(1L, null, null, null, null, deleteBounds, deleteBounds)).build()).commit();
+        }
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(cached ? manifestCacheProps() : Collections.emptyMap()),
+                opsReturning(table), context, cache);
+        ConnectorSession session = new FakeScanSession("UTC", Map.of("file_split_size", Long.toString(16 * mb)));
+        ConnectorScanRequest request = scanOf(new IcebergTableHandle("db1", "coarse_manifests"))
+                .coarseSplitSize(64 * mb).build();
+        try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+            source.onMoreSplitsRequested();
+            List<ConnectorScanRange> ranges = drain(source);
+            Assertions.assertEquals(withDelete ? 8 : 4, ranges.size());
+            for (ConnectorScanRange range : ranges) {
+                boolean hasDelete = withDelete && range.getPath().get().endsWith("coarse.parquet");
+                Assertions.assertEquals((hasDelete ? 16 : 64) * mb, range.getTargetSplitSize());
+                Assertions.assertEquals(hasDelete ? 1 : 0, deleteCount(range));
+                Assertions.assertEquals(!hasDelete, range.supportsBeSplitRefinement());
+            }
+        }
+        Assertions.assertTrue(context.metadataSubmissions.get() > 0,
+                "coarse splitting must retain bounded manifest scheduling");
+        int expectedEntries = withDelete ? 3 : 2;
+        Assertions.assertEquals(cached ? expectedEntries : 0, cache.size());
+    }
+
     @Test
     public void scanReuseNamespaceUsesConnectorType() {
         String prefix = new IcebergConnectorProvider().getType() + ".";
