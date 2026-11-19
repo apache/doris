@@ -222,6 +222,7 @@ public final class BaselineTestDoubles {
         public java.util.function.BiFunction<Long, Integer, List<BaselinePlan>>
                 byHashTimedReader;
         public Supplier<Map<Long, BaselinePlan>> snapshotReader;
+        public boolean snapshotUsesDurableHashReads;
         public DurableVisibilityProbe visibilityProbe;
         /** Explicit durable override; null = durable exactly when a hook is installed. */
         public Boolean durableOverride;
@@ -284,7 +285,7 @@ public final class BaselineTestDoubles {
             // a write-protocol simulator leaves the manager's in-memory store in charge
             // (the historic durable-hash-read gate kept those bindings out)
             return statusProtocolStore == null && idAllocatorStore == null
-                    && snapshotReader == null;
+                    && (snapshotReader == null || snapshotUsesDurableHashReads);
         }
 
         @Override

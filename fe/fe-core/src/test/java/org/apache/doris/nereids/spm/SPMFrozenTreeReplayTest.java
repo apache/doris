@@ -455,6 +455,20 @@ public class SPMFrozenTreeReplayTest {
                 "an empty substitution map is fine: no placeholder may remain");
     }
 
+    @Test
+    public void testStrictCallerSkipsPreviouslyFoldedConcreteCast() throws Exception {
+        installConnectContext();
+        String bind = "SELECT * REPLACE(CAST('abc' AS INT) AS k) FROM t1";
+        BaselinePlan baseline = frozenBaseline(bind, "SELECT NULL AS k FROM t1");
+        baseline.setPlanFrozen(Boolean.TRUE);
+        manager.createBaseline(baseline);
+        ConnectContext.get().getSessionVariable().enableStrictCast = false;
+        Assertions.assertNotNull(new SPMPlanner().tryRewritePlan(parse(bind), System.currentTimeMillis() + 5000));
+
+        ConnectContext.get().getSessionVariable().enableStrictCast = true;
+        Assertions.assertNull(new SPMPlanner().tryRewritePlan(parse(bind), System.currentTimeMillis() + 5000));
+    }
+
     /**
      * R11-8 (refresh / restart): the row is rebuilt from the persisted planFrozen=true +
      * the SAME marker-free decompiled text, and the rebuilt baseline replays the frozen

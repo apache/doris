@@ -1537,11 +1537,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // the explode: a derived table with LIMIT 10 would limit the exploded rows
         // instead of the lateral-view input, a GROUP BY would regroup the generator
         // output, and frozen replay could return rows the captured plan filtered out.
-        // A FROM-less child (e.g. LATERAL VIEW over "SELECT 1 AS x") needs the wrapper
-        // for the same reason.
+        // A FROM-less child needs a wrapper, and an ASSERT_ROWS child must assert
+        // the input cardinality before the generator changes it.
         SQLRelation relation;
         String baseSql;
-        if (childRelation.getFrom().isEmpty() || childRelation.hasOwnBlock()) {
+        if (childRelation.isAssertRows() || childRelation.getFrom().isEmpty() || childRelation.hasOwnBlock()) {
             if (childRelation.getRelationName() == null) {
                 childRelation.newAlias();
             }

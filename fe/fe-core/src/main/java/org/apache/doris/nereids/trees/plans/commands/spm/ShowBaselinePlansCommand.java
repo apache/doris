@@ -58,7 +58,7 @@ import java.util.Optional;
  *
  * Execution logic: merge the SESSION-scope baselines of the current connection
  * (SessionBaselineStore) with the GLOBAL ones from
- * BaselineManager.getInstance().getAllBaselines(), order by id and render them as a
+ * BaselineManager.getConfirmedGlobalRowsForShow(), order by id and render them as a
  * ShowResultSet. The first 12 columns mirror the spm_baselines internal table (design doc
  * 6.14.1; `query_id` is the audit_log correlation id of the statement that produced the
  * baseline); the trailing `scope` column is synthesized (GLOBAL / SESSION) because the
@@ -184,22 +184,10 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         // deterministic order and puts the SESSION rows (>= 2^62) after the GLOBAL ones
         List<BaselinePlan> all = Lists.newArrayList();
         all.addAll(ctx.getSessionBaselineStore().getAllBaselines());
-        // GLOBAL rows must be authoritative: getAllBaselines() only STARTS the
-        // asynchronous load and returns the current cache, so right after startup / a
-        // promotion (which clears it) SHOW reported ZERO rows although durable baselines
-        // existed, and - with the cache merely "loaded" - a GLOBAL DDL completed on the
-        // MASTER stayed invisible (a completed DROP stayed listed) until this follower's
-        // next refresh daemon cycle. confirmGlobalRowsForShow() does the module's
-        // confirmed durable read instead: master sync, generation fence, fresh snapshot
-        // apply, retryable error when the rows cannot be read (never a stale table).
-        //
-        // The WHERE scope = 'SESSION' form is applied BEFORE the confirmed read: those
-        // rows live only in this connection's in-memory store, so the result can never
-        // contain a GLOBAL row - a master handoff (whose confirmed read is retryable)
-        // must not fail a SHOW whose answer does not depend on the master at all.
+        // Session-only queries need only this connection's store. Other SHOW queries use
+        // the confirmed global snapshot so forwarded DDL is visible on a follower.
         if (!isSessionScopeOnlyFilter()) {
-            BaselineManager.getInstance().confirmGlobalRowsForShow();
-            all.addAll(BaselineManager.getInstance().getAllBaselines());
+            all.addAll(BaselineManager.getInstance().getConfirmedGlobalRowsForShow());
         }
         all.sort(Comparator.comparingLong(BaselinePlan::getId));
 

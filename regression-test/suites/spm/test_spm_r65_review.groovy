@@ -52,6 +52,7 @@ suite("test_spm_r65_review", "spm") {
 
     sql """set enable_spm_rewrite = true"""
     sql """set enable_spm_fallback = false"""
+    sql """set enable_sql_cache = false"""
 
     // ==================== setup: tables (drop before use, keep after) ====================
     sql """DROP TABLE IF EXISTS spm_r65b_t"""
@@ -174,25 +175,21 @@ suite("test_spm_r65_review", "spm") {
     long lagId = createGlobal(lagBind, lagBind)
     assertTrue(explainOf(lagBind).contains("SPM baseline hit: id=${lagId}"),
             "the LAG query must hit its baseline: " + explainOf(lagBind))
-    order_qt_r65_lag_identical """
-        SELECT lag(k) OVER (ORDER BY k) AS p FROM spm_r65b_t WHERE k IN (1, 2) ORDER BY p
-    """
+    order_qt_r65_lag_identical lagBind
     // the substituted list variant replans the frozen text with the caller's values: an
     // explicit LAG frame in the frozen SQL used to fail here with "WindowFrame for LAG()
     // must be null"
     String lagVariant = "SELECT lag(k) OVER (ORDER BY k) AS p FROM spm_r65b_t WHERE k IN (1, 3)"
     assertTrue(explainOf(lagVariant).contains("SPM baseline hit: id=${lagId}"),
             "the substituted list variant must hit the same baseline: " + explainOf(lagVariant))
-    order_qt_r65_lag_variant """
-        SELECT lag(k) OVER (ORDER BY k) AS p FROM spm_r65b_t WHERE k IN (1, 3) ORDER BY p
-    """
+    order_qt_r65_lag_variant lagVariant
 
     // ==================== #3: COUNT(DISTINCT a, b) tuple identity ====================
     String distinctSql = "SELECT COUNT(DISTINCT a, b) AS c FROM spm_r65b_d"
     long distinctId = createGlobal(distinctSql, distinctSql)
     assertTrue(explainOf(distinctSql).contains("SPM baseline hit: id=${distinctId}"),
             "the tuple distinct query must hit its baseline: " + explainOf(distinctSql))
-    order_qt_r65_distinct_tuple """SELECT COUNT(DISTINCT a, b) AS c FROM spm_r65b_d"""
+    order_qt_r65_distinct_tuple distinctSql
 
     // ==================== #5: LATERAL VIEW generator name vs source column X ====================
     String lateralBind = "SELECT t.X AS a, lv.x AS b FROM spm_r65b_lv t" +
@@ -200,11 +197,7 @@ suite("test_spm_r65_review", "spm") {
     long lateralId = createGlobal(lateralBind, lateralBind)
     assertTrue(explainOf(lateralBind).contains("SPM baseline hit: id=${lateralId}"),
             "the lateral view query must hit its baseline: " + explainOf(lateralBind))
-    order_qt_r65_lateral_view """
-        SELECT t.X AS a, lv.x AS b FROM spm_r65b_lv t
-        LATERAL VIEW explode(t.arr) lv AS x WHERE t.k IN (1, 2)
-        ORDER BY a, b
-    """
+    order_qt_r65_lateral_view lateralBind
 
     // ==================== #6: GROUPING_ID with a congruent grouping key ====================
     String groupingSql = "SELECT a, b, a_b, GROUPING_ID(a, b) AS g FROM spm_r65b_g" +
@@ -212,11 +205,7 @@ suite("test_spm_r65_review", "spm") {
     long groupingId = createGlobal(groupingSql, groupingSql)
     assertTrue(explainOf(groupingSql).contains("SPM baseline hit: id=${groupingId}"),
             "the GROUPING_ID query must hit its baseline: " + explainOf(groupingSql))
-    order_qt_r65_grouping_id """
-        SELECT a, b, a_b, GROUPING_ID(a, b) AS g FROM spm_r65b_g
-        GROUP BY GROUPING SETS ((a, b, a_b), ())
-        ORDER BY g, a, b, a_b
-    """
+    order_qt_r65_grouping_id groupingSql
 
     // ==================== #7: SET_VAR order across CTE blocks ====================
     // the hint literals need escaped quotes inside the CREATE's own quoted strings.
@@ -244,8 +233,7 @@ suite("test_spm_r65_review", "spm") {
     assertTrue(explainOf(naajSql).contains("SPM baseline hit: id=${naajId}"),
             "the NULL-aware anti join must hit its baseline: " + explainOf(naajSql))
     // the NULL key row of r marks the probe matched: the anti join returns NO row
-    order_qt_r65_null_aware_anti """SELECT l.a FROM spm_r65b_l l LEFT NULL_AWARE ANTI JOIN spm_r65b_r r
-        ON l.a = r.c AND l.b = r.d AND r.f > l.z"""
+    order_qt_r65_null_aware_anti naajSql
 
     // ==================== #9: nonmovable evaluation above a child LIMIT ====================
     sql """set disable_nereids_rules = 'PUSH_DOWN_PROJECT_THROUGH_LIMIT'"""
@@ -256,10 +244,7 @@ suite("test_spm_r65_review", "spm") {
             "the nonmovable query must hit its baseline: " + explainOf(nonMovableSql))
     // only the FIRST row (v = 1) may be evaluated; hoisting the projection would check
     // the discarded v = -1 and fail
-    order_qt_r65_nonmovable_above_limit """
-        SELECT bitmap_to_string(to_bitmap_with_check(v)) AS b
-        FROM (SELECT k, v FROM spm_r65b_bt ORDER BY k LIMIT 1) s
-    """
+    order_qt_r65_nonmovable_above_limit nonMovableSql
     sql """set disable_nereids_rules = ''"""
 
     // ==================== #12: TVF-only baseline (empty fingerprint) can be DROPPED ====================
@@ -267,7 +252,7 @@ suite("test_spm_r65_review", "spm") {
     long tvfId = createGlobal(tvfSql, tvfSql)
     assertTrue(explainOf(tvfSql).contains("SPM baseline hit: id=${tvfId}"),
             "the TVF-only query must hit its baseline: " + explainOf(tvfSql))
-    order_qt_r65_tvf_replay """SELECT number FROM numbers("number"="5") ORDER BY number"""
+    order_qt_r65_tvf_replay tvfSql
     sql """DROP BASELINE PLAN ${tvfId}"""
     assertFalse(sql("""SHOW BASELINE PLANS""").any { Long.parseLong(it[0].toString()) == tvfId },
             "the TVF-only baseline must be gone after DROP")
@@ -278,11 +263,7 @@ suite("test_spm_r65_review", "spm") {
     long inheritedId = createGlobal(inheritedSql, inheritedSql)
     assertTrue(explainOf(inheritedSql).contains("SPM baseline hit: id=${inheritedId}"),
             "the inherited CTE query must hit its baseline: " + explainOf(inheritedSql))
-    order_qt_r65_inherited_cte """
-        WITH c AS (SELECT k AS a FROM spm_r65b_t), d AS (SELECT * FROM c)
-        SELECT * FROM (WITH c AS (SELECT q AS b FROM spm_r65b_u) SELECT * FROM d) s
-        ORDER BY a
-    """
+    order_qt_r65_inherited_cte inheritedSql
 
     // ==================== #16: GROUPING SETS (ROLLUP) output list alignment ====================
     String rollupBind = "SELECT sum(v + 1) AS s FROM spm_r65b_t GROUP BY ROLLUP(k)"
@@ -290,9 +271,7 @@ suite("test_spm_r65_review", "spm") {
     String rollupVariant = "SELECT sum(v + 2) AS s FROM spm_r65b_t GROUP BY ROLLUP(k)"
     assertTrue(explainOf(rollupVariant).contains("SPM baseline hit: id=${rollupId}"),
             "the rollup variant must hit its baseline: " + explainOf(rollupVariant))
-    order_qt_r65_rollup_variant """
-        SELECT sum(v + 2) AS s FROM spm_r65b_t GROUP BY ROLLUP(k) ORDER BY s
-    """
+    order_qt_r65_rollup_variant rollupVariant
 
     // ==================== #18: supported materialized-CTE shape below a UNION ====================
     String unionCteBind = "WITH c AS (SELECT k + 1 AS x, v + 1 AS y FROM spm_r65b_c)" +
@@ -304,12 +283,7 @@ suite("test_spm_r65_review", "spm") {
             " ON a.x = b.y WHERE a.x IN (2, 3)"
     assertTrue(explainOf(unionCteVariant).contains("SPM baseline hit: id=${unionCteId}"),
             "the union CTE variant must hit its baseline: " + explainOf(unionCteVariant))
-    order_qt_r65_union_cte """
-        WITH c AS (SELECT k + 1 AS x, v + 1 AS y FROM spm_r65b_c)
-        SELECT a.x FROM c a JOIN (SELECT y FROM c UNION ALL SELECT q FROM spm_r65b_u) b
-        ON a.x = b.y WHERE a.x IN (2, 3)
-        ORDER BY a.x
-    """
+    order_qt_r65_union_cte unionCteVariant
 
     // ==================== #2: an open star followed by another star ====================
     String starBind = "SELECT u.*, s.* FROM spm_r65b_u u" +
@@ -319,16 +293,12 @@ suite("test_spm_r65_review", "spm") {
             " CROSS JOIN (SELECT k + 2 AS c1, v + 2 AS c2 FROM spm_r65b_t) s"
     assertTrue(explainOf(starVariant).contains("SPM baseline hit: id=${starId}"),
             "the star variant must hit its baseline: " + explainOf(starVariant))
-    order_qt_r65_following_star """
-        SELECT u.*, s.* FROM spm_r65b_u u
-        CROSS JOIN (SELECT k + 2 AS c1, v + 2 AS c2 FROM spm_r65b_t) s
-        ORDER BY 1, 2, 3
-    """
+    order_qt_r65_following_star starVariant
 
     // ==================== #13: literal template syntax in persisted SQL ====================
     String templateSql = "SELECT k AS `\${id}` FROM spm_r65b_t WHERE k IN (1, 2)"
     long templateId = createGlobal(templateSql, templateSql)
     assertTrue(explainOf(templateSql).contains("SPM baseline hit: id=${templateId}"),
             "the template-alias query must hit its baseline: " + explainOf(templateSql))
-    order_qt_r65_template_alias """SELECT k AS `\${id}` FROM spm_r65b_t WHERE k IN (1, 2) ORDER BY 1"""
+    order_qt_r65_template_alias templateSql
 }

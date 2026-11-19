@@ -36,6 +36,7 @@ import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.spm.matcher.MatchAttempt;
 import org.apache.doris.nereids.spm.matcher.PlaceholderBindings;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -64,6 +66,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
@@ -93,6 +96,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -8845,7 +8850,7 @@ public final class SPMPlanTreeSupport {
      */
     private static void rejectFoldedZoneSensitiveGenerators(LogicalGenerate<? extends Plan> generate) {
         for (Expression generator : generate.getGenerators()) {
-            if (containsFoldedZoneSensitiveCall(generator)) {
+            if (containsFoldableCall(generator, SPMPlanTreeSupport::isZoneSensitiveCall)) {
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "SPM does not support a baseline whose generator argument folds a"
                                 + " session-time-zone dependent function ("
@@ -8858,30 +8863,13 @@ public final class SPMPlanTreeSupport {
         }
     }
 
-    /** Whether one expression tree contains a constant-argument zone-sensitive call. */
-    private static boolean containsFoldedZoneSensitiveCall(Expression expression) {
-        if (expression
-                instanceof org.apache.doris.nereids.trees.expressions.functions.Function
-                && isZoneSensitiveFunctionName(
-                        ((org.apache.doris.nereids.trees.expressions.functions.Function) expression)
-                                .getName())
-                && isLiteralOnly(expression)) {
-            return true;
-        }
-        if (expression instanceof org.apache.doris.nereids.trees.expressions.Cast
-                && isZoneSensitiveCast(
-                        (org.apache.doris.nereids.trees.expressions.Cast) expression)
-                && isLiteralOnly(expression)) {
-            // A CAST CHAIN over literals is the same hazard WITHOUT a named function
-            // : CAST(CAST(CAST('2020-01-01 00:00:00+00:00' AS TIMESTAMPTZ)
-            // AS DATETIME(6)) AS STRING) converts the absolute timestamp into the SESSION
-            // zone twice, the creator-context optimization folds it into that zone's literal,
-            // and an identical caller in +08:00 replays 00:00 where its own query returns
-            // 08:00. The name-based guard cannot see a cast, so the TYPE transition decides.
+    /** Finds a session-sensitive call whose inputs can be folded before replay. */
+    private static boolean containsFoldableCall(Expression expression, Predicate<Expression> sensitive) {
+        if (sensitive.test(expression)) {
             return true;
         }
         for (Expression child : expression.children()) {
-            if (containsFoldedZoneSensitiveCall(child)) {
+            if (containsFoldableCall(child, sensitive)) {
                 return true;
             }
         }
@@ -8889,29 +8877,38 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Whether one CAST reads or writes the SESSION time zone (see containsFoldedZoneSensitiveCall).
-     *
-     * A cast is zone-sensitive when it either produces a TIMESTAMPTZ from a zone-less value
-     * (the wall clock of the session zone gives it its instant) or when it RENDERS a TIMESTAMPTZ
-     * as a zone-less value (DATETIME / DATE / STRING - the session zone decides which wall clock
-     * that instant is). Casts between zone-less types and casts that stay inside TIMESTAMPTZ are
-     * absolute and stay freezable.
-     *
-     * Parameter cast: the cast to classify
-     * Returns: whether its value depends on the session time zone
+     * Zone-sensitive calls include conversions between TIMESTAMPTZ and a zone-less type.
+     * A foldable cast whose input type needs analysis is also treated as potentially sensitive.
      */
-    private static boolean isZoneSensitiveCast(org.apache.doris.nereids.trees.expressions.Cast cast) {
-        org.apache.doris.nereids.types.DataType target = cast.getDataType();
-        boolean targetIsTz = target instanceof org.apache.doris.nereids.types.TimeStampTzType;
-        boolean sourceIsTz = false;
-        if (!cast.children().isEmpty()) {
-            sourceIsTz = cast.child().getDataType()
-                    instanceof org.apache.doris.nereids.types.TimeStampTzType;
+    private static boolean isZoneSensitiveCall(Expression expression) {
+        if (expression instanceof Function) {
+            return isZoneSensitiveFunctionName(((Function) expression).getName()) && isLiteralOnly(expression);
         }
-        if (targetIsTz && !sourceIsTz) {
-            return true;
+        if (!(expression instanceof Cast) || !isLiteralOnly(expression)) {
+            return false;
         }
-        return sourceIsTz && !targetIsTz;
+        Cast cast = (Cast) expression;
+        DataType sourceType = typeKnownBeforeAnalysis(cast.child());
+        return sourceType == null
+                || (sourceType instanceof TimeStampTzType) != (cast.getDataType() instanceof TimeStampTzType);
+    }
+
+    private static boolean isStrictCastSensitiveCall(Expression expression) {
+        if (!(expression instanceof Cast) || ((Cast) expression).isStrict() || !isLiteralOnly(expression)) {
+            return false;
+        }
+        Cast cast = (Cast) expression;
+        DataType sourceType = typeKnownBeforeAnalysis(cast.child());
+        DataType targetType = cast.getDataType();
+        return sourceType == null || (!sourceType.isNullType()
+                && (!CheckCast.check(sourceType, targetType, true)
+                        || Cast.mayFailOnNonNullInput(sourceType, targetType)));
+    }
+
+    private static DataType typeKnownBeforeAnalysis(Expression expression) {
+        // A literal owns its type and a cast declares its target. Function calls and
+        // other parsed expressions can require binding even when all inputs are literals.
+        return expression instanceof Literal || expression instanceof Cast ? expression.getDataType() : null;
     }
 
     /**
@@ -8925,19 +8922,24 @@ public final class SPMPlanTreeSupport {
      * a * REPLACE payload (stored outside the star's expression children and compared
      *   concretely, see SPMAstCheckVisitor): SELECT * REPLACE(from_unixtime(0) AS a) FROM t
      *
-     * In both positions the creator-context optimization FOLDS a constant-argument
-     * zone-sensitive call into the CREATOR's zone literal (the placeholder that blocks the
-     * fold elsewhere is never created there), and the decompiled text would serve that
-     * value to every later caller although the caller's own query evaluates the function in
-     * its zone. The CREATE declines the freeze for such a statement instead: the raw
-     * planSql is stored and the rewrite replays the parameterized tree, which re-evaluates
-     * the expression under the CALLER's session. A call spelled over a COLUMN stays
-     * freezable - it is evaluated per row, in the caller's own session.
+     * A constant call in either position can fold using the creator's time zone or cast mode.
+     * Keeping raw plan SQL allows replay through the parameterized tree to evaluate the
+     * call under the caller's settings. A call over a column is evaluated per row.
      *
      * Parameter plan: the parsed (unbound) tree
      * Returns: true when the freeze must be declined for such a payload
      */
     public static boolean containsFoldedSessionSensitivePayload(LogicalPlan plan) {
+        return containsFoldablePayload(plan, expression ->
+                isZoneSensitiveCall(expression) || isStrictCastSensitiveCall(expression));
+    }
+
+    /** Detects casts that can already have been folded in older frozen baselines. */
+    static boolean containsFoldedStrictCastPayload(LogicalPlan plan) {
+        return containsFoldablePayload(plan, SPMPlanTreeSupport::isStrictCastSensitiveCall);
+    }
+
+    private static boolean containsFoldablePayload(LogicalPlan plan, Predicate<Expression> sensitive) {
         if (plan == null) {
             return false;
         }
@@ -8949,7 +8951,7 @@ public final class SPMPlanTreeSupport {
             if (node instanceof InlineTable) {
                 for (List<NamedExpression> row : ((InlineTable) node).getConstantExprsList()) {
                     for (NamedExpression cell : row) {
-                        if (containsFoldedZoneSensitiveCall(cell)) {
+                        if (containsFoldableCall(cell, sensitive)) {
                             found[0] = true;
                             return;
                         }
@@ -8957,7 +8959,7 @@ public final class SPMPlanTreeSupport {
                 }
             }
             for (Expression expr : node.getExpressions()) {
-                if (containsFoldedZoneSensitiveStarPayload(expr)) {
+                if (containsFoldableStarPayload(expr, sensitive)) {
                     found[0] = true;
                     return;
                 }
@@ -8966,20 +8968,17 @@ public final class SPMPlanTreeSupport {
         return found[0];
     }
 
-    /**
-     * Whether an expression tree carries a star whose REPLACE payload folds a
-     * constant-argument zone-sensitive call (see containsFoldedSessionSensitivePayload).
-     */
-    private static boolean containsFoldedZoneSensitiveStarPayload(Expression expression) {
+    /** Searches a star's concrete REPLACE expressions. */
+    private static boolean containsFoldableStarPayload(Expression expression, Predicate<Expression> sensitive) {
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                if (containsFoldedZoneSensitiveCall(replaced)) {
+                if (containsFoldableCall(replaced, sensitive)) {
                     return true;
                 }
             }
         }
         for (Expression child : expression.children()) {
-            if (containsFoldedZoneSensitiveStarPayload(child)) {
+            if (containsFoldableStarPayload(child, sensitive)) {
                 return true;
             }
         }
@@ -9011,7 +9010,7 @@ public final class SPMPlanTreeSupport {
      * syntactic classification does not evaluate determinism or general foldability.
      */
     private static boolean isLiteralOnly(Expression expression) {
-        if (expression instanceof org.apache.doris.nereids.trees.expressions.literal.Literal) {
+        if (expression instanceof Literal) {
             return true;
         }
         if (expression.children().isEmpty()) {

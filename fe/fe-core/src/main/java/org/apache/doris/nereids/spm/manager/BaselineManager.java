@@ -4245,18 +4245,14 @@ public class BaselineManager {
     }
 
     /**
-     * Prepares GLOBAL state for SHOW. A non-durable store, or the leader with authoritative hash reads, only needs
-     * load readiness. Other FEs synchronize the journal, advance the generation and load or refresh a durable
-     * snapshot under writer serialization. Internal-table row visibility is established by table reads, separately
-     * from journal synchronization. A failed read raises a retryable error.
+     * Returns confirmed GLOBAL rows for SHOW. Followers synchronize the journal and publish the snapshot
+     * under writer serialization. The response uses those same rows, including rows outside the match cache.
+     * A failed read raises a retryable error.
      */
-    public void confirmGlobalRowsForShow() {
+    public List<BaselinePlan> getConfirmedGlobalRowsForShow() {
         if (!persistence.isDurable() || (cluster.isLeader() && persistence.hashReadsAvailable())) {
-            // no durable store behind this cache, or this FE executes every GLOBAL DDL
-            // itself AND the store serves the authoritative read: its memory is at least
-            // as fresh as the table
-            ensureLoadedOrThrow();
-            return;
+            Map<Long, BaselinePlan> initialSnapshot = ensureLoadedOrThrow();
+            return initialSnapshot == null ? getAllBaselines() : sortedRows(initialSnapshot.values());
         }
         synchronized (writerLock) {
             // Fence: a snapshot whose READ started before this point may predate the
@@ -4264,29 +4260,9 @@ public class BaselineManager {
             // returns (the generation check discards the in-flight load instead).
             storeGeneration.incrementAndGet();
             syncJournalWithMaster(ConnectContext.get());
-            if (!loaded) {
-                // Wait (bounded) for the in-flight load to finish and discard itself,
-                // then load once against the CURRENT table content.
-                long deadline = System.currentTimeMillis() + MANAGEMENT_LOAD_WAIT_MILLIS;
-                while (!loaded && System.currentTimeMillis() < deadline) {
-                    if (loadInProgress.compareAndSet(false, true)) {
-                        readAndPublishPossessingLoadSlot();
-                        break;
-                    }
-                    synchronized (loadMonitor) {
-                        try {
-                            loadMonitor.wait(50L);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-                }
-                if (!loaded) {
-                    throw new IllegalStateException("SPM baseline store is not ready yet"
-                            + " (the baseline table has not been loaded); please retry later");
-                }
-                return;
+            Map<Long, BaselinePlan> initialSnapshot = ensureLoadedOrThrow();
+            if (initialSnapshot != null) {
+                return sortedRows(initialSnapshot.values());
             }
             final Map<Long, BaselinePlan> snapshot;
             try {
@@ -4298,7 +4274,7 @@ public class BaselineManager {
             }
             // No writer can interleave (writerLock is held) and loads return early while
             // loaded, so the snapshot is authoritative for this instant.
-            applyRefreshedBaselines(snapshot);
+            return sortedRows(applyRefreshedBaselines(snapshot).values());
         }
     }
 
@@ -4326,16 +4302,27 @@ public class BaselineManager {
                             + " (SHOW must not report a stale table); please retry later: "
                             + t.getMessage(), t);
                 }
-                Set<Long> masked = resolvePendingMutationFences(snapshotRead);
-                Map<Long, BaselinePlan> snapshot = collapseDuplicateKeyRows(snapshotRead);
-                for (Long id : masked) {
-                    snapshot.remove(id);
-                }
-                all = new ArrayList<>(snapshot.values());
+                Map<Long, BaselinePlan> snapshot = visibleSnapshotRows(snapshotRead,
+                        resolvePendingMutationFences(snapshotRead));
+                return sortedRows(snapshot.values());
             }
         }
-        all.sort(Comparator.comparingLong(BaselinePlan::getId));
-        return all;
+        return sortedRows(all);
+    }
+
+    private static List<BaselinePlan> sortedRows(Collection<BaselinePlan> rows) {
+        List<BaselinePlan> sorted = new ArrayList<>(rows);
+        sorted.sort(Comparator.comparingLong(BaselinePlan::getId));
+        return sorted;
+    }
+
+    private static Map<Long, BaselinePlan> visibleSnapshotRows(Map<Long, BaselinePlan> rows, Set<Long> fenced) {
+        Map<Long, BaselinePlan> visible = collapseDuplicateKeyRows(rows);
+        if (!fenced.isEmpty()) {
+            visible = new HashMap<>(visible);
+            fenced.forEach(visible.keySet()::remove);
+        }
+        return visible;
     }
 
     // durable reads by hash (the matching-path miss).
@@ -4436,7 +4423,7 @@ public class BaselineManager {
      * retry (a retry is NOT a permanent "no baselines" decision: DROP... IF EXISTS would
      * otherwise report success without deleting the durable row).
      */
-    private void readAndPublishPossessingLoadSlot() {
+    private Map<Long, BaselinePlan> readAndPublishPossessingLoadSlot() {
         try {
             // Capture the generation BEFORE the read: a promotion reload / invalidation
             // that lands while this snapshot is being read makes the snapshot stale (it
@@ -4456,7 +4443,7 @@ public class BaselineManager {
             } catch (Throwable t) {
                 LOG.warn("SPM load baselines from internal table failed (will retry lazily): {}",
                         t.getMessage());
-                return;
+                return null;
             }
             // Converge the same-key twins of a handoff BEFORE the snapshot is settled /
             // published: the durable repair as well as the fence settlement below run I/O
@@ -4470,7 +4457,7 @@ public class BaselineManager {
             stateLock.writeLock().lock();
             try {
                 if (loaded) {
-                    return; // a concurrent load won the race
+                    return null; // a concurrent load won the race
                 }
                 if (storeGeneration.get() != generationAtRead) {
                     // an invalidation superseded this snapshot (e.g. a DROP committed
@@ -4478,17 +4465,18 @@ public class BaselineManager {
                     // retries against the CURRENT table content
                     LOG.warn("SPM baseline load discarded: the store was invalidated while the"
                             + " snapshot was being read (will retry)");
-                    return;
+                    return null;
                 }
                 if (stateVersion != versionAtRead) {
                     // a local mutation (CREATE / DROP / ALTER, or a merged refresh)
                     // published while the snapshot was being read: the snapshot predates it
                     LOG.warn("SPM baseline load discarded: a local mutation published while the"
                             + " snapshot was being read (will retry against the current table)");
-                    return;
+                    return null;
                 }
-                publishLoadedSnapshot(snapshot, settledFences);
+                Map<Long, BaselinePlan> visible = publishLoadedSnapshot(snapshot, settledFences);
                 loaded = true;
+                return visible;
             } finally {
                 stateLock.writeLock().unlock();
             }
@@ -4572,11 +4560,12 @@ public class BaselineManager {
      * the next refresh. Query-side callers keep ensureLoaded's degradation (no match
      * while the store is unavailable).
      */
-    private void ensureLoadedOrThrow() {
+    private Map<Long, BaselinePlan> ensureLoadedOrThrow() {
         if (!persistence.isDurable()) {
             loaded = true;
-            return;
+            return null;
         }
+        Map<Long, BaselinePlan> initialSnapshot = null;
         if (!loaded) {
             // A management operation needs a REAL answer: wait for the in-flight
             // background load (bounded), or perform one inline with the short,
@@ -4586,7 +4575,7 @@ public class BaselineManager {
             long deadline = System.currentTimeMillis() + MANAGEMENT_LOAD_WAIT_MILLIS;
             while (!loaded && System.currentTimeMillis() < deadline) {
                 if (loadInProgress.compareAndSet(false, true)) {
-                    readAndPublishPossessingLoadSlot();
+                    initialSnapshot = readAndPublishPossessingLoadSlot();
                     break;
                 }
                 synchronized (loadMonitor) {
@@ -4603,6 +4592,7 @@ public class BaselineManager {
             throw new IllegalStateException("SPM baseline store is not ready yet"
                     + " (the baseline table has not been loaded); please retry later");
         }
+        return initialSnapshot;
     }
 
     /**
@@ -4618,18 +4608,15 @@ public class BaselineManager {
      * fence settlement / tombstone filter / duplicate collapse / id watermark above need
      * the scalars only.
      */
-    private void publishLoadedSnapshot(Map<Long, BaselinePlan> loadedPlans, Set<Long> fenced) {
+    private Map<Long, BaselinePlan> publishLoadedSnapshot(Map<Long, BaselinePlan> loadedPlans, Set<Long> fenced) {
         // Pending mutation fences mask contradicting rows here as well: a
         // reload after an invalidation must not republish a row whose dropped / disabled
         // outcome is still owed.
-        for (Long fencedId : fenced) {
-            loadedPlans.remove(fencedId);
-        }
         // No FE may match / show two baselines for one key (see
         // collapseDuplicateKeyRows): the twins a handoff can leave behind collapse to the
         // deterministic owner here - the repair already ran outside the lock, but the
         // loser must leave the published state even when that best-effort repair failed.
-        loadedPlans = collapseDuplicateKeyRows(loadedPlans);
+        loadedPlans = visibleSnapshotRows(loadedPlans, fenced);
         Map<Long, List<BaselinePlan>> byHash = new HashMap<>();
         long maxId = 0;
         for (BaselinePlan p : loadedPlans.values()) {
@@ -4655,6 +4642,7 @@ public class BaselineManager {
         stateVersion++;
         storeGeneration.incrementAndGet();
         LOG.info("SPM loaded {} baselines from internal table", loadedPlans.size());
+        return loadedPlans;
     }
 
     // periodic refresh (cross-FE visibility).
@@ -5274,7 +5262,7 @@ public class BaselineManager {
      * The snapshot is authoritative; callers must ensure it was read while no local mutation
      * was in flight (see refreshFromInternalTable). Public for unit tests.
      */
-    public void applyRefreshedBaselines(Map<Long, BaselinePlan> persisted) {
+    public Map<Long, BaselinePlan> applyRefreshedBaselines(Map<Long, BaselinePlan> persisted) {
         // Converge the same-key twins outside the lock (the repair I/O must not run under
         // the state lock; see collapseDuplicateKeyRows), then settle the fence obligations
         // (see publishLoadedSnapshot) and rebuild the replacement SQL trees BEFORE any lock
@@ -5284,7 +5272,7 @@ public class BaselineManager {
         Set<Long> fenced = resolvePendingMutationFences(persisted);
         stateLock.writeLock().lock();
         try {
-            applyRefreshedBaselinesLocked(persisted, fenced);
+            return applyRefreshedBaselinesLocked(persisted, fenced);
         } finally {
             stateLock.writeLock().unlock();
         }
@@ -5450,19 +5438,14 @@ public class BaselineManager {
     }
 
     /** Applies a snapshot; the caller must hold the write lock (see refreshFromInternalTable). */
-    private void applyRefreshedBaselinesLocked(Map<Long, BaselinePlan> persisted,
+    private Map<Long, BaselinePlan> applyRefreshedBaselinesLocked(Map<Long, BaselinePlan> persisted,
             Set<Long> fenced) {
         // Never merge two rows of one key into the cache (see collapseDuplicateKeyRows;
         // the durable repair ran before the lock).
-        persisted = collapseDuplicateKeyRows(persisted);
+        Map<Long, BaselinePlan> visible = visibleSnapshotRows(persisted, fenced);
         Map<Long, List<BaselinePlan>> byHash = new HashMap<>();
         long maxId = 0;
-        for (BaselinePlan row : persisted.values()) {
-            if (fenced.contains(row.getId())) {
-                // keep the local post-mutation state (dropped / disabled / enabled) until
-                // the durable table shows the outcome
-                continue;
-            }
+        for (BaselinePlan row : visible.values()) {
             byHash.computeIfAbsent(row.getBindSqlHash(), k -> new ArrayList<>()).add(row);
             maxId = Math.max(maxId, row.getId());
         }
@@ -5501,6 +5484,7 @@ public class BaselineManager {
                     + " cacheRowsChanged={}, knownHashes={}", added, removed,
                     applied.changedHashes.size(), applied.cacheRowsChanged, knownHashes.size());
         }
+        return visible;
     }
 
     /**
@@ -7508,12 +7492,12 @@ public class BaselineManager {
             // registry, and the only way the retry returns the id the first write
             // consumed instead of allocating a second one
             publishBaseline(readable);
-            // The resolution RETIRES the durable marker. Leaving it behind
-            // made a DROP + immediate re-CREATE of the same bind/plan defer for up to
-            // DURABLE_PENDING_CREATE_FENCE_MICROS: the probe saw the old marker and the
-            // (dropped) row's absence. The marker's DELETE keeps the plain reservation
-            // row, so the id watermark never falls.
-            retireSeqPendingMarker(plan, reservation.id);
+            // A plain reservation is already resolved once its row is readable. Only
+            // retire an actual ambiguous-write marker; another plain compact append
+            // for the same id would survive the lower-id prune on every repeated CREATE.
+            if (reservation.unconfirmed) {
+                retireSeqPendingMarker(plan, reservation.id);
+            }
             LOG.info("SPM durable pending create of baseline {} adopted from the durable"
                     + " table", readable.getId());
             return readable.getId();

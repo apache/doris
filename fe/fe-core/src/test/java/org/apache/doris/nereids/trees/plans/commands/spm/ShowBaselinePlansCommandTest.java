@@ -163,7 +163,7 @@ public class ShowBaselinePlansCommandTest {
     /**
      * Round-55 #6: a SESSION-only SHOW must never depend on the GLOBAL baseline store.
      * WHERE scope = 'SESSION' can only return this connection's in-memory rows, yet the
-     * command used to call BaselineManager#confirmGlobalRowsForShow() BEFORE applying the
+     * command used to confirm global rows BEFORE applying the
      * filter - and that confirmed read fails when the global table is unavailable, so
      * during an unrelated global storage outage (or a master handoff) the local SESSION
      * baselines could not even be inspected. The exact-scope filter is recognized before
