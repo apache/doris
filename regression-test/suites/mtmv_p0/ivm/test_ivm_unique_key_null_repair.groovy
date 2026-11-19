@@ -170,13 +170,14 @@ suite("test_ivm_unique_key_null_repair") {
     def refreshAndCheck = { String stage ->
         refresh('ivm_unique_repair_groups', 'INCREMENTAL')
         if (stage == 'first_match') {
-            // Only the grouped side has pending changes. Check each residual orientation uses
-            // the signed aggregate even when other (idle) contributions need snapshot repair.
+            // Include both streams so the plan check does not depend on pruning the idle stream.
+            // The grouped side uses signed aggregate repair in all three joins. FULL JOIN also
+            // repairs from the contacts side, whose join key is not unique, using two anti joins.
             [downstream[3], downstream[5], downstream[6]].each { mv ->
                 explain {
-                    sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL"
+                    sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW ${mv} INCREMENTAL WITH ALL STREAMS"
                     contains "__DORIS_IVM_NULL_SIDE_NET_COUNT__"
-                    notContains "LEFT_ANTI_JOIN"
+                    multiContains "type=LEFT_ANTI_JOIN,", mv == downstream[5] ? 2 : 0
                 }
             }
         }
