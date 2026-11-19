@@ -973,8 +973,8 @@ Status HashJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_bloc
         DBUG_EXECUTE_IF("HashJoinBuildSinkOperatorX::sink_impl.short_circuit_eos_sleep", {
             if (local_state._shared_state->short_circuit_for_probe) {
                 auto sleep_ms = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                        "HashJoinBuildSinkOperatorX::sink_impl.short_circuit_eos_sleep",
-                        "sleep_ms", 2000);
+                        "HashJoinBuildSinkOperatorX::sink_impl.short_circuit_eos_sleep", "sleep_ms",
+                        2000);
                 std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
             }
         });
