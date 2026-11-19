@@ -24,6 +24,10 @@
 //   - the row of the segment flushed later is the newer row of its key;
 //   - a key group that a Block row limit falls inside is still folded into one row;
 //   - rowsets whose keys ascend from one to the next are read one after another.
+// A query that pushes ORDER BY a key prefix LIMIT down to storage on a DUP_KEYS or merge-on-write
+// table reads the rowsets one after another, the segments of each merged by the ORDER BY columns,
+// and keeps the first rows: other tests read such rowsets as that query and check that the first
+// rows by the ORDER BY columns come back, also rows of different keys equal on those columns.
 
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest.h>
@@ -94,6 +98,20 @@ int column_length(const std::string& type) {
     return 8;
 }
 
+TKeysType::type thrift_keys_type(KeysType keys_type) {
+    switch (keys_type) {
+    case KeysType::DUP_KEYS:
+        return TKeysType::DUP_KEYS;
+    case KeysType::UNIQUE_KEYS:
+        return TKeysType::UNIQUE_KEYS;
+    case KeysType::AGG_KEYS:
+        return TKeysType::AGG_KEYS;
+    default:
+        DORIS_CHECK(false) << "unexpected test keys type " << static_cast<int>(keys_type);
+        return TKeysType::AGG_KEYS;
+    }
+}
+
 TPrimitiveType::type thrift_type(FieldType type) {
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_INT:
@@ -141,6 +159,16 @@ constexpr std::array kReaderTypes = {ReaderType::READER_QUERY,
                                      ReaderType::READER_CUMULATIVE_COMPACTION};
 constexpr std::array kBatchSizes = {1, 2, 3, 100};
 
+// The first `limit` of `rows` sorted, descending when `descending`.
+std::vector<Row> first_rows(std::vector<Row> rows, size_t limit, bool descending) {
+    std::sort(rows.begin(), rows.end());
+    if (descending) {
+        std::reverse(rows.begin(), rows.end());
+    }
+    rows.resize(std::min(rows.size(), limit));
+    return rows;
+}
+
 } // namespace
 
 class BlockReaderOverlappingSegmentsTest : public testing::Test {
@@ -171,10 +199,11 @@ protected:
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
     }
 
-    // An AGG_KEYS schema; column unique ids are the positions in `columns`.
-    static TabletSchemaSPtr make_schema(const std::vector<ColumnSpec>& columns) {
+    // A schema of `keys_type`; column unique ids are the positions in `columns`.
+    static TabletSchemaSPtr make_schema(const std::vector<ColumnSpec>& columns,
+                                        KeysType keys_type = KeysType::AGG_KEYS) {
         TabletSchemaPB pb;
-        pb.set_keys_type(KeysType::AGG_KEYS);
+        pb.set_keys_type(keys_type);
         pb.set_num_short_key_columns(1);
         pb.set_num_rows_per_row_block(1024);
         pb.set_compress_kind(COMPRESS_NONE);
@@ -245,7 +274,7 @@ protected:
         return rowset;
     }
 
-    TabletSharedPtr create_tablet(const TabletSchema& schema) {
+    TabletSharedPtr create_tablet(const TabletSchema& schema, bool merge_on_write = false) {
         std::vector<TColumn> columns;
         std::unordered_map<uint32_t, uint32_t> col_ordinal_to_unique_id;
         for (size_t i = 0; i < schema.num_columns(); ++i) {
@@ -260,32 +289,45 @@ protected:
         TTabletSchema t_schema;
         t_schema.__set_short_key_column_count(schema.num_short_key_columns());
         t_schema.__set_schema_hash(3333);
-        t_schema.__set_keys_type(TKeysType::AGG_KEYS);
+        t_schema.__set_keys_type(thrift_keys_type(schema.keys_type()));
         t_schema.__set_storage_type(TStorageType::COLUMN);
         t_schema.__set_columns(columns);
-        TabletMetaSharedPtr tablet_meta(new TabletMeta(
-                1, 1, 1, 1, 1, 1, t_schema, 1, col_ordinal_to_unique_id, UniqueId(1, 2),
-                TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+        TabletMetaSharedPtr tablet_meta(
+                new TabletMeta(1, 1, 1, 1, 1, 1, t_schema, 1, col_ordinal_to_unique_id,
+                               UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
+                               TCompressionType::LZ4F, /*storage_policy_id=*/0, merge_on_write));
         TabletSharedPtr tablet(new Tablet(*_engine, tablet_meta, nullptr));
         static_cast<void>(tablet->init());
         return tablet;
     }
 
     // Read `rowsets` through BlockReader the way a scan or a compaction of `reader_type` with
-    // `batch_size` rows per Block does, and return every row in output order.
+    // `batch_size` rows per Block does, and return every row in output order. With `topn_limit`,
+    // as a query that pushed ORDER BY the first key column LIMIT `topn_limit` down to storage,
+    // descending when `descending`. With `segments`, only the segments [first, second) of each
+    // rowset are read, as by one of the scanners a parallel scan splits a rowset among.
     static std::vector<Row> read(const TabletSharedPtr& tablet, const TabletSchemaSPtr& schema,
                                  const std::vector<RowsetSharedPtr>& rowsets,
-                                 ReaderType reader_type, int batch_size) {
+                                 ReaderType reader_type, int batch_size, size_t topn_limit = 0,
+                                 bool descending = false,
+                                 std::pair<int64_t, int64_t> segments = {0, 0}) {
         TabletReader::ReaderParams params;
         params.tablet = tablet;
         params.tablet_schema = schema;
         params.reader_type = reader_type;
         params.version = Version(0, rowsets.back()->end_version());
+        if (topn_limit > 0) {
+            params.read_orderby_key = true;
+            params.read_orderby_key_reverse = descending;
+            params.read_orderby_key_num_prefix_columns = 1;
+            params.read_orderby_key_limit = topn_limit;
+        }
         TabletReadSource read_source;
         for (const auto& rowset : rowsets) {
             RowsetReaderSharedPtr rs_reader;
             EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
             read_source.rs_splits.emplace_back(std::move(rs_reader));
+            read_source.rs_splits.back().segment_offsets = segments;
         }
         read_source.fill_delete_predicates();
         params.set_read_source(std::move(read_source));
@@ -427,6 +469,107 @@ TEST_F(BlockReaderOverlappingSegmentsTest, AggKeysMergeAscendingAndOverlappingSe
             EXPECT_EQ(read(tablet, schema, rowsets, reader_type, batch_size),
                       (std::vector<Row> {
                               {1, 1, 10}, {2, 22, 21}, {3, 333, 32}, {4, 4, 40}, {5, 500, 52}}));
+        }
+    }
+}
+
+// DUP_KEYS with ORDER BY k1 LIMIT 4 pushed down to storage: an OVERLAPPING rowset whose segments
+// interleave, a NONOVERLAPPING rowset of two segments and a one-segment rowset, read ascending and
+// descending. The first 4 rows by k1 come back: with the new block iterators just those, else
+// among up to twice as many.
+TEST_F(BlockReaderOverlappingSegmentsTest, DupKeysTopNReturnsTheFirstRowsByTheOrderByColumns) {
+    auto schema = make_schema({{"k1", "INT", true}, {"k2", "INT", true}, {"v", "BIGINT"}},
+                              KeysType::DUP_KEYS);
+    auto tablet = create_tablet(*schema);
+    std::vector<RowsetSharedPtr> rowsets = {
+            write_rowset(
+                    schema,
+                    {{{1, 1, 10}, {3, 1, 30}, {5, 1, 50}}, {{2, 1, 20}, {4, 1, 40}, {6, 1, 60}}},
+                    /*version=*/2),
+            write_rowset(schema, {{{0, 1, 0}, {7, 1, 70}}, {{8, 1, 80}, {9, 1, 90}}},
+                         /*version=*/3, /*segments_overlap=*/false),
+            write_rowset(schema, {{{2, 2, 22}, {10, 1, 100}}}, /*version=*/4),
+    };
+
+    for (bool new_block_iterator : {true, false}) {
+        config::enable_new_block_iterator = new_block_iterator;
+        for (bool descending : {false, true}) {
+            for (int batch_size : kBatchSizes) {
+                SCOPED_TRACE("new_block_iterator=" + std::to_string(new_block_iterator) +
+                             " descending=" + std::to_string(descending) + " " +
+                             trace(ReaderType::READER_QUERY, batch_size));
+                auto rows = read(tablet, schema, rowsets, ReaderType::READER_QUERY, batch_size,
+                                 /*topn_limit=*/4, descending);
+                if (new_block_iterator) {
+                    EXPECT_EQ(rows.size(), 4);
+                }
+                EXPECT_EQ(first_rows(rows, 4, descending),
+                          descending ? (std::vector<Row> {
+                                               {10, 1, 100}, {9, 1, 90}, {8, 1, 80}, {7, 1, 70}})
+                                     : (std::vector<Row> {
+                                               {0, 1, 0}, {1, 1, 10}, {2, 1, 20}, {2, 2, 22}}));
+            }
+        }
+    }
+}
+
+// DUP_KEYS with ORDER BY k1 LIMIT pushed down to storage, on the scanner that a parallel scan gives
+// segments 1 and 2 of an OVERLAPPING rowset, or segment 1 of a NONOVERLAPPING one: the first rows
+// of those segments come back, not the smaller k1 of segment 0.
+TEST_F(BlockReaderOverlappingSegmentsTest, DupKeysTopNReadsTheSegmentsOfItsSplit) {
+    auto schema = make_schema({{"k1", "INT", true}, {"k2", "INT", true}, {"v", "BIGINT"}},
+                              KeysType::DUP_KEYS);
+    auto tablet = create_tablet(*schema);
+    auto overlapping = write_rowset(
+            schema, {{{1, 1, 10}, {4, 1, 40}}, {{2, 1, 20}, {5, 1, 50}}, {{3, 1, 30}, {6, 1, 60}}},
+            /*version=*/2);
+    auto ascending = write_rowset(schema, {{{1, 1, 10}}, {{2, 1, 20}, {3, 1, 30}}, {{4, 1, 40}}},
+                                  /*version=*/3, /*segments_overlap=*/false);
+
+    for (bool new_block_iterator : {true, false}) {
+        config::enable_new_block_iterator = new_block_iterator;
+        for (int batch_size : kBatchSizes) {
+            SCOPED_TRACE("new_block_iterator=" + std::to_string(new_block_iterator) + " " +
+                         trace(ReaderType::READER_QUERY, batch_size));
+            auto rows = read(tablet, schema, {overlapping}, ReaderType::READER_QUERY, batch_size,
+                             /*topn_limit=*/3, /*descending=*/false, /*segments=*/ {1, 3});
+            EXPECT_EQ(first_rows(rows, 3, false),
+                      (std::vector<Row> {{2, 1, 20}, {3, 1, 30}, {5, 1, 50}}));
+            rows = read(tablet, schema, {overlapping}, ReaderType::READER_QUERY, batch_size,
+                        /*topn_limit=*/2, /*descending=*/true, /*segments=*/ {1, 3});
+            EXPECT_EQ(first_rows(rows, 2, true), (std::vector<Row> {{6, 1, 60}, {5, 1, 50}}));
+            rows = read(tablet, schema, {ascending}, ReaderType::READER_QUERY, batch_size,
+                        /*topn_limit=*/1, /*descending=*/false, /*segments=*/ {1, 2});
+            EXPECT_EQ(first_rows(rows, 1, false), (std::vector<Row> {{2, 1, 20}}));
+        }
+    }
+}
+
+// Merge-on-write UNIQUE_KEYS with ORDER BY k1 LIMIT 4 pushed down to storage: the segments of an
+// OVERLAPPING rowset hold different keys with the same k1, and the first 4 rows by k1 all come
+// back, ascending and descending.
+TEST_F(BlockReaderOverlappingSegmentsTest, MergeOnWriteTopNKeepsRowsEqualOnTheOrderByColumns) {
+    // VCollectIterator merges such segments by k1 and keeps one row of each k1.
+    config::enable_new_block_iterator = true;
+    auto schema = make_schema({{"k1", "INT", true}, {"k2", "INT", true}, {"v", "BIGINT"}},
+                              KeysType::UNIQUE_KEYS);
+    auto tablet = create_tablet(*schema, /*merge_on_write=*/true);
+    std::vector<RowsetSharedPtr> rowsets = {write_rowset(
+            schema, {{{1, 1, 10}, {2, 1, 20}, {3, 1, 30}}, {{1, 2, 11}, {2, 2, 21}, {3, 2, 31}}},
+            /*version=*/2)};
+
+    for (bool descending : {false, true}) {
+        for (int batch_size : kBatchSizes) {
+            SCOPED_TRACE("descending=" + std::to_string(descending) + " " +
+                         trace(ReaderType::READER_QUERY, batch_size));
+            auto rows = read(tablet, schema, rowsets, ReaderType::READER_QUERY, batch_size,
+                             /*topn_limit=*/4, descending);
+            EXPECT_EQ(rows.size(), 4);
+            EXPECT_EQ(
+                    first_rows(rows, 4, descending),
+                    descending
+                            ? (std::vector<Row> {{3, 2, 31}, {3, 1, 30}, {2, 2, 21}, {2, 1, 20}})
+                            : (std::vector<Row> {{1, 1, 10}, {1, 2, 11}, {2, 1, 20}, {2, 2, 21}}));
         }
     }
 }

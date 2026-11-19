@@ -42,10 +42,12 @@ class AggKeyBlockIterator;
 class ColumnPredicate;
 class RuntimeProfile;
 class RuntimeState;
+class TopNBlockIterator;
 
 class BlockReader final : public TabletReader {
 public:
-    // Out of line, as the destructor: the header only declares AggKeyBlockIterator.
+    // Out of line, as the destructor: the header only declares AggKeyBlockIterator and
+    // TopNBlockIterator.
     BlockReader();
     ~BlockReader() override;
 
@@ -70,6 +72,9 @@ private:
     // For AGGREGATE KEY tables with enable_new_block_iterator: the rows of every key folded into
     // one by _agg_key_iter.
     Status _agg_key_iter_next_block(Block* block, bool* eof);
+    // For storage TopN reads with enable_new_block_iterator: the first rows by the ORDER BY
+    // columns, from _topn_iter.
+    Status _topn_iter_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
     // to minimize the comparison time in merge heap.
@@ -102,6 +107,13 @@ private:
     // Set `*merge_iter` to the merge of `children` by the key columns.
     Status _init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
                                RuntimeState* runtime_state, RowwiseIteratorUPtr* merge_iter);
+
+    // Set up _topn_iter for the reads that _topn_iter_next_block() serves.
+    Status _init_topn_iter(const ReaderParams& read_params);
+    // Set `*streams` to the rows of the rowset of `rs_split`, as streams that each come sorted by
+    // the ORDER BY columns: one per segment when its segments overlap on keys, else one.
+    Status _open_topn_rowset(const RowSetSplits& rs_split,
+                             std::vector<RowwiseIteratorUPtr>* streams);
 
     Status _insert_data_normal(MutableColumns& columns);
 
@@ -142,6 +154,7 @@ private:
     // destroyed, and _agg_key_iter reads the segments of these rowsets.
     std::vector<RowsetReaderSharedPtr> _rs_readers;
     std::unique_ptr<AggKeyBlockIterator> _agg_key_iter;
+    std::unique_ptr<TopNBlockIterator> _topn_iter;
 
     // Buffer of consecutive rows that share the same primary key, used by
     // _min_delta_next_block to fold INSERT/UPDATE/DELETE into a single net change.

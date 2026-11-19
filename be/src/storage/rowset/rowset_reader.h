@@ -57,9 +57,9 @@ public:
     virtual Status get_segment_iterators(RowsetReaderContext* read_context,
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
                                          bool use_cache = false) = 0;
-    // Iterators over all rows of this rowset that each return rows in key order: one per segment
-    // when the segments overlap on keys, so their key ranges may overlap and need merging,
-    // otherwise one that reads the segments one after another.
+    // Iterators over all rows of this rowset that each return rows in key order, backward for a
+    // descending read: one per segment when the segments overlap on keys, so their key ranges may
+    // overlap and need merging, otherwise one that reads the segments one after another.
     virtual Status get_key_ordered_iterators(RowsetReaderContext* read_context,
                                              std::vector<RowwiseIteratorUPtr>* iterators) {
         return Status::NotSupported(

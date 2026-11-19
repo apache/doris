@@ -328,7 +328,11 @@ Status BetaRowsetReader::get_key_ordered_iterators(RowsetReaderContext* read_con
         return Status::OK();
     }
     // Segments whose keys ascend from one to the next are read one after another, as one
-    // iterator, with the read options the segment iterators were built with.
+    // iterator, with the read options the segment iterators were built with; from the last one
+    // for a descending read, whose segments read backward.
+    if (read_context->read_orderby_key_reverse) {
+        std::reverse(segments.begin(), segments.end());
+    }
     auto rowset_iter = new_union_iterator(std::move(segments), read_context->read_schema);
     RETURN_IF_ERROR(rowset_iter->init(_read_options));
     iterators->push_back(std::move(rowset_iter));
