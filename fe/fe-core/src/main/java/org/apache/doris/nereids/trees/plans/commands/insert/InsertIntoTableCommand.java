@@ -680,6 +680,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         // if the insert stmt data source is empty, directly return, no need to be executed.
         if (insertExecutor.isEmptyInsert()) {
             if (!insertExecutor.shouldExecuteEmptyInsert()) {
+                insertExecutor.onSkipExecution();
                 return;
             }
             if (insertExecutorListener != null) {
