@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <string>
 
+#include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_storage.h"

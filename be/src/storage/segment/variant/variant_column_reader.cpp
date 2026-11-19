@@ -1466,6 +1466,32 @@ Status VariantColumnReader::create_path_reader(
     return st;
 }
 
+Status VariantColumnReader::healthy_status() const {
+    RETURN_IF_ERROR(ColumnReader::healthy_status());
+    // These reader collections are built by init() and immutable afterwards.
+    // External-meta loading changes metadata/statistics, not reader ownership.
+    RETURN_IF_ERROR(_root_column_reader->healthy_status());
+    RETURN_IF_ERROR(_binary_column_reader->healthy_status());
+    auto check_groups = [&](auto&& self, const NestedGroupReaders& groups) -> Status {
+        for (const auto& [path, group] : groups) {
+            // Match find_in_nested_groups(): absent/invalid groups cannot serve
+            // a read. Path resolution also permits an absent child reader.
+            if (!group || !group->is_valid()) {
+                continue;
+            }
+            RETURN_IF_ERROR(group->offsets_reader->healthy_status());
+            for (const auto& [child_path, reader] : group->child_readers) {
+                if (reader != nullptr) {
+                    RETURN_IF_ERROR(reader->healthy_status());
+                }
+            }
+            RETURN_IF_ERROR(self(self, group->nested_group_readers));
+        }
+        return Status::OK();
+    };
+    return check_groups(check_groups, _nested_group_readers);
+}
+
 Status VariantColumnReader::load_external_meta_once(OlapReaderStatistics* stats,
                                                     const io::IOContext* source_io_ctx) {
     if (!_ext_meta_reader || !_ext_meta_reader->available()) {
@@ -1474,19 +1500,19 @@ Status VariantColumnReader::load_external_meta_once(OlapReaderStatistics* stats,
     // Ensure only one writer can populate `_subcolumns_meta_info` / `_statistics`
     // while readers of these structures hold shared locks.
     std::unique_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    Status status = _external_meta_load_once->call([&] {
-        VariantStatistics* variant_stats = variant_util::should_record_variant_path_stats(
-                                                   _tablet_schema->column_by_uid(_root_unique_id))
-                                                   ? _statistics.get()
-                                                   : nullptr;
-        return _ext_meta_reader->load_all(_subcolumns_meta_info.get(), variant_stats, stats,
-                                          source_io_ctx);
+    // A partial merge may already have modified the tree/statistics. Rebuild the
+    // cached reader after any failure instead of retrying that shared state.
+    return _load_with_health_check([&] {
+        return _external_meta_load_once.call([&] {
+            VariantStatistics* variant_stats =
+                    variant_util::should_record_variant_path_stats(
+                            _tablet_schema->column_by_uid(_root_unique_id))
+                            ? _statistics.get()
+                            : nullptr;
+            return _ext_meta_reader->load_all(_subcolumns_meta_info.get(), variant_stats, stats,
+                                              source_io_ctx);
+        });
     });
-    if (status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
-        // A retry skips paths already merged by load_all.
-        _external_meta_load_once.emplace();
-    }
-    return status;
 }
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,
