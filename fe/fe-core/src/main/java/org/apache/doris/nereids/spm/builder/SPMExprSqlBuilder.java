@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -96,6 +97,7 @@ import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -815,13 +817,38 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // always re-parsed under MODE_DEFAULT).
             return SPMPlan2SQLBuilder.quoteSqlString(((StringLikeLiteral) literal).getStringValue());
         }
+        DataType type = literal.getDataType();
+        if (literal.isNullLiteral() && !type.isNullType()) {
+            return typedLiteralSql("NULL", type);
+        }
+        if (type.isFloatLikeType()) {
+            if (!Double.isFinite(literal.getDouble())) {
+                throw new UnsupportedOperationException("SPM decompile: non-finite floating-point literal");
+            }
+            // A bare fraction parses as DECIMAL. Casting its string representation
+            // directly to the captured type also preserves negative zero.
+            return typedLiteralSql(SPMPlan2SQLBuilder.quoteSqlString(literal.getStringValue()), type);
+        }
+        if (literal instanceof IntegerLikeLiteral && type.width() > 1) {
+            Number number = ((IntegerLikeLiteral) literal).getNumber();
+            BigInteger value = number instanceof BigInteger ? (BigInteger) number
+                    : BigInteger.valueOf(number.longValue());
+            // The parser chooses the smallest signed integer type that fits. Cast only
+            // when the value also fits in the next smaller integer type.
+            if (value.bitLength() < type.width() * Byte.SIZE / 2) {
+                return typedLiteralSql(literal.toSql(), type);
+            }
+        }
         if (literal instanceof DateLiteral || literal instanceof TimeV2Literal) {
             // Concrete temporal literals (for example in a star REPLACE) must retain
             // their SQL type and precision when the frozen statement is parsed again.
-            return "CAST(" + SPMPlan2SQLBuilder.quoteSqlString(literal.getStringValue())
-                    + " AS " + literal.getDataType().toSql() + ")";
+            return typedLiteralSql(SPMPlan2SQLBuilder.quoteSqlString(literal.getStringValue()), type);
         }
         return literal.toSql();
+    }
+
+    private static String typedLiteralSql(String value, DataType type) {
+        return "CAST(" + value + " AS " + type.toSql() + ")";
     }
 
     @Override
@@ -860,7 +887,7 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             throw new UnsupportedOperationException("SPM decompile: container type cannot be expressed: "
                     + type.toSql());
         }
-        return "CAST(" + constructor + " AS " + type.toSql() + ")";
+        return typedLiteralSql(constructor, type);
     }
 
     private static boolean containsNullType(DataType type) {

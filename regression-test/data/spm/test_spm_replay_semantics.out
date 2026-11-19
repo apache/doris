@@ -167,6 +167,51 @@ true
 \N
 \N
 
+-- !generator_cast_frozen --
+false
+
+-- !generator_cast_hit --
+true
+
+-- !generator_cast_permissive --
+1	\N
+2	\N
+
+-- !implicit_cast_frozen --
+false
+
+-- !implicit_cast_hit --
+true
+
+-- !implicit_cast_permissive --
+\N
+\N
+
+-- !implicit_mixed_cast_frozen --
+false
+
+-- !implicit_mixed_cast_hit --
+true
+
+-- !implicit_mixed_cast_permissive --
+\N
+\N
+
+-- !double_result --
+9007199254740992
+
+-- !double_result_hit --
+true
+
+-- !double_result_frozen --
+true
+
+-- !typed_scalars --
+true	1	1.25	BIGINT	BIGINT	FLOAT	true
+
+-- !typed_scalars_frozen --
+true
+
 -- !permissive_group_hit --
 true
 

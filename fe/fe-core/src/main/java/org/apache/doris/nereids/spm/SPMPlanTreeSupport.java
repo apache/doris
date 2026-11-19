@@ -8865,6 +8865,9 @@ public final class SPMPlanTreeSupport {
 
     /** Finds a session-sensitive call whose inputs can be folded before replay. */
     private static boolean containsFoldableCall(Expression expression, Predicate<Expression> sensitive) {
+        if (expression instanceof SpmConstVar || expression instanceof SpmConstList) {
+            return false;
+        }
         if (sensitive.test(expression)) {
             return true;
         }
@@ -8894,15 +8897,44 @@ public final class SPMPlanTreeSupport {
     }
 
     private static boolean isStrictCastSensitiveCall(Expression expression) {
-        if (!(expression instanceof Cast) || ((Cast) expression).isStrict() || !isLiteralOnly(expression)) {
+        if (!isFoldableSessionCast(expression)) {
             return false;
         }
         Cast cast = (Cast) expression;
-        DataType sourceType = typeKnownBeforeAnalysis(cast.child());
+        return castMayDependOnSession(cast, typeKnownBeforeAnalysis(cast.child()));
+    }
+
+    private static boolean isFoldableSessionCast(Expression expression) {
+        return expression instanceof Cast && !((Cast) expression).isStrict()
+                && isLiteralOnly(((Cast) expression).child());
+    }
+
+    private static boolean castMayDependOnSession(Cast cast, DataType sourceType) {
         DataType targetType = cast.getDataType();
         return sourceType == null || (!sourceType.isNullType()
                 && (!CheckCast.check(sourceType, targetType, true)
                         || Cast.mayFailOnNonNullInput(sourceType, targetType)));
+    }
+
+    /**
+     * Checks the parameterized plan after binding and before folding. This catches implicit
+     * casts from analysis as well as constant generator arguments that kept their literals.
+     */
+    static boolean containsConcreteSessionCast(Plan analyzed) {
+        boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(analyzed, node -> {
+            if (found[0]) {
+                return;
+            }
+            for (Expression expr : node.getExpressions()) {
+                if (containsFoldableCall(expr, candidate -> isFoldableSessionCast(candidate)
+                        && castMayDependOnSession((Cast) candidate, candidate.child(0).getDataType()))) {
+                    found[0] = true;
+                    return;
+                }
+            }
+        });
+        return found[0];
     }
 
     private static DataType typeKnownBeforeAnalysis(Expression expression) {
@@ -9013,7 +9045,8 @@ public final class SPMPlanTreeSupport {
         if (expression instanceof Literal) {
             return true;
         }
-        if (expression.children().isEmpty()) {
+        if (expression instanceof SpmConstVar || expression instanceof SpmConstList
+                || expression.children().isEmpty()) {
             return false;
         }
         for (Expression child : expression.children()) {

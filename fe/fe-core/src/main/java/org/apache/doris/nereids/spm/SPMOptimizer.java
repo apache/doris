@@ -20,6 +20,7 @@ package org.apache.doris.nereids.spm;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.cost.Cost;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -390,6 +391,14 @@ public class SPMOptimizer {
         long functionRegistryVersionBefore = SPMPlanTreeSupport.functionRegistryVersion();
         CaptureStatementContext statementContext = createNestedStatementContext(ctx, originSql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
+        boolean[] concreteSessionCast = {false};
+        statementContext.addPlannerHook(new PlannerHook() {
+            @Override
+            public void afterAnalyze(NereidsPlanner planner) {
+                concreteSessionCast[0] = SPMPlanTreeSupport.containsConcreteSessionCast(
+                        planner.getCascadesContext().getRewritePlan());
+            }
+        });
 
         SessionVariable sessionVar = ctx.getSessionVariable();
         String originalEnabled = sessionVar.getEnableNereidsRulesStr();
@@ -476,7 +485,7 @@ public class SPMOptimizer {
                     statementContext.getTableFingerprints(),
                     bindFunctionSnapshot,
                     functionRegistryVersionBefore,
-                    statementContext.getPartitionNames());
+                    statementContext.getPartitionNames(), concreteSessionCast[0]);
         } finally {
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
@@ -650,6 +659,7 @@ public class SPMOptimizer {
     public static class OptimizeResult {
         private final PhysicalPlan physicalPlan;
         private final double cost;
+        private final boolean concreteSessionCast;
         /**
          * Table fingerprint entries hashed WHILE the planning locks were held (see
          * CaptureStatementContext): lower-case bare / db-qualified /
@@ -700,14 +710,17 @@ public class SPMOptimizer {
          * Parameter bindFunctionDependencies: the pre-analysis function entries, or null
          * Parameter functionRegistryVersion: the pre-analysis UDF registry version, or null
          * Parameter partitionNames: table id to partition id to the ADMITTED name
+         * Parameter concreteSessionCast: whether analysis left a foldable, session-sensitive cast
          */
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, String> tableFingerprints,
                 java.util.Set<String> bindFunctionDependencies,
                 Long functionRegistryVersion,
-                java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames) {
+                java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames,
+                boolean concreteSessionCast) {
             this.physicalPlan = physicalPlan;
             this.cost = cost;
+            this.concreteSessionCast = concreteSessionCast;
             this.tableFingerprints = tableFingerprints;
             this.bindFunctionDependencies = bindFunctionDependencies;
             this.functionRegistryVersion = functionRegistryVersion;
@@ -716,6 +729,10 @@ public class SPMOptimizer {
 
         public PhysicalPlan getPhysicalPlan() {
             return physicalPlan;
+        }
+
+        public boolean hasConcreteSessionCast() {
+            return concreteSessionCast;
         }
 
         /** The under-lock partition-name snapshot (see the field javadoc). */

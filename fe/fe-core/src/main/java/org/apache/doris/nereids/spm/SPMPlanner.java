@@ -1015,7 +1015,7 @@ public class SPMPlanner {
      * (the frozen text is
      * replayed ahead of authorization, and replaying a view's base-table expansion would
      * authorize those base tables instead of the view), when an inline VALUES cell /
-     * REPLACE payload folds a session-dependent call the CALLER's session must
+     * REPLACE payload or analyzed concrete cast folds a value the caller's session must
      * evaluate for itself (see
      * SPMPlanTreeSupport.containsFoldedSessionSensitivePayload), or when the statement
      * pins a materialized view / rollup with an explicit INDEX clause (the decompiled
@@ -1033,9 +1033,9 @@ public class SPMPlanner {
                     + " preserved)");
             return new DecompiledPlan(planSql, false);
         }
-        if (foldedSessionSensitivePayload) {
-            LOG.info("SPM freeze skipped: an inline VALUES cell / * REPLACE payload folds a"
-                    + " session-dependent value; keeping the user planSql so the"
+        if (foldedSessionSensitivePayload || optimizeResult.hasConcreteSessionCast()) {
+            LOG.info("SPM freeze skipped: a concrete expression can fold a session-dependent"
+                    + " value; keeping the user planSql so the"
                     + " rewrite replays the parameterized tree, where the caller's own"
                     + " session evaluates the expression");
             return new DecompiledPlan(planSql, false);
