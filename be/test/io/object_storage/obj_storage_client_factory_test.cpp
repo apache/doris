@@ -411,7 +411,7 @@ TEST_F(S3ClientFactoryTest, AzureLegacyConnectTimeoutKeepsSdkDefault) {
 TEST_F(S3ClientFactoryTest, AzureResourcesCacheServiceClientsPerContainer) {
     AzureObjStorageConfig azure {
             .connection = {.endpoint = "https://account.blob.core.windows.net"},
-            .auth = {.account_name = "account", .account_key = "dGVzdA=="}};
+            .auth = {.account_name = "account", .credential = AzureSharedKeyConfig {"dGVzdA=="}}};
     ObjStorageResourceConfig first {.bucket = "one", .client = azure};
     ObjStorageResourceConfig second {.bucket = "two", .prefix = "data", .client = azure};
     auto& factory = ObjStorageClientFactory::instance();
@@ -462,7 +462,7 @@ TEST_F(S3ClientFactoryTest, AzureDiscardsS3AddressingAndRoleProperties) {
     apply_be_obj_storage_defaults(second.client);
     EXPECT_EQ(first.client, second.client);
     auto invalid = std::get<AzureObjStorageConfig>(second.client);
-    invalid.auth.account_key.clear();
+    std::get<AzureSharedKeyConfig>(invalid.auth.credential).account_key.clear();
     EXPECT_EQ(ObjStorageClientFactory::instance().create(invalid).client, nullptr);
 }
 
@@ -827,7 +827,9 @@ TEST_F(S3ClientFactoryTest, AzureLegacyPoolSizeAllowsHolderCredentialRotation) {
     EXPECT_EQ(create_count, 2);
     EXPECT_NE(existing_holder->get(), old_client);
     EXPECT_EQ(existing_holder->config(), rotated_conf);
-    EXPECT_EQ(std::get<AzureObjStorageConfig>(existing_holder->config()).auth.account_key,
+    EXPECT_EQ(std::get<AzureSharedKeyConfig>(
+                      std::get<AzureObjStorageConfig>(existing_holder->config()).auth.credential)
+                      .account_key,
               "new-key");
     EXPECT_FALSE(std::get<AzureObjStorageConfig>(rotated_conf).connection.max_connections);
 }

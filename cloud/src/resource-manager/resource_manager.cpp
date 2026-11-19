@@ -139,7 +139,8 @@ std::string ResourceManager::get_node(const std::string& cloud_unique_id,
 }
 
 bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::string* err,
-                                                 bool check_master_num, bool check_cluster_name) {
+                                                 bool check_master_num, bool check_cluster_name,
+                                                 std::string_view creating_instance_id) {
     // Check if the cluster has a type
     if (!cluster.has_type()) {
         *err = "cluster must have type arg";
@@ -152,7 +153,7 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     }
 
     // Validate nodes
-    if (!validate_nodes(cluster, err, check_master_num)) {
+    if (!validate_nodes(cluster, err, check_master_num, creating_instance_id)) {
         return false;
     }
 
@@ -183,7 +184,7 @@ bool ResourceManager::validate_cluster_name(const ClusterPB& cluster, std::strin
 }
 
 bool ResourceManager::validate_nodes(const ClusterPB& cluster, std::string* err,
-                                     bool check_master_num) {
+                                     bool check_master_num, std::string_view creating_instance_id) {
     std::stringstream ss;
     bool no_err = true;
     int master_num = 0;
@@ -193,7 +194,12 @@ bool ResourceManager::validate_nodes(const ClusterPB& cluster, std::string* err,
         // check here cloud_unique_id
         std::string cloud_unique_id = n.cloud_unique_id();
         auto [is_degrade_format, instance_id] = get_instance_id_by_cloud_unique_id(cloud_unique_id);
-        if (config::enable_check_instance_id && is_degrade_format) {
+        if (is_degrade_format && !creating_instance_id.empty() &&
+            instance_id != creating_instance_id) {
+            *err = "derived initial FE identity does not match the instance";
+            return false;
+        }
+        if (config::enable_check_instance_id && is_degrade_format && creating_instance_id.empty()) {
             InstanceInfoPB instance;
             auto [code, msg] = get_instance(nullptr, instance_id, &instance);
             { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &code); }

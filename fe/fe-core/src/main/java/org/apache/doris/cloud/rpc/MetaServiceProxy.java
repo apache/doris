@@ -662,8 +662,8 @@ public class MetaServiceProxy {
                 Cloud.GetPrepareTxnByCoordinatorResponse::getStatus);
     }
 
-    public Cloud.CreateInstanceResponse createInstance(Cloud.CreateInstanceRequest request) throws RpcException {
-        return executeWithMetrics("createInstance", (client) -> client.createInstance(request),
+    public Cloud.CreateInstanceResponse bootstrapInstance(Cloud.BootstrapInstanceRequest request) throws RpcException {
+        return executeWithMetrics("bootstrapInstance", (client) -> client.bootstrapInstance(request),
                 Cloud.CreateInstanceResponse::getStatus);
     }
 

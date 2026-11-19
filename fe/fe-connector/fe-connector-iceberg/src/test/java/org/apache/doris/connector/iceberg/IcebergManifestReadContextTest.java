@@ -139,7 +139,8 @@ class IcebergManifestReadContextTest {
                 IcebergCatalogProperties.of(Map.of(IcebergConnector.MANIFEST_CACHE_ENABLE, "true")),
                 new RecordingIcebergCatalogOps(), null, cache);
         Method plan = IcebergScanPlanProvider.class.getDeclaredMethod("planFileScanTask",
-                TableScan.class, ConnectorSession.class, Table.class, Optional.class, IcebergTableHandle.class);
+                TableScan.class, ConnectorSession.class, Table.class, Optional.class, IcebergTableHandle.class,
+                long.class);
         plan.setAccessible(true);
         ExecutorService worker = Executors.newSingleThreadExecutor();
         budget.acquire(); // The first scan is currently loading a cold data manifest.
@@ -148,7 +149,7 @@ class IcebergManifestReadContextTest {
                     ? provider.getScanNodeProperties(session, new IcebergTableHandle("db1", "t1"),
                             Collections.emptyList(), Optional.empty())
                     : plan.invoke(provider, scan, session, table, Optional.empty(),
-                            new IcebergTableHandle("db1", "t1")));
+                            new IcebergTableHandle("db1", "t1"), 0L));
             Assertions.assertTrue(waiting.await(5, TimeUnit.SECONDS));
             Assertions.assertEquals(0, deleteReads.get(), "delete reads cannot bypass the shared query budget");
             if (cancel) {
@@ -234,12 +235,12 @@ class IcebergManifestReadContextTest {
         switch (path) {
             case "streaming":
                 methodName = "streamingFileScanTasks";
-                arguments = new Object[] {scan, session, table, Optional.empty(), 128L, null, handle,
+                arguments = new Object[] {scan, session, table, Optional.empty(), 128L, 0L, null, handle,
                         new ConnectorScanContext()};
                 break;
             case "materialized":
                 methodName = "planFileScanTask";
-                arguments = new Object[] {scan, session, table, Optional.empty(), handle};
+                arguments = new Object[] {scan, session, table, Optional.empty(), handle, 0L};
                 break;
             case "representative":
                 methodName = "planManifestCountRange";

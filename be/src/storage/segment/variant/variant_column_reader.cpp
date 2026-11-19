@@ -1474,12 +1474,19 @@ Status VariantColumnReader::load_external_meta_once(OlapReaderStatistics* stats,
     // Ensure only one writer can populate `_subcolumns_meta_info` / `_statistics`
     // while readers of these structures hold shared locks.
     std::unique_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    VariantStatistics* variant_stats = variant_util::should_record_variant_path_stats(
-                                               _tablet_schema->column_by_uid(_root_unique_id))
-                                               ? _statistics.get()
-                                               : nullptr;
-    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), variant_stats, stats,
-                                           source_io_ctx);
+    Status status = _external_meta_load_once->call([&] {
+        VariantStatistics* variant_stats = variant_util::should_record_variant_path_stats(
+                                                   _tablet_schema->column_by_uid(_root_unique_id))
+                                                   ? _statistics.get()
+                                                   : nullptr;
+        return _ext_meta_reader->load_all(_subcolumns_meta_info.get(), variant_stats, stats,
+                                          source_io_ctx);
+    });
+    if (status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+        // A retry skips paths already merged by load_all.
+        _external_meta_load_once.emplace();
+    }
+    return status;
 }
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,

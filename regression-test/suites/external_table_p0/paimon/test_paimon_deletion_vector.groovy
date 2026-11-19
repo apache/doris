@@ -41,6 +41,7 @@ suite("test_paimon_deletion_vector", "p0,external") {
             // Force tiny splits so both native and JNI paths read Paimon DV tables through multiple
             // scanner ranges while still returning the same filtered rows.
             sql """ set file_split_size=1 """
+            sql """ set file_split_size_on_fe=0 """
             qt_1 """select count(*) from deletion_vector_orc;"""
             qt_2 """select count(*) from deletion_vector_parquet;"""
             qt_3 """select count(*) from deletion_vector_orc where id > 2;"""
@@ -102,6 +103,7 @@ suite("test_paimon_deletion_vector", "p0,external") {
     } finally {
         sql """ set enable_count_push_down_for_external_table=true; """
         sql """unset variable file_split_size"""
+        sql """unset variable file_split_size_on_fe"""
         sql """set force_jni_scanner=false"""
     }
 

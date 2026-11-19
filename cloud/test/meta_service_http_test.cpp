@@ -53,6 +53,7 @@
 #include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "resource-manager/resource_manager.h"
+#include "scoped_legacy_instance_rpc.h"
 
 namespace doris::cloud {
 
@@ -1194,6 +1195,7 @@ TEST(MetaServiceHttpTest, RetiredServiceMethods) {
 }
 
 TEST(MetaServiceHttpTest, AlterRamUserTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     HttpContext ctx;
 
     brpc::Controller cntl;
@@ -2354,6 +2356,7 @@ TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
 }
 
 TEST(MetaServiceHttpTest, CreateInstanceWithIamRoleTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     HttpContext ctx;
 
     brpc::Controller cntl;
