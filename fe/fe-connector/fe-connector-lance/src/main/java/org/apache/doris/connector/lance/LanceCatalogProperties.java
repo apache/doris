@@ -313,16 +313,27 @@ public final class LanceCatalogProperties {
             throw new IllegalArgumentException("Authentication header '" + headerName
                     + "' must be configured through '" + REST_SECURITY_TYPE + "'");
         }
-        if (headerValue == null || headerValue.indexOf('\r') >= 0 || headerValue.indexOf('\n') >= 0) {
+        if (headerValue == null || containsInvalidHttpHeaderCharacter(headerValue)) {
             throw new IllegalArgumentException("Invalid HTTP header value in property '"
                     + REST_HEADER_PREFIX + headerName + "'");
         }
     }
 
     private static void validateCredentialHeaderValue(String propertyName, String value) {
-        if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+        if (containsInvalidHttpHeaderCharacter(value)) {
             throw new IllegalArgumentException("Invalid HTTP credential value in property '" + propertyName + "'");
         }
+    }
+
+    private static boolean containsInvalidHttpHeaderCharacter(String value) {
+        // Match Lance's native HeaderValue parser: HTAB is legal, other C0 controls and DEL are not.
+        for (int i = 0; i < value.length(); i++) {
+            char character = value.charAt(i);
+            if ((character < 0x20 && character != '\t') || character == 0x7f) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -52,6 +52,24 @@ suite("test_lance_rest_catalog", "p0,external") {
         exception "Conflicting values for HTTP header 'x-tenant'"
     }
 
+    // SQL escapes produce real control bytes that the native HTTP client cannot send.
+    sql "SET sql_mode = ''"
+    sql "DROP CATALOG IF EXISTS test_lance_rest_header_control"
+    for (String control : ["\\b", "\\0", "\\Z", "\u007f"]) {
+        for (String mode : ["none", "bearer", "api_key"]) {
+            String property = mode == "none" ? "lance.rest.header.X-Tenant"
+                    : (mode == "bearer" ? "lance.rest.bearer-token" : "lance.rest.api-key")
+            String valueType = mode == "none" ? "header" : "credential"
+            test {
+                sql """CREATE CATALOG test_lance_rest_header_control PROPERTIES (
+                    "type" = "lance", "lance.catalog.type" = "rest",
+                    "lance.rest.uri" = "${restUri}", "lance.rest.security.type" = "${mode}",
+                    "${property}" = "tenant${control}")"""
+                exception "Invalid HTTP ${valueType} value in property '${property}'"
+            }
+        }
+    }
+
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     sql """
         CREATE CATALOG `${catalogName}` PROPERTIES (

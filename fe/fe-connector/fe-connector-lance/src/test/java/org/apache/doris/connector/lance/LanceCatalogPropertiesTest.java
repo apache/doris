@@ -29,6 +29,9 @@ import java.util.Map;
 
 class LanceCatalogPropertiesTest {
 
+    private static final List<String> HTTP_CONTROL_CHARACTERS = List.of(
+            "\0", "\001", "\b", "\n", "\013", "\f", "\r", "\032", "\037", "\177");
+
     private static Map<String, String> filesystem(String warehouse) {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
@@ -282,6 +285,66 @@ class LanceCatalogPropertiesTest {
                 rejection(rest("lance.rest.header.", "v")));
         Assertions.assertEquals("Invalid HTTP header value in property 'lance.rest.header.x-tenant'",
                 rejection(rest("lance.rest.header.x-tenant", "a\r\nX-Injected: true")));
+    }
+
+    @Test
+    void restHeadersRejectHttpControlCharactersOnCreateAndAlter() {
+        LanceConnectorProvider provider = new LanceConnectorProvider();
+        String property = "lance.rest.header.x-tenant";
+        String expected = "Invalid HTTP header value in property '" + property + "'";
+        for (String control : HTTP_CONTROL_CHARACTERS) {
+            for (String value : List.of(control + "tenant", "ten" + control + "ant", "tenant" + control)) {
+                Assertions.assertEquals(expected, Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> provider.validateProperties(rest(property, value))).getMessage());
+                Assertions.assertEquals(expected, Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> provider.validatePropertiesForUpdate(rest(property, "old"),
+                                Map.of(property, value))).getMessage());
+            }
+        }
+    }
+
+    @Test
+    void restCredentialsRejectHttpControlCharactersOnCreateAndAlter() {
+        LanceConnectorProvider provider = new LanceConnectorProvider();
+        for (String mode : List.of("bearer", "api_key")) {
+            String property = mode.equals("bearer") ? "lance.rest.bearer-token" : "lance.rest.api-key";
+            String expected = "Invalid HTTP credential value in property '" + property + "'";
+            Map<String, String> properties = rest("lance.rest.security.type", mode);
+            properties.put(property, "old-credential");
+            for (String control : HTTP_CONTROL_CHARACTERS) {
+                for (String value : List.of(control + "token", "to" + control + "ken", "token" + control)) {
+                    Map<String, String> candidate = new HashMap<>(properties);
+                    candidate.put(property, value);
+                    Assertions.assertEquals(expected, Assertions.assertThrows(IllegalArgumentException.class,
+                            () -> provider.validateProperties(candidate)).getMessage());
+                    Assertions.assertEquals(expected, Assertions.assertThrows(IllegalArgumentException.class,
+                            () -> provider.validatePropertiesForUpdate(properties,
+                                    Map.of(property, value))).getMessage());
+                }
+            }
+        }
+    }
+
+    @Test
+    void restHeaderValuesKeepLegalTabsSpacesAndNonAsciiText() {
+        for (String value : List.of("", "\t", " \t ", "tenant\tname", "~", "\u0080", "租户")) {
+            Assertions.assertEquals(value, LanceCatalogProperties.of(rest("lance.rest.header.x-tenant", value))
+                    .restNamespaceProperties().get("header.x-tenant"));
+        }
+        LanceConnectorProvider provider = new LanceConnectorProvider();
+        for (String mode : List.of("bearer", "api_key")) {
+            String property = mode.equals("bearer") ? "lance.rest.bearer-token" : "lance.rest.api-key";
+            String header = mode.equals("bearer") ? "header.Authorization" : "header.x-api-key";
+            Map<String, String> properties = rest("lance.rest.security.type", mode);
+            properties.put(property, "old-credential");
+            for (String value : List.of("token\tvalue", " token ", "~", "\u0080", "令牌")) {
+                provider.validatePropertiesForUpdate(properties, Map.of(property, value));
+                properties.put(property, value);
+                String expected = mode.equals("bearer") ? "Bearer " + value : value;
+                Assertions.assertEquals(expected,
+                        LanceCatalogProperties.of(properties).restNamespaceProperties().get(header));
+            }
+        }
     }
 
     @Test

@@ -98,6 +98,24 @@ class LanceRestCatalogTest {
     }
 
     @Test
+    void legalTabsInHeadersAndCredentialsReachTheNamespace() {
+        for (String mode : List.of("bearer", "api_key")) {
+            requests.clear();
+            Map<String, String> properties = rest(restUri);
+            properties.put("lance.rest.security.type", mode);
+            properties.put(mode.equals("bearer") ? "lance.rest.bearer-token" : "lance.rest.api-key", "token\tvalue");
+            properties.put("lance.rest.header.x-tenant", "tenant\tname");
+            assertConnects(properties);
+            // The JDK HTTP server folds HTAB to a space while parsing a header value.
+            for (Request request : requests) {
+                Assertions.assertEquals(List.of("tenant name"), request.tenants);
+                Assertions.assertEquals(mode.equals("bearer") ? "Bearer token value" : null, request.authorization);
+                Assertions.assertEquals(mode.equals("api_key") ? "token value" : null, request.apiKey);
+            }
+        }
+    }
+
+    @Test
     void headerCaseVariantsSendOneValueAcrossAuthenticationTransitions() {
         Map<String, String> properties = rest(restUri);
         properties.put("lance.rest.header.X-Tenant", "old");
