@@ -118,15 +118,11 @@ suite("test_paimon_write_changelog_producer", "p0,external,paimon") {
         }
 
         def incrementalAuditLog = { tableName, columns, beforeSnapshot, afterSnapshot, orderBy ->
-            def rows = spark_paimon """
+            def rows = spark_paimon_incremental(dbName, beforeSnapshot, afterSnapshot, """
                 SELECT ${columns}
-                FROM paimon_incremental_query(
-                    'paimon.${dbName}.`${tableName}\$audit_log`',
-                    '${beforeSnapshot}',
-                    '${afterSnapshot}'
-                )
+                FROM paimon.${dbName}.`${tableName}\$audit_log`
                 ${orderBy}
-            """
+            """)
             return rows
         }
 

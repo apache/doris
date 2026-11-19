@@ -1856,6 +1856,25 @@ class Suite implements GroovyInterceptable {
     }
 
     /**
+     * Read a bounded Paimon snapshot interval without the Spark-version-specific TVF.
+     * Paimon 2.1's incremental TVF links against a DataSourceV2Relation overload absent
+     * in Spark 4.0. The same incremental-between option works on an ordinary table read.
+     */
+    List<List<Object>> spark_paimon_incremental(String database, Object startSnapshot,
+                                               Object endSnapshot, String query) {
+        // Each suite owns its database. Scope the option to it so parallel suites do not
+        // share a global scan range. Paimon builds a regex from the table name without
+        // escaping '$', so an exact $audit_log table option does not match; use '*'.
+        String option = "spark.paimon.paimon.${database}.*.incremental-between"
+        spark_paimon "SET `${option}`=${startSnapshot},${endSnapshot}"
+        try {
+            return spark_paimon(query)
+        } finally {
+            spark_paimon "RESET `${option}`"
+        }
+    }
+
+    /**
      * Execute multiple Spark SQL statements with the Paimon catalog on the Spark ThriftServer via Hive JDBC.
      * Statements are separated by semicolons.
      * All statements are executed on one JDBC connection to reduce startup overhead.
