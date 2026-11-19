@@ -224,8 +224,9 @@ class PaimonBuildTest(unittest.TestCase):
         script = (ROOT / "thirdparty/build-thirdparty.sh").read_text()
         function = re.search(r"^build_paimon_rust\(\) \{\n.*?^\}", script, re.M | re.S)[0]
         cargo = self.executable("custom/cargo", r'''case "$1" in
-    --version) echo 'cargo 1.94.0' ;;
+    --version) echo 'cargo 1.95.0' ;;
     build)
+        test "$OPENSSL_DIR" = "$TP_INSTALL_DIR"
         mkdir -p "$CARGO_TARGET_DIR/release"
         printf 'archive' > "$CARGO_TARGET_DIR/release/libpaimon_c.a"
         ;;
@@ -244,7 +245,7 @@ printf '/* Generated test header */\n' > "$2"
                         TP_SOURCE_DIR=str(self.work / "src"), PAIMON_RUST_SOURCE="paimon",
                         TP_INSTALL_DIR=str(self.work / "installed"), BUILD_DIR="build",
                         PARALLEL="1", KERNEL="Linux", STRIP_TP_LIB="OFF",
-                        RUSTUP_TOOLCHAIN="1.94.0", PAIMON_RUST_CARGO_OFFLINE=offline,
+                        RUSTUP_TOOLCHAIN="1.95.0", PAIMON_RUST_CARGO_OFFLINE=offline,
                         PAIMON_RUST_CBINDGEN=str(cbindgen),
                         METADATA_LOG=str(self.work / "metadata.log"))
         if cargo_override:

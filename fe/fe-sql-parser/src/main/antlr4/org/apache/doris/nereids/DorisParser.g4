@@ -549,6 +549,7 @@ alterStatement
     | ALTER COLOCATE GROUP name=multipartIdentifier
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterColocateGroup
     | ALTER USER (IF EXISTS)? grantUserIdentify
+        (retainCurrent=RETAIN CURRENT PASSWORD | discardOld=DISCARD OLD PASSWORD)?
         passwordOption requireClause? commentSpec?                                          #alterUser
     ;
 
@@ -604,7 +605,7 @@ showStatement
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showExport
     | SHOW LAST INSERT                                                              #showLastInsert
-    | SHOW ((CHAR SET) | CHARSET)                                                   #showCharset
+    | SHOW ((CHAR SET) | CHARSET) wildWhere?                                        #showCharset
     | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW CREATE statementScope? FUNCTION functionIdentifier
         LEFT_PAREN functionArguments? RIGHT_PAREN
@@ -1238,7 +1239,8 @@ optionWithoutType
     | NAMES (charsetName=identifierOrText | DEFAULT)
         (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
     | PASSWORD (FOR userIdentify)? EQ (pwd=STRING_LITERAL
-        | (isPlain=PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN)) #setPassword
+        | (isPlain=PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))
+        (retainCurrent=RETAIN CURRENT PASSWORD)?                        #setPassword
     | LDAP_ADMIN_PASSWORD EQ (pwd=STRING_LITERAL
         | (PASSWORD LEFT_PAREN pwd=STRING_LITERAL RIGHT_PAREN))         #setLdapAdminPassword
     | variable                                                          #setVariableWithoutType
@@ -2375,6 +2377,7 @@ nonReserved
     | DIAGNOSIS
     | DICTIONARIES
     | DICTIONARY
+    | DISCARD
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
@@ -2515,6 +2518,7 @@ nonReserved
     | OF
     | OFF
     | OFFSET
+    | OLD
     | ONLY
     | OPEN
     | OPTIMIZE

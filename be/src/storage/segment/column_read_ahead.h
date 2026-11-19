@@ -22,6 +22,8 @@
 #include <map>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <span>
+#include <variant>
 #include <vector>
 
 #include "common/status.h"
@@ -55,10 +57,8 @@ struct ColumnReadAheadPage {
 };
 
 class ColumnReadAhead;
-class SegmentReadAhead;
 
 struct ColumnReadAheadPlan {
-    ColumnReadAhead* column {nullptr};
     /// Pages newly entering the window and eligible for cache probe and range planning.
     std::vector<ColumnReadAheadPage> new_pages;
     /// Window entries that the scan has passed; the coordinator drops any remaining registration.
@@ -70,7 +70,7 @@ struct ColumnReadAheadPlan {
     int64_t window_extend_ns {0};
 
     /// Reuse this plan for another call, retaining the page vectors' allocated capacity.
-    void reset(ColumnReadAhead* owner);
+    void reset();
     /// Accumulate per-call timings even for an empty plan; statistics may be absent.
     void update_statistics(io::ReadAheadStatistics* statistics) const;
     bool empty() const { return new_pages.empty() && released_pages.empty(); }
@@ -83,28 +83,24 @@ enum class ColumnReadAheadRole : uint8_t {
     LAZY,
 };
 
-struct ColumnReadAheadContext {
-    ColumnReadAheadOptions eager_options;
-    ColumnReadAheadOptions lazy_options;
-    SegmentReadAhead* segment {nullptr};
-
-    const ColumnReadAheadOptions& options(ColumnReadAheadRole role) const;
-};
-
-struct ColumnReadAheadRequest {
-    /// Sorted row IDs needed by the current batch; all their pages are included in the plan.
-    const rowid_t* current_rowids {nullptr};
-    size_t current_rowid_count {0};
-    /// Eligible rows used to build the candidate-page sequence.
-    const roaring::Roaring* scan_rowids {nullptr};
-    const ColumnReadAheadContext* context {nullptr};
+struct ScanReadAheadHint {
+    /// Borrowed only while prepare_read_ahead() builds the candidate-page sequence.
+    const roaring::Roaring* candidate_rows {nullptr};
     ColumnReadAheadRole role {ColumnReadAheadRole::EAGER};
     bool reverse {false};
-    /// Initialize a scan once; later data-page reads advance its window without batch row IDs.
-    bool page_driven {false};
+};
 
-    const ColumnReadAheadOptions& options() const;
-    void sanity_check() const;
+struct ExactRowReadAheadHint {
+    /// Sorted distinct row IDs, borrowed only during preparation.
+    std::span<const rowid_t> rowids;
+};
+
+/// A wrapper keeps the iterator interface forward-declarable without including the window types.
+struct ColumnReadAheadHint {
+    ColumnReadAheadHint(ScanReadAheadHint hint) : request(hint) {}
+    ColumnReadAheadHint(ExactRowReadAheadHint hint) : request(hint) {}
+
+    std::variant<ScanReadAheadHint, ExactRowReadAheadHint> request;
 };
 
 /// Maintains the byte window of one physical column. The class only decides which compressed

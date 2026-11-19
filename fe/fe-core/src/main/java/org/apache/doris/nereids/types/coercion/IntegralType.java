@@ -51,6 +51,11 @@ public class IntegralType extends NumericType {
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         if (target instanceof IntegralType) {
             return this.equals(target) || ((IntegralType) target).widerThan(this);

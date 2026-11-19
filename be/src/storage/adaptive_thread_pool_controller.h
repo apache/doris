@@ -60,7 +60,7 @@ struct TimerArg {
 //
 // Usage:
 //   AdaptiveThreadPoolController ctrl;
-//   ctrl.init(system_metrics, s3_pool);
+//   ctrl.init(system_metrics, obj_storage_upload_pool);
 //   ctrl.add("flush", {pool1, pool2},
 //       AdaptiveThreadPoolController::make_flush_adjust_func(&ctrl, pool1),
 //       max_per_cpu, min_per_cpu);
@@ -76,13 +76,13 @@ public:
     static constexpr int kQueueThreshold = 10;
     static constexpr int kIOBusyThresholdPercent = 90;
     static constexpr int kCPUBusyThresholdPercent = 90;
-    static constexpr int kS3QueueBusyThreshold = 10;
+    static constexpr int kUploadQueueBusyThreshold = 10;
 
     AdaptiveThreadPoolController() = default;
     ~AdaptiveThreadPoolController() { stop(); }
 
     // Initialize with system-level dependencies.
-    void init(SystemMetrics* system_metrics, ThreadPool* s3_file_upload_pool);
+    void init(SystemMetrics* system_metrics, ThreadPool* obj_storage_upload_pool);
 
     // Permanently stop registration and cancel all groups before pools are destroyed.
     void stop();
@@ -139,7 +139,7 @@ private:
 
 private:
     SystemMetrics* _system_metrics = nullptr;
-    ThreadPool* _s3_file_upload_pool = nullptr;
+    ThreadPool* _obj_storage_upload_pool = nullptr;
 
     // Serializes add/cancel/stop so concurrent teardown also waits for cancellation.
     std::mutex _lifecycle_mutex;

@@ -54,9 +54,10 @@ public interface ConnectorPushdownOps {
      * CAST expressions, including CAST subclasses such as TRY_CAST.
      *
      * <p><b>This switch governs ONE of the two pushdown paths.</b> Returning {@code false} makes the engine
-     * drop CAST-containing conjuncts from the RESIDUAL predicate it builds for the scan node. The
-     * {@link #applyFilter} path never consults it: there the engine converts every conjunct and hands the
-     * result to the connector regardless of what this method answers.</p>
+     * drop CAST-containing conjuncts from the RESIDUAL predicate it builds for the scan node; a conjunct
+     * holding a TIMESTAMPTZ cast or a complex-kind cast (Rule 4 of the {@code pushdown} package) is dropped
+     * from it whatever this method answers. The {@link #applyFilter} path never consults it: there the engine
+     * converts every conjunct and hands the result to the connector regardless of what this method answers.</p>
      *
      * <p><b>And on either path a CAST does not arrive as a CAST.</b> The forward converter unwraps it and
      * pushes the child expression, so {@code CAST(dt AS INT) = 20240101} reaches the connector as

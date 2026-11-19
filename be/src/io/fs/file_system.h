@@ -48,14 +48,15 @@ namespace doris::io {
     } while (0);
 #endif
 
-enum class FileSystemType : uint8_t { LOCAL, S3, HDFS, BROKER, HTTP };
+enum class FileSystemType : uint8_t { LOCAL, OBJECT_STORAGE, HDFS, BROKER, HTTP };
 
 inline std::ostream& operator<<(std::ostream& ostr, FileSystemType type) {
     switch (type) {
     case FileSystemType::LOCAL:
         ostr << "LOCAL";
         return ostr;
-    case FileSystemType::S3:
+    case FileSystemType::OBJECT_STORAGE:
+        // Preserve the existing filesystem label in diagnostics.
         ostr << "S3";
         return ostr;
     case FileSystemType::HDFS:

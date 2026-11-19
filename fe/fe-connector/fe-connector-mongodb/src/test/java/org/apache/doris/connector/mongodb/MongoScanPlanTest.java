@@ -39,7 +39,7 @@ import java.util.Map;
 import java.util.Optional;
 
 class MongoScanPlanTest {
-    private static class Session implements ConnectorSession {
+    static class Session implements ConnectorSession {
         private final Map<String, String> policies;
 
         Session() {
@@ -96,6 +96,12 @@ class MongoScanPlanTest {
         }
     }
 
+    private static MongoScanPlanProvider provider(MongoCatalogProperties properties) {
+        return new MongoScanPlanProvider(properties, () -> {
+            throw new AssertionError("Ordinary scans and admission failures must not open a snapshot probe");
+        });
+    }
+
     private static MongoCatalogProperties properties() {
         return MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
                 "mongodb.username", "fixture-user", "mongodb.password", "fixture-secret"));
@@ -104,11 +110,29 @@ class MongoScanPlanTest {
     private static TMongoScanDesc plan(MongoCatalogProperties properties, Map<String, String> policies) {
         MongoTableHandle handle = new MongoTableHandle("sample",
                 new Document("name", "records").append("type", "collection"), properties);
-        ConnectorScanRange range = new MongoScanPlanProvider(properties).planScan(new Session(policies),
+        ConnectorScanRange range = provider(properties).planScan(new Session(policies),
                 ConnectorScanRequest.builder(handle, List.of()).build()).get(0);
         TTableFormatFileDesc descriptor = new TTableFormatFileDesc();
         range.populateRangeParams(descriptor, new TFileRangeDesc());
         return descriptor.getMongodbParams();
+    }
+
+    @Test
+    void snapshotScansRequireALiveStatementScope() {
+        var failure = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> plan(properties(), Map.of("mongodb_read_concern", "snapshot")));
+        Assertions.assertTrue(failure.getMessage().contains("statement scope"));
+    }
+
+    @Test
+    void snapshotViewsAreRejectedBeforeOpeningAProbe() {
+        var properties = properties();
+        var view = new MongoTableHandle("sample", new Document("name", "view").append("type", "view"), properties);
+        var failure = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider(properties).planScan(
+                        new Session(Map.of("mongodb_read_concern", "snapshot")),
+                        ConnectorScanRequest.builder(view, List.of()).build()));
+        Assertions.assertTrue(failure.getMessage().contains("view"));
     }
 
     @Test
@@ -170,7 +194,7 @@ class MongoScanPlanTest {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> plan(properties(), Map.of("mongodb_read_preference", preference)));
         }
-        for (String concern : List.of("", "invalid", "snapshot", "linearizable")) {
+        for (String concern : List.of("", "invalid", "linearizable")) {
             Assertions.assertThrows(IllegalArgumentException.class,
                     () -> plan(properties(), Map.of("mongodb_read_concern", concern)));
         }
@@ -187,7 +211,7 @@ class MongoScanPlanTest {
     @Test
     void emitsOneStableNativeRangeForEachLogicalObjectKind() {
         MongoCatalogProperties properties = properties();
-        MongoScanPlanProvider provider = new MongoScanPlanProvider(properties);
+        MongoScanPlanProvider provider = provider(properties);
         for (String kind : List.of("collection", "view", "timeseries")) {
             MongoTableHandle handle = new MongoTableHandle("sample",
                     new Document("name", "records").append("type", kind), properties);
@@ -215,7 +239,7 @@ class MongoScanPlanTest {
         MongoCatalogProperties properties = properties();
         MongoTableHandle handle = new MongoTableHandle("sample",
                 new Document("name", "records").append("type", "collection"), properties);
-        MongoScanPlanProvider provider = new MongoScanPlanProvider(properties);
+        MongoScanPlanProvider provider = provider(properties);
         ScanNodePropertiesResult result = provider.getScanNodePropertiesResult(new Session(), handle,
                 List.of(), Optional.empty());
         Assertions.assertFalse(result.hasConjunctTracking());
@@ -234,7 +258,7 @@ class MongoScanPlanTest {
         Assertions.assertNotEquals(current, stale);
         Assertions.assertEquals(current, new MongoColumnHandle(binding, handle.getSchema().getVersion()));
         Assertions.assertTrue(current.getBindingJson().contains("bson_types"));
-        Assertions.assertThrows(IllegalArgumentException.class, () -> new MongoScanPlanProvider(properties)
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider(properties)
                 .planScan(new Session(), ConnectorScanRequest.builder(handle, List.of(stale)).build()));
     }
 
@@ -248,7 +272,7 @@ class MongoScanPlanTest {
                 new Document("name", "records").append("type", "collection"), properties);
         var expression = new ConnectorComparison(ConnectorComparison.Operator.GE,
                 new ConnectorColumnRef("seq", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(10));
-        var result = new MongoScanPlanProvider(properties).getScanNodePropertiesResult(new Session(), handle,
+        var result = provider(properties).getScanNodePropertiesResult(new Session(), handle,
                 List.of(new MongoColumnHandle(handle.getSchema().getBindings().get(0),
                         handle.getSchema().getVersion())), Optional.of(expression));
         Assertions.assertEquals("SUPERSET", result.getProperties().get("predicate_pushdown"));
@@ -273,7 +297,7 @@ class MongoScanPlanTest {
         var request = ConnectorScanRequest.builder(table,
                 columns ? List.of(new MongoColumnHandle(binding, table.getSchema().getVersion())) : List.of())
                 .filter(Optional.of(filter)).build();
-        var range = new MongoScanPlanProvider(properties).planScan(session, request).get(0);
+        var range = provider(properties).planScan(session, request).get(0);
         var result = new TTableFormatFileDesc();
         range.populateRangeParams(result, new TFileRangeDesc());
         return result.getMongodbParams();
@@ -330,7 +354,7 @@ class MongoScanPlanTest {
         var request = ConnectorScanRequest.builder(table, List.of(new MongoColumnHandle(
                 table.getSchema().getBindings().get(0), table.getSchema().getVersion()))).build();
         var result = new TTableFormatFileDesc();
-        new MongoScanPlanProvider(properties()).planScan(new Session(), request).get(0)
+        provider(properties()).planScan(new Session(), request).get(0)
                 .populateRangeParams(result, new TFileRangeDesc());
         Assertions.assertFalse(result.getMongodbParams().isSetProjectionBson());
     }

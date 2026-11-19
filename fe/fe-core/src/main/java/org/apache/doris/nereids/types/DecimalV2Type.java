@@ -168,6 +168,11 @@ public class DecimalV2Type extends FractionalType {
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         // DECIMALV2 is a deprecated legacy type. Its declared precision and scale do not always
         // match BE's execution domain, and casts between DECIMALV2 and newer decimal types are not

@@ -807,6 +807,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     protected List<String> getPathPartitionKeys() throws UserException {
+        // Asked first while the node initializes, before the filter is attached: a provider that can name
+        // the columns directly spares building its whole property map, which is rebuilt once the filter is in.
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
+        if (scanProvider != null) {
+            Optional<List<String>> named = onPluginClassLoader(scanProvider,
+                    () -> scanProvider.getPathPartitionKeys(connectorSession, currentHandle));
+            if (named.isPresent()) {
+                return named.get();
+            }
+        }
         Map<String, String> props = getOrLoadScanNodeProperties();
         String keys = props.get(ScanNodePropertyKeys.PATH_PARTITION_KEYS);
         if (keys != null && !keys.isEmpty()) {
@@ -1938,6 +1948,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
+                .coarseSplitSize(coarseSplitSizeForBeRefinement())
                 .aggregatePushdown(getPushDownAggNoGroupingOp() != TPushAggOp.NONE)
                 .backendCapabilities(commonBackendCapabilities(backendPolicy.getBackends()))
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
@@ -2349,6 +2360,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         queryFinishCleanup.bind(resolveScanProvider());
         return ConnectorScanRequest.builder(currentHandle, columns).filter(remainingFilter)
+                .coarseSplitSize(isTableLevelCountStarPushdown() ? -1 : coarseSplitSizeForBeRefinement())
                 .scanContext(splitAssignment.getScanContext()).build();
     }
 
@@ -2592,6 +2604,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     @Override
+    protected boolean supportsBeSplitRefinement(FileSplit split) {
+        return ((PluginDrivenSplit) split).getConnectorScanRange().supportsBeSplitRefinement();
+    }
+
+    @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (!(split instanceof PluginDrivenSplit)) {
             return;
@@ -2813,6 +2830,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // remote_doris scan node already outside this switch). Without this the format falls to
                 // FORMAT_JNI below and BE never enters the Arrow reader path.
                 return TFileFormatType.FORMAT_ARROW;
+            case "lance":
+                // BE reads a Lance dataset through lance-c rather than a file reader or JNI.
+                return TFileFormatType.FORMAT_LANCE;
             default:
                 return TFileFormatType.FORMAT_JNI;
         }
@@ -2959,7 +2979,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     /**
      * Builds the remaining filter expression from unconsumed conjuncts.
      * If no conjuncts remain, returns {@link Optional#empty()}.
-     * Filters out CAST-containing predicates when the connector does not support CAST pushdown.
+     * Filters out CAST-containing predicates when the connector does not support CAST pushdown, and
+     * TIMESTAMPTZ and complex-kind casts ({@link #containsComplexKindCast}) for every connector.
      */
     private Optional<ConnectorExpression> buildRemainingFilter() {
         if (conjuncts == null || conjuncts.isEmpty()) {
@@ -2972,8 +2993,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         for (int i = 0; i < conjuncts.size(); i++) {
             Expr conjunct = conjuncts.get(i);
             // The neutral converter strips CASTs. Instant casts can depend on the Doris session
-            // timezone, so both the predicate and its LIMIT must stay local before type information is lost.
-            if ((!supportsCast && containsCastExpr(conjunct)) || containsTimestampTzCast(conjunct)) {
+            // timezone, and a cast into or out of a complex type changes the shape of the value, so in
+            // both cases the predicate and its LIMIT must stay local before type information is lost.
+            if ((!supportsCast && containsCastExpr(conjunct)) || containsTimestampTzCast(conjunct)
+                    || containsComplexKindCast(conjunct)) {
                 continue;
             }
             pushableConjuncts.add(conjunct);
@@ -2993,6 +3016,25 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         expr.collect(node -> node instanceof CastExpr
                 && (node.getType().isTimeStampTz() || node.getChild(0).getType().isTimeStampTz()), casts);
         return !casts.isEmpty();
+    }
+
+    /**
+     * Whether {@code expr} holds a CAST into or out of ARRAY, MAP or STRUCT, other than one between two types of
+     * the same kind. Such a cast changes the shape of the value, so the operand the converter hands over in its
+     * place is not what the cast yields: {@code CAST([true] AS STRING)} is the text {@code [1]} in Doris, but its
+     * operand reaches the connector as the element list {@code [true]}, and {@code CAST(arr AS STRING) = '[1]'}
+     * reaches it as {@code arr = '[1]'}.
+     */
+    static boolean containsComplexKindCast(Expr expr) {
+        List<Expr> casts = new ArrayList<>();
+        expr.collect(node -> node instanceof CastExpr
+                && changesComplexKind(node.getChild(0).getType(), node.getType()), casts);
+        return !casts.isEmpty();
+    }
+
+    private static boolean changesComplexKind(Type from, Type to) {
+        return from.isArrayType() != to.isArrayType() || from.isMapType() != to.isMapType()
+                || from.isStructType() != to.isStructType();
     }
 
     static boolean containsCastExpr(Expr expr) {
