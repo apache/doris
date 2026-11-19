@@ -17,15 +17,20 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.iceberg.auth.GcsVendedCredentials;
 import org.apache.doris.filesystem.gcs.GcpAuth;
 import org.apache.doris.filesystem.gcs.GcsFileSystemProperties;
+import org.apache.doris.filesystem.gcs.auth.GcpCredential;
 
+import com.google.auth.oauth2.AccessToken;
+import com.google.auth.oauth2.GoogleCredentials;
 import org.apache.iceberg.aws.s3.S3FileIOAwsClientFactory;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -40,13 +45,13 @@ public class GcpS3FileIOAwsClientFactory implements S3FileIOAwsClientFactory {
 
     @Override
     public void initialize(Map<String, String> properties) {
-        this.properties = new HashMap<>(properties);
+        this.properties = withVendedCredentials(properties);
     }
 
     @Override
     public S3Client s3() {
         try {
-            return GcpAuth.createS3Client(gcsProperties());
+            return GcpAuth.createS3Client(gcsProperties(), credentials());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -55,10 +60,35 @@ public class GcpS3FileIOAwsClientFactory implements S3FileIOAwsClientFactory {
     @Override
     public S3AsyncClient s3Async() {
         try {
-            return GcpAuth.createS3AsyncClient(gcsProperties());
+            return GcpAuth.createS3AsyncClient(gcsProperties(), credentials());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /** Table-scoped server credentials override the catalog's ambient GCP identity. */
+    public static Map<String, String> withVendedCredentials(Map<String, String> properties) {
+        Map<String, String> result = new HashMap<>(properties);
+        if (properties.containsKey(GcpCredential.ICEBERG_OAUTH2_TOKEN)) {
+            result.put(GcpCredential.OAUTH2_TOKEN, properties.get(GcpCredential.ICEBERG_OAUTH2_TOKEN));
+            result.remove(GcpCredential.OAUTH2_TOKEN_EXPIRES_AT);
+            if (properties.containsKey(GcpCredential.ICEBERG_OAUTH2_TOKEN_EXPIRES_AT)) {
+                result.put(GcpCredential.OAUTH2_TOKEN_EXPIRES_AT,
+                        properties.get(GcpCredential.ICEBERG_OAUTH2_TOKEN_EXPIRES_AT));
+            }
+            result.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, "ACCESS_TOKEN");
+            result.remove(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT);
+        }
+        return result;
+    }
+
+    private GoogleCredentials credentials() throws IOException {
+        GcpCredential credential = gcsProperties().getAuth().getNativeCredential().orElseThrow();
+        if (properties.containsKey(GcpCredential.OAUTH2_TOKEN) && GcsVendedCredentials.isRefreshEnabled(properties)) {
+            return GcsVendedCredentials.createCredentials(new AccessToken(credential.getAccessToken(),
+                    new Date(credential.getExpiresAtMillis())), properties);
+        }
+        return GcpAuth.createCredentials(credential);
     }
 
     private GcsFileSystemProperties gcsProperties() {

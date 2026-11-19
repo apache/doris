@@ -51,6 +51,7 @@ public:
     std::string get_service_account_email() const;
 
 private:
+    GcpCredentialConfig _credential;
     std::shared_ptr<google::cloud::oauth2_internal::Credentials> _credentials;
     mutable std::mutex _credentials_mutex;
 };

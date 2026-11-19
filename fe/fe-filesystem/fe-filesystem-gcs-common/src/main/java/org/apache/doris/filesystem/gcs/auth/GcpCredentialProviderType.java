@@ -22,14 +22,15 @@ import java.util.Locale;
 public enum GcpCredentialProviderType {
     DEFAULT,
     COMPUTE_ENGINE,
-    ANONYMOUS;
+    ANONYMOUS,
+    ACCESS_TOKEN;
 
     public static GcpCredentialProviderType fromString(String propertyName, String value) {
         try {
             return valueOf(value.trim().toUpperCase(Locale.ROOT));
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("Invalid " + propertyName + " value: " + value
-                    + ". Only DEFAULT, COMPUTE_ENGINE and ANONYMOUS are supported.", e);
+                    + ". Only DEFAULT, COMPUTE_ENGINE, ANONYMOUS and ACCESS_TOKEN are supported.", e);
         }
     }
 }

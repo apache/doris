@@ -109,10 +109,19 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
             description = "Whether to force standard URI parsing.")
     private String forceParsingByStandardUrl = "false";
 
+    @ConnectorProperty(names = {GcpCredential.OAUTH2_TOKEN, GcpCredential.ICEBERG_OAUTH2_TOKEN},
+            required = false, sensitive = true, description = "Externally supplied GCS OAuth2 access token.")
+    private String oauth2Token = "";
+
+    @ConnectorProperty(names = {GcpCredential.OAUTH2_TOKEN_EXPIRES_AT, GcpCredential.ICEBERG_OAUTH2_TOKEN_EXPIRES_AT},
+            required = false, description = "GCS OAuth2 token expiration in epoch milliseconds.")
+    private String oauth2TokenExpiresAt = "";
+
     private GcsAuth auth;
 
     @ConnectorProperty(names = {GcpCredential.CREDENTIAL_PROVIDER_TYPE}, required = false,
-            description = "GCP credential source: DEFAULT, COMPUTE_ENGINE or ANONYMOUS; defaults to ADC without HMAC.")
+            description = "GCP credential source: DEFAULT, COMPUTE_ENGINE, ANONYMOUS or ACCESS_TOKEN; "
+                    + "defaults to ADC without HMAC.")
     private String credentialProviderType = "";
 
     @ConnectorProperty(names = {GcpCredential.IMPERSONATION_SERVICE_ACCOUNT}, required = false,
@@ -197,6 +206,11 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
         if (auth.getMode() != GcsAuth.Mode.HMAC) {
             matched.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, auth.isAnonymous() ? "ANONYMOUS"
                     : auth.getNativeCredential().orElseThrow().getCredentialProviderType().name());
+            if (auth.getMode() == GcsAuth.Mode.ACCESS_TOKEN) {
+                GcpCredential credential = auth.getNativeCredential().orElseThrow();
+                matched.put(GcpCredential.OAUTH2_TOKEN, credential.getAccessToken());
+                matched.put(GcpCredential.OAUTH2_TOKEN_EXPIRES_AT, Long.toString(credential.getExpiresAtMillis()));
+            }
             matched.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
                     auth.getNativeCredential().map(GcpCredential::getImpersonationServiceAccount).orElse(""));
         }
@@ -208,6 +222,12 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
         if (auth.getNativeCredential().isPresent()) {
             GcpCredential credential = auth.getNativeCredential().get();
             kv.remove("AWS_CREDENTIALS_PROVIDER_TYPE");
+            if (credential.getCredentialProviderType() == GcpCredentialProviderType.ACCESS_TOKEN) {
+                kv.put(GcpCredential.OAUTH2_TOKEN, credential.getAccessToken());
+                if (credential.getExpiresAtMillis() > 0) {
+                    kv.put(GcpCredential.OAUTH2_TOKEN_EXPIRES_AT, Long.toString(credential.getExpiresAtMillis()));
+                }
+            }
             kv.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.getCredentialProviderType().name());
             putIfNotBlank(kv, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
                     credential.getImpersonationServiceAccount());
@@ -227,6 +247,14 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
             storageRoot = "https://" + storageRoot;
         }
         cfg.put("fs.gs.storage.root.url", storageRoot.endsWith("/") ? storageRoot : storageRoot + "/");
+        if (credential.getCredentialProviderType() == GcpCredentialProviderType.ACCESS_TOKEN) {
+            cfg.put("fs.gs.auth.type", "ACCESS_TOKEN_PROVIDER");
+            cfg.put("fs.gs.auth.access.token.provider", GcsVendedAccessTokenProvider.class.getName());
+            cfg.put(GcpCredential.OAUTH2_TOKEN, credential.getAccessToken());
+            cfg.put(GcpCredential.OAUTH2_TOKEN_EXPIRES_AT, Long.toString(credential.getExpiresAtMillis()));
+            FsCacheKeys.putFsCacheKeys(cfg, this);
+            return Collections.unmodifiableMap(cfg);
+        }
         cfg.put("fs.gs.auth.type", credential.getCredentialProviderType() == GcpCredentialProviderType.DEFAULT
                 ? "APPLICATION_DEFAULT" : "COMPUTE_ENGINE");
         cfg.put("fs.gs.auth.impersonation.service.account", credential.getImpersonationServiceAccount());

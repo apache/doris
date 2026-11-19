@@ -17,14 +17,30 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.iceberg.auth.GcsVendedCredentials;
+
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.gcp.GCPProperties;
+import org.apache.iceberg.hadoop.HadoopConfigurable;
+import org.apache.iceberg.hadoop.SerializableConfiguration;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.SupportsStorageCredentials;
 import org.apache.iceberg.util.SerializationUtil;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.io.ObjectStreamClass;
 import java.io.ObjectStreamConstants;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Keeps the Java-serialized Iceberg system-table task wire compatible with Iceberg 1.10.1.
@@ -44,7 +60,46 @@ final class IcebergSystemTableSerialization {
     }
 
     static String serializeToBase64(Object value) {
-        byte[] bytes = SerializationUtil.serializeToBytes(value);
+        byte[] bytes;
+        List<FileIO> snapshots = new ArrayList<>();
+        if (value instanceof HadoopConfigurable) {
+            ((HadoopConfigurable) value).serializeConfWith(SerializableConfiguration::new);
+        }
+        try (ByteArrayOutputStream output = new ByteArrayOutputStream();
+                ObjectOutputStream stream = new ObjectOutputStream(output) {
+                    {
+                        enableReplaceObject(true);
+                    }
+
+                    @Override
+                    protected Object replaceObject(Object object) {
+                        if (!(object instanceof FileIO)
+                                || !object.getClass().getName().startsWith("org.apache.iceberg.")) {
+                            return object;
+                        }
+                        FileIO io = (FileIO) object;
+                        Map<String, String> properties = new HashMap<>(io.properties());
+                        if (io instanceof SupportsStorageCredentials) {
+                            ((SupportsStorageCredentials) io).credentials()
+                                    .forEach(credential -> properties.putAll(credential.config()));
+                        }
+                        if (!properties.containsKey(GCPProperties.GCS_OAUTH2_TOKEN)) {
+                            return object;
+                        }
+                        FileIO snapshot = CatalogUtil.loadFileIO(io.getClass().getName(),
+                                GcsVendedCredentials.snapshotProperties(properties),
+                                io instanceof HadoopConfigurable ? ((HadoopConfigurable) io).getConf() : null);
+                        snapshots.add(snapshot);
+                        return snapshot;
+                    }
+                }) {
+            stream.writeObject(value);
+            bytes = output.toByteArray();
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Failed to serialize Iceberg storage credential snapshot", failure);
+        } finally {
+            snapshots.forEach(FileIO::close);
+        }
         rewriteSchemaUid(bytes, ICEBERG_1_11_0_SCHEMA_UID, ICEBERG_1_10_1_SCHEMA_UID);
         return new String(Base64.getMimeEncoder().encode(bytes), StandardCharsets.UTF_8);
     }

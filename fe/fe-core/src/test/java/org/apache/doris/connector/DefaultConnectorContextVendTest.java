@@ -96,4 +96,29 @@ public class DefaultConnectorContextVendTest {
         Assertions.assertTrue(context().vendStorageCredentials(Collections.emptyMap()).isEmpty());
         Assertions.assertTrue(context().vendStorageCredentials(null).isEmpty());
     }
+    @Test
+    public void normalizesGcsTokenWithoutCatalogAuthentication() {
+        Map<String, String> token = new HashMap<>();
+        token.put("gcs.oauth2.token", "catalog-issued-token");
+        token.put("gcs.oauth2.token-expires-at", "4102444800000");
+        token.put("token", "catalog-auth-secret");
+        token.put("doris.vended-credentials.context-id", "fe-context");
+        Map<String, String> be = context().vendStorageCredentials(token);
+        Assertions.assertEquals("GCP", be.get("provider"));
+        Assertions.assertEquals("ACCESS_TOKEN", be.get("gs.credential_provider_type"));
+        Assertions.assertEquals("catalog-issued-token", be.get("gs.oauth2.token"));
+        Assertions.assertFalse(be.containsKey("AWS_CREDENTIALS_PROVIDER_TYPE"));
+        Assertions.assertFalse(be.containsKey("token"));
+        Assertions.assertFalse(be.containsKey("doris.vended-credentials.context-id"));
+    }
+
+    @Test
+    public void invalidGcsTokenFailsInsteadOfFallingBack() {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> context().vendStorageCredentials(Map.of("gcs.oauth2.token", "invalid token")));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> context().vendStorageCredentials(Map.of("gcs.oauth2.token", "token",
+                        "gcs.oauth2.token-expires-at", "invalid")));
+    }
+
 }

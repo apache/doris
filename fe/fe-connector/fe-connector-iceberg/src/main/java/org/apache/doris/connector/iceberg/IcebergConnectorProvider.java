@@ -94,6 +94,6 @@ public class IcebergConnectorProvider implements ConnectorProvider {
         // Keep secret masking and JDBC restrictions when REST decryption adds a KMS endpoint check.
         return ConnectorSecuritySurface.ofJdbcDriverUrls("iceberg.catalog.type", "iceberg.jdbc.driver_url")
                 .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys())
-                .withSsrfEndpoints("kms.endpoint");
+                .withSsrfEndpoints("kms.endpoint", "gcs.oauth2.refresh-credentials-endpoint");
     }
 }

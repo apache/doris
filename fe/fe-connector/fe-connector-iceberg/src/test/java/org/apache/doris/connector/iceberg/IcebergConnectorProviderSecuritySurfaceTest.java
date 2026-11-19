@@ -37,7 +37,8 @@ public class IcebergConnectorProviderSecuritySurfaceTest {
         Assertions.assertEquals(Collections.singletonList("iceberg.jdbc.driver_url"),
                 surface.jdbcDriverUrlKeys());
         Assertions.assertEquals("iceberg.catalog.type", surface.jdbcDriverUrlFlavorKey());
-        Assertions.assertEquals(Collections.singletonList("kms.endpoint"), surface.ssrfEndpointKeys());
+        Assertions.assertEquals(java.util.List.of("kms.endpoint", "gcs.oauth2.refresh-credentials-endpoint"),
+                surface.ssrfEndpointKeys());
     }
 
     @Test

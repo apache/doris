@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 #include <exception>
+#include <iterator>
 #include <type_traits>
 #include <utility>
 
@@ -57,7 +58,30 @@ ObjStorageClientBuildResult ObjStorageClientFactory::create(const ObjStorageClie
     }
 #endif
 
-    if (use_cache) {
+    const auto* gcp = std::get_if<GcpObjStorageConfig>(&config);
+    const auto* native = gcp ? std::get_if<GcpNativeObjStorageAuth>(&gcp->auth) : nullptr;
+    const bool vended = native && native->source == GcpCredentialSource::AccessToken;
+    if (use_cache && vended) {
+        std::lock_guard l(_lock);
+        // Rotating query tokens must not retain clients and their connection pools indefinitely.
+        for (auto bucket_it = _vended_cache.begin(); bucket_it != _vended_cache.end();) {
+            auto& entries = bucket_it->second;
+            for (auto it = entries.begin(); it != entries.end();) {
+                it = it->second.expired() ? entries.erase(it) : std::next(it);
+            }
+            bucket_it = entries.empty() ? _vended_cache.erase(bucket_it) : std::next(bucket_it);
+        }
+        auto bucket_it = _vended_cache.find(bucket);
+        if (bucket_it != _vended_cache.end()) {
+            auto it = bucket_it->second.find(config);
+            if (it != bucket_it->second.end()) {
+                if (auto client = it->second.lock()) {
+                    return {.client = std::move(client)};
+                }
+            }
+        }
+    }
+    if (use_cache && !vended) {
         std::lock_guard l(_lock);
         auto bucket_cache = _cache.find(bucket);
         if (bucket_cache != _cache.end()) {
@@ -107,6 +131,16 @@ ObjStorageClientBuildResult ObjStorageClientFactory::create(const ObjStorageClie
     }
     LOG(INFO) << "create object storage client with " << obj_storage_config_to_string(config);
 
+    if (use_cache && vended) {
+        std::lock_guard l(_lock);
+        auto& entry = _vended_cache[bucket][config];
+        // Another query may have constructed this same token's client while the lock was released.
+        if (auto existing = entry.lock()) {
+            return {.client = std::move(existing)};
+        }
+        entry = result.client;
+        return result;
+    }
     if (use_cache) {
         std::lock_guard l(_lock);
         auto [it, _] = _cache[bucket].emplace(config, std::move(result.client));
