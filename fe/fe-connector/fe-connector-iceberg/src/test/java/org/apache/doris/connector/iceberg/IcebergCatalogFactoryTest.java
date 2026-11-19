@@ -959,6 +959,50 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void buildCatalogPropertiesRestRawGcsHadoopKeysPinNativeGcsFileIo() {
+        // WHY: a REST catalog with an opaque warehouse configured only through raw fs.gs.* keys binds no typed
+        // GCS storage (chosenS3 empty). Before iceberg-gcp was bundled, ResolvingFileIO fell back to HadoopFileIO,
+        // which honors the keyfile; without the pin gs:// now resolves to GCSFileIO with ADC and ignores it.
+        // MUTATION: drop the raw fs.gs.* pin -> io-impl absent -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "warehouse", "analytics",
+                        "fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                        "fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE",
+                        "fs.gs.auth.service.account.json.keyfile", "/etc/gcs/key.json")),
+                Optional.empty(), false);
+        Assertions.assertEquals(NativeGcsResolvingFileIO.class.getName(), opts.get("io-impl"));
+    }
+
+    @Test
+    public void buildCatalogPropertiesRestRawGcsHadoopKeysKeepExplicitFileIo() {
+        // WHY: the raw fs.gs.* pin is a default only. MUTATION: put instead of putIfAbsent -> red.
+        Map<String, String> raw = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE",
+                        "io-impl", "org.apache.iceberg.hadoop.HadoopFileIO")),
+                Optional.empty(), false);
+        Assertions.assertEquals("org.apache.iceberg.hadoop.HadoopFileIO", raw.get("io-impl"));
+        Map<String, String> rest = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE",
+                        "iceberg.rest.io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO")),
+                Optional.empty(), false);
+        Assertions.assertEquals("org.apache.iceberg.gcp.gcs.GCSFileIO", rest.get("io-impl"));
+    }
+
+    @Test
+    public void buildCatalogPropertiesRestWithoutGcsKeysKeepsSdkDefaultFileIo() {
+        // WHY: the pin must not override a REST server's recommended io-impl on catalogs that never configured
+        // GCS. MUTATION: pin every REST catalog -> io-impl present -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "warehouse", "analytics", "fs.s3a.endpoint", "https://minio:9000")),
+                Optional.empty(), false);
+        Assertions.assertFalse(opts.containsKey("io-impl"));
+    }
+
+    @Test
     public void buildCatalogPropertiesRestVendedResolvesRegionFromWidenedAliases() {
         // WHY: the empty-chosenS3 region fallback must scan the SAME region aliases legacy getRegionFromProperties
         // did (the fe-core S3Properties isRegionField set), not just {s3.region, aws.region, region, client.region}.

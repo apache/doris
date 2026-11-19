@@ -501,9 +501,20 @@ public final class IcebergCatalogFactory {
                 opts.put(S3FileIOProperties.CLIENT_FACTORY, GcpS3FileIOAwsClientFactory.class.getName());
             });
         }));
+        if (IcebergCatalogProperties.TYPE_REST.equals(flavor) && hasRawGcsHadoopProperties(props)) {
+            // A REST catalog configured only through raw fs.gs.* keys (opaque warehouse, no typed GCS binding)
+            // binds no storage above. Before iceberg-gcp was bundled, ResolvingFileIO could not load GCSFileIO
+            // and fell back to HadoopFileIO, which honors those keys (buildHadoopConfiguration). Keep that
+            // routing so gs:// does not silently switch to GCSFileIO with ADC. Explicit FileIO choices win.
+            opts.putIfAbsent(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
+        }
         // The iceberg SDK forbids both "type" and "catalog-impl"; legacy buildIcebergCatalog removes "type".
         opts.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
         return opts;
+    }
+
+    private static boolean hasRawGcsHadoopProperties(Map<String, String> props) {
+        return props.keySet().stream().anyMatch(key -> key.startsWith("fs.gs."));
     }
 
     /**
