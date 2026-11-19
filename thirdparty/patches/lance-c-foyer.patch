@@ -6882,10 +6882,10 @@ index cc1f87ce3f7dfe8dd33aeb6ab7f54d02e31a220a..34ce3e4f4d43037b73b1126308f05402
      }
 diff --git a/src/foyer_data_cache.rs b/src/foyer_data_cache.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b1314b650d4
+index 0000000000000000000000000000000000000000..d81263b34cd78bddf5d73cb6a24abe7c96f7a3a7
 --- /dev/null
 +++ b/src/foyer_data_cache.rs
-@@ -0,0 +1,1657 @@
+@@ -0,0 +1,1857 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -6894,8 +6894,9 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +use std::collections::{BTreeMap, HashMap};
 +use std::ffi::c_char;
 +use std::fmt::{Debug, Display, Formatter};
++use std::io::Write;
 +use std::ops::Range;
-+use std::path::Path as FsPath;
++use std::path::{Path as FsPath, PathBuf};
 +use std::sync::atomic::{AtomicU64, Ordering};
 +use std::sync::{Arc, Mutex, Weak};
 +
@@ -6923,6 +6924,54 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +
 +const CACHE_KEY_VERSION: &str = "lance-data-v2";
 +const FOYER_PAGE_SIZE: usize = 4096;
++const CACHE_GENERATION_FILE: &str = "lance-data-v2.generation";
++
++#[derive(Debug)]
++struct CacheGeneration {
++    current: AtomicU64,
++    directory: PathBuf,
++    clear_lock: Mutex<()>,
++}
++
++impl CacheGeneration {
++    fn open(directory: &FsPath) -> std::io::Result<Self> {
++        let current = match std::fs::read(directory.join(CACHE_GENERATION_FILE)) {
++            Ok(bytes) => u64::from_le_bytes(bytes.try_into().map_err(|_| {
++                std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid cache generation")
++            })?),
++            Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
++            Err(error) => return Err(error),
++        };
++        Ok(Self {
++            current: AtomicU64::new(current),
++            directory: directory.to_owned(),
++            clear_lock: Mutex::new(()),
++        })
++    }
++
++    fn advance(&self) -> std::io::Result<()> {
++        let _guard = self
++            .clear_lock
++            .lock()
++            .unwrap_or_else(|error| error.into_inner());
++        let next = self
++            .current
++            .load(Ordering::Acquire)
++            .checked_add(1)
++            .ok_or_else(|| std::io::Error::other("cache generation exhausted"))?;
++        // Publish durably before readers can write new-generation entries.
++        // A crash before publication only leaves old, unreachable entries.
++        let path = self.directory.join(CACHE_GENERATION_FILE);
++        let temporary = path.with_extension("generation.tmp");
++        let mut file = std::fs::File::create(&temporary)?;
++        file.write_all(&next.to_le_bytes())?;
++        file.sync_all()?;
++        std::fs::rename(&temporary, &path)?;
++        std::fs::File::open(&self.directory)?.sync_all()?;
++        self.current.store(next, Ordering::Release);
++        Ok(())
++    }
++}
 +
 +/// Configuration for the optional Foyer data-file cache.
 +#[repr(C)]
@@ -7055,6 +7104,7 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +#[derive(Clone)]
 +pub(crate) struct FoyerDataCache {
 +    cache: HybridCache<String, Bytes>,
++    generation: Arc<CacheGeneration>,
 +    metadata: Cache<String, (ObjectMeta, Attributes)>,
 +    read_block_size: usize,
 +    wrapped_stores: Arc<Mutex<HashMap<usize, WrappedStore>>>,
@@ -7089,6 +7139,8 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +        // cache with 2 MiB blocks opens 51,200 files. FileDevice shares one file
 +        // across all blocks without increasing the read or engine block size.
 +        std::fs::create_dir_all(directory).map_err(foyer::Error::io_error)?;
++        let generation =
++            Arc::new(CacheGeneration::open(directory).map_err(foyer::Error::io_error)?);
 +        // A distinct file and key version start a cold cache and cannot
 +        // interpret legacy entries whose keys omitted the storage identity.
 +        let device = FileDeviceBuilder::new(directory.join("lance-data-v2.cache"))
@@ -7156,6 +7208,7 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +        }
 +        Ok(Self {
 +            cache,
++            generation,
 +            metadata,
 +            read_block_size,
 +            wrapped_stores: Arc::new(Mutex::new(HashMap::new())),
@@ -7170,17 +7223,23 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +        )
 +    }
 +
-+    fn key(&self, store_prefix: &str, location: &Path, block_index: u64) -> String {
++    fn key(
++        &self,
++        generation: u64,
++        store_prefix: &str,
++        location: &Path,
++        block_index: u64,
++    ) -> String {
 +        format!(
-+            "{CACHE_KEY_VERSION}\0{}\0{store_prefix}\0{}\0{block_index}",
++            "{CACHE_KEY_VERSION}\0{generation}\0{}\0{store_prefix}\0{}\0{block_index}",
 +            self.read_block_size,
 +            location.as_ref()
 +        )
 +    }
 +
-+    fn size_key(&self, store_prefix: &str, location: &Path) -> String {
++    fn size_key(&self, generation: u64, store_prefix: &str, location: &Path) -> String {
 +        format!(
-+            "{CACHE_KEY_VERSION}\0{}\0{store_prefix}\0{}\0size",
++            "{CACHE_KEY_VERSION}\0{generation}\0{}\0{store_prefix}\0{}\0size",
 +            self.read_block_size,
 +            location.as_ref()
 +        )
@@ -7287,14 +7346,19 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +    }
 +
 +    fn clear(&self) -> lance_core::Result<()> {
++        // Foyer destroy() retains partial writer indexes, which later writes
++        // can restore on reopen. Persist a new key generation instead, shared
++        // by every existing scope and restored with the disk cache.
++        self.generation.advance().map_err(|error| {
++            lance_core::Error::io(format!("advance Foyer cache generation: {error}"))
++        })?;
 +        // Foyer 0.22.6's clear() drains its index without decrementing the
 +        // weighted usage, so later insertions retain the old capacity debt.
 +        // Eviction releases that accounting as well as the entry references;
-+        // destroy then drains pending writes and invalidates the disk index.
++        // old disk entries remain unreachable and are reclaimed normally.
 +        self.metadata.evict_all();
 +        self.cache.memory().evict_all();
-+        block_on(self.cache.storage().destroy())
-+            .map_err(|error| lance_core::Error::io(format!("clear Foyer data cache: {error}")))
++        Ok(())
 +    }
 +}
 +
@@ -7386,10 +7450,11 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +    }
 +
 +    async fn cached_get(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
-+        let metadata_key = self
-+            .reader
-+            .cache
-+            .size_key(&self.reader.store_prefix, location);
++        let generation = self.reader.cache.generation.current.load(Ordering::Acquire);
++        let metadata_key =
++            self.reader
++                .cache
++                .size_key(generation, &self.reader.store_prefix, location);
 +        let cached_metadata = self.reader.cache.metadata.get(&metadata_key);
 +        let (metadata, attributes) = if let Some(entry) = cached_metadata {
 +            entry.value().clone()
@@ -7407,16 +7472,14 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +                .await?;
 +            // Cache only immutable metadata and attributes, never request-specific state.
 +            self.reader.cache.metadata.insert(
-+                metadata_key,
++                metadata_key.clone(),
 +                (result.meta.clone(), result.attributes.clone()),
 +            );
 +            (result.meta, result.attributes)
 +        };
 +        let object_size = metadata.size;
 +        self.reader.cache.cache.insert(
-+            self.reader
-+                .cache
-+                .size_key(&self.reader.store_prefix, location),
++            metadata_key,
 +            Bytes::copy_from_slice(&object_size.to_le_bytes()),
 +        );
 +
@@ -7480,8 +7543,10 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +        Ok(bytes)
 +    }
 +
-+    async fn object_size(&self, location: &Path) -> Result<u64> {
-+        let key = self.cache.size_key(&self.store_prefix, location);
++    async fn object_size(&self, generation: u64, location: &Path) -> Result<u64> {
++        let key = self
++            .cache
++            .size_key(generation, &self.store_prefix, location);
 +        match self.cache.cache.get(&key).await {
 +            Ok(Some(entry)) => match entry.value().as_ref().try_into() {
 +                Ok(bytes) => return Ok(u64::from_le_bytes(bytes)),
@@ -7510,7 +7575,10 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +            return self.read_origin_ranges(location, ranges).await;
 +        }
 +
-+        let object_size = self.object_size(location).await?;
++        // Keep lookup and insertion in one generation even if clear overlaps
++        // the origin I/O; a pre-clear read cannot repopulate the new namespace.
++        let generation = self.cache.generation.current.load(Ordering::Acquire);
++        let object_size = self.object_size(generation, location).await?;
 +        if ranges.iter().any(|range| range.start >= object_size) {
 +            // Preserve the origin's exact error for ranges that start at or
 +            // beyond EOF.
@@ -7532,7 +7600,9 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +        }
 +
 +        for (block_index, block) in &mut blocks {
-+            let key = self.cache.key(&self.store_prefix, location, *block_index);
++            let key = self
++                .cache
++                .key(generation, &self.store_prefix, location, *block_index);
 +            match self.cache.cache.get(&key).await {
 +                Ok(Some(entry)) => *block = Some(entry.value().clone()),
 +                Ok(None) => {}
@@ -7573,7 +7643,9 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +                for (offset, chunk) in bytes.chunks(self.cache.read_block_size).enumerate() {
 +                    let block_index = first_block + offset as u64;
 +                    let value = Bytes::copy_from_slice(chunk);
-+                    let key = self.cache.key(&self.store_prefix, location, block_index);
++                    let key = self
++                        .cache
++                        .key(generation, &self.store_prefix, location, block_index);
 +                    self.cache.cache.insert(key, value.clone());
 +                    if let Some(block) = blocks.get_mut(&block_index) {
 +                        *block = Some(value);
@@ -8378,6 +8450,134 @@ index 0000000000000000000000000000000000000000..af4e50c927a025828221018423840b13
 +    }
 +
 +    #[tokio::test]
++    async fn clear_does_not_restore_partial_writer_entries_after_reopen() {
++        let directory = tempfile::tempdir().unwrap();
++        let origin = Arc::new(InMemory::new());
++        let a = Path::from("table.lance/data/a.lance");
++        let b = Path::from("table.lance/data/b.lance");
++        origin
++            .put(&a, Bytes::from_static(b"old-data").into())
++            .await
++            .unwrap();
++        origin
++            .put(&b, Bytes::from_static(b"other").into())
++            .await
++            .unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
++            .await
++            .unwrap();
++        let (store, _) = wrap_for_test(&cache, origin.clone());
++        assert_eq!(store.get_range(&a, 0..8).await.unwrap(), "old-data");
++        cache.cache.storage().wait().await;
++        let to_clear = cache.clone();
++        tokio::task::spawn_blocking(move || to_clear.clear())
++            .await
++            .unwrap()
++            .unwrap();
++        origin
++            .put(&a, Bytes::from_static(b"new-data").into())
++            .await
++            .unwrap();
++        // Do not read A again before reopen: that would replace its old entry.
++        assert_eq!(store.get_range(&b, 0..5).await.unwrap(), "other");
++        cache.cache.storage().wait().await;
++        drop(store);
++        cache.cache.close().await.unwrap();
++        drop(cache);
++
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
++            .await
++            .unwrap();
++        let (store, statistics) = wrap_for_test(&cache, origin.clone());
++        // New-generation entries still recover; clearing must not disable persistence.
++        origin.delete(&b).await.unwrap();
++        assert_eq!(
++            store.get_ranges(&b, &[0..5]).await.unwrap(),
++            vec![Bytes::from_static(b"other")]
++        );
++        assert_eq!(statistics.snapshot().bytes_read_from_cache, 5);
++        assert_eq!(store.get_range(&a, 0..8).await.unwrap(), "new-data");
++        assert_eq!(statistics.snapshot().bytes_read_from_remote, 8);
++    }
++
++    #[tokio::test]
++    async fn provider_environment_changes_isolate_recovered_data() {
++        for (variable, prefix) in [
++            ("COS_ENDPOINT", "cos$bucket"),
++            ("TOS_ENDPOINT", "tos$bucket"),
++            ("ENDPOINT_URL", "s3$bucket"),
++        ] {
++            let directory = tempfile::tempdir().unwrap();
++            let location = Path::from("table.lance/data/same-name.lance");
++            for (endpoint, data) in [("origin-a", "first"), ("origin-b", "other")] {
++                let cache =
++                    FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 64 * 1024)
++                        .await
++                        .unwrap();
++                let origin = Arc::new(InMemory::new());
++                origin
++                    .put(&location, Bytes::from(data).into())
++                    .await
++                    .unwrap();
++                let identity = storage_identity(
++                    &HashMap::new(),
++                    [(variable.to_owned(), endpoint.to_owned())],
++                );
++                let scope = cache.create_scope(identity);
++                let store = scope.wrap(prefix, origin);
++                assert_eq!(
++                    store.get_range(&location, 0..5).await.unwrap(),
++                    data,
++                    "{variable}"
++                );
++                assert_eq!(scope.snapshot().bytes_read_from_remote, 5);
++                drop(store);
++                drop(scope);
++                cache.cache.close().await.unwrap();
++            }
++        }
++    }
++
++    #[tokio::test]
++    async fn failed_clear_does_not_publish_a_new_generation() {
++        let directory = tempfile::tempdir().unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 4096)
++            .await
++            .unwrap();
++        // Replacing a directory with the generation file must fail atomically.
++        std::fs::create_dir(directory.path().join(CACHE_GENERATION_FILE)).unwrap();
++        let to_clear = cache.clone();
++        assert!(
++            tokio::task::spawn_blocking(move || to_clear.clear())
++                .await
++                .unwrap()
++                .is_err()
++        );
++        assert_eq!(cache.generation.current.load(Ordering::Acquire), 0);
++        std::fs::remove_dir(directory.path().join(CACHE_GENERATION_FILE)).unwrap();
++        let to_clear = cache.clone();
++        tokio::task::spawn_blocking(move || to_clear.clear())
++            .await
++            .unwrap()
++            .unwrap();
++        assert_eq!(cache.generation.current.load(Ordering::Acquire), 1);
++        drop(cache);
++        assert_eq!(
++            CacheGeneration::open(directory.path())
++                .unwrap()
++                .current
++                .load(Ordering::Acquire),
++            1
++        );
++        std::fs::write(directory.path().join(CACHE_GENERATION_FILE), b"corrupt").unwrap();
++        assert!(
++            FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 4096)
++                .await
++                .is_err()
++        );
++    }
++
++    #[tokio::test]
 +    async fn recovers_cached_data_from_disk() {
 +        let directory = tempfile::tempdir().unwrap();
 +        let original = Arc::new(InMemory::new());
@@ -8607,12 +8807,16 @@ index 7804b55818c3b0ed2f14de5cc9f632098e0eb25e..fa2d26da5670c78224a3e33f98f747b2
      Ok(Box::into_raw(Box::new(handle)))
  }
 diff --git a/src/session.rs b/src/session.rs
-index 60a16234557eaeb93e8eaad971a9eba73a562a83..3fd5b1739cd0ae2581cda1f46a240dd8af8e8af2 100644
+index 60a16234557eaeb93e8eaad971a9eba73a562a83..987793c84f4d37a6ab4acddc4a8ff99a3e3ad163 100644
 --- a/src/session.rs
 +++ b/src/session.rs
-@@ -5,15 +5,20 @@
+@@ -3,17 +3,23 @@
 
- use std::sync::Arc;
+ //! Shared Lance session C API.
+
+-use std::sync::Arc;
++use std::collections::HashMap;
++use std::sync::{Arc, Mutex, Weak};
 
 -use lance::session::Session;
 +use crate::session_cache::SharedSessionCache;
@@ -8626,14 +8830,15 @@ index 60a16234557eaeb93e8eaad971a9eba73a562a83..3fd5b1739cd0ae2581cda1f46a240dd8
 -/// Opaque handle for sharing Lance metadata and index caches across datasets.
 +/// Opaque handle for shared Lance caches across datasets.
  pub struct LanceSession {
-     pub(crate) inner: Arc<Session>,
+-    pub(crate) inner: Arc<Session>,
++    sessions: Mutex<HashMap<String, Weak<Session>>>,
 +    pub(crate) data_cache_factory: Option<Arc<dyn DataCacheFactory>>,
 +    index_cache_backend: Arc<SharedSessionCache>,
 +    metadata_cache_backend: Arc<SharedSessionCache>,
  }
 
  /// Snapshot of a session's metadata and index cache statistics.
-@@ -47,17 +52,30 @@ pub extern "C" fn lance_session_new(
+@@ -47,17 +53,25 @@ pub extern "C" fn lance_session_new(
  fn session_new_inner(
      index_cache_size_bytes: u64,
      metadata_cache_size_bytes: u64,
@@ -8652,22 +8857,20 @@ index 60a16234557eaeb93e8eaad971a9eba73a562a83..3fd5b1739cd0ae2581cda1f46a240dd8
 -    let session = Session::new(
 -        index_cache_size_bytes,
 -        metadata_cache_size_bytes,
+-        Default::default(),
+-    );
 +    let index_cache_backend = SharedSessionCache::new(index_cache_size_bytes);
 +    let metadata_cache_backend = SharedSessionCache::new(metadata_cache_size_bytes);
-+    let session = Session::with_cache_backends(
-+        CacheSpec::Backend(index_cache_backend.namespaced("")),
-+        CacheSpec::Backend(metadata_cache_backend.namespaced("")),
-         Default::default(),
-     );
      Ok(Box::into_raw(Box::new(LanceSession {
-         inner: Arc::new(session),
+-        inner: Arc::new(session),
++        sessions: Mutex::new(HashMap::new()),
 +        data_cache_factory,
 +        index_cache_backend,
 +        metadata_cache_backend,
      })))
  }
 
-@@ -97,8 +115,8 @@ unsafe fn session_get_cache_stats_inner(
+@@ -97,8 +111,8 @@ unsafe fn session_get_cache_stats_inner(
      }
      let session = unsafe { &*session };
      let (index, metadata) = block_on(async {
@@ -8678,7 +8881,7 @@ index 60a16234557eaeb93e8eaad971a9eba73a562a83..3fd5b1739cd0ae2581cda1f46a240dd8
          (index, metadata)
      });
      unsafe {
-@@ -126,3 +144,41 @@ fn u64_to_usize(value: u64, field: &'static str) -> Result<usize> {
+@@ -126,3 +140,73 @@ fn u64_to_usize(value: u64, field: &'static str) -> Result<usize> {
          )
      })
  }
@@ -8713,19 +8916,51 @@ index 60a16234557eaeb93e8eaad971a9eba73a562a83..3fd5b1739cd0ae2581cda1f46a240dd8
 +        // Lance scopes these caches by URI alone. The same s3://bucket/table
 +        // on two endpoints must also isolate manifests, deletions and indices,
 +        // before a data-cache wrapper is attached after dataset loading.
-+        Arc::new(Session::with_cache_backends(
++        // Lance's live-store reuse key omits provider environment values.
++        // Keep registries within the same identity as all cache tiers, while
++        // retaining reuse for live datasets that address the same origin.
++        let mut sessions = self
++            .sessions
++            .lock()
++            .unwrap_or_else(|error| error.into_inner());
++        if let Some(session) = sessions.get(identity).and_then(Weak::upgrade) {
++            return session;
++        }
++        sessions.retain(|_, session| session.strong_count() > 0);
++        let session = Arc::new(Session::with_cache_backends(
 +            CacheSpec::Backend(self.index_cache_backend.namespaced(identity)),
 +            CacheSpec::Backend(self.metadata_cache_backend.namespaced(identity)),
-+            self.inner.store_registry(),
-+        ))
++            Default::default(),
++        ));
++        sessions.insert(identity.to_owned(), Arc::downgrade(&session));
++        session
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn cache_sessions_isolate_live_registries_by_storage_identity() {
++        let handle = session_new_inner(1024, 1024).unwrap();
++        let session = unsafe { &*handle };
++        let a = session.for_storage("environment-origin-a");
++        let a_again = session.for_storage("environment-origin-a");
++        let b = session.for_storage("environment-origin-b");
++        assert!(Arc::ptr_eq(&a.store_registry(), &a_again.store_registry()));
++        assert!(!Arc::ptr_eq(&a.store_registry(), &b.store_registry()));
++        unsafe { lance_session_close(handle) };
++        // Open datasets retain their session state after the C handle closes.
++        assert!(Arc::ptr_eq(&a.store_registry(), &a_again.store_registry()));
 +    }
 +}
 diff --git a/src/session_cache.rs b/src/session_cache.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..b7cb1c7e3b0a784732147fa68a67e607f5f1e52e
+index 0000000000000000000000000000000000000000..98fc3b6f5be1bea5eb6ac8bd0d439142485dbbe0
 --- /dev/null
 +++ b/src/session_cache.rs
-@@ -0,0 +1,217 @@
+@@ -0,0 +1,263 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -8733,6 +8968,7 @@ index 0000000000000000000000000000000000000000..b7cb1c7e3b0a784732147fa68a67e607
 +
 +use std::collections::{BTreeMap, HashMap};
 +use std::pin::Pin;
++use std::str::FromStr;
 +use std::sync::{
 +    Arc,
 +    atomic::{AtomicU64, Ordering},
@@ -8746,6 +8982,9 @@ index 0000000000000000000000000000000000000000..b7cb1c7e3b0a784732147fa68a67e607
 +    InternalCacheKey, KeyBuilder, QuickCacheBackend,
 +};
 +use lance_core::deepsize::Context;
++use object_store::aws::AmazonS3ConfigKey;
++use object_store::azure::AzureConfigKey;
++use object_store::gcp::GoogleConfigKey;
 +
 +// Include every explicit storage option, plus provider environment options.
 +// Upstream S3 prefixes and dataset URIs omit the endpoint. Reuse Lance's
@@ -8760,11 +8999,30 @@ index 0000000000000000000000000000000000000000..b7cb1c7e3b0a784732147fa68a67e607
 +    let environment: BTreeMap<_, _> = environment
 +        .into_iter()
 +        .filter(|(key, _)| {
-+            [
-+                "AWS_", "AZURE_", "GOOGLE_", "GCS_", "OSS_", "ALIYUN_", "HUAWEI_",
-+            ]
-+            .iter()
-+            .any(|prefix| key.starts_with(prefix))
++            // Match the same parsers Lance uses in with_env_s3/azure/gcs,
++            // including unprefixed aliases such as ENDPOINT_URL. The OpenDAL
++            // providers additionally consume the explicit prefix families below.
++            let lowercase = key.to_ascii_lowercase();
++            AmazonS3ConfigKey::from_str(&lowercase).is_ok()
++                || AzureConfigKey::from_str(&lowercase).is_ok()
++                || GoogleConfigKey::from_str(&lowercase).is_ok()
++                || [
++                    "AWS_",
++                    "AZURE_",
++                    "GOOGLE_",
++                    "GCS_",
++                    "OSS_",
++                    "ALIYUN_",
++                    "HUAWEI_",
++                    "COS_",
++                    "TENCENTCLOUD_",
++                    "TOS_",
++                    "VOLCENGINE_",
++                    "ALIBABA_CLOUD_",
++                    "GOOSEFS_",
++                ]
++                .iter()
++                .any(|prefix| key.starts_with(prefix))
 +        })
 +        .collect();
 +    let mut builder = KeyBuilder::new(
@@ -8921,6 +9179,29 @@ index 0000000000000000000000000000000000000000..b7cb1c7e3b0a784732147fa68a67e607
 +mod tests {
 +    use super::*;
 +
++    #[test]
++    fn cache_identity_tracks_provider_environment_aliases() {
++        for key in [
++            "COS_ENDPOINT",
++            "TENCENTCLOUD_ENDPOINT",
++            "TOS_ENDPOINT",
++            "VOLCENGINE_ENDPOINT",
++            "ALIBABA_CLOUD_ENDPOINT",
++            "GOOSEFS_MASTER_ADDR",
++            "GOOSEFS_ROOT",
++            "ENDPOINT",
++            "ENDPOINT_URL",
++            "endpoint_url",
++            "AZURE_STORAGE_ACCOUNT_NAME",
++            "GOOGLE_SERVICE_ACCOUNT_PATH",
++        ] {
++            let identity = |value: &str| {
++                storage_identity(&HashMap::new(), [(key.to_owned(), value.to_owned())])
++            };
++            assert_ne!(identity("origin-a"), identity("origin-b"), "{key}");
++        }
++    }
++
 +    #[tokio::test]
 +    async fn identities_share_one_capacity_but_never_entries() {
 +        let shared = SharedSessionCache::new(1024 * 1024);
@@ -8956,7 +9237,7 @@ index 1971510de4a13ee6f04fc39c159b088e78e21d55..ba51c87a8cebb6897c48fb55509f71da
          // SAFETY: `out_dataset` is non-NULL (checked above) and the caller
          // guarantees it points to caller-owned, writable storage of size
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
-index e1592c1f1ac126dc67b5509faad459d5171cde97..029a959e0d4bdbcda910f91fd8e3a58b4a9b2aa4 100644
+index e1592c1f1ac126dc67b5509faad459d5171cde97..95ef4da4158c3fe0b9c7ac07b6c74e5670a77fc8 100644
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
 @@ -100,10 +100,83 @@ fn create_large_dataset(num_rows: i32) -> (tempfile::TempDir, String) {
@@ -9043,7 +9324,7 @@ index e1592c1f1ac126dc67b5509faad459d5171cde97..029a959e0d4bdbcda910f91fd8e3a58b
  #[derive(Default)]
  struct CapturedScanStatistics {
      calls: usize,
-@@ -417,6 +490,227 @@ fn test_shared_session_open_and_cache_stats() {
+@@ -417,6 +490,259 @@ fn test_shared_session_open_and_cache_stats() {
      unsafe { lance_dataset_close(second) };
  }
 
@@ -9054,6 +9335,9 @@ index e1592c1f1ac126dc67b5509faad459d5171cde97..029a959e0d4bdbcda910f91fd8e3a58b
 +    use std::path::PathBuf;
 +    use std::sync::atomic::AtomicBool;
 +    use std::time::Duration;
++
++    const ENV_CHILD: &str = "LANCE_SHARED_SESSION_ENV_ENDPOINT_CHILD";
++    let environment_endpoint = std::env::var_os(ENV_CHILD).is_some();
 +
 +    struct FileServer {
 +        endpoint: String,
@@ -9164,10 +9448,9 @@ index e1592c1f1ac126dc67b5509faad459d5171cde97..029a959e0d4bdbcda910f91fd8e3a58b
 +            (None, lance_session_new(8 * 1024 * 1024, 16 * 1024 * 1024))
 +        };
 +        assert!(!session.is_null());
++        let mut handles = Vec::new();
 +        for (server, expected_rows) in [(&first, 5), (&second, 9), (&first, 5), (&second, 9)] {
-+            let options = [
-+                "endpoint",
-+                &server.endpoint,
++            let mut options = vec![
 +                "region",
 +                "us-east-1",
 +                "access_key_id",
@@ -9179,6 +9462,14 @@ index e1592c1f1ac126dc67b5509faad459d5171cde97..029a959e0d4bdbcda910f91fd8e3a58b
 +                "virtual_hosted_style_request",
 +                "false",
 +            ];
++            if environment_endpoint {
++                // This child executes only this test. All dataset operations
++                // finish before changing the endpoint; idle file-server workers
++                // only serve fixed files and never inspect the environment.
++                unsafe { std::env::set_var("AWS_ENDPOINT_URL", &server.endpoint) };
++            } else {
++                options.extend(["endpoint", &server.endpoint]);
++            }
 +            let strings: Vec<_> = options.iter().map(|s| c_str(s)).collect();
 +            let pointers: Vec<_> = strings
 +                .iter()
@@ -9215,9 +9506,31 @@ index e1592c1f1ac126dc67b5509faad459d5171cde97..029a959e0d4bdbcda910f91fd8e3a58b
 +                "data cache={data_cache}, endpoint={}",
 +                server.endpoint
 +            );
-+            unsafe { lance_dataset_close(ds) };
++            // Keep old stores alive so registry reuse is exercised across origins.
++            handles.push(ds);
++        }
++        for handle in handles {
++            unsafe { lance_dataset_close(handle) };
 +        }
 +        unsafe { lance_session_close(session) };
++    }
++    if !environment_endpoint {
++        let child = Command::new(std::env::current_exe().unwrap())
++            .args([
++                "--exact",
++                "test_shared_session_isolates_s3_endpoints_before_loading_metadata",
++                "--nocapture",
++            ])
++            .env(ENV_CHILD, "1")
++            .env_remove("AWS_ENDPOINT_URL_S3")
++            .output()
++            .unwrap();
++        assert!(
++            child.status.success(),
++            "environment endpoint child failed:\n{}\n{}",
++            String::from_utf8_lossy(&child.stdout),
++            String::from_utf8_lossy(&child.stderr)
++        );
 +    }
 +}
 +
@@ -9271,7 +9584,7 @@ index e1592c1f1ac126dc67b5509faad459d5171cde97..029a959e0d4bdbcda910f91fd8e3a58b
  #[test]
  fn test_shared_session_rejects_null_inputs() {
      let (_tmp, uri) = create_test_dataset();
-@@ -445,6 +739,120 @@ fn test_shared_session_rejects_null_inputs() {
+@@ -445,6 +771,120 @@ fn test_shared_session_rejects_null_inputs() {
      }
  }
 
@@ -9392,7 +9705,7 @@ index e1592c1f1ac126dc67b5509faad459d5171cde97..029a959e0d4bdbcda910f91fd8e3a58b
  #[test]
  fn test_open_nonexistent() {
      let c_uri = c_str("memory://nonexistent_dataset_xyz");
-@@ -3318,6 +3726,40 @@ fn test_dataset_restore_to_prior_version() {
+@@ -3318,6 +3758,40 @@ fn test_dataset_restore_to_prior_version() {
      unsafe { lance_dataset_close(ds) };
  }
 
