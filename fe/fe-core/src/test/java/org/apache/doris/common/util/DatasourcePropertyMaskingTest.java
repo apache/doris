@@ -283,6 +283,35 @@ class DatasourcePropertyMaskingTest {
     }
 
     @Test
+    void nativeFilesystemLocationsRemainVisible() {
+        NeedAuditEncryption audit = () -> true;
+        for (String uri : List.of("gs://example_bucket/warehouse", "gs://example_bucket.example.com/warehouse",
+                "hdfs:///data.csv", "hdfs:/data.csv", "viewfs:///warehouse")) {
+            assertRendered("uri", uri, uri);
+            for (String prefix : List.of("create catalog example properties (",
+                    "alter catalog example set properties (")) {
+                Assertions.assertTrue(audit.geneEncryptionSQL(prefix + "'uri' = '" + uri + "')").contains(uri));
+            }
+        }
+        assertRendered("uri", "gs://fixture:fixture-password@example_bucket/warehouse?token=fixture-token&mode=ro",
+                "gs://example_bucket/warehouse?token=" + MASK + "&mode=ro");
+        assertRendered("fs.defaultFS", "viewfs:///warehouse?token=fixture-token&mode=ro#fixture-fragment",
+                "viewfs:///warehouse?token=" + MASK + "&mode=ro");
+        assertRendered("warehouse", "hdfs:/data.csv?token=fixture-token", "hdfs:/data.csv?token=" + MASK);
+    }
+
+    @Test
+    void nativeFilesystemExceptionsRetainCredentialBoundaries() {
+        for (String uri : List.of("gs://example_bucket:9000/warehouse", "gs://example%5Fbucket/warehouse",
+                "gs://example_bucket/warehouse?X-Goog-Signature=fixture-signature", "gs:relative",
+                "hdfs:relative", "viewfs:relative", "s3://example_bucket/warehouse", "s3:///warehouse",
+                "https:///warehouse", "hdfs:///data.csv?sig=fixture-signature", "viewfs:///path;password=fixture")) {
+            assertRendered("uri", uri, MASK);
+        }
+        assertRendered("custom.password", "gs://example_bucket/warehouse", MASK);
+    }
+
+    @Test
     void longHostListsDoNotRequireRecursiveRegexMatching() {
         String hosts = "host.example.com:9000,".repeat(5000) + "host.example.com:9000";
         Assertions.assertEquals(hosts, DatasourcePrintableMap.redactProperty("hosts", hosts));

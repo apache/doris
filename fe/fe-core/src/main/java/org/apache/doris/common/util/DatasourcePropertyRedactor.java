@@ -47,7 +47,7 @@ final class DatasourcePropertyRedactor {
             + "obs\\.(?:access\\.key|secret\\.key|(?:session|security)\\.token))$");
     private static final Pattern ADDRESS_KEY = Pattern.compile(
             "(?i)(?:^|[._-])(?:uris?|urls?|hosts?|endpoints?|addresses|address)$");
-    private static final Pattern URL_VALUE = Pattern.compile("(?i)^(?:[a-z][a-z0-9+.-]*://|file:/)");
+    private static final Pattern URL_VALUE = Pattern.compile("(?i)^(?:[a-z][a-z0-9+.-]*://|(?:file|hdfs|viewfs):/)");
     private static final Pattern DRIVER_URL_KEY = Pattern.compile("(?i)(?:^|[._-])driver[._-]url$");
     private static final Pattern AMBIGUOUS_LOCAL_PATH = Pattern.compile("[\\p{Cntrl}?#@;]|://");
     private static final Pattern RESOLVED_FILE_LOCATION = Pattern.compile(
@@ -61,6 +61,7 @@ final class DatasourcePropertyRedactor {
     private static final Set<String> AZURE_STORAGE_SCHEMES = Set.of("abfs", "abfss", "wasb", "wasbs");
     // Match AzureUri's container grammar, including its single-character compatibility form.
     private static final Pattern AZURE_CONTAINER_NAME = Pattern.compile("[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?");
+    private static final Pattern GCS_BUCKET_NAME = Pattern.compile("[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]");
     private static final Pattern QUERY_NAME = Pattern.compile("[a-zA-Z0-9_.~-]+");
     private static final Pattern QUERY_CREDENTIAL = Pattern.compile(
             "(?i)password|passwd|pwd|secret|token|credential|access[._-]?key|api[._-]?key|"
@@ -158,9 +159,21 @@ final class DatasourcePropertyRedactor {
                     || uri.isOpaque() || uri.getPort() > 65535) {
                 return MASK;
             }
-            // A local file URI has an absolute path and no authority; its query still needs credential masking.
-            if (localFile) {
-                if (uri.getRawAuthority() != null || !uri.getRawPath().startsWith("/")) {
+            String authority = uri.getRawAuthority();
+            if (localFile && authority != null) {
+                return MASK;
+            }
+            if (authority == null) {
+                // HDFS and ViewFS can resolve an absolute path through configured nameservices/default mounts.
+                if (!(localFile || "hdfs".equals(scheme) || "viewfs".equals(scheme))
+                        || !uri.getRawPath().startsWith("/")) {
+                    return MASK;
+                }
+                authority = "";
+            } else if ("gs".equals(scheme)) {
+                // GCS bucket authorities allow underscores, which java.net.URI does not treat as DNS hosts.
+                authority = authority.substring(authority.lastIndexOf('@') + 1);
+                if (!isGcsBucket(authority)) {
                     return MASK;
                 }
             } else if (uri.getHost() == null) {
@@ -178,18 +191,17 @@ final class DatasourcePropertyRedactor {
             if (MASK.equals(query)) {
                 return MASK;
             }
-            String authority = localFile ? "" : uri.getRawAuthority();
             if (AZURE_STORAGE_SCHEMES.contains(scheme)) {
                 // ABFS/WASB place the container in userinfo; validation prevents retaining password-bearing authority.
                 String container = uri.getRawUserInfo();
                 if (container == null || !AZURE_CONTAINER_NAME.matcher(container).matches()) {
                     return MASK;
                 }
-            } else if (!localFile) {
+            } else {
                 authority = authority.substring(authority.lastIndexOf('@') + 1);
             }
             String prefix = uri.getScheme() + ":";
-            if (!localFile || uri.getRawSchemeSpecificPart().startsWith("//")) {
+            if (!authority.isEmpty() || uri.getRawSchemeSpecificPart().startsWith("//")) {
                 prefix += "//";
             }
             return prefix + authority + (resolvedPath == null ? uri.getRawPath() : resolvedPath)
@@ -198,6 +210,18 @@ final class DatasourcePropertyRedactor {
             // Parser errors may themselves contain credentials. Never echo the value or exception to a log.
             return MASK;
         }
+    }
+
+    private static boolean isGcsBucket(String authority) {
+        if (!GCS_BUCKET_NAME.matcher(authority).matches()) {
+            return false;
+        }
+        for (String component : authority.split("\\.", -1)) {
+            if (component.length() > 63) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isPlainHosts(String address) {

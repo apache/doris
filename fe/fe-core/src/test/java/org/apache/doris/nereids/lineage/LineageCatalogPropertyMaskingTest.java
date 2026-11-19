@@ -28,6 +28,17 @@ import java.util.Map;
 
 class LineageCatalogPropertyMaskingTest {
     @Test
+    void catalogMetadataPreservesNativeFilesystemLocations() throws Exception {
+        Map<String, String> raw = Map.of("gs.uri", "gs://example_bucket/warehouse",
+                "hdfs.uri", "hdfs:///data.csv", "fs.defaultFS", "viewfs:///warehouse");
+        CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getProperties()).thenReturn(raw);
+        Method sanitize = LineageUtils.class.getDeclaredMethod("sanitizeCatalogProperties", CatalogIf.class);
+        sanitize.setAccessible(true);
+        Assertions.assertEquals(raw, sanitize.invoke(null, catalog));
+    }
+
+    @Test
     void catalogMetadataPreservesSupportedLocalAndViewfsLocations() throws Exception {
         Map<String, String> raw = Map.of("driver_url", "/opt/example/libdriver.so",
                 "uri", "file:/data/example/catalog.db", "fs.defaultFS", "viewfs://my-cluster");

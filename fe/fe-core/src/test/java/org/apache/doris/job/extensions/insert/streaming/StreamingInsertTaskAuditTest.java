@@ -310,6 +310,17 @@ public class StreamingInsertTaskAuditTest {
     }
 
     @Test
+    public void testCanceledRunReleasesPreparedAuditSnapshots() throws Exception {
+        StreamingInsertTask task = new StreamingInsertTask(1L, 2L, S3_SQL, new S3SourceOffsetProvider(),
+                "test_db", null, Collections.emptyMap(), UserIdentity.ROOT, null);
+        Deencapsulation.setField(task, "auditTvfProperties", Map.of("uri", RESOLVED_URI));
+        Deencapsulation.setField(task, "auditFileUris", List.of(batchFiles().get(0).getPath()));
+        task.getIsCanceled().set(true);
+        task.run();
+        assertAuditSnapshotsReleased(task);
+    }
+
+    @Test
     public void testSingleFileRemainsVisibleInFinalAudit() throws Exception {
         AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
                 List.of(batchFiles().get(0)), () -> { });
@@ -414,6 +425,12 @@ public class StreamingInsertTaskAuditTest {
         Assertions.assertFalse(stmt.contains(ORIGIN_URI), stmt);
     }
 
+    private static void assertAuditSnapshotsReleased(StreamingInsertTask task) {
+        // Task history outlives the attempt and must not retain its temporary audit batch.
+        Assertions.assertNull(Deencapsulation.getField(task, "auditTvfProperties"));
+        Assertions.assertNull(Deencapsulation.getField(task, "auditFileUris"));
+    }
+
     private static List<TBrokerFileStatus> batchFiles() {
         return List.of(new TBrokerFileStatus("s3://bucket/input/1.csv", false, 10, true),
                 new TBrokerFileStatus("s3://bucket/input/2.csv", false, 20, true));
@@ -488,6 +505,7 @@ public class StreamingInsertTaskAuditTest {
             } else {
                 Assertions.assertThrows(JobException.class, task::run);
             }
+            assertAuditSnapshotsReleased(task);
 
             if (!expectAudit) {
                 Mockito.verify(statusMgr, Mockito.never())

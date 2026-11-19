@@ -158,6 +158,16 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
     @Override
     public void run() throws JobException {
+        try {
+            runAttempt();
+        } finally {
+            // Task history outlives execution; release on the worker after synchronous audit, including early cancel.
+            auditTvfProperties = null;
+            auditFileUris = null;
+        }
+    }
+
+    private void runAttempt() throws JobException {
         if (getIsCanceled().get()) {
             log.info("task has been canceled, task id is {}", getTaskId());
             return;
