@@ -32,14 +32,12 @@ import io.grpc.ClientCall;
 import io.grpc.ClientInterceptor;
 import io.grpc.ClientInterceptors;
 import io.grpc.ConnectivityState;
-import io.grpc.Deadline;
 import io.grpc.ForwardingClientCall;
 import io.grpc.ForwardingClientCallListener;
 import io.grpc.ManagedChannel;
 import io.grpc.Metadata;
 import io.grpc.MethodDescriptor;
 import io.grpc.NameResolverRegistry;
-import io.grpc.Status;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -330,12 +328,9 @@ public class MetaServiceClient {
                 .getTxnId(request);
     }
 
-    public Cloud.ScanTxnLabelResponse scanTxnLabel(Cloud.ScanTxnLabelRequest request, Deadline deadline) {
-        if (deadline.isExpired()) {
-            throw Status.CANCELLED.withDescription("Transaction label scan deadline expired").asRuntimeException();
-        }
-        Deadline rpcDeadline = Deadline.after(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS);
-        return blockingStub.withDeadline(deadline.minimum(rpcDeadline)).scanTxnLabel(request);
+    public Cloud.ScanTxnLabelResponse scanTxnLabel(Cloud.ScanTxnLabelRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .scanTxnLabel(request);
     }
 
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request) {

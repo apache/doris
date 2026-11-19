@@ -2804,7 +2804,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new AnalysisException("cloud_show_txn_label_match_max_rows and "
                     + "cloud_show_txn_label_scan_page_size must be positive");
         }
-        int remaining = Config.cloud_show_txn_label_match_max_scan_txns;
+        long remaining = Config.cloud_show_txn_label_match_max_scan_keys;
         ScanTxnLabelRequest.Builder request = ScanTxnLabelRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setDbId(dbId)
@@ -2813,36 +2813,34 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached());
         PriorityQueue<TransactionState> states = new PriorityQueue<>(TransactionState.TXN_ID_COMPARATOR.reversed());
         while (true) {
-            if (remaining <= 0 || deadline.isExpired()) {
+            checkTxnLabelScanDeadline(context, deadline, timeoutMs);
+            if (remaining <= 0) {
                 throw txnLabelScanBudgetExceeded();
-            }
-            if (context != null && context.isKilled()) {
-                throw new AnalysisException("Transaction label scan was cancelled");
             }
             ScanTxnLabelResponse response;
             try {
-                response = MetaServiceProxy.getInstance().scanTxnLabel(request.build(), deadline);
+                response = MetaServiceProxy.getInstance().scanTxnLabel(request.build());
             } catch (RpcException e) {
-                if (deadline.isExpired()) {
-                    throw txnLabelScanBudgetExceeded();
-                }
+                checkTxnLabelScanDeadline(context, deadline, timeoutMs);
                 if (Status.fromThrowable(e).getCode() == Status.Code.UNIMPLEMENTED) {
                     throw new AnalysisException(
                             "Please upgrade MetaService to use SHOW TRANSACTION WHERE LABEL LIKE", e);
                 }
                 throw new AnalysisException("Failed to scan transaction labels: " + e.getMessage(), e);
             }
-            if (deadline.isExpired() || response.getTxnInfosCount() > remaining) {
-                throw txnLabelScanBudgetExceeded();
-            }
+            checkTxnLabelScanDeadline(context, deadline, timeoutMs);
             if (response.getStatus().getCode() != MetaServiceCode.OK) {
                 throw new AnalysisException("Failed to scan transaction labels: " + response.getStatus().getMsg());
             }
-            remaining -= response.getTxnInfosCount();
+            if (response.hasNextKey() && response.getNextKey().equals(request.getStartKey())) {
+                throw new AnalysisException("MetaService returned an unchanged transaction label scan cursor");
+            }
+            long scannedKeys = response.hasScannedKeys() ? response.getScannedKeys() : response.getTxnInfosCount();
+            if (scannedKeys > remaining) {
+                throw txnLabelScanBudgetExceeded();
+            }
+            remaining -= scannedKeys;
             for (TxnInfoPB info : response.getTxnInfosList()) {
-                if (deadline.isExpired()) {
-                    throw txnLabelScanBudgetExceeded();
-                }
                 if ((states.size() < maxRows || info.getTxnId() > states.element().getTransactionId())
                         && pattern.matcher(info.getLabel()).matches()) {
                     if (states.size() == maxRows) {
@@ -2851,10 +2849,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     states.add(TxnUtil.transactionStateFromPb(info));
                 }
             }
-            if (deadline.isExpired()) {
-                throw txnLabelScanBudgetExceeded();
-            }
             if (!response.hasNextKey()) {
+                checkTxnLabelScanDeadline(context, deadline, timeoutMs);
                 break;
             }
             request.setStartKey(response.getNextKey());
@@ -2866,9 +2862,20 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private static AnalysisException txnLabelScanBudgetExceeded() {
-        return new AnalysisException("The pattern scanned too many transactions within the scan budget. "
-                + "Use a longer literal prefix before the first '%' "
-                + "(cloud_show_txn_label_match_max_scan_txns, cloud_show_txn_label_match_timeout_ms).");
+        return new AnalysisException("SHOW TRANSACTION label scan exceeded the key limit "
+                + "(cloud_show_txn_label_match_max_scan_keys); use a longer literal prefix before the first '%'.");
+    }
+
+    private static void checkTxnLabelScanDeadline(ConnectContext context, Deadline deadline, long timeoutMs)
+            throws AnalysisException {
+        if (context != null && context.isKilled()) {
+            throw new AnalysisException("Transaction label scan was cancelled");
+        }
+        if (deadline.isExpired()) {
+            throw new AnalysisException("SHOW TRANSACTION label scan exceeded " + timeoutMs
+                    + " ms; use a longer literal prefix before the first '%' "
+                    + "(cloud_show_txn_label_match_timeout_ms).");
+        }
     }
 
     private static String getTxnLabelPrefix(String regex) {

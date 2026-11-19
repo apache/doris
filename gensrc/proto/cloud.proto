@@ -1204,6 +1204,7 @@ message ScanTxnLabelResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated TxnInfoPB txn_infos = 2;
     optional bytes next_key = 3;
+    optional int64 scanned_keys = 4; // Label keys read plus txn info keys attempted.
 }
 
 message BeginSubTxnRequest {

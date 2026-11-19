@@ -173,7 +173,7 @@ public class CloudGlobalTransactionMgrTest {
                     Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).build();
             ByteString firstCursor = ByteString.copyFromUtf8("first");
             ByteString secondCursor = ByteString.copyFromUtf8("second");
-            Mockito.when(proxy.scanTxnLabel(Mockito.any(), Mockito.any())).thenReturn(
+            Mockito.when(proxy.scanTxnLabel(Mockito.any())).thenReturn(
                     ScanTxnLabelResponse.newBuilder().setStatus(ok).setNextKey(firstCursor).build(),
                     ScanTxnLabelResponse.newBuilder().setStatus(ok)
                             .addTxnInfos(scanTxnInfo(10, "load-oldest-done"))
@@ -190,7 +190,7 @@ public class CloudGlobalTransactionMgrTest {
             Assertions.assertEquals(List.of("15", "load-old-done"), rows.get(1).subList(0, 2));
 
             ArgumentCaptor<ScanTxnLabelRequest> captor = ArgumentCaptor.forClass(ScanTxnLabelRequest.class);
-            Mockito.verify(proxy, Mockito.times(3)).scanTxnLabel(captor.capture(), Mockito.any());
+            Mockito.verify(proxy, Mockito.times(3)).scanTxnLabel(captor.capture());
             List<ScanTxnLabelRequest> requests = captor.getAllValues();
             ScanTxnLabelRequest first = requests.get(0);
             Assertions.assertEquals(42, first.getDbId());
@@ -214,21 +214,21 @@ public class CloudGlobalTransactionMgrTest {
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            Mockito.when(proxy.scanTxnLabel(Mockito.any(), Mockito.any())).thenReturn(ScanTxnLabelResponse.newBuilder()
+            Mockito.when(proxy.scanTxnLabel(Mockito.any())).thenReturn(ScanTxnLabelResponse.newBuilder()
                     .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
                     .build());
 
             Assertions.assertTrue(masterTransMgr.getDbTransInfoByLabelMatch(42, regex).isEmpty());
             ArgumentCaptor<ScanTxnLabelRequest> captor = ArgumentCaptor.forClass(ScanTxnLabelRequest.class);
-            Mockito.verify(proxy).scanTxnLabel(captor.capture(), Mockito.any());
+            Mockito.verify(proxy).scanTxnLabel(captor.capture());
             Assertions.assertEquals(prefix, captor.getValue().getLabelPrefix());
         }
     }
 
     @Test
     public void testShowTxnLabelMatchFailsOnScanBudget() throws Exception {
-        int previousMaxScan = Config.cloud_show_txn_label_match_max_scan_txns;
-        Config.cloud_show_txn_label_match_max_scan_txns = 2;
+        int previousMaxScan = Config.cloud_show_txn_label_match_max_scan_keys;
+        Config.cloud_show_txn_label_match_max_scan_keys = 2;
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
@@ -238,24 +238,39 @@ public class CloudGlobalTransactionMgrTest {
                     .addTxnInfos(scanTxnInfo(1, "nonmatch"))
                     .addTxnInfos(scanTxnInfo(2, "load-done"))
                     .build();
-            Mockito.when(proxy.scanTxnLabel(Mockito.any(), Mockito.any())).thenReturn(
+            Mockito.when(proxy.scanTxnLabel(Mockito.any())).thenReturn(
                     ScanTxnLabelResponse.newBuilder().setStatus(ok)
-                            .setNextKey(ByteString.copyFromUtf8("first")).build(),
+                            .setNextKey(ByteString.copyFromUtf8("first")).setScannedKeys(1).build(),
                     ScanTxnLabelResponse.newBuilder().setStatus(ok)
-                            .setNextKey(ByteString.copyFromUtf8("second")).build(),
-                    lastPage.toBuilder().setNextKey(ByteString.copyFromUtf8("unfinished")).build(),
+                            .setNextKey(ByteString.copyFromUtf8("second")).setScannedKeys(1).build(),
                     lastPage);
             AnalysisException error = Assertions.assertThrows(AnalysisException.class,
                     () -> masterTransMgr.getDbTransInfoByLabelMatch(42, ".*done"));
-            Assertions.assertTrue(error.getMessage().contains("scanned too many transactions"));
-            Assertions.assertTrue(error.getMessage().contains("cloud_show_txn_label_match_max_scan_txns"));
-            Assertions.assertTrue(error.getMessage().contains("cloud_show_txn_label_match_timeout_ms"));
-            Mockito.verify(proxy, Mockito.times(3)).scanTxnLabel(Mockito.any(), Mockito.any());
+            Assertions.assertTrue(error.getMessage().contains("cloud_show_txn_label_match_max_scan_keys"));
+            Mockito.verify(proxy, Mockito.times(2)).scanTxnLabel(Mockito.any());
 
-            // The same count is allowed when the final page completes the scan.
+            // Without scanned_keys the final page charges its two returned infos.
             Assertions.assertEquals(1, masterTransMgr.getDbTransInfoByLabelMatch(42, ".*done").size());
         } finally {
-            Config.cloud_show_txn_label_match_max_scan_txns = previousMaxScan;
+            Config.cloud_show_txn_label_match_max_scan_keys = previousMaxScan;
+        }
+    }
+
+    @Test
+    public void testShowTxnLabelMatchRejectsUnchangedCursor() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            ScanTxnLabelResponse page = ScanTxnLabelResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                    .setNextKey(ByteString.copyFromUtf8("cursor"))
+                    .setScannedKeys(1)
+                    .build();
+            Mockito.when(proxy.scanTxnLabel(Mockito.any())).thenReturn(page);
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> masterTransMgr.getDbTransInfoByLabelMatch(42, "load.*"));
+            Assertions.assertTrue(error.getMessage().contains("unchanged transaction label scan cursor"));
+            Mockito.verify(proxy, Mockito.times(2)).scanTxnLabel(Mockito.any());
         }
     }
 
@@ -266,7 +281,8 @@ public class CloudGlobalTransactionMgrTest {
         try {
             AnalysisException error = Assertions.assertThrows(AnalysisException.class,
                     () -> masterTransMgr.getDbTransInfoByLabelMatch(42, ".*done"));
-            Assertions.assertTrue(error.getMessage().contains("longer literal prefix"));
+            Assertions.assertTrue(error.getMessage().contains(
+                    "SHOW TRANSACTION label scan exceeded 0 ms; use a longer literal prefix"));
             Assertions.assertTrue(error.getMessage().contains("cloud_show_txn_label_match_timeout_ms"));
         } finally {
             Config.cloud_show_txn_label_match_timeout_ms = previousTimeout;
@@ -278,7 +294,7 @@ public class CloudGlobalTransactionMgrTest {
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
-            Mockito.when(proxy.scanTxnLabel(Mockito.any(), Mockito.any()))
+            Mockito.when(proxy.scanTxnLabel(Mockito.any()))
                     .thenThrow(new RpcException("", "method not found", Status.UNIMPLEMENTED.asRuntimeException()));
 
             AnalysisException error = Assertions.assertThrows(AnalysisException.class,

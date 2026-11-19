@@ -4950,6 +4950,8 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     put_info(db_id, "load-b", 13, TXN_STATUS_VISIBLE);
     put_label(db_id, "other", {14});
     put_info(db_id, "other", 14, TXN_STATUS_VISIBLE);
+    put_label(db_id, "missing-a", {99, 100});
+    put_label(db_id, "missing-b", {});
     put_label(db_id, escaped_prefix, {15});
     put_info(db_id, escaped_prefix, 15, TXN_STATUS_VISIBLE);
     put_label(db_id, escaped_prefix + "x", {16});
@@ -4989,6 +4991,7 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     auto response = scan();
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(txn_ids(response), (std::vector<int64_t> {10, 12, 13}));
+    EXPECT_EQ(response.scanned_keys(), 6); // Two labels and four attempted txn info reads.
     EXPECT_EQ(response.txn_infos(0).status(), TXN_STATUS_ABORTED);
     EXPECT_FALSE(response.has_next_key());
 
@@ -5006,7 +5009,7 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
     EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {10, 12}));
     ASSERT_TRUE(response.has_next_key());
-    EXPECT_EQ(response.next_key(), txn_label_key({mock_instance, db_id, "load-a"}) + '\0');
+    EXPECT_EQ(response.next_key(), txn_label_key({mock_instance, db_id, "load-a"}) + '\x01');
     request.set_start_key(response.next_key());
     response = scan();
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
@@ -5055,16 +5058,14 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     };
     request.set_db_id(adjacent_db_id);
     request.set_label_prefix("retry-");
-    config::scan_txn_label_max_duration_ms = 0;
-    response = scan();
-    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
-    EXPECT_TRUE(response.txn_infos().empty());
-    ASSERT_TRUE(response.has_next_key());
-    request.set_start_key(response.next_key());
-
-    config::scan_txn_label_max_duration_ms = original_duration;
     auto* sync_point = SyncPoint::get_instance();
     std::vector<size_t> batch_sizes;
+    int batches_until_timeout = 0;
+    sync_point->set_call_back("scan_txn_label:batch_get_result", [&](auto&& args) {
+        if (batches_until_timeout > 0 && --batches_until_timeout == 0) {
+            *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TIMEOUT;
+        }
+    });
     sync_point->set_call_back("scan_txn_label:after_batch_get", [&](auto&& args) {
         batch_sizes.push_back(try_any_cast<size_t>(args[0]));
         if (batch_sizes.size() == 1) {
@@ -5074,6 +5075,7 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     });
     sync_point->enable_processing();
     DORIS_CLOUD_DEFER {
+        sync_point->clear_call_back("scan_txn_label:batch_get_result");
         sync_point->clear_call_back("scan_txn_label:after_batch_get");
         sync_point->disable_processing();
     };
@@ -5087,18 +5089,38 @@ TEST(MetaServiceTest, ScanTxnLabel) {
         ASSERT_EQ(response.has_next_key(), expected_rows != 8);
         if (response.has_next_key()) {
             request.set_start_key(response.next_key());
-            // Expiring before the next batch must preserve the within-label position.
-            config::scan_txn_label_max_duration_ms = 0;
-            auto expired = scan();
-            config::scan_txn_label_max_duration_ms = original_duration;
-            ASSERT_EQ(expired.status().code(), MetaServiceCode::OK);
-            EXPECT_TRUE(expired.txn_infos().empty());
-            ASSERT_TRUE(expired.has_next_key());
-            EXPECT_EQ(expired.next_key(), request.start_key());
         }
     }
     EXPECT_EQ(paged_ids, retry_ids);
     EXPECT_EQ(batch_sizes, (std::vector<size_t> {128, 128, 2, 8}));
+
+    // Even an already expired duration permits one batch from a within-label cursor.
+    request.set_start_key(txn_label_key({mock_instance, adjacent_db_id, "retry-a"}) + '\0' + "101");
+    config::scan_txn_label_max_duration_ms = 0;
+    response = scan();
+    config::scan_txn_label_max_duration_ms = original_duration;
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(response.has_next_key());
+    EXPECT_GT(response.next_key(), request.start_key());
+    EXPECT_EQ(txn_ids(response),
+              (std::vector<int64_t>(retry_ids.begin() + 1, retry_ids.begin() + 129)));
+
+    batches_until_timeout = 1;
+    EXPECT_EQ(scan().status().code(), cast_as<ErrCategory::READ>(TxnErrorCode::TXN_TIMEOUT));
+    batches_until_timeout = 2;
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response),
+              (std::vector<int64_t>(retry_ids.begin() + 1, retry_ids.begin() + 129)));
+    EXPECT_EQ(response.scanned_keys(),
+              132); // Two labels, 128 successful and two failed info reads.
+    ASSERT_TRUE(response.has_next_key());
+    EXPECT_GT(response.next_key(), request.start_key());
+    request.set_start_key(response.next_key());
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response),
+              (std::vector<int64_t>(retry_ids.begin() + 129, retry_ids.begin() + 259)));
 
     request.set_db_id(db_id);
     request.set_limit(10);
@@ -5112,12 +5134,26 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     response = scan();
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
     EXPECT_TRUE(response.txn_infos().empty()); // The first label has only a versionstamp.
+    EXPECT_EQ(response.scanned_keys(), 1);
     ASSERT_TRUE(response.has_next_key());
     request.set_start_key(response.next_key());
     response = scan();
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
     EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {15}));
     EXPECT_TRUE(response.has_next_key());
+
+    // No txn infos remain for these attempts, so both cursor transitions must advance on their own.
+    request.set_label_prefix("missing-");
+    request.set_start_key(txn_label_key({mock_instance, db_id, "missing-a"}) + '\0' + "99");
+    for (int i = 0; i < 2; ++i) {
+        response = scan();
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        EXPECT_TRUE(response.txn_infos().empty());
+        EXPECT_EQ(response.scanned_keys(), 2);
+        ASSERT_TRUE(response.has_next_key());
+        EXPECT_GT(response.next_key(), request.start_key());
+        request.set_start_key(response.next_key());
+    }
 }
 
 TEST(MetaServiceTest, GetTxnTest) {

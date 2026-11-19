@@ -3301,9 +3301,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int cloud_show_txn_label_scan_page_size = 1000;
 
-    /** Maximum number of transaction infos examined by a single cloud label match statement. */
+    /** Maximum label keys read plus transaction info keys attempted per cloud label match statement. */
     @ConfField(mutable = true)
-    public static int cloud_show_txn_label_match_max_scan_txns = 100000;
+    public static int cloud_show_txn_label_match_max_scan_keys = 100000;
 
     /** Timeout in milliseconds for a cloud label match statement, also bounded by the session query timeout. */
     @ConfField(mutable = true)
