@@ -253,6 +253,48 @@ suite("test_spm_replay_semantics", "spm") {
     }
     sql "SET enable_strict_cast = false"
 
+    def verifyConcreteCast = { String tag, String query ->
+        withBaseline(query) { long id ->
+            quickTest(tag + "_frozen",
+                    "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}", false)
+            boolean hit = explainHit(query, id)
+            quickTest(tag + "_hit", "SELECT ${hit}", false)
+            quickTest(tag + "_permissive", query, true)
+            try {
+                sql "SET enable_strict_cast = true"
+                test {
+                    sql query
+                    exception "abc can't cast"
+                }
+            } finally {
+                sql "SET enable_strict_cast = false"
+            }
+        }
+    }
+    verifyConcreteCast("generator_cast", "SELECT k, lv.x AS x FROM spm_replay_semantics_u" +
+            " LATERAL VIEW explode(array(CAST('abc' AS INT))) lv AS x")
+    verifyConcreteCast("implicit_cast", "SELECT * REPLACE('abc' + 1 AS k) FROM spm_replay_semantics_u")
+    verifyConcreteCast("implicit_mixed_cast", "SELECT * REPLACE(k + 'abc' AS k) FROM spm_replay_semantics_u")
+
+    String doubleResult = "SELECT a + b AS result FROM" +
+            " (SELECT * REPLACE(CAST(9007199254740992 AS DOUBLE) AS b) FROM spm_replay_sink_order) p"
+    withBaseline(doubleResult) { long id ->
+        order_qt_double_result doubleResult
+        boolean hit = explainHit(doubleResult, id)
+        qt_double_result_hit "SELECT ${hit}"
+        qt_double_result_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+    }
+
+    String typedScalars = "SELECT * REPLACE(CAST(NULL AS BIGINT) AS a, CAST(1 AS BIGINT) AS b," +
+            " CAST(1.25 AS FLOAT) AS k) FROM (SELECT a, b, a AS k FROM spm_replay_sink_order) p"
+    withBaseline(typedScalars) { long id ->
+        def (rows, meta) = JdbcUtils.executeToList(context.getConnection(), typedScalars)
+        boolean hit = explainHit(typedScalars, id)
+        qt_typed_scalars """SELECT ${rows[0][0] == null}, ${rows[0][1]}, ${rows[0][2]},
+            '${meta.getColumnTypeName(1)}', '${meta.getColumnTypeName(2)}', '${meta.getColumnTypeName(3)}', ${hit}"""
+        qt_typed_scalars_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+    }
+
     String previousMode = sql("SELECT @@sql_mode")[0][0].toString()
     String permissiveGroup = "SELECT k, v, count(*) AS n FROM spm_replay_semantics_t WHERE k > 0 GROUP BY k"
     try {

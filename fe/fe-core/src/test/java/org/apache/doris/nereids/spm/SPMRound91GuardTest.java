@@ -116,6 +116,15 @@ public class SPMRound91GuardTest {
         }
     }
 
+    @Test
+    public void testConcreteSessionCastCheckLeavesPlaceholderConversionsFreezable() {
+        LogicalPlan query = parse("SELECT CAST('abc' AS DOUBLE)");
+        Assertions.assertTrue(SPMPlanTreeSupport.containsConcreteSessionCast(query));
+        LogicalPlan parameterized = SPMPlanTreeSupport.transform(query, new TestSPMPlaceholderBuilder());
+        Assertions.assertFalse(SPMPlanTreeSupport.containsConcreteSessionCast(parameterized));
+        Assertions.assertFalse(SPMPlanTreeSupport.containsConcreteSessionCast(parse("SELECT CAST(1 AS BIGINT)")));
+    }
+
     /** Every {@code SpmConstVar} marker the parameterization produced for one query. */
     private static List<SpmConstVar> markers(String sql) {
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();

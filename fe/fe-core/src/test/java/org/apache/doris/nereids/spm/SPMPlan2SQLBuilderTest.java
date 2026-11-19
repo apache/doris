@@ -24,6 +24,8 @@ import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -61,7 +63,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -118,8 +123,10 @@ import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * M1 milestone test: SPMPlan2SQLBuilder (physical plan decompiler).
@@ -191,9 +198,8 @@ public class SPMPlan2SQLBuilderTest {
         SQLRelation relation = new SQLRelation();
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         relation.registerRef(a.getExprId(), "c_5");
-        // a > 100 -> (c_5 > 100)
         Expression pred = new GreaterThan(a, new IntegerLiteral(100));
-        Assertions.assertEquals("(c_5 > 100)", new SPMExprSqlBuilder().print(pred, relation));
+        Assertions.assertEquals("(c_5 > CAST(100 AS INT))", new SPMExprSqlBuilder().print(pred, relation));
     }
 
     @Test
@@ -225,7 +231,7 @@ public class SPMPlan2SQLBuilderTest {
 
         String sql = new SPMPlan2SQLBuilder().toSQL(project);
         // expected: SELECT a, b FROM (SELECT * FROM t1 WHERE (a > 100)) t_N
-        Assertions.assertTrue(sql.contains("SELECT a, b FROM (SELECT * FROM t1 WHERE (a > 100))"));
+        Assertions.assertTrue(sql.contains("SELECT a, b FROM (SELECT * FROM t1 WHERE (a > CAST(100 AS INT)))"));
     }
 
     @Test
@@ -537,7 +543,7 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(join);
         Assertions.assertTrue(sql.contains("NOT IN (SELECT"),
                 "residual conjunct forces the NOT IN subquery rewrite: " + sql);
-        Assertions.assertTrue(sql.contains("b > 1"),
+        Assertions.assertTrue(sql.contains("b > CAST(1 AS INT)"),
                 "the OTHER conjunct must be carried INTO the subquery filter - finding the"
                         + " key in the hash conjuncts used to skip the whole other loop and"
                         + " silently drop it (with both keys 2 the original anti join keeps"
@@ -1746,7 +1752,7 @@ public class SPMPlan2SQLBuilderTest {
 
         String sql = new SPMPlan2SQLBuilder().toSQL(union);
         Assertions.assertTrue(sql.contains("UNION ALL"), sql);
-        Assertions.assertTrue(sql.contains("1 AS k1"),
+        Assertions.assertTrue(sql.contains("CAST(1 AS INT) AS k1"),
                 "the constant one-row branch must survive the freeze: " + sql);
         Assertions.assertTrue(sql.contains("x AS k1"),
                 "the regular branch is projected under the set output names: " + sql);
@@ -1765,7 +1771,7 @@ public class SPMPlan2SQLBuilderTest {
         stubAccept(union);
 
         String sql = new SPMPlan2SQLBuilder().toSQL(union);
-        Assertions.assertTrue(sql.contains("SELECT 1 AS k1"),
+        Assertions.assertTrue(sql.contains("SELECT CAST(1 AS INT) AS k1"),
                 "a constant-only UNION must not render an empty body: " + sql);
         Assertions.assertFalse(sql.contains("UNION ALL"),
                 "there is no regular branch to join: " + sql);
@@ -2156,7 +2162,7 @@ public class SPMPlan2SQLBuilderTest {
         stubAccept(oneRow);
 
         String sql = new SPMPlan2SQLBuilder().toSQL(oneRow);
-        Assertions.assertTrue(sql.contains("1 AS a"),
+        Assertions.assertTrue(sql.contains("CAST(1 AS INT) AS a"),
                 "SELECT 1 AS a must freeze with its result-header alias: " + sql);
     }
 
@@ -2170,7 +2176,7 @@ public class SPMPlan2SQLBuilderTest {
         stubAccept(oneRow);
 
         String sql = new SPMPlan2SQLBuilder().toSQL(oneRow);
-        Assertions.assertFalse(sql.contains(" AS "),
+        Assertions.assertEquals("SELECT CAST(1 AS INT)", sql,
                 "a name-from-child alias is not identifier-safe and must not be emitted: " + sql);
     }
 
@@ -2638,7 +2644,7 @@ public class SPMPlan2SQLBuilderTest {
 
         String sql = new SPMPlan2SQLBuilder().toSQL(generate);
         Assertions.assertTrue(sql.contains(
-                        "(SELECT * FROM t1 WHERE (k > 0) LIMIT 1) t_0 LATERAL VIEW"),
+                        "(SELECT * FROM t1 WHERE (k > CAST(0 AS INT)) LIMIT 1) t_0 LATERAL VIEW"),
                 "the child's WHERE + LIMIT must stay inside the lateral-view input: " + sql);
         Assertions.assertTrue(sql.indexOf("WHERE") < sql.indexOf("LATERAL VIEW"),
                 "no child clause may be rendered after the lateral view: " + sql);
@@ -2707,9 +2713,9 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(generate);
         Assertions.assertEquals(2, countOccurrences(sql, "LATERAL VIEW"),
                 "a merged multi-generator node must render one LATERAL VIEW per generator: " + sql);
-        Assertions.assertTrue(sql.contains("LATERAL VIEW explode(1) g1 AS x"),
+        Assertions.assertTrue(sql.contains("LATERAL VIEW explode(CAST(1 AS INT)) g1 AS x"),
                 "the first generator keeps its own alias and column name: " + sql);
-        Assertions.assertTrue(sql.contains("LATERAL VIEW explode(2) g2 AS y"),
+        Assertions.assertTrue(sql.contains("LATERAL VIEW explode(CAST(2 AS INT)) g2 AS y"),
                 "the second generator keeps its own alias and column name: " + sql);
     }
 
@@ -2757,7 +2763,22 @@ public class SPMPlan2SQLBuilderTest {
         Expression left = new IsNull(k);
         Expression right = new InPredicate(k, List.of(new IntegerLiteral(1), new IntegerLiteral(2)));
         String sql = new EqualTo(left, right).accept(new SPMExprSqlBuilder(), new SQLRelation());
-        Assertions.assertEquals("((k IS NULL) = (k IN (1, 2)))", sql);
+        Assertions.assertEquals("((k IS NULL) = (k IN (CAST(1 AS INT), CAST(2 AS INT))))", sql);
+    }
+
+    @Test
+    public void testConcreteScalarsKeepTheirTypes() {
+        SPMExprSqlBuilder builder = new SPMExprSqlBuilder();
+        SQLRelation relation = new SQLRelation();
+        Assertions.assertEquals("CAST('-0.0' AS FLOAT)", builder.print(new FloatLiteral(-0.0f), relation));
+        Assertions.assertEquals("CAST('9.007199254740992E15' AS DOUBLE)",
+                builder.print(new DoubleLiteral(9007199254740992.0), relation));
+        Assertions.assertEquals("CAST(NULL AS BIGINT)", builder.print(new NullLiteral(BigIntType.INSTANCE), relation));
+        Assertions.assertEquals("CAST(-128 AS INT)", builder.print(new IntegerLiteral(-128), relation));
+        Assertions.assertEquals("CAST(1 AS BIGINT)", builder.print(new BigIntLiteral(1), relation));
+        Assertions.assertEquals("2147483648", builder.print(new BigIntLiteral(2147483648L), relation));
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> builder.print(new DoubleLiteral(Double.NEGATIVE_INFINITY), relation));
     }
 
     @Test
@@ -3208,14 +3229,15 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(union);
         Assertions.assertTrue(sql.contains(" AS c_1_"),
                 "the colliding positional alias must be made unique: " + sql);
-        java.util.regex.Matcher names = java.util.regex.Pattern
-                .compile(" AS ([A-Za-z_][A-Za-z0-9_]*)").matcher(sql);
-        java.util.List<String> emitted = new java.util.ArrayList<>();
-        while (names.find()) {
-            String name = names.group(1).toLowerCase(java.util.Locale.ROOT);
-            Assertions.assertFalse(emitted.contains(name),
-                    "every set output name must be unique, saw " + name + " twice: " + sql);
-            emitted.add(name);
-        }
+        LogicalPlan parsed = (LogicalPlan) new NereidsParser().parseSingle(sql);
+        List<UnboundOneRowRelation> operands = parsed.collectToList(UnboundOneRowRelation.class::isInstance);
+        Assertions.assertEquals(1, operands.size(), sql);
+        List<String> emitted = operands.get(0).getProjects().stream()
+                .map(project -> project instanceof UnboundAlias
+                        ? ((UnboundAlias) project).getAlias().orElseThrow() : project.getName())
+                .map(name -> name.toLowerCase(Locale.ROOT))
+                .toList();
+        Assertions.assertEquals(3, emitted.size(), sql);
+        Assertions.assertEquals(3, Set.copyOf(emitted).size(), "every set output name must be unique: " + sql);
     }
 }
