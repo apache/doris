@@ -44,6 +44,12 @@ suite("test_deltalake_cast_pruning", "p0,external") {
     for (boolean batch : [false, true]) {
         sql "set enable_external_table_batch_mode=${batch}"
         String label = "filesystem_${batch ? 'stream' : 'sync'}"
+        // Native file planning can leave partition functions and casts for the BE to evaluate.
+        [abs: "abs(part) = 1", cast_string: "cast(part as string) = '1'"].each { name, predicate ->
+            quickTest("${label}_partition_${name}",
+                    "select number from numbers('number'='6') where number in (1, 3, 5) order by number",
+                    "select id from ${catalog}.delta_m1.dv where ${predicate} order by id limit 3")
+        }
         "order_qt_${label}_cast"(
                 "select ${column}, cast(${column} as bigint) from type_widening where ${castMatch}")
         // Only the second file matches. A table-level count or a first-file-only fallback would be wrong.

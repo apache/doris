@@ -60,7 +60,7 @@ suite("test_deltalake_basic", "p0,external") {
             "select * from ${catalog}.delta_m1.partition_types order by id")
     explain {
         sql("select * from ${catalog}.delta_m1.basic where part='a'")
-        contains("partition=1/3")
+        contains("partition=unknown (native planning)")
     }
     sql "set file_split_size=128"
     "order_qt_filesystem_byte_ranges"("""select id,b,i8,i16,i32,i64,f,d,dec,str,hex(bin),dt,ts,arr,m,nested

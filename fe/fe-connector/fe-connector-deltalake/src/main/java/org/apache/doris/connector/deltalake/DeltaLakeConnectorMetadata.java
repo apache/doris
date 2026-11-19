@@ -179,22 +179,24 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public boolean supportsNativePartitionPlanning(ConnectorSession session, ConnectorTableHandle handle) {
-        return runtime.execute(() -> {
-            Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime);
-            StructType schema = snapshot.getSchema();
-            return snapshot.getPartitionColumnNames().stream()
-                    .map(name -> schema.get(name).getDataType())
-                    .anyMatch(type -> type instanceof FloatType || type instanceof DoubleType);
-        });
+        // Each AddFile carries its partition values, so ordinary scans can filter while enumerating files.
+        return runtime.execute(() -> !((DeltaLakeTableHandle) handle).snapshot(runtime)
+                .getPartitionColumnNames().isEmpty());
     }
 
     @Override
     public Optional<ConnectorMvccPartitionView> getMvccPartitionView(
             ConnectorSession session, ConnectorTableHandle handle) {
-        // Eager consumers still need the real partition names. Doris LIST pruning distinguishes
-        // signed zeros and can narrow DOUBLE keys to FLOAT, excluding matching Delta files.
-        return supportsNativePartitionPlanning(session, handle)
-                ? Optional.of(ConnectorMvccPartitionView.unpartitioned()) : Optional.empty();
+        return runtime.execute(() -> {
+            Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime);
+            StructType schema = snapshot.getSchema();
+            // FE LIST keys distinguish signed zeros and can narrow DOUBLE to FLOAT. Other types
+            // can expose their normal LIST view to consumers such as partitioned materialized views.
+            boolean hasFloatingPartition = snapshot.getPartitionColumnNames().stream()
+                    .map(name -> schema.get(name).getDataType())
+                    .anyMatch(type -> type instanceof FloatType || type instanceof DoubleType);
+            return hasFloatingPartition ? Optional.of(ConnectorMvccPartitionView.unpartitioned()) : Optional.empty();
+        });
     }
 
     @Override

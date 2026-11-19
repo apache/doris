@@ -47,6 +47,7 @@ import io.delta.kernel.types.BooleanType;
 import io.delta.kernel.types.DateType;
 import io.delta.kernel.types.DoubleType;
 import io.delta.kernel.types.FloatType;
+import io.delta.kernel.types.IntegerType;
 import io.delta.kernel.types.LongType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructType;
@@ -251,15 +252,15 @@ class DeltaLakeScanPlanProviderTest {
     }
 
     @Test
-    void usesKernelForFloatingPointPartitionKeysOnly() throws Exception {
-        StructType schema = new StructType().add("id", LongType.LONG).add("f", FloatType.FLOAT)
+    void nativeFilePlanningPreservesNonFloatingPartitionViews() throws Exception {
+        StructType schema = new StructType().add("id", IntegerType.INTEGER).add("f", FloatType.FLOAT)
                 .add("d", DoubleType.DOUBLE);
         Path db = warehouse.resolve("db");
         DeltaLakeTestTables.commit(db.resolve("native_float"), 0, "f", schema, List.of("id", "f"));
         DeltaLakeTestTables.commit(db.resolve("native_double"), 0, "a", schema, List.of("id", "d"));
         DeltaLakeTestTables.commit(db.resolve("floating_payload"), 0, "b", schema, List.of("id"));
         DeltaLakeTestTables.commit(db.resolve("unpartitioned"), 0, "c", schema, List.of());
-        TestingConnectorSession session = new TestingConnectorSession("floating-partitions");
+        TestingConnectorSession session = new TestingConnectorSession("native-partitions");
         try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
             for (String table : List.of("native_float", "native_double")) {
                 ConnectorTableHandle handle = metadata.getTableHandle(session, "db", table).orElseThrow();
@@ -267,11 +268,13 @@ class DeltaLakeScanPlanProviderTest {
                 Assertions.assertEquals(ConnectorMvccPartitionView.Style.UNPARTITIONED,
                         metadata.getMvccPartitionView(session, handle).orElseThrow().getStyle());
             }
-            for (String table : List.of("floating_payload", "unpartitioned")) {
-                ConnectorTableHandle other = metadata.getTableHandle(session, "db", table).orElseThrow();
-                Assertions.assertFalse(metadata.supportsNativePartitionPlanning(session, other));
-                Assertions.assertTrue(metadata.getMvccPartitionView(session, other).isEmpty());
-            }
+            ConnectorTableHandle integral = metadata.getTableHandle(session, "db", "floating_payload").orElseThrow();
+            Assertions.assertTrue(metadata.supportsNativePartitionPlanning(session, integral));
+            Assertions.assertTrue(metadata.getMvccPartitionView(session, integral).isEmpty());
+
+            ConnectorTableHandle flat = metadata.getTableHandle(session, "db", "unpartitioned").orElseThrow();
+            Assertions.assertFalse(metadata.supportsNativePartitionPlanning(session, flat));
+            Assertions.assertTrue(metadata.getMvccPartitionView(session, flat).isEmpty());
         }
     }
 
