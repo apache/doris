@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_variant_values_index_add_drop", "p0,nonConcurrent") {
     sql "SET enable_add_index_for_new_data=true"
     sql "SET enable_sql_cache=false"
@@ -29,7 +31,7 @@ suite("test_variant_values_index_add_drop", "p0,nonConcurrent") {
     }
     def rowsets = {
         sql_return_maparray("SHOW TABLETS FROM vvi_add_drop").collectMany { tablet ->
-            def (code, out, err) = curl("GET", tablet.MetaUrl + "?byte_to_base64=true")
+            def (code, out, err) = curl("GET", tablet.MetaUrl + "?byte_to_base64=true&include_cloud_rowsets=true")
             assertEquals(0, code, err)
             parseJson(out).rs_metas
         }
@@ -51,7 +53,9 @@ suite("test_variant_values_index_add_drop", "p0,nonConcurrent") {
                 (1,parse_to_variant('{"s":"hello old","keyonly":"quiet"}')),
                 (2,parse_to_variant('{"n":42}')),(3,NULL),(4,parse_to_variant('{}'))"""
             sql """INSERT INTO vvi_add_drop VALUES(5,parse_to_variant('[]')),(6,parse_to_variant('null'))"""
-            def historical = rowsets().collect { it.rowset_id_v2 }.sort()
+            def originalRowsets = rowsets()
+            assertTrue(originalRowsets.any { it.num_rows > 0 })
+            def historical = originalRowsets.collect { it.rowset_id_v2 }.sort()
             assertTrue(historical.every { it != null })
             def jobsBeforeAdd = sql("SHOW BUILD INDEX WHERE TableName='vvi_add_drop'").collect { it[0] }.sort()
             if (doc) {
@@ -76,6 +80,19 @@ suite("test_variant_values_index_add_drop", "p0,nonConcurrent") {
             }
             sql "SET enable_match_without_inverted_index=true"
             quickTest("${tag}_historical", "SELECT id FROM vvi_add_drop WHERE v MATCH_ANY 'hello 42 keyonly' ORDER BY id", true)
+            if (model == "DUPLICATE" && !doc) {
+                sql "SET enable_profile=true"
+                sql "SET profile_level=2"
+                try {
+                    String marker = "values_index_historical_" + UUID.randomUUID().toString()
+                    assertEquals([[1]], sql("""SELECT /* ${marker} */ id
+                        FROM vvi_add_drop PARTITION(p_old) WHERE v MATCH_ANY 'hello' ORDER BY id"""))
+                    new ProfileAction(context).getProfileBySql(marker,
+                            ["[VariantValuesIndex] phase=query_index reason=missing_index format=SNII"])
+                } finally {
+                    sql "SET enable_profile=false"
+                }
+            }
             sql """INSERT INTO vvi_add_drop VALUES
                 (101,parse_to_variant('{"s":"hello new","nested":["world",42]}')),
                 (102,NULL),(103,parse_to_variant('{}')),(104,parse_to_variant('[]'))"""

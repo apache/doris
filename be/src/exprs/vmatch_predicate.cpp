@@ -45,8 +45,10 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/segment/segment.h"
 
 namespace doris {
 class RowDescriptor;
@@ -172,10 +174,34 @@ void VMatchPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 
 Status VMatchPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_EQ(get_num_children(), 2);
-    if (context != nullptr && context->get_index_context() != nullptr && _analyzer_ctx != nullptr) {
-        context->get_index_context()->set_analyzer_ctx_for_expr(this, _analyzer_ctx);
+    auto index_context = context != nullptr ? context->get_index_context() : nullptr;
+    if (index_context != nullptr && _analyzer_ctx != nullptr) {
+        index_context->set_analyzer_ctx_for_expr(this, _analyzer_ctx);
     }
-    return _evaluate_inverted_index(context, _function, segment_num_rows);
+    auto status = _evaluate_inverted_index(context, _function, segment_num_rows);
+
+    const auto& input = get_child(0);
+    if (index_context != nullptr && input->is_slot_ref() && input->result_type() == TYPE_VARIANT) {
+        const auto column_id = assert_cast<const VSlotRef*>(input.get())->column_id();
+        const auto& query_context = index_context->get_index_query_context();
+        const auto* segment = index_context->segment();
+        if (query_context != nullptr && query_context->stats != nullptr && segment != nullptr &&
+            (index_context->get_inverted_index_iterator(column_id) == nullptr ||
+             status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>())) {
+            const auto format = segment->tablet_schema()->get_inverted_index_storage_format();
+            auto diagnostic = fmt::format(
+                    "[VariantValuesIndex] phase=query_index reason={} format={} rowset_id={} "
+                    "segment_id={} column={}",
+                    format == InvertedIndexStorageFormatPB::SNII ? "missing_index"
+                                                                 : "legacy_storage_format",
+                    InvertedIndexStorageFormatPB_Name(format), segment->rowset_id().to_string(),
+                    segment->id(), input->expr_name());
+            VLOG_DEBUG << diagnostic;
+            query_context->stats->inverted_index_stats.add_binding_diagnostic(
+                    std::move(diagnostic));
+        }
+    }
+    return status;
 }
 
 const std::string& VMatchPredicate::get_analyzer_key() const {

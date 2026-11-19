@@ -23,11 +23,13 @@ suite("test_variant_values_index_add_drop_compaction", "p0,nonConcurrent") {
     sql "SET enable_inverted_index_query_cache=false"
     sql "SET default_variant_enable_doc_mode=false"
     sql "SET default_variant_enable_nested_group=false"
+    boolean cloud = isCloudMode()
     def rowsets = {
         sql_return_maparray("SHOW TABLETS FROM vvi_add_drop_compaction").collectMany { tablet ->
-            def (code, out, err) = curl("GET", tablet.MetaUrl + "?byte_to_base64=true")
+            def (code, out, err) = curl("GET", tablet.MetaUrl + "?byte_to_base64=true&include_cloud_rowsets=true")
             assertEquals(0, code, err)
-            parseJson(out).rs_metas
+            // Cloud full compaction deliberately keeps the initial [0-1] rowset.
+            parseJson(out).rs_metas.findAll { !cloud || (it.start_version ?: 0) != 0 }
         }
     }
     def waitColumn = {

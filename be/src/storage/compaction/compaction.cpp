@@ -1833,6 +1833,11 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
             if (eligible) {
                 ctx.snii_indexes_to_do_compaction.emplace(col_unique_id,
                                                           destination_index->index_id());
+                if (destination_index->is_variant_values_index()) {
+                    VLOG_DEBUG << "tablet[" << _tablet->tablet_id() << "] VARIANT values index["
+                               << destination_index->index_id()
+                               << "] planned for SNII postings compaction";
+                }
             } else {
                 LOG(INFO) << "tablet[" << _tablet->tablet_id() << "] index["
                           << destination_index->index_id()
