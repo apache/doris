@@ -69,9 +69,15 @@ public:
         return Status::OK();
     }
 
-    Status refresh_conjuncts(VExprContextSPtrs conjuncts) override {
+    Status refresh_conjuncts(VExprContextSPtrs conjuncts,
+                             std::optional<uint64_t> condition_cache_digest = std::nullopt,
+                             bool all_runtime_filters_applied = false,
+                             std::shared_ptr<const format::PredicateSnapshot> predicate_snapshot =
+                                     nullptr) override {
         ++refresh_calls;
-        return format::TableReader::refresh_conjuncts(std::move(conjuncts));
+        return format::TableReader::refresh_conjuncts(std::move(conjuncts), condition_cache_digest,
+                                                      all_runtime_filters_applied,
+                                                      std::move(predicate_snapshot));
     }
 
     Status close() override {
@@ -902,7 +908,10 @@ TEST(FlussUnionLakeReaderTest, ForwardsLateConjunctsToTheLakeReader) {
     ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
     auto* lake = install_lake_reader(&reader);
 
-    ASSERT_TRUE(reader.refresh_conjuncts({}).ok());
+    const auto snapshot = reader._predicate_snapshot;
+    ASSERT_NE(snapshot, nullptr);
+    ASSERT_TRUE(reader.refresh_conjuncts({}, std::nullopt, false, snapshot).ok());
+    EXPECT_EQ(lake->_predicate_snapshot, snapshot);
     EXPECT_EQ(lake->refresh_calls, 1);
 }
 

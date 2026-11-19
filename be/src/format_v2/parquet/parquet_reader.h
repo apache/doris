@@ -50,10 +50,15 @@ public:
                   bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                   std::optional<std::string> hive_parquet_time_zone = std::nullopt,
                   bool preserve_binary_uuid = false, ParquetProfileCache* profile_cache = nullptr,
-                  std::optional<TFileEncryptionInfo> encryption_info = std::nullopt);
+                  std::optional<TFileEncryptionInfo> encryption_info = std::nullopt,
+                  std::shared_ptr<const FileContext> file_context = nullptr,
+                  int64_t format_split_id = -1, int64_t format_split_id_end = -1);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
+
+    Status build_physical_splits(std::vector<PhysicalFileSplit>* splits,
+                                 bool* was_split) const override;
 
     void set_batch_size(size_t batch_size) override;
 
@@ -66,6 +71,7 @@ public:
     Status open(std::shared_ptr<format::FileScanRequest> request) override;
 
     bool supports_scan_request_refresh() const override { return true; }
+    bool uses_predicate_snapshot_digest() const override { return true; }
 
     Status queue_scan_request(std::shared_ptr<format::FileScanRequest> request) override;
 
@@ -73,6 +79,8 @@ public:
 
     Status get_aggregate_result(const format::FileAggregateRequest& request,
                                 format::FileAggregateResult* result) override;
+    Status get_metadata_aggregate_result(const format::FileAggregateRequest& request,
+                                         format::FileAggregateResult* result) override;
 
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
 
@@ -105,6 +113,9 @@ private:
     // nullopt preserves legacy session conversion; an engaged empty value explicitly disables it.
     std::optional<std::string> _hive_parquet_time_zone;
     std::optional<TFileEncryptionInfo> _encryption_info;
+    std::shared_ptr<const FileContext> _file_context;
+    int64_t _format_split_id = -1;
+    int64_t _format_split_id_end = -1;
 };
 
 } // namespace doris::format::parquet

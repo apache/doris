@@ -256,9 +256,11 @@ org.apache.doris.connector.spi.scan.ConnectorScanRange#isNativeReadRange():boole
 org.apache.doris.connector.spi.scan.ConnectorScanRange#isPartitionBearing():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRange#isSingleUse():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRange#populateRangeParams(org.apache.doris.thrift.TTableFormatFileDesc,org.apache.doris.thrift.TFileRangeDesc):void
+org.apache.doris.connector.spi.scan.ConnectorScanRange#supportsBeSplitRefinement():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#allBackendsSupport(java.lang.String):boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#builder(org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getBackendCapabilities():java.util.Set
+org.apache.doris.connector.spi.scan.ConnectorScanRequest#getCoarseSplitSize():long
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getColumns():java.util.List
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getFilter():java.util.Optional
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getLimit():long
@@ -273,6 +275,7 @@ org.apache.doris.connector.spi.scan.ConnectorScanRequest#withRequiredPartitions(
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#aggregatePushdown(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#backendCapabilities(java.util.Set):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#build():org.apache.doris.connector.spi.scan.ConnectorScanRequest
+org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#coarseSplitSize(long):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#countPushdown(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#explainOnly(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#filter(java.util.Optional):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
