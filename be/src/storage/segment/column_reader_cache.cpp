@@ -121,25 +121,17 @@ std::shared_ptr<ColumnReader> ColumnReaderCache::_insert_direct(
     if (!column_reader->healthy_status().ok()) {
         return column_reader;
     }
-    for (;;) {
-        std::shared_ptr<ColumnReader> existing;
-        {
-            std::unique_lock<std::mutex> lock(_cache_mutex);
-            auto it = _cache_map.find(key);
-            // Concurrent misses publish exactly one node for the same key.
-            if (it == _cache_map.end()) {
-                _insert_locked_nocheck(lock, key, column_reader);
-                return column_reader;
-            }
-            _lru_list.splice(_lru_list.begin(), _lru_list, it->second);
-            existing = it->second->reader;
-        }
-        // Check the concurrent winner outside the cache mutex as well.
-        if (existing->healthy_status().ok()) {
-            return existing;
-        }
-        _erase_if_same(key, existing);
+    std::unique_lock<std::mutex> lock(_cache_mutex);
+    auto it = _cache_map.find(key);
+    // Concurrent misses may insert the same key. Replace its reader in place
+    // so the map and LRU list retain exactly one node for that key.
+    if (it != _cache_map.end()) {
+        it->second->reader = column_reader;
+        _lru_list.splice(_lru_list.begin(), _lru_list, it->second);
+    } else {
+        _insert_locked_nocheck(lock, key, column_reader);
     }
+    return column_reader;
 }
 
 std::map<int32_t, std::shared_ptr<ColumnReader>> ColumnReaderCache::get_available_readers(
