@@ -1,0 +1,256 @@
+diff --git a/src/common.rs b/src/common.rs
+index ca618b19ed2f16d703aa4cbfb22de02e4d7283e0..13d5829bf49509d97af0803bcbff1469a46a42be 100644
+--- a/src/common.rs
++++ b/src/common.rs
+@@ -45,7 +45,7 @@ impl<R: 'static> SpawnedTask<R> {
+     {
+         // Ok to use spawn here as SpawnedTask handles aborting/cancelling the task on Drop
+         #[expect(clippy::disallowed_methods)]
+-        let inner = tokio::task::spawn(trace_future(task));
++        let inner = tokio::task::spawn(crate::task_scope::scope_future(trace_future(task)));
+         Self { inner }
+     }
+ 
+@@ -57,7 +57,7 @@ impl<R: 'static> SpawnedTask<R> {
+     {
+         // Ok to use spawn_blocking here as SpawnedTask handles aborting/cancelling the task on Drop
+         #[expect(clippy::disallowed_methods)]
+-        let inner = tokio::task::spawn_blocking(trace_block(task));
++        let inner = tokio::task::spawn_blocking(crate::task_scope::scope_block(trace_block(task)));
+         Self { inner }
+     }
+ 
+diff --git a/src/join_set.rs b/src/join_set.rs
+index 1857a4111dbcb8041c07a3167087c4e82793bdde..9b58a35116fc8b2f7866db09575a20171376f4e6 100644
+--- a/src/join_set.rs
++++ b/src/join_set.rs
+@@ -63,7 +63,8 @@ impl<T: 'static> JoinSet<T> {
+         F: Send + 'static,
+         T: Send,
+     {
+-        self.inner.spawn(trace_future(task))
++        self.inner
++            .spawn(crate::task_scope::scope_future(trace_future(task)))
+     }
+ 
+     /// [JoinSet::spawn_on](tokio::task::JoinSet::spawn_on) - Spawn a task on a provided runtime.
+@@ -73,7 +74,8 @@ impl<T: 'static> JoinSet<T> {
+         F: Send + 'static,
+         T: Send,
+     {
+-        self.inner.spawn_on(trace_future(task), handle)
++        self.inner
++            .spawn_on(crate::task_scope::scope_future(trace_future(task)), handle)
+     }
+ 
+     /// [JoinSet::spawn_local](tokio::task::JoinSet::spawn_local) - Spawn a local task.
+@@ -82,7 +84,8 @@ impl<T: 'static> JoinSet<T> {
+         F: Future<Output = T>,
+         F: 'static,
+     {
+-        self.inner.spawn_local(task)
++        self.inner
++            .spawn_local(crate::task_scope::scope_future(task))
+     }
+ 
+     /// [JoinSet::spawn_local_on](tokio::task::JoinSet::spawn_local_on) - Spawn a local task on a provided LocalSet.
+@@ -91,7 +94,8 @@ impl<T: 'static> JoinSet<T> {
+         F: Future<Output = T>,
+         F: 'static,
+     {
+-        self.inner.spawn_local_on(task, local_set)
++        self.inner
++            .spawn_local_on(crate::task_scope::scope_future(task), local_set)
+     }
+ 
+     /// [JoinSet::spawn_blocking](tokio::task::JoinSet::spawn_blocking) - Spawn a blocking task.
+@@ -101,7 +105,8 @@ impl<T: 'static> JoinSet<T> {
+         F: Send + 'static,
+         T: Send,
+     {
+-        self.inner.spawn_blocking(trace_block(f))
++        self.inner
++            .spawn_blocking(crate::task_scope::scope_block(trace_block(f)))
+     }
+ 
+     /// [JoinSet::spawn_blocking_on](tokio::task::JoinSet::spawn_blocking_on) - Spawn a blocking task on a provided runtime.
+@@ -111,7 +116,8 @@ impl<T: 'static> JoinSet<T> {
+         F: Send + 'static,
+         T: Send,
+     {
+-        self.inner.spawn_blocking_on(trace_block(f), handle)
++        self.inner
++            .spawn_blocking_on(crate::task_scope::scope_block(trace_block(f)), handle)
+     }
+ 
+     /// [JoinSet::join_next](tokio::task::JoinSet::join_next) - Await the next completed task.
+@@ -135,10 +141,7 @@ impl<T: 'static> JoinSet<T> {
+     }
+ 
+     /// [JoinSet::poll_join_next](tokio::task::JoinSet::poll_join_next) - Poll for the next completed task.
+-    pub fn poll_join_next(
+-        &mut self,
+-        cx: &mut Context<'_>,
+-    ) -> Poll<Option<Result<T, JoinError>>> {
++    pub fn poll_join_next(&mut self, cx: &mut Context<'_>) -> Poll<Option<Result<T, JoinError>>> {
+         self.inner.poll_join_next(cx)
+     }
+ 
+diff --git a/src/lib.rs b/src/lib.rs
+index cf45ccf3ef63a7eab25ee93f79cb30e6b1c5e9b1..2d9c2dc1d91a31f4f89ea7c830b9e591a6adb40c 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -27,7 +27,9 @@
+ 
+ pub mod common;
+ mod join_set;
++mod task_scope;
+ mod trace_utils;
++pub use task_scope::{TaskScope, TaskScopeFactory, set_task_scope_factory};
+ 
+ pub use common::SpawnedTask;
+ pub use join_set::JoinSet;
+diff --git a/src/task_scope.rs b/src/task_scope.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..686f801ac54ef80db6666ac1005a10044a7df507
+--- /dev/null
++++ b/src/task_scope.rs
+@@ -0,0 +1,123 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++// http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++//! Owned host context propagation across DataFusion's task boundaries.
++
++use std::any::Any;
++use std::future::Future;
++use std::pin::Pin;
++use std::sync::{Arc, OnceLock};
++use std::task::{Context, Poll};
++
++/// An owned host context safe to retain while a task is suspended or migrates.
++/// The returned guard may be thread-bound and exists only during a single poll.
++pub trait TaskScope: Send + Sync + 'static {
++    fn enter(&self) -> Box<dyn Any>;
++}
++
++/// Captures the submitting thread's optional owner before dispatch.
++pub type TaskScopeFactory = fn() -> Option<Arc<dyn TaskScope>>;
++static FACTORY: OnceLock<TaskScopeFactory> = OnceLock::new();
++
++/// Install the host context factory before creating DataFusion tasks.
++/// Installation is process-wide; a second independent installer is rejected.
++pub fn set_task_scope_factory(factory: TaskScopeFactory) -> Result<(), TaskScopeFactory> {
++    FACTORY.set(factory)
++}
++
++fn capture() -> Option<Arc<dyn TaskScope>> {
++    FACTORY.get().and_then(|factory| factory())
++}
++
++pub(crate) struct ScopedFuture<F> {
++    future: Pin<Box<F>>,
++    scope: Option<Arc<dyn TaskScope>>,
++}
++
++pub(crate) fn scope_future<F: Future>(future: F) -> ScopedFuture<F> {
++    ScopedFuture {
++        future: Box::pin(future),
++        scope: capture(),
++    }
++}
++
++impl<F: Future> Future for ScopedFuture<F> {
++    type Output = F::Output;
++    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
++        let _guard = self.scope.as_ref().map(|scope| scope.enter());
++        self.future.as_mut().poll(context)
++    }
++}
++
++pub(crate) fn scope_block<F: FnOnce() -> R, R>(function: F) -> impl FnOnce() -> R {
++    let scope = capture();
++    move || {
++        let _guard = scope.as_ref().map(|scope| scope.enter());
++        function()
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::cell::Cell;
++    use std::sync::Once;
++
++    thread_local! { static CURRENT: Cell<usize> = const { Cell::new(0) }; }
++    struct Owner(usize);
++    struct Guard(usize);
++    impl Drop for Guard {
++        fn drop(&mut self) {
++            CURRENT.set(self.0);
++        }
++    }
++    impl TaskScope for Owner {
++        fn enter(&self) -> Box<dyn Any> {
++            Box::new(Guard(CURRENT.replace(self.0)))
++        }
++    }
++    fn factory() -> Option<Arc<dyn TaskScope>> {
++        let owner = CURRENT.get();
++        (owner != 0).then(|| Arc::new(Owner(owner)) as Arc<dyn TaskScope>)
++    }
++
++    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++    async fn spawned_descendants_and_blocking_work_keep_submission_scope() {
++        static INIT: Once = Once::new();
++        INIT.call_once(|| assert!(set_task_scope_factory(factory).is_ok()));
++        CURRENT.set(7);
++        let task = crate::SpawnedTask::spawn(async {
++            tokio::task::yield_now().await;
++            assert_eq!(CURRENT.get(), 7);
++            crate::SpawnedTask::spawn_blocking(|| CURRENT.get())
++                .await
++                .unwrap()
++        });
++        CURRENT.set(0);
++        assert_eq!(task.await.unwrap(), 7);
++        assert_eq!(CURRENT.get(), 0);
++        CURRENT.set(11);
++        let mut tasks = crate::JoinSet::new();
++        tasks.spawn(async {
++            tokio::task::yield_now().await;
++            CURRENT.get()
++        });
++        CURRENT.set(0);
++        assert_eq!(tasks.join_next().await.unwrap().unwrap(), 11);
++        assert_eq!(CURRENT.get(), 0);
++    }
++}
+diff --git a/src/trace_utils.rs b/src/trace_utils.rs
+index f8adbe8825bc1939acc886b68e0f7f699a32bbd6..0779c95ff881abf2050898e2be0e09288a4511a6 100644
+--- a/src/trace_utils.rs
++++ b/src/trace_utils.rs
+@@ -107,9 +107,7 @@ fn get_tracer() -> &'static dyn JoinSetTracer {
+ /// This should be called once at startup. If called more than once, an
+ /// `Err(JoinSetTracerError)` is returned. If not called at all, a no-op tracer that does nothing
+ /// is used.
+-pub fn set_join_set_tracer(
+-    tracer: &'static dyn JoinSetTracer,
+-) -> Result<(), JoinSetTracerError> {
++pub fn set_join_set_tracer(tracer: &'static dyn JoinSetTracer) -> Result<(), JoinSetTracerError> {
+     GLOBAL_TRACER
+         .set(tracer)
+         .map_err(|_set_err| JoinSetTracerError::AlreadySet)

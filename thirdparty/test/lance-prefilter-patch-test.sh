@@ -66,8 +66,13 @@ check_sources() {
         || fail "missing retained Foyer API"
     grep -q 'lance_dataset_get_data_cache_statistics' "${source}/src/data_cache.rs" \
         || fail "missing retained cache statistics API"
-    grep -q 'source = "git+https://github.com/lance-format/lance.git' "${source}/Cargo.lock" \
-        || fail "Lance must come from the upstream git dependency"
+    grep -Fq "lance = { path = \"../${LANCE_NATIVE_SOURCE}/rust/lance\" }" \
+        "${source}/Cargo.toml" || fail "missing pinned Lance source overlay"
+    [[ -f "$1/src/${LANCE_NATIVE_SOURCE}/rust/lance-core/src/memory.rs" ]] \
+        || fail "missing Lance memory implementation"
+    if grep -q 'source = "git+https://github.com/lance-format/lance.git' "${source}/Cargo.lock"; then
+        fail "Lance dependencies must share the patched pinned source tree"
+    fi
     # Refreshing the Foyer patch must preserve the upstream prewarm binding and tests.
     grep -q 'lance_dataset_prewarm_index' "${source}/include/lance/lance.h" \
         || fail "missing upstream C prewarm API"
@@ -98,7 +103,7 @@ cmp "${tmpdir}/manifest" "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/Cargo.toml"
 cmp "${tmpdir}/lock" "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/Cargo.lock"
 echo "PASS: fresh archive and idempotent Foyer patch"
 
-# Re-extraction must apply Foyer again; no separate Lance source is required.
+# Re-extraction must apply Foyer and retain the companion memory overlays.
 rm -rf "${tmpdir}/fresh/src/${LANCE_C_SOURCE}"
 run_download "${tmpdir}/fresh"
 check_sources "${tmpdir}/fresh"
@@ -130,10 +135,20 @@ echo "PASS: old and mismatched Foyer markers refresh cached sources"
 prepare "${tmpdir}/invalid"
 tar xzf "${ARCHIVE_DIR}/${LANCE_C_NAME}" -C "${tmpdir}/invalid/src"
 printf '%s\n' 'incompatible manifest' > "${tmpdir}/invalid/src/${LANCE_C_SOURCE}/Cargo.toml"
-if run_download "${tmpdir}/invalid" > "${tmpdir}/invalid.log" 2>&1; then
-    fail "expected an incompatible source to reject the patch"
+run_download "${tmpdir}/invalid"
+check_sources "${tmpdir}/invalid"
+cmp "${tmpdir}/lock" "${tmpdir}/invalid/src/${LANCE_C_SOURCE}/Cargo.lock"
+echo "PASS: unmarked incompatible sources are replaced from the pinned archive"
+
+prepare "${tmpdir}/broken_patch"
+rm "${tmpdir}/broken_patch/patches"
+mkdir "${tmpdir}/broken_patch/patches"
+cp "${ROOT}"/patches/lance-*.patch "${tmpdir}/broken_patch/patches/"
+printf '%s\n' 'incompatible patch' > "${tmpdir}/broken_patch/patches/lance-c-foyer.patch"
+if run_download "${tmpdir}/broken_patch" > "${tmpdir}/broken_patch.log" 2>&1; then
+    fail "expected an incompatible patch to fail"
 fi
-[[ ! -f "${tmpdir}/invalid/src/${LANCE_C_SOURCE}/patched_mark_foyer" ]] \
+[[ ! -f "${tmpdir}/broken_patch/src/${LANCE_C_SOURCE}/patched_mark_foyer" ]] \
     || fail "failed patch was marked complete"
 echo "PASS: patch failure does not mark sources ready"
 

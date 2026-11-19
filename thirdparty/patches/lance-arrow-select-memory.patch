@@ -1,0 +1,201 @@
+diff --git a/src/concat.rs b/src/concat.rs
+index 19eeeacbfb7b41be30302ba75fbf74254b869ffe..1b2e22e1c8a3a7dee40a92220cb76d5082345551 100644
+--- a/src/concat.rs
++++ b/src/concat.rs
+@@ -427,6 +427,9 @@ fn get_capacity(arrays: &[&dyn Array], data_type: &DataType) -> Capacities {
+ 
+ /// Concatenate multiple [Array] of the same type into a single [ArrayRef].
+ pub fn concat(arrays: &[&dyn Array]) -> Result<ArrayRef, ArrowError> {
++    if let Some(hooks) = crate::memory::current() {
++        return (hooks.concat)(arrays);
++    }
+     if arrays.is_empty() {
+         return Err(ArrowError::ComputeError(
+             "concat requires input of at least one array".to_string(),
+diff --git a/src/filter.rs b/src/filter.rs
+index e95d01f2b592ba9f58f955d98b0b52bae8f407e2..a32c1376e6d64c4e62c42799b4b82ce10d6b9c52 100644
+--- a/src/filter.rs
++++ b/src/filter.rs
+@@ -203,6 +203,9 @@ pub fn prep_null_mask_filter(filter: &BooleanArray) -> BooleanArray {
+ /// assert_eq!(c, &Int32Array::from(vec![5, 8]));
+ /// ```
+ pub fn filter(values: &dyn Array, predicate: &BooleanArray) -> Result<ArrayRef, ArrowError> {
++    if let Some(hooks) = crate::memory::current() {
++        return (hooks.filter)(values, predicate);
++    }
+     let mut filter_builder = FilterBuilder::new(predicate);
+ 
+     if FilterBuilder::is_optimize_beneficial(values.data_type()) {
+@@ -258,6 +261,14 @@ pub struct FilterBuilder {
+ impl FilterBuilder {
+     /// Create a new [`FilterBuilder`] that can be used to construct a [`FilterPredicate`]
+     pub fn new(filter: &BooleanArray) -> Self {
++        if crate::memory::current().is_some() {
++            let count = filter.iter().filter(|value| *value == Some(true)).count();
++            return Self {
++                filter: filter.clone(),
++                count,
++                strategy: IterationStrategy::default_strategy(filter.len(), count),
++            };
++        }
+         let filter = match filter.null_count() {
+             0 => filter.clone(),
+             _ => prep_null_mask_filter(filter),
+@@ -284,6 +295,9 @@ impl FilterBuilder {
+     /// than the original mask, so it is often faster to filter a single array,
+     /// without filter optimization.
+     pub fn optimize(mut self) -> Self {
++        if crate::memory::current().is_some() {
++            return self;
++        }
+         match self.strategy {
+             IterationStrategy::SlicesIterator => {
+                 let slices = SlicesIterator::new(&self.filter).collect();
+@@ -411,6 +425,9 @@ impl FilterPredicate {
+ }
+ 
+ fn filter_array(values: &dyn Array, predicate: &FilterPredicate) -> Result<ArrayRef, ArrowError> {
++    if let Some(hooks) = crate::memory::current() {
++        return (hooks.filter)(values, &predicate.filter);
++    }
+     if predicate.filter.len() > values.len() {
+         return Err(ArrowError::InvalidArgumentError(format!(
+             "Filter predicate of length {} is larger than target array of length {}",
+diff --git a/src/interleave.rs b/src/interleave.rs
+index f5904bc171ee0bb9bc9b4bb62d65225a60a488f3..dbefa809c4a444a6b5dc8a4536f42829dbb0401f 100644
+--- a/src/interleave.rs
++++ b/src/interleave.rs
+@@ -72,6 +72,10 @@ pub fn interleave(
+     values: &[&dyn Array],
+     indices: &[(usize, usize)],
+ ) -> Result<ArrayRef, ArrowError> {
++    if let Some(hooks) = crate::memory::current() {
++        return (hooks.interleave)(values, indices);
++    }
++
+     if values.is_empty() {
+         return Err(ArrowError::InvalidArgumentError(
+             "interleave requires input of at least one array".to_string(),
+diff --git a/src/lib.rs b/src/lib.rs
+index 33c1ee8ddb0a2890b5bd65c2fd8c775a65e5c355..f96f13cf3d777fdef2c7038ab764251a7fd04f2e 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -30,6 +30,7 @@ pub mod dictionary;
+ pub mod filter;
+ pub mod interleave;
+ pub mod merge;
++pub mod memory;
+ pub mod nullif;
+ pub mod take;
+ pub mod union_extract;
+diff --git a/src/memory.rs b/src/memory.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..cb169b6e286bbe148b435e807aadeef40fc69209
+--- /dev/null
++++ b/src/memory.rs
+@@ -0,0 +1,80 @@
++// Licensed to the Apache Software Foundation (ASF) under one
++// or more contributor license agreements.  See the NOTICE file
++// distributed with this work for additional information
++// regarding copyright ownership.  The ASF licenses this file
++// to you under the Apache License, Version 2.0 (the
++// "License"); you may not use this file except in compliance
++// with the License.  You may obtain a copy of the License at
++//
++//   http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing,
++// software distributed under the License is distributed on an
++// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++// KIND, either express or implied.  See the License for the
++// specific language governing permissions and limitations
++// under the License.
++
++//! Scoped, fallible kernel hooks for embedding allocation admission.
++//!
++//! A hook delegates a complete operation to an embedding implementation that
++//! admits output and scratch storage before allocating. It never changes the
++//! process allocator or unwinds through an allocation callback. Scopes belong
++//! only to synchronous execution; async embedders enter a fresh scope per poll.
++
++use std::cell::Cell;
++use std::marker::PhantomData;
++use std::rc::Rc;
++
++use arrow_array::{Array, ArrayRef, BooleanArray};
++use arrow_schema::ArrowError;
++
++use crate::take::TakeOptions;
++
++/// Fallible implementations supplied by the current embedding execution owner.
++#[derive(Clone, Copy, Debug)]
++pub struct KernelMemoryHooks {
++    /// Take selected rows after admitting all new buffers.
++    pub take: fn(&dyn Array, &dyn Array, Option<TakeOptions>) -> Result<ArrayRef, ArrowError>,
++    /// Filter selected rows without unaccounted predicate scratch.
++    pub filter: fn(&dyn Array, &BooleanArray) -> Result<ArrayRef, ArrowError>,
++    /// Concatenate arrays after admitting output and kernel scratch.
++    pub concat: fn(&[&dyn Array]) -> Result<ArrayRef, ArrowError>,
++    /// Interleave sorted inputs after admitting their merged output.
++    pub interleave: fn(&[&dyn Array], &[(usize, usize)]) -> Result<ArrayRef, ArrowError>,
++}
++
++thread_local! {
++    static HOOKS: Cell<Option<KernelMemoryHooks>> = const { Cell::new(None) };
++}
++
++pub(crate) fn current() -> Option<KernelMemoryHooks> {
++    HOOKS.get()
++}
++
++/// A synchronous hook scope, restored on ordinary return or unwind.
++///
++/// This scope cannot move between threads and must not cross an async await.
++/// An embedding callback invoking a pre-admitted original kernel can temporarily
++/// suspend delegation by entering `None`, then restore its caller on drop.
++#[derive(Debug)]
++pub struct KernelMemoryScope {
++    previous: Option<KernelMemoryHooks>,
++    thread_bound: PhantomData<Rc<()>>,
++}
++
++impl KernelMemoryScope {
++    /// Install the current execution's hooks, or suspend them with `None`.
++    pub fn enter(hooks: Option<KernelMemoryHooks>) -> Self {
++        Self {
++            previous: HOOKS.replace(hooks),
++            thread_bound: PhantomData,
++        }
++    }
++}
++
++impl Drop for KernelMemoryScope {
++    fn drop(&mut self) {
++        HOOKS.set(self.previous);
++    }
++}
+diff --git a/src/take.rs b/src/take.rs
+index cbb65ac915ddb0796d87198a1a7d098fec1705ac..0461e05e71949b5e52ae2a01a4319ddd4b7cfb73 100644
+--- a/src/take.rs
++++ b/src/take.rs
+@@ -90,6 +90,9 @@ pub fn take(
+     indices: &dyn Array,
+     options: Option<TakeOptions>,
+ ) -> Result<ArrayRef, ArrowError> {
++    if let Some(hooks) = crate::memory::current() {
++        return (hooks.take)(values, indices, options);
++    }
+     let options = options.unwrap_or_default();
+     downcast_integer_array!(
+         indices => {
+@@ -215,6 +218,10 @@ fn take_impl<IndexType: ArrowPrimitiveType>(
+     values: &dyn Array,
+     indices: &PrimitiveArray<IndexType>,
+ ) -> Result<ArrayRef, ArrowError> {
++    if let Some(hooks) = crate::memory::current() {
++        return (hooks.take)(values, indices, None);
++    }
++
+     if indices.is_empty() {
+         return Ok(new_empty_array(values.data_type()));
+     }
