@@ -74,7 +74,8 @@ import java.util.function.Supplier;
  * {@link IcebergConnector#invalidateAll()}, mirroring legacy catalog-wide {@code group.invalidateAll()}) and
  * dropped wholesale when the {@link IcebergConnector} is rebuilt (ADD/MODIFY CATALOG). Overflow is bounded by
  * Caffeine {@code maximumSize} eviction (re-reads are harmless — the value is immutable). The parse loader runs
- * OUTSIDE Caffeine's compute lock (manual miss-load, single-flight per key).
+ * outside Caffeine's compute lock. Unclassified misses are isolated, and only decoded plaintext
+ * values are retained and shared across requests.
  */
 final class IcebergManifestCache {
 
@@ -181,6 +182,7 @@ final class IcebergManifestCache {
                 .<IcebergManifestEntryKey, ManifestCacheValue>builder(
                         "iceberg-manifest", spec, ignored -> ScopePath.catalog())
                 .sizeEstimator(IcebergCacheSizeEstimator::estimateManifestEntry)
+                .retainIf(ManifestCacheValue::isCacheable)
                 .build());
         this.equalityDeleteFieldIds = owner.create(MetaCacheDefinition
                 .<SnapshotKey, Set<Integer>>builder(
@@ -203,28 +205,24 @@ final class IcebergManifestCache {
                 ignored -> Collections.unmodifiableSet(new HashSet<>(loader.get())));
     }
 
-    /**
-     * Returns the parsed files for {@code manifest}, loading (and reading from storage) only on a miss. The
-     * loader runs OUTSIDE Caffeine's compute lock (manual miss-load; single-flight per key), so a same-key
-     * miss parses at most once.
-     */
+    /** One-shot callers own their table; planning uses the statement's retained reader instead. */
     ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table) {
-        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
-        return entry.get(key, k -> loadManifestCacheValue(
-                manifest, table, k.getContent(), entry.isWeightBounded()));
+        return getManifestCacheValue(manifest, table, null);
     }
 
-    /** Runs the elected read here; a shared in-flight read only registers a completion observer. */
+    /** The elected read completes here; the returned observer cannot cancel another consumer's I/O. */
     CompletionStage<ManifestCacheValue> getManifestCacheValueFuture(
             ManifestFile manifest, Table table, String queryId) {
-        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
-        recordAccess(key, queryId);
-        return entry.getOrLoadFuture(key, k -> loadManifestCacheValue(
-                manifest, table, k.getContent(), entry.isWeightBounded()));
+        try (IcebergManifestReader reader = new IcebergManifestReader(this, table, queryId, () -> { })) {
+            return reader.readFuture(manifest);
+        }
     }
 
     /** Cached-only probe: avoids futures and executor traffic on the warm planning path. */
     ManifestCacheValue getCachedManifestValue(ManifestFile manifest, String queryId) {
+        if (manifest.keyMetadata() != null) {
+            return null;
+        }
         ManifestCacheValue value = entry.getIfPresent(IcebergManifestEntryKey.of(manifest));
         if (value != null && queryId != null && !queryId.isEmpty()) {
             touch(queryId).hits.increment();
@@ -239,15 +237,26 @@ final class IcebergManifestCache {
      * A blank queryId is not recorded.
      */
     ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table, String queryId) {
-        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
-        recordAccess(key, queryId);
-        return entry.get(key, k -> loadManifestCacheValue(
-                manifest, table, k.getContent(), entry.isWeightBounded()));
+        try (IcebergManifestReader reader = new IcebergManifestReader(this, table, queryId, () -> { })) {
+            return reader.read(manifest);
+        }
     }
 
-    private void recordAccess(IcebergManifestEntryKey key, String queryId) {
+    /** Uses one stable statement identity while retaining only values classified as plaintext. */
+    ManifestCacheValue readForStatement(ManifestFile manifest, Table table, Object loadScope, boolean privateRead) {
+        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
+        return privateRead ? loadManifestCacheValue(manifest, table, manifest.content(), false)
+                : entry.getForLoadScope(key, loadScope, k -> loadManifestCacheValue(
+                        manifest, table, k.getContent(), entry.isWeightBounded()));
+    }
+
+    void recordStatementAccess(ManifestFile manifest, String queryId, boolean allowCacheHit) {
+        recordAccess(IcebergManifestEntryKey.of(manifest), queryId, allowCacheHit);
+    }
+
+    private void recordAccess(IcebergManifestEntryKey key, String queryId, boolean allowCacheHit) {
         if (queryId != null && !queryId.isEmpty()) {
-            boolean hit = entry.getIfPresent(key) != null;
+            boolean hit = allowCacheHit && entry.getIfPresent(key) != null;
             ScanStats stats = touch(queryId);
             if (hit) {
                 stats.hits.increment();
@@ -314,9 +323,10 @@ final class IcebergManifestCache {
 
     private static List<DataFile> loadDataFiles(ManifestFile manifest, Table table) throws IOException {
         List<DataFile> dataFiles = new ArrayList<>();
-        // .copy() is mandatory: the ManifestReader iterator reuses the same object across iterations.
-        try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, table.io(),
-                manifestReadSpecs(manifest, table))) {
+        // The SDK byte cache cannot classify file keys before decoding. Keep these bytes out of it;
+        // this adapter alone retains classified plaintext values. The iterator also requires .copy().
+        try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest,
+                new IcebergScanFileIO(table.io(), () -> { }), manifestReadSpecs(manifest, table))) {
             for (DataFile dataFile : reader) {
                 dataFiles.add(dataFile.copy());
             }
@@ -361,9 +371,11 @@ final class IcebergManifestCache {
     }
 
     private static List<DeleteFile> loadDeleteFiles(ManifestFile manifest, Table table) throws IOException {
+        // Delete manifests can carry independent file keys and need the same SDK cache isolation as data.
         List<DeleteFile> deleteFiles = new ArrayList<>();
         try (ManifestReader<DeleteFile> reader =
-                ManifestFiles.readDeleteManifest(manifest, table.io(), manifestReadSpecs(manifest, table))) {
+                ManifestFiles.readDeleteManifest(manifest, new IcebergScanFileIO(table.io(), () -> { }),
+                        manifestReadSpecs(manifest, table))) {
             for (DeleteFile deleteFile : reader) {
                 deleteFiles.add(deleteFile.copy());
             }

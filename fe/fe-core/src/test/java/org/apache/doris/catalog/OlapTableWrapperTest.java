@@ -38,6 +38,10 @@ import java.util.concurrent.TimeUnit;
 public class OlapTableWrapperTest {
 
     private static OlapTable newTestTable(ChangelogConfig changelogConfig) {
+        return newTestTable(changelogConfig, KeysType.PRIMARY_KEYS);
+    }
+
+    private static OlapTable newTestTable(ChangelogConfig changelogConfig, KeysType keysType) {
         long baseIndexId = 1L;
         Column key = new Column("k1", PrimitiveType.INT);
         key.setIsKey(true);
@@ -46,11 +50,11 @@ public class OlapTableWrapperTest {
         List<Column> baseSchema = Lists.newArrayList(key, value);
 
         // Use non-null partition/distribution info so wrapper delegation can be asserted meaningfully.
-        OlapTable table = new OlapTable(1L, "tbl", baseSchema, KeysType.PRIMARY_KEYS,
+        OlapTable table = new OlapTable(1L, "tbl", baseSchema, keysType,
                 new SinglePartitionInfo(), new RandomDistributionInfo(32));
         table.setBaseIndexId(baseIndexId);
         MaterializedIndexMeta baseIndexMeta = new MaterializedIndexMeta(baseIndexId, baseSchema, 1, 1, (short) 1,
-                TStorageType.COLUMN, KeysType.PRIMARY_KEYS, null);
+                TStorageType.COLUMN, keysType, null);
         table.addIndexIdToMetaForUnitTest(baseIndexId, baseIndexMeta);
         table.addIndexNameToIdForUnitTest("base", baseIndexId);
 
@@ -64,6 +68,33 @@ public class OlapTableWrapperTest {
             table.setChangelogIndexMeta(changelogIndexMeta, "changelog");
         }
         return table;
+    }
+
+    @Test
+    public void testUniqueKeyMowWrapperPreservesMergeOnWrite() {
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(false, false), KeysType.UNIQUE_KEYS);
+        table.setEnableUniqueKeyMergeOnWrite(true);
+
+        Assertions.assertTrue(new OlapTableWrapper(table).getEnableUniqueKeyMergeOnWrite());
+    }
+
+    @Test
+    public void testUniqueKeyMorWrapperDoesNotEnableMergeOnWrite() {
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(false, false), KeysType.UNIQUE_KEYS);
+        table.setEnableUniqueKeyMergeOnWrite(false);
+
+        Assertions.assertFalse(new OlapTableWrapper(table).getEnableUniqueKeyMergeOnWrite());
+    }
+
+    @Test
+    public void testChangelogWrapperOfMowTableDoesNotEnableMergeOnWrite() {
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(true, false), KeysType.UNIQUE_KEYS);
+        table.setEnableUniqueKeyMergeOnWrite(true);
+        OlapChangelogTableWrapper wrapper = new OlapChangelogTableWrapper(table);
+
+        Assertions.assertTrue(table.getEnableUniqueKeyMergeOnWrite());
+        Assertions.assertEquals(KeysType.DUP_KEYS, wrapper.getKeysType());
+        Assertions.assertFalse(wrapper.getEnableUniqueKeyMergeOnWrite());
     }
 
     @Test

@@ -31,7 +31,7 @@
 #include <string>
 #include <vector>
 
-#include "cpp/aws_common.h"
+#include "cpp/obj-storage/auth/aws/aws_credential_provider.h"
 
 // Test support for the container credentials provider built by
 // create_container_credentials_provider(). It lives in common/cpp/test because both test trees need

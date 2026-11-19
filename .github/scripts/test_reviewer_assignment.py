@@ -33,6 +33,7 @@ import unittest
 from unittest.mock import patch
 
 import reviewer_assignment as assignment
+import reviewer_assignment_model as model
 import reviewer_assignment_diagnostics as diagnostics
 import reviewer_assignment_usage as usage
 from reviewer_assignment_diff import git_changes, parse_numstat
@@ -197,7 +198,11 @@ class AssignmentTest(unittest.TestCase):
         self.assertTrue((self.workspace / "tools/reviewer-routing/README.md").exists())
         prompt = (self.workspace / "prompt.txt").read_text()
         self.assertIn("ADD ASSIGNEES", prompt)
-        self.assertIn("CI_GUIDE.md", prompt)
+        self.assertIn("complete_diff", prompt)
+        self.assertIn(self.api.pr["body"], prompt)
+        self.assertIn("+fixed_query();", prompt)
+        self.assertEqual(json.loads(prompt.split("ROUTING_INPUT_JSON:\n", 1)[1])["complete_diff"],
+                         (self.workspace / "pr.diff").read_text())
         summary = json.loads((self.workspace / "candidate-summary.json").read_text())
         self.assertEqual(summary["path_routing_modules"], ["search"])
         self.assertEqual([p["login"] for p in summary["modules"][0]["candidates"]], ["Alice", "Bob"])
@@ -205,9 +210,9 @@ class AssignmentTest(unittest.TestCase):
         self.assertEqual((self.workspace / "pr.diff").read_text(),
                          "diff --git a/query.cpp b/query.cpp\n+fixed_query();\n")
         self.assertEqual(json.loads((self.workspace / "schema.json").read_text())[
-            "properties"]["modules"]["maxItems"], 2)
+            "properties"]["modules"]["maxItems"], 1)
         self.assertEqual(json.loads((self.workspace / "schema.json").read_text())[
-            "properties"]["modules"]["items"]["enum"], sorted(self.config["modules"]))
+            "properties"]["modules"]["items"]["enum"], ["search"])
         self.assertEqual(json.loads((self.workspace / "pr.json").read_text())["existing_reviewers"], ["Bob"])
 
     def test_relabeling_creates_a_new_assignment_despite_done_label(self):
@@ -236,7 +241,7 @@ class AssignmentTest(unittest.TestCase):
 
     def test_module_output_is_sampled_saved_and_applied_without_github_selection_writes(self):
         self.prepare()
-        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"], "reason": "Index query changes"})
         selected = assignment.finalize_selection(self.workspace, self.tool)
         self.assertEqual(set(selected), {"Alice", "Bob"})
         self.assertEqual(self.mutations(), [])
@@ -250,7 +255,7 @@ class AssignmentTest(unittest.TestCase):
 
     def test_finalizing_or_recovering_a_saved_pair_never_draws_again(self):
         self.prepare()
-        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"], "reason": "Index query changes"})
         chosen = assignment.finalize_selection(self.workspace, self.tool)
         with patch.object(assignment, "sample_reviewers", side_effect=AssertionError("Unexpected second draw")):
             self.assertEqual(assignment.finalize_selection(self.workspace, self.tool), chosen)
@@ -261,14 +266,14 @@ class AssignmentTest(unittest.TestCase):
 
     def test_new_label_event_discards_local_selection_and_permits_a_fresh_draw(self):
         self.prepare()
-        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"], "reason": "Index query changes"})
         assignment.finalize_selection(self.workspace, self.tool)
         self.apply()
         self.assertFalse(self.prepare(run="101"))
         self.assertFalse((self.workspace / "selection.json").exists())
         self.assertFalse((self.workspace / "module-selection.json").exists())
         self.assertFalse((self.workspace / "selected-candidates.json").exists())
-        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"], "reason": "Index query changes"})
         with patch.object(selector.random, "SystemRandom") as source:
             source.return_value.choice.side_effect = lambda pairs: pairs[0]
             self.assertEqual(set(assignment.finalize_selection(self.workspace, self.tool)), {"Alice", "Bob"})
@@ -284,27 +289,25 @@ class AssignmentTest(unittest.TestCase):
                 self.assertFalse((self.workspace / "selection.json").exists())
         self.assertEqual(self.mutations(), [])
 
-    def test_empty_module_selection_uses_existing_manual_fallback(self):
+    def test_empty_module_selection_is_rejected_when_path_candidates_exist(self):
         self.prepare()
-        assignment.write_json(self.workspace / "module-selection.json", {"modules": []})
-        selected = assignment.finalize_selection(self.workspace, self.tool)
-        self.assertEqual(selected, [])
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": [], "reason": "No relevant module"})
+        with self.assertRaisesRegex(ValueError, "despite eligible path modules: search"):
+            assignment.finalize_selection(self.workspace, self.tool)
+        self.assertFalse((self.workspace / "selection.json").exists())
+        self.assertEqual(self.mutations(), [])
         report = diagnostics.diagnostics_report(self.workspace, "", "")
-        self.assertEqual(report["files"]["module-selection.json"]["value"], {"modules": []})
-        self.assertEqual(report["files"]["candidate-summary.json"]["value"]["path_routing_modules"], ["search"])
-        self.assertEqual(report["files"]["selected-candidates.json"]["value"]["modules"], [])
-        result = self.apply(selected)
-        self.assertTrue(result["fallback"])
-        self.assertIn("No suitable reviewer was found. @morningman", self.api.comments[0]["body"])
+        self.assertEqual(report["files"]["validation.json"]["value"]["status"], "rejected")
 
     def test_diagnostics_distinguish_an_empty_selected_pool_from_no_selected_modules(self):
         self.config["modules"]["search"]["reviewers"] = []
         self.save_config()
         self.prepare()
-        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
-        self.assertEqual(assignment.finalize_selection(self.workspace, self.tool), [])
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"], "reason": "Index query changes"})
+        with self.assertRaisesRegex(ValueError, "without eligible candidates"):
+            assignment.finalize_selection(self.workspace, self.tool)
         report = diagnostics.diagnostics_report(self.workspace, "", "")
-        self.assertEqual(report["files"]["module-selection.json"]["value"], {"modules": ["search"]})
+        self.assertEqual(report["files"]["module-selection.json"]["value"], {"modules": ["search"], "reason": "Index query changes"})
         pools = report["files"]["selected-candidates.json"]["value"]["modules"]
         self.assertEqual(pools[0]["id"], "search")
         self.assertEqual(pools[0]["candidates"], [])
@@ -314,15 +317,15 @@ class AssignmentTest(unittest.TestCase):
         repository = self.root / "checkout"
         scripts = repository / ".github/scripts"
         scripts.mkdir(parents=True)
-        for name in ("reviewer_assignment.py", "reviewer_assignment_diff.py", "review_github_api.py"):
+        for name in ("reviewer_assignment.py", "reviewer_assignment_diff.py", "reviewer_assignment_model.py", "review_github_api.py"):
             shutil.copy2(Path(assignment.__file__).parent / name, scripts / name)
         shutil.copytree(assignment.TOOL, repository / "tools/reviewer-routing")
         (repository / "tools/reviewer-routing/reviewer-routing.json").write_text(json.dumps(self.config))
-        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"], "reason": "Index query changes"})
         event = self.root / "event.json"
         assignment.write_json(event, self.event)
         env = {**os.environ, "GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": "apache/doris",
-               "GITHUB_RUN_ID": "100", "PYTHONDONTWRITEBYTECODE": "1"}
+               "GITHUB_RUN_ID": "100", "GITHUB_EVENT_NAME": "pull_request_target", "PYTHONDONTWRITEBYTECODE": "1"}
         command = [sys.executable, str(scripts / "reviewer_assignment.py"), "validate", "--workspace", str(self.workspace)]
         result = subprocess.run(command, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -435,8 +438,8 @@ class AssignmentTest(unittest.TestCase):
         self.save_config()
         self.prepare()
         schema = json.loads((self.workspace / "schema.json").read_text())
-        self.assertEqual(schema["properties"]["modules"]["maxItems"], 2)
-        assignment.write_json(self.workspace / "module-selection.json", {"modules": ["search"]})
+        self.assertEqual(schema["properties"]["modules"]["maxItems"], 0)
+        assignment.write_json(self.workspace / "module-selection.json", {"modules": [], "reason": "No eligible candidate"})
         self.assertEqual(assignment.finalize_selection(self.workspace, self.tool), [])
         with self.assertRaisesRegex(ValueError, "active"):
             self.apply(("Alice",))
@@ -1205,10 +1208,8 @@ if code == 0:
 sys.exit(code)
 ''')
                 binary.chmod(0o700)
-                timeout = root / "timeout"
-                timeout.write_text('#!/bin/sh\nshift 3\nexec "$@"\n')
-                timeout.chmod(0o700)
-                (root / "prompt.txt").write_text("test prompt")
+                assignment.prepare(FakeGitHub(), {"action": "labeled", "label": {"name": "need-reviewers"},
+                                   "pull_request": {"number": 42}}, "apache/doris", "100", root)
                 output = root / "outputs"
                 env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                        "RUNNER_TEMP": str(root), "ASSIGNMENT_WORKSPACE": str(root),
@@ -1439,8 +1440,11 @@ class WorkflowTest(unittest.TestCase):
     def test_only_trusted_code_and_a_read_only_model_run(self):
         self.assertNotRegex(self.workflow, r"(?m)^\s+ref:")
         self.assertEqual(self.workflow.count("persist-credentials: false"), 2)
-        self.assertIn("--sandbox read-only", self.workflow)
-        self.assertIn("env -u GH_TOKEN -u GITHUB_TOKEN -u OSS_AK -u OSS_SK", self.workflow)
+        self.assertIn("reviewer_assignment_model.py", self.workflow)
+        source = Path(model.__file__).read_text()
+        self.assertIn('"--sandbox", "read-only"', source)
+        self.assertIn('"GH_TOKEN", "GITHUB_TOKEN", "OSS_AK", "OSS_SK"', source)
+        self.assertIn('"features.shell_tool=false"', source)
         self.assertNotIn("dangerously-bypass", self.workflow)
 
     def test_write_permissions_are_limited_to_the_final_job(self):
@@ -1451,6 +1455,7 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("issues: write", assign)
         self.assertNotIn("secrets.OSS_", assign)
         self.assertIn("needs: select", assign)
+        self.assertIn("if: github.event_name == 'pull_request_target'", assign)
 
     def test_auth_reuses_reference_pool_and_optimistic_write_guard(self):
         self.assertIn("auth_prefix='oss://doris-community-ci/codex/auth.json.'", self.workflow)

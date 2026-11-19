@@ -2398,7 +2398,7 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
                 _parquet_profile_cache,
                 delete_file.__isset.encryption_info ? std::optional(delete_file.encryption_info)
                                                     : std::nullopt,
-                parquet_spatial_annotations_as_bytes());
+                nullptr, -1, -1, parquet_spatial_annotations_as_bytes());
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
