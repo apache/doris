@@ -96,6 +96,8 @@ public:
         throw Exception(Status::FatalError("should not reach here"));
     }
 
+    virtual bool supports_dictionary_pruning() const { return false; }
+
     virtual bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const {
         throw Exception(Status::FatalError("should not reach here"));
     }
@@ -140,6 +142,9 @@ public:
         return _predicate->evaluate_and(statistic, row_ranges);
     }
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
+    bool supports_dictionary_pruning() const override {
+        return _predicate->supports_dictionary_pruning();
+    }
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
     void evaluate_or(MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                      bool* flags) const override;
@@ -237,6 +242,7 @@ public:
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
 
+    bool supports_dictionary_pruning() const override;
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
 
     bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {

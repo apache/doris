@@ -36,6 +36,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
+#include "core/string_ref.h"
 #include "core/type_limit.h"
 #include "core/value/timestamptz_value.h"
 #include "exprs/hybrid_set.h"
@@ -133,6 +134,23 @@ TEST_F(BlockColumnPredicateTest, AND_MUTI_COLUMN_VEC) {
     EXPECT_EQ(selected_size, 1);
     auto* pred_col = reinterpret_cast<ColumnInt32*>(block[col_idx].get());
     EXPECT_EQ(pred_col->get_data()[sel_idx[0]], 4);
+}
+
+TEST_F(BlockColumnPredicateTest, DictionaryPruningWithMixedPredicates) {
+    AndBlockColumnPredicate predicates;
+    auto is_not_null = NullPredicate::create_shared(0, "s", false, TYPE_STRING);
+    predicates.add_column_predicate(SingleColumnBlockPredicate::create_unique(is_not_null));
+    EXPECT_FALSE(predicates.supports_dictionary_pruning());
+
+    auto equals_foo = ComparisonPredicateBase<TYPE_STRING, PredicateType::EQ>::create_shared(
+            0, "s", Field::create_field<TYPE_STRING>("foo"));
+    predicates.add_column_predicate(SingleColumnBlockPredicate::create_unique(equals_foo));
+    ASSERT_TRUE(predicates.supports_dictionary_pruning());
+
+    const StringRef foo("foo");
+    const StringRef bar("bar");
+    EXPECT_TRUE(predicates.evaluate_and(&foo, 1));
+    EXPECT_FALSE(predicates.evaluate_and(&bar, 1));
 }
 
 TEST_F(BlockColumnPredicateTest, OR_MUTI_COLUMN_VEC) {
