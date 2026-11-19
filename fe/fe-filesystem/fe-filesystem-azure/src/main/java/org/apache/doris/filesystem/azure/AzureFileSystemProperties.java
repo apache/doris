@@ -558,10 +558,13 @@ public final class AzureFileSystemProperties
         if (StringUtils.isBlank(endpoint)) {
             return "";
         }
-        if (endpoint.contains("://")) {
-            return endpoint;
+        String url = endpoint.contains("://") ? endpoint : "https://" + endpoint;
+        int hostStart = url.indexOf("://") + 3;
+        // Trim only service-path separators. Callers append the container to this base URL.
+        if (url.indexOf('/', hostStart) > hostStart && !StringUtils.containsAny(url, '?', '#')) {
+            return StringUtils.stripEnd(url, "/");
         }
-        return "https://" + endpoint;
+        return url;
     }
 
     private static Set<String> normalizedAzureBlobHostSuffixes() {

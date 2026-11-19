@@ -55,6 +55,7 @@ class AzureFileSystemPropertiesTest {
         for (String[] hostAndEndpoint : new String[][] {
                 {"acct.dfs.core.windows.net", "https://acct.blob.core.windows.net"},
                 {"acct.dfs.core.chinacloudapi.cn", "https://acct.blob.core.chinacloudapi.cn"},
+                {"https://acct.dfs.core.chinacloudapi.cn/", "https://acct.blob.core.chinacloudapi.cn"},
                 {"https://acct.dfs.core.windows.net", "https://acct.blob.core.windows.net"},
                 {"acct.blob.core.windows.net", "https://acct.blob.core.windows.net"},
                 {"storage.example.com", "https://storage.example.com"}}) {
@@ -132,7 +133,7 @@ class AzureFileSystemPropertiesTest {
     @Test
     void toBackendProperties_matchesFeCoreAzureSharedKeyMap() {
         AzureFileSystemProperties properties = AzureFileSystemProperties.of(Map.of(
-                "azure.endpoint", "account.blob.core.windows.net",
+                "azure.endpoint", "account.blob.core.windows.net///",
                 "azure.account_name", "account",
                 "azure.account_key", "key",
                 "use_path_style", "true"));

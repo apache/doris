@@ -43,6 +43,7 @@ import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
@@ -149,6 +150,21 @@ class AzureObjStorageExtensionTest {
         String result = storage.getPresignedUrl("wasb://mycontainer@myaccount.blob.core.windows.net/stage/blob");
 
         Assertions.assertEquals(expectedSasUrl, result);
+    }
+
+    @Test
+    void getPresignedUrl_keepsContainerWhenEndpointEndsInSlash() throws IOException {
+        for (String base : List.of("https://devstoreaccount1.blob.core.windows.net",
+                "http://127.0.0.1:10000/devstoreaccount1")) {
+            AzureObjStorage storage = new AzureObjStorage(Map.of(
+                    "azure.endpoint", base + "/", "azure.account_name", "devstoreaccount1",
+                    "azure.account_key", "dGVzdA=="));
+            URI signed = URI.create(storage.getPresignedUrl("s3://blue/dir//a.parquet"));
+            URI service = URI.create(base);
+            Assertions.assertEquals(service.getScheme(), signed.getScheme());
+            Assertions.assertEquals(service.getRawAuthority(), signed.getRawAuthority());
+            Assertions.assertEquals(service.getPath() + "/blue/dir//a.parquet", signed.getPath());
+        }
     }
 
     @Test
