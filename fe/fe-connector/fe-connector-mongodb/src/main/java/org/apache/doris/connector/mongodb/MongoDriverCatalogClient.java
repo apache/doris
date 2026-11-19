@@ -37,7 +37,6 @@ import com.mongodb.client.internal.MongoClientImpl;
 import com.mongodb.internal.operation.BatchCursor;
 import com.mongodb.internal.operation.ListCollectionsOperation;
 import org.bson.BsonDocument;
-import org.bson.BsonNull;
 import org.bson.BsonTimestamp;
 import org.bson.BsonValue;
 import org.bson.Document;
@@ -218,47 +217,47 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
             if (index == null) {
                 return new MongoSplitProbe(List.of(), -1, bytes, false);
             }
-            Number size = probeDatabase(table.getDatabase(), deadline, checkCancelled)
-                    .runCommand(new Document("collStats", table.getName()).append("scale", 1))
-                    .get("size", Number.class);
+            Document stats = probeDatabase(table.getDatabase(), deadline, checkCancelled)
+                    .runCommand(new Document("collStats", table.getName()).append("scale", 1));
+            Number size = stats.get("size", Number.class);
             long logicalBytes = size == null ? -1 : size.longValue();
             List<BsonValue> samples = new ArrayList<>();
-            // Index-prefix sampling is deliberately bounded, not an unbiased cardinality estimate.
-            // It can produce skewed ranges, but never narrows coverage or removes the complement.
-            // Project only qualified fixed-width scalars: a giant array/string key cannot multiply
-            // the FE's retained memory by sample_rows. The remaining types become BsonNull hints.
+            // Sampling an index prefix puts almost all increasing keys into the final range.
+            // Keep $sample first so MongoDB can use its random cursor, then retain only bounded
+            // fixed-width keys. Statistics tune cost only; they never narrow source coverage.
+            // Unsupported large strings/arrays become null before they can reach the FE.
             Document type = new Document("$type", "$" + field);
             Document supported = new Document("$in", List.of(type, List.of("int", "long", "objectId", "date")));
             Document projection = new Document("_id", 0).append("value",
                     new Document("$cond", List.of(supported, "$" + field, new Document("$literal", null))));
-            try (ClientSession session = client.startSession(ClientSessionOptions.builder()
-                    .causallyConsistent(false).snapshot(true).build())) {
-                session.setSnapshotTimestamp(new BsonTimestamp((int) snapshot.getTimestampSeconds(),
-                        (int) snapshot.getTimestampIncrement()));
-                var data = probeDatabase(table.getDatabase(), deadline, checkCancelled)
-                        .getCollection(table.getName(), BsonDocument.class)
-                        .withReadPreference(properties.readPreferenceForSnapshot(preference));
-                // Negative batchSize requests singleBatch in the pinned driver. Fixed-width samples
-                // fit well below one BSON reply; no remote cursor survives cancellation/timeout.
-                // Driver 5.14 otherwise adds snapshot readConcern to killCursors, which MongoDB rejects.
-                try (MongoCursor<BsonDocument> cursor = data.find(session).hintString(index)
-                        .projection(projection).limit(rows).batchSize(-rows)
-                        .timeoutMode(TimeoutMode.CURSOR_LIFETIME).iterator()) {
-                    while (true) {
-                        // Do not let a per-iteration timeout reset or a late cancellation start
-                        // another remote batch after the optional planning budget has ended.
-                        checkProbe(deadline, checkCancelled);
-                        if (!cursor.hasNext()) {
-                            break;
-                        }
-                        checkProbe(deadline, checkCancelled);
-                        BsonDocument value = cursor.next();
-                        bytes += MongoSplitPlan.encode(value).length;
-                        if (samples.size() >= rows || bytes > 1024 * 1024) {
-                            throw new MongoRangePlanner.PlanningLimit();
-                        }
-                        samples.add(value.get("value", BsonNull.VALUE));
+            // Do not shrink small-table requests below MongoDB's 5% random-cursor threshold.
+            // Its historical random cursor can stall on concurrently rewritten records; a bounded
+            // full sample of a small collection remains cheap and preserves the pinned timestamp.
+            var pipeline = List.of(new Document("$sample", new Document("size", rows)),
+                    new Document("$project", projection), new Document("$group", new Document("_id", null)
+                            .append("values", new Document("$push", "$value"))));
+            // Grouping at most 4096 fixed-width hints produces at most one small document.
+            // batchSize=2 exhausts that reply, avoiding remote cursor cleanup on cancellation and
+            // driver 5.14's invalid snapshot readConcern on killCursors. No getMore is needed.
+            var command = new Document("aggregate", table.getName()).append("pipeline", pipeline)
+                    .append("cursor", new Document("batchSize", 2))
+                    .append("readConcern", new Document("level", "snapshot").append("atClusterTime",
+                            new BsonTimestamp((int) snapshot.getTimestampSeconds(),
+                                    (int) snapshot.getTimestampIncrement())));
+            BsonDocument reply = probeDatabase(table.getDatabase(), deadline, checkCancelled)
+                    .runCommand(command, properties.readPreferenceForSnapshot(preference), BsonDocument.class);
+            checkProbe(deadline, checkCancelled);
+            bytes += MongoSplitPlan.encode(reply).length;
+            if (bytes > 1024 * 1024) {
+                throw new MongoRangePlanner.PlanningLimit();
+            }
+            for (BsonValue batch : reply.getDocument("cursor").getArray("firstBatch")) {
+                for (BsonValue value : batch.asDocument().getArray("values")) {
+                    checkProbe(deadline, checkCancelled);
+                    if (samples.size() >= rows) {
+                        throw new MongoRangePlanner.PlanningLimit();
                     }
+                    samples.add(value);
                 }
             }
             checkProbe(deadline, checkCancelled);
@@ -284,9 +283,8 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
                 || Boolean.TRUE.equals(index.getBoolean("hidden")) || index.containsKey("buildUUID")) {
             return false;
         }
-        // A numeric prefix can precede a wildcard: {sequence:1,"payload.$**":1} cannot
-        // serve our empty-filter hinted sample. Wildcard sparsity need not be explicit,
-        // so reject wildcard components anywhere in the pattern before choosing the hint.
+        // A wildcard suffix can make a compound index sparse without an explicit sparse flag.
+        // It cannot establish complete range-index coverage, even with an ordinary leading key.
         if (keys.keySet().stream().anyMatch(key -> "$**".equals(key) || key.endsWith(".$**"))) {
             return false;
         }

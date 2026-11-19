@@ -22,7 +22,7 @@ import argparse
 import base64
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, localcontext
 import json
 import os
@@ -34,7 +34,9 @@ import time
 from urllib.request import ProxyHandler, Request, build_opener
 import uuid
 
-from bson import Binary, Decimal128, Int64, ObjectId, Timestamp
+from bson import Binary, Decimal128, Int64, MaxKey, MinKey, ObjectId, Timestamp
+from bson.codec_options import DatetimeConversion
+from bson.datetime_ms import DatetimeMS
 import pymongo
 from pymongo.write_concern import WriteConcern
 
@@ -45,7 +47,8 @@ ROWS = 601
 APPLICATION = "doris-native-splits"
 POOL_ROWS = 32769
 COLLECTIONS = ["integer_records", "date_records", "oid_records", "duplicate_records", "empty_records",
-               "decimal_records", "string_records", "double_records", "no_index_records", "transaction_records"]
+               "decimal_records", "string_records", "double_records", "no_index_records", "transaction_records",
+               "mixed_id_records", "date_id_records"]
 
 
 def field(name, target, tags, path=None):
@@ -101,6 +104,34 @@ def initialize(source, shards=None):
                     document["split_key"] = dates[index % len(dates)] if index % 5 else integer_keys[index % len(integer_keys)]
             elif name == "oid_records":
                 document["_id"] = ObjectId(index.to_bytes(12, "big")) if index % 5 else "key-" + str(index)
+            elif name == "date_id_records":
+                document["_id"] = dates[0] + timedelta(milliseconds=index)
+                if index < 2:
+                    document["_id"] = DatetimeMS(-(2 ** 63) if index == 0 else 2 ** 63 - 1)
+            elif name == "mixed_id_records":
+                # Boundary hints are integers; every unsampled BSON family must still be read.
+                if index < 400:
+                    document["_id"] = Int64(index)
+                elif index < 440:
+                    document["_id"] = "key-" + str(index)
+                elif index < 480:
+                    document["_id"] = ObjectId(index.to_bytes(12, "big"))
+                elif index < 520:
+                    document["_id"] = dates[0] + timedelta(milliseconds=index)
+                elif index < 560:
+                    document["_id"] = Decimal128(str(index) + ".000000000000000000000001")
+                elif index < 580:
+                    document["_id"] = Binary(index.to_bytes(8, "big"))
+                elif index < 600:
+                    document["_id"] = {"key": Int64(index)}
+                else:
+                    document["_id"] = None
+                special = {0: MinKey(), 1: MaxKey(), 2: False, 3: True, 4: float("nan"),
+                           5: float("inf"), 6: float("-inf"), 7: Int64(-(2 ** 63)),
+                           8: Int64(2 ** 63 - 1), 9: Int64(2 ** 53 + 1),
+                           10: Decimal128("5.000000000000000000000000000000001"),
+                           11: Decimal128("9007199254740993.000000000000001"), 12: float(2 ** 53)}
+                document["_id"] = special.get(index, document["_id"])
             elif name == "duplicate_records":
                 document["split_key"] = Int64(7)
             elif name == "decimal_records":
@@ -115,17 +146,20 @@ def initialize(source, shards=None):
         database[name].with_options(write_concern=WriteConcern("majority")).insert_many(records)
         if name != "no_index_records":
             database[name].create_index("split_key")
-        if shards and name in ["integer_records", "date_records", "transaction_records"]:
+        if shards and name in ["integer_records", "date_records", "transaction_records",
+                               "mixed_id_records", "date_id_records"]:
             namespace = DATABASE + "." + name
-            source.admin.command("shardCollection", namespace, key={"_id": 1})
-            source.admin.command("split", namespace, middle={"_id": Int64(300)})
-            source.admin.command("moveChunk", namespace, find={"_id": Int64(ROWS - 1)}, to=shards[1],
+            shard_key = "seq" if name in ["mixed_id_records", "date_id_records"] else "_id"
+            database[name].create_index(shard_key)
+            source.admin.command("shardCollection", namespace, key={shard_key: 1})
+            source.admin.command("split", namespace, middle={shard_key: Int64(300)})
+            source.admin.command("moveChunk", namespace, find={shard_key: Int64(ROWS - 1)}, to=shards[1],
                                  _waitForDelete=True)
     for name in ["compound_wildcard_records", "wildcard_only_records"]:
         database[name].with_options(write_concern=WriteConcern("majority")).insert_many([
             {"_id": Int64(index), "seq": Int64(index), "split_key": Int64(index), "payload": {"value": index}}
             for index in range(ROWS)])
-        # The invalid sampling hint must appear before the ordinary B-tree in listIndexes.
+        # Put an incomplete wildcard index before the qualifying ordinary B-tree in metadata.
         database[name].create_index([("split_key", 1), ("payload.$**", 1)], name="compound_wildcard")
         if name == "compound_wildcard_records":
             database[name].create_index([("split_key", 1), ("suffix", 1)], name="regular_split")
@@ -196,19 +230,29 @@ def profile(token):
 def source_at(source, name, timestamp):
     documents = []
     with source.start_session(causal_consistency=False) as session:
+        # Raw command replies do not inherit the client's datetime codec. Preserve extreme
+        # BSON Date _id milliseconds in the independent oracle instead of decoding as datetime.
         reply = source[DATABASE].command({"find": name, "filter": {}, "batchSize": 64,
                                          "readConcern": {"level": "snapshot", "atClusterTime": timestamp}},
-                                        session=session)
+                                        session=session, codec_options=source.codec_options)
         try:
             documents.extend(reply["cursor"]["firstBatch"])
             while reply["cursor"]["id"]:
                 reply = source[DATABASE].command({"getMore": reply["cursor"]["id"], "collection": name,
-                                                 "batchSize": 64}, session=session)
+                                                 "batchSize": 64}, session=session, codec_options=source.codec_options)
                 documents.extend(reply["cursor"]["nextBatch"])
         finally:
             if reply["cursor"]["id"]:
                 source[DATABASE].command({"killCursors": name, "cursors": [reply["cursor"]["id"]]}, session=session)
     return documents
+
+
+def assert_sample_command(command):
+    stages = command["pipeline"]
+    assert list(stages[0]) == ["$sample"] and 0 < stages[0]["$sample"]["size"] <= 4096
+    assert "$project" in stages[1] and stages[2] == {"$group": {"_id": None, "values": {"$push": "$value"}}}
+    assert command["cursor"]["batchSize"] == 2 and "hint" not in command
+    assert 0 < command.get("maxTimeMS", 0) <= 2000, "The source probe needs a bounded execution time"
 
 
 def coverage_commands(source, catalog):
@@ -229,15 +273,15 @@ def coverage_commands(source, catalog):
         for entry in database["system.profile"].find({"appName": APPLICATION}):
             command = entry.get("originatingCommand", entry.get("command", {}))
             partition = command.get("filter", {})
-            if command.get("find") == "integer_records" and "value" in command.get("projection", {}):
+            if command.get("aggregate") == "integer_records":
                 assert command["readConcern"]["atClusterTime"] == timestamp
-                assert command.get("singleBatch") is True, "A snapshot sample must leave no remote cursor"
+                assert_sample_command(command)
                 sampled_at_pin = True
             if command.get("find") == "integer_records" and partition:
                 key = repr(partition)
                 commands[key] = command
         assert sampled_at_pin, "FE sampling did not use the native partitions' pinned timestamp"
-        assert len(commands) == 8, "The source did not observe all eight unique frozen partition predicates"
+        assert 2 <= len(commands) <= 8, "The source did not observe the bounded frozen range plan"
         occurrences = Counter()
         for command in commands.values():
             assert command["readConcern"]["atClusterTime"] == timestamp
@@ -252,6 +296,44 @@ def coverage_commands(source, catalog):
     finally:
         database.command("profile", 0)
     print("PASS: source commands use one T and every source document matches exactly one frozen partition", flush=True)
+
+
+def id_coverage_commands(source, catalog):
+    database = source[DATABASE]
+    for name in ["integer_records", "mixed_id_records", "date_id_records"]:
+        database.command("profile", 0)
+        database["system.profile"].drop()
+        database.command("profile", 2)
+        token = "mongodb_id_coverage_" + uuid.uuid4().hex
+        try:
+            statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,"
+                         "batch_size=16,enable_profile=true,profile_level=2) */ /* " + token + " */ seq FROM "
+                         + catalog + "." + DATABASE + "." + name + " ORDER BY seq")
+            assert snapshot_checks.sql(statement) == tuple((index,) for index in range(ROWS))
+            timestamp, text = profile(token)
+            actual = max(map(int, re.findall(r"MongoSplitActual:\s*(\d+)", text)))
+            entries = list(database["system.profile"].find({"appName": APPLICATION}))
+            samples = [entry for entry in entries if entry.get("command", {}).get("aggregate") == name]
+            assert len(samples) == 1 and samples[0]["command"]["readConcern"]["atClusterTime"] == timestamp
+            assert_sample_command(samples[0]["command"])
+            reads = []
+            filters = set()
+            for entry in entries:
+                command = entry.get("originatingCommand", entry.get("command", {}))
+                if command.get("find") != name or not command.get("filter"):
+                    continue
+                assert command["readConcern"]["atClusterTime"] == timestamp
+                predicate = command["filter"]
+                assert "$expr" in predicate and "$type" not in repr(predicate) and "$not" not in repr(predicate)
+                filters.add(repr(predicate))
+                reads.append(entry)
+            assert len(filters) == actual and 2 <= actual <= 8
+            assert sum(entry.get("nreturned", 0) for entry in reads) == ROWS
+            assert sum(entry.get("docsExamined", 0) for entry in reads) == ROWS, "An extra full complement scan remains"
+            assert not any(entry.get("originatingCommand", {}).get("aggregate") == name for entry in entries)
+        finally:
+            database.command("profile", 0)
+    print("PASS: _id ranges read each BSON family once with one data pass and no sample getMore", flush=True)
 
 
 def matrix(catalog):
@@ -282,7 +364,8 @@ def matrix(catalog):
     with ThreadPoolExecutor(max_workers=5) as executor:
         comparisons = sum(executor.map(compare_table, [
             ("integer_records", "split_key"), ("date_records", "split_key"), ("oid_records", "_id"),
-            ("duplicate_records", "split_key"), ("empty_records", "split_key")]))
+            ("duplicate_records", "split_key"), ("empty_records", "split_key"),
+            ("mixed_id_records", "_id"), ("date_id_records", "_id")]))
     print(f"PASS: {comparisons} complete row-multiset comparisons including DATETIME(0..6), Decimal precision/scale, "
           "timezones, missing/null/arrays/other families, duplicate boundaries and residual filters", flush=True)
 
@@ -420,7 +503,7 @@ def cursors_closed(sources):
 
 
 def range_fault_cases(source, catalog):
-    # The bounded FE sample uses singleBatch, so every getMore belongs to a native partition.
+    # The FE sample returns one exhausted aggregate reply; every getMore is a native partition.
     statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,"
                  "batch_size=8) */ sum(seq) FROM " + catalog + "."
                  + DATABASE + ".integer_records")
@@ -440,7 +523,7 @@ def range_fault_cases(source, catalog):
         full_reads = [entry for entry in database["system.profile"].find({"appName": APPLICATION})
                       if entry.get("command", {}).get("find") == "integer_records"
                       and not entry["command"].get("filter")]
-        assert len(full_reads) == 2, "A failed published range plan reselected T or performed a full rescan"
+        assert len(full_reads) == 1, "A failed published range plan reselected T or performed a full rescan"
         cursors_closed([source])
         assert snapshot_checks.sql(statement) == expected
     print("PASS: published range getMore command/history failures abort without full rescan and recover cleanly", flush=True)
@@ -516,7 +599,7 @@ def planning_regressions(source, catalog):
         assert snapshot_checks.sql(statement) == ((2, 3),)
     print("PASS: normal large predicates are admitted after early properties in sync and streaming plans", flush=True)
 
-    # Cancel the single-batch sample after timestamp selection. The synchronous request has no
+    # Cancel the exhausted-reply sample after timestamp selection. The synchronous request has no
     # registered ConnectorScanContext, so it must observe the query task-group lifetime too.
     for streaming in [False, True]:
         database = source[DATABASE]
@@ -525,8 +608,8 @@ def planning_regressions(source, catalog):
         database.command("profile", 2)
         # Stay below the probe's lifetime deadline so this isolates query cancellation
         # from a socket timeout while the artificial server delay is active.
-        entered = snapshot_checks.failpoint(source, {"failCommands": ["find"], "blockConnection": True,
-                                                     "blockTimeMS": 400, "appName": APPLICATION}, {"skip": 1})
+        entered = snapshot_checks.failpoint(source, {"failCommands": ["aggregate"], "blockConnection": True,
+                                                     "blockTimeMS": 400, "appName": APPLICATION})
         try:
             with snapshot_checks.connect() as connection, ThreadPoolExecutor(max_workers=1) as executor:
                 connection_id = snapshot_checks.sql("SELECT connection_id()", connection)[0][0]
@@ -541,8 +624,7 @@ def planning_regressions(source, catalog):
             # Streaming cancellation can return before its producer finishes the blocked command.
             # Wait for that command's profile record before asserting its wire/cleanup contract.
             deadline = time.monotonic() + 10
-            sample_filter = {"appName": APPLICATION, "command.find": "integer_records",
-                             "command.projection.value": {"$exists": True}}
+            sample_filter = {"appName": APPLICATION, "command.aggregate": "integer_records"}
             while not database["system.profile"].find_one(sample_filter):
                 assert time.monotonic() < deadline, "The cancelled sample did not finish"
                 time.sleep(0.05)
@@ -551,9 +633,10 @@ def planning_regressions(source, catalog):
             database.command("profile", 0)
         sampled_getmores = [entry for entry in database["system.profile"].find({"appName": APPLICATION})
                            if entry.get("command", {}).get("getMore")
-                           and entry.get("originatingCommand", {}).get("projection", {}).get("value")]
+                           and entry.get("originatingCommand", {}).get("aggregate") == "integer_records"]
         samples = list(database["system.profile"].find(sample_filter))
-        assert len(samples) == 1 and samples[0]["command"].get("singleBatch") is True
+        assert len(samples) == 1
+        assert_sample_command(samples[0]["command"])
         assert not sampled_getmores, "The cancelled FE probe advanced to another sample batch"
         cursors_closed([source])
     print("PASS: KILL during the FE sample stops sync/streaming probes without getMore or retained cursors", flush=True)
@@ -631,7 +714,9 @@ def main():
         parser.error("--iterations must be positive")
     path = Path(args.fixture_state)
     state = json.loads(path.read_text())
-    sources = [pymongo.MongoClient(uri, appname="split-fixture-controller", retryReads=False)
+    # Profiler predicates can contain extreme BSON Date bounds outside Python datetime's range.
+    sources = [pymongo.MongoClient(uri, appname="split-fixture-controller", retryReads=False,
+                                  datetime_conversion=DatetimeConversion.DATETIME_AUTO)
                for uri in [state["replica_uri"], state["router_uris"][0]]]
     try:
         readers = []
@@ -657,10 +742,20 @@ def main():
                 create_catalog(alternate_catalog, readers[2])
             if index == 0:
                 coverage_commands(source, catalog)
+                id_coverage_commands(source, catalog)
             matrix(catalog)
             rejection_cases(catalog)
             precision_oracle(source, catalog)
-            concurrent_oracle(source, catalog, args.iterations, args.require_cross_backend, alternate_catalog)
+            if index == 0:
+                # Hold the sample after T selection while the writer replaces every row. Shrinking
+                # small samples below 5% can stall MongoDB 7's historical MULTI_ITERATOR path.
+                snapshot_checks.failpoint(source, {"failCommands": ["aggregate"], "blockConnection": True,
+                                                   "blockTimeMS": 200, "appName": APPLICATION}, "alwaysOn")
+            try:
+                concurrent_oracle(source, catalog, args.iterations, args.require_cross_backend, alternate_catalog)
+            finally:
+                if index == 0:
+                    snapshot_checks.off(source)
         if not args.oracle_only:
             planning_regressions(sources[0], args.catalog_prefix + "_rs")
             worker_pool_case(readers[0], args.catalog_prefix + "_worker")

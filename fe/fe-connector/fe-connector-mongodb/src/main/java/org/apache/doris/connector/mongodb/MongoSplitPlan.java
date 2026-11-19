@@ -88,16 +88,21 @@ final class MongoSplitPlan {
         Comparator<BsonValue> comparator = comparator(family);
         values.sort(comparator);
         List<BsonValue> boundaries = new ArrayList<>();
-        // A validator or a homogeneous sample cannot prove historical rows scalar/homogeneous.
-        // Reserve one complement even for _id: e.g. integer 5 and string "5" are distinct source keys.
-        int ranges = admitted - 1;
+        // _id always exists and cannot be an array. Expression comparisons span the complete BSON
+        // order, including unsampled types; ordinary query comparisons instead bracket by type.
+        // Custom fields can be missing or multikey, so retain their typed ranges and complement.
+        boolean wholeId = "_id".equals(field);
+        int ranges = wholeId ? admitted : admitted - 1;
         for (int j = 1; j < ranges; j++) {
             BsonValue value = values.get((int) ((long) j * values.size() / ranges));
             if (comparator.compare(value, values.get(0)) > 0
-                    && comparator.compare(value, values.get(values.size() - 1)) < 0
+                    && (wholeId || comparator.compare(value, values.get(values.size() - 1)) < 0)
                     && (boundaries.isEmpty() || comparator.compare(value, boundaries.get(boundaries.size() - 1)) > 0)) {
                 boundaries.add(value);
             }
+        }
+        if (wholeId && boundaries.isEmpty()) {
+            return single(requested, admitted, "insufficient_boundaries");
         }
         var types = "integer".equals(family) ? List.of("int", "long") : List.of(family);
         var eligibility = new BsonDocument("$in", new BsonArray(List.of(
@@ -105,6 +110,20 @@ final class MongoSplitPlan {
                 new BsonArray(types.stream().map(BsonString::new).toList()))));
         List<BsonDocument> partitions = new ArrayList<>();
         for (int i = 0; i <= boundaries.size(); i++) {
+            if (wholeId) {
+                List<BsonValue> comparisons = new ArrayList<>();
+                if (i > 0) {
+                    comparisons.add(new BsonDocument("$gte", new BsonArray(List.of(
+                            new BsonString("$_id"), boundaries.get(i - 1)))));
+                }
+                if (i < boundaries.size()) {
+                    comparisons.add(new BsonDocument("$lt", new BsonArray(List.of(
+                            new BsonString("$_id"), boundaries.get(i)))));
+                }
+                partitions.add(new BsonDocument("$expr", comparisons.size() == 1 ? comparisons.get(0)
+                        : new BsonDocument("$and", new BsonArray(comparisons))));
+                continue;
+            }
             BsonDocument bounds = new BsonDocument();
             if (i > 0) {
                 bounds.put("$gte", boundaries.get(i - 1));
@@ -119,7 +138,9 @@ final class MongoSplitPlan {
             partitions.add(new BsonDocument("$and", new BsonArray(List.of(
                     new BsonDocument("$expr", eligibility), interval))));
         }
-        partitions.add(new BsonDocument("$expr", new BsonDocument("$not", new BsonArray(List.of(eligibility)))));
+        if (!wholeId) {
+            partitions.add(new BsonDocument("$expr", new BsonDocument("$not", new BsonArray(List.of(eligibility)))));
+        }
         return new MongoSplitPlan(field, family, requested, admitted, "range", partitions);
     }
 
