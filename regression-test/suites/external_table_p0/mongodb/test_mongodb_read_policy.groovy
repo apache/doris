@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_mongodb_read_policy", "p0,external") {
-    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableMongoDBTest"))) {
+    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableMongoDBNativeTest"))) {
         return
     }
     String host = context.config.otherConfigs.get("externalEnvIp")

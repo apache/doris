@@ -348,9 +348,11 @@ FE unit tests reside in this module, BSON SerDe unit tests in
 in `be/test/format_v2/table/mongodb_reader_test.cpp`. The regression suites
 `external_table_p0/mongodb/test_mongodb_native.groovy` and
 `external_table_p0/mongodb/test_mongodb_read_policy.groovy` use the disposable MongoDB
-fixture under `docker/thirdparties/docker-compose/mongodb/`, enabled with
-`enableMongoDBTest`, `externalEnvIp`, `mongodb_port`, `mongodb_user`, and
-`mongodb_password` regression settings.
+fixture under `docker/thirdparties/docker-compose/mongodb/`, with
+`enableMongoDBNativeTest` enabled by default in the common and External CI
+configurations. `externalEnvIp`, `mongodb_port`, `mongodb_user`, and
+`mongodb_password` select the fixture. The separate `enableMongoDBTest` setting
+controls the optional Trino MongoDB suites and is not required for native reads.
 
 The M1 suite `test_mongodb_m1` uses `03-m1-fixtures.js` and compares predicate,
 LIKE and projection switches on/off over large integers, decimals, UTC dates,

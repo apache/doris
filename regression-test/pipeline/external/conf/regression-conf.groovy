@@ -210,6 +210,13 @@ db2_11_port=50000
 // trino-connector catalog test config
 enableTrinoConnectorTest = true
 
+// The external pipeline starts the MongoDB fixture; native suites must execute by default.
+// Keep this independent of the optional, separately installed Trino MongoDB plugin.
+enableMongoDBNativeTest = true
+mongodb_port = 27017
+mongodb_user = "mongodb_test"
+mongodb_password = "mongodb_test"
+
 // kerberos docker config
 enableKerberosTest = true
 kerberosHmsPort=9883

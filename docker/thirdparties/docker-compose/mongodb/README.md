@@ -1,6 +1,6 @@
 # MongoDB regression fixture
 
-This optional standalone MongoDB 8.0.20 service supplies deterministic BSON data for the native MongoDB Catalog and the embedded Trino 435 MongoDB connector. Start it with:
+This standalone MongoDB 8.0.20 service supplies deterministic BSON data for the native MongoDB Catalog and the embedded Trino 435 MongoDB connector. External CI starts it through the `all` component set. For local tests, start it with:
 
 ```bash
 CONTAINER_UID=doris-mongodb-test- bash docker/thirdparties/run-thirdparties-docker.sh -c mongodb
@@ -62,11 +62,25 @@ a time-series collection with duplicate timestamps, BSON special values, malform
 historical values, and a reader granted `find` only on the view. These tests use
 the native FE plugin and C++ reader and need no Trino plugin installation.
 
-Use the same regression configuration above, then run:
+Configure the fixture host, port, and credentials as above, then run:
 
 ```bash
 bash run-regression-test.sh --run -d external_table_p0/mongodb
 ```
+
+The common regression configuration and the External CI configuration default
+`enableMongoDBNativeTest` to `true`. This runs `test_mongodb_native`,
+`test_mongodb_native_acceptance`, `test_mongodb_m1`, and `test_mongodb_read_policy`,
+including ordinary collections, standard views, and logical time-series reads.
+They use the fixture host, port, and credentials above, but do not require
+`enableMongoDBTest` or the Trino plugin. A missing or unready fixture fails these
+enabled suites. Local runs without MongoDB can explicitly set
+`enableMongoDBNativeTest = false` in the custom configuration.
+
+The separate `enableMongoDBTest` switch still opts into the five Trino MongoDB
+suites. The snapshot, split, and read-parameter matrices retain their separate
+switches and authenticated replica-set/mongos fixtures described below; the
+standalone CI fixture does not supply those topologies.
 
 The suite covers auto/explicit/document schemas, exact ObjectId and int64 values,
 Decimal128 scales, UTC dates, binary subtypes, nested arrays/structs, canonical
