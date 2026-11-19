@@ -128,6 +128,11 @@ public class IcebergScanRange implements ConnectorScanRange {
     private final Long positionDeleteContentOffset;
     private final Long positionDeleteContentSizeInBytes;
 
+    @Override
+    public boolean supportsBeSplitRefinement() {
+        return serializedSplit == null && !positionDeleteSystemTableSplit && deleteFiles.isEmpty();
+    }
+
     private IcebergScanRange(Builder builder) {
         this.path = builder.path;
         // Default the raw original path to the (possibly already-raw) path when a caller does not split them

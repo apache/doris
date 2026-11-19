@@ -74,7 +74,8 @@ public:
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
         ++_counters->next_batch;
-        const size_t rows = std::min(*n, _source->size() - _ordinal);
+        // size_t and ordinal_t are distinct 64-bit integer types on macOS.
+        const size_t rows = std::min<size_t>(*n, _source->size() - _ordinal);
         if (_ordinal == 0 && rows == _source->size()) {
             // Preserve deliberately invalid offsets in corruption tests.
             dst = std::move(_source);

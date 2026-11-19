@@ -42,7 +42,7 @@
 #include "common/logging.h"
 #include "common/thread_name.h"
 #include "common/util.h"
-#include "cpp/token_bucket_rate_limiter.h"
+#include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
@@ -611,8 +611,8 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
     // Auth
     const auto* token = cntl->http_request().uri().GetQuery("token");
     if (token == nullptr || *token != config::http_token) {
-        std::string msg = "incorrect token, token=" +
-                          (token == nullptr ? std::string("(not given)") : *token);
+        std::string msg =
+                token == nullptr ? "incorrect token, token=(not given)" : "incorrect token";
         cntl->http_response().set_status_code(403);
         cntl->response_attachment().append(msg);
         cntl->response_attachment().append("\n");

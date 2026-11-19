@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 34 adds path partition keys after the upstream API 33 endpoint-composition changes.
-        Assertions.assertEquals("34.0", version.getProperty("api.version"));
+        // Major 35 adds coarse-split targets and BE refinement after API 34 path partition keys.
+        Assertions.assertEquals("35.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

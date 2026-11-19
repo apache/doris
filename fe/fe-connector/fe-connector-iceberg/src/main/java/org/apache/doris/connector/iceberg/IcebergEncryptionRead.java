@@ -33,6 +33,26 @@ final class IcebergEncryptionRead {
     private IcebergEncryptionRead() {
     }
 
+    static boolean isEncrypted(Table table) {
+        if (hasEncryptionMetadata(table)) {
+            return true;
+        }
+        EncryptionManager manager = table.encryption();
+        return manager != null && !(manager instanceof PlaintextEncryptionManager);
+    }
+
+    private static boolean hasEncryptionMetadata(Table table) {
+        TableMetadata metadata = table instanceof HasTableOperations
+                ? ((HasTableOperations) table).operations().current() : null;
+        return table.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
+                || hasEncryptionMetadata(metadata);
+    }
+
+    static boolean hasEncryptionMetadata(TableMetadata metadata) {
+        return metadata != null && (metadata.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
+                || !metadata.encryptionKeys().isEmpty());
+    }
+
     static void check(Table table, IcebergCatalogProperties catalog, ConnectorContext context) {
         TableMetadata metadata = table instanceof HasTableOperations
                 ? ((HasTableOperations) table).operations().current() : null;
