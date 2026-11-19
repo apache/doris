@@ -172,6 +172,33 @@ public class PluginDrivenScanNodeBeSplitTest {
     }
 
     @Test
+    public void synchronousSmallFileIsSubdividedWithOneByteBeTarget() throws Exception {
+        SessionVariable variables = new SessionVariable();
+        variables.enableFileCache = false;
+        variables.enableExternalTableBatchMode = false;
+        variables.setFileSplitSizeOnBe(1);
+        try (Fixture fixture = new Fixture(variables)) {
+            fixture.ranges = request -> fileRanges(request, 256 * MB, 101);
+            List<TFileRangeDesc> files = new ArrayList<>();
+            for (TScanRangeLocations location : placeOnBackends(fixture, variables, 2)) {
+                files.addAll(location.getScanRange().getExtScanRange().getFileScanRange().getRanges());
+            }
+            files.sort(Comparator.comparingLong(TFileRangeDesc::getStartOffset));
+            Assertions.assertEquals(2, files.size());
+            Assertions.assertEquals(0, files.get(0).getStartOffset());
+            Assertions.assertEquals(50, files.get(0).getSize());
+            Assertions.assertEquals(50, files.get(1).getStartOffset());
+            Assertions.assertEquals(51, files.get(1).getSize());
+            for (TFileRangeDesc file : files) {
+                Assertions.assertEquals(101, file.getFileSize());
+                Assertions.assertEquals(1, file.getTargetSplitSize());
+                Assertions.assertEquals(List.of("p"), file.getColumnsFromPathKeys());
+                Assertions.assertEquals(List.of("7"), file.getColumnsFromPath());
+            }
+        }
+    }
+
+    @Test
     public void backendPlacementKeepsAmplePlansCoarseAndBoundsSmallPlans() throws Exception {
         // backend count, file size in MiB, file count, max split count, resulting FE range count
         for (int[] scenario : new int[][] {{2, 400, 3, 100000, 3}, {1, 400, 1, 100000, 1},

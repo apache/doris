@@ -2442,6 +2442,65 @@ TEST_F(NewParquetReaderTest, PositiveRowRootOnlyFileKeepsInitializedReaderForCou
     EXPECT_EQ(total_rows, ROW_COUNT);
 }
 
+TEST_F(NewParquetReaderTest, RootOnlyPartitionProjectionSurvivesFeSubdivision) {
+    write_parquet_file(_file_path, 2);
+    rewrite_as_root_only_parquet_file(_file_path);
+    const auto file_size = static_cast<int64_t>(std::filesystem::file_size(_file_path));
+    const int64_t half = file_size / 2;
+
+    format::ColumnDefinition partition_column;
+    partition_column.identifier = Field::create_field<TYPE_STRING>("p");
+    partition_column.name = "p";
+    partition_column.type = make_nullable(std::make_shared<DataTypeInt32>());
+    partition_column.is_partition_key = true;
+    const std::vector<format::ColumnDefinition> projected_columns {partition_column};
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    size_t total_rows = 0;
+    // Compare a full-file control with FileQueryScanNode's two adjacent ranges.
+    const std::vector<std::pair<int64_t, int64_t>> ranges {
+            {0, file_size}, {0, half}, {half, file_size - half}};
+    for (const auto& [start, length] : ranges) {
+        SCOPED_TRACE(testing::Message() << "range [" << start << ", " << start + length << ")");
+        format::TableReader reader;
+        ASSERT_TRUE(reader.init({.projected_columns = projected_columns,
+                                 .conjuncts = {},
+                                 .format = format::FileFormat::PARQUET,
+                                 .scan_params = nullptr,
+                                 .io_ctx = nullptr,
+                                 .runtime_state = &state,
+                                 .scanner_profile = nullptr})
+                            .ok());
+        format::SplitReadOptions split;
+        split.current_range.__set_path(_file_path);
+        split.current_range.__set_file_size(file_size);
+        split.current_range.__set_start_offset(start);
+        split.current_range.__set_size(length);
+        split.current_range.__set_target_split_size(1);
+        split.partition_values.emplace("p", Field::create_field<TYPE_INT>(7));
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+
+        size_t range_rows = 0;
+        bool eos = false;
+        Block block;
+        block.insert({partition_column.type->create_column(), partition_column.type, "p"});
+        while (!eos) {
+            const auto status = reader.get_block(&block, &eos);
+            ASSERT_TRUE(status.ok()) << status;
+            const auto& values = nullable_nested_column<ColumnInt32>(block, 0);
+            for (size_t row = 0; row < block.rows(); ++row) {
+                EXPECT_EQ(values.get_element(row), 7);
+            }
+            range_rows += block.rows();
+        }
+        EXPECT_EQ(range_rows, start == 0 ? ROW_COUNT : 0);
+        if (length != file_size) {
+            total_rows += range_rows;
+        }
+        ASSERT_TRUE(reader.close().ok());
+    }
+    EXPECT_EQ(total_rows, ROW_COUNT);
+}
+
 TEST_F(NewParquetReaderTest, InMemoryStagedFilesDeclinePhysicalSplitRefinement) {
     write_parquet_file(_file_path, 2);
     auto parquet_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);

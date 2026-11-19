@@ -720,7 +720,12 @@ Status select_native_row_groups_by_scan_range(const tparquet::FileMetaData& meta
     for (size_t row_group_idx = 0; row_group_idx < metadata.row_groups.size(); ++row_group_idx) {
         const auto& row_group = metadata.row_groups[row_group_idx];
         bool selected = full_file_range;
-        if (!full_file_range) {
+        // A root-only file has rows but no physical midpoint. If FE splits [0, 100) into
+        // [0, 50) and [50, 100), only the first nonempty range may own those rows.
+        if (!full_file_range && row_group.columns.empty() && metadata.schema.size() == 1 &&
+            metadata.schema[0].num_children == 0) {
+            selected = range_start == 0 && range_end > 0;
+        } else if (!full_file_range) {
             if (row_group.columns.empty()) {
                 return Status::Corruption("Parquet row group {} has no column chunks",
                                           row_group_idx);
