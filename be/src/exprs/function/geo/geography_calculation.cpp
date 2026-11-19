@@ -321,7 +321,7 @@ static thread_local size_t geography_polygon_admission_checks = 0;
 
 // Test coplanarity of the original degree ordinates, not independently rounded S2 vectors.
 // For example (45,-45), (90,0), (135,45) share an arc although ToPoint's determinant is nonzero.
-// Keep this exact cancellation proof together during the behavior-preserving module extraction.
+// Keep the dyadic conversion and polynomial reduction together for the exact-zero proof.
 // NOLINTNEXTLINE(readability-function-size)
 static bool geography_common_great_circle(const GeoCoordinate& a, const GeoCoordinate& b,
                                           const GeoCoordinate& c) {
@@ -330,27 +330,22 @@ static bool geography_common_great_circle(const GeoCoordinate& a, const GeoCoord
 #endif
     using boost::multiprecision::cpp_int;
     const std::array<double, 6> ordinates {a.y, a.x, b.y, b.x, c.y, c.x};
-    std::array<uint64_t, 6> significands;
-    std::array<int, 6> exponents;
+    constexpr int significand_bits = std::numeric_limits<double>::digits;
+    std::array<uint64_t, 6> significands {};
+    std::array<int, 6> exponents {};
     int denominator_bits = 0;
     for (size_t i = 0; i < ordinates.size(); ++i) {
-        const auto bits = std::bit_cast<uint64_t>(ordinates[i]);
-        const int biased = (bits >> 52) & 0x7ff;
-        uint64_t significand = bits & ((uint64_t {1} << 52) - 1);
-        int exponent = biased ? biased - 1075 : -1074;
-        if (biased) {
-            significand |= uint64_t {1} << 52;
+        if (ordinates[i] == 0) {
+            continue;
         }
-        if (significand != 0) {
-            const int zeros = std::countr_zero(significand);
-            significand >>= zeros;
-            exponent += zeros;
-            denominator_bits = std::max(denominator_bits, -exponent);
-        } else {
-            exponent = 0;
-        }
-        significands[i] = significand;
-        exponents[i] = exponent;
+        int exponent;
+        const double fraction = std::frexp(std::abs(ordinates[i]), &exponent);
+        // Recover the exact integer significand, including for subnormal ordinates.
+        const auto significand = static_cast<uint64_t>(std::ldexp(fraction, significand_bits));
+        const int trailing_zeros = std::countr_zero(significand);
+        significands[i] = significand >> trailing_zeros;
+        exponents[i] = exponent - significand_bits + trailing_zeros;
+        denominator_bits = std::max(denominator_bits, -exponents[i]);
     }
     std::array<cpp_int, 6> angles;
     for (size_t i = 0; i < angles.size(); ++i) {
@@ -359,12 +354,12 @@ static bool geography_common_great_circle(const GeoCoordinate& a, const GeoCoord
             angles[i] = -angles[i];
         }
     }
-    // Binary-rational degrees have denominator 2^q. Exp(i*angle) is a power of a
-    // root of unity of order 360*2^q. Its minimal polynomial is Phi_90(t), with
-    // t = z^(2^(q+2)), and Phi_90(t) = t^24+t^21-t^15-t^12-t^9+t^3+1.
+    // For degree denominator 2^q, let z be the primitive root of order 360*2^q
+    // and D = 2^(q+2). The minimal polynomial of z is Phi_90(X^D).
     // Expand cos(lat_i)cos(lat_j)sin(lat_k)sin(lon_j-lon_i), cyclically, into
-    // 48 integer-coefficient powers. Equal residues modulo 2^(q+2) share one
-    // polynomial; reduction by Phi_90 proves zero exactly, including tiny nonzero controls.
+    // 48 integer-coefficient powers of z. Group the powers by residue modulo D
+    // and reduce each group by Phi_90. The remainders occupy distinct exponent
+    // residues in X, so they must vanish independently for the determinant to be zero.
     const int shift = denominator_bits + 2;
     const cpp_int basis = cpp_int(1) << shift;
     const cpp_int period = 90 * basis;
@@ -389,16 +384,17 @@ static bool geography_common_great_circle(const GeoCoordinate& a, const GeoCoord
             polynomials[residue][quotient] += signs[2] * signs[3];
         }
     }
+    // Phi_90 is monic. Its lower terms are listed as (degree, coefficient).
+    constexpr int phi90_degree = 24;
+    static constexpr std::array<std::pair<int, int>, 6> phi90_lower_terms {
+            {{21, 1}, {15, -1}, {12, -1}, {9, -1}, {3, 1}, {0, 1}}};
     for (auto& [residue, coefficients] : polynomials) {
-        for (int i = 89; i >= 24; --i) {
+        for (int i = 89; i >= phi90_degree; --i) {
             const int coefficient = coefficients[i];
             coefficients[i] = 0;
-            coefficients[i - 3] -= coefficient;
-            coefficients[i - 9] += coefficient;
-            coefficients[i - 12] += coefficient;
-            coefficients[i - 15] += coefficient;
-            coefficients[i - 21] -= coefficient;
-            coefficients[i - 24] -= coefficient;
+            for (const auto& [degree, factor] : phi90_lower_terms) {
+                coefficients[i - phi90_degree + degree] -= coefficient * factor;
+            }
         }
         if (std::ranges::any_of(coefficients, [](int value) { return value != 0; })) {
             return false;
