@@ -61,6 +61,17 @@ class MongoDriverCatalogClientTest {
         }
     }
 
+    @Test
+    void splitProbesRejectWildcardComponentsAfterAnOrdinaryPrefix() {
+        for (int direction : List.of(1, -1)) {
+            for (String wildcard : List.of("$**", "payload.$**", "payload.nested.$**")) {
+                var keys = new Document("sequence", direction).append(wildcard, 1).append("tail", -1);
+                Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", keys),
+                        "sequence"), keys.toJson());
+            }
+        }
+    }
+
     private static final class RecordingDriver {
         final List<Document> commands = new ArrayList<>();
         int clientCloses;

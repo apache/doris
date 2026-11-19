@@ -61,6 +61,8 @@ def schema():
                              f"DECIMAL({precision},{scale})", ["decimal"], ["amount"]))
     manifest = {DATABASE + "." + name: {"columns": columns}
                 for name in COLLECTIONS + ["record_view", "measurements"]}
+    for name in ["compound_wildcard_records", "wildcard_only_records"]:
+        manifest[DATABASE + "." + name] = {"columns": [field("seq", "BIGINT", ["long"])]}
     manifest[DATABASE + ".pool_records"] = {"columns": [field("seq", "BIGINT", ["long"])]}
     manifest[DATABASE + ".predicate_records"] = {"columns": [
         field("seq", "BIGINT", ["long"]), field("text", "STRING", ["string"])]}
@@ -119,6 +121,14 @@ def initialize(source, shards=None):
             source.admin.command("split", namespace, middle={"_id": Int64(300)})
             source.admin.command("moveChunk", namespace, find={"_id": Int64(ROWS - 1)}, to=shards[1],
                                  _waitForDelete=True)
+    for name in ["compound_wildcard_records", "wildcard_only_records"]:
+        database[name].with_options(write_concern=WriteConcern("majority")).insert_many([
+            {"_id": Int64(index), "seq": Int64(index), "split_key": Int64(index), "payload": {"value": index}}
+            for index in range(ROWS)])
+        # The invalid sampling hint must appear before the ordinary B-tree in listIndexes.
+        database[name].create_index([("split_key", 1), ("payload.$**", 1)], name="compound_wildcard")
+        if name == "compound_wildcard_records":
+            database[name].create_index([("split_key", 1), ("suffix", 1)], name="regular_split")
     database.pool_records.insert_many([{"_id": Int64(index), "seq": Int64(index)}
                                        for index in range(POOL_ROWS)])
     database.predicate_records.insert_many([

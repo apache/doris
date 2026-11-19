@@ -284,6 +284,12 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
                 || Boolean.TRUE.equals(index.getBoolean("hidden")) || index.containsKey("buildUUID")) {
             return false;
         }
+        // A numeric prefix can precede a wildcard: {sequence:1,"payload.$**":1} cannot
+        // serve our empty-filter hinted sample. Wildcard sparsity need not be explicit,
+        // so reject wildcard components anywhere in the pattern before choosing the hint.
+        if (keys.keySet().stream().anyMatch(key -> "$**".equals(key) || key.endsWith(".$**"))) {
+            return false;
+        }
         Document collation = index.get("collation", Document.class);
         return collation == null || "simple".equals(collation.getString("locale"));
     }

@@ -40,6 +40,18 @@
 -- !large_final_predicate --
 2	3
 
+-- !wildcard_regular_false --
+601	180300
+
+-- !wildcard_auto_false --
+601	180300
+
+-- !wildcard_regular_true --
+601	180300
+
+-- !wildcard_auto_true --
+601	180300
+
 -- !statement_restored --
 single	0
 
