@@ -39,11 +39,13 @@
 #include "core/field.h"
 #include "core/string_buffer.hpp"
 #include "core/value/bitmap_value.h"
+#include "exprs/aggregate/aggregate_function_avg.h"
 #include "exprs/aggregate/aggregate_function_null_v2.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_combine.h"
 #include "exprs/aggregate/aggregate_function_state_merge.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
+#include "exprs/aggregate/aggregate_function_sum.h"
 #include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/slice.h"
@@ -449,6 +451,60 @@ TEST(NullableAggregationV2Test, NativeUnaryAndStableStateCodecs) {
         check_streaming(make_agg_state_compatible_function(function),
                         {nullable_ints({99, 10, 20, 0, 20, 99}, {1, 0, 0, 1, 0, 1})});
     }
+}
+
+TEST(NullableAggregationV2Test, NativeSumAndAvgStreamingUseOptionalNullMaps) {
+    // Two rows are the minimum needed for one valid value and one NULL in a batch.
+    // Keep nonzero hidden values so a NULL-map dispatch error changes the state.
+    auto input = ColumnInt64::create();
+    input->get_data().assign({7, 13});
+    const IColumn* columns[] = {input.get()};
+    const std::array<UInt8, 2> valid {0, 0};
+    const std::array<UInt8, 2> first_null {1, 0};
+    const std::array<UInt8, 2> second_null {0, 1};
+    const std::array<UInt8, 2> all_null {1, 1};
+    struct Case {
+        const UInt8* null_map;
+        std::array<Int64, 2> sums;
+        std::array<UInt64, 2> counts;
+    };
+    const std::array<Case, 5> cases {
+            {{.null_map = nullptr, .sums = {7, 13}, .counts = {1, 1}},
+             {.null_map = valid.data(), .sums = {7, 13}, .counts = {1, 1}},
+             {.null_map = first_null.data(), .sums = {0, 13}, .counts = {0, 1}},
+             {.null_map = second_null.data(), .sums = {7, 0}, .counts = {1, 0}},
+             {.null_map = all_null.data(), .sums = {0, 0}, .counts = {0, 0}}}};
+    auto check = [&](const auto& function) {
+        SCOPED_TRACE(function.get_name());
+        auto output = function.create_serialize_column();
+        Arena arena;
+        for (const auto& test : cases) {
+            // Populate the same output before each call. Masked rows must clear the
+            // previous value and AVG count; valid rows must have count one.
+            function.streaming_agg_serialize_to_column(columns, output, 2, arena);
+            function.streaming_agg_serialize_to_column_with_null_map(columns, output, 2,
+                                                                     test.null_map);
+            const auto& states = assert_cast<const ColumnFixedLengthObject&>(*output);
+            ASSERT_EQ(states.size(), 2);
+            for (size_t row = 0; row < 2; ++row) {
+                const auto& state = function.data(
+                        reinterpret_cast<ConstAggregateDataPtr>(states.get_data().data()) +
+                        row * states.item_size());
+                EXPECT_EQ(state.sum, test.sums[row]);
+                if constexpr (requires { state.count; }) {
+                    EXPECT_EQ(state.count, test.counts[row]);
+                }
+            }
+            // Both map choices must resize a reused output to zero for an empty batch.
+            function.streaming_agg_serialize_to_column_with_null_map(columns, output, 0,
+                                                                     test.null_map);
+            EXPECT_EQ(output->size(), 0);
+        }
+    };
+    const DataTypes arguments {std::make_shared<DataTypeInt64>()};
+    check(AggregateFunctionSumSimple<TYPE_BIGINT>(arguments));
+    check(AggregateFunctionAvg<TYPE_BIGINT, TYPE_DOUBLE, AggregateFunctionAvgData<TYPE_LARGEINT>>(
+            arguments));
 }
 
 TEST(NullableAggregationV2Test, AllNullNativeSumClearsAReusedOutputState) {
