@@ -573,9 +573,15 @@ public class IcebergCatalogFactoryTest {
 
     @Test
     public void googleRuntimeClassesAreAvailable() {
+        // WHY: iceberg-gcp does not depend on the Google SDK (google-cloud-storage is compileOnly
+        // upstream), so loading GoogleAuthManager/GCSFileIO by name succeeds even when the SDK is
+        // missing and only fails later, at the first GCS call. MUTATION: drop google-cloud-storage
+        // (or its google-auth-library transitive) from the pom -> red.
         ClassLoader loader = IcebergCatalogFactory.class.getClassLoader();
         Assertions.assertDoesNotThrow(() -> Class.forName("org.apache.iceberg.gcp.auth.GoogleAuthManager", false, loader));
         Assertions.assertDoesNotThrow(() -> Class.forName("org.apache.iceberg.gcp.gcs.GCSFileIO", false, loader));
+        Assertions.assertDoesNotThrow(() -> Class.forName("com.google.cloud.storage.StorageOptions", false, loader));
+        Assertions.assertDoesNotThrow(() -> Class.forName("com.google.auth.oauth2.GoogleCredentials", false, loader));
     }
 
     @Test
