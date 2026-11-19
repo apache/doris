@@ -137,8 +137,8 @@ void CastTest::expect_nullable_binary_wkb_to_spatial(PrimitiveType primitive) {
     const auto& result = block.get_by_position(result_column_id);
     ASSERT_TRUE(result.type->equals(*return_type));
     const auto& result_nullable = assert_cast<const ColumnNullable&>(*result.column);
-    const auto& values = assert_cast<const ColumnSpatial&>(result_nullable.get_nested_column());
-    EXPECT_EQ(values.get_primitive_type(), primitive);
+    const auto& values = result_nullable.get_nested_column();
+    ASSERT_TRUE(spatial_type->check_column(values).ok());
     EXPECT_EQ(result_nullable.get_null_map_data()[1], 1);
     EXPECT_EQ(result_nullable.get_null_map_data()[0], 0);
     EXPECT_EQ(result_nullable.get_null_map_data()[2], 0);

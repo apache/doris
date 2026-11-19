@@ -210,9 +210,9 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesSpatialLogicalAnnotations
             DataTypes {geometry_type, geography_type, payload_type});
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
-    auto geometry_values = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto geometry_values = ColumnSpatial<TYPE_GEOMETRY>::create();
     geometry_values->insert_data(wkb.data(), wkb.size());
-    auto geography_values = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    auto geography_values = ColumnSpatial<TYPE_GEOGRAPHY>::create();
     geography_values->insert_data(wkb.data(), wkb.size());
     auto nulls = ColumnUInt8::create();
     nulls->insert_value(0);

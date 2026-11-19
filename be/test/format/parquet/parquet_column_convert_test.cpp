@@ -114,7 +114,8 @@ static void expect_spatial_byte_array(PrimitiveType primitive, bool annotated) {
     const auto status = converter->convert(source, source_type, target_type, destination, false);
     ASSERT_TRUE(status.ok()) << status;
     const auto& result = assert_cast<const ColumnNullable&>(*destination);
-    const auto& values = assert_cast<const ColumnSpatial&>(result.get_nested_column());
+    const auto& values = result.get_nested_column();
+    ASSERT_TRUE(spatial->check_column(values).ok());
     ASSERT_EQ(values.size(), 3);
     ASSERT_EQ(result.get_null_map_data().size(), 3);
     EXPECT_EQ(result.get_null_map_data()[0], 0);

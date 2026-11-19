@@ -74,6 +74,7 @@ static void check_spatial_case_materialization(PrimitiveType primitive, bool nul
         }
     }
     auto result = expr._execute_update_result(selected.data(), branches, selected.size());
+    branches.clear();
     ASSERT_EQ(result->size(), selected.size());
     for (size_t row = 0; row < selected.size(); ++row) {
         const bool is_null = nullable && selected[row] == 2 && (constant || row == 1);

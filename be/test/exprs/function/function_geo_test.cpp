@@ -3143,7 +3143,7 @@ TEST(VGeoFunctionsTest, function_geo_st_as_text_with_spatial_wkb) {
                                     ? std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY)
                                     : std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84",
                                                                         "spherical");
-        auto spatial_column = ColumnSpatial::create(primitive_type);
+        auto spatial_column = spatial_type->create_column();
         spatial_column->insert_data(wkb.data(), wkb.size());
 
         ColumnsWithTypeAndName arguments {{std::move(spatial_column), spatial_type, "spatial"}};
@@ -3210,8 +3210,8 @@ TEST(VGeoFunctionsTest, function_geo_st_distance_rejects_geometry) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
     auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
-    auto left_column = ColumnSpatial::create(TYPE_GEOMETRY);
-    auto right_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto left_column = ColumnSpatial<TYPE_GEOMETRY>::create();
+    auto right_column = ColumnSpatial<TYPE_GEOMETRY>::create();
     left_column->insert_data(wkb.data(), wkb.size());
     right_column->insert_data(wkb.data(), wkb.size());
 
@@ -3237,8 +3237,8 @@ TEST(VGeoFunctionsTest, function_geo_st_distance_accepts_supported_geography) {
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
     auto geography_type =
             std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "ogc:crs84", "spherical");
-    auto left_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
-    auto right_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    auto left_column = ColumnSpatial<TYPE_GEOGRAPHY>::create();
+    auto right_column = ColumnSpatial<TYPE_GEOGRAPHY>::create();
     left_column->insert_data(wkb.data(), wkb.size());
     right_column->insert_data(wkb.data(), wkb.size());
 
@@ -3262,8 +3262,8 @@ TEST(VGeoFunctionsTest, function_geo_st_distance_rejects_unsupported_geography_m
     for (const auto& geography_type : std::vector<DataTypePtr> {
                  std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "EPSG:4326", "spherical"),
                  std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty")}) {
-        auto left_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
-        auto right_column = ColumnSpatial::create(TYPE_GEOGRAPHY);
+        auto left_column = ColumnSpatial<TYPE_GEOGRAPHY>::create();
+        auto right_column = ColumnSpatial<TYPE_GEOGRAPHY>::create();
         left_column->insert_data(wkb.data(), wkb.size());
         right_column->insert_data(wkb.data(), wkb.size());
 
@@ -3289,8 +3289,8 @@ TEST(VGeoFunctionsTest, function_geo_st_contains_rejects_geometry) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
     auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
-    auto left_column = ColumnSpatial::create(TYPE_GEOMETRY);
-    auto right_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto left_column = ColumnSpatial<TYPE_GEOMETRY>::create();
+    auto right_column = ColumnSpatial<TYPE_GEOMETRY>::create();
     left_column->insert_data(wkb.data(), wkb.size());
     right_column->insert_data(wkb.data(), wkb.size());
 
@@ -3313,7 +3313,7 @@ TEST(VGeoFunctionsTest, function_geo_st_contains_rejects_geometry) {
 
 TEST(VGeoFunctionsTest, function_geo_st_astext_rejects_invalid_spatial_wkb) {
     auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
-    auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto geometry_column = ColumnSpatial<TYPE_GEOMETRY>::create();
     geometry_column->insert_data("\x01", 1);
 
     ColumnsWithTypeAndName arguments {{std::move(geometry_column), geometry_type, "geometry"}};
@@ -3340,7 +3340,7 @@ TEST(VGeoFunctionsTest, function_geo_st_astext_rejects_spatial_wkb_with_z) {
             "\x00\x00\x00\x00\x00\x00\x08@",
             29);
     auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
-    auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto geometry_column = ColumnSpatial<TYPE_GEOMETRY>::create();
     geometry_column->insert_data(point_z_wkb.data(), point_z_wkb.size());
 
     ColumnsWithTypeAndName arguments {{std::move(geometry_column), geometry_type, "geometry"}};
@@ -3373,7 +3373,7 @@ TEST(VGeoFunctionsTest, function_geo_st_astext_rejects_spatial_wkb_with_m_or_sri
 
     for (const auto& wkb : unsupported_wkb) {
         auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
-        auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+        auto geometry_column = ColumnSpatial<TYPE_GEOMETRY>::create();
         geometry_column->insert_data(wkb.data(), wkb.size());
 
         ColumnsWithTypeAndName arguments {{std::move(geometry_column), geometry_type, "geometry"}};
@@ -3399,7 +3399,7 @@ TEST(VGeoFunctionsTest, function_geo_point_accessors_with_spatial_wkb) {
     for (const auto& [function_name, expected] :
          std::vector<std::pair<std::string, double>> {{"st_x", 1.0}, {"st_y", 2.0}}) {
         auto geometry_type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
-        auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+        auto geometry_column = ColumnSpatial<TYPE_GEOMETRY>::create();
         geometry_column->insert_data(wkb.data(), wkb.size());
 
         ColumnsWithTypeAndName arguments {{std::move(geometry_column), geometry_type, "geometry"}};
@@ -3428,7 +3428,7 @@ TEST(VGeoFunctionsTest, function_geo_projected_geometry_accessors) {
          std::vector<std::pair<std::string, std::string>> {{"st_astext", "POINT (1000 2000)"},
                                                            {"st_geometrytype", "ST_POINT"},
                                                            {"st_asbinary", wkb}}) {
-        auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+        auto geometry_column = ColumnSpatial<TYPE_GEOMETRY>::create();
         geometry_column->insert_data(wkb.data(), wkb.size());
         ColumnsWithTypeAndName arguments {{std::move(geometry_column), geometry_type, "geometry"}};
         auto result_type = make_nullable(
@@ -3448,7 +3448,7 @@ TEST(VGeoFunctionsTest, function_geo_projected_geometry_accessors) {
 
     for (const auto& [function_name, expected] :
          std::vector<std::pair<std::string, double>> {{"st_x", 1000.0}, {"st_y", 2000.0}}) {
-        auto geometry_column = ColumnSpatial::create(TYPE_GEOMETRY);
+        auto geometry_column = ColumnSpatial<TYPE_GEOMETRY>::create();
         geometry_column->insert_data(wkb.data(), wkb.size());
         ColumnsWithTypeAndName arguments {{std::move(geometry_column), geometry_type, "geometry"}};
         auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
@@ -3530,7 +3530,7 @@ TEST(VGeoFunctionsTest, function_geo_spatial_null_map_overrides_valid_payload) {
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
     auto input_type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
     for (const auto& name : {"st_astext", "st_asbinary", "st_geometrytype", "st_x", "st_y"}) {
-        auto payloads = ColumnSpatial::create(TYPE_GEOMETRY);
+        auto payloads = ColumnSpatial<TYPE_GEOMETRY>::create();
         payloads->insert_data(wkb.data(), wkb.size());
         payloads->insert_data(wkb.data(), wkb.size());
         auto nulls = ColumnUInt8::create();

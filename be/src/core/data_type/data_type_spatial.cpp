@@ -58,20 +58,29 @@ std::string normalize_spatial_algorithm(PrimitiveType type, std::string algorith
     return algorithm;
 }
 
-class SpatialParquetSerDe final : public DataTypeVarbinarySerDeBase<ColumnSpatial> {
+template <typename Action>
+auto with_spatial_column(PrimitiveType kind, const Action& action) {
+    if (kind == TYPE_GEOMETRY) {
+        return action.template operator()<ColumnSpatial<TYPE_GEOMETRY>>();
+    }
+    return action.template operator()<ColumnSpatial<TYPE_GEOGRAPHY>>();
+}
+
+template <typename Column>
+class SpatialParquetSerDe final : public DataTypeVarbinarySerDeBase<Column> {
 public:
     SpatialParquetSerDe(int nesting_level, bool geographic)
-            : DataTypeVarbinarySerDeBase<ColumnSpatial>(nesting_level), _geographic(geographic) {}
+            : DataTypeVarbinarySerDeBase<Column>(nesting_level), _geographic(geographic) {}
 
     Status read_column_from_parquet(IColumn& column, ParquetDecodeSource& source,
                                     const ParquetDecodeContext& context, size_t num_values,
                                     ParquetMaterializationState& state) const override {
         const auto start = column.size();
-        RETURN_IF_ERROR(DataTypeVarbinarySerDeBase<ColumnSpatial>::read_column_from_parquet(
+        RETURN_IF_ERROR(DataTypeVarbinarySerDeBase<Column>::read_column_from_parquet(
                 column, source, context, num_values, state));
         // Validate materialized values, not unselected dictionary entries. NULL runs
         // are appended by the reader outside the leaf SerDe.
-        const auto& values = assert_cast<const ColumnSpatial&>(column).get_data();
+        const auto& values = assert_cast<const Column&>(column).get_data();
         for (size_t row = start; row < values.size(); ++row) {
             const auto& value = values[row];
             RETURN_IF_ERROR(
@@ -106,7 +115,10 @@ void DataTypeSpatial::to_pb_column_meta(PColumnMeta* col_meta) const {
 }
 
 DataTypeSerDeSPtr DataTypeSpatial::get_serde(int nesting_level) const {
-    return std::make_shared<SpatialParquetSerDe>(nesting_level, requires_geographic_coordinates());
+    return with_spatial_column(_primitive_type, [&]<typename Column>() -> DataTypeSerDeSPtr {
+        return std::make_shared<SpatialParquetSerDe<Column>>(nesting_level,
+                                                             requires_geographic_coordinates());
+    });
 }
 
 doris::FieldType DataTypeSpatial::get_storage_field_type() const {
@@ -116,7 +128,9 @@ doris::FieldType DataTypeSpatial::get_storage_field_type() const {
 }
 
 MutableColumnPtr DataTypeSpatial::create_column() const {
-    return ColumnSpatial::create(_primitive_type);
+    return with_spatial_column(_primitive_type, []<typename Column>() -> MutableColumnPtr {
+        return Column::create();
+    });
 }
 
 Status DataTypeSpatial::check_column(const IColumn& column) const {
@@ -124,8 +138,10 @@ Status DataTypeSpatial::check_column(const IColumn& column) const {
     if (is_column_const(column)) {
         nested_column = &assert_cast<const ColumnConst&>(column).get_data_column();
     }
-    const auto* spatial = check_and_get_column<ColumnSpatial>(nested_column);
-    if (spatial == nullptr || spatial->get_primitive_type() != _primitive_type) {
+    const bool matches = with_spatial_column(_primitive_type, [&]<typename Column>() {
+        return check_and_get_column<Column>(nested_column) != nullptr;
+    });
+    if (!matches) {
         return Status::InvalidArgument("Expected {} spatial column, got {}", get_name(),
                                        column.get_name());
     }
@@ -134,16 +150,22 @@ Status DataTypeSpatial::check_column(const IColumn& column) const {
 
 int64_t DataTypeSpatial::get_uncompressed_serialized_bytes(const IColumn& column,
                                                            int be_exec_version) const {
-    return get_binary_column_serialized_bytes<ColumnSpatial>(column);
+    return with_spatial_column(_primitive_type, [&]<typename Column>() {
+        return get_binary_column_serialized_bytes<Column>(column);
+    });
 }
 
 char* DataTypeSpatial::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    return serialize_binary_column<ColumnSpatial>(column, buf);
+    return with_spatial_column(_primitive_type, [&]<typename Column>() {
+        return serialize_binary_column<Column>(column, buf);
+    });
 }
 
 const char* DataTypeSpatial::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
-    return deserialize_binary_column<ColumnSpatial>(buf, column);
+    return with_spatial_column(_primitive_type, [&]<typename Column>() {
+        return deserialize_binary_column<Column>(buf, column);
+    });
 }
 
 Field DataTypeSpatial::get_field(const TExprNode& /* node */) const {
@@ -153,7 +175,9 @@ Field DataTypeSpatial::get_field(const TExprNode& /* node */) const {
 
 FieldWithDataType DataTypeSpatial::get_field_with_data_type(const IColumn& column,
                                                             size_t row_num) const {
-    const auto value = assert_cast<const ColumnSpatial&>(column).get_data_at(row_num);
+    const auto value = with_spatial_column(_primitive_type, [&]<typename Column>() {
+        return assert_cast<const Column&>(column).get_data_at(row_num);
+    });
     return FieldWithDataType {.field = Field::create_field<TYPE_VARBINARY>(StringView(value)),
                               .base_scalar_type_id = _primitive_type};
 }

@@ -26,15 +26,17 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_varbinary.h"
+#include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 
 namespace doris {
 
+template <PrimitiveType Kind>
 class ColumnSpatial;
 
-// Both columns own raw binary StringViews; bind the storage type once so row loops
+// VARBINARY and spatial columns own binary StringViews. Bind the type so row loops
 // retain concrete column access rather than paying for an IColumn virtual call per value.
 template <typename ColumnType>
 class DataTypeVarbinarySerDeBase : public DataTypeSerDe {
@@ -126,7 +128,8 @@ public:
 };
 
 extern template class DataTypeVarbinarySerDeBase<ColumnVarbinary>;
-extern template class DataTypeVarbinarySerDeBase<ColumnSpatial>;
+extern template class DataTypeVarbinarySerDeBase<ColumnSpatial<TYPE_GEOMETRY>>;
+extern template class DataTypeVarbinarySerDeBase<ColumnSpatial<TYPE_GEOGRAPHY>>;
 
 // BSON ObjectId/BinData use VARBINARY; spatial WKB must retain the default BSON rejection.
 class DataTypeVarbinarySerDe : public DataTypeVarbinarySerDeBase<ColumnVarbinary> {

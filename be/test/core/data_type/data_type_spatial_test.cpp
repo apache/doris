@@ -130,7 +130,7 @@ TEST(DataTypeSpatialTest, BinaryBlockLayoutRemainsCompatible) {
 }
 
 static void check_spatial_trim_memory(PrimitiveType primitive, size_t payload_size) {
-    auto column = ColumnSpatial::create(primitive);
+    auto column = DataTypeSpatial(primitive).create_column();
     const std::string first(payload_size, 'a');
     for (size_t row = 0; row < 16; ++row) {
         column->insert_data(first.data(), first.size());
@@ -179,8 +179,20 @@ TEST(DataTypeSpatialTest, FactoryCreatesDistinctSpatialColumns) {
 
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
-    auto& column = assert_cast<ColumnSpatial&>(*geometry_column);
+    auto& column = assert_cast<ColumnSpatial<TYPE_GEOMETRY>&>(*geometry_column);
     column.insert_data(wkb.data(), wkb.size());
+    geography_column->insert_data(wkb.data(), wkb.size());
+#ifndef NDEBUG
+    EXPECT_DEATH(column.insert_from(*geography_column, 0), "Bad cast from type");
+    EXPECT_DEATH(static_cast<void>(column.compare_at(0, 0, *geography_column, 1)),
+                 "Bad cast from type");
+#else
+    EXPECT_THROW(column.insert_from(*geography_column, 0), Exception);
+    EXPECT_THROW(column.compare_at(0, 0, *geography_column, 1), Exception);
+#endif
+    const auto const_geography = ColumnConst::create(std::move(geography_column), 1);
+    EXPECT_TRUE(geography->check_column(*const_geography).ok());
+    EXPECT_FALSE(geometry->check_column(*const_geography).ok());
 
     const auto value = column.get_data_at(0);
     EXPECT_EQ(wkb.size(), value.size);
@@ -201,7 +213,7 @@ TEST(DataTypeSpatialTest, FactoryCreatesDistinctSpatialColumns) {
 }
 
 static void expect_mutable_spatial_filter(PrimitiveType primitive) {
-    auto column = ColumnSpatial::create(primitive);
+    auto column = DataTypeSpatial(primitive).create_column();
     std::vector<std::string> values {std::string(4096, 'a'), std::string(8192, 'b'),
                                      std::string(4096, 'c')};
     for (const auto& value : values) {
@@ -292,7 +304,7 @@ TEST(DataTypeSpatialTest, FactoryPreservesSpatialMetadataFromTypeDescriptor) {
 }
 
 TEST(DataTypeSpatialTest, ColumnPreservesWkbThroughFilterAndPermute) {
-    auto column = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto column = ColumnSpatial<TYPE_GEOMETRY>::create();
     const std::string first("\x01\x01\x00\x00\x00", 5);
     const std::string second("\x00\x02\x00\x00\x00\x10\x00", 7);
     const std::string third("\x01\x03\x00\x00\x00\x00", 6);
@@ -313,7 +325,7 @@ TEST(DataTypeSpatialTest, ColumnPreservesWkbThroughFilterAndPermute) {
     EXPECT_EQ(first, permuted->get_data_at(1).to_string());
 }
 
-static void expect_spatial_column_resize(ColumnSpatial& column, size_t payload_size) {
+static void expect_spatial_column_resize(IColumn& column, size_t payload_size) {
     column.pop_back(1);
     column.resize(2);
     EXPECT_EQ(column.size(), 2);
@@ -331,12 +343,13 @@ static void expect_spatial_storage_rejected(PrimitiveType primitive) {
 static void expect_spatial_copy_ownership(PrimitiveType primitive) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
-    auto source = ColumnSpatial::create(primitive);
+    const DataTypeSpatial spatial_type(primitive);
+    auto source = spatial_type.create_column();
     source->insert_data(wkb.data(), wkb.size());
     source->insert_default();
     const IColumn& values = *source;
     auto copy = source->clone();
-    auto appended = ColumnSpatial::create(primitive);
+    auto appended = spatial_type.create_column();
     appended->insert(values[0]);
     Field field;
     values.get(0, field);
@@ -351,7 +364,7 @@ static void expect_spatial_copy_ownership(PrimitiveType primitive) {
     source->clear();
     EXPECT_EQ(copy->get_data_at(0).to_string(), wkb);
     EXPECT_EQ(appended->get_data_at(0).to_string(), wkb);
-    EXPECT_EQ(assert_cast<const ColumnSpatial&>(*copy).get_primitive_type(), primitive);
+    EXPECT_TRUE(spatial_type.check_column(*copy).ok());
     expect_spatial_column_resize(*appended, wkb.size());
     expect_spatial_storage_rejected(primitive);
 }
@@ -364,10 +377,10 @@ TEST(DataTypeSpatialTest, ColumnCopiesOwnPayloadAndPreserveSpatialIdentity) {
 TEST(DataTypeSpatialTest, SpatialCompositeKeysRoundTripThroughIColumn) {
     const std::string wkb(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
-    auto source = ColumnSpatial::create(TYPE_GEOMETRY);
+    auto source = ColumnSpatial<TYPE_GEOMETRY>::create();
     source->insert_data(wkb.data(), wkb.size());
     source->insert_default();
-    auto trailing = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    auto trailing = ColumnSpatial<TYPE_GEOGRAPHY>::create();
     trailing->insert_default();
     trailing->insert_data(wkb.data(), wkb.size());
     const IColumn& source_interface = *source;
@@ -384,8 +397,8 @@ TEST(DataTypeSpatialTest, SpatialCompositeKeysRoundTripThroughIColumn) {
     EXPECT_EQ(keys[0].size, serialized_size);
     EXPECT_EQ(keys[1].size, serialized_size);
 
-    auto restored = ColumnSpatial::create(TYPE_GEOMETRY);
-    auto restored_trailing = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    auto restored = ColumnSpatial<TYPE_GEOMETRY>::create();
+    auto restored_trailing = ColumnSpatial<TYPE_GEOGRAPHY>::create();
     IColumn& restored_interface = *restored;
     IColumn& restored_trailing_interface = *restored_trailing;
     restored_interface.deserialize(keys.data(), keys.size());
@@ -436,7 +449,7 @@ void expect_masked_spatial_hashes(const IColumn& actual, const IColumn& referenc
 
 void expect_spatial_hash_interfaces(PrimitiveType primitive) {
     const std::array<std::string, 3> values = {std::string("a\0b", 3), "different", ""};
-    auto spatial = ColumnSpatial::create(primitive);
+    auto spatial = DataTypeSpatial(primitive).create_column();
     auto binary = ColumnString::create();
     for (const auto& value : values) {
         spatial->insert_data(value.data(), value.size());

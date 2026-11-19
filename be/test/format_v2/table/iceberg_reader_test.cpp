@@ -7312,7 +7312,9 @@ TEST(IcebergV2ReaderTest, MissingOptionalSpatialColumnKeepsTypedNullDefault) {
             const auto& shape = block.get_by_position(1);
             EXPECT_TRUE(shape.type->equals(*columns[1].type));
             const auto& nullable = assert_cast<const ColumnNullable&>(*shape.column);
-            EXPECT_NE(check_and_get_column<ColumnSpatial>(nullable.get_nested_column()), nullptr);
+            EXPECT_TRUE(remove_nullable(columns[1].type)
+                                ->check_column(nullable.get_nested_column())
+                                .ok());
             for (size_t row = 0; row < block.rows(); ++row) {
                 EXPECT_TRUE(nullable.is_null_at(row));
             }
@@ -7408,7 +7410,9 @@ std::vector<int32_t> read_iceberg_ids_and_check_spatial_values(
             const auto& shape = block.get_by_position(1);
             EXPECT_TRUE(shape.type->equals(*columns[1].type));
             const auto& nullable = assert_cast<const ColumnNullable&>(*shape.column);
-            EXPECT_NE(check_and_get_column<ColumnSpatial>(nullable.get_nested_column()), nullptr);
+            EXPECT_TRUE(remove_nullable(columns[1].type)
+                                ->check_column(nullable.get_nested_column())
+                                .ok());
         }
         for (size_t row = 0; row < block.rows(); ++row) {
             const auto id = id_column.get_element(row);

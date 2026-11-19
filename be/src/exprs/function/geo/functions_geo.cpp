@@ -914,7 +914,9 @@ struct StGeoFromWkb {
         auto& geo = block.get_by_position(arguments[0]).column;
 
         const auto size = geo->size();
-        auto res = ColumnSpatial::create(Impl::OUTPUT_TYPE);
+        const auto& spatial =
+                assert_cast<const DataTypeSpatial&>(*remove_nullable(block.get_data_type(result)));
+        auto res = spatial.create_column();
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
         GeoParseStatus status;
@@ -926,8 +928,6 @@ struct StGeoFromWkb {
                 res->insert_default();
                 continue;
             }
-            const auto& spatial = assert_cast<const DataTypeSpatial&>(
-                    *remove_nullable(block.get_data_type(result)));
             status = WkbParse::validate_wkb_bytes(wkb.data(), wkb.size(),
                                                   spatial.requires_geographic_coordinates());
             if (status != GeoParseStatus::GEO_PARSE_OK) {

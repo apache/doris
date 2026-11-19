@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
-
 #include <cstddef>
 #include <memory>
 
@@ -32,19 +30,20 @@ namespace doris {
 
 // Stores the raw OGC WKB payload for GEOMETRY and GEOGRAPHY. The primitive type is
 // part of the column identity so spatial values cannot be substituted for VARBINARY.
-class ColumnSpatial final : public COWHelper<IColumn, ColumnSpatial> {
+template <PrimitiveType Kind>
+class ColumnSpatial final : public COWHelper<IColumn, ColumnSpatial<Kind>> {
+    static_assert(Kind == TYPE_GEOMETRY || Kind == TYPE_GEOGRAPHY);
+
 private:
-    using Self = ColumnSpatial;
-    friend class COWHelper<IColumn, ColumnSpatial>;
+    using Self = ColumnSpatial<Kind>;
+    friend class COWHelper<IColumn, Self>;
 
 public:
     using Container = PaddedPODArray<doris::StringView>;
 
 private:
-    explicit ColumnSpatial(PrimitiveType primitive_type) : _primitive_type(primitive_type) {
-        DCHECK(primitive_type == TYPE_GEOMETRY || primitive_type == TYPE_GEOGRAPHY);
-    }
-    ColumnSpatial(const ColumnSpatial& src) : _primitive_type(src._primitive_type) {
+    ColumnSpatial() = default;
+    ColumnSpatial(const ColumnSpatial& src) {
         _data.reserve(src._data.size());
         for (const auto& value : src._data) {
             insert_data(value.data(), value.size());
@@ -53,7 +52,6 @@ private:
 
 public:
     std::string get_name() const override { return "ColumnSpatial"; }
-    PrimitiveType get_primitive_type() const { return _primitive_type; }
     size_t size() const override { return _data.size(); }
     const Container& get_data() const { return _data; }
     void resize(size_t n) override { _data.resize(n); }
@@ -74,7 +72,6 @@ public:
     }
     void insert_from(const IColumn& src, size_t n) override {
         const auto& spatial = assert_cast<const ColumnSpatial&>(src);
-        DCHECK_EQ(_primitive_type, spatial._primitive_type);
         const auto value = spatial.get_data_at(n);
         insert_data(value.data, value.size);
     }
@@ -125,7 +122,9 @@ private:
     size_t serialize_size_at(size_t row) const override;
     Container _data;
     std::unique_ptr<Arena> _arena = std::make_unique<Arena>();
-    const PrimitiveType _primitive_type;
 };
+
+extern template class ColumnSpatial<TYPE_GEOMETRY>;
+extern template class ColumnSpatial<TYPE_GEOGRAPHY>;
 
 } // namespace doris

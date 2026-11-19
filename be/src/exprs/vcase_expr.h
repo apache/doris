@@ -90,7 +90,8 @@ private:
                       std::is_same_v<ColumnType, ColumnArray> ||
                       std::is_same_v<ColumnType, ColumnMap> ||
                       std::is_same_v<ColumnType, ColumnStruct> ||
-                      std::is_same_v<ColumnType, ColumnSpatial> ||
+                      std::is_same_v<ColumnType, ColumnSpatial<TYPE_GEOMETRY>> ||
+                      std::is_same_v<ColumnType, ColumnSpatial<TYPE_GEOGRAPHY>> ||
                       std::is_same_v<ColumnType, ColumnVariantV2> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
                       std::is_same_v<ColumnType, ColumnQuantileState> ||
@@ -152,8 +153,8 @@ private:
             CASE_TYPE(TYPE_TIMESTAMPTZ, ColumnTimeStampTz)
             CASE_TYPE(TYPE_IPV6, ColumnIPv6)
             CASE_TYPE(TYPE_UUID, ColumnUUID)
-            CASE_TYPE(TYPE_GEOMETRY, ColumnSpatial)
-            CASE_TYPE(TYPE_GEOGRAPHY, ColumnSpatial)
+            CASE_TYPE(TYPE_GEOMETRY, ColumnSpatial<TYPE_GEOMETRY>)
+            CASE_TYPE(TYPE_GEOGRAPHY, ColumnSpatial<TYPE_GEOGRAPHY>)
             CASE_TYPE(TYPE_IPV4, ColumnIPv4)
             CASE_TYPE(TYPE_ARRAY, ColumnArray)
             CASE_TYPE(TYPE_MAP, ColumnMap)

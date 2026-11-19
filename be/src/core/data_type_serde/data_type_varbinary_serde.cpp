@@ -313,7 +313,7 @@ Status DataTypeVarbinarySerDeBase<ColumnType>::write_column_to_orc(
         const FormatOptions& options) const {
     // Spatial writeback is Parquet-only; a shared binary SerDe must not cast
     // its ColumnSpatial owner to ColumnVarbinary on an ORC path.
-    if constexpr (std::is_same_v<ColumnType, ColumnSpatial>) {
+    if constexpr (!std::is_same_v<ColumnType, ColumnVarbinary>) {
         return Status::NotSupported("ORC does not support spatial columns; use Parquet");
     }
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
@@ -333,7 +333,7 @@ Status DataTypeVarbinarySerDeBase<ColumnType>::read_column_from_orc(
         IColumn& column, const OrcDecodedColumnView& view) const {
     // Existing external Iceberg ORC files can reach this SerDe through scan v2.
     // Reject the unsupported format before its binary cast can abort the query.
-    if constexpr (std::is_same_v<ColumnType, ColumnSpatial>) {
+    if constexpr (!std::is_same_v<ColumnType, ColumnVarbinary>) {
         return Status::NotSupported("ORC does not support spatial columns; use Parquet");
     }
     DORIS_CHECK(view.file_type->getKind() == orc::BINARY);
@@ -510,6 +510,7 @@ Status DataTypeVarbinarySerDe::decode_bson_value(IColumn& column, const BsonValu
 }
 
 template class DataTypeVarbinarySerDeBase<ColumnVarbinary>;
-template class DataTypeVarbinarySerDeBase<ColumnSpatial>;
+template class DataTypeVarbinarySerDeBase<ColumnSpatial<TYPE_GEOMETRY>>;
+template class DataTypeVarbinarySerDeBase<ColumnSpatial<TYPE_GEOGRAPHY>>;
 
 } // namespace doris
