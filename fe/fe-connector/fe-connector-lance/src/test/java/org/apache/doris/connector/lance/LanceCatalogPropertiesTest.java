@@ -179,6 +179,85 @@ class LanceCatalogPropertiesTest {
                 rejection(injected));
     }
 
+    @Test
+    void alterBearerToApiKeyClearsThePreviousCredential() {
+        Map<String, String> properties = rest("lance.rest.security.type", "bearer");
+        properties.put("lance.rest.bearer-token", "old-token");
+        Map<String, String> updates = Map.of(
+                "lance.rest.security.type", "api_key",
+                "lance.rest.bearer-token", "",
+                "lance.rest.api-key", "new-key");
+        new LanceConnectorProvider().validatePropertiesForUpdate(properties, updates);
+        Assertions.assertEquals("old-token", properties.get("lance.rest.bearer-token"));
+        properties.putAll(updates);
+        Assertions.assertEquals(Map.of("uri", "http://127.0.0.1:19102", "delimiter", "$",
+                "header.x-api-key", "new-key"), LanceCatalogProperties.of(properties).restNamespaceProperties());
+    }
+
+    @Test
+    void alterApiKeyToBearerClearsThePreviousCredential() {
+        Map<String, String> properties = rest("lance.rest.security.type", "api_key");
+        properties.put("lance.rest.api-key", "old-key");
+        Map<String, String> updates = Map.of(
+                "lance.rest.security.type", "bearer",
+                "lance.rest.api-key", "",
+                "lance.rest.bearer-token", "new-token");
+        new LanceConnectorProvider().validatePropertiesForUpdate(properties, updates);
+        Assertions.assertEquals("old-key", properties.get("lance.rest.api-key"));
+        properties.putAll(updates);
+        Assertions.assertEquals(Map.of("uri", "http://127.0.0.1:19102", "delimiter", "$",
+                "header.Authorization", "Bearer new-token"),
+                LanceCatalogProperties.of(properties).restNamespaceProperties());
+    }
+
+    @Test
+    void alterCanDisableAndReenableEitherAuthenticationMode() {
+        for (String credential : List.of("lance.rest.bearer-token", "lance.rest.api-key")) {
+            String mode = credential.equals("lance.rest.bearer-token") ? "bearer" : "api_key";
+            Map<String, String> properties = rest("lance.rest.security.type", mode);
+            properties.put(credential, "original-credential");
+            Map<String, String> updates = Map.of("lance.rest.security.type", "none", credential, "");
+            new LanceConnectorProvider().validatePropertiesForUpdate(properties, updates);
+            properties.putAll(updates);
+            Assertions.assertEquals(Map.of("uri", "http://127.0.0.1:19102", "delimiter", "$"),
+                    LanceCatalogProperties.of(properties).restNamespaceProperties());
+
+            updates = Map.of("lance.rest.security.type", mode, credential, "replacement-credential");
+            new LanceConnectorProvider().validatePropertiesForUpdate(properties, updates);
+            properties.putAll(updates);
+            String header = mode.equals("bearer") ? "header.Authorization" : "header.x-api-key";
+            String value = mode.equals("bearer") ? "Bearer replacement-credential" : "replacement-credential";
+            Assertions.assertEquals(Map.of("uri", "http://127.0.0.1:19102", "delimiter", "$", header, value),
+                    LanceCatalogProperties.of(properties).restNamespaceProperties());
+        }
+    }
+
+    @Test
+    void alterStillRejectsUnclearedAndBlankActiveCredentials() {
+        for (String credential : List.of("lance.rest.bearer-token", "lance.rest.api-key")) {
+            String mode = credential.equals("lance.rest.bearer-token") ? "bearer" : "api_key";
+            String otherMode = mode.equals("bearer") ? "api_key" : "bearer";
+            String otherCredential = mode.equals("bearer") ? "lance.rest.api-key" : "lance.rest.bearer-token";
+            Map<String, String> properties = rest("lance.rest.security.type", mode);
+            properties.put(credential, "old-credential");
+            for (String inactive : List.of("old-credential", " ", "\r\n")) {
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> new LanceConnectorProvider().validatePropertiesForUpdate(properties,
+                                Map.of("lance.rest.security.type", otherMode, credential, inactive,
+                                        otherCredential, "new-credential")));
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> new LanceConnectorProvider().validatePropertiesForUpdate(properties,
+                                Map.of("lance.rest.security.type", "none", credential, inactive)));
+            }
+            for (String active : List.of("", " ", "\r\n")) {
+                Assertions.assertThrows(IllegalArgumentException.class,
+                        () -> new LanceConnectorProvider().validatePropertiesForUpdate(properties,
+                                Map.of("lance.rest.security.type", otherMode, credential, "",
+                                        otherCredential, active)));
+            }
+        }
+    }
+
     /** The credentials go in their own header: one sent as an extra header would dodge the security type. */
     @Test
     void restHeadersAreSentAsWrittenButNeverCarryTheCredentials() {

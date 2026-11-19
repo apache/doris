@@ -59,6 +59,28 @@ suite("test_lance_rest_catalog", "p0,external") {
         )
     """
 
+    // ALTER merges properties and cannot remove keys. Clear the inactive credential while
+    // exercising every authentication transition, then read with the fixture's bearer token.
+    test {
+        sql """ALTER CATALOG `${catalogName}` SET PROPERTIES (
+            "lance.rest.security.type" = "api_key", "lance.rest.api-key" = "test-api-key")"""
+        exception "requires only 'lance.rest.api-key'"
+    }
+    sql """ALTER CATALOG `${catalogName}` SET PROPERTIES (
+        "lance.rest.security.type" = "api_key",
+        "lance.rest.bearer-token" = "", "lance.rest.api-key" = "test-api-key")"""
+    sql """ALTER CATALOG `${catalogName}` SET PROPERTIES (
+        "lance.rest.security.type" = "none", "lance.rest.api-key" = "")"""
+    sql """ALTER CATALOG `${catalogName}` SET PROPERTIES (
+        "lance.rest.security.type" = "bearer", "lance.rest.bearer-token" = "${bearerToken}")"""
+    sql """ALTER CATALOG `${catalogName}` SET PROPERTIES (
+        "lance.rest.security.type" = "none", "lance.rest.bearer-token" = "")"""
+    sql """ALTER CATALOG `${catalogName}` SET PROPERTIES (
+        "lance.rest.security.type" = "api_key", "lance.rest.api-key" = "test-api-key")"""
+    sql """ALTER CATALOG `${catalogName}` SET PROPERTIES (
+        "lance.rest.security.type" = "bearer",
+        "lance.rest.api-key" = "", "lance.rest.bearer-token" = "${bearerToken}")"""
+
     order_qt_rest_databases """SHOW DATABASES FROM `${catalogName}`"""
     order_qt_rest_tables """SHOW TABLES FROM `${catalogName}`.`default`"""
 

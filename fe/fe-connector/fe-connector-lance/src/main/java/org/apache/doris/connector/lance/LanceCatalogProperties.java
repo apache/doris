@@ -235,8 +235,9 @@ public final class LanceCatalogProperties {
         }
         validateRestUri(restUri);
 
-        boolean bearerTokenConfigured = raw.containsKey(REST_BEARER_TOKEN);
-        boolean apiKeyConfigured = raw.containsKey(REST_API_KEY);
+        // ALTER merges property maps and cannot remove keys; an empty inactive credential clears it.
+        boolean bearerTokenConfigured = StringUtils.isNotEmpty(bearerToken);
+        boolean apiKeyConfigured = StringUtils.isNotEmpty(apiKey);
         switch (securityType) {
             case SECURITY_NONE:
                 if (bearerTokenConfigured || apiKeyConfigured) {
