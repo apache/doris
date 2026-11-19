@@ -35,7 +35,7 @@ public class AnalysisTaskWrapperTest {
         task.job = job;
         AnalysisTaskWrapper wrapper = new AnalysisTaskWrapper(Mockito.mock(AnalysisTaskExecutor.class), task);
         wrapper.cancel("analysis task timed out");
-        Mockito.verify(job).taskFailed(task, "analysis task timed out");
+        Mockito.verify(job).fail("analysis task timed out");
         Mockito.verify(task, Mockito.never()).cancel();
     }
 
@@ -51,7 +51,7 @@ public class AnalysisTaskWrapperTest {
         }).when(task).execute();
         AnalysisTaskWrapper wrapper = new AnalysisTaskWrapper(Mockito.mock(AnalysisTaskExecutor.class), task);
         wrapper.run();
-        Mockito.verify(job).taskFailed(Mockito.eq(task), Mockito.contains("write failed after cancellation"));
+        Mockito.verify(job).fail(Mockito.contains("write failed after cancellation"));
     }
 
     @Test
@@ -98,7 +98,7 @@ public class AnalysisTaskWrapperTest {
         }
 
         ArgumentCaptor<String> msgCaptor = ArgumentCaptor.forClass(String.class);
-        Mockito.verify(mockJob).taskFailed(Mockito.eq(task), msgCaptor.capture());
+        Mockito.verify(mockJob).fail(msgCaptor.capture());
         String errorMsg = msgCaptor.getValue();
         Mockito.verifyNoMoreInteractions(mockJob);
         org.junit.jupiter.api.Assertions.assertTrue(errorMsg.contains("can `set exec_mem_limit` to change limit"));

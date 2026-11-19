@@ -29,6 +29,7 @@ import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -46,6 +47,7 @@ public class BaseAnalysisTaskTest {
         for (boolean fail : new boolean[] {false, true}) {
             OlapAnalysisTask task = new OlapAnalysisTask();
             ConnectContext context = new ConnectContext();
+            context.setQueryId(new TUniqueId(1L, 2L));
             try (MockedStatic<StatisticsUtil> stats = Mockito.mockStatic(StatisticsUtil.class);
                     MockedStatic<AuditLogHelper> audit = Mockito.mockStatic(AuditLogHelper.class);
                     MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class,
@@ -55,15 +57,18 @@ public class BaseAnalysisTaskTest {
                                 Mockito.doAnswer(call -> {
                                     Assertions.assertSame(executor, task.stmtExecutor);
                                     if (fail) {
-                                        throw new RuntimeException("insert failed");
+                                        context.getState().setError("insert failed");
                                     }
                                     return null;
                                 }).when(executor).execute();
                             })) {
                 stats.when(() -> StatisticsUtil.buildConnectContext(false))
                         .thenReturn(new AutoCloseConnectContext(context));
+                stats.when(() -> StatisticsUtil.executeAnalyzeInsert(Mockito.any())).thenCallRealMethod();
                 if (fail) {
-                    Assertions.assertThrows(RuntimeException.class, () -> task.runInsert("INSERT"));
+                    IllegalStateException error = Assertions.assertThrows(
+                            IllegalStateException.class, () -> task.runInsert("INSERT"));
+                    Assertions.assertEquals("Statistics INSERT failed (query 1-2): insert failed", error.getMessage());
                 } else {
                     task.runInsert("INSERT");
                 }

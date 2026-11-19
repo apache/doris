@@ -51,7 +51,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -165,6 +167,32 @@ public class StatisticsUtil {
                         stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
             }
         }
+    }
+
+    public static void executeAnalyzeInsert(StmtExecutor executor) throws Exception {
+        ConnectContext context = executor.getContext();
+        try {
+            executor.execute();
+            QueryState state = context.getState();
+            if (state.getStateType() == QueryState.MysqlStateType.ERR) {
+                throw new IllegalStateException("Statistics INSERT failed (query "
+                        + DebugUtil.printId(context.queryId()) + "): " + state.getErrorMessage());
+            }
+        } finally {
+            AuditLogHelper.logAuditLog(context, executor.getOriginStmt().originStmt, executor.getParsedStmt(),
+                    executor.getQueryStatisticsForAuditLog(), true);
+        }
+    }
+
+    public static String analyzeFailureMessage(Throwable failure) {
+        String message = Util.getRootCauseMessage(failure);
+        if (message != null && message.contains("MEM_LIMIT_EXCEEDED")
+                && !message.contains("statistics_sql_mem_limit_in_bytes")) {
+            return message + "\nFor statistics analyze, you can increase `statistics_sql_mem_limit_in_bytes`, "
+                    + "decrease `huge_table_default_sample_rows`, or use `statistics_max_string_column_length` "
+                    + "to skip large string columns.";
+        }
+        return message;
     }
 
     public static ColumnStatistic deserializeToColumnStatistics(List<ResultRow> resultBatches) {

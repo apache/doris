@@ -173,6 +173,7 @@ public class AnalysisManagerTest {
         task2.info = taskInfo2;
         tasks.put(2L, task1);
         tasks.put(3L, task2);
+        manager.constructJob(job, tasks.values());
         manager.addToJobIdTasksMap(1, tasks);
 
         Assertions.assertEquals(job.state, AnalysisState.PENDING);
@@ -180,9 +181,9 @@ public class AnalysisManagerTest {
         Assertions.assertEquals(job.state, AnalysisState.RUNNING);
         manager.updateTaskStatus(taskInfo2, AnalysisState.RUNNING, "", 0);
         Assertions.assertEquals(job.state, AnalysisState.RUNNING);
-        manager.updateTaskStatus(taskInfo1, AnalysisState.FINISHED, "", 0);
+        task1.job.taskDoneWithoutData(task1);
         Assertions.assertEquals(job.state, AnalysisState.RUNNING);
-        manager.updateTaskStatus(taskInfo2, AnalysisState.FINISHED, "", 0);
+        task2.job.taskDoneWithoutData(task2);
         Assertions.assertEquals(job.state, AnalysisState.FINISHED);
     }
 
@@ -210,6 +211,7 @@ public class AnalysisManagerTest {
         task1.info = taskInfo;
         Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
         tasks.put(11L, task1);
+        manager.constructJob(job, tasks.values());
         manager.addToJobIdTasksMap(10, tasks);
 
         String skipMsg = "Column [big_str] has row(s) whose byte length exceeds 1024"
@@ -258,6 +260,7 @@ public class AnalysisManagerTest {
         Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
         tasks.put(21L, task1);
         tasks.put(22L, task2);
+        manager.constructJob(job, tasks.values());
         manager.addToJobIdTasksMap(20, tasks);
 
         String skip1 = "Column [s1] has row(s) whose byte length exceeds 1024 ...";
@@ -315,6 +318,7 @@ public class AnalysisManagerTest {
         Map<Long, BaseAnalysisTask> tasks = new HashMap<>();
         tasks.put(2L, task1);
         tasks.put(3L, task2);
+        manager.constructJob(job, tasks.values());
         manager.addToJobIdTasksMap(1, tasks);
 
         // Job still running (task2 pending): the shared map must survive.
@@ -322,7 +326,7 @@ public class AnalysisManagerTest {
         Assertions.assertFalse(job.partitionUpdateRows.isEmpty());
         // Job reached terminal (FAILED) state: the shared map is cleared exactly once,
         // releasing the memory held by the job and all its task records at once.
-        manager.updateTaskStatus(taskInfo2, AnalysisState.FAILED, "err2", 0);
+        task2.job.fail("err2");
         Assertions.assertEquals(AnalysisState.FAILED, job.state);
         Assertions.assertTrue(job.partitionUpdateRows.isEmpty());
     }

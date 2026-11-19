@@ -31,9 +31,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
@@ -362,19 +360,7 @@ public abstract class BaseAnalysisTask {
         String skipMsg = e.getMessage();
         LOG.info("Analyze task skip column [{}] in table [{}]. Reason: {}",
                 info.colName, tbl == null ? "?" : tbl.getName(), skipMsg);
-        // Stash the skip message on info.message. The job-level flushBuffer path
-        // (AnalysisJob.updateTaskState -> AnalysisManager.updateTaskStatus) will
-        // pick it up as the single FINISHED transition for this task, so we
-        // avoid a redundant updateTaskStatus call here. Doing the state update
-        // twice used to overwrite AnalysisInfo.timeCostInMs with the near-zero
-        // delta between the two FINISHED calls.
-        info.message = skipMsg;
-        // Route through taskDoneWithoutData: adds this task to queryFinished
-        // and triggers flushBuffer, which will call updateTaskState(FINISHED,
-        // "") exactly once per task. AnalysisJob.updateTaskState substitutes
-        // the task's own info.message when the outer msg is empty, so skipMsg
-        // reaches job.message for SHOW ANALYZE visibility.
-        job.taskDoneWithoutData(this);
+        job.taskDoneWithoutData(this, skipMsg);
     }
 
     private String buildSkipMessage() {
@@ -500,9 +486,9 @@ public abstract class BaseAnalysisTask {
         TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(tbl.getId());
         // Find jobInfo for this task.
         AnalysisInfo jobInfo = analysisManager.findJobInfo(job.getJobInfo().jobId);
-        // For sync job, get jobInfo from job.jobInfo.
+        // Synchronous jobs have no history record.
         boolean isSync = jobInfo == null;
-        jobInfo = isSync ? job.jobInfo : jobInfo;
+        jobInfo = isSync ? job.getJobInfo() : jobInfo;
 
         // 1. Remove not exist partition stats
         deleteNotExistPartitionStats(jobInfo);
@@ -586,10 +572,16 @@ public abstract class BaseAnalysisTask {
         if (hasHughPartition) {
             tableSample = new TableSample(false, StatisticsUtil.getHugeTableSampleRows());
             if (!isSync) {
-                long startTime = jobInfo.startTime;
-                jobInfo = new AnalysisInfoBuilder(jobInfo).setAnalysisMethod(AnalysisMethod.SAMPLE).build();
-                jobInfo.markStartTime(startTime);
-                analysisManager.replayCreateAnalysisJob(jobInfo);
+                synchronized (job) {
+                    if (!job.isTerminated()) {
+                        AnalysisInfo current = analysisManager.findJobInfo(jobInfo.jobId);
+                        AnalysisInfo source = current == null ? jobInfo : current;
+                        AnalysisInfo sample = new AnalysisInfoBuilder(source)
+                                .setAnalysisMethod(AnalysisMethod.SAMPLE).build();
+                        sample.markStartTime(source.startTime);
+                        analysisManager.replayCreateAnalysisJob(sample);
+                    }
+                }
             }
             if (tableStatsStatus == null || columnStatsMeta == null
                     || tableStatsStatus.updatedRows.get() > columnStatsMeta.updatedRows) {
@@ -668,13 +660,14 @@ public abstract class BaseAnalysisTask {
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         String queryId = "";
+        ColStatsData colStatsData;
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             a.connectContext.getState().setPlanWithUnKnownColumnStats(true);
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             if (killed) {
                 return;
             }
-            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_STATISTICS_INVALID_STATS.increase(1L);
@@ -689,14 +682,13 @@ public abstract class BaseAnalysisTask {
             // Update index row count after analyze.
             if (this instanceof OlapAnalysisTask) {
                 AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);
-                // For sync job, get jobInfo from job.jobInfo.
-                jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
+                // Synchronous jobs have no history record.
+                jobInfo = jobInfo == null ? job.getJobInfo() : jobInfo;
                 long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
                 jobInfo.addIndexRowCount(indexId, colStatsData.count);
             }
             Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
-            job.appendBuf(this, Collections.singletonList(colStatsData));
         } catch (Exception e) {
             LOG.warn("Failed to execute sql {}", sql);
             if (containsSkipMarker(e)) {
@@ -711,25 +703,15 @@ public abstract class BaseAnalysisTask {
             // Release the reference to stmtExecutor, reduce memory usage.
             stmtExecutor = null;
         }
+        job.appendBuf(this, Collections.singletonList(colStatsData));
     }
 
     protected void runInsert(String sql) throws Exception {
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-            stmtExecutor = new StmtExecutor(r.connectContext, sql);
-            if (killed) {
-                return;
-            }
-            try {
-                stmtExecutor.execute();
-                QueryState queryState = stmtExecutor.getContext().getState();
-                if (queryState.getStateType().equals(QueryState.MysqlStateType.ERR)) {
-                    throw new RuntimeException(
-                        "Failed to insert : " + stmtExecutor.getOriginStmt().originStmt + "Error msg: "
-                            + queryState.getErrorMessage());
-                }
-            } finally {
-                AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().toString(),
-                        stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
+        try (AutoCloseConnectContext context = StatisticsUtil.buildConnectContext(false)) {
+            StmtExecutor executor = new StmtExecutor(context.connectContext, sql);
+            stmtExecutor = executor;
+            if (!killed) {
+                StatisticsUtil.executeAnalyzeInsert(executor);
             }
         } finally {
             stmtExecutor = null;
