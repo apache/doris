@@ -25,6 +25,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 
 import com.google.common.collect.Maps;
+import io.grpc.Deadline;
 import io.grpc.StatusRuntimeException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -446,8 +447,9 @@ public class MetaServiceProxy {
                 Cloud.GetTxnIdResponse::getStatus);
     }
 
-    public Cloud.ScanTxnLabelResponse scanTxnLabel(Cloud.ScanTxnLabelRequest request) throws RpcException {
-        return executeWithMetrics("scanTxnLabel", (client) -> client.scanTxnLabel(request),
+    public Cloud.ScanTxnLabelResponse scanTxnLabel(Cloud.ScanTxnLabelRequest request, Deadline deadline)
+            throws RpcException {
+        return executeWithMetrics("scanTxnLabel", (client) -> client.scanTxnLabel(request, deadline),
                 Cloud.ScanTxnLabelResponse::getStatus);
     }
 

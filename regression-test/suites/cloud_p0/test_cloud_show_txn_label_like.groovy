@@ -30,7 +30,7 @@ suite("test_cloud_show_txn_label_like") {
 
     def dbName = context.config.getDbNameByFile(context.file)
     def labelPrefix = "show_txn_" + UUID.randomUUID().toString().replace("-", "") + "_"
-    def labels = [labelPrefix + "first", labelPrefix + "second"]
+    def labels = [labelPrefix + "first_done", labelPrefix + "second_done", labelPrefix + "other"]
     labels.eachWithIndex { loadLabel, index ->
         streamLoad {
             table "test_cloud_show_txn_label_like"
@@ -46,6 +46,9 @@ suite("test_cloud_show_txn_label_like") {
         }
     }
 
-    def rows = sql_return_maparray "SHOW TRANSACTION FROM ${dbName} WHERE LABEL LIKE '${labelPrefix}%'"
-    assertEquals(labels.reverse(), rows.collect { it.Label })
+    def expected = [labels[1], labels[0]]
+    for (def pattern : ["${labelPrefix}%done", "%${labelPrefix}%done"]) {
+        def rows = sql_return_maparray "SHOW TRANSACTION FROM ${dbName} WHERE LABEL LIKE '${pattern}'"
+        assertEquals(expected, rows.collect { it.Label })
+    }
 }

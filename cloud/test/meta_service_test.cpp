@@ -31,7 +31,6 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
-#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -4925,7 +4924,7 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     const std::string escaped_prefix("load\0\1", 6);
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-    auto put_label = [&](int64_t db, std::string_view label, std::initializer_list<int64_t> ids) {
+    auto put_label = [&](int64_t db, std::string_view label, const std::vector<int64_t>& ids) {
         TxnLabelPB label_pb;
         for (int64_t id : ids) {
             label_pb.add_txn_ids(id);
@@ -4957,6 +4956,15 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     put_info(db_id, escaped_prefix + "x", 16, TXN_STATUS_VISIBLE);
     put_label(adjacent_db_id, "load-a", {17});
     put_info(adjacent_db_id, "load-a", 17, TXN_STATUS_VISIBLE);
+    std::vector<int64_t> retry_ids;
+    for (int64_t id = 100; id < 365; ++id) {
+        retry_ids.push_back(id);
+        put_info(adjacent_db_id, "retry-a", id, TXN_STATUS_ABORTED);
+    }
+    put_label(adjacent_db_id, "retry-a", retry_ids);
+    put_label(adjacent_db_id, "retry-b", {365});
+    put_info(adjacent_db_id, "retry-b", 365, TXN_STATUS_VISIBLE);
+    retry_ids.push_back(365);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     ScanTxnLabelRequest request;
@@ -4993,6 +5001,26 @@ TEST(MetaServiceTest, ScanTxnLabel) {
         request.set_start_key(response.next_key());
     }
     request.clear_start_key();
+    request.set_limit(2);
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {10, 12}));
+    ASSERT_TRUE(response.has_next_key());
+    EXPECT_EQ(response.next_key(), txn_label_key({mock_instance, db_id, "load-a"}) + '\0');
+    request.set_start_key(response.next_key());
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {13}));
+    EXPECT_FALSE(response.has_next_key());
+
+    // The label named by this well-formed within-label cursor has been recycled.
+    request.set_start_key(txn_label_key({mock_instance, db_id, "load-aa"}) + '\0' + "12");
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(txn_ids(response), (std::vector<int64_t> {13}));
+    EXPECT_FALSE(response.has_next_key());
+
+    request.clear_start_key();
     request.set_limit(10);
 
     request.set_label_prefix(escaped_prefix);
@@ -5011,6 +5039,70 @@ TEST(MetaServiceTest, ScanTxnLabel) {
     EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
     request.clear_start_key();
 
+    request.set_limit(0);
+    EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    request.set_limit(10000);
+    request.set_db_id(-1);
+    EXPECT_EQ(scan().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    // The server cap spans more than one 128-attempt batch, but less than this label's history.
+    const auto original_limit = config::max_scan_txn_label_limit;
+    const auto original_duration = config::scan_txn_label_max_duration_ms;
+    config::max_scan_txn_label_limit = 130;
+    DORIS_CLOUD_DEFER {
+        config::max_scan_txn_label_limit = original_limit;
+        config::scan_txn_label_max_duration_ms = original_duration;
+    };
+    request.set_db_id(adjacent_db_id);
+    request.set_label_prefix("retry-");
+    config::scan_txn_label_max_duration_ms = 0;
+    response = scan();
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    EXPECT_TRUE(response.txn_infos().empty());
+    ASSERT_TRUE(response.has_next_key());
+    request.set_start_key(response.next_key());
+
+    config::scan_txn_label_max_duration_ms = original_duration;
+    auto* sync_point = SyncPoint::get_instance();
+    std::vector<size_t> batch_sizes;
+    sync_point->set_call_back("scan_txn_label:after_batch_get", [&](auto&& args) {
+        batch_sizes.push_back(try_any_cast<size_t>(args[0]));
+        if (batch_sizes.size() == 1) {
+            *try_any_cast<std::chrono::steady_clock::time_point*>(args[1]) =
+                    std::chrono::steady_clock::now();
+        }
+    });
+    sync_point->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sync_point->clear_call_back("scan_txn_label:after_batch_get");
+        sync_point->disable_processing();
+    };
+    std::vector<int64_t> paged_ids;
+    for (int expected_rows : {128, 130, 8}) {
+        response = scan();
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        auto ids = txn_ids(response);
+        ASSERT_EQ(ids.size(), expected_rows);
+        paged_ids.insert(paged_ids.end(), ids.begin(), ids.end());
+        ASSERT_EQ(response.has_next_key(), expected_rows != 8);
+        if (response.has_next_key()) {
+            request.set_start_key(response.next_key());
+            // Expiring before the next batch must preserve the within-label position.
+            config::scan_txn_label_max_duration_ms = 0;
+            auto expired = scan();
+            config::scan_txn_label_max_duration_ms = original_duration;
+            ASSERT_EQ(expired.status().code(), MetaServiceCode::OK);
+            EXPECT_TRUE(expired.txn_infos().empty());
+            ASSERT_TRUE(expired.has_next_key());
+            EXPECT_EQ(expired.next_key(), request.start_key());
+        }
+    }
+    EXPECT_EQ(paged_ids, retry_ids);
+    EXPECT_EQ(batch_sizes, (std::vector<size_t> {128, 128, 2, 8}));
+
+    request.set_db_id(db_id);
+    request.set_limit(10);
+    request.clear_start_key();
     const auto original_cap = config::max_scan_txn_label_keys;
     config::max_scan_txn_label_keys = 1;
     DORIS_CLOUD_DEFER {

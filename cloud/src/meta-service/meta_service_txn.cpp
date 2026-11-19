@@ -5575,8 +5575,12 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
     }
     RPC_RATE_LIMIT(scan_txn_label)
 
+    const auto deadline =
+            steady_clock::now() + milliseconds(config::scan_txn_label_max_duration_ms);
+    const int limit = std::min(request->limit(), config::max_scan_txn_label_limit);
     const int64_t db_id = request->db_id();
     std::string begin = txn_label_key_prefix({instance_id, db_id, request->label_prefix()});
+    // Valid labels are UTF-8, which never uses 0xff as a raw byte.
     const std::string end = begin + '\xff';
     std::string resume_label_key;
     int64_t resume_txn_id = 0;
@@ -5612,11 +5616,24 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
         return;
     }
 
-    constexpr int batch_size = 128;
+    constexpr int label_page_size = 1000;
+    constexpr int info_batch_size = 128;
     int labels_left = config::max_scan_txn_label_keys;
+    int attempts_left = labels_left;
+    auto set_next_attempt = [&](std::string_view key, int64_t id) {
+        std::string next(key);
+        next.push_back('\0');
+        next += std::to_string(id);
+        response->set_next_key(std::move(next));
+    };
+    std::string range_cursor = request->has_start_key() ? request->start_key() : begin;
     std::unique_ptr<RangeGetIterator> it;
     do {
-        err = txn->get(begin, end, &it, true, std::min(labels_left, batch_size));
+        if (steady_clock::now() >= deadline) {
+            response->set_next_key(std::move(range_cursor));
+            return;
+        }
+        err = txn->get(begin, end, &it, true, std::min(labels_left, label_page_size));
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             ss << "failed to scan txn labels, db_id=" << db_id << " err=" << err;
@@ -5624,19 +5641,51 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
             LOG(WARNING) << msg;
             return;
         }
-        while (it->has_next()) {
+
+        TxnLabelPB label;
+        int next_attempt = 0;
+        std::string_view last_label_key;
+        while (next_attempt < label.txn_ids_size() || it->has_next()) {
+            const int batch_limit =
+                    std::min({info_batch_size, attempts_left, limit - response->txn_infos_size()});
+            if (batch_limit == 0 || steady_clock::now() >= deadline) {
+                if (last_label_key.empty()) {
+                    // The range can start at a label key while its cursor points inside the label.
+                    response->set_next_key(std::move(range_cursor));
+                } else if (next_attempt < label.txn_ids_size()) {
+                    set_next_attempt(last_label_key, label.txn_ids(next_attempt));
+                } else {
+                    response->set_next_key(std::string(last_label_key) + '\0');
+                }
+                return;
+            }
+
             std::vector<std::string> info_keys;
-            std::vector<std::pair<std::string_view, int64_t>> attempts;
-            std::string_view last_label_key;
-            // Batch across labels to avoid a KV round trip for every single-attempt label.
-            do {
+            std::string_view first_attempt_key;
+            int64_t first_attempt_id = 0;
+            // Keep the current label across batches so a heavily retried label cannot overfill one.
+            while (info_keys.size() < static_cast<size_t>(batch_limit) &&
+                   steady_clock::now() < deadline) {
+                if (next_attempt < label.txn_ids_size()) {
+                    const int64_t id = label.txn_ids(next_attempt++);
+                    if (info_keys.empty()) {
+                        first_attempt_key = last_label_key;
+                        first_attempt_id = id;
+                    }
+                    info_keys.push_back(txn_info_key({instance_id, db_id, id}));
+                    continue;
+                }
+                if (!it->has_next()) {
+                    break;
+                }
                 const auto [key, value] = it->next();
                 last_label_key = key;
                 --labels_left;
+                label.Clear();
+                next_attempt = 0;
                 if (value.size() <= VERSION_STAMP_LEN) {
                     continue;
                 }
-                TxnLabelPB label;
                 if (!label.ParseFromArray(value.data(), value.size() - VERSION_STAMP_LEN)) {
                     code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                     msg = "malformed txn label, key=" + hex(key);
@@ -5647,15 +5696,20 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
                 // An ID cursor survives removal of earlier attempts by the recycler.
                 auto& ids = *label.mutable_txn_ids();
                 std::sort(ids.begin(), ids.end());
-                auto id = key == resume_label_key
-                                  ? std::lower_bound(ids.begin(), ids.end(), resume_txn_id)
-                                  : ids.begin();
-                for (; id != ids.end(); ++id) {
-                    info_keys.push_back(txn_info_key({instance_id, db_id, *id}));
-                    attempts.emplace_back(key, *id);
+                if (key == resume_label_key) {
+                    next_attempt =
+                            std::lower_bound(ids.begin(), ids.end(), resume_txn_id) - ids.begin();
                 }
-            } while (it->has_next() && info_keys.size() < batch_size);
+            }
 
+            if (info_keys.empty()) {
+                continue;
+            }
+            if (steady_clock::now() >= deadline) {
+                set_next_attempt(first_attempt_key, first_attempt_id);
+                return;
+            }
+            attempts_left -= static_cast<int>(info_keys.size());
             std::vector<std::optional<std::string>> info_values;
             err = txn->batch_get(&info_values, info_keys, Transaction::BatchGetOptions(true));
             if (err != TxnErrorCode::TXN_OK) {
@@ -5665,41 +5719,26 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
                 LOG(WARNING) << msg;
                 return;
             }
+            TEST_SYNC_POINT_CALLBACK("scan_txn_label:after_batch_get", info_keys.size(), &deadline);
             for (size_t i = 0; i < info_values.size(); ++i) {
-                if (!info_values[i].has_value()) {
-                    continue;
-                }
-                if (response->txn_infos_size() == request->limit()) {
-                    const auto [label_key, txn_id] = attempts[i];
-                    std::string next(label_key);
-                    next.push_back('\0');
-                    next += std::to_string(txn_id);
-                    response->set_next_key(std::move(next));
-                    return;
-                }
-                if (!response->add_txn_infos()->ParseFromString(*info_values[i])) {
+                if (info_values[i].has_value() &&
+                    !response->add_txn_infos()->ParseFromString(*info_values[i])) {
                     code = MetaServiceCode::PROTOBUF_PARSE_ERR;
                     msg = "malformed txn info, key=" + hex(info_keys[i]);
                     LOG(WARNING) << msg;
                     return;
                 }
             }
-            if (response->txn_infos_size() == request->limit()) {
-                if (it->has_next() || it->more()) {
-                    std::string next(last_label_key);
-                    next.push_back('\0');
-                    response->set_next_key(std::move(next));
-                }
-                return;
-            }
         }
         if (it->more()) {
             begin = it->next_begin_key();
+            range_cursor = begin;
         }
-    } while (labels_left > 0 && it->more());
+    } while (labels_left > 0 && attempts_left > 0 && response->txn_infos_size() < limit &&
+             it->more());
 
     if (it->more()) {
-        response->set_next_key(std::move(begin));
+        response->set_next_key(std::move(range_cursor));
     }
 }
 

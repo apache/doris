@@ -142,6 +142,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import io.grpc.Deadline;
 import io.grpc.Status;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
@@ -162,6 +163,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.PriorityQueue;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -170,6 +172,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
@@ -2783,33 +2786,73 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public List<List<String>> getDbTransInfoByLabelMatch(long dbId, String labelRegex) throws AnalysisException {
-        Pattern pattern = Pattern.compile(labelRegex);
+        ConnectContext context = ConnectContext.get();
+        long timeoutMs = Config.cloud_show_txn_label_match_timeout_ms;
+        if (context != null) {
+            timeoutMs = Math.min(timeoutMs, TimeUnit.SECONDS.toMillis(context.getQueryTimeoutS()));
+        }
+        Deadline deadline = Deadline.after(timeoutMs, TimeUnit.MILLISECONDS);
+        Pattern pattern;
+        try {
+            pattern = Pattern.compile(labelRegex);
+        } catch (PatternSyntaxException e) {
+            throw new AnalysisException("Invalid transaction label pattern: " + e.getDescription(), e);
+        }
         int maxRows = Config.cloud_show_txn_label_match_max_rows;
+        int pageSize = Config.cloud_show_txn_label_scan_page_size;
+        if (maxRows <= 0 || pageSize <= 0) {
+            throw new AnalysisException("cloud_show_txn_label_match_max_rows and "
+                    + "cloud_show_txn_label_scan_page_size must be positive");
+        }
+        int remaining = Config.cloud_show_txn_label_match_max_scan_txns;
         ScanTxnLabelRequest.Builder request = ScanTxnLabelRequest.newBuilder()
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setDbId(dbId)
                 .setLabelPrefix(getTxnLabelPrefix(labelRegex))
+                .setLimit(pageSize)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached());
-        List<TransactionState> states = new ArrayList<>();
-        while (states.size() < maxRows) {
-            request.setLimit(maxRows - states.size());
+        PriorityQueue<TransactionState> states = new PriorityQueue<>(TransactionState.TXN_ID_COMPARATOR.reversed());
+        while (true) {
+            if (remaining <= 0 || deadline.isExpired()) {
+                throw txnLabelScanBudgetExceeded();
+            }
+            if (context != null && context.isKilled()) {
+                throw new AnalysisException("Transaction label scan was cancelled");
+            }
             ScanTxnLabelResponse response;
             try {
-                response = MetaServiceProxy.getInstance().scanTxnLabel(request.build());
+                response = MetaServiceProxy.getInstance().scanTxnLabel(request.build(), deadline);
             } catch (RpcException e) {
+                if (deadline.isExpired()) {
+                    throw txnLabelScanBudgetExceeded();
+                }
                 if (Status.fromThrowable(e).getCode() == Status.Code.UNIMPLEMENTED) {
                     throw new AnalysisException(
                             "Please upgrade MetaService to use SHOW TRANSACTION WHERE LABEL LIKE", e);
                 }
                 throw new AnalysisException("Failed to scan transaction labels: " + e.getMessage(), e);
             }
+            if (deadline.isExpired() || response.getTxnInfosCount() > remaining) {
+                throw txnLabelScanBudgetExceeded();
+            }
             if (response.getStatus().getCode() != MetaServiceCode.OK) {
                 throw new AnalysisException("Failed to scan transaction labels: " + response.getStatus().getMsg());
             }
+            remaining -= response.getTxnInfosCount();
             for (TxnInfoPB info : response.getTxnInfosList()) {
-                if (pattern.matcher(info.getLabel()).matches()) {
+                if (deadline.isExpired()) {
+                    throw txnLabelScanBudgetExceeded();
+                }
+                if ((states.size() < maxRows || info.getTxnId() > states.element().getTransactionId())
+                        && pattern.matcher(info.getLabel()).matches()) {
+                    if (states.size() == maxRows) {
+                        states.remove();
+                    }
                     states.add(TxnUtil.transactionStateFromPb(info));
                 }
+            }
+            if (deadline.isExpired()) {
+                throw txnLabelScanBudgetExceeded();
             }
             if (!response.hasNextKey()) {
                 break;
@@ -2822,6 +2865,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .collect(Collectors.toList());
     }
 
+    private static AnalysisException txnLabelScanBudgetExceeded() {
+        return new AnalysisException("The pattern scanned too many transactions within the scan budget. "
+                + "Use a longer literal prefix before the first '%' "
+                + "(cloud_show_txn_label_match_max_scan_txns, cloud_show_txn_label_match_timeout_ms).");
+    }
+
     private static String getTxnLabelPrefix(String regex) {
         // SHOW TRANSACTION expands % to .* and leaves other regex syntax intact.
         if (regex.indexOf('|') >= 0) {
@@ -2831,7 +2880,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             char ch = regex.charAt(i);
             if ("*?{".indexOf(ch) >= 0) {
                 // The preceding literal may be optional.
-                return "";
+                return i == 0 ? "" : regex.substring(0, regex.offsetByCodePoints(i, -1));
             }
             if (".\\^$+()[]}".indexOf(ch) >= 0) {
                 return regex.substring(0, i);
