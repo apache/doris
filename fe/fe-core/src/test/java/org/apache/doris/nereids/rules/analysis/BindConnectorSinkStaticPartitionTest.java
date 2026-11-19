@@ -37,6 +37,7 @@ import org.mockito.Mockito;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -341,14 +342,32 @@ public class BindConnectorSinkStaticPartitionTest {
 
     @Test
     public void pinnedDataSchemaStillRejectsExplicitInvisibleColumn() {
-        // Reuse the rewrite schema so the invariant covers the same reserved lineage metadata as production.
         PluginDrivenExternalTable table = tableWithRewriteColumns(true);
+        List<Column> fullSchema = table.getWriteSchemaSnapshot().getFullSchema();
+        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(fullSchema);
+        // An explicit write target omits lineage metadata from its full writer schema too.
+        stubWriteSchemaSnapshot(table, ImmutableList.of(ID, VAL), Collections.emptyList());
+        for (String name : ImmutableList.of("_row_id", "_last_updated_sequence_number")) {
+            AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () ->
+                    BindSink.selectConnectorSinkBindColumns(
+                            table, ImmutableList.of(ID, VAL), ImmutableList.of(name),
+                            Collections.emptySet(), false));
+            Assertions.assertEquals(
+                    "Cannot specify invisible column '" + name + "' in INSERT statement", ex.getMessage());
+        }
+    }
+
+    @Test
+    public void pinnedDataSchemaDoesNotBindVisibleColumnsFromFullTableSchema() {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Column stale = new Column("stale", PrimitiveType.INT);
+        Mockito.when(table.getFullSchema(Optional.empty())).thenReturn(ImmutableList.of(ID, VAL, stale));
+        stubWriteSchemaSnapshot(table, ImmutableList.of(ID, VAL), Collections.emptyList());
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () ->
                 BindSink.selectConnectorSinkBindColumns(
-                        table, ImmutableList.of(ID, VAL), ImmutableList.of("_row_id"),
+                        table, ImmutableList.of(ID, VAL), ImmutableList.of("stale"),
                         Collections.emptySet(), false));
-        Assertions.assertEquals(
-                "Cannot specify invisible column '_row_id' in INSERT statement", ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("column stale is not found"));
     }
 
     /**

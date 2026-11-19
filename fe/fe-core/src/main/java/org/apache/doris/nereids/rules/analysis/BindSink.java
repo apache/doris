@@ -1120,7 +1120,7 @@ public class BindSink implements AnalysisRuleFactory {
                 // The pinned writer schema deliberately contains data columns only. The latest full target
                 // schema still owns engine-managed invisible columns, which must reach the explicit-invisible
                 // rejection below instead of being misclassified as an unknown data column.
-                column = sinkTargetFullSchema(table).stream()
+                column = table.getFullSchema(Optional.empty()).stream()
                         .filter(candidate -> !candidate.isVisible())
                         .filter(candidate -> candidate.getName().equalsIgnoreCase(cn))
                         .findFirst()
