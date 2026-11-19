@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
@@ -369,6 +370,7 @@ public class RoutineLoadJobTest {
                 + "\"fuzzy_parse\" = \"false\",\n"
                 + "\"strict_mode\" = \"false\",\n"
                 + "\"timezone\" = \"Asia/Shanghai\",\n"
+                + "\"send_batch_parallelism\" = \"1\",\n"
                 + "\"exec_mem_limit\" = \"2147483648\"\n"
                 + ")\n"
                 + "FROM KAFKA\n"
@@ -413,6 +415,7 @@ public class RoutineLoadJobTest {
                 + "\"fuzzy_parse\" = \"false\",\n"
                 + "\"strict_mode\" = \"false\",\n"
                 + "\"timezone\" = \"Asia/Shanghai\",\n"
+                + "\"send_batch_parallelism\" = \"1\",\n"
                 + "\"compute_group\" = \"cg_b\",\n"
                 + "\"exec_mem_limit\" = \"2147483648\"\n"
                 + ")\n"
@@ -421,6 +424,56 @@ public class RoutineLoadJobTest {
                 + "\"kafka_broker_list\" = \"localhost:9092\",\n"
                 + "\"kafka_topic\" = \"test_topic\"\n"
                 + ");";
+        Assertions.assertEquals(expect, routineLoadJob.getShowCreateInfo());
+    }
+
+    // The properties that change how rows are parsed and written, printed as literals the statement parses back
+    // from. RoutineLoadShowCreateRoundTripTest recreates jobs from the statement.
+    @Test
+    public void testGetShowCreateInfoCarriesWriteProperties() throws UserException {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", 1,
+                11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
+        Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);
+        Deencapsulation.setField(routineLoadJob, "sendBatchParallelism", 3);
+        Deencapsulation.setField(routineLoadJob, "loadToSingleTablet", true);
+        Deencapsulation.setField(routineLoadJob, "enclose", (byte) '"');
+        Deencapsulation.setField(routineLoadJob, "escape", (byte) '\\');
+        Map<String, String> jobProperties = Deencapsulation.getField(routineLoadJob, "jobProperties");
+        jobProperties.put(CreateRoutineLoadInfo.WORKLOAD_GROUP, "wg1");
+        jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, "true");
+        routineLoadJob.setComment("the \"test\" job");
+
+        String expect = "CREATE ROUTINE LOAD test_load ON 11\n"
+                + "WITH APPEND\n"
+                + "PROPERTIES\n"
+                + "(\n"
+                + "\"desired_concurrent_number\" = \"0\",\n"
+                + "\"max_error_number\" = \"10\",\n"
+                + "\"max_filter_ratio\" = \"1.0\",\n"
+                + "\"max_batch_interval\" = \"60\",\n"
+                + "\"max_batch_rows\" = \"10\",\n"
+                + "\"max_batch_size\" = \"1073741824\",\n"
+                + "\"format\" = \"csv\",\n"
+                + "\"strip_outer_array\" = \"false\",\n"
+                + "\"num_as_string\" = \"false\",\n"
+                + "\"fuzzy_parse\" = \"false\",\n"
+                + "\"enclose\" = \"\"\"\",\n"
+                + "\"escape\" = \"\\\\\",\n"
+                + "\"empty_field_as_null\" = \"true\",\n"
+                + "\"strict_mode\" = \"false\",\n"
+                + "\"timezone\" = \"Asia/Shanghai\",\n"
+                + "\"send_batch_parallelism\" = \"3\",\n"
+                + "\"load_to_single_tablet\" = \"true\",\n"
+                + "\"workload_group\" = \"wg1\",\n"
+                + "\"exec_mem_limit\" = \"2147483648\"\n"
+                + ")\n"
+                + "FROM KAFKA\n"
+                + "(\n"
+                + "\"kafka_broker_list\" = \"localhost:9092\",\n"
+                + "\"kafka_topic\" = \"test_topic\"\n"
+                + ")\n"
+                + "COMMENT \"the \"\"test\"\" job\";";
         Assertions.assertEquals(expect, routineLoadJob.getShowCreateInfo());
     }
 

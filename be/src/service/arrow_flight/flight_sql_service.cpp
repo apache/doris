@@ -87,11 +87,15 @@ public:
         if (statement->result_addr.hostname == BackendOptions::get_localhost() &&
             statement->result_addr.port == config::brpc_port) {
             std::shared_ptr<ArrowFlightBatchLocalReader> reader;
-            ARROW_ASSIGN_OR_RAISE(reader, ArrowFlightBatchLocalReader::Create(statement));
+            ARROW_ASSIGN_OR_RAISE(
+                    reader, ArrowFlightBatchLocalReader::Create(
+                                    statement, [&context] { return context.is_cancelled(); }));
             return std::make_unique<arrow::flight::RecordBatchStream>(reader);
         } else {
             std::shared_ptr<ArrowFlightBatchRemoteReader> reader;
-            ARROW_ASSIGN_OR_RAISE(reader, ArrowFlightBatchRemoteReader::Create(statement));
+            ARROW_ASSIGN_OR_RAISE(
+                    reader, ArrowFlightBatchRemoteReader::Create(
+                                    statement, [&context] { return context.is_cancelled(); }));
             return std::make_unique<arrow::flight::RecordBatchStream>(reader);
         }
     }

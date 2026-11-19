@@ -251,6 +251,10 @@ extArrowFlightHttpPort= 8030
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
 iceberg_scan_planning_rest_uri_port=18182
+// Avoid the hms_port suffix: shared CI rewrites it for the default Hive service.
+iceberg_encryption_metastore_port=18383
+iceberg_encryption_kms_port=18384
+iceberg_encryption_fixture_port=18385
 iceberg_minio_port=19001
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182

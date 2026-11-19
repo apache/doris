@@ -32,6 +32,7 @@
 #include "core/field.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/column_data.h"
+#include "format_v2/file_scan_context.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -61,6 +62,18 @@ enum class FileFormat {
     ARROW,
     WAL,
     ES_HTTP,
+    MONGODB,
+    LANCE,
+};
+
+// Format-local description of one independently readable part of a file. Scanner scheduling
+// policy is attached only after this descriptor crosses the TableReader boundary.
+struct PhysicalFileSplit {
+    int64_t start_offset = 0;
+    int64_t size = -1;
+    std::shared_ptr<const FileContext> file_context;
+    int64_t format_split_id = -1;
+    int64_t format_split_id_end = -1;
 };
 
 struct FileScanRequest {
@@ -86,6 +99,10 @@ struct FileScanRequest {
     std::map<LocalColumnId, LocalIndex> non_predicate_positions;
     // Row-level filters converted to file-local expressions from table-level predicates.
     VExprContextSPtrs conjuncts;
+    // File-local columns still consumed by table-level predicates that could not be localized.
+    // Their values must survive physical reading even when COUNT(*) otherwise permits a synthetic
+    // carrier column.
+    std::vector<LocalColumnId> residual_predicate_columns;
     // Only this leading subset may participate in footer/page metadata pruning. The boundary is
     // inherited from table-conjunct order so an omitted slotless unsafe expression remains a fence.
     size_t metadata_pruning_safe_conjunct_count = std::numeric_limits<size_t>::max();
@@ -114,9 +131,18 @@ struct FileScanRequest {
     // Variant. Keeping this explicit prevents generic Parquet scans from guessing based on names.
     std::vector<LocalColumnIndex> variant_schema_overrides;
 
+    // Digest of the exact table-predicate snapshot used to build this immutable request. Format
+    // readers use it to prevent late runtime filters from inheriting stale adaptive state.
+    std::optional<uint64_t> predicate_snapshot_digest;
+
     bool is_count_star_placeholder(LocalColumnId column_id) const {
         return std::ranges::find(count_star_placeholder_columns, column_id) !=
                count_star_placeholder_columns.end();
+    }
+
+    bool is_residual_predicate_column(LocalColumnId column_id) const {
+        return std::ranges::find(residual_predicate_columns, column_id) !=
+               residual_predicate_columns.end();
     }
 
     bool is_predicate_only(LocalColumnId column_id) const {
@@ -363,6 +389,17 @@ public:
     // Initialize file reader and parse file metadata.
     virtual Status init(RuntimeState* state);
 
+    // Optionally refine the prepared file range into format-specific physical children after
+    // metadata initialization. The default keeps non-columnar formats on their original range.
+    virtual Status build_physical_splits(std::vector<PhysicalFileSplit>* splits,
+                                         bool* was_split) const {
+        DORIS_CHECK(splits != nullptr);
+        DORIS_CHECK(was_split != nullptr);
+        splits->clear();
+        *was_split = false;
+        return Status::OK();
+    }
+
     // Set the maximum row count for the next physical read batch. Readers that do not batch by
     // rows may ignore it.
     virtual void set_batch_size(size_t batch_size) { (void)batch_size; }
@@ -413,6 +450,10 @@ public:
     // granule and switch a newer snapshot at a well-defined boundary.
     virtual bool supports_scan_request_refresh() const { return false; }
 
+    // Only adaptive consumers need a semantic snapshot key. Other readers must not traverse
+    // large Bloom/IN runtime-filter payloads just to prepare another file.
+    virtual bool uses_predicate_snapshot_digest() const { return false; }
+
     virtual Status queue_scan_request(std::shared_ptr<FileScanRequest> request) {
         (void)request;
         return Status::NotSupported("FileReader does not support scan request refresh");
@@ -432,6 +473,11 @@ public:
     virtual Status get_aggregate_result(const FileAggregateRequest& request,
                                         FileAggregateResult* result) {
         return Status::NotSupported("FileReader does not support aggregate pushdown");
+    }
+
+    virtual Status get_metadata_aggregate_result(const FileAggregateRequest& request,
+                                                 FileAggregateResult* result) {
+        return Status::NotSupported("FileReader does not support metadata-only aggregate pushdown");
     }
 
     // Condition cache is managed by TableReader and consumed by physical file readers.

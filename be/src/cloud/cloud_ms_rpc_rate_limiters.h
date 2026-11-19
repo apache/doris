@@ -26,7 +26,7 @@
 #include <string_view>
 
 #include "common/atomic_shared_ptr.h"
-#include "cpp/token_bucket_rate_limiter.h"
+#include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
 
 namespace doris::cloud {
 

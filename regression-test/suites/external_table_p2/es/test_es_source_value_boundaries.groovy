@@ -104,7 +104,8 @@ suite("test_es_source_value_boundaries", "p2,external") {
         distributed by hash(row_id) buckets 1 properties("replication_num"="1")"""
     sql "insert into es_inherited_mapping_expected values (1,'VALUE',5,5),(2,'VALUE',5,5)"
     def mappingExpected = "internal.${context.dbName}.es_inherited_mapping_expected"
-    def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
+    // SHOW prefixes deprecated variable names; scalar access keeps the compatibility name stable.
+    def originalV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     def originalZone = sql("show variables like 'time_zone'")[0][1]
     try {

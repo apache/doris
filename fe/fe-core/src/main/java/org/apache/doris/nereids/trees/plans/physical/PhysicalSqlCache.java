@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -46,6 +47,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 /** PhysicalSqlCache */
 public class PhysicalSqlCache extends PhysicalLeaf
@@ -109,6 +111,12 @@ public class PhysicalSqlCache extends PhysicalLeaf
     }
 
     @Override
+    public AbstractPhysicalPlan copyForProfile(Function<Plan, Plan> copyPlan) {
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalSqlCache(queryId, columnLabels,
+                fieldInfos, resultExprs, resultSet, cacheValues, backendAddress, planBody));
+    }
+
+    @Override
     public String toString() {
         long rowCount = 0;
         if (resultSet.isPresent()) {
@@ -164,6 +172,11 @@ public class PhysicalSqlCache extends PhysicalLeaf
     @Override
     public String getChildrenTreeString() {
         return planBody;
+    }
+
+    @Override
+    public boolean canComputeResultInFe(List<Slot> outputSlots) {
+        return resultSet.isPresent();
     }
 
     @Override

@@ -2362,6 +2362,68 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
                                       const CreateInstanceRequest* request,
                                       CreateInstanceResponse* response,
                                       ::google::protobuf::Closure* done) {
+    create_instance_impl(controller, request, response, done, nullptr);
+}
+
+void MetaServiceImpl::bootstrap_instance(google::protobuf::RpcController* controller,
+                                         const BootstrapInstanceRequest* request,
+                                         CreateInstanceResponse* response,
+                                         ::google::protobuf::Closure* done) {
+    brpc::ClosureGuard done_guard(done);
+    CreateInstanceRequest create_request;
+    create_request.set_instance_id(request->instance_id());
+    create_request.set_name(request->instance_id());
+    create_instance_impl(controller, &create_request, response, nullptr,
+                         &request->initial_fe_cluster());
+}
+
+static bool add_initial_fe_cluster(ResourceManager& resource_mgr, const ClusterPB& cluster,
+                                   InstanceInfoPB& instance, std::string& msg) {
+    const auto& instance_id = instance.instance_id();
+    if (cluster.type() != ClusterPB::SQL || cluster.cluster_id().empty() ||
+        cluster.nodes_size() != 1 || cluster.nodes(0).node_type() != NodeInfoPB::FE_MASTER) {
+        msg = "initial_fe_cluster must be a SQL cluster with one FE master";
+        return false;
+    }
+    const auto& node = cluster.nodes(0);
+    if ((node.ip().empty() && node.host().empty()) || node.edit_log_port() <= 0 ||
+        node.edit_log_port() > 65535 || node.cloud_unique_id().empty()) {
+        msg = "initial FE requires an address, a valid edit log port and a cloud_unique_id";
+        return false;
+    }
+    if (!resource_mgr.check_cluster_params_valid(cluster, &msg, true, true, instance_id)) {
+        return false;
+    }
+    std::vector<NodeInfo> nodes;
+    resource_mgr.get_node(node.cloud_unique_id(), &nodes);
+    if (std::any_of(nodes.begin(), nodes.end(), [&](const auto& registered) {
+            return registered.instance_id != instance_id;
+        })) {
+        msg = "initial FE cloud_unique_id belongs to another instance";
+        return false;
+    }
+    for (const auto& existing : instance.clusters()) {
+        if (existing.cluster_id() == cluster.cluster_id() ||
+            existing.cluster_name() == cluster.cluster_name()) {
+            msg = "initial FE cluster id or name already exists";
+            return false;
+        }
+    }
+    const auto now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    auto* initial_cluster = instance.add_clusters();
+    initial_cluster->CopyFrom(cluster);
+    initial_cluster->set_ctime(now);
+    initial_cluster->set_mtime(now);
+    initial_cluster->mutable_nodes(0)->set_ctime(now);
+    initial_cluster->mutable_nodes(0)->set_mtime(now);
+    return true;
+}
+
+void MetaServiceImpl::create_instance_impl(google::protobuf::RpcController* controller,
+                                           const CreateInstanceRequest* request,
+                                           CreateInstanceResponse* response,
+                                           ::google::protobuf::Closure* done,
+                                           const ClusterPB* initial_fe_cluster) {
     TEST_SYNC_POINT_CALLBACK("create_instance_sk_request",
                              const_cast<CreateInstanceRequest**>(&request));
     RPC_PREPROCESS(create_instance, get, put);
@@ -2433,6 +2495,43 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         LOG(WARNING) << msg << " err=" << err;
         return;
     }
+    InstanceKeyInfo key_info {instance_id};
+    std::string key;
+    std::string val;
+    instance_key(key_info, &key);
+    err = txn->get(key, &val);
+    if (err == TxnErrorCode::TXN_OK && initial_fe_cluster != nullptr) {
+        // HTTP provisioning may create the instance and vault before the first FE starts.
+        if (!instance.ParseFromString(val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse InstanceInfoPB";
+            return;
+        }
+        if (instance.status() == InstanceInfoPB::DELETED) {
+            code = MetaServiceCode::CLUSTER_NOT_FOUND;
+            msg = "instance status has been set delete, plz check it";
+            return;
+        }
+        if (std::any_of(instance.clusters().begin(), instance.clusters().end(),
+                        [](const auto& cluster) { return cluster.type() == ClusterPB::SQL; })) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = "initial FE cluster already existed";
+            return;
+        }
+    } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::ALREADY_EXISTED
+                                           : cast_as<ErrCategory::READ>(err);
+        msg = err == TxnErrorCode::TXN_OK ? "instance already existed" : "failed to check instance";
+        LOG(WARNING) << msg << ", instance_id=" << instance_id << " err=" << err;
+        return;
+    }
+
+    if (initial_fe_cluster != nullptr &&
+        !add_initial_fe_cluster(*resource_mgr_, *initial_fe_cluster, instance, msg)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        return;
+    }
+
     if (request->has_vault()) {
         auto& param = const_cast<StorageVaultPB&>(request->vault());
         param.set_name(BUILT_IN_STORAGE_VAULT_NAME.data());
@@ -2441,10 +2540,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         }
     }
 
-    InstanceKeyInfo key_info {request->instance_id()};
-    std::string key;
-    std::string val = instance.SerializeAsString();
-    instance_key(key_info, &key);
+    val = instance.SerializeAsString();
     if (val.empty()) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         msg = "failed to serialize";
@@ -2458,20 +2554,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
 
     LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
 
-    // Check existence before proceeding
-    err = txn->get(key, &val);
-    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        std::stringstream ss;
-        ss << (err == TxnErrorCode::TXN_OK ? "instance already existed"
-                                           : "internal error failed to check instance")
-           << ", instance_id=" << request->instance_id() << ", err=" << err;
-        code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::ALREADY_EXISTED
-                                           : cast_as<ErrCategory::READ>(err);
-        msg = ss.str();
-        LOG(WARNING) << msg << " err=" << err;
-        return;
-    }
-
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << request->instance_id() << " instance_key=" << hex(key);
@@ -2480,10 +2562,13 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
         LOG(WARNING) << msg;
+    } else if (initial_fe_cluster != nullptr) {
+        resource_mgr_->refresh_instance(instance_id, instance);
     }
 
+    const bool include_self = err != TxnErrorCode::TXN_OK || initial_fe_cluster == nullptr;
     async_notify_refresh_instance(
-            txn_kv_, request->instance_id(), /*include_self=*/true,
+            txn_kv_, request->instance_id(), include_self,
             [instance_id = request->instance_id()](const KVStats& stats) {
                 if (config::use_detailed_metrics && !instance_id.empty()) {
                     g_bvar_rpc_kv_create_instance_get_bytes.put({instance_id}, stats.get_bytes);
@@ -3314,133 +3399,95 @@ void handle_drop_node(const std::string& instance_id, const AlterClusterRequest*
     msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
 }
 
-void handle_decommission_node(const std::string& instance_id, const AlterClusterRequest* request,
-                              std::shared_ptr<ResourceManager> resource_mgr, std::string& msg,
-                              MetaServiceCode& code) {
-    resource_mgr->check_cluster_params_valid(request->cluster(), &msg, false, false);
-    if (msg != "") {
-        LOG(WARNING) << msg;
-        return;
+static bool matches_node(const NodeInfoPB& node, const NodeInfoPB& requested) {
+    if (node.cloud_unique_id() != requested.cloud_unique_id() ||
+        node.heartbeat_port() != requested.heartbeat_port()) {
+        return false;
     }
-
-    std::string be_unique_id = (request->cluster().nodes())[0].cloud_unique_id();
-    std::vector<NodeInfo> nodes;
-    std::string err = resource_mgr->get_node(be_unique_id, &nodes);
-    if (!err.empty()) {
-        LOG(INFO) << "failed to check instance info, err=" << err;
-        msg = err;
-        return;
+    if (node.has_ip() && requested.has_ip()) {
+        return node.ip() == requested.ip();
     }
-
-    std::vector<NodeInfo> decomission_nodes;
-    for (auto& node : nodes) {
-        for (auto req_node : request->cluster().nodes()) {
-            bool ip_processed = false;
-            if (node.node_info.has_ip() && req_node.has_ip()) {
-                std::string endpoint =
-                        node.node_info.ip() + ":" + std::to_string(node.node_info.heartbeat_port());
-                std::string req_endpoint =
-                        req_node.ip() + ":" + std::to_string(req_node.heartbeat_port());
-                if (endpoint == req_endpoint) {
-                    decomission_nodes.push_back(node);
-                    node.node_info.set_status(NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
-                }
-                ip_processed = true;
-            }
-
-            if (!ip_processed && node.node_info.has_host() && req_node.has_host()) {
-                std::string endpoint = node.node_info.host() + ":" +
-                                       std::to_string(node.node_info.heartbeat_port());
-                std::string req_endpoint =
-                        req_node.host() + ":" + std::to_string(req_node.heartbeat_port());
-                if (endpoint == req_endpoint) {
-                    decomission_nodes.push_back(node);
-                    node.node_info.set_status(NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
-                }
-            }
-        }
-    }
-
-    {
-        std::vector<NodeInfo> to_add;
-        std::vector<NodeInfo>& to_del = decomission_nodes;
-        msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
-    }
-    {
-        std::vector<NodeInfo>& to_add = decomission_nodes;
-        std::vector<NodeInfo> to_del;
-        for (auto& node : to_add) {
-            node.node_info.set_status(NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
-            LOG(INFO) << "decomission node, "
-                      << "size: " << to_add.size() << " " << node.node_info.DebugString() << " "
-                      << node.cluster_id << " " << node.cluster_name;
-        }
-        msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
-    }
+    return node.has_host() && requested.has_host() && node.host() == requested.host();
 }
 
-void handle_notify_decommissioned(const std::string& instance_id,
-                                  const AlterClusterRequest* request,
-                                  std::shared_ptr<ResourceManager> resource_mgr, std::string& msg,
-                                  MetaServiceCode& code) {
-    resource_mgr->check_cluster_params_valid(request->cluster(), &msg, false, false);
-    if (msg != "") {
+static std::string resolve_cluster_from_node(ResourceManager& resource_mgr,
+                                             const NodeInfoPB& requested, ClusterPB& cluster) {
+    std::vector<NodeInfo> nodes;
+    auto msg = resource_mgr.get_node(requested.cloud_unique_id(), &nodes);
+    if (!msg.empty()) {
+        return msg;
+    }
+    for (const auto& node : nodes) {
+        if (matches_node(node.node_info, requested)) {
+            cluster.set_cluster_id(node.cluster_id);
+            cluster.set_cluster_name(node.cluster_name);
+            return "";
+        }
+    }
+    return "failed to find node to update: " + requested.ShortDebugString();
+}
+
+static std::string update_cluster_node_statuses(ClusterPB& cluster,
+                                                const ClusterPB& requested_cluster,
+                                                NodeStatusPB status) {
+    const auto mtime = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    auto* nodes = cluster.mutable_nodes();
+    for (const auto& requested : requested_cluster.nodes()) {
+        NodeInfoPB* matched = nullptr;
+        for (auto& node : *nodes) {
+            if (matches_node(node, requested)) {
+                matched = &node;
+                break;
+            }
+        }
+        if (matched == nullptr) {
+            return "failed to find node to update: " + requested.ShortDebugString();
+        }
+        matched->set_status(status);
+        matched->set_mtime(mtime);
+    }
+    return "";
+}
+
+void handle_update_node_status(const std::string& instance_id, const AlterClusterRequest* request,
+                               std::shared_ptr<ResourceManager> resource_mgr, NodeStatusPB status,
+                               std::string& msg) {
+    const auto& requested_cluster = request->cluster();
+    resource_mgr->check_cluster_params_valid(requested_cluster, &msg, false, false);
+    if (!msg.empty()) {
         LOG(WARNING) << msg;
         return;
     }
-
-    std::string be_unique_id = (request->cluster().nodes())[0].cloud_unique_id();
-    std::vector<NodeInfo> nodes;
-    std::string err = resource_mgr->get_node(be_unique_id, &nodes);
-    if (!err.empty()) {
-        LOG(INFO) << "failed to check instance info, err=" << err;
-        msg = err;
+    if (requested_cluster.nodes().empty()) {
+        msg = "no nodes to update";
         return;
     }
 
-    std::vector<NodeInfo> decomission_nodes;
-    for (auto& node : nodes) {
-        for (auto req_node : request->cluster().nodes()) {
-            bool ip_processed = false;
-            if (node.node_info.has_ip() && req_node.has_ip()) {
-                std::string endpoint =
-                        node.node_info.ip() + ":" + std::to_string(node.node_info.heartbeat_port());
-                std::string req_endpoint =
-                        req_node.ip() + ":" + std::to_string(req_node.heartbeat_port());
-                if (endpoint == req_endpoint) {
-                    decomission_nodes.push_back(node);
-                }
-                ip_processed = true;
-            }
-
-            if (!ip_processed && node.node_info.has_host() && req_node.has_host()) {
-                std::string endpoint = node.node_info.host() + ":" +
-                                       std::to_string(node.node_info.heartbeat_port());
-                std::string req_endpoint =
-                        req_node.host() + ":" + std::to_string(req_node.heartbeat_port());
-                if (endpoint == req_endpoint) {
-                    decomission_nodes.push_back(node);
-                }
-            }
+    ClusterInfo cluster;
+    cluster.cluster.CopyFrom(requested_cluster);
+    if (cluster.cluster.cluster_id().empty()) {
+        // Older HTTP callers can identify the cluster through the node alone.
+        msg = resolve_cluster_from_node(*resource_mgr, requested_cluster.nodes(0), cluster.cluster);
+        if (!msg.empty()) {
+            return;
         }
     }
 
-    {
-        std::vector<NodeInfo> to_add;
-        std::vector<NodeInfo>& to_del = decomission_nodes;
-        msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
-    }
-    {
-        std::vector<NodeInfo>& to_add = decomission_nodes;
-        std::vector<NodeInfo> to_del;
-        for (auto& node : to_add) {
-            node.node_info.set_status(NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
-            LOG(INFO) << "notify node decomissioned, "
-                      << " size: " << to_add.size() << " " << node.node_info.DebugString() << " "
-                      << node.cluster_id << " " << node.cluster_name;
-        }
-        msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
-    }
+    const auto& cluster_id = cluster.cluster.cluster_id();
+    const auto& cluster_name = cluster.cluster.cluster_name();
+    // HTTP-created clusters without a stored ID are distinguished by name.
+    auto match_cluster = [&cluster_id, &cluster_name](const ClusterPB& candidate) {
+        return candidate.cluster_id() == cluster_id &&
+               (!cluster_id.empty() || candidate.cluster_name() == cluster_name);
+    };
+    auto update_nodes = [&requested_cluster, status](ClusterPB& current, std::vector<ClusterPB>&) {
+        return update_cluster_node_statuses(current, requested_cluster, status);
+    };
+
+    // Publish only the final state: removing and re-adding nodes breaks instance lookup.
+    msg = resource_mgr->update_cluster(instance_id, cluster, match_cluster, update_nodes,
+                                       /*replace_if_existing_empty_target_cluster=*/false,
+                                       /*allow_cluster_name_fallback=*/true);
 }
 
 void handle_rename_cluster(const std::string& instance_id, const ClusterInfo& cluster,
@@ -3738,10 +3785,12 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         handle_drop_node(instance_id, request, resource_mgr(), msg, code);
         break;
     case AlterClusterRequest::DECOMMISSION_NODE:
-        handle_decommission_node(instance_id, request, resource_mgr(), msg, code);
+        handle_update_node_status(instance_id, request, resource_mgr(),
+                                  NodeStatusPB::NODE_STATUS_DECOMMISSIONING, msg);
         break;
     case AlterClusterRequest::NOTIFY_DECOMMISSIONED:
-        handle_notify_decommissioned(instance_id, request, resource_mgr(), msg, code);
+        handle_update_node_status(instance_id, request, resource_mgr(),
+                                  NodeStatusPB::NODE_STATUS_DECOMMISSIONED, msg);
         break;
     case AlterClusterRequest::RENAME_CLUSTER: {
         // SQL mode, cluster cluster name eq empty cluster name, need drop empty cluster first.
@@ -4611,96 +4660,6 @@ void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
             ram_user.set_sk(std::move(plain_ak_sk_pair.second));
         }
         response->mutable_ram_user()->CopyFrom(ram_user);
-    }
-}
-
-void MetaServiceImpl::alter_iam(google::protobuf::RpcController* controller,
-                                const AlterIamRequest* request, AlterIamResponse* response,
-                                ::google::protobuf::Closure* done) {
-    RPC_PREPROCESS(alter_iam, get, put);
-    std::string arn_id = request->has_account_id() ? request->account_id() : "";
-    std::string arn_ak = request->has_ak() ? request->ak() : "";
-    std::string arn_sk = request->has_sk() ? request->sk() : "";
-    if (arn_id.empty() || arn_ak.empty() || arn_sk.empty()) {
-        code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "invalid argument";
-        return;
-    }
-    RPC_RATE_LIMIT(alter_iam)
-
-    // for metric, give it a common instance id
-    instance_id = "alter_iam_instance";
-
-    std::string key = system_meta_service_arn_info_key();
-    std::string val;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        msg = "failed to create txn";
-        LOG(WARNING) << msg << " err=" << err;
-        return;
-    }
-    err = txn->get(key, &val);
-    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        code = cast_as<ErrCategory::READ>(err);
-        ss << "fail to arn_info_key, err=" << err;
-        msg = ss.str();
-        return;
-    }
-
-    bool is_add_req = err == TxnErrorCode::TXN_KEY_NOT_FOUND;
-    EncryptionInfoPB encryption_info;
-    AkSkPair cipher_ak_sk_pair;
-    if (encrypt_ak_sk_helper(arn_ak, arn_sk, &encryption_info, &cipher_ak_sk_pair, code, msg) !=
-        0) {
-        return;
-    }
-    const auto& [ak, sk] = cipher_ak_sk_pair;
-    RamUserPB iam_user;
-    std::string old_ak;
-    std::string old_sk;
-    if (!is_add_req) {
-        if (!iam_user.ParseFromString(val)) {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            ss << "failed to parse RamUserPB";
-            msg = ss.str();
-            return;
-        }
-
-        if (arn_id == iam_user.user_id() && ak == iam_user.ak() && sk == iam_user.sk()) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            ss << "already has the same arn info";
-            msg = ss.str();
-            return;
-        }
-        old_ak = iam_user.ak();
-        old_sk = iam_user.sk();
-    }
-    iam_user.set_user_id(arn_id);
-    iam_user.set_ak(std::move(cipher_ak_sk_pair.first));
-    iam_user.set_sk(std::move(cipher_ak_sk_pair.second));
-    iam_user.mutable_encryption_info()->CopyFrom(encryption_info);
-    val = iam_user.SerializeAsString();
-    if (val.empty()) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        ss << "failed to serialize";
-        msg = ss.str();
-        return;
-    }
-    txn->put(key, val);
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "txn->commit failed() err=" << err;
-        msg = ss.str();
-        return;
-    }
-    if (is_add_req) {
-        LOG(INFO) << "add new iam info, cipher ak: " << iam_user.ak()
-                  << " cipher sk: " << iam_user.sk();
-    } else {
-        LOG(INFO) << "alter iam info, old:  cipher ak: " << old_ak << " cipher sk" << old_sk
-                  << " new: cipher ak: " << iam_user.ak() << " cipher sk:" << iam_user.sk();
     }
 }
 

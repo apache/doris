@@ -166,6 +166,8 @@ public abstract class TestWithFeService {
         Config.heartbeat_interval_second = 1;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
+        // Static test fixtures may have initialized Env before the heartbeat interval was set.
+        Env.getCurrentHeartbeatMgr().setInterval(Config.heartbeat_interval_second * 1000L);
         connectContext.getSessionVariable().feDebug = true;
         beforeCluster();
         createDorisCluster();
@@ -296,11 +298,7 @@ public abstract class TestWithFeService {
     }
 
     public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
-        ConnectContext ctx = new ConnectContext();
-        ctx.setCurrentUserIdentity(user);
-        ctx.setRemoteIP(host);
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setThreadLocalInfo();
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx(user, host);
         ctx.setStatementContext(new StatementContext());
         return ctx;
     }
@@ -374,14 +372,12 @@ public abstract class TestWithFeService {
         System.out.println("CREATE FE SERVER DIR: " + Config.custom_config_dir);
 
         int feHttpPort = findValidPort();
-        int feRpcPort = findValidPort();
         int feQueryPort = findValidPort();
         int arrowFlightSqlPort = findValidPort();
         int feEditLogPort = findValidPort();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(feHttpPort));
-        feConfMap.put("rpc_port", String.valueOf(feRpcPort));
         feConfMap.put("query_port", String.valueOf(feQueryPort));
         feConfMap.put("arrow_flight_sql_port", String.valueOf(arrowFlightSqlPort));
         feConfMap.put("edit_log_port", String.valueOf(feEditLogPort));
@@ -390,8 +386,8 @@ public abstract class TestWithFeService {
         MockedFrontend frontend = new MockedFrontend();
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
-        lastFeRpcPort = feRpcPort;
-        return feRpcPort;
+        lastFeRpcPort = frontend.getRpcPort();
+        return lastFeRpcPort;
     }
 
     protected void createDorisCluster()

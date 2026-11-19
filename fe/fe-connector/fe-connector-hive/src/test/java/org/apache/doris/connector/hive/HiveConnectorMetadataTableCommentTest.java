@@ -24,6 +24,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -103,6 +104,20 @@ public class HiveConnectorMetadataTableCommentTest {
         Assertions.assertEquals("", md.getTableComment(session, "db", "gone"),
                 "the comment is a display value fetched opportunistically; a metastore miss must not fail the "
                         + "statement that is merely rendering a table list");
+    }
+
+    @Test
+    public void confirmedAbsenceReachesTheEngineButViewExistenceRemainsFalse() {
+        ConnectorTableNotFoundException missing = new ConnectorTableNotFoundException("db", "gone", null);
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(new FakeHmsClient(null) {
+            @Override
+            public HmsTableInfo getTable(String dbName, String tableName) {
+                throw new HmsClientException("table RPC failed", missing);
+            }
+        }, HiveTestProperties.minimal(), new FakeConnectorContext());
+        Assertions.assertSame(missing, Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.getTableComment(session, "db", "gone")));
+        Assertions.assertFalse(metadata.viewExists(session, "db", "gone"));
     }
 
     private static HmsTableInfo icebergTable(Map<String, String> params) {

@@ -20,6 +20,7 @@ package org.apache.doris.service;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.FlightSqlQueryCancellation;
 import org.apache.doris.auth.certificate.CertificateAuthDecision;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthFactory;
 import org.apache.doris.auth.certificate.CertificateRuntimeAuthService;
@@ -36,6 +37,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -130,7 +132,6 @@ import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
-import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
@@ -1125,6 +1126,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
         return QeProcessorImpl.INSTANCE.reportExecStatus(params, getClientAddr());
+    }
+
+    @Override
+    public TStatus cancelFlightQuery(TUniqueId resultId) throws TException {
+        return FlightSqlQueryCancellation.INSTANCE.cancel(resultId);
     }
 
     @Override
@@ -3230,7 +3236,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
 
-            Coordinator coord = new Coordinator(ctx, executor.planner());
+            Coordinator coord = EnvFactory.getInstance().createCoordinator(ctx, executor.planner(), null);
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
             TableIf table = httpStreamParams.getTable();
@@ -4778,19 +4784,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
-                int instanceNum = 0;
                 // For single-instance imports (like stream load from FE), we don't need cache either
                 // Only multi-instance imports need to ensure consistent tablet replica information
                 // Coordinator may be null for stream load or other BE-initiated loads
-                if (coordinator instanceof NereidsCoordinator) {
-                    NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
-                    instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
-                } else {
-                    Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
-                    instanceNum = beToInstancesNum.values().stream()
-                            .mapToInt(Integer::intValue)
-                            .sum();
-                }
+                int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
                 if (instanceNum > 1) {
                     needUseCache = true;
                 }
@@ -5107,19 +5104,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
-                int instanceNum = 0;
                 // For single-instance imports (like stream load from FE), we don't need cache either
                 // Only multi-instance imports need to ensure consistent tablet replica information
                 // Coordinator may be null for stream load or other BE-initiated loads
-                if (coordinator instanceof NereidsCoordinator) {
-                    NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
-                    instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
-                } else {
-                    Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
-                    instanceNum = beToInstancesNum.values().stream()
-                            .mapToInt(Integer::intValue)
-                            .sum();
-                }
+                int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
                 if (instanceNum > 1) {
                     needUseCache = true;
                     txnId = coordinator.getTxnId();
@@ -6237,19 +6225,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (coordinator == null) {
             return disabledAdaptiveBucketSinkContext();
         }
-        if (!(coordinator instanceof NereidsCoordinator)) {
-            Optional<Coordinator.AdaptiveRandomBucketSinkContext> context =
-                    coordinator.getAdaptiveRandomBucketSinkContext(tableId);
-            if (context.isPresent()) {
-                return new AdaptiveBucketSinkContext(
-                        true, context.get().getSinkBackendIds(), context.get().getSinkInstanceNum());
-            }
-            return disabledAdaptiveBucketSinkContext();
-        }
         Set<Long> sinkBackendIds = new TreeSet<>();
         int sinkInstanceNum = 0;
         for (PipelineDistributedPlan distributedPlan :
-                ((NereidsCoordinator) coordinator).getCoordinatorContext().distributedPlans) {
+                coordinator.getCoordinatorContext().distributedPlans) {
             if (!(distributedPlan.getFragmentJob().getFragment().getSink() instanceof OlapTableSink)) {
                 continue;
             }

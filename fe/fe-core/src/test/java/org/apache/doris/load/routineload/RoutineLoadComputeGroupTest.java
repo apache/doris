@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.persist.meta.PersistMetaModules;
 import org.apache.doris.qe.ConnectContext;
@@ -69,7 +70,9 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 /**
@@ -91,6 +94,7 @@ public class RoutineLoadComputeGroupTest {
     private AccessControllerManager originalAccessManager;
     private WorkloadGroupMgr originalWorkloadGroupMgr;
     private ComputeGroupMgr originalComputeGroupMgr;
+    private EditLog originalEditLog;
 
     @BeforeEach
     public void setUp() {
@@ -100,6 +104,7 @@ public class RoutineLoadComputeGroupTest {
         originalAccessManager = Env.getCurrentEnv().getAccessManager();
         originalWorkloadGroupMgr = Env.getCurrentEnv().getWorkloadGroupMgr();
         originalComputeGroupMgr = Env.getCurrentEnv().getComputeGroupMgr();
+        originalEditLog = Env.getCurrentEnv().getEditLog();
     }
 
     @AfterEach
@@ -110,6 +115,7 @@ public class RoutineLoadComputeGroupTest {
         Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", originalAccessManager);
         Deencapsulation.setField(Env.getCurrentEnv(), "workloadGroupMgr", originalWorkloadGroupMgr);
         Deencapsulation.setField(Env.getCurrentEnv(), "computeGroupMgr", originalComputeGroupMgr);
+        Deencapsulation.setField(Env.getCurrentEnv(), "editLog", originalEditLog);
         ConnectContext.remove();
     }
 
@@ -499,21 +505,7 @@ public class RoutineLoadComputeGroupTest {
     public void testAlterChecksWorkloadGroupInTheComputeGroupItDeclares() throws UserException {
         enterCloudMode(true, Lists.newArrayList("cg_a", "cg_b"));
         // only cg_a has wg_a, only cg_b has wg_b
-        List<String> lookups = Lists.newArrayList();
-        WorkloadGroupMgr workloadGroupMgr = Mockito.mock(WorkloadGroupMgr.class);
-        Mockito.when(workloadGroupMgr.getWorkloadGroup(Mockito.any(ConnectContext.class))).thenAnswer(invocation -> {
-            ConnectContext lookupCtx = invocation.getArgument(0);
-            String computeGroup = lookupCtx.getSessionVariable().getCloudCluster();
-            String workloadGroup = lookupCtx.getSessionVariable().getWorkloadGroup();
-            String lookup = computeGroup + "/" + workloadGroup;
-            lookups.add(lookupCtx.getCurrentUserIdentity().getQualifiedUser() + ":" + lookup);
-            if (!"cg_a/wg_a".equals(lookup) && !"cg_b/wg_b".equals(lookup)) {
-                throw new UserException("Can not find workload group " + workloadGroup + " in compute croup "
-                        + computeGroup);
-            }
-            return Lists.newArrayList(Mockito.mock(WorkloadGroup.class));
-        });
-        Deencapsulation.setField(Env.getCurrentEnv(), "workloadGroupMgr", workloadGroupMgr);
+        List<String> lookups = mockWorkloadGroups("cg_a/wg_a", "cg_b/wg_b");
 
         KafkaRoutineLoadJob job = newJob(SESSION_SNAPSHOT_CG, "cg_a");
         Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
@@ -536,11 +528,162 @@ public class RoutineLoadComputeGroupTest {
         Assertions.assertTrue(notPaused.getMessage().contains("Only supports modification of PAUSED jobs"),
                 notPaused.getMessage());
 
-        // an ALTER that declares no compute group looks nothing up, as before
+        // an ALTER that sets neither looks nothing up
         Assertions.assertThrows(DdlException.class,
-                () -> job.modifyProperties(newJobPropertiesAlter(null, "wg_unknown")));
+                () -> job.modifyProperties(newJobPropertiesAlter(null, null)));
 
         Assertions.assertEquals(Lists.newArrayList("owner:cg_b/wg_a", "owner:cg_b/wg_b"), lookups);
+    }
+
+    /**
+     * An ALTER that only sets a workload group checks it in the compute group the job runs in, as the owner, as
+     * CREATE does and as every task resolves it ({@code KafkaTaskInfo#rePlan}).
+     *
+     * <p>It used to be adopted unchecked. A job running in cg_a, ALTERed to ("workload_group" = "wg_b") where only
+     * cg_b has wg_b, then failed every task with "Can not find workload group wg_b in compute croup cg_a" and
+     * paused with the retryable CREATE_TASKS_ERR, which auto resume repeated for good.
+     */
+    @Test
+    public void testAlterOfWorkloadGroupChecksItInTheComputeGroupOfTheJob() throws UserException {
+        enterCloudMode(true, Lists.newArrayList("cg_a", "cg_b"));
+        // only cg_a has wg_a, only cg_b has wg_b
+        List<String> lookups = mockWorkloadGroups("cg_a/wg_a", "cg_b/wg_b");
+        UserIdentity owner = UserIdentity.createAnalyzedUserIdentWithIp("owner", "%");
+        // runs in cg_a, the group of the session that created it
+        KafkaRoutineLoadJob job = newJob("cg_a", null);
+        // runs in cg_b, the group it declares
+        KafkaRoutineLoadJob declaringJob = newJob("cg_a", "cg_b");
+        for (KafkaRoutineLoadJob j : Lists.newArrayList(job, declaringJob)) {
+            Deencapsulation.setField(j, "userIdentity", owner);
+            // left RUNNING, so an ALTER that gets past the check stops at the PAUSED check right after it
+            Deencapsulation.setField(j, "state", RoutineLoadJob.JobState.RUNNING);
+        }
+
+        UserException e = Assertions.assertThrows(UserException.class,
+                () -> job.modifyProperties(newJobPropertiesAlter(null, "wg_b")));
+        Assertions.assertTrue(e.getMessage().contains("Can not find workload group wg_b in compute croup cg_a"),
+                e.getMessage());
+        DdlException notPaused = Assertions.assertThrows(DdlException.class,
+                () -> job.modifyProperties(newJobPropertiesAlter(null, "wg_a")));
+        Assertions.assertTrue(notPaused.getMessage().contains("Only supports modification of PAUSED jobs"),
+                notPaused.getMessage());
+
+        e = Assertions.assertThrows(UserException.class,
+                () -> declaringJob.modifyProperties(newJobPropertiesAlter(null, "wg_a")));
+        Assertions.assertTrue(e.getMessage().contains("Can not find workload group wg_a in compute croup cg_b"),
+                e.getMessage());
+
+        Assertions.assertEquals(Lists.newArrayList("owner:cg_a/wg_b", "owner:cg_a/wg_a", "owner:cg_b/wg_a"), lookups);
+    }
+
+    /**
+     * Outside cloud mode a workload group lives in the namespace the owner's resource tag picks, which the lookup
+     * resolves from the owner alone; both Kafka and Kinesis jobs check an altered one there.
+     */
+    @Test
+    public void testAlterOfWorkloadGroupChecksItOutsideCloudMode() throws UserException {
+        List<String> lookups = mockWorkloadGroups("/wg_a");
+        UserIdentity owner = UserIdentity.createAnalyzedUserIdentWithIp("owner", "%");
+        KafkaRoutineLoadJob kafkaJob = newJob(null, null);
+        Deencapsulation.setField(kafkaJob, "userIdentity", owner);
+        KinesisRoutineLoadJob kinesisJob = new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L, 1L,
+                "ap-southeast-1", "stream-1", owner);
+        for (RoutineLoadJob job : Lists.<RoutineLoadJob>newArrayList(kafkaJob, kinesisJob)) {
+            Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.RUNNING);
+            UserException e = Assertions.assertThrows(UserException.class,
+                    () -> job.modifyProperties(newJobPropertiesAlter(null, "wg_unknown")));
+            Assertions.assertTrue(e.getMessage().contains("Can not find workload group wg_unknown"), e.getMessage());
+            DdlException notPaused = Assertions.assertThrows(DdlException.class,
+                    () -> job.modifyProperties(newJobPropertiesAlter(null, "wg_a")));
+            Assertions.assertTrue(notPaused.getMessage().contains("Only supports modification of PAUSED jobs"),
+                    notPaused.getMessage());
+        }
+
+        Assertions.assertEquals(Lists.newArrayList("owner:/wg_unknown", "owner:/wg_a", "owner:/wg_unknown",
+                "owner:/wg_a"), lookups);
+    }
+
+    /**
+     * Of two ALTERs of one paused job that run at once, the later one checks what the earlier one left.
+     *
+     * <p>A job in cg_a with wg_old, which both cg_a and cg_b have. One ALTER moves it to cg_b; another, run while
+     * the first looks wg_old up in cg_b, sets wg_a, which only cg_a has. When the check ran before the job lock,
+     * the second one checked wg_a in cg_a, both were accepted, and the job was left with wg_a in cg_b, which fails
+     * every task with "Can not find workload group wg_a in compute croup cg_b".
+     */
+    @Test
+    public void testConcurrentAltersCheckWhatTheEarlierOneLeft() throws Exception {
+        enterCloudMode(true, Lists.newArrayList("cg_a", "cg_b"));
+        KafkaRoutineLoadJob job = newJob("cg_a", null);
+        Map<String, String> jobProperties = Deencapsulation.getField(job, "jobProperties");
+        jobProperties.put(RoutineLoadJob.WORKLOAD_GROUP, "wg_old");
+        Deencapsulation.setField(job, "userIdentity", UserIdentity.createAnalyzedUserIdentWithIp("owner", "%"));
+        Deencapsulation.setField(job, "state", RoutineLoadJob.JobState.PAUSED);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Deencapsulation.setField(Env.getCurrentEnv(), "editLog", editLog);
+
+        AlterRoutineLoadCommand setWorkloadGroup = newJobPropertiesAlter(null, "wg_a");
+        AtomicReference<Exception> otherAlterFailure = new AtomicReference<>();
+        Thread otherAlter = new Thread(() -> {
+            try {
+                job.modifyProperties(setWorkloadGroup);
+            } catch (Exception e) {
+                otherAlterFailure.set(e);
+            }
+        });
+        // only cg_a has wg_a. The other ALTER starts when the move to cg_b looks wg_old up in cg_b, and that lookup
+        // returns once the other ALTER has finished or waits for the job lock.
+        List<String> lookups = mockWorkloadGroups(lookup -> {
+            if (!lookup.equals("owner:cg_b/wg_old")) {
+                return;
+            }
+            otherAlter.start();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+            while (otherAlter.isAlive() && !job.lock.hasQueuedThread(otherAlter) && System.nanoTime() < deadline) {
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(1));
+            }
+        }, "cg_a/wg_old", "cg_b/wg_old", "cg_a/wg_a");
+
+        job.modifyProperties(newJobPropertiesAlter("cg_b", null));
+        otherAlter.join();
+
+        Assertions.assertNotNull(otherAlterFailure.get(), "the later ALTER must check wg_a in cg_b");
+        Assertions.assertTrue(otherAlterFailure.get().getMessage().contains(
+                "Can not find workload group wg_a in compute croup cg_b"), otherAlterFailure.get().getMessage());
+        Assertions.assertEquals("cg_b", job.getCloudCluster());
+        Assertions.assertEquals("wg_old", job.getWorkloadGroup());
+        Assertions.assertEquals(Lists.newArrayList("owner:cg_b/wg_old", "owner:cg_b/wg_a"), lookups);
+        Mockito.verify(editLog, Mockito.times(1)).logAlterRoutineLoadJob(Mockito.any());
+    }
+
+    // Installs a WorkloadGroupMgr that has only these workload groups, each written "<compute group>/<workload
+    // group>", with an empty compute group outside cloud mode, where a lookup names none. Returns every lookup in
+    // call order, written "<user>:<compute group>/<workload group>".
+    private List<String> mockWorkloadGroups(String... existing) throws UserException {
+        return mockWorkloadGroups(lookup -> { }, existing);
+    }
+
+    // The same, handing each lookup to onLookup before answering it.
+    private List<String> mockWorkloadGroups(Consumer<String> onLookup, String... existing) throws UserException {
+        List<String> existingGroups = Lists.newArrayList(existing);
+        List<String> lookups = Lists.newArrayList();
+        WorkloadGroupMgr workloadGroupMgr = Mockito.mock(WorkloadGroupMgr.class);
+        Mockito.when(workloadGroupMgr.getWorkloadGroup(Mockito.any(ConnectContext.class))).thenAnswer(invocation -> {
+            ConnectContext lookupCtx = invocation.getArgument(0);
+            String computeGroup = lookupCtx.getSessionVariable().getCloudCluster();
+            String workloadGroup = lookupCtx.getSessionVariable().getWorkloadGroup();
+            String lookup = computeGroup + "/" + workloadGroup;
+            String recorded = lookupCtx.getCurrentUserIdentity().getQualifiedUser() + ":" + lookup;
+            lookups.add(recorded);
+            onLookup.accept(recorded);
+            if (!existingGroups.contains(lookup)) {
+                throw new UserException("Can not find workload group " + workloadGroup + " in compute croup "
+                        + computeGroup);
+            }
+            return Lists.newArrayList(Mockito.mock(WorkloadGroup.class));
+        });
+        Deencapsulation.setField(Env.getCurrentEnv(), "workloadGroupMgr", workloadGroupMgr);
+        return lookups;
     }
 
     // What AlterRoutineLoadCommand#validate leaves behind for PROPERTIES("compute_group" = ...,

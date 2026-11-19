@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
@@ -408,17 +407,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         }
     }
 
-    private boolean couldNotRightBucketShuffleJoin(JoinType joinType, DistributionSpecHash leftHashSpec,
-            DistributionSpecHash rightHashSpec) {
-        boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
-                || joinType == JoinType.RIGHT_OUTER_JOIN
-                || joinType == JoinType.ASOF_RIGHT_OUTER_JOIN
-                || joinType == JoinType.FULL_OUTER_JOIN);
-        boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
-                || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);
-        return isJoinTypeInScope && isSpecInScope && !SessionVariable.canUseNereidsDistributePlanner();
-    }
-
     @Override
     public List<List<PhysicalProperties>> visitPhysicalHashJoin(
             PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, Void context) {
@@ -457,17 +445,6 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
             // check colocate join with scan
             return ImmutableList.of(originChildrenProperties);
-        } else if (couldNotRightBucketShuffleJoin(hashJoin.getJoinType(), leftHashSpec, rightHashSpec)) {
-            // right anti, right outer, full outer join could not do bucket shuffle join
-            // TODO remove this after we refactor coordinator
-            updatedForLeft = Optional.of(calAnotherSideRequired(
-                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec, leftHashSpec,
-                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec()));
-            updatedForRight = Optional.of(calAnotherSideRequired(
-                    ShuffleType.EXECUTION_BUCKETED, leftHashSpec, rightHashSpec,
-                    (DistributionSpecHash) requiredProperties.get(0).getDistributionSpec(),
-                    (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if ((leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 && rightHashSpec.getShuffleType() == ShuffleType.NATURAL)) {
             shouldCheckLeftBucketDownGrade = true;
@@ -477,7 +454,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                     (DistributionSpecHash) requiredProperties.get(1).getDistributionSpec()));
         } else if (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 && rightHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED) {
-            if (SessionVariable.canUseNereidsDistributePlanner() && !isBucketShuffleDownGrade(leftChild)) {
+            if (!isBucketShuffleDownGrade(leftChild)) {
                 List<PhysicalProperties> shuffleToLeft = Lists.newArrayList(originChildrenProperties);
                 PhysicalProperties enforceShuffleRight = calAnotherSideRequired(
                         ShuffleType.STORAGE_BUCKETED, leftHashSpec, rightHashSpec,
@@ -513,7 +490,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             }
         } else if (leftHashSpec.getShuffleType() == ShuffleType.EXECUTION_BUCKETED
                 && rightHashSpec.getShuffleType() == ShuffleType.NATURAL) {
-            if (SessionVariable.canUseNereidsDistributePlanner() && !isBucketShuffleDownGrade(rightChild)) {
+            if (!isBucketShuffleDownGrade(rightChild)) {
                 // nereids coordinator can exchange left side to right side to do bucket shuffle join
                 // TODO: maybe we should check if left child is PhysicalDistribute.
                 //  If so add storage bucketed shuffle on left side. Other wise,

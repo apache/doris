@@ -193,7 +193,7 @@ public class PhysicalRecursiveUnion<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TY
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnion<>(cteName, qualifier, outputs,
-                regularChildrenOutputs, groupExpression, logicalProperties.get(), left(), right()));
+                regularChildrenOutputs, groupExpression, logicalProperties.get(), children.get(0), children.get(1)));
     }
 
     @Override

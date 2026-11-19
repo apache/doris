@@ -25,15 +25,22 @@ import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
+import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import org.apache.arrow.flight.ActionType;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.CloseSessionRequest;
@@ -55,20 +62,28 @@ import org.apache.arrow.flight.SetSessionOptionsResult;
 import org.apache.arrow.flight.SetSessionOptionsResult.ErrorValue;
 import org.apache.arrow.flight.sql.FlightSqlUtils;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
+import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementResult;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandStatementQuery;
+import org.apache.arrow.vector.ipc.ReadChannel;
+import org.apache.arrow.vector.ipc.message.MessageSerializer;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.nio.channels.Channels;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 public class DorisFlightSqlProducerTest {
@@ -173,15 +188,17 @@ public class DorisFlightSqlProducerTest {
      * Regression test for the FE direct-memory leak in {@code createPreparedStatement}
      * (issue apache/doris#65305, fixed by PR #65311).
      *
-     * <p>Before the fix, each prepare allocated a {@link org.apache.arrow.vector.VectorSchemaRoot}
+     * <p>Before that fix, each prepare allocated a {@link org.apache.arrow.vector.VectorSchemaRoot}
      * via {@code FlightSqlChannel.createOneOneSchemaRoot("ResultMeta", ...)} and read only its
      * {@code Schema}, never closing the root, leaking one off-heap {@code VarCharVector} buffer per
      * prepare. Because Arrow Flight has no parameter binding, every client query triggers a fresh
      * prepare, so the leak grows monotonically until {@code MaxDirectMemorySize} is exhausted.
      *
-     * <p>This test drives {@code createPreparedStatement} against a real {@link FlightSqlChannel} many
-     * times and asserts the channel's Arrow allocator holds zero bytes afterwards. It goes red if the
-     * try-with-resources that closes the temporary roots is removed.
+     * <p>Prepare now advertises the analyzed result schema; that {@code ResultMeta} placeholder is left
+     * for a statement whose schema only running it can tell, such as a request that sets a variable
+     * before its query. This test drives {@code createPreparedStatement} for such statements against a
+     * real {@link FlightSqlChannel} many times and asserts that each one gets the placeholder and the
+     * channel's Arrow allocator holds zero bytes afterwards.
      */
     @Test
     public void createPreparedStatementDoesNotLeakChannelAllocator() throws Exception {
@@ -224,7 +241,17 @@ public class DorisFlightSqlProducerTest {
                 StreamListener<Result> listener = new StreamListener<Result>() {
                     @Override
                     public void onNext(Result val) {
-                        // discard the placeholder prepared-statement result
+                        try {
+                            ByteString dataset = Any.parseFrom(val.getBody())
+                                    .unpack(ActionCreatePreparedStatementResult.class).getDatasetSchema();
+                            Schema schema = MessageSerializer.deserializeSchema(new ReadChannel(
+                                    Channels.newChannel(new ByteArrayInputStream(dataset.toByteArray()))));
+                            if (!"ResultMeta".equals(schema.getFields().get(0).getName())) {
+                                errors.incrementAndGet();
+                            }
+                        } catch (Exception e) {
+                            errors.incrementAndGet();
+                        }
                     }
 
                     @Override
@@ -239,14 +266,15 @@ public class DorisFlightSqlProducerTest {
                     }
                 };
                 ActionCreatePreparedStatementRequest request = ActionCreatePreparedStatementRequest.newBuilder()
-                        .setQuery("select * from t where id = " + i).build();
+                        .setQuery("set @id = " + i + "; select * from t where id = @id").build();
                 producer.createPreparedStatement(request, callContext, listener);
                 Assertions.assertTrue(finished.await(30, TimeUnit.SECONDS), "createPreparedStatement #" + i + " did not finish in time");
             }
 
-            // Guard against a false pass: if a prepare failed before reaching the allocation, no buffer
+            // Guard against a false pass: if a prepare failed before reaching the placeholder, no buffer
             // would be leaked and the memory assertion below could not detect a regression.
-            Assertions.assertEquals(0, errors.get(), "no createPreparedStatement call should fail");
+            Assertions.assertEquals(0, errors.get(),
+                    "every createPreparedStatement call should answer with the placeholder schema");
             // Every temporary VectorSchemaRoot must have been closed, so the channel's Arrow allocator
             // is back to zero. Reverting the fix leaves `rounds` ResultMeta buffers allocated here.
             Assertions.assertEquals(0L, channel.getAllocatedMemory(), "createPreparedStatement leaked off-heap memory in the channel allocator");
@@ -309,6 +337,111 @@ public class DorisFlightSqlProducerTest {
             // again (no double-close, no retained reference).
             ctx.closeFlightSqlDeferredExecutors();
             Mockito.verify(deferred, Mockito.times(1)).finalizeArrowFlightQuery();
+        } finally {
+            producer.close();
+        }
+    }
+
+    // Runs a GetFlightInfo whose query leaves its results on the BEs and registers its cancellation route on the
+    // given BEs, as StmtExecutor does before it closes or defers the query's coordinator, and whose Arrow schema
+    // fetch then fails. duringQuery runs at the end of the query, to defer its executor for instance.
+    private static void failSchemaFetchAfterRouting(TUniqueId queryId, TUniqueId resultId,
+            List<TNetworkAddress> backends, Consumer<ConnectContext> duringQuery) throws Exception {
+        ConnectContext ctx = ConnectContext.forFlight("token");
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx));
+        try (MockedConstruction<FlightSqlConnectProcessor> mocked = Mockito.mockConstruction(
+                FlightSqlConnectProcessor.class, (mock, context) -> {
+                    Mockito.doAnswer(invocation -> {
+                        FlightProtocolAdapter.of(ctx).beforeQuery(ctx);
+                        ctx.addFlightSqlEndpointsLocation(FlightSqlQueryCancellationTest.endpoint(resultId));
+                        FlightSqlQueryCancellation.INSTANCE.register(queryId, ImmutableList.of(resultId),
+                                backends, 120);
+                        duringQuery.accept(ctx);
+                        return null;
+                    }).when(mock).handleQuery(Mockito.anyString());
+                    Mockito.doThrow(new RuntimeException("fetch arrow flight schema timeout"))
+                            .when(mock).fetchArrowFlightSchema(Mockito.anyInt());
+                })) {
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("select 1").build();
+            Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(request, callOf("token"),
+                            FlightDescriptor.command(new byte[0])));
+        } finally {
+            producer.close();
+        }
+    }
+
+    // When a GetFlightInfo fails after its query registered the query's cancellation route, no ticket names the
+    // query's results, so no BE can report an early close of them, and the route must go now instead of staying
+    // until the query's timeout. A query that was not deferred has closed its coordinator already, so nothing
+    // else would cancel it before the BE's result buffer timer ends it: the route does, on every BE of the query.
+    @Test
+    public void testGetFlightInfoCancelsQueryAndDropsRouteWhenSchemaFetchFails() throws Exception {
+        TUniqueId queryId = new TUniqueId(70L, 1L);
+        TUniqueId resultId = new TUniqueId(70L, 2L);
+        TNetworkAddress resultBackend = new TNetworkAddress("127.0.0.1", 8001);
+        TNetworkAddress otherBackend = new TNetworkAddress("127.0.0.1", 8002);
+        try (MockedStatic<BackendServiceProxy> proxy = Mockito.mockStatic(BackendServiceProxy.class)) {
+            BackendServiceProxy cancelling = FlightSqlQueryCancellationTest.cancellingProxy(queryId);
+            proxy.when(BackendServiceProxy::getInstance).thenReturn(cancelling);
+            failSchemaFetchAfterRouting(queryId, resultId, ImmutableList.of(resultBackend, otherBackend), ctx -> {
+            });
+            Mockito.verify(cancelling).cancelPipelineXPlanFragmentAsync(Mockito.eq(resultBackend),
+                    Mockito.eq(queryId), Mockito.any());
+            Mockito.verify(cancelling).cancelPipelineXPlanFragmentAsync(Mockito.eq(otherBackend),
+                    Mockito.eq(queryId), Mockito.any());
+            Assertions.assertEquals(TStatusCode.NOT_FOUND,
+                    FlightSqlQueryCancellation.INSTANCE.cancel(resultId).getStatusCode());
+        }
+    }
+
+    // A deferred query of that failed GetFlightInfo is cancelled through its coordinator, which is still open, and
+    // not a second time through its route; its route goes all the same.
+    @Test
+    public void testGetFlightInfoLeavesDeferredQueryToItsCoordinator() throws Exception {
+        TUniqueId queryId = new TUniqueId(72L, 1L);
+        TUniqueId resultId = new TUniqueId(72L, 2L);
+        StmtExecutor deferred = Mockito.mock(StmtExecutor.class);
+        Mockito.when(deferred.getDeferredQueryId()).thenReturn(queryId);
+        try (MockedStatic<BackendServiceProxy> proxy = Mockito.mockStatic(BackendServiceProxy.class)) {
+            BackendServiceProxy cancelling = FlightSqlQueryCancellationTest.cancellingProxy(queryId);
+            proxy.when(BackendServiceProxy::getInstance).thenReturn(cancelling);
+            failSchemaFetchAfterRouting(queryId, resultId,
+                    ImmutableList.of(new TNetworkAddress("127.0.0.1", 8001)),
+                    ctx -> ctx.addFlightSqlDeferredExecutor(deferred));
+            Mockito.verify(deferred).cancel(Mockito.any(Status.class));
+            Mockito.verify(deferred).finalizeArrowFlightQuery();
+            Mockito.verify(cancelling, Mockito.never())
+                    .cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.any(), Mockito.any());
+            Assertions.assertEquals(TStatusCode.NOT_FOUND,
+                    FlightSqlQueryCancellation.INSTANCE.cancel(resultId).getStatusCode());
+        }
+    }
+
+    // A request that fails before it begins, as an empty query does, finds the previous request's endpoints on
+    // the session. A client may still be pulling those results, so their route stays for an early close.
+    @Test
+    public void testFailedRequestKeepsPreviousRequestRoute() throws Exception {
+        TUniqueId queryId = new TUniqueId(71L, 1L);
+        TUniqueId resultId = new TUniqueId(71L, 2L);
+        ConnectContext ctx = ConnectContext.forFlight("token");
+        ctx.addFlightSqlEndpointsLocation(FlightSqlQueryCancellationTest.endpoint(resultId));
+        FlightSqlQueryCancellation.INSTANCE.register(queryId, ImmutableList.of(resultId),
+                ImmutableList.of(new TNetworkAddress("127.0.0.1", 8001)), 120);
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                Location.forGrpcInsecure("127.0.0.1", 9090), sessionsOf(ctx));
+        try (MockedStatic<BackendServiceProxy> proxy = Mockito.mockStatic(BackendServiceProxy.class)) {
+            BackendServiceProxy cancelling = FlightSqlQueryCancellationTest.cancellingProxy(queryId);
+            proxy.when(BackendServiceProxy::getInstance).thenReturn(cancelling);
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("").build();
+            Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(request, callOf("token"),
+                            FlightDescriptor.command(new byte[0])));
+            Mockito.verify(cancelling, Mockito.never())
+                    .cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.any(), Mockito.any());
+            Assertions.assertEquals(TStatusCode.OK,
+                    FlightSqlQueryCancellation.INSTANCE.cancel(resultId).getStatusCode());
         } finally {
             producer.close();
         }

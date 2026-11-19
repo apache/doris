@@ -95,7 +95,8 @@ suite("test_es_mapping_boundaries", "p2,external") {
         "amount > 1 or ${nativeTerm}", "flag = true or ${nativeTerm}",
         "not (flag = true or ${nativeTerm})", "event_time = 1700000000000 or ${nativeTerm}",
         "not (event_time = 1700000000000 or ${nativeTerm})", "event_time > 1700000000000 or ${nativeTerm}"]
-    def originalV2 = sql("show variables like 'enable_file_scanner_v2'")[0][1]
+    // SHOW prefixes deprecated variable names; scalar access keeps the compatibility name stable.
+    def originalV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
     def originalParallel = sql("show variables like 'enable_es_parallel_scroll'")[0][1]
     try {
         [true, false].each { docvalues ->

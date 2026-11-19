@@ -29,12 +29,14 @@
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/sink/delta_writer_v2_pool.h"
 #include "exec/sink/load_stream_map_pool.h"
+#include "format_v2/table/fluss_union_lake_reader.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/cluster_info.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "storage/index/index_writer.h" // TmpFileDirs, completed here rather than in the header
 #include "storage/olap_define.h"
 #include "storage/storage_engine.h"
@@ -59,6 +61,7 @@ void ExecEnv::set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine) {
 void ExecEnv::set_write_cooldown_meta_executors() {
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
 }
+
 void ExecEnv::set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
     _memtable_memory_limiter.reset(limiter);
 }
@@ -68,10 +71,21 @@ void ExecEnv::set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cac
 void ExecEnv::set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
     _non_block_close_thread_pool = std::move(pool);
 }
-void ExecEnv::set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
-    _s3_file_upload_thread_pool = std::move(pool);
+void ExecEnv::set_obj_storage_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+    _obj_storage_upload_thread_pool = std::move(pool);
 }
 #endif // BE_TEST
+
+// init_mem_env() and destroy() call these in production, where BE_TEST is not defined.
+void ExecEnv::init_fluss_union_tail_cache() {
+    DCHECK(_fluss_union_tail_cache == nullptr);
+    _fluss_union_tail_cache = format::fluss::FlussUnionLakeReader::create_tail_cache();
+}
+
+void ExecEnv::destroy_fluss_union_tail_cache() {
+    // A function-static cache would unregister after graceful exit has already deleted CacheManager.
+    SAFE_DELETE(_fluss_union_tail_cache);
+}
 
 Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id, SyncRowsetStats* sync_stats,
                                            bool force_use_only_cached, bool cache_on_miss) {

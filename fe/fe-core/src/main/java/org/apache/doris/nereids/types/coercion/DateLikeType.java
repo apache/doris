@@ -37,6 +37,11 @@ import java.time.LocalDateTime;
  */
 public abstract class DateLikeType extends PrimitiveType implements RangeScalable {
 
+    @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
     protected LocalDate toLocalDate(double d) {
         // d = (year * 10000 + month * 100 + day) * 1000000L;
         int date = (int) (d / 1000000);

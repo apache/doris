@@ -70,6 +70,18 @@ public class IcebergMetadataDeleteTest {
     private static final ConnectorSession SESSION = new FakeSession("UTC");
 
     @Test
+    public void metadataDeleteRejectsUnknownEvenWithoutAColumnPredicate() {
+        InMemoryCatalog catalog = freshCatalog();
+        Schema schema = new Schema(Types.NestedField.optional(1, "u", Types.UnknownType.get()));
+        catalog.createTable(TABLE_ID, schema, PartitionSpec.unpartitioned(), props("format-version", "3"));
+        org.apache.doris.connector.spi.DorisConnectorException error = Assertions.assertThrows(
+                org.apache.doris.connector.spi.DorisConnectorException.class,
+                () -> metadata(catalog).deleteUsingMetadata(SESSION, HANDLE, Optional.empty(), null, () -> false));
+        Assertions.assertTrue(error.getMessage().contains("unknown type columns"));
+        Assertions.assertNull(reload(catalog).currentSnapshot());
+    }
+
+    @Test
     public void wholePartitionDeleteDropsMatchingFilesOnly() {
         InMemoryCatalog catalog = freshCatalog();
         PartitionSpec spec = PartitionSpec.builderFor(SCHEMA).identity("region").build();

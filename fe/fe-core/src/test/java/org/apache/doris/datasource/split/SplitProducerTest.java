@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -92,6 +93,119 @@ class SplitProducerTest {
                 group.execute(task);
             }
         };
+    }
+
+    @Test
+    void producingThenWaitingDoesNotKeepResubmitting() throws Exception {
+        Fixture fixture = new Fixture(1, 3);
+        ManualExecutor executor = new ManualExecutor();
+        CompletableFuture<Void> dependency = new CompletableFuture<>();
+        RecordingSource source = new RecordingSource(1, 0, 2) {
+            private boolean first = true;
+            private boolean paused;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return paused ? dependency : null;
+            }
+
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                paused = first;
+                first = false;
+                return super.getNextBatch();
+            }
+        };
+        fixture.start(executor, source, () -> 0L);
+        executor.runUntilIdle();
+        Assertions.assertEquals(1, fixture.assignment.getAssignedSplits(fixture.backend).size());
+        Assertions.assertEquals(0, fixture.completions.get());
+        dependency.complete(null);
+        executor.runUntilIdle();
+        Assertions.assertEquals(Arrays.asList(0L, 2L), identities(fixture.source().getNextBatch(2)));
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
+    @Test
+    void asynchronousMetadataWaitReleasesWorkerAndResumesOnCompletion() throws Exception {
+        Fixture fixture = new Fixture(1, 3);
+        ManualExecutor executor = new ManualExecutor();
+        CompletableFuture<Void> dependency = new CompletableFuture<>();
+        RecordingSource source = new RecordingSource(1, 0) {
+            private boolean awaiting = true;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return awaiting ? dependency : null;
+            }
+
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                awaiting = false;
+                return super.getNextBatch();
+            }
+        };
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+        Assertions.assertEquals(0, fixture.completions.get());
+        Assertions.assertTrue(fixture.assignment.getAssignedSplits(fixture.backend).isEmpty());
+        dependency.complete(null);
+        executor.runUntilIdle();
+        Assertions.assertEquals(Collections.singletonList(0L), identities(fixture.source().getNextBatch(1)));
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
+    @Test
+    void metadataCompletionRacingEmptyReadDoesNotBecomeEndOfInput() throws Exception {
+        Fixture fixture = new Fixture(1, 3);
+        ManualExecutor executor = new ManualExecutor();
+        RecordingSource source = new RecordingSource(1, 0) {
+            private final CompletableFuture<Void> dependency = new CompletableFuture<>();
+            private CompletableFuture<Void> blocked;
+            private boolean first = true;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return blocked;
+            }
+
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                if (first) {
+                    first = false;
+                    blocked = dependency;
+                    dependency.complete(null);
+                    return Collections.emptyList();
+                }
+                blocked = null;
+                return super.getNextBatch();
+            }
+        };
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+        Assertions.assertEquals(Collections.singletonList(0L), identities(fixture.source().getNextBatch(1)));
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
+    @Test
+    void metadataFailureWakesProducerAndReachesConsumer() throws Exception {
+        Fixture fixture = new Fixture(1, 3);
+        ManualExecutor executor = new ManualExecutor();
+        CompletableFuture<Void> dependency = new CompletableFuture<>();
+        RecordingSource source = new RecordingSource(1, 0) {
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return dependency;
+            }
+        };
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+        dependency.completeExceptionally(new IllegalStateException("metadata failed"));
+        executor.runUntilIdle();
+        Assertions.assertTrue(Assertions.assertThrows(UserException.class,
+                () -> fixture.source().getNextBatch(1)).getMessage().contains("metadata failed"));
+        Assertions.assertEquals(1, source.closeCalls.get());
+        Assertions.assertEquals(1, fixture.completions.get());
     }
 
     @Test
