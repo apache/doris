@@ -173,12 +173,15 @@ Status TermPattern::create(TermPatternKind kind, std::string_view pattern, TermP
         return Status::MemoryAllocFailed("cannot allocate Hyperscan scratch");
     }
     out->_scratch.reset(scratch);
-    out->_enumeration_prefix = regexp_enumeration_prefix(pattern);
+    // Hyperscan reads the expression as a C string, so a raw NUL ends it. The prefix and the
+    // literal come from that same text, or they would skip terms the expression matches.
+    const std::string_view compiled(terminated.c_str());
+    out->_enumeration_prefix = regexp_enumeration_prefix(compiled);
     // As for a glob: an expression with a prefix already stops where the prefix ends, and CLucene
     // checks the prefix only after this text, so '^cach.' would walk on past "cach" through every
     // later term that lacks "cach". Only an expression that enumerates the whole dictionary keeps it.
     if (out->_enumeration_prefix.empty()) {
-        out->_text = regexp_required_literal(pattern);
+        out->_text = regexp_required_literal(compiled);
     }
     return Status::OK();
 }

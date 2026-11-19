@@ -75,4 +75,23 @@ TEST(TermPatternRegexpLiteral, InvalidPatternNamesNoLiteral) {
     EXPECT_EQ(term_pattern.required_text(), "");
 }
 
+// Hyperscan reads the expression as a C string, so a raw NUL ends it. The literal and the prefix
+// must come from that same text, or they would skip terms the expression matches.
+TEST(TermPatternRegexpLiteral, RawNulEndsTheExpression) {
+    TermPattern unanchored;
+    ASSERT_TRUE(TermPattern::create(TermPatternKind::kRegexp, std::string("cache\0missing", 13),
+                                    &unanchored)
+                        .ok());
+    EXPECT_TRUE(unanchored.matches("cache"));
+    EXPECT_EQ(unanchored.required_text(), "cache");
+
+    TermPattern anchored;
+    ASSERT_TRUE(TermPattern::create(TermPatternKind::kRegexp, std::string("^cache\0missing", 14),
+                                    &anchored)
+                        .ok());
+    EXPECT_TRUE(anchored.matches("cache"));
+    EXPECT_TRUE(std::string_view("cache").starts_with(anchored.enumeration_prefix()))
+            << anchored.enumeration_prefix();
+}
+
 } // namespace doris::index_query
