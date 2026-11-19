@@ -27,6 +27,7 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/sink/vtablet_block_convertor.h"
 #include "storage/tablet/tablet_schema.h"
 #include "testutil/mock/mock_descriptors.h"
 #include "util/defer_op.h"

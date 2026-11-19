@@ -75,7 +75,8 @@ TEST_F(VectorSearchTest, SparseLabelsSurviveReloadAndDeleteBitmapFiltering) {
             const bool l2 = metric == FaissBuildParameter::MetricType::L2;
             FaissBuildParameter build;
             build.dim = 2;
-            build.max_degree = 16;
+            // Connect this tiny fixture fully so recall does not obscure row-ID mapping.
+            build.max_degree = 64;
             build.ivf_nlist = 1;
             build.index_type = type;
             build.metric_type = metric;
@@ -90,7 +91,8 @@ TEST_F(VectorSearchTest, SparseLabelsSurviveReloadAndDeleteBitmapFiltering) {
             }
             ASSERT_TRUE(writer.train(64, vectors.data()).ok());
             ASSERT_TRUE(writer.add_with_ids(64, vectors.data(), labels.data()).ok());
-            auto dir = std::make_shared<lucene::store::RAMDirectory>();
+            std::shared_ptr<lucene::store::Directory> dir =
+                    std::make_shared<lucene::store::RAMDirectory>();
             ASSERT_TRUE(writer.save(dir.get()).ok());
             EXPECT_TRUE(dir->fileExists(faiss_index_fila_name));
             EXPECT_FALSE(dir->fileExists("ann.sparse.v1.faiss"));
@@ -102,9 +104,12 @@ TEST_F(VectorSearchTest, SparseLabelsSurviveReloadAndDeleteBitmapFiltering) {
             native_bytes.data.resize(cast_set<size_t>(input->length()));
             input->readBytes(native_bytes.data.data(), cast_set<int32_t>(native_bytes.data.size()));
             input->close();
-            auto native = std::unique_ptr<faiss::Index>(faiss::read_index(
-                    &native_bytes,
-                    faiss::IO_FLAG_SKIP_IVF_DATA | faiss::IO_FLAG_SKIP_PRECOMPUTE_TABLE));
+            const int read_flags = faiss::IO_FLAG_SKIP_PRECOMPUTE_TABLE |
+                                   (type == FaissBuildParameter::IndexType::IVF_ON_DISK
+                                            ? faiss::IO_FLAG_SKIP_IVF_DATA
+                                            : 0);
+            auto native =
+                    std::unique_ptr<faiss::Index>(faiss::read_index(&native_bytes, read_flags));
             EXPECT_EQ(native->ntotal, 64);
             EXPECT_EQ(dynamic_cast<faiss::IndexIDMap*>(native.get()) != nullptr,
                       type == FaissBuildParameter::IndexType::HNSW);
@@ -172,6 +177,33 @@ TEST_F(VectorSearchTest, SparseLabelsSurviveReloadAndDeleteBitmapFiltering) {
                     }
                     EXPECT_EQ(*range.roaring, expected);
                 }
+                // Exact boundaries must survive sparse labels, deletes and complements.
+                const float boundary_query[] = {l2 ? 0.0F : 1.0F, l2 ? 1.0F : 0.0F};
+                for (float radius : {-1.0F, 0.0F, 3.0F, 63.0F}) {
+                    for (bool less : {false, true}) {
+                        for (bool inclusive : {false, true}) {
+                            SCOPED_TRACE(fmt::format("radius={} less={} inclusive={}", radius, less,
+                                                     inclusive));
+                            params.is_le_or_lt = less;
+                            params.include_boundary = inclusive;
+                            IndexSearchResult range;
+                            ASSERT_TRUE(reader.range_search(boundary_query, radius, params, range)
+                                                .ok());
+                            roaring::Roaring expected;
+                            for (int i = 0; i < 64; ++i) {
+                                const auto distance = static_cast<float>(i);
+                                const bool matches =
+                                        (less ? distance < radius : distance > radius) ||
+                                        (inclusive && distance == radius);
+                                if (matches && (!delete_best || i != best)) {
+                                    expected.add(labels[i]);
+                                }
+                            }
+                            EXPECT_EQ(*range.roaring, expected);
+                        }
+                    }
+                }
+                params.include_boundary = false;
             }
         }
     }
@@ -1292,7 +1324,9 @@ TEST_F(VectorSearchTest, RangeSearchAllRowsAsCandidates) {
                     << "Distance mismatch at rank " << i;
         }
 
+        // Complement the strict native L2 < radius search with L2 >= radius.
         doris_search_params.is_le_or_lt = false;
+        doris_search_params.include_boundary = true;
         doris_search_params.roaring = all_rows.get();
         for (size_t i = 0; i < num_vectors; ++i) {
             doris_search_params.roaring->add(i);
@@ -1401,7 +1435,9 @@ TEST_F(VectorSearchTest, RangeSearchWithSelector1) {
                     << "Distance mismatch at rank " << i;
         }
 
+        // Complement the strict native L2 < radius search with L2 >= radius.
         doris_search_params.is_le_or_lt = false;
+        doris_search_params.include_boundary = true;
         IndexSearchResult doris_search_result2;
         ASSERT_EQ(index1->range_search(query_vec.data(), radius, doris_search_params,
                                        doris_search_result2)

@@ -70,7 +70,9 @@ TEST_P(FunctionArrayDistanceNullTest, ValidConstantQueryWithMissingData) {
                 constant_arg == 0
                         ? DataSet {{{vector, TestArray {}}, Null()}, {{vector, Null()}, Null()}}
                         : DataSet {{{TestArray {}, vector}, Null()}, {{Null(), vector}, Null()}};
-        ASSERT_TRUE((check_function<DataTypeFloat32, true>(GetParam(), types, rows)).ok());
+        for (const auto& row : rows) {
+            ASSERT_TRUE((check_function<DataTypeFloat32, true>(GetParam(), types, {row})).ok());
+        }
     }
 }
 
@@ -128,10 +130,16 @@ TEST(FunctionArrayApproximateDistanceTest, ConstantQueryProducesNullableDistance
     const TestArray a = {Float32(0), Float32(0)};
     const TestArray b = {Float32(3), Float32(4)};
     const DataSet l2 = {{{a, b}, Float32(5)}, {{b, b}, Float32(0)}};
-    ASSERT_TRUE((check_function<DataTypeFloat32, true>("l2_distance_approximate", types, l2)).ok());
+    for (const auto& row : l2) {
+        ASSERT_TRUE((check_function<DataTypeFloat32, true>("l2_distance_approximate", types, {row}))
+                            .ok());
+    }
     const DataSet ip = {{{a, b}, Float32(0)}, {{b, b}, Float32(25)}};
-    ASSERT_TRUE(
-            (check_function<DataTypeFloat32, true>("inner_product_approximate", types, ip)).ok());
+    for (const auto& row : ip) {
+        ASSERT_TRUE(
+                (check_function<DataTypeFloat32, true>("inner_product_approximate", types, {row}))
+                        .ok());
+    }
 }
 
 } // namespace doris

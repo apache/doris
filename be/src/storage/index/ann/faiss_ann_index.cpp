@@ -934,10 +934,8 @@ Status FaissVectorIndex::_init_indexed_rows() {
     return Status::OK();
 }
 
-// For l2 distance, range search radius is the squared distance.
-// For inner product, range search radius is the actual distance.
-// range search on inner product returns all vectors with inner product greater than or equal to the radius.
-// For l2 distance, range search returns all vectors with squared distance less than or equal to the radius.
+// Doris accepts an L2 distance (squared below for FAISS) or an inner-product threshold.
+// FAISS uses strict bounds; translate SQL inclusiveness before searching.
 doris::Status FaissVectorIndex::range_search(const float* query_vec, const float& radius,
                                              const segment_v2::IndexSearchParameters& params,
                                              segment_v2::IndexSearchResult& result) {
@@ -1030,16 +1028,25 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         SCOPED_RAW_TIMER(&result.engine_search_ns);
         ScopedIoCtxBinding io_ctx_binding(params.io_ctx);
         try {
+            // FAISS uses strict comparisons: squared L2 < radius and IP > radius.
+            // Include equality by moving the bound one float toward the outside.
+            // Complementing flips inclusiveness: L2 > 3 must exclude L2 <= 3.
+            const bool include_boundary = params.include_boundary != needs_complement;
             if (_metric == AnnIndexMetric::L2) {
-                if (radius <= 0) {
-                    search_index->range_search(1, query_vec, 0.0f, &native_search_result,
-                                               search_param.get());
-                } else {
-                    search_index->range_search(1, query_vec, radius * radius, &native_search_result,
-                                               search_param.get());
+                float search_radius = radius > 0 ? radius * radius : 0.0F;
+                // Negative L2 bounds have no matching distances, including at zero.
+                if (include_boundary && radius >= 0) {
+                    search_radius =
+                            std::nextafter(search_radius, std::numeric_limits<float>::infinity());
                 }
+                search_index->range_search(1, query_vec, search_radius, &native_search_result,
+                                           search_param.get());
             } else if (_metric == AnnIndexMetric::IP) {
-                search_index->range_search(1, query_vec, radius, &native_search_result,
+                const float search_radius =
+                        include_boundary
+                                ? std::nextafter(radius, -std::numeric_limits<float>::infinity())
+                                : radius;
+                search_index->range_search(1, query_vec, search_radius, &native_search_result,
                                            search_param.get());
             }
         } catch (faiss::FaissException& e) {
@@ -1086,7 +1093,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
                     << ", roaring size: " << result.roaring->cardinality();
         } else if (_metric == AnnIndexMetric::IP) {
             // For IP, we can not use the distance directly.
-            // range search on ip gets all vectors with inner product greater than or equal to the radius.
+            // The adjusted search bound preserves the requested boundary semantics.
             // so we need to do a convertion.
             const roaring::Roaring& origin_row_ids = *range_domain;
             std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
@@ -1126,7 +1133,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
             }
         } else if (_metric == AnnIndexMetric::IP) {
             // For inner product, we can use the distance directly.
-            // range search on ip gets all vectors with inner product greater than or equal to the radius.
+            // The adjusted search bound preserves the requested boundary semantics.
             // when query condition is not le_or_lt, we can use the roaring and distance directly.
             std::shared_ptr<float[]> distances_ptr(new float[end - begin]);
             float* distances = distances_ptr.get();

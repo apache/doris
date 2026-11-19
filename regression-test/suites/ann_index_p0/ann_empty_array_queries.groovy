@@ -57,7 +57,8 @@ suite("ann_empty_array_queries", "nonConcurrent") {
             for (def metric : ['l2_distance', 'inner_product']) {
                 logger.info("ANN missing-vector queries: index=${indexType}, metric=${metric}")
                 sql "DROP TABLE IF EXISTS ann_empty_array_queries"
-                def indexProperties = indexType == 'hnsw' ? '"max_degree"="16"' : '"nlist"="1"'
+                // Connect the at-most-96-vector fixture fully so recall does not obscure row-ID checks.
+                def indexProperties = indexType == 'hnsw' ? '"max_degree"="128"' : '"nlist"="1"'
                 sql """
                     CREATE TABLE ann_empty_array_queries (
                         id INT NOT NULL,
@@ -72,7 +73,7 @@ suite("ann_empty_array_queries", "nonConcurrent") {
                 sql """INSERT INTO ann_empty_array_queries
                     SELECT number,
                            IF(number % 3 = 0, CAST([] AS ARRAY<FLOAT>),
-                              [CAST(number AS FLOAT), CAST(0 AS FLOAT), CAST(0 AS FLOAT)])
+                              array(CAST(number AS FLOAT), CAST(0 AS FLOAT), CAST(0 AS FLOAT)))
                     FROM numbers("number"="96")"""
                 // A separate all-empty segment exercises the untrained-IVF short circuit.
                 sql "INSERT INTO ann_empty_array_queries VALUES (100, []), (101, [])"
@@ -208,7 +209,7 @@ suite("ann_empty_array_queries", "nonConcurrent") {
                     // Check TopN results when every row has a valid vector.
                     sql "TRUNCATE TABLE ann_empty_array_queries"
                     sql """INSERT INTO ann_empty_array_queries
-                        SELECT number, [CAST(number AS FLOAT), CAST(0 AS FLOAT), CAST(0 AS FLOAT)]
+                        SELECT number, array(CAST(number AS FLOAT), CAST(0 AS FLOAT), CAST(0 AS FLOAT))
                         FROM numbers("number"="96")"""
                     qt_dense_topn """SELECT id, ${fn}(vec, ${query}) AS d FROM ann_empty_array_queries
                         ORDER BY d ${direction} LIMIT 10"""

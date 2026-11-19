@@ -819,6 +819,8 @@ void VectorizedFnCall::prepare_ann_range_search(
 
     range_search_runtime.is_le_or_lt =
             (this->op() == TExprOpcode::LE || this->op() == TExprOpcode::LT);
+    range_search_runtime.include_boundary =
+            (this->op() == TExprOpcode::LE || this->op() == TExprOpcode::GE);
 
     DCHECK(_children.size() == 2);
 

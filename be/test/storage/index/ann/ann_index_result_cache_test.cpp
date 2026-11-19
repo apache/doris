@@ -278,6 +278,28 @@ TEST_F(RangeCacheKeyTest, DifferentIsLeOrLtMisses) {
     EXPECT_FALSE(cache_->lookup("rs1", 0, 1, p2, user_params_, 4, 1000, &h));
 }
 
+TEST_F(RangeCacheKeyTest, DifferentBoundaryInclusionMisses) {
+    AnnRangeSearchParams p;
+    p.query_value = vec_.data();
+    p.radius = 5.0F;
+    p.is_le_or_lt = true;
+    p.include_boundary = false;
+    p.roaring = nullptr;
+    do {
+        AnnIndexResultCacheHandle h;
+        cache_->insert("rs1", 0, 1, p, user_params_, 4, 1000, &h);
+    } while (false);
+
+    AnnRangeSearchParams p2;
+    p2.query_value = vec_.data();
+    p2.radius = 5.0F;
+    p2.is_le_or_lt = true;
+    p2.include_boundary = true;
+    p2.roaring = nullptr;
+    AnnIndexResultCacheHandle h;
+    EXPECT_FALSE(cache_->lookup("rs1", 0, 1, p2, user_params_, 4, 1000, &h));
+}
+
 TEST_F(RangeCacheKeyTest, NullAndFullBitmapSameKey) {
     AnnRangeSearchParams p1;
     p1.query_value = vec_.data();

@@ -47,7 +47,7 @@ suite("ann_empty_array_mow", "nonConcurrent") {
                     """
                     // Enough valid vectors for IVF training; updated keys are in this same batch.
                     sql """INSERT INTO ann_empty_array_mow
-                        SELECT number, [CAST(number AS FLOAT), CAST(0 AS FLOAT), CAST(0 AS FLOAT)],
+                        SELECT number, array(CAST(number AS FLOAT), CAST(0 AS FLOAT), CAST(0 AS FLOAT)),
                                CAST(number AS INT)
                         FROM numbers("number"="96")"""
                     sql "INSERT INTO ann_empty_array_mow VALUES (100, [], 100), (101, [], 101)"
@@ -102,7 +102,7 @@ suite("ann_empty_array_mow", "nonConcurrent") {
                             set 'max_filter_ratio', '0'
                             set 'strict_mode', 'true'
                             inputText rows
-                            check { exception, result, startTime, endTime ->
+                            check { result, exception, startTime, endTime ->
                                 if (exception != null) {
                                     throw exception
                                 }

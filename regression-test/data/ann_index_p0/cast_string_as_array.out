@@ -4,10 +4,21 @@
 2
 4
 
+-- !cast_spaces --
+\N
+\N
+\N
+
 -- !sql_1 --
 1
 2
 4
+
+-- !empty_query --
+\N
+
+-- !null_query --
+\N
 
 -- !sql_3 --
 3

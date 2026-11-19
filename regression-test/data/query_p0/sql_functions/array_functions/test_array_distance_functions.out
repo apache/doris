@@ -3,7 +3,7 @@
 6.0
 
 -- !sql --
-3.741657
+3.7416575
 
 -- !sql --
 0.002585113
@@ -15,19 +15,31 @@
 8.0
 
 -- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
 2.828427
 
 -- !sql --
-0.02536815
+0.025368154
 
 -- !sql --
 23.0
 
 -- !sql --
-0.0
+4.0	\N
 
 -- !sql --
-0.0
+0.0	\N
+
+-- !sql --
+\N
+
+-- !sql --
+\N
 
 -- !cosine_sim_identical --
 1.0
@@ -39,7 +51,7 @@
 -1.0
 
 -- !cosine_sim_float --
-0.9746318
+0.97463185
 
 -- !cosine_sim_known --
 0.9974149
@@ -69,21 +81,226 @@
 -1.0
 
 -- !cosine_sim_distance_relation --
-1.0
+1.0000000130485533
 
 -- !cosine_sim_empty --
-0.0
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+\N
 
 -- !cosine_sim_large --
 0.9838699
 
 -- !cosine_sim_small --
-0.98387
+0.9838699
 
 -- !cosine_sim_table --
 1	1.0
 2	0.0
-3	0.9746318
+3	0.97463185
 4	-1.0
 5	0.96
+
+-- !missing_vectors --
+100	\N	\N	\N	\N	true
+101	\N	\N	\N	\N	true
+102	\N	\N	\N	\N	true
+103	\N	\N	\N	\N	true
+104	\N	\N	\N	\N	true
+105	\N	\N	0.0	0.0	true
+106	\N	\N	0.0	0.0	true
+107	0.0	0.0	0.0	0.0	false
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_vectors --
+100	\N	\N	\N	\N	true
+101	\N	\N	\N	\N	true
+102	\N	\N	\N	\N	true
+103	\N	\N	\N	\N	true
+104	\N	\N	\N	\N	true
+105	\N	\N	0.0	0.0	true
+106	\N	\N	0.0	0.0	true
+107	0.0	0.0	0.0	0.0	false
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_vectors --
+100	\N	\N	\N	\N	true
+101	\N	\N	\N	\N	true
+102	\N	\N	\N	\N	true
+103	\N	\N	\N	\N	true
+104	\N	\N	\N	\N	true
+105	\N	\N	25.0	25.0	true
+106	\N	\N	25.0	25.0	true
+107	25.0	25.0	25.0	25.0	false
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_vectors --
+100	\N	\N	\N	\N	true
+101	\N	\N	\N	\N	true
+102	\N	\N	\N	\N	true
+103	\N	\N	\N	\N	true
+104	\N	\N	\N	\N	true
+105	\N	\N	0.0	0.0	true
+106	\N	\N	0.0	0.0	true
+107	0.0	0.0	0.0	0.0	false
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_vectors --
+100	\N	\N	\N	\N	true
+101	\N	\N	\N	\N	true
+102	\N	\N	\N	\N	true
+103	\N	\N	\N	\N	true
+104	\N	\N	\N	\N	true
+105	\N	\N	1.0	1.0	true
+106	\N	\N	1.0	1.0	true
+107	1.0	1.0	1.0	1.0	false
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_vectors --
+100	\N	\N	\N	\N	true
+101	\N	\N	\N	\N	true
+102	\N	\N	\N	\N	true
+103	\N	\N	\N	\N	true
+104	\N	\N	\N	\N	true
+105	\N	\N	0.0	0.0	true
+106	\N	\N	0.0	0.0	true
+107	0.0	0.0	0.0	0.0	false
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_vectors --
+100	\N	\N	\N	\N	true
+101	\N	\N	\N	\N	true
+102	\N	\N	\N	\N	true
+103	\N	\N	\N	\N	true
+104	\N	\N	\N	\N	true
+105	\N	\N	25.0	25.0	true
+106	\N	\N	25.0	25.0	true
+107	25.0	25.0	25.0	25.0	false
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
+
+-- !missing_literals --
+\N
 
