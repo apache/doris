@@ -17,20 +17,28 @@
 
 #include "exec/runtime_filter/runtime_filter_producer.h"
 
+#include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <chrono>
 #include <numeric>
 #include <string>
+#include <thread>
 
+#include "common/config.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_merger.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
+#include "runtime/exec_env.h"
 #include "testutil/column_helper.h"
+#include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -712,6 +720,84 @@ TEST_F(RuntimeFilterProducerTest, publish_release_wrapper) {
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::DISABLED);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->publish(_runtime_states[0].get(), true));
     ASSERT_EQ(producer->_wrapper, nullptr);
+}
+
+// The size-sync RPC is sent by the last local producer only. When it fails, the other producers
+// merged into the request wait for the same sync, so they must be released too, not only the
+// sender.
+TEST_F(RuntimeFilterProducerTest, sync_filter_size_rpc_fail_releases_merged_producers) {
+    const std::string debug_point = "RuntimeFilterProducer::send_size.rpc_fail";
+    const bool old_enable_debug_points = config::enable_debug_points;
+    auto* old_client_cache = ExecEnv::GetInstance()->_internal_client_cache;
+    std::unique_ptr<BrpcClientCache<PBackendService_Stub>> client_cache;
+    if (old_client_cache == nullptr) {
+        client_cache = std::make_unique<BrpcClientCache<PBackendService_Stub>>();
+        ExecEnv::GetInstance()->_internal_client_cache = client_cache.get();
+    }
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(debug_point);
+    Defer restore {[&]() {
+        DebugPoints::instance()->remove(debug_point);
+        config::enable_debug_points = old_enable_debug_points;
+        ExecEnv::GetInstance()->_internal_client_cache = old_client_cache;
+    }};
+
+    // A query of its own: the fixture's has no usable merge address, which is set only once.
+    auto options = TQueryOptionsBuilder().build();
+    options.__set_ignore_runtime_filter_error(true);
+    TNetworkAddress fe_address;
+    fe_address.hostname = LOCALHOST;
+    fe_address.port = DUMMY_PORT;
+    auto query_ctx = QueryContext::create(TUniqueId(), ExecEnv::GetInstance(), options, fe_address,
+                                          true, fe_address, QuerySource::INTERNAL_FRONTEND);
+    TNetworkAddress merge_addr;
+    merge_addr.hostname = "127.0.0.1";
+    merge_addr.port = DUMMY_PORT;
+    ASSERT_TRUE(query_ctx->runtime_filter_mgr()->set_runtime_filter_params(
+            TRuntimeFilterParamsBuilder(merge_addr).build()));
+
+    auto desc = TRuntimeFilterDescBuilder()
+                        .set_build_bf_by_runtime_size(true)
+                        .set_is_broadcast_join(false)
+                        .set_mode(false)
+                        .add_planId_to_target_expr(0)
+                        .build();
+    std::vector<std::unique_ptr<RuntimeState>> states;
+    std::vector<std::unique_ptr<RuntimeFilterMgr>> local_mgrs;
+    std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
+    std::vector<std::shared_ptr<CountedFinishDependency>> dependencies;
+    for (int i = 0; i < 2; i++) {
+        states.push_back(RuntimeState::create_unique(TUniqueId(), 0, options,
+                                                     query_ctx->query_globals,
+                                                     ExecEnv::GetInstance(), query_ctx.get()));
+        local_mgrs.push_back(std::make_unique<RuntimeFilterMgr>(false));
+        states[i]->set_runtime_filter_mgr(local_mgrs[i].get());
+        states[i]->set_desc_tbl(&_tbl);
+        std::shared_ptr<RuntimeFilterProducer> producer;
+        FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+                states[i]->register_producer_runtime_filter(desc, &producer));
+        producers.push_back(producer);
+        dependencies.push_back(std::make_shared<CountedFinishDependency>(0, 0, "SYNC_SIZE_DEP"));
+        producer->latch_dependency(dependencies[i]);
+    }
+
+    // The first producer only adds its size to the local merge.
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producers[0]->send_size(states[0].get(), 10));
+    ASSERT_EQ(producers[0]->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SYNCED_SIZE);
+    ASSERT_FALSE(dependencies[0]->ready());
+    // The last one sends the merged size to the merge node, which fails.
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producers[1]->send_size(states[1].get(), 20));
+
+    // brpc runs the callback of the failed call in another bthread.
+    for (int i = 0; i < 500 && !(dependencies[0]->ready() && dependencies[1]->ready()); i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    for (int i = 0; i < 2; i++) {
+        ASSERT_TRUE(dependencies[i]->ready()) << "producer " << i;
+        ASSERT_EQ(producers[i]->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED)
+                << "producer " << i;
+    }
+    ASSERT_FALSE(query_ctx->is_cancelled());
 }
 
 } // namespace doris
