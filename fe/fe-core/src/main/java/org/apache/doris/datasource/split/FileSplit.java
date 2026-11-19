@@ -64,6 +64,21 @@ public class FileSplit implements Split {
         this.locationType = path.getTFileTypeForBE();
     }
 
+    protected FileSplit(FileSplit source, long start, long length) {
+        this(source.path, start, length, source.fileLength, source.modificationTime,
+                source.hosts, source.partitionValues);
+        this.tableFormatType = source.tableFormatType;
+        this.locationType = source.locationType;
+        this.targetSplitSize = source.targetSplitSize;
+        this.selfSplitWeight = source.selfSplitWeight == null ? null
+                : Math.round(source.selfSplitWeight * ((double) length / source.length));
+    }
+
+    /** Copies a native byte subrange before backend assignment, retaining the file metadata. */
+    public FileSplit withRange(long start, long length) {
+        return new FileSplit(this, start, length);
+    }
+
     public String[] getHosts() {
         return hosts;
     }
