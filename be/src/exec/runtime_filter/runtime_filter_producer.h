@@ -89,8 +89,8 @@ public:
 
     void set_synced_size(uint64_t global_size);
 
-    // The size sync this producer waits for failed, so set_synced_size() will never be called:
-    // disable the filter and release the waiting sink. Does nothing once the size is synced.
+    // The size sync this producer waits for failed: disable the filter and release the waiting
+    // sink. Does nothing once the size is synced, and a later set_synced_size() does nothing.
     void release_on_sync_size_error(const std::string& reason);
 
     void set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State state,

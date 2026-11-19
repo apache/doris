@@ -53,14 +53,14 @@ protected:
     std::shared_ptr<SyncSizeCallback> make_callback(
             std::weak_ptr<QueryContext> ctx = {}, std::shared_ptr<Dependency> dep = nullptr,
             std::shared_ptr<RuntimeFilterWrapper> wrapper = nullptr,
-            std::vector<std::weak_ptr<RuntimeFilterProducer>> waiting_producers = {}) {
+            std::vector<std::weak_ptr<RuntimeFilterProducer>> producers = {}) {
         return SyncSizeCallback::create_shared(dep ? dep : _dependency,
                                                wrapper ? wrapper : _wrapper, std::move(ctx),
-                                               std::move(waiting_producers));
+                                               std::move(producers));
     }
 
     // A producer of a local merge with two producers, which sent its size and now waits for the
-    // synced size. `dependency` is also latched by the other producer, which sent nothing yet.
+    // synced size. Only it latches `dependency`, so the counter is 1.
     std::shared_ptr<RuntimeFilterProducer> make_waiting_producer(
             const std::shared_ptr<CountedFinishDependency>& dependency) {
         auto desc = TRuntimeFilterDescBuilder()
@@ -77,9 +77,9 @@ protected:
                             ->register_consumer_runtime_filter(desc, true, 0, &consumer)
                             .ok());
         producer->latch_dependency(dependency);
-        producer2->latch_dependency(dependency);
         EXPECT_TRUE(producer->send_size(_runtime_states[0].get(), 123).ok());
         EXPECT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SYNCED_SIZE);
+        EXPECT_EQ(dependency->_counter, 1U);
         return producer;
     }
 
@@ -117,25 +117,6 @@ TEST_F(SyncSizeCallbackTest, rpc_fail_does_not_cancel_query_when_ignore_rf_error
     ASSERT_EQ(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
     // Dependency should have been subbed
     ASSERT_TRUE(_dependency->ready());
-}
-
-// The other local producers merged into the failed request never get set_synced_size().
-TEST_F(SyncSizeCallbackTest, rpc_fail_releases_waiting_producers) {
-    auto ctx = make_query_ctx(true);
-    auto waiting_dependency = std::make_shared<CountedFinishDependency>(0, 0, "WAITING_DEP");
-    auto waiting_producer = make_waiting_producer(waiting_dependency);
-    auto callback = make_callback(ctx, nullptr, nullptr, {waiting_producer});
-    callback->cntl_->SetFailed("injected failure");
-
-    callback->call();
-
-    ASSERT_FALSE(ctx->is_cancelled());
-    ASSERT_TRUE(_dependency->ready());
-    ASSERT_EQ(waiting_producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    // Released once; the dependency still waits for the other producer.
-    ASSERT_FALSE(waiting_dependency->ready());
-    waiting_producer->release_on_sync_size_error("released twice");
-    ASSERT_FALSE(waiting_dependency->ready());
 }
 
 // ==================== response error status path ====================
@@ -177,22 +158,6 @@ TEST_F(SyncSizeCallbackTest, response_error_does_not_cancel_query_when_ignore_rf
 
 // ==================== success path ====================
 
-TEST_F(SyncSizeCallbackTest, response_error_releases_waiting_producers) {
-    auto ctx = make_query_ctx(true);
-    auto waiting_dependency = std::make_shared<CountedFinishDependency>(0, 0, "WAITING_DEP");
-    auto waiting_producer = make_waiting_producer(waiting_dependency);
-    auto callback = make_callback(ctx, nullptr, nullptr, {waiting_producer});
-    auto* status_pb = callback->response_->mutable_status();
-    status_pb->set_status_code(TStatusCode::INTERNAL_ERROR);
-    status_pb->add_error_msgs("injected response error");
-
-    callback->call();
-
-    ASSERT_TRUE(_dependency->ready());
-    ASSERT_EQ(waiting_producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
-    ASSERT_FALSE(waiting_dependency->ready());
-}
-
 TEST_F(SyncSizeCallbackTest, success_path_no_cancel_no_sub) {
     auto ctx = make_query_ctx(false);
     auto callback = make_callback(ctx);
@@ -206,6 +171,72 @@ TEST_F(SyncSizeCallbackTest, success_path_no_cancel_no_sub) {
     ASSERT_NE(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
     // Dependency should NOT have been subbed (still blocked)
     ASSERT_FALSE(_dependency->ready());
+}
+
+// ==================== merged producers ====================
+
+// A failed sync releases every producer whose size is merged into the request, through the
+// producer, and not the legacy `dependency` of the callback.
+TEST_F(SyncSizeCallbackTest, rpc_fail_releases_merged_producers) {
+    auto ctx = make_query_ctx(true);
+    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "MERGED_DEP");
+    auto producer = make_waiting_producer(dependency);
+    auto callback = make_callback(ctx, nullptr, nullptr, {producer});
+    callback->cntl_->SetFailed("injected failure");
+
+    callback->call();
+
+    ASSERT_FALSE(ctx->is_cancelled());
+    ASSERT_EQ(dependency->_counter, 0U);
+    ASSERT_TRUE(dependency->ready());
+    ASSERT_EQ(producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
+    ASSERT_FALSE(_dependency->ready());
+}
+
+TEST_F(SyncSizeCallbackTest, response_error_releases_merged_producers) {
+    auto ctx = make_query_ctx(true);
+    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "MERGED_DEP");
+    auto producer = make_waiting_producer(dependency);
+    auto callback = make_callback(ctx, nullptr, nullptr, {producer});
+    auto* status_pb = callback->response_->mutable_status();
+    status_pb->set_status_code(TStatusCode::INTERNAL_ERROR);
+    status_pb->add_error_msgs("injected response error");
+
+    callback->call();
+
+    ASSERT_EQ(dependency->_counter, 0U);
+    ASSERT_EQ(producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
+}
+
+// The merge node may still sync a producer released on an error response, e.g. when it failed to
+// sync another BE. Neither that nor a second release subs the dependency again, which would throw
+// on underflow.
+TEST_F(SyncSizeCallbackTest, released_producer_ignores_later_sync) {
+    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "MERGED_DEP");
+    auto producer = make_waiting_producer(dependency);
+
+    producer->release_on_sync_size_error("injected failure");
+    ASSERT_EQ(dependency->_counter, 0U);
+
+    ASSERT_NO_THROW(producer->set_synced_size(124));
+    ASSERT_NO_THROW(producer->release_on_sync_size_error("released twice"));
+    ASSERT_EQ(dependency->_counter, 0U);
+    ASSERT_EQ(producer->_synced_size, -1);
+    ASSERT_EQ(producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
+}
+
+// A producer synced before the error arrives keeps its synced size and filter.
+TEST_F(SyncSizeCallbackTest, synced_producer_ignores_later_release) {
+    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "MERGED_DEP");
+    auto producer = make_waiting_producer(dependency);
+
+    producer->set_synced_size(124);
+    ASSERT_EQ(dependency->_counter, 0U);
+
+    ASSERT_NO_THROW(producer->release_on_sync_size_error("late failure"));
+    ASSERT_EQ(dependency->_counter, 0U);
+    ASSERT_EQ(producer->_synced_size, 124);
+    ASSERT_NE(producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
 }
 
 // ==================== expired weak_ptr paths ====================
