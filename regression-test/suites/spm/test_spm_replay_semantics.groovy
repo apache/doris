@@ -44,6 +44,12 @@ suite("test_spm_replay_semantics", "spm") {
         PROPERTIES("replication_num" = "1")"""
     sql "INSERT INTO spm_replay_container_literal VALUES (1, [DATE '2021-01-01'], ['original'])"
 
+    sql "DROP TABLE IF EXISTS spm_replay_assert_generate"
+    sql """CREATE TABLE spm_replay_assert_generate (k INT, arr ARRAY<INT>)
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")"""
+    sql "INSERT INTO spm_replay_assert_generate VALUES (1, [10]), (2, [])"
+
     sql "SET enable_spm_rewrite = true"
     sql "SET enable_spm_fallback = false"
     sql "SET enable_sql_cache = false"
@@ -152,6 +158,27 @@ suite("test_spm_replay_semantics", "spm") {
         }
     }
 
+    String assertedGenerator = "SELECT k + 1 AS c, lv.x AS x FROM ASSERT_ROWS" +
+            " (SELECT k, arr FROM spm_replay_assert_generate) a LATERAL VIEW explode(arr) lv AS x"
+    withBaseline(assertedGenerator) { long id ->
+        qt_assert_generate_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        boolean hit = explainHit(assertedGenerator, id)
+        qt_assert_generate_hit "SELECT ${hit}"
+        test {
+            sql assertedGenerator
+            exception "Expected EQ 1"
+        }
+        sql "TRUNCATE TABLE spm_replay_assert_generate"
+        sql "INSERT INTO spm_replay_assert_generate VALUES (1, [10, 11])"
+        order_qt_assert_generate_expanding assertedGenerator
+        // Repeating CREATE of this readable baseline must keep one compact reservation.
+        long firstRepeat = create(assertedGenerator, assertedGenerator)
+        long secondRepeat = create(assertedGenerator, assertedGenerator)
+        qt_repeat_id "SELECT ${firstRepeat == id}, ${secondRepeat == id}"
+        qt_repeat_compact_states """SELECT COUNT(*) FROM __internal_schema.spm_baselines_seq
+            WHERE baseline_id = ${id} AND id > 1"""
+    }
+
     String concat = "SELECT k, length(group_concat(DISTINCT s)) AS n, sum(v) AS x" +
             " FROM spm_replay_semantics_t GROUP BY k"
     verify("concat", concat, concat)
@@ -204,6 +231,27 @@ suite("test_spm_replay_semantics", "spm") {
         qt_unspellable_container_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
         qt_unspellable_container_hit "SELECT ${hit}"
     }
+
+    String columnCast = "SELECT * REPLACE(CAST(k AS BIGINT) AS k) FROM spm_replay_semantics_u"
+    verify("column_cast", columnCast, columnCast)
+
+    String functionCast = "SELECT * REPLACE(CAST(abs(1) AS BIGINT) AS k) FROM spm_replay_semantics_u"
+    verify("function_cast", functionCast, functionCast)
+
+    String invalidCast = "SELECT * REPLACE(CAST('abc' AS INT) AS k) FROM spm_replay_semantics_u"
+    sql "SET enable_strict_cast = false"
+    withBaseline(invalidCast) { long id ->
+        qt_cast_mode_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        boolean hit = explainHit(invalidCast, id)
+        qt_cast_mode_hit "SELECT ${hit}"
+        order_qt_permissive_cast invalidCast
+        sql "SET enable_strict_cast = true"
+        test {
+            sql invalidCast
+            exception "abc can't cast to INT in strict mode"
+        }
+    }
+    sql "SET enable_strict_cast = false"
 
     String previousMode = sql("SELECT @@sql_mode")[0][0].toString()
     String permissiveGroup = "SELECT k, v, count(*) AS n FROM spm_replay_semantics_t WHERE k > 0 GROUP BY k"

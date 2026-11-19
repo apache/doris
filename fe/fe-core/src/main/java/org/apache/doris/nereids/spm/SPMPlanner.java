@@ -182,6 +182,13 @@ public class SPMPlanner {
             if (!SPMPlanTreeSupport.check(bindTree, matchPlan, placeholderValues)) {
                 continue;
             }
+            // Older frozen rows may already contain a permissively folded conversion.
+            // A strict caller must analyze the concrete cast instead of consuming that value.
+            if (ctx != null && ctx.getSessionVariable().enableStrictCast
+                    && !Boolean.FALSE.equals(candidate.getPlanFrozen())
+                    && SPMPlanTreeSupport.containsFoldedStrictCastPayload(matchPlan)) {
+                continue;
+            }
             LOG.info("SPM tryRewritePlan: baseline {} matched, extracted {} placeholder values",
                     candidate.getId(), placeholderValues.size());
             if (!viewChecked) {
@@ -762,18 +769,11 @@ public class SPMPlanner {
         // retains view resolution and authorization.
         boolean referencesView = SPMPlanTreeSupport.referencesView(ctx, bindPlan)
                 || SPMPlanTreeSupport.referencesView(ctx, planPlan);
-        // An inline VALUES cell / * REPLACE payload lives OUTSIDE the placeholder machinery
-        // (its literals are matched CONCRETELY), so the creator-context optimization FOLDS
-        // a constant-argument zone-sensitive call there (from_unixtime(0) -> the CREATOR's
-        // zone literal) into the decompiled text while the caller's identical query still
-        // matches the stored tree: a frozen replay would serve the creator's value in every
-        // other session zone. Decline the freeze for such a statement - the raw planSql is
-        // kept and the rewrite replays the parameterized tree, whose re-planning evaluates
-        // the expression in the CALLER's own session (the same degradation the view guard
-        // uses).
+        // VALUES cells and * REPLACE payloads keep concrete literals. Retain session-sensitive
+        // expressions in those positions so replay evaluates them under the caller's settings.
         boolean foldedSessionSensitivePayload =
                 SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(bindPlan)
-                        || SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(planPlan);
+                        || (!sameSql && SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(planPlan));
         // An explicit FROM t INDEX mv pin is a SEMANTIC choice (on an aggregate-key
         // table a coarser rollup returns aggregated rows where the base table returns one
         // per record), and the decompiled text cannot carry it: the physical scan only
@@ -1015,7 +1015,7 @@ public class SPMPlanner {
      * (the frozen text is
      * replayed ahead of authorization, and replaying a view's base-table expansion would
      * authorize those base tables instead of the view), when an inline VALUES cell /
-     * REPLACE payload folds a session-zone dependent call the CALLER's session must
+     * REPLACE payload folds a session-dependent call the CALLER's session must
      * evaluate for itself (see
      * SPMPlanTreeSupport.containsFoldedSessionSensitivePayload), or when the statement
      * pins a materialized view / rollup with an explicit INDEX clause (the decompiled
@@ -1035,7 +1035,7 @@ public class SPMPlanner {
         }
         if (foldedSessionSensitivePayload) {
             LOG.info("SPM freeze skipped: an inline VALUES cell / * REPLACE payload folds a"
-                    + " session-time-zone dependent value; keeping the user planSql so the"
+                    + " session-dependent value; keeping the user planSql so the"
                     + " rewrite replays the parameterized tree, where the caller's own"
                     + " session evaluates the expression");
             return new DecompiledPlan(planSql, false);

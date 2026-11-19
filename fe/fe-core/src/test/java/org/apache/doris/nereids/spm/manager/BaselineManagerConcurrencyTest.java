@@ -132,6 +132,7 @@ public class BaselineManagerConcurrencyTest {
          * the UNCONFIRMED marker of an ambiguous write or by a DROP TOMBSTONE.
          */
         private final Map<String, long[]> keyedReservations = new ConcurrentHashMap<>();
+        private int pendingSeqRetirements;
 
         /**
          * When set, every by-id read AFTER an identity delete fails: the
@@ -224,6 +225,7 @@ public class BaselineManagerConcurrencyTest {
         /** The marker DELETE of a resolved ambiguous write. */
         @Override
         public void retirePendingSeqState(String bindSqlDigest, long planSqlHash, long markerId) {
+            pendingSeqRetirements++;
             long[] entry = keyedReservations.get(seqKey(bindSqlDigest, planSqlHash));
             if (entry != null && entry[0] == markerId) {
                 // the UNCONFIRMED row is DELETEd; the plain pre-INSERT reservation row of
@@ -2328,7 +2330,7 @@ public class BaselineManagerConcurrencyTest {
      * SHOW BASELINE PLANS used the ASYNCHRONOUS getAllBaselines(): right after startup / a
      * promotion (empty map, load not finished) it listed ZERO rows although durable
      * baselines existed, and a failed read never converged. The command now requires a
-     * confirmed read (confirmGlobalRowsForShow, the same path exercises for
+     * confirmed read (getConfirmedGlobalRowsForShow, the same path exercises for
      * GLOBAL DDL completed on another FE); the query-matching read stays nonblocking and
      * empty.
      */
@@ -2340,24 +2342,31 @@ public class BaselineManagerConcurrencyTest {
             // startup / promotion state: the store is NOT loaded and the table gate is on
             BaselineManagerTestAccess.prepareLoad(manager);
             doubles.durableOverride = true;
+            gateway.leaderProbe = () -> false;
             gateway.forwardedDdlSync = () -> { };
             doubles.snapshotReader = () -> {
                 throw new RuntimeException("internal table not ready");
             };
             Assertions.assertThrows(IllegalStateException.class,
-                    manager::confirmGlobalRowsForShow,
+                    manager::getConfirmedGlobalRowsForShow,
                     "SHOW must surface a retryable failure instead of listing ZERO rows"
                             + " from an unreadable store");
             Assertions.assertEquals(0, manager.getAllBaselines().size(),
                     "the query-matching read stays nonblocking and simply empty");
 
-            doubles.snapshotReader =
-                    () -> Map.of(7L, withId(baseline("d1", "p1"), 7L));
-            manager.confirmGlobalRowsForShow();
-            Assertions.assertEquals(1, manager.getAllBaselines().size(),
-                    "the confirmed read publishes the durable rows for SHOW");
+            List<String> reads = new ArrayList<>();
+            doubles.snapshotUsesDurableHashReads = true;
+            doubles.snapshotReader = () -> {
+                reads.add("read");
+                return Map.of(7L, withId(baseline("d1", "p1"), 7L));
+            };
+            Assertions.assertEquals(1, manager.getConfirmedGlobalRowsForShow().size(),
+                    "the initial load supplies the durable rows for SHOW");
+            Assertions.assertEquals(List.of("read"), reads);
         } finally {
+            doubles.snapshotUsesDurableHashReads = false;
             doubles.snapshotReader = null;
+            gateway.leaderProbe = null;
             gateway.forwardedDdlSync = null;
             BaselineManagerTestAccess.clear(manager);
         }
@@ -2382,28 +2391,31 @@ public class BaselineManagerConcurrencyTest {
         try {
             // this FE loaded the table BEFORE the master's DDL: one row, and it is LOADED
             doubles.durableOverride = true;
+            doubles.snapshotUsesDurableHashReads = true;
             BaselineManagerTestAccess.prepareLoad(manager);
             doubles.snapshotReader =
                     () -> Map.of(7L, withId(baseline("d1", "p1"), 7L));
             manager.loadFromInternalTable();
-            Assertions.assertFalse(manager.getAllBaselines().isEmpty(), "precondition: loaded");
+            Assertions.assertTrue(manager.hasBaselines(), "precondition: loaded");
 
             // the master then CREATEd id 8 and DROPped 7; this FE has not refreshed yet
+            gateway.leaderProbe = () -> false;
             gateway.forwardedDdlSync = () -> order.add("sync");
             doubles.snapshotReader = () -> {
                 order.add("read");
                 return Map.of(8L, withId(baseline("d2", "p2"), 8L));
             };
-            manager.confirmGlobalRowsForShow();
+            List<BaselinePlan> rows = manager.getConfirmedGlobalRowsForShow();
             Assertions.assertEquals(List.of("sync", "read"), order,
-                    "the master sync must precede the authoritative snapshot read");
-            List<BaselinePlan> rows = manager.getAllBaselines();
+                    "SHOW must use the single snapshot read after synchronizing the journal");
             Assertions.assertEquals(1, rows.size(),
                     "SHOW must list the committed state, not this FE's old cache: " + rows);
             Assertions.assertEquals(8L, rows.get(0).getId(),
                     "the row created on the master is visible, the dropped one is gone");
         } finally {
+            doubles.snapshotUsesDurableHashReads = false;
             doubles.snapshotReader = null;
+            gateway.leaderProbe = null;
             gateway.forwardedDdlSync = null;
             BaselineManagerTestAccess.clear(manager);
         }
@@ -2431,7 +2443,7 @@ public class BaselineManagerConcurrencyTest {
                 throw new RuntimeException("internal table not ready");
             };
             Assertions.assertThrows(IllegalStateException.class,
-                    manager::confirmGlobalRowsForShow,
+                    manager::getConfirmedGlobalRowsForShow,
                     "an unconfirmable read must surface as a retryable SHOW failure");
             Assertions.assertEquals(1, manager.getAllBaselines().size(),
                     "the cache stays usable for query matching (not invalidated)");
@@ -4133,6 +4145,30 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
+    @Test
+    public void testRepeatedCreateKeepsThePlainReservation() {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        SimulatedStore store = new SimulatedStore();
+        try {
+            doubles.idAllocatorStore = store;
+            long id = manager.createBaseline(baseline("d-existing", "p-existing"));
+            long reserveTime = store.readLatestReservation("d-existing", SPMUtils.hashOf("p-existing"))
+                    .reserveTimeMicros();
+            for (int i = 0; i < 3; i++) {
+                Assertions.assertEquals(id, manager.createBaseline(baseline("d-existing", "p-existing")));
+            }
+            Assertions.assertEquals(0, store.pendingSeqRetirements,
+                    "a readable plain reservation must never append another compact state");
+            Assertions.assertEquals(reserveTime,
+                    store.readLatestReservation("d-existing", SPMUtils.hashOf("p-existing")).reserveTimeMicros());
+            Assertions.assertEquals(1, store.rowsOf(id).size());
+        } finally {
+            doubles.idAllocatorStore = null;
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
     /**
      * Adopting the committed row of an ambiguous create must RETIRE its
      * durable marker. Left behind, the marker made a DROP + immediate re-CREATE of the
@@ -4169,6 +4205,7 @@ public class BaselineManagerConcurrencyTest {
                             + " (round-44 #5): it keeps the id / watermark");
             Assertions.assertFalse(resolved.unconfirmed,
                     "a resolved marker must stop fencing (unconfirmed = false)");
+            Assertions.assertEquals(1, store.pendingSeqRetirements);
 
             // DROP the adopted baseline and immediately re-CREATE the same bind/plan
             Assertions.assertTrue(manager.dropBaseline(reserved));

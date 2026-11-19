@@ -103,6 +103,19 @@ public class SPMRound91GuardTest {
                 "a zone-less cast chain is session independent");
     }
 
+    @Test
+    public void testConcreteCastPreflightOnUnanalyzedChildren() {
+        for (String child : List.of("k", "abs(k)")) {
+            LogicalPlan query = parse("SELECT * REPLACE(CAST(" + child + " AS BIGINT) AS k) FROM t");
+            Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(query));
+        }
+        for (String child : List.of("'abc'", "abs(1)")) {
+            LogicalPlan query = parse("SELECT * REPLACE(CAST(" + child + " AS INT) AS k) FROM t");
+            Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(query));
+            Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedStrictCastPayload(query));
+        }
+    }
+
     /** Every {@code SpmConstVar} marker the parameterization produced for one query. */
     private static List<SpmConstVar> markers(String sql) {
         TestSPMPlaceholderBuilder builder = new TestSPMPlaceholderBuilder();
