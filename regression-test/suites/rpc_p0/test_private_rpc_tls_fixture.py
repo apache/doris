@@ -54,6 +54,23 @@ class PrivateRpcTlsFixtureTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "requires local FE and BE packages"):
             package_root(self.root)
 
+    def test_disposable_backends_keep_packaged_sanitizer_suppressions(self):
+        package = self.package(self.root / "package")
+        configuration = package / "be/conf"
+        configuration.mkdir()
+        names = ("asan_suppr.conf", "ubsan_suppr.conf", "lsan_suppr.conf")
+        for name in names:
+            (configuration / name).write_text("# Packaged " + name + "\n")
+        fixture = Fixture(package, self.root / "logs")
+        try:
+            fixture.prepare()
+            for cluster in ("local", "remote"):
+                for name in names:
+                    self.assertEqual((configuration / name).read_bytes(),
+                                     (fixture.root / cluster / "be/conf" / name).read_bytes())
+        finally:
+            fixture.close()
+
     def test_port_ranges_are_distinct_and_bindable(self):
         used = set()
         first, second = reserve_ports(used), reserve_ports(used)

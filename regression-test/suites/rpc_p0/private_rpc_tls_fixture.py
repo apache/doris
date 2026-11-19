@@ -126,6 +126,10 @@ class Fixture:
                 logging = source / "conf/log4j2-spring.xml"
                 if logging.is_file():
                     shutil.copyfile(logging, node / "conf/log4j2-spring.xml")
+                if role == "be":
+                    # start_be.sh points sanitizers here; ASAN aborts before main if they are missing.
+                    for suppression in ("asan_suppr.conf", "ubsan_suppr.conf", "lsan_suppr.conf"):
+                        shutil.copyfile(source / "conf" / suppression, node / "conf" / suppression)
                 config = dict(ports[role], priority_networks="127.0.0.1/32",
                               enable_tls=str(tls).lower())
                 if role == "fe":
