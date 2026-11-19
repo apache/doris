@@ -95,15 +95,18 @@ public class DNSCache {
                         // An invalidation raced this first lookup; the JVM may still hold the old address.
                         NetUtils.evictJvmDnsCache(host);
                     }
+                    String resolvedIp = resolveHostname(host);
+                    // Bump only after resolving: a refresh that started during this lookup must see
+                    // a newer version when it tries to publish.
                     versions.merge(host, 1L, Long::sum);
-                    return resolveHostname(host);
+                    return resolvedIp;
                 }
                 if (needsRefresh) {
                     // A forced lookup must not be answered from the JVM's own cache, which may
                     // still hold the address being replaced.
                     NetUtils.evictJvmDnsCache(host);
-                    versions.merge(host, 1L, Long::sum);
                     String resolvedIp = resolveHostname(host);
+                    versions.merge(host, 1L, Long::sum);
                     if (!resolvedIp.equals(currentIp)) {
                         LOG.info("IP for hostname {} has changed from {} to {}", host, currentIp, resolvedIp);
                     }

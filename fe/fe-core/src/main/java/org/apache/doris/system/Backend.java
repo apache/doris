@@ -1002,8 +1002,10 @@ public class Backend implements Writable {
                 this.lastUpdateMs = hbResponse.getHbTime();
             }
             if (!isReplay) {
-                // The backend may be up again at a new address. The heartbeat client resolves the
-                // hostname through the JVM's InetAddress cache, so drop that entry for the next attempt.
+                // The backend may be up again at a new address. In FQDN mode the heartbeat dials the
+                // DNSCache address, so force its next lookup (which also bypasses the JVM cache).
+                // Otherwise the heartbeat client resolves the host through the JVM cache directly.
+                Env.getCurrentEnv().getDnsCache().invalidate(host);
                 NetUtils.evictJvmDnsCache(host);
             }
             // Only set backend to dead if the heartbeat failure counter exceed threshold.

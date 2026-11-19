@@ -243,7 +243,7 @@ public class BackendServiceClient {
     /**
      * Called when an RPC on this channel could not reach the backend. The backend may have restarted
      * at a new address, so the hostname is resolved again on its next use; BackendServiceProxy
-     * rebuilds the channel if the address changed and keeps it otherwise.
+     * rebuilds the channel if the address changed or the channel is not in a normal state.
      */
     private void onUnreachable() {
         if (dnsCache == null || resolvedIp == null || resolvedIp.isEmpty() || channel.isShutdown()) {

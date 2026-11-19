@@ -26,6 +26,7 @@ import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BackendHbResponse;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import io.grpc.ConnectivityState;
@@ -176,6 +177,36 @@ public class BackendRestartReconnectTest {
     }
 
     @Test
+    public void testBackendStateReplayWithNewStartTimeDropsConnections() throws Exception {
+        TNetworkAddress address = new TNetworkAddress(HOST, 8066);
+        Backend backend = new Backend(10003L, HOST, 9050);
+        backend.setBrpcPort(address.getPort());
+        resolver.when(() -> NetUtils.getIpByHost(HOST, 0)).thenReturn("10.0.0.1", "10.0.0.2");
+        backend.handleHbResponse(heartbeat(1000L, address.getPort()), true);
+        SystemInfoService systemInfo = new SystemInfoService();
+        systemInfo.replayAddBackend(backend);
+        BackendServiceProxy proxy = BackendServiceProxy.getInstance();
+        BackendServiceClient client = getProxy(proxy, address);
+
+        // A follower replays the restarted backend's state (journaled from a disk or cpu report)
+        // before the heartbeat that revealed the restart.
+        Backend journaled = new Backend(10003L, HOST, 9050);
+        journaled.setBrpcPort(address.getPort());
+        journaled.setAlive(true);
+        journaled.setLastStartTime(2000L);
+        systemInfo.updateBackendState(journaled);
+        Assertions.assertTrue(channel(client).isShutdown());
+        getProxy(proxy, address);
+        Assertions.assertEquals("10.0.0.2", cachedIp(proxy, address));
+
+        // A state change from the same process keeps the channel.
+        BackendServiceClient current = getProxy(proxy, address);
+        systemInfo.updateBackendState(journaled);
+        Assertions.assertSame(current, getProxy(proxy, address));
+        BackendServiceProxy.invalidateForAll(address);
+    }
+
+    @Test
     public void testFailedHeartbeatThenRecoveryReResolves() throws Exception {
         TNetworkAddress address = new TNetworkAddress(HOST, 8063);
         Backend backend = new Backend(10002L, HOST, 9050);
@@ -193,6 +224,8 @@ public class BackendRestartReconnectTest {
         }
         resolver.verify(() -> NetUtils.evictJvmDnsCache(HOST), Mockito.times(tolerance));
         Assertions.assertFalse(backend.isAlive());
+        // In FQDN mode the next heartbeat dials the DNSCache address: it must be resolved again.
+        Assertions.assertEquals("10.0.0.2", dnsCache.get(HOST));
 
         // The backend is back with the same start time (e.g. its network moved): still re-resolve.
         backend.handleHbResponse(heartbeat(1000L, address.getPort()), false);

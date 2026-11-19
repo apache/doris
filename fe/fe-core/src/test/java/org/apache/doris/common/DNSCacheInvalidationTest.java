@@ -125,6 +125,43 @@ public class DNSCacheInvalidationTest {
     }
 
     @Test
+    public void testRefreshStartedDuringForcedLookupDoesNotOverwriteIt() throws Exception {
+        resolver.when(() -> NetUtils.getIpByHost(HOST, 0)).thenReturn("10.0.0.1");
+        Assertions.assertEquals("10.0.0.1", dnsCache.get(HOST));
+
+        // A forced lookup is still resolving the backend's new address.
+        CountDownLatch forcedResolving = new CountDownLatch(1);
+        CountDownLatch finishForced = new CountDownLatch(1);
+        dnsCache.invalidate(HOST);
+        FutureTask<String> forced = onThread("dns-forced", invocation -> {
+            forcedResolving.countDown();
+            Assertions.assertTrue(finishForced.await(10, TimeUnit.SECONDS));
+            return "10.0.0.2";
+        }, () -> dnsCache.get(HOST));
+        FutureTask<Void> refresh;
+        try {
+            Assertions.assertTrue(forcedResolving.await(10, TimeUnit.SECONDS));
+            // The periodic refresh starts meanwhile. Its own lookup fails, so it falls back to the
+            // cached address, which the forced lookup has not replaced yet.
+            CountDownLatch refreshResolved = new CountDownLatch(1);
+            refresh = onThread("dns-refresh", invocation -> {
+                refreshResolved.countDown();
+                throw new UnknownHostException("temporary resolver outage");
+            }, () -> {
+                invokeRefresh(dnsCache);
+                return null;
+            });
+            Assertions.assertTrue(refreshResolved.await(10, TimeUnit.SECONDS));
+        } finally {
+            finishForced.countDown();
+        }
+        Assertions.assertEquals("10.0.0.2", forced.get(10, TimeUnit.SECONDS));
+        refresh.get(10, TimeUnit.SECONDS);
+        // The refresh started before the forced lookup published, so its answer is the older one.
+        Assertions.assertEquals("10.0.0.2", cachedIp(dnsCache));
+    }
+
+    @Test
     public void testStaleRefreshDoesNotOverwriteSameAddressLookup() throws Exception {
         resolver.when(() -> NetUtils.getIpByHost(HOST, 0)).thenReturn("10.0.0.1");
         Assertions.assertEquals("10.0.0.1", dnsCache.get(HOST));
@@ -270,7 +307,6 @@ public class DNSCacheInvalidationTest {
 
             Assertions.assertTrue(NetUtils.evictJvmDnsCache("localhost"));
             Assertions.assertFalse(jvmCache.containsKey("localhost"));
-            Assertions.assertFalse(NetUtils.evictJvmDnsCache(null));
         } finally {
             resolver = Mockito.mockStatic(NetUtils.class);
         }

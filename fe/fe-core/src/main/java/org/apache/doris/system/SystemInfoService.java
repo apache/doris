@@ -869,6 +869,12 @@ public class SystemInfoService {
         // backend may already be dropped. this may happen when
         // drop and modify operations do not guarantee the order.
         if (memoryBe != null) {
+            // The master may journal a restarted backend's state (e.g. from a disk or cpu report)
+            // before the heartbeat that revealed the restart, so the heartbeat replayed after it sees
+            // no change. Drop this FE's connections here as handleHbResponse would.
+            boolean restarted = (!memoryBe.isAlive() && be.isAlive())
+                    || (be.getLastStartTime() > 0 && memoryBe.getLastStartTime() > 0
+                            && memoryBe.getLastStartTime() != be.getLastStartTime());
             memoryBe.setHost(be.getHost());
             memoryBe.setBePort(be.getBePort());
             memoryBe.setAlive(be.isAlive());
@@ -882,6 +888,9 @@ public class SystemInfoService {
             memoryBe.setDisks(be.getDisks());
             memoryBe.setCpuCores(be.getCputCores());
             memoryBe.setPipelineExecutorSize(be.getPipelineExecutorSize());
+            if (restarted) {
+                memoryBe.invalidateLocalConnections();
+            }
         }
     }
 

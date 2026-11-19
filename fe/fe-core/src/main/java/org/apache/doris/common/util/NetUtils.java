@@ -99,7 +99,9 @@ public class NetUtils {
                     return (Map<?, ?>) cache;
                 }
                 LOG.warn("InetAddress.cache is not a map, cannot evict JVM DNS cache entries");
-            } catch (Throwable t) {
+            } catch (ReflectiveOperationException | RuntimeException t) {
+                // InaccessibleObjectException without --add-opens=java.base/java.net, or a JDK
+                // without this field.
                 LOG.warn("cannot access InetAddress.cache, JVM DNS cache entries will expire by TTL only", t);
             }
             return null;
@@ -114,7 +116,7 @@ public class NetUtils {
      */
     public static boolean evictJvmDnsCache(String host) {
         Map<?, ?> cache = JvmDnsCacheHolder.CACHE;
-        if (cache == null || host == null) {
+        if (cache == null) {
             return false;
         }
         cache.remove(host);
