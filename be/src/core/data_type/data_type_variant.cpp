@@ -49,8 +49,11 @@ namespace doris {
 DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count)
         : DataTypeVariant(max_subcolumns_count, false) {}
 
-DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode)
-        : _max_subcolumns_count(max_subcolumns_count), _enable_doc_mode(enable_doc_mode) {
+DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
+                                 bool has_doc_value_serialization)
+        : _max_subcolumns_count(max_subcolumns_count),
+          _enable_doc_mode(enable_doc_mode),
+          _has_doc_value_serialization(has_doc_value_serialization) {
     name = fmt::format("Variant(max subcolumns count = {}, enable doc mode = {})",
                        max_subcolumns_count, enable_doc_mode);
 }
@@ -179,6 +182,14 @@ Field DataTypeVariant::get_field(const TExprNode& node) const {
 
 const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* column,
                                          int be_exec_version) const {
+    // Older V1 senders omit both this metadata field and the trailing doc-value Map.
+    // Even doc_mode=false senders on this branch serialize that Map, so check presence.
+    if (!_has_doc_value_serialization) {
+        throw Exception(Status::NotSupported(
+                "Unsupported VARIANT block format: Variant V1 blocks without doc-value data "
+                "cannot be decoded by this backend; use compatible backend versions for "
+                "Variant block transfer"));
+    }
     auto column_variant = assert_cast<ColumnVariant*>(column->get());
 
     // 1. deserialize num of subcolumns

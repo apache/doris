@@ -748,7 +748,11 @@ public abstract class ExternalCatalog
                 Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
             }
         } finally {
-            endTableLookupRefresh();
+            try {
+                Env.getCurrentEnv().onCatalogChanged(name);
+            } finally {
+                endTableLookupRefresh();
+            }
         }
     }
 
@@ -1447,9 +1451,16 @@ public abstract class ExternalCatalog
 
     void handleDatabaseMetaCacheRemoval(Optional<ExternalDatabase<? extends ExternalTable>> value,
             RemovalCause cause) {
-        value.ifPresent(v -> v.resetMetaToUninitialized(
-                shouldInvalidateRoutedCacheOnDatabaseRemoval(),
-                !cause.wasEvicted() && shouldInvalidateRowCountOnDatabaseRemoval()));
+        value.ifPresent(database -> {
+            if (cause.wasEvicted()) {
+                // MetaCache objects are local representatives. Capacity/expiry retirement is not
+                // a schema or data change and must not invalidate a query that is loading its DBs.
+                database.resetMetaToUninitializedOnEviction(shouldInvalidateRoutedCacheOnDatabaseRemoval());
+            } else {
+                database.resetMetaToUninitialized(shouldInvalidateRoutedCacheOnDatabaseRemoval(),
+                        shouldInvalidateRowCountOnDatabaseRemoval());
+            }
+        });
     }
 
     /**
@@ -1755,7 +1766,7 @@ public abstract class ExternalCatalog
         ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         if (java.util.Objects.nonNull(schemaCacheTtl)
                 || updatedProps.containsKey(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
-            extMetaCacheMgr.removeCatalog(id);
+            extMetaCacheMgr.removeCatalog(id, name);
             return;
         }
         for (String key : updatedProps.keySet()) {
