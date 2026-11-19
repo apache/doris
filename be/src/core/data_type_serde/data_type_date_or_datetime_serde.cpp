@@ -200,13 +200,22 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
     auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
+    // Arrow DATE32/DATE64 count whole days from the epoch and a timezone-naive TIMESTAMP is a
+    // wall-clock value: decode them in UTC so the load's time zone does not shift their date/time
+    // fields, as the DATEV2/DATETIMEV2 SerDes do. Only a zoned TIMESTAMP is an instant that is
+    // converted into `ctz`.
+    static const auto utc_timezone = cctz::utc_time_zone();
     if (arrow_array->type()->id() == arrow::Type::DATE64) {
         const auto* concrete_array = dynamic_cast<const arrow::Date64Array*>(arrow_array);
         divisor = 1000; //ms => secs
         for (auto value_i = start; value_i < end; ++value_i) {
             VecDateTimeValue v;
             v.from_unixtime(
-                    static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
+                    static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
+                    utc_timezone);
+            if constexpr (is_date) {
+                v.cast_to_date();
+            }
             col_data.emplace_back(v);
         }
     } else if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
@@ -217,10 +226,15 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid Time Type: " + type->name());
         }
+        const cctz::time_zone& real_ctz = type->timezone().empty() ? utc_timezone : ctz;
         for (auto value_i = start; value_i < end; ++value_i) {
             VecDateTimeValue v;
             v.from_unixtime(
-                    static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
+                    static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
+                    real_ctz);
+            if constexpr (is_date) {
+                v.cast_to_date();
+            }
             col_data.emplace_back(v);
         }
     } else if (arrow_array->type()->id() == arrow::Type::DATE32) {
@@ -229,7 +243,8 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
         for (auto value_i = start; value_i < end; ++value_i) {
             VecDateTimeValue v;
             v.from_unixtime(
-                    static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier, ctz);
+                    static_cast<Int64>(concrete_array->Value(value_i)) / divisor * multiplier,
+                    utc_timezone);
             v.cast_to_date();
             col_data.emplace_back(v);
         }
