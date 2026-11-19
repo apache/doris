@@ -38,6 +38,11 @@ public class IPv6Type extends PrimitiveType {
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         // IPv6Value::to_string emits a canonical textual representation of all 128 address bits.
         return target instanceof IPv6Type || target instanceof CharacterType;

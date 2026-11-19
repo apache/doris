@@ -30,6 +30,7 @@
 #include <utility>
 
 #include "arrow/type_fwd.h"
+#include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
 #include "common/status.h"
@@ -125,15 +126,25 @@ template <typename ResultBlockBufferType>
 Status ResultBufferMgr::find_buffer(const TUniqueId& finst_id,
                                     std::shared_ptr<ResultBlockBufferType>& buffer) {
     buffer = _find_control_block<ResultBlockBufferType>(finst_id);
-    return buffer == nullptr ? Status::InternalError(
-                                       "no arrow schema for this query, maybe query has been "
-                                       "canceled, finst_id={}",
-                                       print_id(finst_id))
-                             : Status::OK();
+    if (buffer == nullptr) {
+        // A failed fragment can be cancelled before the FE fetches its schema. The data buffer
+        // is already released, but this request must still receive the query's original error.
+        std::shared_lock<std::shared_mutex> rlock(_buffer_map_lock);
+        auto cancelled = _cancelled_arrow_flight_statuses.find(finst_id);
+        if (cancelled != _cancelled_arrow_flight_statuses.end()) {
+            return cancelled->second;
+        }
+        return Status::InternalError(
+                "no arrow schema for this query, maybe query has been "
+                "canceled, finst_id={}",
+                print_id(finst_id));
+    }
+    return Status::OK();
 }
 
 bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
     std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
+    _cancelled_arrow_flight_statuses.erase(unique_id);
     auto iter = _buffer_map.find(unique_id);
 
     auto exist = _buffer_map.end() != iter;
@@ -173,6 +184,11 @@ void ResultBufferMgr::cancel_arrow_flight_buffers(const TUniqueId& query_id, con
             auto it = _buffer_map.find(buffer_id);
             DORIS_CHECK(it != _buffer_map.end());
             buffers.push_back(std::static_pointer_cast<ArrowFlightResultBlockBuffer>(it->second));
+            _cancelled_arrow_flight_statuses.emplace(buffer_id, reason);
+            // A failed sink's close can return before scheduling its usual deferred cleanup.
+            // Bound the lifetime of the saved error even when no client fetches the schema.
+            cancel_at_time(time(nullptr) + config::result_buffer_cancelled_interval_time,
+                           buffer_id);
             _buffer_map.erase(it);
         }
         _arrow_flight_query_buffers.erase(query);

@@ -105,6 +105,8 @@ Status BinaryColumnExtractIterator::_fill_variant_v2_path(MutableColumnPtr& dst,
             return Status::Corruption("Invalid Variant sparse offsets [{}, {}) for {} cells", start,
                                       end, paths->size());
         }
+        // Readers binary-search by raw path bytes; a producer that violates the order is a bug.
+        DCHECK(is_variant_sparse_row_sorted(*paths, start, end));
         const size_t pos = find_variant_sparse_path_lower_bound(requested, *paths, start, end);
         // Prefix matches such as a.b belong to another physical path.
         if (pos < end && paths->get_data_at(pos) == requested) {

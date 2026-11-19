@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "common/defer.h"
 #include "common/stopwatch.h"
+#include "common/thread_name.h"
 #include "common/util.h"
 #include "meta-store/keys.h"
 #include "mock_accessor.h"
@@ -70,7 +71,7 @@ void SnapshotDataMigrator::stop() {
 }
 
 void SnapshotDataMigrator::migration_loop() {
-    pthread_setname_np(pthread_self(), "SNAP_MIGRATOR");
+    set_current_thread_name("SNAP_MIGRATOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;
@@ -208,7 +209,7 @@ int InstanceDataMigrator::init_obj_store_accessors() {
 #ifdef UNIT_TEST
         auto accessor = std::make_shared<MockAccessor>();
 #else
-        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
+        auto s3_conf = parse_recycler_storage_config(obj_info);
         if (!s3_conf) {
             LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
             return -1;
@@ -267,7 +268,7 @@ int InstanceDataMigrator::init_storage_vault_accessors() {
 #ifdef UNIT_TEST
             auto accessor = std::make_shared<MockAccessor>();
 #else
-            auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
+            auto s3_conf = parse_recycler_storage_config(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
                 return -1;

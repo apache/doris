@@ -412,10 +412,13 @@ def build_output_array(values, arrow_type):
 
 def needs_nested_python_normalization(arrow_type):
     """
-    Return True when MAP containers or UUID objects need explicit Python normalization
-    rather than the default pandas conversion.
+    Return True when nested values, UUID objects, or nanosecond timestamps need
+    explicit Python normalization.
     """
     if is_uuid_type(arrow_type) or pa.types.is_map(arrow_type):
+        return True
+
+    if pa.types.is_timestamp(arrow_type) and arrow_type.unit == "ns":
         return True
 
     if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
@@ -707,7 +710,10 @@ class AdaptivePythonUDF:
                 for value in values
             ]
         elif vec_type == VectorType.PANDAS_SERIES:
-            if needs_nested_python_normalization(arrow_array.type):
+            normalize = needs_nested_python_normalization(arrow_array.type)
+            if pa.types.is_timestamp(arrow_array.type) and arrow_array.type.unit == "ns":
+                normalize = arrow_array.cast(pa.int64()).index(pd.NaT.value).as_py() >= 0
+            if normalize:
                 # Some pyarrow builds cannot materialize nested map-containing arrays
                 # through to_pandas() (for example list<map<...>>). Normalize through
                 # Python objects first, then build an object Series explicitly.

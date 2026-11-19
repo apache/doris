@@ -23,7 +23,7 @@ services:
     ports:
       - ${DOCKER_SQLSERVER_EXTERNAL_PORT}:1433
     healthcheck:
-      test: ["CMD", "/opt/mssql-tools/bin/sqlcmd", "-Usa", "-PDoris123456", "-Q", "select 1"]
+      test: ["CMD-SHELL", "test -f /tmp/doris_sqlserver_initialized && /opt/mssql-tools/bin/sqlcmd -Usa -PDoris123456 -b -Q 'SELECT 1 FROM doris_test.dbo.student'"]
       interval: 5s
       timeout: 30s
       retries: 120
@@ -33,26 +33,26 @@ services:
       - /bin/bash
       - -c
       - |
+        set -e
+        rm -f /tmp/doris_sqlserver_initialized
         # Launch MSSQL and send to background
         /opt/mssql/bin/sqlservr &
+        sqlserver_pid=$$!
+        trap 'kill -TERM "$$sqlserver_pid"; wait "$$sqlserver_pid"' TERM INT
         # Wait for it to be available
         echo "Waiting for MS SQL to be available ⏳"
-        /opt/mssql-tools/bin/sqlcmd -l 30 -S localhost -h-1 -V1 -U sa -P Doris123456 -Q "SET NOCOUNT ON SELECT \"YAY WE ARE UP\" , @@servername"
-        is_up=$$?
-        while [ $$is_up -ne 0 ] ; do
-          echo -e $$(date)
-          /opt/mssql-tools/bin/sqlcmd -l 30 -S localhost -h-1 -V1 -U sa -P Doris123456 -Q "SET NOCOUNT ON SELECT \"YAY WE ARE UP\" , @@servername"
-          is_up=$$?
+        until /opt/mssql-tools/bin/sqlcmd -l 30 -S localhost -h-1 -b -U sa -P Doris123456 -Q "SET NOCOUNT ON SELECT \"YAY WE ARE UP\" , @@servername"; do
+          kill -0 "$$sqlserver_pid"
           sleep 5
         done
         # Run every script in /scripts
         # TODO set a flag so that this is only done once on creation,
         #      and not every time the container runs
         for foo in /docker-entrypoint-initdb.d/*.sql
-          do /opt/mssql-tools/bin/sqlcmd -U sa -P Doris123456 -l 30 -e -i $$foo
+          do /opt/mssql-tools/bin/sqlcmd -U sa -P Doris123456 -b -l 30 -e -i "$$foo"
         done
-        # So that the container doesn't shut down, sleep this thread
-        sleep infinity
+        touch /tmp/doris_sqlserver_initialized
+        wait "$$sqlserver_pid"
 
     restart: always
     environment:

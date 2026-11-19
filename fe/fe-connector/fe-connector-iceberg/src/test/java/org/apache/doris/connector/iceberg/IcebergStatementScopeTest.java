@@ -77,6 +77,110 @@ public class IcebergStatementScopeTest {
     }
 
     @Test
+    public void manifestReadersAreStatementOwnedAndIsolatedAcrossExecutions() {
+        TestStatementScope scope = new TestStatementScope();
+        ScopeSession firstSession = new ScopeSession(7L, "q1", scope);
+        ScopeSession nextSession = new ScopeSession(7L, "q2", scope);
+        Table firstTable = IcebergStatementScope.sharedTable(firstSession, "db1", "t", () -> table("t"));
+        Table nextTable = IcebergStatementScope.sharedTable(nextSession, "db1", "t", () -> table("t"));
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergManifestReader first = IcebergStatementScope.manifestReader(
+                firstSession, "db1", "t", cache, firstTable, "q1");
+        Assertions.assertSame(first, IcebergStatementScope.manifestReader(
+                firstSession, "db1", "t", cache, firstTable, "q1"));
+        IcebergManifestReader next = IcebergStatementScope.manifestReader(
+                nextSession, "db1", "t", cache, nextTable, "q2");
+        Assertions.assertNotSame(first, next);
+        scope.endPlanning();
+        Assertions.assertDoesNotThrow(() -> first.retain().close());
+        scope.closeAll();
+        Assertions.assertThrows(java.util.concurrent.CancellationException.class, first::retain);
+        Assertions.assertThrows(java.util.concurrent.CancellationException.class, next::retain);
+        try (IcebergManifestReader unscoped = IcebergStatementScope.manifestReader(
+                null, "db1", "t", cache, firstTable, null);
+                IcebergManifestReader another = IcebergStatementScope.manifestReader(
+                        null, "db1", "t", cache, firstTable, null)) {
+            Assertions.assertNotSame(unscoped, another);
+        }
+    }
+
+    @Test
+    public void failedReaderRegistrationReleasesTheRetainedTableLease() {
+        TestStatementScope delegate = new TestStatementScope();
+        ConnectorStatementScope rejecting = new ConnectorStatementScope() {
+            @Override
+            public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+                if (key.startsWith(IcebergStatementScope.MANIFEST_READER_NAMESPACE)) {
+                    throw new java.util.concurrent.CancellationException("fixture statement closed");
+                }
+                return delegate.computeIfAbsent(key, loader);
+            }
+
+            @Override
+            public <T> T getIfPresent(String key) {
+                return delegate.getIfPresent(key);
+            }
+        };
+        ScopeSession session = new ScopeSession(7L, "q1", rejecting);
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        AtomicInteger closes = new AtomicInteger();
+        Table table = IcebergStatementScope.sharedTrackedTable(session, "db1", "t", tracker,
+                () -> table("t"), ignored -> closes::incrementAndGet);
+        Assertions.assertThrows(java.util.concurrent.CancellationException.class,
+                () -> IcebergStatementScope.manifestReader(session, "db1", "t", new IcebergManifestCache(), table, "q1"));
+        delegate.closeAll();
+        tracker.close(() -> { });
+        Assertions.assertEquals(1, closes.get(), "a rejected reader must not strand its generation lease");
+    }
+
+    @Test
+    public void racingReaderCandidatesReleaseEveryUnusedLease() throws Exception {
+        TestStatementScope delegate = new TestStatementScope();
+        java.util.concurrent.CountDownLatch candidates = new java.util.concurrent.CountDownLatch(2);
+        ConnectorStatementScope racing = new ConnectorStatementScope() {
+            @Override
+            public <T> T computeIfAbsent(String key, Supplier<T> loader) {
+                if (key.startsWith(IcebergStatementScope.MANIFEST_READER_NAMESPACE)) {
+                    candidates.countDown();
+                    try {
+                        Assertions.assertTrue(candidates.await(10, java.util.concurrent.TimeUnit.SECONDS));
+                    } catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(failure);
+                    }
+                }
+                return delegate.computeIfAbsent(key, loader);
+            }
+
+            @Override
+            public <T> T getIfPresent(String key) {
+                return delegate.getIfPresent(key);
+            }
+        };
+        ScopeSession session = new ScopeSession(7L, "q1", racing);
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        AtomicInteger closes = new AtomicInteger();
+        Table table = IcebergStatementScope.sharedTrackedTable(session, "db1", "t", tracker,
+                () -> table("t"), ignored -> closes::incrementAndGet);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        java.util.concurrent.ExecutorService workers = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Callable<IcebergManifestReader> create = () -> IcebergStatementScope.manifestReader(
+                    session, "db1", "t", cache, table, "q1");
+            java.util.concurrent.Future<IcebergManifestReader> first = workers.submit(create);
+            java.util.concurrent.Future<IcebergManifestReader> second = workers.submit(create);
+            Assertions.assertSame(first.get(10, java.util.concurrent.TimeUnit.SECONDS),
+                    second.get(10, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            workers.shutdownNow();
+            Assertions.assertTrue(workers.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS));
+            delegate.closeAll();
+            tracker.close(() -> { });
+        }
+        Assertions.assertEquals(1, closes.get(), "the losing candidate cannot retain the table after teardown");
+    }
+
+    @Test
     public void sameStatementSharesOneLoadedTable() {
         // Read metadata and scan planning resolve one frozen view through sharedTable; sharing one scope
         // collapses them onto one load and hands each the same statement instance.

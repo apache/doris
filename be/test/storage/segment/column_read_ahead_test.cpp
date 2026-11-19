@@ -73,11 +73,8 @@ TEST(ColumnReadAheadTest, ValidateWindowBytes) {
     EXPECT_TRUE((ColumnReadAheadOptions {.window_bytes = 100}.validate().ok()));
 }
 
-TEST(ColumnReadAheadTest, PlanResetPreservesCapacityAndChangesOwner) {
-    auto first = create_window({30, 40, 50}, {.window_bytes = 100});
-    auto second = create_window({60, 70}, {.window_bytes = 100});
+TEST(ColumnReadAheadTest, PlanResetPreservesCapacity) {
     ColumnReadAheadPlan plan;
-    plan.column = first.get();
     plan.new_pages = make_pages({30, 40, 50});
     plan.released_pages = make_pages({60, 70});
     plan.window_discard_ns = 11;
@@ -86,9 +83,8 @@ TEST(ColumnReadAheadTest, PlanResetPreservesCapacityAndChangesOwner) {
     const size_t new_capacity = plan.new_pages.capacity();
     const size_t released_capacity = plan.released_pages.capacity();
 
-    plan.reset(second.get());
+    plan.reset();
 
-    EXPECT_EQ(plan.column, second.get());
     EXPECT_TRUE(plan.empty());
     EXPECT_EQ(plan.new_pages.capacity(), new_capacity);
     EXPECT_EQ(plan.released_pages.capacity(), released_capacity);
@@ -111,8 +107,7 @@ TEST(ColumnReadAheadTest, PlanAccumulatesTimingsEvenWhenEmpty) {
     EXPECT_EQ(statistics.current_batch_plan_time.value(), 23);
     EXPECT_EQ(statistics.window_extend_time.value(), 7);
 
-    auto window = create_window({30}, {.window_bytes = 100});
-    plan.reset(window.get());
+    plan.reset();
     plan.update_statistics(&statistics);
     EXPECT_EQ(statistics.window_discard_time.value(), 11);
     EXPECT_EQ(statistics.current_batch_plan_time.value(), 23);

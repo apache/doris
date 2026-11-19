@@ -38,6 +38,7 @@
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "exprs/function/cast/cast_base.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "util/defer_op.h"
@@ -430,9 +431,15 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
     }
     auto& col = reinterpret_cast<ColumnNullable&>(column);
     NullMap& map_data = col.get_null_map_data();
-    for (auto i = start; i < end; ++i) {
-        auto is_null = arrow_array->IsNull(i);
-        map_data.emplace_back(is_null);
+    const auto old_size = map_data.size();
+    map_data.resize(old_size + (end - start));
+    auto* null_flags = map_data.data() + old_size;
+    if (arrow_array->null_count() == 0) {
+        memset(null_flags, 0, end - start);
+    } else {
+        for (auto i = start; i < end; ++i) {
+            null_flags[i - start] = arrow_array->IsNull(i);
+        }
     }
     return nested_serde->read_column_from_arrow(col.get_nested_column(), arrow_array, start, end,
                                                 ctz);
@@ -730,6 +737,21 @@ Status DataTypeNullableSerDe::decode_bson_value(IColumn& column, const BsonValue
     }
     target.get_null_map_data().push_back(0);
     committed = true;
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_one_cell_from_simdjson(
+        IColumn& column, simdjson::ondemand::value& input, const FormatOptions& options,
+        SimdJsonReadContext& context, const std::string& column_name) const {
+    auto& target = assert_cast<ColumnNullable&>(column);
+    if (input.type().value() == simdjson::ondemand::json_type::null) {
+        target.insert_default();
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(nested_serde->deserialize_one_cell_from_simdjson(
+            target.get_nested_column(), input, options, context, column_name));
+    target.get_null_map_data().push_back(0);
     return Status::OK();
 }
 

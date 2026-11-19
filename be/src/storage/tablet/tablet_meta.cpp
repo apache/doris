@@ -419,6 +419,7 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
             schema_create_options.inverted_index_file_storage_format;
     uint32_t next_unique_id = schema_create_options.next_unique_id;
 
+    tablet_schema_pb->set_variant_escape_dots_in_keys(tablet_schema.variant_escape_dots_in_keys);
     tablet_schema_pb->set_num_short_key_columns(tablet_schema.short_key_column_count);
     tablet_schema_pb->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
     tablet_schema_pb->set_sequence_col_idx(tablet_schema.sequence_col_idx);

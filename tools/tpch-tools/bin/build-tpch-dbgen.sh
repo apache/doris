@@ -73,6 +73,8 @@ sed -i 's/^CC      =/CC = gcc/g' makefile
 sed -i 's/^DATABASE=/DATABASE = MYSQL/g' makefile
 sed -i 's/^MACHINE =/MACHINE = LINUX/g' makefile
 sed -i 's/^WORKLOAD =/WORKLOAD = TPCH/g' makefile
+# TPC-H 3.0.0 uses legacy C declarations incompatible with GCC 15 defaults.
+sed -i 's/^CFLAGS[[:space:]]*=/CFLAGS = -std=gnu89 /' makefile
 
 # compile tpch-dbgen
 make >/dev/null

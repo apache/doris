@@ -56,7 +56,7 @@ teamcity_current_pr() {
         -H "Authorization: Bearer ${GITHUB_TOKEN:?}" \
         "https://api.github.com/repos/apache/doris/pulls/${PULL_REQUEST_NUM}" |
         jq -e --arg head "$COMMIT_ID_FROM_TRIGGER" --arg branch "$PULL_REQUEST_TARGET_BRANCH" \
-            '.state=="open" and .draft==false and .head.sha==$head and .base.ref==$branch' >/dev/null
+            '.state=="open" and .head.sha==$head and .base.ref==$branch' >/dev/null
 }
 
 teamcity_current_root() {
@@ -98,7 +98,7 @@ teamcity_current_trigger() (
     }
     # Artifact lookup belongs to the pipeline; only submit the requested lane here.
     local TC_FIELDS='id,revisions(revision(version)),properties(property(name,value))'
-    params=$(jq -cn --arg pr "$PULL_REQUEST_NUM" --arg branch "$PULL_REQUEST_TARGET_BRANCH" '{"env.PR_NUMBER":$pr,"env.CI_BRANCH":$branch}')
+    params=$(jq -cn --arg pr "$PULL_REQUEST_NUM" --arg branch "$PULL_REQUEST_TARGET_BRANCH" --arg head "$COMMIT_ID_FROM_TRIGGER" '{"env.PR_NUMBER":$pr,"env.CI_BRANCH":$branch,"env.CI_REQUESTED_PR_HEAD":$head}')
     teamcity_current_enqueue "${comment_to_pipeline[$lane]}" "$params" "$count"
 )
 

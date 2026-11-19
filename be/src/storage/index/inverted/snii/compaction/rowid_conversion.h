@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/compressed_rowid_map.h"
 
 namespace doris::snii::compaction {
 
@@ -45,6 +46,11 @@ public:
                          std::span<const uint32_t> destination_segment_doc_counts,
                          std::unique_ptr<ValidatedRowIdConversion>* out);
 
+    static Status create(const doris::RowIdConversion* conversion,
+                         std::span<const uint32_t> source_segment_doc_counts,
+                         std::span<const uint32_t> destination_segment_doc_counts,
+                         std::unique_ptr<ValidatedRowIdConversion>* out);
+
     size_t source_segment_count() const { return source_segment_doc_counts_.size(); }
     const std::vector<uint32_t>& source_segment_doc_counts() const {
         return source_segment_doc_counts_;
@@ -53,14 +59,19 @@ public:
         return destination_segment_doc_counts_;
     }
     bool source_has_deletions(size_t source_ordinal) const;
-    std::span<const std::pair<uint32_t, uint32_t>> source_mapping(size_t source_ordinal) const;
+    RowIdConversionSource source_mapping(size_t source_ordinal) const;
 
 private:
-    ValidatedRowIdConversion(const RowIdConversionMap* conversion,
+    ValidatedRowIdConversion(std::vector<RowIdConversionSource> conversion,
+                             std::vector<uint8_t> deletions,
                              std::vector<uint32_t> source_segment_doc_counts,
                              std::vector<uint32_t> destination_segment_doc_counts);
 
-    const RowIdConversionMap* conversion_ = nullptr;
+    static Status create_sources(std::vector<RowIdConversionSource> conversion,
+                                 std::span<const uint32_t> source_counts,
+                                 std::span<const uint32_t> destination_counts,
+                                 std::unique_ptr<ValidatedRowIdConversion>* out);
+    std::vector<RowIdConversionSource> conversion_;
     std::vector<uint32_t> source_segment_doc_counts_;
     std::vector<uint32_t> destination_segment_doc_counts_;
     std::vector<uint8_t> source_has_deletions_;
@@ -77,7 +88,7 @@ private:
 //   * all source streams together contain every destination doc exactly once.
 //
 // Completeness is checked by a k-way merge of the monotonic source streams.
-// Memory is O(source segments + destination segments), never O(output rows).
+// Memory is O(source segments * block rows + destination segments), never O(output rows).
 Status validate_rowid_conversion(const RowIdConversionMap& conversion,
                                  const std::vector<uint32_t>& source_segment_doc_counts,
                                  const std::vector<uint32_t>& destination_segment_doc_counts);

@@ -163,7 +163,7 @@ suite("test_ivm_refresh_method_metrics", "nonConcurrent") {
         BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL
         PARTITION BY(dt)
         DISTRIBUTED BY HASH(dt) BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
+        PROPERTIES ("replication_num" = "1", "ivm_minmax_top_k" = "1")
         AS SELECT dt, MIN(v) AS min_v, MAX(v) AS max_v, COUNT(*) AS cnt
         FROM ivm_refresh_method_metrics_t
         GROUP BY dt
@@ -194,8 +194,8 @@ suite("test_ivm_refresh_method_metrics", "nonConcurrent") {
     qt_no_change_task taskQuery(idleTask)
     assertEquals([(tasks("no_change", "none")): 1.0d], idleCounted)
 
-    // 3. Deleting the row that holds a group's minimum leaves the delta unable to say what the new minimum is. A strict
-    //    INCREMENTAL request fails for that reason, and has committed nothing.
+    // 3. With capacity 1, deleting the group's only retained minimum exhausts the known range while another row remains.
+    //    A strict INCREMENTAL request fails for that reason, and has committed nothing.
     sql """DELETE FROM ivm_refresh_method_metrics_t WHERE dt = '2026-01-10' AND id = 1"""
     def (strictTask, strictCounted, strictSeconds) = refresh("REFRESH MATERIALIZED VIEW ${mvName} INCREMENTAL")
     qt_strict_failure_task taskQuery(strictTask)

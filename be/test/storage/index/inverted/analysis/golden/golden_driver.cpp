@@ -36,11 +36,10 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/char_filter/char_filter_factory.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
-#include "storage/index/inverted/analysis/reader.h"
 #include "storage/index/inverted/analysis/token_batch.h"
 #include "storage/index/inverted/analysis/token_filter/token_filter_factory.h"
 #include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
-#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
+#include "storage/index/inverted/clucene/lucene_reader.h"
 #include "util/hash_util.hpp"
 
 namespace doris::segment_v2::inverted_index::golden {
@@ -98,9 +97,8 @@ void read_tokens(lucene::analysis::TokenStream* stream, lucene::analysis::Token*
 
 class LuceneDriver final : public GoldenDriver {
 public:
-    LuceneDriver(std::function<AnalyzerPtr()> make_analyzer, CharFilterMap char_filter_map)
-            : _make_analyzer(std::move(make_analyzer)),
-              _char_filter_map(std::move(char_filter_map)) {
+    explicit LuceneDriver(std::function<AnalyzerPtr()> make_analyzer)
+            : _make_analyzer(std::move(make_analyzer)) {
         restart();
     }
 
@@ -108,7 +106,7 @@ public:
     GoldenLine fresh(std::string_view line) override {
         GoldenLine out;
         try {
-            auto reader = InvertedIndexAnalyzer::create_reader(_char_filter_map);
+            ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
             reader->init(line.data(), cast_set<int32_t>(line.size()), false);
             std::unique_ptr<lucene::analysis::TokenStream> stream(
                     _analyzer->tokenStream(L"", reader));
@@ -149,12 +147,11 @@ public:
 private:
     void restart() {
         _analyzer = _make_analyzer();
-        _reader = InvertedIndexAnalyzer::create_reader(_char_filter_map);
+        _reader = std::make_shared<lucene::util::SStringReader<char>>();
         _token = std::make_unique<lucene::analysis::Token>();
     }
 
     std::function<AnalyzerPtr()> _make_analyzer;
-    CharFilterMap _char_filter_map;
     AnalyzerPtr _analyzer;
     ReaderPtr _reader;
     std::unique_ptr<lucene::analysis::Token> _token;
@@ -240,10 +237,6 @@ InvertedIndexAnalyzerConfig analyzer_config_of(
     return analyzer_config;
 }
 
-AnalyzerPtr build_analyzer(const InvertedIndexAnalyzerConfig& analyzer_config) {
-    return InvertedIndexAnalyzer::create_analyzer_provider(&analyzer_config)->get_analyzer();
-}
-
 } // namespace
 
 FamilyDigest digest_family(GoldenDriver& driver, DriveMode mode, const CorpusFamily& family,
@@ -322,16 +315,9 @@ Status make_golden_driver(const GoldenConfig& config, std::unique_ptr<GoldenDriv
         *driver = std::make_unique<NormalizeDriver>(config.properties);
         return Status::OK();
     }
-    const InvertedIndexAnalyzerConfig analyzer_config = analyzer_config_of(config.properties);
-    try {
-        *driver = std::make_unique<LuceneDriver>(
-                [analyzer_config]() { return build_analyzer(analyzer_config); },
-                analyzer_config.char_filter_map);
-    } catch (const CLuceneError& e) {
-        return Status::InternalError("building {} failed: {}", config.name, e.what());
-    } catch (const Exception& e) {
-        return Status::InternalError("building {} failed: {}", config.name, e.what());
-    }
+    TextAnalyzerPtr analyzer;
+    RETURN_IF_ERROR(make_golden_text_analyzer(config, &analyzer));
+    *driver = make_text_driver(std::move(analyzer));
     return Status::OK();
 }
 
@@ -339,10 +325,8 @@ Status make_golden_text_analyzer(const GoldenConfig& config, TextAnalyzerPtr* an
     DORIS_CHECK(config.kind == GoldenKind::ANALYZE) << config.name;
     const InvertedIndexAnalyzerConfig analyzer_config = analyzer_config_of(config.properties);
     try {
-        *analyzer = std::make_shared<LuceneBackedTextAnalyzer>(build_analyzer(analyzer_config),
-                                                               analyzer_config.char_filter_map);
-    } catch (const CLuceneError& e) {
-        return Status::InternalError("building {} failed: {}", config.name, e.what());
+        *analyzer =
+                InvertedIndexAnalyzer::create_analyzer_provider(&analyzer_config)->get_analyzer();
     } catch (const Exception& e) {
         return Status::InternalError("building {} failed: {}", config.name, e.what());
     }
@@ -351,13 +335,6 @@ Status make_golden_text_analyzer(const GoldenConfig& config, TextAnalyzerPtr* an
 
 std::unique_ptr<GoldenDriver> make_text_driver(TextAnalyzerPtr analyzer) {
     return std::make_unique<TextDriver>(std::move(analyzer));
-}
-
-Status make_golden_text_driver(const GoldenConfig& config, std::unique_ptr<GoldenDriver>* driver) {
-    TextAnalyzerPtr analyzer;
-    RETURN_IF_ERROR(make_golden_text_analyzer(config, &analyzer));
-    *driver = make_text_driver(std::move(analyzer));
-    return Status::OK();
 }
 
 std::vector<std::pair<std::string, std::string>> registered_components() {
@@ -381,7 +358,7 @@ std::vector<std::pair<std::string, std::string>> registered_components() {
 }
 
 std::unique_ptr<GoldenDriver> make_lucene_driver(std::function<AnalyzerPtr()> make_analyzer) {
-    return std::make_unique<LuceneDriver>(std::move(make_analyzer), CharFilterMap {});
+    return std::make_unique<LuceneDriver>(std::move(make_analyzer));
 }
 
 void parallel_for(size_t count, const std::function<void(size_t)>& body) {

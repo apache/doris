@@ -422,14 +422,19 @@ public class Coordinator implements CoordInterface {
         return coordinatorContext.asLoadProcessor().loadContext.getErrorTabletInfos();
     }
 
+    public List<TNetworkAddress> getBackendBrpcAddresses() {
+        return executionTask.getChildrenTasks().values().stream()
+                .map(task -> task.getBackend().getBrpcAddress().deepCopy()).collect(Collectors.toList());
+    }
+
     @Override
     public List<TNetworkAddress> getInvolvedBackends() {
         return Utils.fastToImmutableList(coordinatorContext.backends.get().keySet());
     }
 
-    public Set<Long> getDispatchedBackendIdsForAudit() {
+    public Set<Long> getDispatchedBackendIds() {
         return executionTask == null
-                ? ImmutableSet.of() : executionTask.getDispatchedBackendIdsForAudit();
+                ? ImmutableSet.of() : executionTask.getDispatchedBackendIds();
     }
 
     public List<FragmentInstanceInfo> getFragmentInstanceInfos() {

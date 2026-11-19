@@ -196,6 +196,9 @@ const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_
     }
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
+    if (_path_encoding == 1) {
+        return nullptr;
+    }
     auto path = PathInData(relative_path.get_path());
     node = _subcolumns_meta_info->find_leaf(path);
     return node;
@@ -305,7 +308,7 @@ Status VariantColumnReader::_create_hierarchical_reader(
     }
     RETURN_IF_ERROR(HierarchicalDataIterator::create(
             reader, col_uid, path, node, std::move(sparse_iter), std::move(root_column_reader),
-            column_reader_cache, stats, read_type, io_ctx));
+            column_reader_cache, stats, read_type, io_ctx, _path_encoding));
     return Status::OK();
 }
 
@@ -879,7 +882,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
 
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
-    if (node == nullptr) {
+    if (node == nullptr && _path_encoding == 0) {
         relative_path = PathInData(relative_path.get_path());
         node = _subcolumns_meta_info->find_exact(relative_path);
     }
@@ -1087,7 +1090,8 @@ Status VariantColumnReader::_create_iterator_from_plan(
         DCHECK(plan.binary_column_reader);
         ColumnIteratorUPtr inner_iter;
         RETURN_IF_ERROR(plan.binary_column_reader->new_iterator(&inner_iter, nullptr));
-        *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter));
+        *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter),
+                                                                     _path_encoding);
         return Status::OK();
     }
     case ReadKind::HIERARCHICAL_DOC: {
@@ -1142,7 +1146,8 @@ Status VariantColumnReader::_maybe_wrap_root_merge_iterator(ColumnIteratorUPtr* 
 
 Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                                          const TabletColumn* target_col,
-                                         const StorageReadOptions* opt) {
+                                         const StorageReadOptions* opt,
+                                         bool /*enable_read_ahead*/) {
     // return new_iterator(iterator, target_col, opt, nullptr);
     return Status::NotSupported("Not implemented");
 }
@@ -1201,8 +1206,13 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
                                              &_root_column_reader));
     }
 
-    _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
+    _path_encoding = self_column_pb.variant_path_encoding();
+    if (_path_encoding > 1) {
+        return Status::Corruption("Unknown Variant path encoding {} for column {}", _path_encoding,
+                                  column_uid);
+    }
     _root_unique_id = self_column_pb.unique_id();
+    _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
     const bool should_record_path_stats = variant_util::should_record_variant_path_stats(
             opts.tablet_schema->column_by_uid(self_column_pb.unique_id()));
     const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());
@@ -1361,7 +1371,9 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         // Rebuild via the string constructor when the path has neither typed
         // nor nested metadata, so the tree matches the new shape.
         if (!relative_path.get_is_typed() && !relative_path.has_nested_part()) {
-            relative_path = PathInData(relative_path.get_path());
+            if (_path_encoding == 0) {
+                relative_path = PathInData(relative_path.get_path());
+            }
         }
         _subcolumns_meta_info->add(
                 relative_path,
@@ -1470,12 +1482,19 @@ Status VariantColumnReader::load_external_meta_once(OlapReaderStatistics* stats,
     // Ensure only one writer can populate `_subcolumns_meta_info` / `_statistics`
     // while readers of these structures hold shared locks.
     std::unique_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    VariantStatistics* variant_stats = variant_util::should_record_variant_path_stats(
-                                               _tablet_schema->column_by_uid(_root_unique_id))
-                                               ? _statistics.get()
-                                               : nullptr;
-    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), variant_stats, stats,
-                                           source_io_ctx);
+    Status status = _external_meta_load_once->call([&] {
+        VariantStatistics* variant_stats = variant_util::should_record_variant_path_stats(
+                                                   _tablet_schema->column_by_uid(_root_unique_id))
+                                                   ? _statistics.get()
+                                                   : nullptr;
+        return _ext_meta_reader->load_all(_subcolumns_meta_info.get(), variant_stats, stats,
+                                          source_io_ctx);
+    });
+    if (status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
+        // A retry skips paths already merged by load_all.
+        _external_meta_load_once.emplace();
+    }
+    return status;
 }
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,
@@ -1531,7 +1550,8 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
                                                  {.unique_id = -1,
                                                   .parent_unique_id = column.parent_unique_id(),
                                                   .path_info = index_path});
-        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column);
+        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column,
+                                    _path_encoding == 1);
         for (const auto& index : sub_column_info.indexes) {
             add_variant_search_binding_diagnostic(
                     stats,

@@ -36,6 +36,7 @@ struct OlapReaderStatistics;
 namespace io {
 class FileWriter;
 class FileReader;
+class ReadAheadRangeBuffer;
 } // namespace io
 
 namespace segment_v2 {
@@ -61,6 +62,7 @@ struct PageReadOptions {
     PageTypePB type;
     // block to read page
     io::FileReader* file_reader = nullptr;
+    io::ReadAheadRangeBuffer* read_ahead = nullptr;
     // location of the page
     PagePointer page_pointer;
     // decompressor for page body (null means page body is not compressed)
@@ -80,6 +82,7 @@ struct PageReadOptions {
 
     PageReadOptions(const PageReadOptions& old) : io_ctx(old.io_ctx) {
         file_reader = old.file_reader;
+        read_ahead = old.read_ahead;
         page_pointer = old.page_pointer;
         codec = old.codec;
         stats = old.stats;

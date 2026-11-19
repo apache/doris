@@ -200,7 +200,10 @@ public class NereidsParser {
                 return Optional.empty();
             }
             ExplainOptions explainOptions = new ExplainOptions(explainLevel, showPlanProcess);
-            return Optional.of(Pair.of(explainOptions, sql.substring(explainPlanBody.getStartIndex())));
+            // The parser counts a supplementary character such as an emoji as one character, while sql
+            // counts it as two.
+            return Optional.of(Pair.of(explainOptions,
+                    sql.substring(sql.offsetByCodePoints(0, explainPlanBody.getStartIndex()))));
         } catch (Throwable t) {
             return Optional.empty();
         }
@@ -349,7 +352,7 @@ public class NereidsParser {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, parseFunction);
         LogicalPlanBuilder realLogicalPlanBuilder = logicalPlanBuilder == null
-                    ? new LogicalPlanBuilder(getHintMap(sql, tokenStream, DorisParser::selectHint))
+                    ? new LogicalPlanBuilder(getHintMap(tokenStream, DorisParser::selectHint))
                     : logicalPlanBuilder;
         return (T) realLogicalPlanBuilder.visit(tree);
     }
@@ -358,7 +361,7 @@ public class NereidsParser {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
         LogicalPlanBuilder realLogicalPlanBuilder = new LogicalPlanBuilderForCreateView(
-                getHintMap(sql, tokenStream, DorisParser::selectHint));
+                getHintMap(tokenStream, DorisParser::selectHint));
         return (LogicalPlan) realLogicalPlanBuilder.visit(tree);
     }
 
@@ -378,13 +381,13 @@ public class NereidsParser {
         CommonTokenStream tokenStream = parseLeanTokens(sql);
         ParserRuleContext tree = toAst(tokenStream, DorisParser::singleStatement);
         LogicalPlanBuilderForSyncMv logicalPlanBuilderForSyncMv = new LogicalPlanBuilderForSyncMv(
-                getHintMap(sql, tokenStream, DorisParser::selectHint));
+                getHintMap(tokenStream, DorisParser::selectHint));
         logicalPlanBuilderForSyncMv.visit(tree);
         return logicalPlanBuilderForSyncMv.getQuerySql();
     }
 
     /** get hint map */
-    public static Map<Integer, ParserRuleContext> getHintMap(String sql, CommonTokenStream hintTokenStream,
+    public static Map<Integer, ParserRuleContext> getHintMap(CommonTokenStream hintTokenStream,
                                                              Function<DorisParser, ParserRuleContext> parseFunction) {
         // parse hint first round
         Map<Integer, ParserRuleContext> selectHintMap = Maps.newHashMap();
@@ -392,8 +395,10 @@ public class NereidsParser {
         Iterator<Token> tokenIterator = hintTokenStream.getTokens().iterator();
         Token hintToken = tokenIterator.hasNext() ? tokenIterator.next() : null;
         while (hintToken != null && hintToken.getType() != DorisLexer.EOF) {
-            if (hintToken.getChannel() == 2 && sql.charAt(hintToken.getStartIndex() + 2) == '+') {
-                String hintSql = sql.substring(hintToken.getStartIndex() + 3, hintToken.getStopIndex() + 1);
+            // Token positions count a supplementary character such as an emoji as one character, so read
+            // the hint from the token instead of cutting the SQL string.
+            if (hintToken.getChannel() == 2 && hintToken.getText().startsWith("/*+")) {
+                String hintSql = hintToken.getText().substring(3);
                 DorisLexer newHintLexer = new DorisLexer(CaseInsensitiveStream.fromString(hintSql));
                 CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
                 DorisParser hintParser = new DorisParser(newHintTokenStream);

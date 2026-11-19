@@ -44,6 +44,11 @@ public abstract class CharacterType extends PrimitiveType {
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean isInjectiveCastTo(DataType target) {
         // BE deserializes STRING into VARBINARY by copying the original bytes, including embedded
         // zeroes; the declared VARBINARY length is not enforced by the execution data type.

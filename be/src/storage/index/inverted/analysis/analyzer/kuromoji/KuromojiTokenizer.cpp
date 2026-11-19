@@ -23,6 +23,8 @@
 
 #include "common/exception.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/kuromoji_normalize.h"
+#include "storage/index/inverted/analysis/common/rune.h"
+#include "storage/index/inverted/analysis/scratch.h"
 #include "storage/index/inverted/analysis/token_filter/lower_case_filter.h"
 
 namespace doris::segment_v2 {
@@ -86,26 +88,17 @@ char32_t first_codepoint(std::string_view text, uint32_t start, uint32_t len) {
 }
 } // namespace
 
-KuromojiTokenizer::KuromojiTokenizer(KuromojiMode mode, bool lower_case, bool own_reader,
+KuromojiTokenizer::KuromojiTokenizer(KuromojiMode mode, bool lowercase,
                                      const inverted_index::kuromoji::KuromojiDictionary* dict)
-        : mode_(mode), dict_(dict) {
-    this->lowercase = lower_case;
-    this->ownReader = own_reader;
-}
+        : inverted_index::PerTokenTokenizer(TermLifetime::kUntilReset),
+          mode_(mode),
+          lowercase_(lowercase),
+          dict_(dict) {}
 
-void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
-    this->input = reader;
+void KuromojiTokenizer::on_reset(std::string_view text) {
     buffer_index_ = 0;
-    data_length_ = 0;
     tokens_text_.clear();
-
-    // Read the entire input. readCopy returns the count read, or <= 0 at EOF.
-    std::string text;
-    char buf[4096];
-    int32_t n = 0;
-    while ((n = reader->readCopy(buf, 0, static_cast<int32_t>(sizeof(buf)))) > 0) {
-        text.append(buf, n);
-    }
+    inverted_index::release_oversized_scratch(tokens_text_);
 
     if (dict_ == nullptr) {
         throw doris::Exception(doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
@@ -134,30 +127,40 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
             continue; // part-of-speech stop filtering
         }
         const std::string_view base = feature_field(feat, 6);
-        std::string term = (base.empty() || base == "*") ? text.substr(m.byte_start, m.byte_len)
-                                                         : std::string(base);
+        std::string term = (base.empty() || base == "*")
+                                   ? std::string(text.substr(m.byte_start, m.byte_len))
+                                   : std::string(base);
         term = inverted_index::kuromoji::cjk_width_normalize(
                 term); // full-width ASCII -> ASCII before lowercase
-        if (this->lowercase) {
+        if (lowercase_) {
             inverted_index::unicode_lower(term); // Unicode-aware, matching LowerCaseFilter
         }
         if (!term.empty()) {
             tokens_text_.push_back(std::move(term));
         }
     }
-    data_length_ = static_cast<int32_t>(tokens_text_.size());
 }
 
-Token* KuromojiTokenizer::next(Token* token) {
-    if (buffer_index_ >= data_length_) {
-        return nullptr;
+bool KuromojiTokenizer::next_token(inverted_index::TokenRef& token) {
+    if (buffer_index_ >= tokens_text_.size()) {
+        return false;
     }
-    std::string& token_text = tokens_text_[buffer_index_++];
-    // reset() already segmented and normalized the terms; hand them out one at a
-    // time, capped at the CLucene maximum term length.
-    size_t size = std::min(token_text.size(), static_cast<size_t>(LUCENE_MAX_WORD_LEN));
-    token->setNoCopy(token_text.data(), 0, static_cast<int32_t>(size));
-    return token;
+    const std::string& token_text = tokens_text_[buffer_index_++];
+    // on_reset() already segmented and normalized the terms; hand them out one at a time, capped
+    // at MAX_WORD_LEN bytes.
+    token = {.data = token_text.data(),
+             .size = static_cast<uint32_t>(std::min(
+                     token_text.size(), static_cast<size_t>(inverted_index::MAX_WORD_LEN))),
+             .position_increment = 1};
+    return true;
+}
+
+size_t KuromojiTokenizer::reserved_bytes() const {
+    size_t bytes = tokens_text_.capacity() * sizeof(std::string);
+    for (const std::string& text : tokens_text_) {
+        bytes += text.capacity();
+    }
+    return bytes;
 }
 
 } // namespace doris::segment_v2

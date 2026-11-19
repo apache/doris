@@ -1141,7 +1141,8 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Int32(min_peer_race_s3_thread_num, "0");
-DEFINE_Int32(max_peer_race_s3_thread_num, "32"); // aligned with default max_concurrent_peer_races
+// Effective max threads = max(this value, max_concurrent_peer_races); a smaller value has no effect.
+DEFINE_Int32(max_peer_race_s3_thread_num, "32");
 
 DEFINE_Bool(enable_time_lut, "true");
 
@@ -1340,6 +1341,11 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+
+// Larger values favor remote reads when a query enables the file-cache IO adaptor.
+DEFINE_mDouble(file_cache_io_adaptor_skip_read_factor, "1.0");
+DEFINE_Validator(file_cache_io_adaptor_skip_read_factor,
+                 [](double v) { return std::isfinite(v) && v > 0; });
 
 // async file cache write
 DEFINE_mBool(enable_async_file_cache_write, "false");
@@ -1631,6 +1637,11 @@ DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
 DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+DEFINE_mBool(enable_compressed_rowid_conversion, "true");
+// Compress only when physical input rows * 8 exceeds this many bytes (500 MiB).
+DEFINE_mInt64(compressed_rowid_conversion_threshold_bytes, "524288000");
+DEFINE_Validator(compressed_rowid_conversion_threshold_bytes,
+                 [](int64_t value) { return value >= 0; });
 // missing rows correctness check when compaction for mow table
 DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
@@ -1819,7 +1830,7 @@ DEFINE_mInt64(s3_put_requests_per_second_max, "0");
 // Note: the derived per-BE bytes/s should not be set below the single IO upper bound
 // per second (s3_write_buffer_size, 5MB by default). A single IO larger than 1 second
 // of quota only reserves 1 second worth of tokens; the excess bytes are not accounted
-// (reservation clamp in S3RateLimitGuard).
+// (reservation clamp in ObjStorageRateLimitGuard).
 DEFINE_mInt64(s3_get_bytes_per_second_per_core, "-1");
 DEFINE_mInt64(s3_put_bytes_per_second_per_core, "-1");
 // Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
@@ -2131,7 +2142,16 @@ DEFINE_mInt64(load_reader_max_block_bytes, "67108864");
 
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.
+// Auto sizing shares the CPU count captured on first use with ann_index_build_threads_per_task.
 DEFINE_Int32(omp_threads_limit, "-1");
+
+// OpenMP threads reserved by each ANN index train/add call, capped by omp_threads_limit.
+// -1 means auto: 1 thread below 32 available CPU cores, otherwise 4 threads.
+// The CPU count is captured once on first use and reused until BE restart.
+// A call waits until its entire reservation is available. Requires a BE restart.
+DEFINE_Int32(ann_index_build_threads_per_task, "-1");
+DEFINE_Validator(ann_index_build_threads_per_task,
+                 [](int32_t value) { return value == -1 || value > 0; });
 
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");

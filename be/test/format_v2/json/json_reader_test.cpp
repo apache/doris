@@ -33,15 +33,20 @@
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/value/jsonb_value.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
 #include "exec/scan/scanner.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -55,7 +60,6 @@
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 #include "util/threadpool.h"
 
 namespace doris::format::json {
@@ -607,7 +611,7 @@ TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
         env->_buffered_reader_prefetch_thread_pool.reset();
         env->_buffered_reader_prefetch_thread_pool = std::move(saved_pool);
         config::in_memory_file_size = saved_in_memory_size;
-        S3ClientFactory::instance().clear_client_creator_for_test();
+        ObjStorageClientFactory::instance().clear_client_creator_for_test();
     });
     ASSERT_TRUE(ThreadPoolBuilder("JsonPrefetchTest")
                         .set_min_threads(1)
@@ -617,8 +621,8 @@ TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
     // A small fixture must still use prefetch rather than the in-memory S3 optimization.
     config::in_memory_file_size = 0;
     auto client = std::make_shared<JsonPrefetchS3Client>();
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [client](const S3ClientConf&) { return client; });
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [client](const ObjStorageClientConfig&) { return client; });
     auto properties = std::make_shared<io::FileSystemProperties>();
     properties->system_type = TFileType::FILE_S3;
     properties->properties = {{"AWS_ENDPOINT", "http://json-prefetch.invalid"},
@@ -971,6 +975,61 @@ TEST(JsonReaderTest, IgnoresMalformedJsonAsNullRowsWhenConfigured) {
     EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 1), "judy");
 }
 
+TEST(JsonReaderTest, IgnoredMalformedNestedArrayDoesNotPopulateFollowingEmptyArray) {
+    for (const auto& paths : {std::string(), std::string(R"(["$.a"])")}) {
+        SCOPED_TRACE(paths);
+        ObjectPool pool;
+        auto inner = make_nullable(
+                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>())));
+        auto type = make_nullable(std::make_shared<DataTypeArray>(inner));
+        std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, type, "a")};
+        auto result =
+                read_once("ignored_nested_array.jsonl",
+                          R"({"a":[[1],2]})"
+                          "\n"
+                          R"({"a":[]})"
+                          "\n",
+                          json_scan_params(true, false, paths, "", true), slots, {0}, false, true);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        ASSERT_EQ(result.rows, 2);
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*result.block.get_by_position(0).column);
+        EXPECT_TRUE(nullable.is_null_at(0));
+        EXPECT_FALSE(nullable.is_null_at(1));
+        const auto& array = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+        EXPECT_EQ(array.get_offsets()[0], 0);
+        EXPECT_EQ(array.get_offsets()[1], 0);
+    }
+}
+
+TEST(JsonReaderTest, IgnoredMalformedMapDoesNotPopulateFollowingEmptyMap) {
+    for (const auto& paths : {std::string(), std::string(R"(["$.m"])")}) {
+        SCOPED_TRACE(paths);
+        ObjectPool pool;
+        auto values = make_nullable(
+                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>())));
+        auto type = make_nullable(std::make_shared<DataTypeMap>(
+                make_nullable(std::make_shared<DataTypeString>()), values));
+        std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, type, "m")};
+        auto result =
+                read_once("ignored_map.jsonl",
+                          R"({"m":{"good":[1],"bad":2}})"
+                          "\n"
+                          R"({"m":{}})"
+                          "\n",
+                          json_scan_params(true, false, paths, "", true), slots, {0}, false, true);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        ASSERT_EQ(result.rows, 2);
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*result.block.get_by_position(0).column);
+        EXPECT_TRUE(nullable.is_null_at(0));
+        EXPECT_FALSE(nullable.is_null_at(1));
+        const auto& map = assert_cast<const ColumnMap&>(nullable.get_nested_column());
+        EXPECT_EQ(map.get_offsets()[0], 0);
+        EXPECT_EQ(map.get_offsets()[1], 0);
+    }
+}
+
 TEST(JsonReaderTest, SkipsEmptyJsonLine) {
     ObjectPool pool;
     auto slots = build_slots(&pool);
@@ -1191,6 +1250,38 @@ TEST(JsonReaderTest, EmptyFileProjectionMaterializesPartitionRows) {
         }
     }
     EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(JsonReaderTest, SimdjsonJsonbSubtreesAndOverlappingPaths) {
+    ObjectPool pool;
+    auto jsonb = make_nullable(std::make_shared<DataTypeJsonb>());
+    auto string = make_nullable(std::make_shared<DataTypeString>());
+    std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, jsonb, "payload"),
+                                        make_test_slot(&pool, 1, 1, string, "first"),
+                                        make_test_slot(&pool, 2, 2, string, "second"),
+                                        make_test_slot(&pool, 3, 3, jsonb, "copy")};
+    auto result = read_once(
+            "simdjson_jsonb_paths.jsonl",
+            R"({"payload":{"text":"a\nb","large":18446744073709551616}})"
+            "\n"
+            R"({"payload":{"text":"next","array":[true,null,{}]}})"
+            "\n",
+            json_scan_params(true, false,
+                             R"(["$.payload","$.payload.text","$.payload.text","$.payload"])"),
+            slots, {0, 1, 2, 3});
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    ASSERT_EQ(result.rows, 2);
+    for (size_t i = 0; i < result.rows; ++i) {
+        EXPECT_EQ(nullable_string_at(*result.block.get_by_position(0).column, i),
+                  nullable_string_at(*result.block.get_by_position(3).column, i));
+        EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, i),
+                  nullable_string_at(*result.block.get_by_position(2).column, i));
+    }
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "a\nb");
+    JsonBinaryValue expected;
+    ASSERT_TRUE(expected.from_json_string(R"({"text":"a\nb","large":18446744073709551616})").ok());
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(0).column, 0),
+              std::string(expected.value(), expected.size()));
 }
 
 } // namespace doris::format::json

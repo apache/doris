@@ -38,6 +38,11 @@ public class UuidType extends PrimitiveType {
     }
 
     @Override
+    public boolean supportsValuePreservingGrouping() {
+        return true;
+    }
+
+    @Override
     public boolean acceptsType(DataType other) {
         return other instanceof UuidType;
     }

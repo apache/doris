@@ -22,7 +22,6 @@
 #include <string>
 #include <string_view>
 
-#include "CLucene.h"
 #include "common/check.h"
 #include "common/config.h"
 #include "common/exception.h"
@@ -125,8 +124,6 @@ Status resolve_destination_analyzer(const TabletIndex& destination_index,
                         ? analyzer_provider_factory(analyzer_config)
                         : inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(
                                   &analyzer_config);
-    } catch (const CLuceneError& error) {
-        return reject(fmt::format("destination analyzer resolution failed: {}", error.what()));
     } catch (const Exception& error) {
         return reject(fmt::format("destination analyzer resolution failed: {}", error.what()));
     }
