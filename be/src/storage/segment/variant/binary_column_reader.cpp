@@ -30,6 +30,17 @@
 
 namespace doris::segment_v2 {
 
+Status SingleSparseColumnReader::healthy_status() const {
+    return _single_reader->healthy_status();
+}
+
+Status MultipleBinaryColumnReader::healthy_status() const {
+    for (const auto& [index, reader] : _multiple_column_readers) {
+        RETURN_IF_ERROR(reader->healthy_status());
+    }
+    return Status::OK();
+}
+
 Status DummyBinaryColumnReader::new_binary_column_iterator(ColumnIteratorUPtr* iter) const {
     static const TabletColumn binary_column = []() {
         TabletColumn binary_column;
