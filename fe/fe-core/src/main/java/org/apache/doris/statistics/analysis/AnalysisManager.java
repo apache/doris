@@ -1537,7 +1537,7 @@ public class AnalysisManager implements Writable {
                                 short partitionReplicaNum = olapTable.getPartitionInfo()
                                         .getReplicaAllocation(tabletMeta.getPartitionId()).getTotalReplicaNum();
                                 MaterializedIndex changelogIndex = partition.getIndex(changelogIndexId);
-                                // A restore can replace tablets without changing partition/index IDs.
+                                // Skip a delayed delta if the tablet no longer belongs to the current index.
                                 if (changelogIndex == null || changelogIndex.getTablet(entry.getKey()) == null) {
                                     continue;
                                 }

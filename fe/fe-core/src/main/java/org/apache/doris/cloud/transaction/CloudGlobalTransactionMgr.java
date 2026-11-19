@@ -623,8 +623,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             try {
                 Partition partition = olapTable.getPartition(stats.getPartitionId());
                 MaterializedIndex index = partition == null ? null : partition.getIndex(stats.getIndexId());
-                // IDs alone do not identify a data lifecycle: restore can replace a tablet set
-                // while keeping the partition/index IDs. Reject the whole old aggregate in that case.
+                // Reject the whole aggregate if its tablet list is empty or any listed tablet
+                // no longer belongs to the current changelog index.
                 if (index == null || !index.isChangelog() || stats.getTabletIdsCount() == 0
                         || stats.getTabletIdsList().stream().anyMatch(id -> index.getTablet(id) == null)) {
                     continue;
