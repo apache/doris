@@ -28,10 +28,12 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TDisk;
@@ -882,6 +884,21 @@ public class Backend implements Writable {
     }
 
     /**
+     * Makes the next RPC to this backend resolve its hostname again and dial a new channel.
+     * Runs on the master's heartbeat and on every follower's heartbeat replay, because each FE
+     * holds its own DNS cache and channels.
+     */
+    public void invalidateLocalConnections() {
+        // A checkpoint replays old heartbeats into a separate catalog, but the DNS cache and
+        // channels belong to the serving FE.
+        if (Env.isCheckpointThread()) {
+            return;
+        }
+        Env.getCurrentEnv().getDnsCache().invalidate(host);
+        BackendServiceProxy.invalidateForAll(new TNetworkAddress(host, brpcPort));
+    }
+
+    /**
      * handle Backend's heartbeat response.
      * return true if any port changed, or alive state is changed.
      */
@@ -939,6 +956,12 @@ public class Backend implements Writable {
                 this.remoteSpillBytes = 0;
             }
             this.lastUpdateMs = hbResponse.getHbTime();
+            if (!isAlive.get() || (hbResponse.getBeStartTime() > 0 && lastStartTime > 0
+                    && lastStartTime != hbResponse.getBeStartTime())) {
+                // The backend came back or restarted, possibly at a new address. Drop this FE's
+                // connections to it before queries can be scheduled on the new process.
+                invalidateLocalConnections();
+            }
             if (!isAlive.get()) {
                 isChanged = true;
                 LOG.info("{} is back to alive, update start time from {} to {}, "
@@ -977,6 +1000,11 @@ public class Backend implements Writable {
             // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
             if (hbResponse.getHbTime() > 0) {
                 this.lastUpdateMs = hbResponse.getHbTime();
+            }
+            if (!isReplay) {
+                // The backend may be up again at a new address. The heartbeat client resolves the
+                // hostname through the JVM's InetAddress cache, so drop that entry for the next attempt.
+                NetUtils.evictJvmDnsCache(host);
             }
             // Only set backend to dead if the heartbeat failure counter exceed threshold.
             // And if it is a replay process, must set backend to dead.
