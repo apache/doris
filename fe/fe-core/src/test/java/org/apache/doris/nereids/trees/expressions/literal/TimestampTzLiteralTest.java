@@ -17,14 +17,145 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+
 class TimestampTzLiteralTest {
+
+    @Test
+    void testLocalCalendarDayArithmetic() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            String[][] cases = {
+                {"2024-03-09 12:00:00.123456-05:00", "1", "2024-03-10 12:00:00.123456-04:00", "82800"},
+                {"2024-11-02 12:00:00.123456-04:00", "1", "2024-11-03 12:00:00.123456-05:00", "90000"},
+                {"2024-03-10 12:00:00.123456-04:00", "-1", "2024-03-09 12:00:00.123456-05:00", "-82800"},
+                {"2024-11-03 12:00:00.123456-05:00", "-1", "2024-11-02 12:00:00.123456-04:00", "-90000"},
+                {"2024-02-01 12:00:00.123456-05:00", "1", "2024-02-02 12:00:00.123456-05:00", "86400"},
+                {"2024-11-03 01:30:00.123456-05:00", "0", "2024-11-03 01:30:00.123456-05:00", "0"},
+                {"2024-11-02 01:30:00.123456-04:00", "1", "2024-11-03 01:30:00.123456-04:00", "86400"},
+                {"2024-11-04 01:30:00.123456-05:00", "-1", "2024-11-03 01:30:00.123456-05:00", "-86400"},
+                {"2024-03-09 02:30:00.123456-05:00", "1", "2024-03-10 03:30:00.123456-04:00", "86400"},
+                {"2024-03-11 02:30:00.123456-04:00", "-1", "2024-03-10 03:30:00.123456-04:00", "-82800"}
+            };
+            for (String[] testCase : cases) {
+                TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6), testCase[0]);
+                IntegerLiteral days = new IntegerLiteral(Integer.parseInt(testCase[1]));
+                TimestampTzLiteral expected = new TimestampTzLiteral(TimeStampTzType.of(6), testCase[2]);
+                Expression result = DateTimeArithmetic.daysAdd(input, days);
+                Assertions.assertEquals(expected, result, testCase[0]);
+                Assertions.assertEquals(expected, DateTimeArithmetic.dateAdd(input, days));
+                Assertions.assertEquals(expected, DateTimeArithmetic.daysSub(input,
+                        new IntegerLiteral(-days.getValue())));
+                Assertions.assertEquals(Long.parseLong(testCase[3]), Duration.between(
+                        input.toJavaDateType(), ((TimestampTzLiteral) result).toJavaDateType()).getSeconds());
+            }
+            TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6), cases[0][0]);
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-03-10 13:00:00.123456-04:00"),
+                    DateTimeArithmetic.hoursAdd(input, new IntegerLiteral(24)));
+            context.getSessionVariable().setTimeZone("UTC");
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-03-10 17:00:00.123456+00:00"),
+                    DateTimeArithmetic.daysAdd(input, new IntegerLiteral(1)));
+            TimestampTzLiteral minimum = new TimestampTzLiteral(0, 1, 1, 0, 0, 0);
+            TimestampTzLiteral maximum = new TimestampTzLiteral(9999, 12, 31, 1, 0, 0);
+            Assertions.assertThrows(AnalysisException.class, () -> minimum.plusDays(-1));
+            Assertions.assertThrows(AnalysisException.class, () -> maximum.plusDays(1));
+            context.getSessionVariable().setTimeZone("-08:00");
+            Assertions.assertThrows(AnalysisException.class, () -> maximum.plusDays(1));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    void testCalendarDayMonotonicity() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            SlotReference timestamp = new SlotReference("ts", TimeStampTzType.of(6));
+            TimestampTzLiteral lower = new TimestampTzLiteral("2024-11-03 01:50:00-04:00");
+            TimestampTzLiteral upper = new TimestampTzLiteral("2024-11-03 01:10:00-05:00");
+            DaysAdd add = new DaysAdd(timestamp, new IntegerLiteral(1));
+            DaysSub sub = new DaysSub(timestamp, new IntegerLiteral(1));
+            context.getSessionVariable().setTimeZone("America/New_York");
+            Assertions.assertFalse(add.isMonotonic(lower, upper));
+            Assertions.assertFalse(sub.isMonotonic(lower, upper));
+            Assertions.assertTrue(lower.toJavaDateType().isBefore(upper.toJavaDateType()));
+            Assertions.assertTrue(((TimestampTzLiteral) lower.plusDays(1)).toJavaDateType().isAfter(
+                    ((TimestampTzLiteral) upper.plusDays(1)).toJavaDateType()));
+            Assertions.assertTrue(new HoursAdd(timestamp, new IntegerLiteral(24)).isMonotonic(lower, upper));
+            SlotReference datetime = new SlotReference("dt", DateTimeV2Type.of(6));
+            Assertions.assertTrue(new DaysAdd(datetime, new IntegerLiteral(1)).isMonotonic(lower, upper));
+            Assertions.assertTrue(new DaysSub(datetime, new IntegerLiteral(1)).isMonotonic(lower, upper));
+            SlotReference interval = new SlotReference("days", IntegerType.INSTANCE);
+            Assertions.assertFalse(new DaysAdd(datetime, interval).isMonotonic(lower, upper));
+            Assertions.assertFalse(new DaysSub(datetime, interval).isMonotonic(lower, upper));
+            for (String zone : new String[] {"UTC", "+08:00"}) {
+                context.getSessionVariable().setTimeZone(zone);
+                Assertions.assertTrue(add.isMonotonic(lower, upper));
+                Assertions.assertTrue(sub.isMonotonic(lower, upper));
+                Assertions.assertFalse(new DaysAdd(timestamp, interval).isMonotonic(lower, upper));
+                Assertions.assertFalse(new DaysSub(timestamp, interval).isMonotonic(lower, upper));
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    void testCalendarDaysAtUtcBoundaries() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            TimestampTzLiteral minimum = new TimestampTzLiteral(0, 1, 1, 0, 0, 0);
+            TimestampTzLiteral maximum = new TimestampTzLiteral(9999, 12, 31, 23, 0, 0);
+            context.getSessionVariable().setTimeZone("America/New_York");
+            Assertions.assertEquals(minimum, minimum.plusDays(0));
+            context.getSessionVariable().setTimeZone("+08:00");
+            Assertions.assertEquals(maximum, maximum.plusDays(0));
+            TimestampTzLiteral east = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    0, 2, 28, 20, 0, 0, 123456);
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    0, 2, 27, 20, 0, 0, 123456), east.plusDays(-1));
+            context.getSessionVariable().setTimeZone("-08:00");
+            TimestampTzLiteral west = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    0, 3, 1, 1, 0, 0, 123456);
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    0, 3, 2, 1, 0, 0, 123456), west.plusDays(1));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
 
     @Test
     void testConstructorsAndParsing() {
@@ -82,7 +213,7 @@ class TimestampTzLiteralTest {
         Assertions.assertEquals(3, literal.month);
         Assertions.assertEquals(10, literal.day);
         Assertions.assertEquals(7, literal.hour);
-        Assertions.assertEquals(0, literal.minute);
+        Assertions.assertEquals(30, literal.minute);
         Assertions.assertEquals(0, literal.second);
         Assertions.assertEquals(0, literal.microSecond);
 
@@ -119,11 +250,176 @@ class TimestampTzLiteralTest {
     }
 
     @Test
+    void testDstGapPreservesPosition() {
+        String[][] cases = {
+                {"America/New_York", "2024-03-10 01:59:59.999999", "2024-03-10 06:59:59.999999+00:00"},
+                {"America/New_York", "2024-03-10 02:00:00", "2024-03-10 07:00:00.000000+00:00"},
+                {"America/New_York", "2024-03-10 02:30:00.123456", "2024-03-10 07:30:00.123456+00:00"},
+                {"America/New_York", "2024-03-10 02:59:59.999999", "2024-03-10 07:59:59.999999+00:00"},
+                {"America/New_York", "2024-03-10 03:00:00", "2024-03-10 07:00:00.000000+00:00"},
+                {"America/New_York", "2024-03-10 02:59:59.9999996", "2024-03-10 07:00:00.000000+00:00"},
+                {"Australia/Lord_Howe", "2024-10-06 02:15:00.123456", "2024-10-05 15:45:00.123456+00:00"},
+                {"America/New_York", "2024-11-03 01:30:00.123456", "2024-11-03 05:30:00.123456+00:00"}
+        };
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String[] c : cases) {
+                context.getSessionVariable().setTimeZone(c[0]);
+                Assertions.assertEquals(c[2], new TimestampTzLiteral(
+                        TimeStampTzType.of(6), c[1] + " " + c[0]).getStringValue());
+                Assertions.assertEquals(c[2], TimestampTzLiteral.fromSessionTimeZone(
+                        TimeStampTzType.of(6), c[1]).getStringValue());
+                Assertions.assertEquals(c[2], ((Literal) new DateTimeV2Literal(c[1])
+                        .checkedCastTo(TimeStampTzType.of(6))).getStringValue());
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testDstGapRoundingAtLowerScales() {
+        for (int scale : new int[] {0, 3}) {
+            TimeStampTzType type = TimeStampTzType.of(scale);
+            String input = "2024-03-10 02:59:59.999999";
+            TimestampTzLiteral expected = new TimestampTzLiteral(type, "2024-03-10 07:00:00+00:00");
+            Assertions.assertEquals(expected,
+                    new TimestampTzLiteral(type, input + " America/New_York"));
+            Assertions.assertEquals(expected,
+                    TimestampTzLiteral.fromTimeZone(type, new DateTimeV2Literal(input), "America/New_York"));
+        }
+    }
+
+    @Test
+    void testDstGapStringRoundsOnce() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            for (int scale : new int[] {0, 3}) {
+                TimeStampTzType type = TimeStampTzType.of(scale);
+                String fraction = "9".repeat(scale) + "4999996";
+                String input = "2024-03-10 02:59:59." + fraction;
+                TimestampTzLiteral expected = new TimestampTzLiteral(type,
+                        2024, 3, 10, 7, 59, 59, scale == 0 ? 0 : 999000);
+                Assertions.assertEquals(expected, new StringLiteral(input).checkedCastTo(type));
+                Assertions.assertEquals(expected, TimestampTzLiteral.fromSessionTimeZone(type, input));
+                Assertions.assertEquals(expected,
+                        new TimestampTzLiteral(type, input + " America/New_York"));
+                Assertions.assertEquals(expected, new TimestampTzLiteral(type, input + "-05:00"));
+                if (scale == 0) {
+                    Assertions.assertEquals(expected, new TimestampTzLiteral(type,
+                            "20240310025959.4999996America/New_York"));
+                }
+
+                // An explicit DATETIMEV2(6) cast does round to microseconds first.
+                Assertions.assertEquals(new TimestampTzLiteral(type, 2024, 3, 10, 7, 0, 0, 0),
+                        new DateTimeV2Literal(input).checkedCastTo(type));
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     void testGetStringValueKeepsUtcSuffix() {
         TimestampTzLiteral literal = new TimestampTzLiteral(TimeStampTzType.of(6),
                 "2024-01-15 12:00:00 +00:00");
 
         Assertions.assertEquals("2024-01-15 12:00:00.000000+00:00", literal.getStringValue());
+    }
+
+    @Test
+    void testYearsUseLocalDate() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("+08:00");
+        context.setThreadLocalInfo();
+        try {
+            // One local leap day exposes the bug. The stored UTC date is February 28.
+            // A nonzero fraction also checks that year changes keep all six digits.
+            TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-02-29 00:00:00.123456 +08:00");
+            int[][] cases = {{1, 2025, 28}, {-1, 2023, 28}, {4, 2028, 29}, {-4, 2020, 29},
+                    {0, 2024, 29}, {76, 2100, 28}, {-124, 1900, 28}, {-24, 2000, 29}};
+            for (int[] test : cases) {
+                TimestampTzLiteral expected = new TimestampTzLiteral(TimeStampTzType.of(6),
+                        String.format("%04d-02-%02d 00:00:00.123456 +08:00", test[1], test[2]));
+                Assertions.assertEquals(expected, input.plusYears(test[0]), "years=" + test[0]);
+            }
+            // Local year 0 is valid, but local midnight converts to UTC year -1.
+            TimestampTzLiteral minimum = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0001-01-01 00:00:00 +08:00");
+            Assertions.assertThrows(AnalysisException.class, () -> minimum.plusYears(-1));
+            // A valid UTC input can have a local date in year 10000.
+            TimestampTzLiteral maximum = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "9999-12-31 20:00:00 +00:00");
+            Assertions.assertThrows(AnalysisException.class, () -> maximum.plusYears(-1));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testYearsClampYearZeroBeforeUtcConversion() {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : new String[] {"+08:00", "+00:00", "-08:00"}) {
+                context.getSessionVariable().setTimeZone(zone);
+                TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6),
+                        "2024-02-29 00:00:00.123456 " + zone);
+                TimestampTzLiteral expected = new TimestampTzLiteral(TimeStampTzType.of(6),
+                        "0000-02-28 00:00:00.123456 " + zone);
+                Assertions.assertEquals(expected, DateTimeArithmetic.yearsAdd(input, new IntegerLiteral(-2024)), zone);
+                Assertions.assertEquals(expected, DateTimeArithmetic.yearsSub(input, new IntegerLiteral(2024)), zone);
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testYearsRejectInvalidLocalLeapDay() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("-08:00");
+        context.setThreadLocalInfo();
+        try {
+            // Valid in UTC, but the local date is 0000-02-29, which Doris rejects.
+            TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0000-03-01 04:00:00 +00:00");
+            Assertions.assertThrows(AnalysisException.class, () -> input.plusYears(1));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testYearsKeepDstPolicy() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("America/New_York");
+        context.setThreadLocalInfo();
+        try {
+            // This is the second 01:30 in the repeated hour. Adding zero years
+            // must keep the -05:00 offset and the same UTC instant.
+            TimestampTzLiteral repeated = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-11-03 01:30:00.123456 -05:00");
+            Assertions.assertEquals(repeated, repeated.plusYears(0));
+
+            // The target 02:30 is in the DST gap. Match the BE rule: move forward
+            // by the one-hour gap to 03:30 and keep the fraction.
+            TimestampTzLiteral beforeGap = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2023-03-10 02:30:00.123456 -05:00");
+            TimestampTzLiteral expected = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "2024-03-10 03:30:00.123456 -04:00");
+            Assertions.assertEquals(expected, beforeGap.plusYears(1));
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test

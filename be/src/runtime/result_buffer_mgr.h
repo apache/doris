@@ -94,6 +94,8 @@ private:
     // buffer block map
     BufferMap _buffer_map;
     std::unordered_map<TUniqueId, std::unordered_set<TUniqueId>> _arrow_flight_query_buffers;
+    // Keep only the failure after releasing unread blocks, until the normal timed cleanup.
+    std::unordered_map<TUniqueId, Status> _cancelled_arrow_flight_statuses;
 
     // lock for timeout map
     std::mutex _timeout_lock;

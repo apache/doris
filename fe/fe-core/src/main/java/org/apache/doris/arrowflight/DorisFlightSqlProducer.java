@@ -28,6 +28,7 @@ import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
@@ -146,11 +147,17 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         this.location = location;
         this.flightSessionsManager = flightSessionsManager;
         sqlInfoBuilder = new SqlInfoBuilder();
-        sqlInfoBuilder.withFlightSqlServerName("DorisFE").withFlightSqlServerVersion("1.0")
-                .withFlightSqlServerArrowVersion("18.2.0").withFlightSqlServerReadOnly(false)
+        // Keep discovery metadata aligned with the running FE build and its loaded Arrow dependency.
+        sqlInfoBuilder.withFlightSqlServerName("DorisFE")
+                .withFlightSqlServerVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH)
+                .withFlightSqlServerReadOnly(false)
                 .withSqlIdentifierQuoteChar("`").withSqlDdlCatalog(true).withSqlDdlSchema(false).withSqlDdlTable(false)
                 .withSqlIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE)
                 .withSqlQuotedIdentifierCase(SqlSupportedCaseSensitivity.SQL_CASE_SENSITIVITY_CASE_INSENSITIVE);
+        String arrowVersion = SqlInfoBuilder.class.getPackage().getImplementationVersion();
+        // Keep the info code registered even without a manifest: SqlInfoBuilder rejects unknown codes.
+        sqlInfoBuilder.withFlightSqlServerArrowVersion(
+                arrowVersion == null || arrowVersion.isEmpty() ? "unknown" : arrowVersion);
     }
 
     private static ByteBuffer serializeMetadata(final Schema schema) {
@@ -239,6 +246,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private ExecutedQuery executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
+        // Until this request begins, the session's endpoints are those of the previous request, whose
+        // results a client may still be pulling.
+        boolean begun = false;
         try {
             Preconditions.checkState(null != connectContext);
             Preconditions.checkState(!query.isEmpty());
@@ -247,6 +257,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             // splits during DoGet, and by now that DoGet is done, #62259), a result no
             // getStreamStatement took away, and its endpoints.
             FlightProtocolAdapter.of(connectContext).beginRequest();
+            begun = true;
             try (FlightSqlConnectProcessor flightSQLConnectProcessor = new FlightSqlConnectProcessor(connectContext)) {
                 flightSQLConnectProcessor.handleQuery(query);
                 if (connectContext.getState().getStateType() == MysqlStateType.ERR) {
@@ -348,7 +359,16 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
-            connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
+            Status cancelReason = new Status(TStatusCode.CANCELLED, errMsg);
+            List<TUniqueId> cancelled = connectContext.cancelFlightSqlDeferredExecutors(cancelReason);
+            if (begun) {
+                // No ticket is handed out for this request's results either, so no BE can report an early
+                // close of them. The request's queries that were not deferred have closed their coordinators
+                // already and would run on until the BE's result buffer timer: cancel them on all their BEs
+                // through the cancellation routes they registered, and drop the routes, which the session's
+                // next request no longer drops.
+                FlightSqlQueryCancellation.INSTANCE.cancelFailedRequest(connectContext, cancelled, cancelReason);
+            }
             LOG.error(errMsg, e);
             throw queryFailure(connectContext.getState(), errMsg, e);
         } finally {
@@ -430,7 +450,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                 LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
             } finally {
                 // No DoGet will pull this result: drop what the request left behind as the next request
-                // would -- its deferred coordinator, the result cached on the channel and its endpoints.
+                // would -- its deferred coordinator, the result cached on the channel and its endpoints --
+                // and, first, the cancellation routes of those endpoints, which the next request leaves.
+                FlightSqlQueryCancellation.INSTANCE.unregister(connectContext);
                 FlightProtocolAdapter.of(connectContext).beginRequest();
             }
             throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")

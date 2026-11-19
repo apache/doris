@@ -161,6 +161,40 @@ public class EncryptSQLTest extends ParserTestBase {
                     + ")";
             parseAndCheck(sql, res);
 
+            // ALTER CATALOG sets the same secrets as CREATE CATALOG, so its audit text is masked the same way.
+            sql = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
+                    + " \"password\" = \"abc\","
+                    + " \"s3.secret_key\" = \"abc\""
+                    + ")";
+
+            res = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"s3.endpoint\" = \"s3.us-east-1.amazonaws.com\","
+                    + " \"password\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
+
+            sql = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"password\" = \"😀😀😀😀😀😀😀secret\","
+                    + " \"s3.secret_key\" = \"second-secret\","
+                    + " \"comment\" = \"visible😀\")";
+            res = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"password\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\","
+                    + " \"comment\" = \"visible😀\")";
+            parseAndCheck(sql, res);
+
+            sql = "ALTER /* 😀😀😀😀😀😀😀😀 */ CATALOG ctl SET PROPERTIES("
+                    + " \"comment\" = \"visible😀\","
+                    + " \"password\" = \"first-secret\","
+                    + " \"s3.secret_key\" = \"😀second-secret\")";
+            res = "ALTER /* 😀😀😀😀😀😀😀😀 */ CATALOG ctl SET PROPERTIES("
+                    + " \"comment\" = \"visible😀\","
+                    + " \"password\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\")";
+            parseAndCheck(sql, res);
+
             sql = "CREATE TABLE mysql_tbl("
                     + " k1 DATE,"
                     + " k2 INT,"
@@ -501,6 +535,98 @@ public class EncryptSQLTest extends ParserTestBase {
             // testing for https://github.com/apache/doris/issues/62140
             String sql = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '123456'";
             String res = "ALTER USER 'test_user62140'@'%' IDENTIFIED BY '*XXX'";
+            parseAndCheck(sql, res);
+        }
+    }
+
+    @Test
+    public void testEncryptionAfterSupplementaryCharacters() throws Exception {
+        ctx.setDatabase("test");
+        try (MockedConstruction<StmtExecutor> ignored = Mockito.mockConstruction(StmtExecutor.class,
+                Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
+                (mock, context) -> {
+                    Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Profile profile = new Profile(false, 0, 0);
+                    Deencapsulation.setField(mock, "profile", profile);
+                    Mockito.doReturn(profile).when(mock).getProfile();
+                    Mockito.doReturn(ctx).when(mock).getContext();
+                    Mockito.doNothing().when(mock).execute();
+                    Deencapsulation.setField(mock, "context", ctx);
+                    if (context.arguments().size() >= 2
+                            && context.arguments().get(1) instanceof StatementBase) {
+                        Deencapsulation.setField(mock, "parsedStmt",
+                                context.arguments().get(1));
+                    }
+                    if (ctx.getStatementContext() == null) {
+                        ctx.setStatementContext(new StatementContext());
+                    }
+                })) {
+            ctx.setEnv(env);
+            ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+            // The parser counts a supplementary character such as an emoji as one character, while
+            // the Java string of the SQL counts it as two.
+            String sql = "CREATE CATALOG ctl "
+                    + "PROPERTIES("
+                    + " \"type\" = \"iceberg\","
+                    + " \"iceberg.catalog.type\" = \"hadoop\","
+                    + " \"warehouse\" = \"s3://bucket/dir/key\","
+                    + " \"s3.access_key\" = \"abc\","
+                    + " \"s3.secret_key\" = \"😀😀😀😀😀😀😀secret\""
+                    + ")";
+            String res = "CREATE CATALOG ctl "
+                    + "PROPERTIES("
+                    + " \"type\" = \"iceberg\","
+                    + " \"iceberg.catalog.type\" = \"hadoop\","
+                    + " \"warehouse\" = \"s3://bucket/dir/key\","
+                    + " \"s3.access_key\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
+
+            sql = "CREATE CATALOG ctl COMMENT \"😀😀😀😀😀😀😀😀\" "
+                    + "PROPERTIES("
+                    + " \"type\" = \"iceberg\","
+                    + " \"iceberg.catalog.type\" = \"hadoop\","
+                    + " \"warehouse\" = \"s3://bucket/😀/key\","
+                    + " \"s3.access_key\" = \"abc\","
+                    + " \"s3.secret_key\" = \"abc\""
+                    + ")";
+            res = "CREATE CATALOG ctl COMMENT \"😀😀😀😀😀😀😀😀\" "
+                    + "PROPERTIES("
+                    + " \"type\" = \"iceberg\","
+                    + " \"iceberg.catalog.type\" = \"hadoop\","
+                    + " \"warehouse\" = \"s3://bucket/😀/key\","
+                    + " \"s3.access_key\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
+
+            sql = "CREATE EXTERNAL TABLE broker_tbl("
+                    + " k1 tinyint) "
+                    + "ENGINE=broker "
+                    + "PROPERTIES("
+                    + " \"broker_name\" = \"hdfs\","
+                    + " \"path\" = \"hdfs://abc/😀😀😀😀😀😀😀😀/a.txt\""
+                    + ") "
+                    + "BROKER PROPERTIES("
+                    + " \"username\" = \"root\","
+                    + " \"password\" = \"123\""
+                    + ")";
+            res = "CREATE EXTERNAL TABLE broker_tbl("
+                    + " k1 tinyint) "
+                    + "ENGINE=broker "
+                    + "PROPERTIES("
+                    + " \"broker_name\" = \"hdfs\","
+                    + " \"path\" = \"hdfs://abc/😀😀😀😀😀😀😀😀/a.txt\""
+                    + ") "
+                    + "BROKER PROPERTIES("
+                    + " \"username\" = \"root\","
+                    + " \"password\" = \"*XXX\""
+                    + ")";
+            parseAndCheck(sql, res);
+
+            sql = "SET PASSWORD FOR '😀😀😀😀😀😀😀😀😀' = PASSWORD('123456')";
+            res = "SET PASSWORD FOR '😀😀😀😀😀😀😀😀😀' = PASSWORD('*XXX')";
             parseAndCheck(sql, res);
         }
     }

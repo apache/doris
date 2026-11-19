@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.apache.doris</groupId>
+        <artifactId>fe-connector</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>fe-connector-lance</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Connector - Lance</name>
+    <description>
+        Lance connector plugin for Doris FE. Reads catalog metadata through the Lance Java SDK (a JNI
+        binding of the Rust library); BE reads the data itself through lance-c, so FE only plans
+        fragments pinned to one dataset version.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Thrift types for building TTableDescriptor and the Lance scan params (provided by parent
+             classloader at runtime) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- For @ConnectorProperty + ConnectorPropertiesUtils (typed-holder binding). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- fe-filesystem-api: the S3CompatibleFileSystemProperties contract fe-core binds the catalog's
+             storage keys to and hands over through ConnectorStorageContext.getStorageProperties(); the
+             Lance object-store options are translated from its getters. Parent-first at runtime and kept
+             out of the plugin zip. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- The Lance Java SDK. Its jar carries liblance_jni for linux-x86-64, linux-aarch64 and
+             darwin-aarch64; build.sh swaps the linux-x86-64 one for a glibc 2.17 build after it unzips this
+             plugin (docker/thirdparties/lance-jni-helpers.sh). arrow-dataset is excluded: none of
+             lance-core's classes reference org.apache.arrow.dataset, and it is a 78 MB jar that fe/pom.xml
+             does not manage, so it would arrive as Arrow 18.3.0 beside the managed 19.0.0. -->
+        <dependency>
+            <groupId>org.lance</groupId>
+            <artifactId>lance-core</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.arrow</groupId>
+                    <artifactId>arrow-dataset</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Arrow allocator implementation. A RootAllocator needs an allocation-manager factory at runtime;
+             declared so the plugin zip carries it whatever lance-core pulls in. -->
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-netty</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-fe-connector-lance</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Arrow reads its off-heap buffers through java.nio internals, so a test that opens a
+                         dataset needs this open. Same flag conf/fe.conf passes to the FE process. @{argLine}
+                         keeps jacoco's instrumentation argument, which coverage builds inject there. -->
+                    <argLine>
+                        --add-opens=java.base/java.nio=org.apache.arrow.memory.core,ALL-UNNAMED @{argLine}
+                    </argLine>
+                </configuration>
+            </plugin>
+            <plugin>
+                <artifactId>maven-assembly-plugin</artifactId>
+                <configuration>
+                    <appendAssemblyId>false</appendAssemblyId>
+                    <descriptors>
+                        <descriptor>src/main/assembly/plugin-zip.xml</descriptor>
+                    </descriptors>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>make-assembly</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

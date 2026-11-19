@@ -51,6 +51,8 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayDeque;
 import java.util.Collections;
@@ -74,6 +76,48 @@ public class IcebergTableCacheTest {
 
     private static TableIdentifier id() {
         return TableIdentifier.of("db", "t");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void encryptedTablesDoNotOutliveTheStatementOrAuthorizeALaterLoad(boolean retainedKeys) throws Exception {
+        AtomicInteger closes = new AtomicInteger();
+        IcebergTableCache cache = new IcebergTableCache(100, 1000,
+                ignored -> closes::incrementAndGet, null);
+        Table encrypted = encryptionCacheTable(retainedKeys);
+        try {
+            try (IcebergTableCache.TableLease lease = cache.borrow(id(), () -> encrypted)) {
+                Assertions.assertNotNull(lease.table());
+                Assertions.assertFalse(cache.contains(id()),
+                        "a retained SDK encryption manager can reuse unwrapped keys across statements");
+                Assertions.assertEquals(0, closes.get(), "the active statement still owns its table");
+            }
+            Assertions.assertEquals(1, closes.get());
+            IllegalStateException denied = Assertions.assertThrows(IllegalStateException.class,
+                    () -> cache.borrow(id(), () -> {
+                        throw new IllegalStateException("fixture access revoked");
+                    }));
+            Assertions.assertEquals("fixture access revoked", denied.getMessage());
+        } finally {
+            cache.close();
+        }
+        Assertions.assertEquals(1, closes.get(), "statement and catalog cleanup must not close twice");
+    }
+
+    private static Table encryptionCacheTable(boolean retainedKeys) throws Exception {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        if (!retainedKeys) {
+            return new FakeIcebergTable("encrypted", schema, PartitionSpec.unpartitioned(),
+                    "s3://fixture/encrypted", Collections.singletonMap(TableProperties.ENCRYPTION_TABLE_KEY,
+                            "fixture-key"));
+        }
+        TableMetadata metadata = TableMetadata.newTableMetadata(schema, PartitionSpec.unpartitioned(),
+                "s3://fixture/retained", Collections.singletonMap(TableProperties.FORMAT_VERSION, "3"));
+        ObjectNode json = (ObjectNode) JsonUtil.mapper().readTree(TableMetadataParser.toJson(metadata));
+        ObjectNode key = json.putArray("encryption-keys").addObject();
+        key.put("key-id", "fixture-key");
+        key.put("encrypted-key-metadata", "AA==");
+        return new BaseTable(new StaticTableOperations(TableMetadataParser.fromJson(json.toString())), "retained");
     }
 
     @Test

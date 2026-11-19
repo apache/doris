@@ -17,36 +17,21 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
 #include <vector>
 
-#include "storage/index/inverted/analysis/analyzer/basic/basic_analyzer.h"
-
-using namespace lucene::analysis;
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/analysis/inverted_index_parser.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
 
 namespace doris::segment_v2 {
 
+// The builtin basic parser, lowercasing or not.
 std::vector<std::string> tokenize(const std::string& s, bool lowercase = false) {
-    std::vector<std::string> datas;
-    try {
-        BasicAnalyzer analyzer;
-        analyzer.set_lowercase(lowercase);
-
-        auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-        reader->init(s.data(), s.size(), false);
-
-        std::unique_ptr<inverted_index::BasicTokenizer> tokenizer;
-        tokenizer.reset((inverted_index::BasicTokenizer*)analyzer.tokenStream(L"", reader));
-
-        Token t;
-        while (tokenizer->next(&t)) {
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
-            datas.emplace_back(term);
-        }
-    } catch (CLuceneError& e) {
-        std::cout << e.what() << std::endl;
-        throw e;
-    }
-    return datas;
+    auto analyzer = inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+            InvertedIndexParserType::PARSER_BASIC, "",
+            lowercase ? INVERTED_INDEX_PARSER_TRUE : INVERTED_INDEX_PARSER_FALSE, "");
+    return inverted_index::collect_terms(*analyzer, s);
 }
 
 class BasicTokenizerTest : public ::testing::Test {};

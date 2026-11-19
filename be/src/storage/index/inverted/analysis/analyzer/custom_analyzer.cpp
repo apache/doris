@@ -20,91 +20,52 @@
 #include <algorithm>
 #include <string_view>
 
+#include "common/logging.h"
 #include "common/status.h"
-#include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis/analysis_factory_mgr.h"
-#include "storage/index/inverted/analysis/token_stream.h"
+#include "storage/index/inverted/analysis/analyzer/chain_analyzer.h"
+#include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
-namespace {} // namespace
 
-CustomAnalyzer::CustomAnalyzer(Builder* builder) {
-    _tokenizer = builder->_tokenizer;
-    _char_filters = builder->_char_filters;
-    _token_filters = builder->_token_filters;
-}
-
-TokenStream* CustomAnalyzer::tokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) {
-    throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED,
-                    "CustomAnalyzer::tokenStream not supported");
-}
-
-TokenStream* CustomAnalyzer::reusableTokenStream(const TCHAR* fieldName,
-                                                 lucene::util::Reader* reader) {
-    throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED,
-                    "CustomAnalyzer::reusableTokenStream not supported");
-}
-
-TokenStream* CustomAnalyzer::tokenStream(const TCHAR* fieldName, const ReaderPtr& reader) {
-    auto r = init_reader(reader);
-    auto token_stream = create_components();
-    token_stream->set_reader(r);
-    token_stream->get_token_stream()->reset();
-    return new TokenStreamWrapper(token_stream->get_token_stream());
-}
-
-TokenStream* CustomAnalyzer::reusableTokenStream(const TCHAR* fieldName, const ReaderPtr& reader) {
-    auto r = init_reader(reader);
-    if (_reuse_token_stream == nullptr) {
-        _reuse_token_stream = create_components();
-    }
-    _reuse_token_stream->set_reader(r);
-    return _reuse_token_stream->get_token_stream().get();
-}
-
-ReaderPtr CustomAnalyzer::init_reader(ReaderPtr reader) {
-    for (const auto& filter : _char_filters) {
-        reader = filter->create(reader);
-    }
-    return reader;
-}
-
-TokenStreamComponentsPtr CustomAnalyzer::create_components() {
-    try {
-        auto tk = _tokenizer->create();
-        TokenStreamPtr ts = tk;
-        for (const auto& filter : _token_filters) {
-            ts = filter->create(ts);
-        }
-        return std::make_shared<TokenStreamComponents>(tk, ts);
-    } catch (const CLuceneError& e) {
-        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
-                        "Failed to create custom analyzer components: {}", e.what());
-    }
-}
-
-CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(
+TextAnalyzerPtr CustomAnalyzer::build_custom_analyzer(
         const ImmutableCustomAnalyzerConfigPtr& config) {
     if (config == nullptr) {
         throw Exception(ErrorCode::ILLEGAL_STATE, "Null configuration detected.");
     }
-    CustomAnalyzer::Builder builder;
-    for (const auto& filter_config : config->get_char_filter_configs()) {
-        builder.add_char_filter(filter_config->get_name(), filter_config->get_params());
-    }
-    builder.with_tokenizer(config->get_tokenizer_config()->get_name(),
-                           config->get_tokenizer_config()->get_params());
-    for (const auto& filter_config : config->get_token_filter_configs()) {
-        builder.add_token_filter(filter_config->get_name(), filter_config->get_params());
-    }
-    return builder.build();
+    const auto& tokenizer_config = config->get_tokenizer_config();
+    DORIS_CHECK(tokenizer_config != nullptr);
+    return build_chain(config->get_char_filter_configs(), *tokenizer_config,
+                       config->get_token_filter_configs());
 }
 
-CustomAnalyzerProvider::CustomAnalyzerProvider(
-        ImmutableCustomAnalyzerConfigPtr config,
-        std::map<std::string, std::string> /*outer_char_filter_map*/)
-        : _config(std::move(config)), _analyzer(CustomAnalyzer::build_custom_analyzer(_config)) {
+TextAnalyzerPtr CustomAnalyzer::build_chain(const std::vector<ComponentConfigPtr>& char_filters,
+                                            const ComponentConfig& tokenizer,
+                                            const std::vector<ComponentConfigPtr>& token_filters) {
+    auto& factories = AnalysisFactoryMgr::instance();
+    std::vector<CharFilterFactoryPtr> char_filter_factories;
+    for (const auto& filter_config : char_filters) {
+        char_filter_factories.push_back(factories.create<CharFilterFactory>(
+                filter_config->get_name(), filter_config->get_params()));
+    }
+    TokenizerFactoryPtr tokenizer_factory =
+            factories.create<TokenizerFactory>(tokenizer.get_name(), tokenizer.get_params());
+    std::vector<TokenFilterFactoryPtr> token_filter_factories;
+    for (const auto& filter_config : token_filters) {
+        token_filter_factories.push_back(factories.create<TokenFilterFactory>(
+                filter_config->get_name(), filter_config->get_params()));
+    }
+    return std::make_shared<ChainAnalyzer>(std::move(char_filter_factories),
+                                           std::move(tokenizer_factory),
+                                           std::move(token_filter_factories));
+}
+
+CustomAnalyzerProvider::CustomAnalyzerProvider(ImmutableCustomAnalyzerConfigPtr config)
+        : _config(std::move(config)) {
+    // Built for every configuration: building validates it, gram family included, and it is the
+    // analyzer of every configuration outside the gram family.
+    TextAnalyzerPtr analyzer = CustomAnalyzer::build_custom_analyzer(_config);
     // Gram-family detection: when the tokenizer is "ngram", hand its Settings to
     // NGramTokenizerFactory::parse_gram_scheme so the same property mapping is reused (R16,
     // DRY). build_custom_analyzer() has already constructed that tokenizer successfully above
@@ -128,37 +89,12 @@ CustomAnalyzerProvider::CustomAnalyzerProvider(
             _gram_scheme.reset();
         }
     }
-}
-void CustomAnalyzer::Builder::with_tokenizer(const std::string& name, const Settings& params) {
-    _tokenizer = AnalysisFactoryMgr::instance().create<TokenizerFactory>(name, params);
-}
-
-void CustomAnalyzer::Builder::add_char_filter(const std::string& name, const Settings& params) {
-    _char_filters.push_back(AnalysisFactoryMgr::instance().create<CharFilterFactory>(name, params));
-}
-
-void CustomAnalyzer::Builder::add_token_filter(const std::string& name, const Settings& params) {
-    _token_filters.push_back(
-            AnalysisFactoryMgr::instance().create<TokenFilterFactory>(name, params));
-}
-
-CustomAnalyzerPtr CustomAnalyzer::Builder::build() {
-    if (_tokenizer == nullptr) {
-        throw Exception(ErrorCode::ILLEGAL_STATE, "You have to set at least a tokenizer.");
+    // A gram-family configuration has no filter, so the GramTokenizer is its whole chain.
+    if (_gram_scheme.has_value()) {
+        _analyzer = std::make_shared<GramTextAnalyzer>(*_gram_scheme);
+    } else {
+        _analyzer = std::move(analyzer);
     }
-    return std::make_shared<CustomAnalyzer>(this);
-}
-
-void TokenStreamComponents::set_reader(const ReaderPtr& reader) {
-    _source->set_reader(reader);
-}
-
-TokenStreamPtr TokenStreamComponents::get_token_stream() {
-    return _sink;
-}
-
-TokenizerPtr TokenStreamComponents::get_source() {
-    return _source;
 }
 
 } // namespace doris::segment_v2::inverted_index

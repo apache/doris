@@ -53,6 +53,7 @@
 #include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "resource-manager/resource_manager.h"
+#include "scoped_legacy_instance_rpc.h"
 
 namespace doris::cloud {
 
@@ -954,49 +955,45 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
     {
         AlterClusterRequest req;
         req.set_instance_id(mock_instance);
-        req.mutable_cluster()->set_cluster_name(mock_cluster_name);
+        req.mutable_cluster()->set_cluster_name("rename_cluster_name");
         req.mutable_cluster()->set_cluster_id(mock_cluster_id);
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
         auto node = req.mutable_cluster()->add_nodes();
         node->set_ip("127.0.0.1");
         node->set_heartbeat_port(9999);
         node->set_cloud_unique_id("cloud_unique_id");
-        auto& meta_service = ctx.meta_service_;
-        NodeInfoPB npb;
-        npb.set_heartbeat_port(9999);
-        npb.set_ip("127.0.0.1");
-        npb.set_cloud_unique_id("cloud_unique_id");
-        meta_service->resource_mgr()->node_info_.insert(
-                {"cloud_unique_id", NodeInfo {Role::COMPUTE_NODE, mock_instance,
-                                              "rename_cluster_name", mock_cluster_id, npb}});
+        auto [add_status_code, add_resp] = ctx.forward<MetaServiceResponseStatus>("add_node", req);
+        ASSERT_EQ(add_status_code, 200);
+        ASSERT_EQ(add_resp.code(), MetaServiceCode::OK);
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("decommission_node", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+
+        auto instance = ctx.get_instance_info(mock_instance);
+        ASSERT_EQ(instance.clusters(0).nodes_size(), 1);
+        EXPECT_EQ(instance.clusters(0).nodes(0).status(),
+                  NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
     }
 
     // notify_decommissioned
     {
         AlterClusterRequest req;
         req.set_instance_id(mock_instance);
-        req.mutable_cluster()->set_cluster_name(mock_cluster_name);
+        req.mutable_cluster()->set_cluster_name("rename_cluster_name");
         req.mutable_cluster()->set_cluster_id(mock_cluster_id);
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
         auto node = req.mutable_cluster()->add_nodes();
         node->set_ip("127.0.0.1");
-        node->set_heartbeat_port(9996);
+        node->set_heartbeat_port(9999);
         node->set_cloud_unique_id("cloud_unique_id");
-        auto& meta_service = ctx.meta_service_;
-        NodeInfoPB npb;
-        npb.set_heartbeat_port(9996);
-        npb.set_ip("127.0.0.1");
-        npb.set_cloud_unique_id("cloud_unique_id");
-        meta_service->resource_mgr()->node_info_.insert(
-                {"cloud_unique_id", NodeInfo {Role::COMPUTE_NODE, mock_instance,
-                                              "rename_cluster_name", mock_cluster_id, npb}});
         auto [status_code, resp] =
                 ctx.forward<MetaServiceResponseStatus>("notify_decommissioned", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+
+        auto instance = ctx.get_instance_info(mock_instance);
+        ASSERT_EQ(instance.clusters(0).nodes_size(), 1);
+        EXPECT_EQ(instance.clusters(0).nodes(0).status(), NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
     }
 
     // update_cluster_endpoint
@@ -1013,6 +1010,69 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
     }
 }
+
+class NodeStatusWithoutClusterIdHttpTest : public testing::TestWithParam<std::tuple<bool, bool>> {};
+
+TEST_P(NodeStatusWithoutClusterIdHttpTest, PreservesNamedClusterWithoutStoredId) {
+    const auto [explicit_empty_id, notify_decommissioned] = GetParam();
+    HttpContext ctx;
+    CreateInstanceRequest create_req;
+    create_req.set_instance_id("legacy_node_status_instance");
+    create_req.set_user_id("test_user");
+    create_req.set_name("test_name");
+    auto [create_http_status, create_resp] =
+            ctx.forward<MetaServiceResponseStatus>("create_instance", create_req);
+    ASSERT_EQ(create_http_status, 200);
+    ASSERT_EQ(create_resp.code(), MetaServiceCode::OK) << create_resp.msg();
+
+    AlterClusterRequest req;
+    req.set_instance_id(create_req.instance_id());
+    auto* cluster = req.mutable_cluster();
+    cluster->set_type(ClusterPB::COMPUTE);
+    cluster->set_cluster_name("legacy_named_cluster");
+    if (explicit_empty_id) {
+        cluster->set_cluster_id("");
+    }
+    auto* node = cluster->add_nodes();
+    node->set_cloud_unique_id("legacy_node_uid");
+    node->set_ip("127.0.0.1");
+    node->set_heartbeat_port(9050);
+    node->set_status(NodeStatusPB::NODE_STATUS_RUNNING);
+    auto [add_http_status, add_resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+    ASSERT_EQ(add_http_status, 200);
+    ASSERT_EQ(add_resp.code(), MetaServiceCode::OK) << add_resp.msg();
+    auto persisted = ctx.get_instance_info(create_req.instance_id());
+    ASSERT_EQ(persisted.clusters_size(), 1);
+    ASSERT_TRUE(persisted.clusters(0).cluster_id().empty());
+    ASSERT_EQ(persisted.clusters(0).has_cluster_id(), explicit_empty_id);
+
+    // Seed an old timestamp so the refresh is observable even within the same second.
+    constexpr int64_t old_mtime = 200;
+    persisted.mutable_clusters(0)->mutable_nodes(0)->set_mtime(old_mtime);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(ctx.meta_service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({create_req.instance_id()}), persisted.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    auto expected = persisted.clusters(0);
+
+    const auto* operation = notify_decommissioned ? "notify_decommissioned" : "decommission_node";
+    auto [http_status, resp] = ctx.forward<MetaServiceResponseStatus>(operation, req);
+    ASSERT_EQ(http_status, 200) << resp.ShortDebugString();
+    ASSERT_EQ(resp.code(), MetaServiceCode::OK) << resp.msg();
+    persisted = ctx.get_instance_info(create_req.instance_id());
+    ASSERT_EQ(persisted.clusters_size(), 1);
+    ASSERT_EQ(persisted.clusters(0).nodes_size(), 1);
+    const auto mtime = persisted.clusters(0).nodes(0).mtime();
+    EXPECT_GT(mtime, old_mtime);
+    auto* expected_node = expected.mutable_nodes(0);
+    expected_node->set_mtime(mtime);
+    expected_node->set_status(notify_decommissioned ? NodeStatusPB::NODE_STATUS_DECOMMISSIONED
+                                                    : NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
+    EXPECT_EQ(persisted.clusters(0).SerializeAsString(), expected.SerializeAsString());
+}
+
+INSTANTIATE_TEST_SUITE_P(StoredClusterId, NodeStatusWithoutClusterIdHttpTest,
+                         testing::Combine(testing::Bool(), testing::Bool()));
 
 TEST(MetaServiceHttpTest, GetClusterTest) {
     HttpContext ctx(true);
@@ -1120,12 +1180,27 @@ TEST(MetaServiceHttpTest, AbortTxnTest) {
     }
 }
 
-TEST(MetaServiceHttpTest, AlterIamTest) {
+TEST(MetaServiceHttpTest, RetiredServiceMethods) {
+    ASSERT_EQ(MetaService::descriptor()->FindMethodByName("alter_iam"), nullptr);
+    ASSERT_EQ(RecyclerService::descriptor()->FindMethodByName("recycle_instance"), nullptr);
+
+    HttpContext ctx;
+    auto [status_code, body] = ctx.query<std::string>("alter_iam", "");
+    ASSERT_EQ(status_code, 404) << body;
+
+    const auto& handlers = get_http_handlers();
+    auto it = handlers.find("recycle_instance");
+    ASSERT_NE(it, handlers.end());
+    ASSERT_EQ(it->second.role, HttpRole::RECYCLER);
+}
+
+TEST(MetaServiceHttpTest, AlterRamUserTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     HttpContext ctx;
 
     brpc::Controller cntl;
     auto cloud_unique_id = "test_cloud_unique_id";
-    std::string instance_id = "alter_iam_test_instance_id";
+    std::string instance_id = "alter_ram_user_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -1200,18 +1275,6 @@ TEST(MetaServiceHttpTest, AlterIamTest) {
             ctx.forward<MetaServiceResponseStatus>("alter_ram_user", alter_ram_user_request);
     ASSERT_EQ(status_code, 200);
     ASSERT_EQ(resp.code(), MetaServiceCode::OK);
-
-    // alter iam
-    {
-        AlterIamRequest alter_iam_request;
-        alter_iam_request.set_ak("new_ak");
-        alter_iam_request.set_sk("new_sk");
-        alter_iam_request.set_account_id("account_id");
-        auto [status_code, resp] =
-                ctx.forward<MetaServiceResponseStatus>("alter_iam", alter_iam_request);
-        ASSERT_EQ(status_code, 200);
-        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
-    }
 
     // get iam and ram user
     ctx.meta_service_->get_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -2293,6 +2356,7 @@ TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
 }
 
 TEST(MetaServiceHttpTest, CreateInstanceWithIamRoleTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     HttpContext ctx;
 
     brpc::Controller cntl;

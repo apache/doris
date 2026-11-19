@@ -128,7 +128,7 @@ TEST_F(ArrowBlockConvertorTest, PythonBuildsSchemaAndConvertsSlicesInternally) {
     column->get_data().assign({11, 22, 33});
     Block block;
     block.insert({std::move(column), type, "value"});
-    PythonArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
+    PythonArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone(), true);
     std::shared_ptr<arrow::RecordBatch> batch;
     EXPECT_FALSE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
     ASSERT_TRUE(converter.init().ok());
@@ -198,7 +198,7 @@ TEST_F(ArrowBlockConvertorTest, PaimonSerializedSchemaKeepsTimestampBindingsPerI
     }
 }
 
-TEST_F(ArrowBlockConvertorTest, PythonFixedOffsetSchemaMatchesDeclaredProtocol) {
+TEST_F(ArrowBlockConvertorTest, PythonDatetimeSchemaMatchesDeclaredProtocol) {
     auto type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
     DataTypes types {type, std::make_shared<DataTypeArray>(type)};
     Block block;
@@ -211,17 +211,23 @@ TEST_F(ArrowBlockConvertorTest, PythonFixedOffsetSchemaMatchesDeclaredProtocol) 
         SCOPED_TRACE(zone);
         cctz::time_zone timezone;
         ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
-        PythonArrowBlockConvertor converter(block, zone, timezone);
-        ASSERT_TRUE(converter.init().ok());
-        std::shared_ptr<arrow::Schema> declared;
-        ASSERT_TRUE(PythonUDFMeta::convert_types_to_schema(types, zone, &declared).ok());
-        EXPECT_TRUE(declared->Equals(*converter.arrow_schema()))
-                << "declared=" << declared->ToString()
-                << ", actual=" << converter.arrow_schema()->ToString();
+        for (bool datetime_naive : {false, true}) {
+            PythonArrowBlockConvertor converter(block, zone, timezone, datetime_naive);
+            ASSERT_TRUE(converter.init().ok());
+            std::shared_ptr<arrow::Schema> declared;
+            ASSERT_TRUE(
+                    PythonUDFMeta::convert_types_to_schema(types, zone, &declared, datetime_naive)
+                            .ok());
+            EXPECT_TRUE(declared->Equals(*converter.arrow_schema()))
+                    << "declared=" << declared->ToString()
+                    << ", actual=" << converter.arrow_schema()->ToString();
+            EXPECT_TRUE(converter.arrow_schema()->field(0)->type()->Equals(
+                    arrow::timestamp(arrow::TimeUnit::MICRO, datetime_naive ? "" : zone)));
+        }
     }
 }
 
-TEST_F(ArrowBlockConvertorTest, PythonFixedOffsetBatchesPreserveValuesAndNulls) {
+TEST_F(ArrowBlockConvertorTest, PythonDatetimeBatchesPreserveValuesAndNulls) {
     auto type = make_nullable(
             DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6));
     DateV2Value<DateTimeV2ValueType> value;
@@ -231,30 +237,37 @@ TEST_F(ArrowBlockConvertorTest, PythonFixedOffsetBatchesPreserveValuesAndNulls) 
     column->insert_default();
     Block block;
     block.insert({std::move(column), type, "arg0"});
-    for (const auto& [zone, offset_seconds] : std::vector<std::pair<std::string, int64_t>> {
-                 {"+08:00", 28800}, {"+05:45", 20700}, {"-03:30", -12600}, {"UTC", 0}}) {
+    for (const std::string& zone : {"+08:00", "+05:45", "-03:30", "UTC"}) {
         SCOPED_TRACE(zone);
         cctz::time_zone timezone;
         ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
-        PythonArrowBlockConvertor converter(block, zone, timezone);
-        ASSERT_TRUE(converter.init().ok());
-        std::shared_ptr<arrow::RecordBatch> batch;
-        ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
-        ASSERT_TRUE(batch->ValidateFull().ok());
-        std::shared_ptr<arrow::Schema> declared;
-        ASSERT_TRUE(PythonUDFMeta::convert_types_to_schema({type}, zone, &declared).ok());
-        EXPECT_TRUE(declared->Equals(*batch->schema()));
-        const auto& values = static_cast<const arrow::TimestampArray&>(*batch->column(0));
-        // The protocol label and the epoch must describe the same wall-clock input.
-        EXPECT_EQ(1681948800123456LL - offset_seconds * 1000000, values.Value(0));
-        EXPECT_TRUE(values.IsNull(1));
-        Block output;
-        ASSERT_TRUE(converter.convert_from_arrow(batch, {type}, &output).ok());
-        const auto& actual = *output.get_by_position(0).column;
-        const auto& expected = *block.get_by_position(0).column;
-        ASSERT_EQ(expected.size(), actual.size());
-        EXPECT_EQ(0, expected.compare_at(0, 0, actual, 1));
-        EXPECT_TRUE(actual.is_null_at(1));
+        for (bool datetime_naive : {false, true}) {
+            PythonArrowBlockConvertor converter(block, zone, timezone, datetime_naive);
+            ASSERT_TRUE(converter.init().ok());
+            std::shared_ptr<arrow::RecordBatch> batch;
+            ASSERT_TRUE(
+                    converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+            ASSERT_TRUE(batch->ValidateFull().ok());
+            std::shared_ptr<arrow::Schema> declared;
+            ASSERT_TRUE(
+                    PythonUDFMeta::convert_types_to_schema({type}, zone, &declared, datetime_naive)
+                            .ok());
+            EXPECT_TRUE(declared->Equals(*batch->schema()));
+            const auto& values = static_cast<const arrow::TimestampArray&>(*batch->column(0));
+            EXPECT_TRUE(batch->schema()->field(0)->type()->Equals(
+                    arrow::timestamp(arrow::TimeUnit::MICRO, datetime_naive ? "" : zone)));
+            int64_t seconds;
+            value.unix_timestamp(&seconds, datetime_naive ? cctz::utc_time_zone() : timezone);
+            EXPECT_EQ(seconds * 1000000 + 123456, values.Value(0));
+            EXPECT_TRUE(values.IsNull(1));
+            Block output;
+            ASSERT_TRUE(converter.convert_from_arrow(batch, {type}, &output).ok());
+            const auto& actual = *output.get_by_position(0).column;
+            const auto& expected = *block.get_by_position(0).column;
+            ASSERT_EQ(expected.size(), actual.size());
+            EXPECT_EQ(0, expected.compare_at(0, 0, actual, 1));
+            EXPECT_TRUE(actual.is_null_at(1));
+        }
     }
 }
 
