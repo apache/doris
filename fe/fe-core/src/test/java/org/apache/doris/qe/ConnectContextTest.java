@@ -85,6 +85,28 @@ public class ConnectContextTest {
     }
 
     @Test
+    public void testInternalQueryInheritsSessionState() {
+        ConnectContext parent = new ConnectContext();
+        parent.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp("testUser", "%"));
+        parent.getSessionVariable().charsetServer = "test_charset";
+        parent.changeDefaultCatalog("external_catalog");
+        parent.currentDb = "test_db";
+        parent.currentDbId = 42L;
+
+        ConnectContext child = parent.createInternalQueryContext();
+        Assert.assertEquals(parent.getCurrentUserIdentity(), child.getCurrentUserIdentity());
+        Assert.assertEquals(parent.getSessionId(), child.getSessionId());
+        Assert.assertNotSame(parent.getSessionVariable(), child.getSessionVariable());
+        Assert.assertEquals("test_charset", child.getSessionVariable().charsetServer);
+        Assert.assertEquals("external_catalog", child.getDefaultCatalog());
+        Assert.assertEquals("test_db", child.getDatabase());
+        Assert.assertEquals(42L, child.getCurrentDbId());
+
+        child.getSessionVariable().charsetServer = "child_charset";
+        Assert.assertEquals("test_charset", parent.getSessionVariable().charsetServer);
+    }
+
+    @Test
     public void testResetConnectionClearsSessionState() throws Exception {
         Env env = Mockito.mock(Env.class);
         Auth auth = Mockito.mock(Auth.class);

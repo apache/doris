@@ -165,6 +165,7 @@ import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -206,6 +207,11 @@ public class StmtExecutor {
     // ConnectContext.getExecTimeoutS() later would report the session value instead.
     private volatile int deferredExecTimeoutS = -1;
     private MasterOpExecutor masterOpExecutor = null;
+    // Optional forward target for cancellations issued on this executor: statements that
+    // spawn a nested internal executor with its own query id (e.g. SHOW CHARACTER SET WHERE)
+    // register it here so Ctrl+C / KILL QUERY / statement timeout on the outer statement also
+    // cancel the inner work, which those paths cannot address directly.
+    private volatile Consumer<Status> cancelDelegate = null;
     private RedirectStatus redirectStatus = null;
     private Planner planner;
     private boolean isProxy;
@@ -1240,10 +1246,27 @@ public class StmtExecutor {
     }
 
     // Because this is called by other thread
+    /**
+     * Routes cancellation of this (outer) executor to a nested internal executor, e.g. the
+     * internal filter query executor of SHOW CHARACTER SET WHERE. The delegate receives the same
+     * cancel reason and must be cleared once the nested work is done.
+     */
+    public void setCancelDelegate(Consumer<Status> cancelDelegate) {
+        this.cancelDelegate = cancelDelegate;
+    }
+
+    public void clearCancelDelegate() {
+        this.cancelDelegate = null;
+    }
+
     public void cancel(Status cancelReason, boolean needWaitCancelComplete) {
         pendingCoordinatorCancelReason.compareAndSet(null, cancelReason);
         Status coordinatorCancelReason = pendingCoordinatorCancelReason.get();
         scanTaskScope.cancel(coordinatorCancelReason);
+        Consumer<Status> delegate = cancelDelegate;
+        if (delegate != null) {
+            delegate.accept(coordinatorCancelReason);
+        }
         if (masterOpExecutor != null) {
             try {
                 masterOpExecutor.cancel();
@@ -2206,6 +2229,20 @@ public class StmtExecutor {
                 LOG.warn("Failed to run internal SQL: {}", originStmt, e);
                 throw new RuntimeException("Failed to execute internal SQL. " + Util.getRootCauseMessage(e), e);
             }
+            if (context.supportHandleByFe()) {
+                Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
+                if (resultSet.isPresent()) {
+                    List<List<String>> rows = resultSet.get().getResultRows();
+                    context.updateReturnRows(rows.size());
+                    isHandleQueryInFe = true;
+                    if (context.getSessionVariable().enableProfile() && profile != null) {
+                        profile.getSummaryProfile().setExecutedByFrontend(true);
+                    }
+                    return rows.stream()
+                            .map(ResultRow::new)
+                            .collect(Collectors.toList());
+                }
+            }
             RowBatch batch;
             if (Config.enable_collect_internal_query_profile) {
                 context.getSessionVariable().enableProfile = true;
@@ -2221,6 +2258,11 @@ public class StmtExecutor {
             }
             updateProfile(false);
             try {
+                Status cancelReason = pendingCoordinatorCancelReason.get();
+                if (cancelReason != null) {
+                    coord.cancel(cancelReason);
+                    throw new UserException(cancelReason.getErrorMsg());
+                }
                 coord.exec();
             } catch (Exception e) {
                 throw new InternalQueryExecutionException(e.getMessage() + Util.getRootCauseMessage(e), e);
