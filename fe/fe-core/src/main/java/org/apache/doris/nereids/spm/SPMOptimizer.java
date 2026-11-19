@@ -496,6 +496,41 @@ public class SPMOptimizer {
         }
     }
 
+    /** Checks for a SQL-mode assignment in any block of the submitted plan. */
+    static boolean hasSqlModeHint(LogicalPlan plan) {
+        boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            if (!found[0] && node instanceof LogicalSelectHint) {
+                for (SelectHint hint : ((LogicalSelectHint<?>) node).getHints()) {
+                    if (hint instanceof SelectHintSetVar && ((SelectHintSetVar) hint).getParameters()
+                            .entrySet().stream().anyMatch(entry -> SessionVariable.SQL_MODE.equalsIgnoreCase(
+                                    entry.getKey()) && entry.getValue().isPresent())) {
+                        found[0] = true;
+                        return;
+                    }
+                }
+            }
+        });
+        return found[0];
+    }
+
+    /** Analyzes the unparameterized bind under its own statement settings. */
+    static void validateBindAnalysis(ConnectContext ctx, LogicalPlan bindPlan, String bindSql,
+            SessionVariable bindSession) {
+        StatementContext outerContext = ctx.getStatementContext();
+        SessionVariable planSession = ctx.getSessionVariable();
+        CaptureStatementContext validation = createNestedStatementContext(ctx, bindSql);
+        try {
+            ctx.setSessionVariable(bindSession);
+            ctx.setStatementContext(validation);
+            new NereidsPlanner(validation).planWithLock(bindPlan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
+        } finally {
+            ctx.setSessionVariable(planSession);
+            ctx.setStatementContext(outerContext);
+            validation.close();
+        }
+    }
+
     /**
      * Creates the nested statement context of one baseline-plan optimization. The context
      * is closed in the caller's finally.

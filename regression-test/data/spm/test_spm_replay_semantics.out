@@ -115,6 +115,21 @@ true
 -- !date_type_and_hit --
 2020-01-01	DATE	true
 
+-- !container_value_type_and_hit --
+2020-01-01	DATE	true	true
+
+-- !container_frozen --
+true
+
+-- !unspellable_container_frozen --
+false
+
+-- !unspellable_container_hit --
+true
+
 -- !permissive_group_hit --
+true
+
+-- !valid_group_with_permissive_plan --
 true
 

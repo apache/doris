@@ -38,6 +38,12 @@ suite("test_spm_replay_semantics", "spm") {
         PROPERTIES("replication_num" = "1")"""
     sql "INSERT INTO spm_replay_sink_order VALUES (1, 2)"
 
+    sql "DROP TABLE IF EXISTS spm_replay_container_literal"
+    sql """CREATE TABLE spm_replay_container_literal (k INT, dates ARRAY<DATE>, words ARRAY<STRING>)
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")"""
+    sql "INSERT INTO spm_replay_container_literal VALUES (1, [DATE '2021-01-01'], ['original'])"
+
     sql "SET enable_spm_rewrite = true"
     sql "SET enable_spm_fallback = false"
     sql "SET enable_sql_cache = false"
@@ -180,6 +186,25 @@ suite("test_spm_replay_semantics", "spm") {
         qt_date_type_and_hit "SELECT '${rows[0][5]}', '${meta.getColumnTypeName(6)}', ${hit}"
     }
 
+    String container = "SELECT dates, element_at(dates, k) AS d, element_at(words, k) AS w" +
+            " FROM (SELECT * REPLACE([DATE '2020-01-01'] AS dates, ['a''b'] AS words)" +
+            " FROM spm_replay_container_literal) t"
+    withBaseline(container) { long id ->
+        def (rows, meta) = JdbcUtils.executeToList(context.getConnection(), container)
+        boolean escapedValuePreserved = rows[0][2] == "a'b"
+        boolean hit = explainHit(container, id)
+        qt_container_value_type_and_hit """SELECT '${rows[0][1]}', '${meta.getColumnTypeName(2)}',
+            ${escapedValuePreserved}, ${hit}"""
+        qt_container_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+    }
+
+    String unspellableContainer = "SELECT * REPLACE({1, NULL} AS dates) FROM spm_replay_container_literal"
+    withBaseline(unspellableContainer) { long id ->
+        boolean hit = explainHit(unspellableContainer, id)
+        qt_unspellable_container_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        qt_unspellable_container_hit "SELECT ${hit}"
+    }
+
     String previousMode = sql("SELECT @@sql_mode")[0][0].toString()
     String permissiveGroup = "SELECT k, v, count(*) AS n FROM spm_replay_semantics_t WHERE k > 0 GROUP BY k"
     try {
@@ -192,6 +217,23 @@ suite("test_spm_replay_semantics", "spm") {
                 sql permissiveGroup
                 exception "GROUP BY"
             }
+        }
+        String permissivePlan = permissiveGroup.replace("SELECT ", "SELECT /*+ SET_VAR(sql_mode=0) */ ")
+        test {
+            sql """CREATE GLOBAL BASELINE PLAN "${permissiveGroup}" WITH "${permissivePlan}" """
+            exception "must appear in the GROUP BY clause"
+        }
+        test {
+            sql permissiveGroup
+            exception "must appear in the GROUP BY clause"
+        }
+        String validGroup = permissiveGroup + ", v"
+        long validId = create(validGroup, validGroup.replace("SELECT ", "SELECT /*+ SET_VAR(sql_mode=0) */ "))
+        try {
+            boolean hit = explainHit(validGroup, validId)
+            qt_valid_group_with_permissive_plan "SELECT ${hit}"
+        } finally {
+            sql "DROP BASELINE PLAN IF EXISTS ${validId}"
         }
     } finally {
         sql "SET sql_mode = '${previousMode}'"

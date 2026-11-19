@@ -73,25 +73,33 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGro
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -814,6 +822,60 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
                     + " AS " + literal.getDataType().toSql() + ")";
         }
         return literal.toSql();
+    }
+
+    @Override
+    public String visitArrayLiteral(ArrayLiteral literal, SQLRelation context) {
+        // ARRAY(...) permits expressions, including casts on temporal elements.
+        String items = literal.getValue().stream()
+                .map(item -> item.accept(this, context))
+                .collect(Collectors.joining(", "));
+        return renderTypedContainer(literal.getDataType(), "array(" + items + ")");
+    }
+
+    @Override
+    public String visitMapLiteral(MapLiteral literal, SQLRelation context) {
+        List<String> arguments = new ArrayList<>();
+        for (Map.Entry<Literal, Literal> entry : literal.getValue().entrySet()) {
+            arguments.add(entry.getKey().accept(this, context));
+            arguments.add(entry.getValue().accept(this, context));
+        }
+        return renderTypedContainer(literal.getDataType(), "map(" + String.join(", ", arguments) + ")");
+    }
+
+    @Override
+    public String visitStructLiteral(StructLiteral literal, SQLRelation context) {
+        StructType type = (StructType) literal.getDataType();
+        List<String> arguments = new ArrayList<>();
+        for (int i = 0; i < literal.getValue().size(); i++) {
+            arguments.add(SPMPlan2SQLBuilder.quoteSqlString(type.getFields().get(i).getName()));
+            arguments.add(literal.getValue().get(i).accept(this, context));
+        }
+        return renderTypedContainer(type, "named_struct(" + String.join(", ", arguments) + ")");
+    }
+
+    private static String renderTypedContainer(DataType type, String constructor) {
+        // SQL cannot spell NULL_TYPE in a cast. Inference could narrow another field of the same container.
+        if (containsNullType(type)) {
+            throw new UnsupportedOperationException("SPM decompile: container type cannot be expressed: "
+                    + type.toSql());
+        }
+        return "CAST(" + constructor + " AS " + type.toSql() + ")";
+    }
+
+    private static boolean containsNullType(DataType type) {
+        if (type instanceof ArrayType) {
+            return containsNullType(((ArrayType) type).getItemType());
+        }
+        if (type instanceof MapType) {
+            MapType map = (MapType) type;
+            return containsNullType(map.getKeyType()) || containsNullType(map.getValueType());
+        }
+        if (type instanceof StructType) {
+            return ((StructType) type).getFields().stream().map(StructField::getDataType)
+                    .anyMatch(SPMExprSqlBuilder::containsNullType);
+        }
+        return type.isNullType();
     }
 
     @Override
