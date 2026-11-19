@@ -313,16 +313,8 @@ Status VariantV2ColumnWriter::_write_values_indexes(const VariantShreddedColumns
         if (!doc) {
             for (size_t i = 0; i < shredded.materialized.size(); ++i) {
                 const auto& path = shredded.materialized[i];
-                auto column = path.column->clone_empty();
-                size_t next_row = begin;
-                size_t& pos = positions[i];
-                while (pos < path.rowids.size() && path.rowids[pos] < begin + n) {
-                    const size_t row = path.rowids[pos];
-                    column->insert_many_defaults(row - next_row);
-                    column->insert_from(*path.column, pos++);
-                    next_row = row + 1;
-                }
-                column->insert_many_defaults(begin + n - next_row);
+                auto column = variant_writer_helpers::materialize_sparse_column_range(
+                        *path.column, path.rowids, begin, n, positions[i]);
                 materialized.push_back(column.get());
                 owners.push_back(std::move(column));
             }
