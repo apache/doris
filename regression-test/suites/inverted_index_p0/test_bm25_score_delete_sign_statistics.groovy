@@ -123,7 +123,8 @@ suite("test_bm25_score_delete_sign_statistics", "p0") {
                 count(*) FROM ${mow} WHERE content MATCH_ANY 'gamma'
         """
         // An untokenized index gives them no terms either, so = answered by the index finds none
-        // of them, while the same predicate on the column finds them all.
+        // of them, while the same predicate on the column finds them all. Their segment holds two
+        // values, so that its zone map does not answer = on its own.
         def keyword = "test_bm25_score_delete_sign_statistics_keyword_${suffix}"
         sql "DROP TABLE IF EXISTS ${keyword}"
         sql """
@@ -148,7 +149,7 @@ suite("test_bm25_score_delete_sign_statistics", "p0") {
         sql "SET show_hidden_columns = true"
         sql """
             INSERT INTO ${keyword} (id, tag, __DORIS_DELETE_SIGN__)
-            SELECT number + 1000, 'gone', 1 FROM numbers('number' = '20')
+            SELECT number + 1000, if(number % 2 = 0, 'gone', 'spare'), 1 FROM numbers('number' = '40')
         """
         sql "SET show_hidden_columns = false"
         qt_keyword_by_index """
@@ -160,7 +161,7 @@ suite("test_bm25_score_delete_sign_statistics", "p0") {
         """
         // For the same reason != answered by the index returns them all, whatever their value,
         // while on the column it returns only those whose value differs. Their segment holds two
-        // values, so that its zone map does not answer != either.
+        // values for the same reason.
         sql "SET show_hidden_columns = true"
         sql """
             INSERT INTO ${keyword} (id, tag, __DORIS_DELETE_SIGN__)
