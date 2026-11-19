@@ -1113,6 +1113,57 @@ TEST(NullableAggregationV2Test, BitmapStateMarkerSurvivesOldSchemaCompactionCode
     }
 }
 
+TEST(NullableAggregationV2Test, BitmapEmptyStateEncodingTracksOriginAndTypeVersion) {
+    // One real empty bitmap and one encoded no-input marker cover all three internal
+    // states. Both type versions must retain a decoded marker, but only version 20
+    // can introduce a marker for a fresh empty state. No table or cluster is needed.
+    const std::string no_input(1, '\0');
+    const std::string empty_bitmap("\1\1\0", 3);
+    for (int version : {19, USE_UNIFIED_NULLABLE_AGGREGATION_VERSION}) {
+        SCOPED_TRACE(version);
+        auto type = std::make_shared<DataTypeAggState>(
+                DataTypes {make_nullable(std::make_shared<DataTypeBitMap>())}, false,
+                "bitmap_intersect", version);
+        auto function = type->get_nested_function();
+        auto encode = [&](ConstAggregateDataPtr state) {
+            auto output = type->create_column();
+            function->serialize_without_key_to_column(state, *output);
+            return output->get_data_at(0).to_string();
+        };
+        const auto& fresh_empty = version == 19 ? empty_bitmap : no_input;
+        AggregateFunctionGuard fresh(function.get());
+        EXPECT_EQ(encode(fresh.data()), fresh_empty);
+
+        auto input = type->create_column();
+        assert_cast<ColumnString&>(*input).insert_value(no_input);
+        Arena arena;
+        AggregateFunctionGuard decoded(function.get());
+        function->deserialize_from_column_row(decoded.data(), *input, 0, arena);
+        EXPECT_EQ(encode(decoded.data()), no_input);
+
+        AggregateFunctionGuard merged(function.get());
+        function->merge(merged.data(), decoded.data(), arena);
+        function->merge(merged.data(), fresh.data(), arena);
+        EXPECT_EQ(encode(merged.data()), no_input);
+
+        // A real empty bitmap is a valid contribution. It must replace the no-input
+        // marker, even though both nested bitmap values are empty.
+        auto bitmaps = ColumnBitmap::create();
+        bitmaps->insert_default();
+        auto row = ColumnNullable::create(std::move(bitmaps), ColumnUInt8::create(1, 0));
+        const IColumn* columns[] = {row.get()};
+        function->add(merged.data(), columns, 0, arena);
+        EXPECT_EQ(encode(merged.data()), empty_bitmap);
+        function->merge(merged.data(), decoded.data(), arena);
+        EXPECT_EQ(encode(merged.data()), empty_bitmap);
+
+        // Reset discards the decoded marker. The state is fresh again and must use
+        // the type version's encoding, not the previous state's encoding.
+        function->reset(merged.data());
+        EXPECT_EQ(encode(merged.data()), fresh_empty);
+    }
+}
+
 TEST(NullableAggregationV2Test, StateCombinatorsKeepTheTypeVersion) {
     // One empty state and one bitmap value are sufficient to expose a codec change.
     // Version 20 encodes no input as [0]. Version 19 encodes it as an empty bitmap.
