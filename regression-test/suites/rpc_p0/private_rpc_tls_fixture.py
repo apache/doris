@@ -111,10 +111,17 @@ class Fixture:
         used = set()
         for name, tls in (("local", True), ("remote", False)):
             ports = reserve_ports(used)
-            self.clusters[name] = {"host": "127.0.0.1", "ports": ports}
-            for role in PORTS:
+            backends = [ports["be"]]
+            if name == "local":
+                # Two local BEs keep distributed joins from collapsing into a single worker.
+                backends.append(reserve_ports(used)["be"])
+            self.clusters[name] = {"host": "127.0.0.1", "ports": ports, "backends": backends}
+            nodes = [("fe", "fe", ports["fe"])]
+            nodes.extend(("be", "be" if index == 0 else "be" + str(index + 1), backend)
+                         for index, backend in enumerate(backends))
+            for role, component, node_ports in nodes:
                 source = self.package / role
-                node = self.root / name / role
+                node = self.root / name / component
                 node.mkdir(parents=True)
                 shutil.copytree(source / "bin", node / "bin",
                                 ignore=shutil.ignore_patterns("*.pid", "*.pid.lock", "palo_env.sh"))
@@ -130,15 +137,16 @@ class Fixture:
                     # start_be.sh points sanitizers here; ASAN aborts before main if they are missing.
                     for suppression in ("asan_suppr.conf", "ubsan_suppr.conf", "lsan_suppr.conf"):
                         shutil.copyfile(source / "conf" / suppression, node / "conf" / suppression)
-                config = dict(ports[role], priority_networks="127.0.0.1/32",
+                config = dict(node_ports, priority_networks="127.0.0.1/32",
                               enable_tls=str(tls).lower())
                 if role == "fe":
                     config.update(JAVA_OPTS_FOR_JDK_17='"-Xms256m -Xmx1024m '
                                   '-XX:ActiveProcessorCount=2 -XX:-HeapDumpOnOutOfMemoryError"',
                                   meta_dir=node / "doris-meta", thrift_server_type="THREAD_POOL")
                 else:
+                    # Leave room for ASAN's startup accounting before reserving query memory.
                     config.update(storage_root_path=node / "storage", sys_log_dir=node / "log",
-                                  mem_limit="4G", num_cores=2, enable_java_support="false",
+                                  mem_limit="8G", num_cores=2, enable_java_support="false",
                                   max_sys_mem_available_low_water_mark_bytes=0)
                 if tls:
                     config.update(tls_verify_mode="verify_fail_if_no_peer_cert",
@@ -165,7 +173,7 @@ class Fixture:
     def start(self):
         self.prepare()
         for name, role, node in self.nodes:
-            with (self.logs / (name + "-" + role + "-start.log")).open("w") as output:
+            with (self.logs / (name + "-" + node.name + "-start.log")).open("w") as output:
                 subprocess.run(["bash", str(node / "bin" / ("start_" + role + ".sh")),
                                 "--daemon"], cwd=node, env=engine_environment(), check=True,
                                timeout=30, stdout=output, stderr=subprocess.STDOUT,
@@ -183,26 +191,30 @@ class Fixture:
         # JDBC probes session variables through the BE before opening a connection on a fresh FE.
         # Use the same MySQL CLI as pipeline deployment to register the first BE before JDBC runs.
         for name, endpoint in self.clusters.items():
-            command = ["mysql", "--no-defaults", "--protocol=TCP", "--host=127.0.0.1",
-                       "--port=" + str(endpoint["ports"]["fe"]["query_port"]), "--user=root",
-                       "--connect-timeout=3", "--execute=ALTER SYSTEM ADD BACKEND '127.0.0.1:"
-                       + str(endpoint["ports"]["be"]["heartbeat_service_port"]) + "'"]
-            deadline = time.monotonic() + 120
-            with (self.logs / (name + "-register-backend.log")).open("w") as output:
-                while True:
-                    result = subprocess.run(command, env=engine_environment(), timeout=10,
-                                            stdout=output, stderr=subprocess.STDOUT)
-                    if result.returncode == 0:
-                        break
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError("Private RPC fixture could not register its backend")
-                    time.sleep(0.5)
+            for index, backend in enumerate(endpoint["backends"]):
+                command = ["mysql", "--no-defaults", "--protocol=TCP", "--host=127.0.0.1",
+                           "--port=" + str(endpoint["ports"]["fe"]["query_port"]), "--user=root",
+                           "--connect-timeout=3", "--execute=ALTER SYSTEM ADD BACKEND '127.0.0.1:"
+                           + str(backend["heartbeat_service_port"]) + "'"]
+                deadline = time.monotonic() + 120
+                log_name = name + "-register-backend-" + str(index + 1) + ".log"
+                with (self.logs / log_name).open("w") as output:
+                    while True:
+                        result = subprocess.run(command, env=engine_environment(), timeout=10,
+                                                stdout=output, stderr=subprocess.STDOUT)
+                        if result.returncode == 0:
+                            break
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError("Private RPC fixture could not register its backend")
+                        time.sleep(0.5)
 
     def verify_tls(self):
         certificates = self.root / "certificates"
         ports = self.clusters["local"]["ports"]
-        for port in (ports["fe"]["rpc_port"], ports["be"]["be_port"],
-                     ports["be"]["heartbeat_service_port"], ports["be"]["brpc_port"]):
+        listeners = [ports["fe"]["rpc_port"]]
+        listeners.extend(backend[key] for backend in self.clusters["local"]["backends"]
+                         for key in ("be_port", "heartbeat_service_port", "brpc_port"))
+        for port in listeners:
             context = ssl.create_default_context(cafile=str(certificates / "ca.pem"))
             # TLS 1.2 reports rejected client authentication before the handshake completes.
             context.minimum_version = context.maximum_version = ssl.TLSVersion.TLSv1_2
@@ -260,7 +272,7 @@ class Fixture:
                 raise RuntimeError("Private RPC fixture engine did not stop")
             for name, role, node in self.nodes:
                 if (node / "log").exists():
-                    shutil.copytree(node / "log", self.logs / (name + "-" + role), dirs_exist_ok=True)
+                    shutil.copytree(node / "log", self.logs / (name + "-" + node.name), dirs_exist_ok=True)
         finally:
             # A full log disk must fail the test without retaining disposable private keys.
             shutil.rmtree(self.root)

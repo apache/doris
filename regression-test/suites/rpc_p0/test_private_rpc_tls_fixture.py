@@ -64,10 +64,13 @@ class PrivateRpcTlsFixtureTest(unittest.TestCase):
         fixture = Fixture(package, self.root / "logs")
         try:
             fixture.prepare()
-            for cluster in ("local", "remote"):
+            backends = [node for _, role, node in fixture.nodes if role == "be"]
+            self.assertEqual(3, len(backends))
+            self.assertEqual(2, len(fixture.clusters["local"]["backends"]))
+            for node in backends:
                 for name in names:
                     self.assertEqual((configuration / name).read_bytes(),
-                                     (fixture.root / cluster / "be/conf" / name).read_bytes())
+                                     (node / "conf" / name).read_bytes())
         finally:
             fixture.close()
 

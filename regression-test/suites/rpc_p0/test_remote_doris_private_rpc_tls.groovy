@@ -92,7 +92,9 @@ suite("test_remote_doris_private_rpc_tls", "p0,nonConcurrent") {
             }
             waitReady {
                 withFixtureCluster(endpoint) {
-                    sql_return_maparray("SHOW BACKENDS").any { it.Alive.toString().equalsIgnoreCase("true") }
+                    sql_return_maparray("SHOW BACKENDS").count {
+                        it.Alive.toString().equalsIgnoreCase("true")
+                    } == endpoint.backends.size()
                 }
             }
         }
@@ -115,7 +117,7 @@ suite("test_remote_doris_private_rpc_tls", "p0,nonConcurrent") {
             sql "CREATE DATABASE IF NOT EXISTS private_rpc_exchange_test"
             sql "DROP TABLE IF EXISTS private_rpc_exchange_test.local_data"
             sql """CREATE TABLE private_rpc_exchange_test.local_data (id INT, value INT)
-                   DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+                   DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 4
                    PROPERTIES ("replication_num" = "1")"""
             sql "INSERT INTO private_rpc_exchange_test.local_data VALUES (1, 10), (2, 20), (4, 40)"
             sql "SET enable_sql_cache = false"
