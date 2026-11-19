@@ -992,6 +992,25 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void buildCatalogPropertiesNonRestRawGcsHadoopKeysKeepSdkDefaultFileIo() {
+        // WHY: the raw fs.gs.* default is REST-only, like the typed-binding pin. hms / hadoop / jdbc default to
+        // HadoopFileIO and glue to S3FileIO; HMS emits no S3FileIO options, so pinning there would send s3a:// to
+        // an unconfigured S3FileIO. MUTATION: drop the TYPE_REST check from the raw fs.gs.* default
+        // -> io-impl present -> red.
+        for (String catalogType : List.of("hms", "hadoop", "jdbc", "glue")) {
+            Map<String, String> raw = new HashMap<>(Map.of("iceberg.catalog.type", catalogType,
+                    "uri", "thrift://localhost:9083", "warehouse", "s3a://bucket/warehouse",
+                    "iceberg.jdbc.uri", "jdbc:postgresql://localhost/iceberg",
+                    "jdbc.user", "user", "jdbc.password", "password"));
+            raw.putAll(Map.of("glue.access_key", "glue-ak", "glue.secret_key", "glue-sk",
+                    "glue.region", "us-east-1", "fs.gs.auth.type", "SERVICE_ACCOUNT_JSON_KEYFILE"));
+            Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                    IcebergCatalogProperties.of(raw), Optional.empty(), false);
+            Assertions.assertFalse(options.containsKey("io-impl"), catalogType + " raw fs.gs.*");
+        }
+    }
+
+    @Test
     public void buildCatalogPropertiesRestWithoutGcsKeysKeepsSdkDefaultFileIo() {
         // WHY: the pin must not override a REST server's recommended io-impl on catalogs that never configured
         // GCS. MUTATION: pin every REST catalog -> io-impl present -> red.
