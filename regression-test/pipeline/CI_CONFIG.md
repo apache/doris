@@ -53,6 +53,12 @@ OceanBase fixture omissions, their reasons and readiness requirements. Suite
 exclusions are declared separately in the public regression config. The pipeline
 reads the component policy and records its hash with the selected components.
 
+External enables `enableMongoDBNativeTest` by default against the MongoDB component.
+The four basic native suites cover ordinary collections, views and time-series
+logical collections independently of the optional Trino MongoDB plugin. The
+authenticated snapshot, split and read-parameter matrices require separate
+replica-set/mongos fixtures; the standalone component does not provide them.
+
 FEUT's temporary mocked-FE port-collision exclusion is documented in its exclusion
 file. BEUT restores `BlockFileCacheTest.test_factory_1`. P0, CloudP0 and
 NonConcurrent restore the audited migration-era assertion, memory, timeout and

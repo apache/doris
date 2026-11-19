@@ -20,7 +20,7 @@ import org.apache.doris.regression.action.ProfileAction
 import groovy.json.JsonOutput
 
 suite("test_mongodb_m1", "p0,external") {
-    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableMongoDBTest"))) {
+    if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableMongoDBNativeTest"))) {
         return
     }
     String host = context.config.otherConfigs.get("externalEnvIp")

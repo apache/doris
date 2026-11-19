@@ -286,7 +286,10 @@ trino_jdbc_port = 8080
 // trino-connector catalog test config
 enableTrinoConnectorTest = false
 
-// Optional MongoDB fixture: run-thirdparties-docker.sh -c mongodb.
+// Native coverage must not depend on installing the optional Trino MongoDB plugin.
+// Start the fixture with run-thirdparties-docker.sh -c mongodb.
+enableMongoDBNativeTest = true
+// Legacy Trino MongoDB suites require the separately installed Trino connector.
 enableMongoDBTest = false
 mongodb_port = 27017
 mongodb_user = "mongodb_test"
