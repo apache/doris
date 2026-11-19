@@ -461,6 +461,7 @@ DEFINE_mBool(enable_low_cardinality_optimize, "true");
 DEFINE_Bool(enable_low_cardinality_cache_code, "true");
 
 DEFINE_mBool(enable_adaptive_batch_size, "true");
+DEFINE_mBool(enable_new_block_iterator, "true");
 
 // be policy
 // whether check compaction checksum
@@ -2714,6 +2715,8 @@ Status set_fuzzy_configs() {
     fuzzy_field_and_value["enable_query_segment_file_cache_prefetch"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
     fuzzy_field_and_value["enable_compaction_segment_file_cache_prefetch"] =
+            ((distribution(*generator) % 2) == 0) ? "true" : "false";
+    fuzzy_field_and_value["enable_new_block_iterator"] =
             ((distribution(*generator) % 2) == 0) ? "true" : "false";
 
     // external
