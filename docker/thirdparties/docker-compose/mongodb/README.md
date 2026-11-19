@@ -260,7 +260,7 @@ catalogs. Each invocation reseeds its fixture and replaces its read-only identit
 do not run a retained regression suite against that same fixture concurrently.
 
 The range verifier also covers normal 60,000-character predicate staging in both
-synchronous and streaming plans, cancellation during the single-batch FE sample,
+synchronous and streaming plans, cancellation during the exhausted-reply FE random sample,
 257 empty fallbacks against one pinned source, and a one-worker workload group
 with a one-client pool. The worker fixture has enough rows to keep a cursor live
 across output blocks; a tiny collection can reach EOF before exercising contention.
@@ -307,3 +307,19 @@ switches, batch/pool limits and invalid settings. The Python verifier adds the
 source-side proof that a secondary policy really reads a secondary rather than
 merely succeeding against a standalone server. Neither matrix claims arbitrary
 TLS/SRV combinations, source failover, or release-soak qualification.
+
+For cursor-lifetime checks, the Python read-parameter verifier temporarily disables
+hedging on both fixture routers and restores their previous setting, including on
+failure. MongoDB 7 hedged reads can leave a losing shard cursor after a fully consumed
+PyMongo read, with no remaining mongos cursor. This source-only behavior is outside
+the native cursor-ownership assertion; the verifier keeps its strict zero-cursor
+check and still exercises all five read preferences. Hedged source cursor cleanup
+is not qualified by this matrix. Preferred policies permit a cold driver's fallback;
+strict `primary`/`secondary` policies are checked by actual node role, and preferred
+and `nearest` policies also retain their source wire-mode assertions.
+
+Range qualification also checks mixed BSON `_id` values (including precise Decimal128,
+int64 endpoints, NaN/infinities, dates, binary, objects and MinKey/MaxKey). Source
+profiles require exactly one data-document pass for `_id` ranges, no independent
+complement, the same T for sampling and all readers, and no sampling getMore. Custom
+multikey/missing fields retain their disjoint typed complement.

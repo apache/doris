@@ -19,8 +19,8 @@
 """Qualify native read settings on real replica members and replicated mongos shards."""
 
 import argparse
-from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack, contextmanager
 import json
 from pathlib import Path
 import re
@@ -39,6 +39,20 @@ import verify_native_snapshot as snapshot
 DATABASE = splits.DATABASE
 PREFERENCES = ["primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"]
 CONCERNS = ["local", "majority", "available", "snapshot"]
+
+
+@contextmanager
+def unhedged_routers(state):
+    # MongoDB 7 hedged reads can leave a losing shard cursor even with a fully consumed
+    # PyMongo read and no mongos cursor. Isolate native cursor ownership from that source
+    # behavior without relaxing the zero-cursor assertion or changing read preferences.
+    with ExitStack() as cleanup:
+        for uri in state["router_uris"]:
+            source = cleanup.enter_context(pymongo.MongoClient(uri))
+            previous = source.admin.command("getParameter", 1, readHedgingMode=1)["readHedgingMode"]
+            cleanup.callback(source.admin.command, "setParameter", 1, readHedgingMode=previous)
+            source.admin.command("setParameter", 1, readHedgingMode="off")
+        yield
 
 
 def uri_options(uri, **settings):
@@ -119,13 +133,14 @@ class Deployment:
             roles[group, member] = "primary" if hello.get("isWritablePrimary") else "secondary"
         return roles
 
-    def commands(self, application, collection="integer_records"):
+    def commands(self, application, collection="integer_records", sample=False):
         result = []
+        selector = "command.aggregate" if sample else "command.find"
         for group, member, client, _ in self.members:
             for entry in client[DATABASE]["system.profile"].find({"appName": application,
-                                                                "command.find": collection}):
+                                                                selector: collection}):
                 command = entry["command"]
-                # Exclude FE timestamp selection and its fixed-width boundary sample.
+                # Exclude FE timestamp selection and the legacy find-based boundary probe.
                 projection = command.get("projection", {}).get("value")
                 if command.get("limit") == 1 or isinstance(projection, dict) and "$cond" in projection:
                     continue
@@ -150,21 +165,31 @@ class Deployment:
         commands = self.commands(application, collection)
         assert commands, "No real native source find was recorded"
         assert self.roles() == before, "Fixture role changed during the routing assertion"
+        samples = self.commands(application, collection, sample=True)
+        if strategy == "range" and collection == "integer_records" and settings["max_file_split_num"] > 1:
+            assert samples, "No real FE random sample was recorded"
         effective = source_preference or preference
-        for group, member, command in commands:
+        # Both FE sampling and BE data readers must preserve the selected routing policy.
+        for group, member, command in commands + samples:
             role = before[group, member]
-            if effective in ["primary", "primaryPreferred"]:
+            if effective == "primary":
                 assert role == "primary", "A primary policy read a secondary"
-            elif effective in ["secondary", "secondaryPreferred"]:
+            elif effective == "secondary":
                 assert role == "secondary", "Eligible secondaries were bypassed"
-            if tag is not None:
+            if effective in ["primaryPreferred", "secondaryPreferred", "nearest"]:
+                # A fresh driver's topology can be incomplete even when the controller sees all
+                # members. Preferred modes permit fallback; verify the wire policy instead of
+                # imposing strict primary/secondary semantics on their first operation.
+                assert command.get("$readPreference", {}).get("mode") == effective, "Read preference was lost"
+            if tag is not None and not (effective == "secondaryPreferred" and role == "primary"):
                 assert str(member) == tag, "URI routing criteria were lost during the mode override"
             assert command.get("readConcern", {}).get("level") == concern, "Effective readConcern was lost"
         if concern == "snapshot":
-            times = {command["readConcern"]["atClusterTime"] for _, _, command in commands}
+            times = {command["readConcern"]["atClusterTime"] for _, _, command in commands + samples}
             assert len(times) == 1, "Native reads did not share one source timestamp"
         self.results.append({"topology": self.label, "preference": preference, "concern": concern,
-                             "strategy": strategy, "streaming": streaming, "native_commands": len(commands)})
+                             "strategy": strategy, "streaming": streaming, "native_commands": len(commands),
+                             "sampling_commands": len(samples), "source_hedging_enabled": False})
         sql("DROP CATALOG " + self.name)
 
     def matrix(self):
@@ -424,19 +449,20 @@ def main():
     assert sum(str(row[9]).lower() == "true" for row in backends) == 1, "Use exactly one live BE for this verifier"
     state = json.loads(Path(args.fixture_state).read_text())
     results = []
-    for index in [0, 1]:
-        deployment = Deployment(state, index, args.catalog_prefix)
-        try:
-            deployment.matrix()
-            deployment.routing()
-            deployment.resources()
-            deployment.schemas_and_auth()
-            deployment.transport_faults()
-            deployment.validation()
-            splits.cursors_closed([member[2] for member in deployment.members])
-            results += deployment.results
-        finally:
-            deployment.close()
+    with unhedged_routers(state):
+        for index in [0, 1]:
+            deployment = Deployment(state, index, args.catalog_prefix)
+            try:
+                deployment.matrix()
+                deployment.routing()
+                deployment.resources()
+                deployment.schemas_and_auth()
+                deployment.transport_faults()
+                deployment.validation()
+                splits.cursors_closed([member[2] for member in deployment.members])
+                results += deployment.results
+            finally:
+                deployment.close()
     if args.report:
         Path(args.report).write_text(json.dumps(results, indent=2))
     print("PASS: native read-parameter qualification completed", flush=True)

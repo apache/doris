@@ -23,14 +23,13 @@ import org.apache.doris.thrift.TMongoSnapshot;
 
 import com.mongodb.MongoCommandException;
 import com.mongodb.ServerAddress;
-import com.mongodb.client.ClientSession;
-import com.mongodb.client.FindIterable;
 import com.mongodb.client.ListIndexesIterable;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.cursor.TimeoutMode;
+import org.bson.BsonArray;
 import org.bson.BsonDocument;
 import org.bson.BsonInt64;
 import org.bson.BsonTimestamp;
@@ -52,13 +51,13 @@ class MongoSplitProbeTest {
         List<Document> indexes = List.of(new Document("name", "sequence_1")
                 .append("key", new Document("sequence", 1)));
         Document projection;
-        String hint;
+        Document aggregate;
         BsonTimestamp pin;
         int limit;
         int batchSize;
-        int dataHasNext;
+        int dataCommands;
+        int indexesRead;
         int cursorsClosed;
-        int sessionsClosed;
         int sessionsStarted;
         boolean cancelAfterFirst;
         boolean sourceFailure;
@@ -71,54 +70,14 @@ class MongoSplitProbeTest {
         }
 
         MongoClient client() {
-            ClientSession session = proxy(ClientSession.class, (p, method, args) -> {
-                switch (method.getName()) {
-                    case "setSnapshotTimestamp":
-                        pin = (BsonTimestamp) args[0];
-                        return null;
-                    case "close":
-                        Assertions.assertEquals(2, cursorsClosed);
-                        sessionsClosed++;
-                        return null;
-                    default:
-                        throw new UnsupportedOperationException(method.getName());
-                }
-            });
-            int[] indexPosition = {0};
             MongoCursor<?> indexCursor = proxy(MongoCursor.class, (p, method, args) -> switch (method.getName()) {
-                case "hasNext" -> indexPosition[0] < indexes.size();
-                case "next" -> indexes.get(indexPosition[0]++);
+                case "hasNext" -> indexesRead < indexes.size();
+                case "next" -> indexes.get(indexesRead++);
                 case "close" -> {
                     cursorsClosed++;
                     yield null;
                 }
                 default -> throw new UnsupportedOperationException(method.getName());
-            });
-            int[] position = {0};
-            MongoCursor<?> dataCursor = proxy(MongoCursor.class, (p, method, args) -> {
-                switch (method.getName()) {
-                    case "hasNext":
-                        dataHasNext++;
-                        return position[0] < (cancelAfterFirst ? 2 : 1);
-                    case "next":
-                        if (sourceFailure) {
-                            throw new MongoCommandException(new Document("ok", 0).append("code", 239)
-                                    .append("errmsg", "fixture-secret").toBsonDocument(), new ServerAddress());
-                        }
-                        position[0]++;
-                        if (closeQueryAfterFirst) {
-                            queryClosed.set(true);
-                        }
-                        if (cancelAfterFirst) {
-                            context.cancel();
-                        }
-                        return new BsonDocument("value", new BsonInt64(9007199254740993L));
-                    case "close":
-                        cursorsClosed++;
-                        return null;
-                    default:
-                        throw new UnsupportedOperationException(method.getName());
-                }
             });
             ListIndexesIterable<?> list = proxy(ListIndexesIterable.class, (p, method, args) -> {
                 if ("iterator".equals(method.getName())) {
@@ -129,36 +88,11 @@ class MongoSplitProbeTest {
                 }
                 return p;
             });
-            FindIterable<?> find = proxy(FindIterable.class, (p, method, args) -> {
-                switch (method.getName()) {
-                    case "iterator": return dataCursor;
-                    case "projection":
-                        projection = (Document) args[0];
-                        break;
-                    case "hintString":
-                        hint = (String) args[0];
-                        break;
-                    case "limit":
-                        limit = (int) args[0];
-                        break;
-                    case "batchSize":
-                        batchSize = (int) args[0];
-                        break;
-                    case "timeoutMode":
-                        modes.add((TimeoutMode) args[0]);
-                        break;
-                    default: break;
+            MongoCollection<?> collection = proxy(MongoCollection.class, (p, method, args) -> {
+                if (method.getName().equals("listIndexes")) {
+                    return list;
                 }
-                return p;
-            });
-            MongoCollection<?> collection = proxy(MongoCollection.class, (p, method, args) -> switch (method.getName()) {
-                case "listIndexes" -> list;
-                case "find" -> {
-                    Assertions.assertSame(session, args[0]);
-                    yield find;
-                }
-                case "withReadPreference" -> p;
-                default -> throw new UnsupportedOperationException(method.getName());
+                throw new UnsupportedOperationException(method.getName());
             });
             MongoDatabase database = proxy(MongoDatabase.class, (p, method, args) -> {
                 if (method.getName().startsWith("withRead")) {
@@ -170,7 +104,32 @@ class MongoSplitProbeTest {
                         timeouts.add((long) args[0]);
                         yield p;
                     }
-                    case "runCommand" -> new Document("size", 4L * 1024 * 1024 * 1024);
+                    case "runCommand" -> {
+                        var command = (Document) args[0];
+                        if (command.containsKey("collStats")) {
+                            yield new Document("size", 4L * 1024 * 1024 * 1024);
+                        }
+                        aggregate = command;
+                        dataCommands++;
+                        var stages = command.getList("pipeline", Document.class);
+                        limit = stages.get(0).get("$sample", Document.class).getInteger("size");
+                        projection = stages.get(1).get("$project", Document.class);
+                        batchSize = command.get("cursor", Document.class).getInteger("batchSize");
+                        pin = command.get("readConcern", Document.class).get("atClusterTime", BsonTimestamp.class);
+                        if (sourceFailure) {
+                            throw new MongoCommandException(new Document("ok", 0).append("code", 239)
+                                    .append("errmsg", "fixture-secret").toBsonDocument(), new ServerAddress());
+                        }
+                        if (closeQueryAfterFirst) {
+                            queryClosed.set(true);
+                        }
+                        if (cancelAfterFirst) {
+                            context.cancel();
+                        }
+                        yield new BsonDocument("cursor", new BsonDocument("id", new BsonInt64(0))
+                                .append("firstBatch", new BsonArray(List.of(new BsonDocument("values",
+                                        new BsonArray(List.of(new BsonInt64(9007199254740993L))))))));
+                    }
                     default -> throw new UnsupportedOperationException(method.getName());
                 };
             });
@@ -178,7 +137,7 @@ class MongoSplitProbeTest {
                 case "getDatabase" -> database;
                 case "startSession" -> {
                     sessionsStarted++;
-                    yield session;
+                    throw new AssertionError("The sample carries T in its single exhausted command");
                 }
                 case "close" -> null;
                 default -> throw new UnsupportedOperationException(method.getName());
@@ -213,36 +172,34 @@ class MongoSplitProbeTest {
     }
 
     @Test
-    void probesPinTheTimestampAndUseLifetimeDeadlinesAndFixedWidthProjection() {
+    void probesPinTheTimestampAndUseBoundedScalarAggregation() {
         var driver = new Driver();
         var result = run(driver);
         Assertions.assertTrue(result.indexed());
         Assertions.assertEquals(9007199254740993L, result.samples().get(0).asInt64().getValue());
         Assertions.assertEquals(4L * 1024 * 1024 * 1024, result.logicalBytes());
         Assertions.assertEquals(new BsonTimestamp(123, 456), driver.pin);
-        Assertions.assertEquals(List.of(TimeoutMode.CURSOR_LIFETIME, TimeoutMode.CURSOR_LIFETIME), driver.modes);
+        Assertions.assertEquals(List.of(TimeoutMode.CURSOR_LIFETIME), driver.modes);
         Assertions.assertEquals(16, driver.limit);
-        Assertions.assertEquals(-16, driver.batchSize);
-        Assertions.assertEquals("sequence_1", driver.hint);
+        Assertions.assertEquals(2, driver.batchSize);
+        Assertions.assertFalse(driver.aggregate.containsKey("hint"));
         Assertions.assertEquals(0, driver.projection.getInteger("_id"));
         Assertions.assertTrue(driver.projection.get("value", Document.class).containsKey("$cond"));
         Assertions.assertTrue(driver.timeouts.stream().allMatch(value -> value > 0 && value <= 1000));
-        Assertions.assertEquals(2, driver.cursorsClosed);
-        Assertions.assertEquals(1, driver.sessionsClosed);
+        Assertions.assertEquals(1, driver.cursorsClosed);
     }
 
     @Test
-    void cancellationStopsBeforeTheNextRemoteCursorAdvance() {
+    void cancellationStopsAfterTheExhaustedReplyWithoutAnotherCommand() {
         var driver = new Driver();
         driver.cancelAfterFirst = true;
         Assertions.assertThrows(CancellationException.class, () -> run(driver));
-        Assertions.assertEquals(1, driver.dataHasNext);
-        Assertions.assertEquals(2, driver.cursorsClosed);
-        Assertions.assertEquals(1, driver.sessionsClosed);
+        Assertions.assertEquals(1, driver.dataCommands);
+        Assertions.assertEquals(1, driver.cursorsClosed);
     }
 
     @Test
-    void wildcardBeforeOrdinaryIndexDoesNotBecomeTheSampleHint() {
+    void wildcardBeforeOrdinaryIndexIsSkippedWithoutHintingTheSample() {
         for (int direction : List.of(1, -1)) {
             var driver = new Driver();
             driver.indexes = List.of(new Document("name", "compound_wildcard")
@@ -250,22 +207,22 @@ class MongoSplitProbeTest {
                     new Document("name", "regular_compound")
                             .append("key", new Document("sequence", direction).append("suffix", 1)));
             Assertions.assertTrue(run(driver).indexed());
-            Assertions.assertEquals("regular_compound", driver.hint);
-            Assertions.assertEquals(1, driver.sessionsStarted);
-            Assertions.assertEquals(1, driver.sessionsClosed);
+            Assertions.assertEquals(2, driver.indexesRead);
+            Assertions.assertEquals(1, driver.dataCommands);
+            Assertions.assertFalse(driver.aggregate.containsKey("hint"));
+            Assertions.assertEquals(0, driver.sessionsStarted);
         }
     }
 
     @Test
-    void wildcardOnlyIndexDoesNotOpenASampleSession() {
+    void wildcardOnlyIndexDoesNotSampleData() {
         var driver = new Driver();
         driver.indexes = List.of(new Document("name", "compound_wildcard")
                 .append("key", new Document("sequence", 1).append("payload.$**", 1)));
         Assertions.assertFalse(run(driver).indexed());
         Assertions.assertEquals(0, driver.sessionsStarted);
-        Assertions.assertNull(driver.hint);
-        Assertions.assertEquals(0, driver.dataHasNext);
-        Assertions.assertEquals(0, driver.sessionsClosed);
+        Assertions.assertNull(driver.aggregate);
+        Assertions.assertEquals(0, driver.dataCommands);
         Assertions.assertEquals(1, driver.cursorsClosed);
     }
 
@@ -308,42 +265,38 @@ class MongoSplitProbeTest {
                     Assertions.assertTrue(error.getMessage().contains("missing_index"));
                 }
                 Assertions.assertEquals(0, driver.sessionsStarted);
-                Assertions.assertEquals(0, driver.sessionsClosed);
-                Assertions.assertEquals(0, driver.dataHasNext);
+                Assertions.assertEquals(0, driver.dataCommands);
             }
         }
     }
 
     @Test
-    void queryTaskGroupClosureStopsBeforeAnotherSampleBatchEvenWithAnUnregisteredContext() {
+    void queryTaskGroupClosureStopsAfterTheReplyEvenWithAnUnregisteredContext() {
         var driver = new Driver();
         driver.closeQueryAfterFirst = true;
         Assertions.assertThrows(CancellationException.class, () -> run(driver));
         Assertions.assertFalse(driver.context.isCancelled());
-        Assertions.assertEquals(1, driver.dataHasNext);
-        Assertions.assertEquals(2, driver.cursorsClosed);
-        Assertions.assertEquals(1, driver.sessionsClosed);
+        Assertions.assertEquals(1, driver.dataCommands);
+        Assertions.assertEquals(1, driver.cursorsClosed);
     }
 
     @Test
-    void historyFailureClosesBothCursorsAndSessionWithoutEchoingSourceData() {
+    void historyFailureClosesMetadataCursorWithoutEchoingSourceData() {
         var driver = new Driver();
         driver.sourceFailure = true;
         var error = Assertions.assertThrows(DorisConnectorException.class, () -> run(driver));
         Assertions.assertTrue(error.getMessage().contains("239"));
         Assertions.assertFalse(error.getMessage().contains("fixture-secret"));
         Assertions.assertNull(error.getCause());
-        Assertions.assertEquals(2, driver.cursorsClosed);
-        Assertions.assertEquals(1, driver.sessionsClosed);
+        Assertions.assertEquals(1, driver.cursorsClosed);
     }
 
     @Test
-    void oversizedIndexMetadataStopsBeforeOpeningADataSession() {
+    void oversizedIndexMetadataStopsBeforeSampling() {
         var driver = new Driver();
         driver.indexes = List.of(new Document("key", new Document("other", 1))
                 .append("partialFilterExpression", new Document("text", "x".repeat(70000))));
         Assertions.assertThrows(MongoRangePlanner.PlanningLimit.class, () -> run(driver));
         Assertions.assertEquals(1, driver.cursorsClosed);
-        Assertions.assertEquals(0, driver.sessionsClosed);
     }
 }

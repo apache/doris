@@ -251,7 +251,7 @@ Sizing and count admission reuse the existing external-scan settings:
 | `max_file_split_num` | `100000` | Per-scan count cap; nonpositive means no user cap, while internal safety caps still apply |
 
 The desired total is estimated from `collStats.size / target`, rounded up and
-including the complement; unknown size uses eight as a bounded `range` hint, while
+including any custom-field complement; unknown size uses eight as a bounded `range` hint, while
 `auto` retains single. This is a logical-byte estimate, not compressed storage,
 network bytes or an exact per-partition size. The internal per-scan/source cap is
 256. MongoDB freezes its complete boundary table even when publishing through the
@@ -267,9 +267,10 @@ split and original deadline and yields the worker so an existing lease holder ca
 resume, including in a one-worker workload group.
 
 Boundary probing has fixed internal limits of 4096 rows and 2000 ms, capped by the
-remaining query time. The fixed-width sample uses one bounded batch, so cancellation
-or timeout leaves no sampling cursor on the source. The pinned Java driver's snapshot
-session otherwise adds an unsupported readConcern to killCursors. These are planning
+remaining query time. A source `$sample` followed by a fixed-width projection and
+bounded grouping returns at most one small document in an exhausted batch, so
+cancellation or timeout leaves no sampling cursor on the source. The pinned Java
+driver's snapshot session otherwise adds an unsupported readConcern to killCursors. These are planning
 safeguards rather than additional session variables. Properties/schema initialization performs no snapshot or range probe;
 source work and byte admission happen in final planning with its complete predicate,
 projection and query cancellation signal. EXPLAIN properties read the resulting
@@ -279,8 +280,12 @@ Range planning additionally requires `listIndexes` and `collStats` on the collec
 a missing privilege fails explicitly. The planner admits a completed, visible,
 non-hidden, non-sparse, non-partial B-tree
 index with the split field first and simple collation. Samples come from a bounded
-index-prefix read at the statement's T, not skip/limit pagination or a full sort.
-This is a tuning hint and can be skewed; it is not an unbiased cardinality estimate.
+`$sample` aggregation at the statement's T, rather than an index prefix. MongoDB can use
+its random cursor when the request is below 5% of the collection. Small-table requests
+are not reduced to force that path: MongoDB 7's historical random cursor can stall when
+records are continuously rewritten. A small collection can instead return all of its
+visible rows within the fixed sample cap. Sharded, small or historical reads can still
+require a source scan or random sort. The execution deadline bounds optional planning work. Random samples improve balance but do not guarantee it.
 Sampling has a 1 MiB returned-byte cap, a 128-index/64 KiB metadata cap, client CSOT,
 server execution limits, and cancellation checks. At most two probes run concurrently;
 completed probes share a 16 MiB statement budget for returned sample/metadata bytes.
@@ -288,16 +293,20 @@ completed probes share a 16 MiB statement budget for returned sample/metadata by
 Scalar families are ObjectId, signed int32/int64, and BSON Date. Comparisons retain
 all 12 ObjectId bytes, exact signed 64-bit integers and epoch milliseconds. Decimal128,
 double, strings, arrays, nested/compound fields and BSON Timestamp are not range
-families. Their documents are still read by the complement; explicit requests whose
-samples provide no supported family fail, while `auto` records the fallback reason.
+families. Their documents remain covered by the unbounded `_id` ranges or the custom-field
+complement; explicit requests whose samples provide no supported family fail, while
+`auto` records the fallback reason.
 Date partitioning does not cast into SQL DATETIME precision or the session time zone.
 Decimal and other output conversions continue through the existing SerDes.
 
-Every ordinary collection plan keeps exactly one complement for missing, null, arrays
-and other families. `$expr/$type` tests the field itself, rather than matching array
-elements. Sorted quantiles preserve duplicate frequencies before boundary deduplication;
-ranges cover `(-infinity,b1)`, `[b1,b2)`, ..., `[bn,+infinity)` by omitting infinite ends.
-Neither a validator nor homogeneous samples prove that the complement is unnecessary.
+For `_id`, which always exists and cannot be an array, `$expr` comparisons span MongoDB's
+complete BSON ordering. Unbounded end ranges cover unsampled types too, so there is no
+independent complement scan. Custom fields retain exactly one complement for missing,
+null, arrays and other families: their `$expr/$type` checks test the field itself rather
+than array elements. Sorted quantiles preserve duplicate frequencies before boundary
+deduplication; ranges cover `(-infinity,b1)`, `[b1,b2)`, ..., `[bn,+infinity)` by omitting
+infinite ends. Neither validators nor homogeneous samples justify removing a custom-field
+complement. Too few distinct `_id` samples yield a complete single scan.
 The source candidate is ANDed with each partition; SQL residuals remain in Doris,
 including when predicate/projection pushdown switches are off or strict decoding is used.
 
@@ -313,8 +322,8 @@ execution and is shared across unequal remaining query deadlines. Splits are tas
 not additional clients opened inside every scanner. General D06 resource-policy and
 credential-lifecycle extensions remain outside this change.
 
-`auto` requires known logical collection size to account for an additional complement
-scan and retains single for a small collection, missing index, unknown cost, unsupported
+`auto` requires known logical collection size to estimate planning/scanning cost and
+retains single for a small collection, missing index, unknown cost, unsupported
 family or exhausted optional probe budget. It does not convert authorization, history,
 identity, cancellation or source transport errors into successful fallback. `range`
 reports unsupported planning conditions rather than silently changing fields.

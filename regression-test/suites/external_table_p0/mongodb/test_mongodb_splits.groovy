@@ -32,7 +32,8 @@ suite("test_mongodb_splits", "p0,external") {
     }
     def manifest = [:]
     for (String name : ["integer_records", "date_records", "oid_records", "duplicate_records", "empty_records",
-            "decimal_records", "double_records", "string_records", "no_index_records", "record_view", "measurements"]) {
+            "decimal_records", "double_records", "string_records", "no_index_records", "record_view", "measurements",
+            "mixed_id_records", "date_id_records"]) {
         manifest["doris_mongodb_splits.${name}"] = [columns: columns]
     }
     manifest["doris_mongodb_splits.predicate_records"] = [columns: [
@@ -59,8 +60,9 @@ suite("test_mongodb_splits", "p0,external") {
         sql "SET mongodb_read_concern='inherit'"
         sql "SET mongodb_split_strategy='single'"
         sql "SET mongodb_split_field=''"
-        for (String name : ["integer_records", "date_records", "oid_records", "duplicate_records", "empty_records"]) {
-            String field = name == "oid_records" ? "_id" : "split_key"
+        for (String name : ["integer_records", "date_records", "oid_records", "duplicate_records", "empty_records",
+                "mixed_id_records", "date_id_records"]) {
+            String field = name in ["oid_records", "mixed_id_records", "date_id_records"] ? "_id" : "split_key"
             for (String zone : ["UTC", "+08:00", "America/Los_Angeles", "Asia/Kathmandu"]) {
                 sql "SET time_zone='${zone}'"
                 def baseline = sql("SELECT * FROM ${namespace}.${name} ORDER BY seq")

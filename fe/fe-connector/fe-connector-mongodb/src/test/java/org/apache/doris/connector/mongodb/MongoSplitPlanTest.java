@@ -141,6 +141,47 @@ class MongoSplitPlanTest {
         }
     }
 
+    @Test
+    void idRangesUseTotalOrderExpressionsInsteadOfAComplement() {
+        var samples = List.<BsonValue>of(new BsonInt64(Long.MIN_VALUE), new BsonInt64(-1),
+                new BsonInt64(9007199254740993L), new BsonInt64(Long.MAX_VALUE));
+        var plan = MongoSplitPlan.ranges("_id", "integer", samples, 4, 4);
+        Assertions.assertEquals(4, plan.size());
+        for (int i = 0; i < plan.size(); i++) {
+            var expression = plan.partition(i).get("$expr");
+            Assertions.assertNotNull(expression, "Use expression comparisons across BSON types");
+            Assertions.assertFalse(expression.asDocument().containsKey("$not"));
+            Assertions.assertFalse(plan.partition(i).toJson().contains("$type"));
+        }
+        Assertions.assertEquals(new BsonInt64(9007199254740993L), plan.partition(1)
+                .getDocument("$expr").getArray("$and").get(1).asDocument().getArray("$lt").get(1));
+    }
+
+    @Test
+    void oneIdBoundaryValueUsesACompleteSingleScan() {
+        var plan = MongoSplitPlan.ranges("_id", "integer",
+                List.of(new BsonInt32(7), new BsonInt64(7)), 16, 16);
+        Assertions.assertEquals(1, plan.size());
+        Assertions.assertEquals(new BsonDocument(), plan.partition(0));
+    }
+
+    @Test
+    void idRangesPreserveDateMillisecondsAndSignedIntegerEndpoints() {
+        for (String family : List.of("date", "integer")) {
+            var values = new ArrayList<BsonValue>();
+            for (long value : new long[] {Long.MIN_VALUE, -1, 0, 9007199254740993L, Long.MAX_VALUE}) {
+                values.add(family.equals("date") ? new BsonDateTime(value) : new BsonInt64(value));
+            }
+            for (int admitted : new int[] {2, 3, 8, 32, 256}) {
+                var plan = MongoSplitPlan.ranges("_id", family, values, 256, admitted);
+                Assertions.assertTrue(plan.size() <= admitted);
+                for (BsonValue value : values) {
+                    Assertions.assertEquals(1, matches(plan, value));
+                }
+            }
+        }
+    }
+
     private static int matches(MongoSplitPlan plan, BsonValue value) {
         boolean scalar = switch (plan.family()) {
             case "integer" -> value.isInt32() || value.isInt64();
@@ -151,7 +192,22 @@ class MongoSplitPlanTest {
         int matches = 0;
         for (int i = 0; i < plan.size(); i++) {
             BsonDocument partition = plan.partition(i);
-            if (partition.isEmpty() || (partition.containsKey("$expr") && !scalar)) {
+            if ("_id".equals(plan.field()) && partition.containsKey("$expr")) {
+                var expression = partition.getDocument("$expr");
+                List<BsonValue> comparisons = expression.containsKey("$and")
+                        ? expression.getArray("$and").getValues() : List.of(expression);
+                boolean included = true;
+                for (BsonValue comparison : comparisons) {
+                    var predicate = comparison.asDocument();
+                    boolean lower = predicate.containsKey("$gte");
+                    var operands = predicate.getArray(lower ? "$gte" : "$lt");
+                    int order = compare(value, operands.get(1));
+                    included &= lower ? order >= 0 : order < 0;
+                }
+                if (included) {
+                    matches++;
+                }
+            } else if (partition.isEmpty() || (partition.containsKey("$expr") && !scalar)) {
                 matches++;
             } else if (partition.containsKey("$and") && scalar) {
                 var interval = partition.getArray("$and").get(1).asDocument();
