@@ -52,6 +52,7 @@
 #include "runtime/runtime_state.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -557,6 +558,9 @@ TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
         bool terminate_after_eos = false;
         // Let the runtime filter wait time pass before close().
         bool release_by_timer = false;
+        // Let `config::short_circuit_probe_max_hold_ms` pass before close(), with a longer
+        // runtime filter wait time, as in cloud mode.
+        bool release_by_hold_cap = false;
         bool expect_released_at_eos = false;
     };
     if (ExecEnv::GetInstance()->runtime_filter_timer_queue() == nullptr) {
@@ -565,6 +569,12 @@ TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
     // All cases share one query context, so each one registers its own filter id.
     int next_filter_id = 0;
     auto run_case = [&](const Case& c) {
+        const auto max_hold_ms = config::short_circuit_probe_max_hold_ms;
+        Defer restore_max_hold_ms {
+                [&]() { config::short_circuit_probe_max_hold_ms = max_hold_ms; }};
+        if (c.release_by_hold_cap) {
+            config::short_circuit_probe_max_hold_ms = 1000;
+        }
         auto tnode = _helper.create_test_plan_node(c.op_type, {TPrimitiveType::INT}, {true},
                                                    {c.input == Input::ONE_NULL_KEY});
         if (c.with_runtime_filter) {
@@ -589,7 +599,7 @@ TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
         // runtime filter producer would read.
         runtime_state->_task_execution_context_inited = false;
         runtime_state->_query_options.__set_runtime_filter_wait_time_ms(
-                c.release_by_timer ? 50 : 600000);
+                c.release_by_timer ? 1000 : 600000);
 
         auto st = sink_operator->init(tnode, runtime_state.get());
         ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
@@ -635,7 +645,7 @@ TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
         ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
         ASSERT_EQ(source_dep->ready(), c.expect_released_at_eos) << "join op: " << c.op_type;
-        if (c.release_by_timer) {
+        if (c.release_by_timer || c.release_by_hold_cap) {
             for (int i = 0; i < 500 && !source_dep->ready(); i++) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
@@ -681,6 +691,8 @@ TEST_F(HashJoinBuildSinkTest, ReleaseShortCircuitProbeOnClose) {
     // A probe held back is still released after the runtime filter wait time, e.g. when the
     // filter size sync never completes.
     run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN, .release_by_timer = true});
+    // A runtime filter wait time longer than the cap does not hold the probe longer.
+    run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN, .release_by_hold_cap = true});
     // Without runtime filters there is nothing to wait for.
     run_case({.op_type = TJoinOp::RIGHT_OUTER_JOIN,
               .with_runtime_filter = false,

@@ -129,6 +129,8 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
     }
     set_state(State::WAITING_FOR_SYNCED_SIZE);
 
+    // The other local producers whose size is merged into the request sent below.
+    std::vector<std::weak_ptr<RuntimeFilterProducer>> waiting_producers;
     if (_need_do_merge(state)) {
         std::shared_ptr<LocalMergeContext> context;
         RETURN_IF_ERROR(state->global_runtime_filter_mgr()->get_local_merge_context(
@@ -141,6 +143,11 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
         bool ready_to_sync = context->merger->add_rf_size(local_filter_size);
         if (!ready_to_sync) {
             return Status::OK();
+        }
+        for (const auto& producer : context->producers) {
+            if (producer.get() != this) {
+                waiting_producers.emplace_back(producer);
+            }
         }
         received_sum_size = context->merger->get_received_sum_size();
         if (!_has_remote_target) {
@@ -169,7 +176,8 @@ Status RuntimeFilterProducer::send_size(RuntimeState* state, uint64_t local_filt
     request->set_stage(_stage);
     // when failed, will check `ignore_runtime_filter_error` in callback to decide cancel or not
     _sync_size_callback = SyncSizeCallback::create_shared(_dependency, _wrapper,
-                                                          state->get_query_ctx()->weak_from_this());
+                                                          state->get_query_ctx()->weak_from_this(),
+                                                          std::move(waiting_producers));
     // RuntimeFilter maybe deconstructed before the rpc finished, so that could not use
     // a raw pointer in closure. Has to use the context's shared ptr.
     auto closure = AutoReleaseClosure<PSendFilterSizeRequest, SyncSizeCallback>::create_unique(
@@ -213,6 +221,16 @@ void RuntimeFilterProducer::set_synced_size(uint64_t global_size) {
         throw Exception(ErrorCode::INTERNAL_ERROR,
                         "_dependency is nullptr in set_synced_size, filter: {}", debug_string());
     }
+    _dependency->sub();
+}
+
+void RuntimeFilterProducer::release_on_sync_size_error(const std::string& reason) {
+    std::unique_lock<std::recursive_mutex> l(_rmtx);
+    if (_rf_state != State::WAITING_FOR_SYNCED_SIZE || _released_on_sync_size_error) {
+        return;
+    }
+    _released_on_sync_size_error = true;
+    _wrapper->set_state(RuntimeFilterWrapper::State::DISABLED, reason);
     _dependency->sub();
 }
 

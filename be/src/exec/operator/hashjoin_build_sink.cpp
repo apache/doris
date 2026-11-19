@@ -17,12 +17,14 @@
 
 #include "exec/operator/hashjoin_build_sink.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <string>
 #include <thread>
 #include <variant>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
@@ -126,8 +128,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
 std::shared_ptr<RuntimeFilterTimer> start_probe_release_timer(
         RuntimeState* state, std::shared_ptr<Dependency> probe_dependency) {
-    auto timer = std::make_shared<RuntimeFilterTimer>(
-            MonotonicMillis(), state->runtime_filter_wait_time_ms(), std::move(probe_dependency));
+    const int32_t hold_ms =
+            std::min(state->runtime_filter_wait_time_ms(), config::short_circuit_probe_max_hold_ms);
+    auto timer = std::make_shared<RuntimeFilterTimer>(MonotonicMillis(), hold_ms,
+                                                      std::move(probe_dependency));
     ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer({timer});
     return timer;
 }
@@ -953,8 +957,8 @@ Status HashJoinBuildSinkOperatorX::sink_impl(RuntimeState* state, Block* in_bloc
         // sink publishes its runtime filters in close(), the probe pipeline closes and wakes up
         // this task early, and terminate() publishes the filters as DISABLED. A disabled input
         // disables the merged global filter, so the probe-side scans of all instances lose it.
-        // So release such a probe only after the runtime filters are published, or after the
-        // runtime filter wait time at the latest.
+        // So release such a probe only after the runtime filters are published, or when the
+        // timer of `start_probe_release_timer` expires at the latest.
         if (local_state._should_build_hash_table && !_runtime_filter_descs.empty() &&
             local_state._shared_state->short_circuit_for_probe) {
             const auto channel = _use_shared_hash_table ? local_state._task_idx : 0;

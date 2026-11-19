@@ -20,6 +20,10 @@
 #include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
+#include <memory>
+#include <vector>
+
+#include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "exec/runtime_filter/runtime_filter_test_utils.h"
 
@@ -48,9 +52,35 @@ protected:
 
     std::shared_ptr<SyncSizeCallback> make_callback(
             std::weak_ptr<QueryContext> ctx = {}, std::shared_ptr<Dependency> dep = nullptr,
-            std::shared_ptr<RuntimeFilterWrapper> wrapper = nullptr) {
+            std::shared_ptr<RuntimeFilterWrapper> wrapper = nullptr,
+            std::vector<std::weak_ptr<RuntimeFilterProducer>> waiting_producers = {}) {
         return SyncSizeCallback::create_shared(dep ? dep : _dependency,
-                                               wrapper ? wrapper : _wrapper, std::move(ctx));
+                                               wrapper ? wrapper : _wrapper, std::move(ctx),
+                                               std::move(waiting_producers));
+    }
+
+    // A producer of a local merge with two producers, which sent its size and now waits for the
+    // synced size. `dependency` is also latched by the other producer, which sent nothing yet.
+    std::shared_ptr<RuntimeFilterProducer> make_waiting_producer(
+            const std::shared_ptr<CountedFinishDependency>& dependency) {
+        auto desc = TRuntimeFilterDescBuilder()
+                            .set_build_bf_by_runtime_size(true)
+                            .set_is_broadcast_join(false)
+                            .add_planId_to_target_expr(0)
+                            .build();
+        std::shared_ptr<RuntimeFilterProducer> producer;
+        EXPECT_TRUE(_runtime_states[0]->register_producer_runtime_filter(desc, &producer).ok());
+        std::shared_ptr<RuntimeFilterProducer> producer2;
+        EXPECT_TRUE(_runtime_states[1]->register_producer_runtime_filter(desc, &producer2).ok());
+        std::shared_ptr<RuntimeFilterConsumer> consumer;
+        EXPECT_TRUE(_runtime_states[1]
+                            ->register_consumer_runtime_filter(desc, true, 0, &consumer)
+                            .ok());
+        producer->latch_dependency(dependency);
+        producer2->latch_dependency(dependency);
+        EXPECT_TRUE(producer->send_size(_runtime_states[0].get(), 123).ok());
+        EXPECT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SYNCED_SIZE);
+        return producer;
     }
 
     std::shared_ptr<CountedFinishDependency> _dependency;
@@ -87,6 +117,25 @@ TEST_F(SyncSizeCallbackTest, rpc_fail_does_not_cancel_query_when_ignore_rf_error
     ASSERT_EQ(_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
     // Dependency should have been subbed
     ASSERT_TRUE(_dependency->ready());
+}
+
+// The other local producers merged into the failed request never get set_synced_size().
+TEST_F(SyncSizeCallbackTest, rpc_fail_releases_waiting_producers) {
+    auto ctx = make_query_ctx(true);
+    auto waiting_dependency = std::make_shared<CountedFinishDependency>(0, 0, "WAITING_DEP");
+    auto waiting_producer = make_waiting_producer(waiting_dependency);
+    auto callback = make_callback(ctx, nullptr, nullptr, {waiting_producer});
+    callback->cntl_->SetFailed("injected failure");
+
+    callback->call();
+
+    ASSERT_FALSE(ctx->is_cancelled());
+    ASSERT_TRUE(_dependency->ready());
+    ASSERT_EQ(waiting_producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
+    // Released once; the dependency still waits for the other producer.
+    ASSERT_FALSE(waiting_dependency->ready());
+    waiting_producer->release_on_sync_size_error("released twice");
+    ASSERT_FALSE(waiting_dependency->ready());
 }
 
 // ==================== response error status path ====================
@@ -127,6 +176,22 @@ TEST_F(SyncSizeCallbackTest, response_error_does_not_cancel_query_when_ignore_rf
 }
 
 // ==================== success path ====================
+
+TEST_F(SyncSizeCallbackTest, response_error_releases_waiting_producers) {
+    auto ctx = make_query_ctx(true);
+    auto waiting_dependency = std::make_shared<CountedFinishDependency>(0, 0, "WAITING_DEP");
+    auto waiting_producer = make_waiting_producer(waiting_dependency);
+    auto callback = make_callback(ctx, nullptr, nullptr, {waiting_producer});
+    auto* status_pb = callback->response_->mutable_status();
+    status_pb->set_status_code(TStatusCode::INTERNAL_ERROR);
+    status_pb->add_error_msgs("injected response error");
+
+    callback->call();
+
+    ASSERT_TRUE(_dependency->ready());
+    ASSERT_EQ(waiting_producer->_wrapper->get_state(), RuntimeFilterWrapper::State::DISABLED);
+    ASSERT_FALSE(waiting_dependency->ready());
+}
 
 TEST_F(SyncSizeCallbackTest, success_path_no_cancel_no_sub) {
     auto ctx = make_query_ctx(false);
