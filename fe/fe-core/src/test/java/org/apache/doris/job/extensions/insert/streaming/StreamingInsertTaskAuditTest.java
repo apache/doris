@@ -20,10 +20,10 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.exception.JobException;
@@ -68,6 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 public class StreamingInsertTaskAuditTest {
     private ConnectContext previousContext;
@@ -132,7 +133,7 @@ public class StreamingInsertTaskAuditTest {
 
         Assertions.assertEquals(AuditEvent.EventType.AFTER_QUERY, auditEvent.type);
         Assertions.assertEquals(StmtType.INSERT.name(), auditEvent.stmtType);
-        assertMaskedBatchUri(auditEvent.stmt);
+        assertResolvedBatchUri(auditEvent.stmt);
         Assertions.assertFalse(auditEvent.stmt.contains("WITH LABEL"));
         Assertions.assertFalse(auditEvent.stmt.contains("private-value"));
         Assertions.assertEquals("OK", auditEvent.state);
@@ -147,6 +148,7 @@ public class StreamingInsertTaskAuditTest {
         Assertions.assertEquals(StmtType.INSERT.name(), auditEvent.stmtType);
         Assertions.assertEquals("ERR", auditEvent.state);
         Assertions.assertTrue(auditEvent.errorMessage.contains("insert failed"));
+        assertResolvedBatchUri(auditEvent.stmt);
         Assertions.assertFalse(auditEvent.stmt.contains("WITH LABEL"));
         Assertions.assertTrue(auditEvent.isInternal);
     }
@@ -163,7 +165,7 @@ public class StreamingInsertTaskAuditTest {
                     new S3SourceOffsetProvider(), new S3Offset(), true);
             Assertions.assertTrue(event.stmt.contains(target));
             Assertions.assertFalse(event.stmt.contains("WITH LABEL `1_2`"));
-            assertMaskedBatchUri(event.stmt);
+            assertResolvedBatchUri(event.stmt);
             Assertions.assertFalse(event.stmt.contains("private-value"));
         }
     }
@@ -303,21 +305,112 @@ public class StreamingInsertTaskAuditTest {
         Mockito.when(provider.getSourceType()).thenReturn("s3");
         AuditEvent event = runTask(null, S3_SQL, provider,
                 new S3EventOffset(List.of("input/1.csv", "input/2.csv"), batchFiles()), true);
-        assertMaskedBatchUri(event.stmt);
+        assertResolvedBatchUri(event.stmt);
         Assertions.assertFalse(event.stmt.contains("private-value"));
     }
 
+    @Test
+    public void testSingleFileRemainsVisibleInFinalAudit() throws Exception {
+        AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
+                List.of(batchFiles().get(0)), () -> { });
+        Assertions.assertTrue(event.stmt.contains("s3://bucket/input/{1.csv}"), event.stmt);
+        Assertions.assertFalse(event.stmt.contains("private-value"), event.stmt);
+    }
+
+    @Test
+    public void testSelectedFileCredentialsAreMaskedInFinalAudit() throws Exception {
+        List<TBrokerFileStatus> files = List.of(
+                new TBrokerFileStatus("s3://fixture:fixture-userinfo@bucket/input/1.csv?token=fixture-token",
+                        false, 10, true),
+                new TBrokerFileStatus("s3://fixture:fixture-userinfo@bucket/input/2.csv?token=fixture-token",
+                        false, 20, true));
+        List<String> originalPaths = files.stream().map(TBrokerFileStatus::getPath).collect(Collectors.toList());
+        AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
+                files, () -> { });
+        Assertions.assertTrue(event.stmt.contains("1.csv"), event.stmt);
+        Assertions.assertTrue(event.stmt.contains("2.csv"), event.stmt);
+        for (String secret : List.of("fixture-userinfo", "fixture-token", "private-value")) {
+            Assertions.assertFalse(event.stmt.contains(secret), event.stmt);
+        }
+        Assertions.assertEquals(originalPaths,
+                files.stream().map(TBrokerFileStatus::getPath).collect(Collectors.toList()));
+    }
+
+    @Test
+    public void testSignedSelectedFileRemainsMasked() throws Exception {
+        List<TBrokerFileStatus> files = List.of(new TBrokerFileStatus(
+                "s3://bucket/input/1.csv?X-Amz-Signature=fixture-signature", false, 10, true));
+        AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
+                files, () -> { });
+        Assertions.assertFalse(event.stmt.contains("fixture-signature"), event.stmt);
+        Assertions.assertTrue(event.stmt.contains("\"uri\" = \"*XXX\""), event.stmt);
+    }
+
+    @Test
+    public void testLiteralSelectedFileNamesRemainVisible() throws Exception {
+        List<TBrokerFileStatus> files = List.of(
+                new TBrokerFileStatus("s3://bucket/input/comma,a.csv", false, 10, true),
+                new TBrokerFileStatus("s3://bucket/input/brace{b}.csv", false, 20, true),
+                new TBrokerFileStatus("s3://bucket/input/bracket[b].csv", false, 30, true),
+                new TBrokerFileStatus("s3://bucket/input/back\\slash.csv", false, 40, true),
+                new TBrokerFileStatus("s3://bucket/input/with space.csv", false, 50, true));
+        for (List<TBrokerFileStatus> batch : List.of(List.of(files.get(0)), files)) {
+            AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
+                    batch, () -> { });
+            Assertions.assertTrue(event.stmt.contains("comma"), event.stmt);
+            if (batch.size() > 1) {
+                for (String part : List.of("brace", "bracket", "back", "slash.csv", "with space.csv")) {
+                    Assertions.assertTrue(event.stmt.contains(part), event.stmt);
+                }
+            }
+            Assertions.assertFalse(event.stmt.contains("private-value"), event.stmt);
+        }
+    }
+
+    @Test
+    public void testUnreliableSelectedLocationsRemainMasked() throws Exception {
+        for (String path : List.of("unknown://fixture:fixture-password@host/file.csv",
+                "s3://bucket/input/file.csv,https://fixture:fixture-password@host/other.csv",
+                "s3://bucket/input/file.csv,//fixture:fixture-password@host/other.csv",
+                "s3://bucket/input/file.csv?redirect=https%3A%2F%2Ffixture%3Afixture-password%40host")) {
+            List<TBrokerFileStatus> files = List.of(new TBrokerFileStatus(path, false, 10, true));
+            AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
+                    files, () -> { });
+            Assertions.assertTrue(event.stmt.contains("\"uri\" = \"*XXX\""), event.stmt);
+            Assertions.assertFalse(event.stmt.contains("fixture-password"), event.stmt);
+        }
+    }
+
+    @Test
+    public void testFinalAuditUsesTheLatestNamePolicy() throws Exception {
+        String original = Config.datasource_sensitive_property_pattern;
+        try {
+            Config.datasource_sensitive_property_pattern = "(?!)";
+            AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
+                    batchFiles(), () -> Config.datasource_sensitive_property_pattern = "uri|enclose");
+            Assertions.assertTrue(event.stmt.contains("\"uri\" = \"*XXX\""), event.stmt);
+            Assertions.assertTrue(event.stmt.contains("\"enclose\" = \"*XXX\""), event.stmt);
+            Assertions.assertFalse(event.stmt.contains("private-value"), event.stmt);
+        } finally {
+            Config.datasource_sensitive_property_pattern = original;
+        }
+    }
+
     private static LogicalTVFRelation auditRelation() {
+        return auditRelation(batchFiles());
+    }
+
+    private static LogicalTVFRelation auditRelation(List<TBrokerFileStatus> files) {
         Map<String, String> properties = Map.of(
-                "uri", RESOLVED_URI, "s3.secret_key", "private-value", "enclose", "\"");
-        return new LogicalTVFRelation(new RelationId(1), S3.withFiles(new Properties(properties), batchFiles()),
+                "uri", S3SourceOffsetProvider.buildFileListUri(files),
+                "s3.secret_key", "private-value", "enclose", "\"");
+        return new LogicalTVFRelation(new RelationId(1), S3.withFiles(new Properties(properties), files),
                 ImmutableList.of());
     }
 
-    private void assertMaskedBatchUri(String stmt) {
-        // The comma-containing batch URI is ambiguous to the shared address sanitizer and must stay hidden.
-        Assertions.assertTrue(stmt.contains("\"uri\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""), stmt);
-        Assertions.assertFalse(stmt.contains(RESOLVED_URI), stmt);
+    private void assertResolvedBatchUri(String stmt) {
+        // Final audit events must retain the selected files, after sanitizing each location independently.
+        Assertions.assertTrue(stmt.contains(RESOLVED_URI), stmt);
         Assertions.assertFalse(stmt.contains(ORIGIN_URI), stmt);
     }
 
@@ -333,6 +426,12 @@ public class StreamingInsertTaskAuditTest {
 
     private AuditEvent runTask(RuntimeException commandFailure, String sql,
             SourceOffsetProvider offsetProvider, Offset offset, boolean expectAudit) throws Exception {
+        return runTask(commandFailure, sql, offsetProvider, offset, expectAudit, batchFiles(), () -> { });
+    }
+
+    private AuditEvent runTask(RuntimeException commandFailure, String sql,
+            SourceOffsetProvider offsetProvider, Offset offset, boolean expectAudit,
+            List<TBrokerFileStatus> files, Runnable beforeRun) throws Exception {
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
@@ -351,7 +450,7 @@ public class StreamingInsertTaskAuditTest {
             ctx.getState().setOk();
             InsertIntoTableCommand command = Mockito.mock(InsertIntoTableCommand.class);
             if (expectAudit) {
-                Mockito.when(command.getLogicalQuery()).thenReturn(auditRelation());
+                Mockito.when(command.getLogicalQuery()).thenReturn(auditRelation(files));
             }
             AtomicLong commandStartTime = new AtomicLong();
             Mockito.doAnswer(invocation -> {
@@ -380,12 +479,10 @@ public class StreamingInsertTaskAuditTest {
             Deencapsulation.setField(task, "runningOffset", offset);
             if (expectAudit) {
                 String preparedAuditSql = Deencapsulation.invoke(task, "buildAuditSql");
-                // Verify the exact execution batch before the final audit rendering masks its URI.
-                Assertions.assertTrue(preparedAuditSql.contains(RESOLVED_URI), preparedAuditSql);
-                Assertions.assertFalse(preparedAuditSql.contains(ORIGIN_URI), preparedAuditSql);
                 Deencapsulation.setField(task, "auditSql", preparedAuditSql);
             }
 
+            beforeRun.run();
             if (commandFailure == null) {
                 task.run();
             } else {

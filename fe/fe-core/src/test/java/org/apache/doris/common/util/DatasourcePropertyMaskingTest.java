@@ -242,6 +242,47 @@ class DatasourcePropertyMaskingTest {
     }
 
     @Test
+    void localDriverPathsAndFileUrisRemainVisible() {
+        for (String path : List.of("/opt/example/libdriver.so", "/opt/example/native drivers/libdriver.so",
+                "/opt/example/本地/libdriver.so", "file:/opt/example/libdriver.so",
+                "file:///opt/example/libdriver.so")) {
+            assertRendered("driver_url", path, path);
+        }
+        for (String uri : List.of("file:/data/example/catalog.db", "file:///data/example/catalog.db",
+                "file:/data/example/catalog.db?mode=ro&cache=private")) {
+            assertRendered("uri", uri, uri);
+        }
+        assertRendered("uri", "file:/data/example/catalog.db?token=fixture-token&mode=ro",
+                "file:/data/example/catalog.db?token=" + MASK + "&mode=ro");
+        assertRendered("uri", "file:/data/example/catalog.db#token=fixture-token",
+                "file:/data/example/catalog.db");
+        assertRendered("warehouse", "file:/data/example/catalog.db?token=fixture-token",
+                "file:/data/example/catalog.db?token=" + MASK);
+    }
+
+    @Test
+    void localAddressExceptionsCannotExposeCredentials() {
+        for (String value : List.of("file://fixture:fixture-password@host/catalog.db",
+                "file://host/catalog.db", "file:relative.db", "file:/data/example/%GG",
+                "file:/data/example/catalog.db?sig=fixture-signature", "/opt/example/libdriver.so?token=fixture",
+                "/opt/example/fixture:password@host/libdriver.so", "/opt/example/https://fixture:password@host")) {
+            assertRendered("driver_url", value, MASK);
+        }
+        assertRendered("custom.password", "file:/data/example/catalog.db", MASK);
+        assertRendered("jdbc_url", "file:/data/example/catalog.db", MASK);
+        assertRendered("uri", "postgresql://fixture:fixture-password@host/database", MASK);
+    }
+
+    @Test
+    void viewfsLocationsUseTheHdfsAddressPolicy() {
+        assertRendered("fs.defaultFS", "viewfs://my-cluster", "viewfs://my-cluster");
+        assertRendered("warehouse", "viewfs://my-cluster/ns1/table", "viewfs://my-cluster/ns1/table");
+        assertRendered("fs.defaultFS", "viewfs://fixture:fixture-password@my-cluster/ns1?token=fixture-token",
+                "viewfs://my-cluster/ns1?token=" + MASK);
+        assertRendered("fs.defaultFS", "viewfs://my-cluster/ns1?sig=fixture", MASK);
+    }
+
+    @Test
     void longHostListsDoNotRequireRecursiveRegexMatching() {
         String hosts = "host.example.com:9000,".repeat(5000) + "host.example.com:9000";
         Assertions.assertEquals(hosts, DatasourcePrintableMap.redactProperty("hosts", hosts));

@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Value-aware masking shared by catalog display, audit property rendering, and lineage metadata. */
@@ -46,11 +47,16 @@ final class DatasourcePropertyRedactor {
             + "obs\\.(?:access\\.key|secret\\.key|(?:session|security)\\.token))$");
     private static final Pattern ADDRESS_KEY = Pattern.compile(
             "(?i)(?:^|[._-])(?:uris?|urls?|hosts?|endpoints?|addresses|address)$");
-    private static final Pattern URL_VALUE = Pattern.compile("^[a-zA-Z][a-zA-Z0-9+.-]*://");
+    private static final Pattern URL_VALUE = Pattern.compile("(?i)^(?:[a-z][a-z0-9+.-]*://|file:/)");
+    private static final Pattern DRIVER_URL_KEY = Pattern.compile("(?i)(?:^|[._-])driver[._-]url$");
+    private static final Pattern AMBIGUOUS_LOCAL_PATH = Pattern.compile("[\\p{Cntrl}?#@;]|://");
+    private static final Pattern RESOLVED_FILE_LOCATION = Pattern.compile(
+            "^([a-zA-Z][a-zA-Z0-9+.-]*)://([^/?#]*)([^?#]*)(\\?[^#]*)?(#.*)?$", Pattern.DOTALL);
     private static final String HOST = "(?:[a-zA-Z0-9_][a-zA-Z0-9._-]*|"
             + "\\[[a-fA-F0-9:.]+(?:%[a-zA-Z0-9_.~-]+)?\\])(?::[0-9]+)?";
     private static final Pattern HOST_PATTERN = Pattern.compile(HOST);
-    private static final Set<String> URI_SCHEMES = Set.of("http", "https", "thrift", "hdfs", "s3", "s3a", "s3n",
+    private static final Set<String> URI_SCHEMES = Set.of("http", "https", "thrift", "hdfs", "viewfs", "file",
+            "s3", "s3a", "s3n",
             "oss", "cos", "cosn", "obs", "gs", "abfs", "abfss", "wasb", "wasbs");
     private static final Set<String> AZURE_STORAGE_SCHEMES = Set.of("abfs", "abfss", "wasb", "wasbs");
     // Match AzureUri's container grammar, including its single-character compatibility form.
@@ -94,6 +100,10 @@ final class DatasourcePropertyRedactor {
         if (address.regionMatches(true, 0, "jdbc:", 0, 5)) {
             return MASK;
         }
+        // Local driver identifiers have filesystem semantics; ambiguous connection syntax still fails closed.
+        if (key instanceof String && DRIVER_URL_KEY.matcher((String) key).find() && address.startsWith("/")) {
+            return address.startsWith("//") || AMBIGUOUS_LOCAL_PATH.matcher(address).find() ? MASK : address;
+        }
         if ((key instanceof String && ADDRESS_KEY.matcher((String) key).find())
                 || URL_VALUE.matcher(address).find()) {
             return redactAddress(address);
@@ -102,6 +112,31 @@ final class DatasourcePropertyRedactor {
     }
 
     private static String redactAddress(String address) {
+        return redactAddress(address, null);
+    }
+
+    static String redactResolvedFileLocation(String location) {
+        if (DatasourcePrintableMap.isSensitiveKey("uri")) {
+            return MASK;
+        }
+        Matcher parts = RESOLVED_FILE_LOCATION.matcher(location);
+        if (!parts.matches()) {
+            return MASK;
+        }
+        try {
+            String path = parts.group(3);
+            // A resolved singleton may contain literal glob characters; encode only for URI validation.
+            String encodedPath = new URI(null, "placeholder", path, null, null).getRawPath();
+            String address = parts.group(1) + "://" + parts.group(2) + encodedPath
+                    + (parts.group(4) == null ? "" : parts.group(4))
+                    + (parts.group(5) == null ? "" : parts.group(5));
+            return redactAddress(address, path);
+        } catch (URISyntaxException | IllegalArgumentException e) {
+            return MASK;
+        }
+    }
+
+    private static String redactAddress(String address, String resolvedPath) {
         if (address.isEmpty()) {
             return address;
         }
@@ -110,7 +145,7 @@ final class DatasourcePropertyRedactor {
                 return address;
             }
             // URI accepts a later URL as path text after the first host; SDKs may instead split the list.
-            if (address.indexOf(',') >= 0) {
+            if (resolvedPath == null && address.indexOf(',') >= 0) {
                 return MASK;
             }
             URI uri = new URI(address);
@@ -118,13 +153,24 @@ final class DatasourcePropertyRedactor {
                 return MASK;
             }
             String scheme = uri.getScheme().toLowerCase(Locale.ROOT);
+            boolean localFile = "file".equals(scheme);
             if (!URI_SCHEMES.contains(scheme)
-                    || uri.isOpaque() || uri.getHost() == null || uri.getPort() > 65535) {
+                    || uri.isOpaque() || uri.getPort() > 65535) {
                 return MASK;
             }
-            String path = uri.getPath();
+            // A local file URI has an absolute path and no authority; its query still needs credential masking.
+            if (localFile) {
+                if (uri.getRawAuthority() != null || !uri.getRawPath().startsWith("/")) {
+                    return MASK;
+                }
+            } else if (uri.getHost() == null) {
+                return MASK;
+            }
+            String path = resolvedPath == null ? uri.getPath()
+                    : URLDecoder.decode(resolvedPath.replace("+", "%2B"), StandardCharsets.UTF_8);
             // Matrix parameters and nested encodings have no common credential grammar across SDKs.
-            if (path != null && (path.contains(";") || path.contains(",") || path.contains("://")
+            if (path != null && (path.contains(";") || (resolvedPath == null && path.contains(","))
+                    || path.contains("://") || path.contains(",//")
                     || ENCODED_ESCAPE.matcher(path).find())) {
                 return MASK;
             }
@@ -132,17 +178,21 @@ final class DatasourcePropertyRedactor {
             if (MASK.equals(query)) {
                 return MASK;
             }
-            String authority = uri.getRawAuthority();
+            String authority = localFile ? "" : uri.getRawAuthority();
             if (AZURE_STORAGE_SCHEMES.contains(scheme)) {
                 // ABFS/WASB place the container in userinfo; validation prevents retaining password-bearing authority.
                 String container = uri.getRawUserInfo();
                 if (container == null || !AZURE_CONTAINER_NAME.matcher(container).matches()) {
                     return MASK;
                 }
-            } else {
+            } else if (!localFile) {
                 authority = authority.substring(authority.lastIndexOf('@') + 1);
             }
-            return uri.getScheme() + "://" + authority + uri.getRawPath()
+            String prefix = uri.getScheme() + ":";
+            if (!localFile || uri.getRawSchemeSpecificPart().startsWith("//")) {
+                prefix += "//";
+            }
+            return prefix + authority + (resolvedPath == null ? uri.getRawPath() : resolvedPath)
                     + (query == null ? "" : "?" + query);
         } catch (URISyntaxException | IllegalArgumentException e) {
             // Parser errors may themselves contain credentials. Never echo the value or exception to a log.

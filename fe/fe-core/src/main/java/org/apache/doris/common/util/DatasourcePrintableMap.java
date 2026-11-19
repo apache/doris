@@ -216,6 +216,11 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         return DatasourcePropertyRedactor.redact(key, value);
     }
 
+    /** Sanitize one task-selected file location, never an untrusted SQL property or URI-list string. */
+    public static String redactResolvedFileLocation(String location) {
+        return DatasourcePropertyRedactor.redactResolvedFileLocation(location);
+    }
+
     @Override
     protected boolean shouldIncludeEntry(Map.Entry<K, V> entry) {
         return !HIDDEN_KEY.contains(entry.getKey()) && !additionalHiddenKeys.contains(entry.getKey());

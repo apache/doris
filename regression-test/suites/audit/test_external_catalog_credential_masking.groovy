@@ -38,7 +38,10 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
         'fs.azure.account.key.fixture.blob.core.windows.net': 'fixture-account-key',
         'custom.password': 'fixture-custom-password',
         'signed.endpoint': 'https://api.example.com/v1?X-Amz-Signature=fixture-signature',
-        'safe.endpoint': 'host.example.com:9000'
+        'safe.endpoint': 'host.example.com:9000',
+        'driver_url': '/opt/example/libdriver.so',
+        'file.uri': 'file:/data/example/catalog.db?token=fixture-file-token&mode=ro',
+        'fs.defaultFS': 'viewfs://masking-cluster'
     ]
     Map<String, String> azureLocations = [
         'azure.abfs.uri': 'abfs://warehouse@account.dfs.core.windows.net/tables',
@@ -52,7 +55,7 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
     String policySql = policyProperties.collect { key, value -> "'${key}' = '${value}'" }.join(',\n')
     List<String> policySecrets = ['fixture-jdbc', 'fixture-userinfo', 'fixture-url-token', 'fixture-native-token',
         'fixture-native-credential', 'fixture-hadoop-secret', 'fixture-account-key', 'fixture-custom-password',
-        'fixture-signature', 'fixture-list-password', 'fixture-azure-token']
+        'fixture-signature', 'fixture-list-password', 'fixture-azure-token', 'fixture-file-token']
 
     // The audit log files CREATE CATALOG under stmt_type OTHER and ALTER CATALOG under ALTER.
     def waitForAuditStatement = { String catalogName, String statement = "create catalog", String stmtType = "OTHER" ->
@@ -121,6 +124,9 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             }
             assertEquals('https://api.example.com/v1?token=*XXX&region=east', shownProperties['hosts'])
             assertEquals('host.example.com:9000', shownProperties['safe.endpoint'])
+            assertEquals('/opt/example/libdriver.so', shownProperties['driver_url'])
+            assertEquals('file:/data/example/catalog.db?token=*XXX&mode=ro', shownProperties['file.uri'])
+            assertEquals('viewfs://masking-cluster', shownProperties['fs.defaultFS'])
             azureLocations.each { key, location ->
                 String rendered = "${location}?token=*XXX&region=east"
                 assertEquals(rendered, shownProperties[key])
@@ -198,6 +204,9 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             assertTrue(credentialStmt.contains('"ozone.access_key" = "*XXX"'))
             policySecrets.each { secret -> assertFalse(credentialStmt.contains(secret)) }
             assertTrue(credentialStmt.contains('https://api.example.com/v1?token=*XXX&region=east'))
+            assertTrue(credentialStmt.contains('/opt/example/libdriver.so'))
+            assertTrue(credentialStmt.contains('file:/data/example/catalog.db?token=*XXX&mode=ro'))
+            assertTrue(credentialStmt.contains('viewfs://masking-cluster'))
             azureLocations.each { key, location ->
                 assertTrue(credentialStmt.contains("${location}?token=*XXX&region=east"))
             }
