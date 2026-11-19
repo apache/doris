@@ -1198,6 +1198,8 @@ message ScanTxnLabelRequest {
     optional int32 limit = 4;
     optional bytes start_key = 5; // Opaque continuation from the previous page.
     optional string request_ip = 6;
+    // Positive allowance for label and txn info reads combined. One extra info read may ensure progress.
+    optional int64 max_scan_keys = 7;
 }
 
 message ScanTxnLabelResponse {

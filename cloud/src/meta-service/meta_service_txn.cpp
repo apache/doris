@@ -5595,11 +5595,10 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
         const auto db_prefix = txn_label_key_prefix({instance_id, db_id, ""});
         std::string_view suffix(start);
         suffix.remove_prefix(db_prefix.size() - 1); // Keep the label's BYTES_TAG for decoding.
-        if (decode_bytes(&suffix, nullptr) == 0 && suffix.size() > 1 && suffix.front() == '\0') {
+        if (decode_bytes(&suffix, nullptr) == 0 && suffix.size() == 20 && suffix.front() == '\0' &&
+            suffix[1] >= '0' && suffix[1] <= '9') {
             const char* last = suffix.data() + suffix.size();
-            // Accept the original unpadded decimal cursors as well.
-            const char* first = suffix.data() + (suffix[1] == ':' ? 2 : 1);
-            auto [ptr, ec] = std::from_chars(first, last, resume_txn_id);
+            auto [ptr, ec] = std::from_chars(suffix.data() + 1, last, resume_txn_id);
             if (ec == std::errc() && ptr == last) {
                 begin.resize(start.size() - suffix.size());
                 resume_label_key = begin;
@@ -5620,19 +5619,24 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
     constexpr int info_batch_size = 128;
     int labels_left = config::max_scan_txn_label_keys;
     int attempts_left = labels_left;
+    const int64_t max_scan_keys = request->max_scan_keys() > 0
+                                          ? request->max_scan_keys()
+                                          : std::numeric_limits<int64_t>::max();
+    // MetaServiceProxy retries start a fresh allowance and discard the previous attempt's charges.
     int64_t scanned_keys = 0;
     DORIS_CLOUD_DEFER {
         response->set_scanned_keys(scanned_keys);
     };
     bool progressed = false;
     auto duration_exceeded = [&] { return progressed && steady_clock::now() >= deadline; };
-    auto can_resume = [&](TxnErrorCode err) {
-        return progressed && (err == TxnErrorCode::TXN_TOO_OLD || err == TxnErrorCode::TXN_TIMEOUT);
+    auto can_resume = [&](TxnErrorCode read_err) {
+        return progressed &&
+               (read_err == TxnErrorCode::TXN_TOO_OLD || read_err == TxnErrorCode::TXN_TIMEOUT);
     };
     auto set_next_attempt = [&](std::string_view key, int64_t id) {
         std::string next(key);
         next.push_back('\0');
-        next += fmt::format(":{:019}", id);
+        next += fmt::format("{:019}", id);
         response->set_next_key(std::move(next));
     };
     // Encoded label keys cannot prefix one another. This bound sorts after every attempt cursor.
@@ -5643,7 +5647,15 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
             response->set_next_key(std::move(begin));
             return;
         }
-        err = txn->get(begin, end, &it, true, std::min(labels_left, label_page_size));
+        // Reserve an info read when possible. On a within-label resume, fetch that label first.
+        const int range_limit =
+                begin == resume_label_key
+                        ? 1
+                        : std::min<int64_t>(
+                                  {labels_left, label_page_size,
+                                   std::max<int64_t>(1, max_scan_keys - scanned_keys - 1)});
+        err = txn->get(begin, end, &it, true, range_limit);
+        TEST_SYNC_POINT_CALLBACK("scan_txn_label:range_get_result", &err);
         if (err != TxnErrorCode::TXN_OK) {
             if (can_resume(err)) {
                 response->set_next_key(std::move(begin));
@@ -5661,8 +5673,10 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
         int next_attempt = 0;
         std::string_view last_label_key;
         while (next_attempt < label.txn_ids_size() || it->has_next()) {
-            const int batch_limit =
-                    std::min({info_batch_size, attempts_left, limit - response->txn_infos_size()});
+            // With one key left, reading a label may require one extra info attempt to advance.
+            const int batch_limit = std::min<int64_t>(
+                    {info_batch_size, attempts_left, limit - response->txn_infos_size(),
+                     std::max<int64_t>(progressed ? 0 : 1, max_scan_keys - scanned_keys)});
             if (batch_limit == 0 || duration_exceeded()) {
                 if (last_label_key.empty()) {
                     response->set_next_key(std::move(begin));
@@ -5696,6 +5710,7 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
                 --labels_left;
                 label.Clear();
                 next_attempt = 0;
+                // A skipped label advances the cursor only if no earlier attempts are queued.
                 if (value.size() <= VERSION_STAMP_LEN) {
                     progressed |= info_keys.empty();
                     continue;
@@ -5755,8 +5770,8 @@ void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controll
         if (it->more()) {
             begin = after_label(it->last_key());
         }
-    } while (labels_left > 0 && attempts_left > 0 && response->txn_infos_size() < limit &&
-             it->more());
+    } while (labels_left > 0 && attempts_left > 0 && scanned_keys < max_scan_keys &&
+             response->txn_infos_size() < limit && it->more());
 
     if (it->more()) {
         response->set_next_key(std::move(begin));

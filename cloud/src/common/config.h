@@ -184,7 +184,7 @@ CONF_String(test_hdfs_fs_name, "");
 // txn config
 CONF_mInt32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
 CONF_Int32(expired_txn_scan_key_nums, "1000");
-// Separate caps on label keys and transaction info keys read by one scan_txn_label call.
+// Per-call cap applied independently to label keys read and transaction info keys attempted.
 CONF_mInt32(max_scan_txn_label_keys, "2000");
 CONF_Validator(max_scan_txn_label_keys, [](int32_t value) -> bool { return value > 0; });
 CONF_mInt32(max_scan_txn_label_limit, "1000");

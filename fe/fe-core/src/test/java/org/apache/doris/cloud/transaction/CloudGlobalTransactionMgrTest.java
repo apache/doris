@@ -163,9 +163,9 @@ public class CloudGlobalTransactionMgrTest {
     @Test
     public void testShowTxnLabelMatchPagesAndCapsMatchingRows() throws Exception {
         int previousMaxRows = Config.cloud_show_txn_label_match_max_rows;
-        int previousPageSize = Config.cloud_show_txn_label_scan_page_size;
+        int previousPageSize = Config.cloud_show_txn_label_match_scan_page_size;
         Config.cloud_show_txn_label_match_max_rows = 2;
-        Config.cloud_show_txn_label_scan_page_size = 7;
+        Config.cloud_show_txn_label_match_scan_page_size = 7;
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
             mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
@@ -203,7 +203,7 @@ public class CloudGlobalTransactionMgrTest {
             Assertions.assertEquals(secondCursor, requests.get(2).getStartKey());
         } finally {
             Config.cloud_show_txn_label_match_max_rows = previousMaxRows;
-            Config.cloud_show_txn_label_scan_page_size = previousPageSize;
+            Config.cloud_show_txn_label_match_scan_page_size = previousPageSize;
         }
     }
 
@@ -247,9 +247,13 @@ public class CloudGlobalTransactionMgrTest {
             AnalysisException error = Assertions.assertThrows(AnalysisException.class,
                     () -> masterTransMgr.getDbTransInfoByLabelMatch(42, ".*done"));
             Assertions.assertTrue(error.getMessage().contains("cloud_show_txn_label_match_max_scan_keys"));
-            Mockito.verify(proxy, Mockito.times(2)).scanTxnLabel(Mockito.any());
+            ArgumentCaptor<ScanTxnLabelRequest> captor = ArgumentCaptor.forClass(ScanTxnLabelRequest.class);
+            Mockito.verify(proxy, Mockito.times(2)).scanTxnLabel(captor.capture());
+            Assertions.assertEquals(2, captor.getAllValues().get(0).getMaxScanKeys());
+            Assertions.assertEquals(1, captor.getAllValues().get(1).getMaxScanKeys());
 
-            // Without scanned_keys the final page charges its two returned infos.
+            // Without scanned_keys the two infos exceed the one-key allowance, but the scan is complete.
+            Config.cloud_show_txn_label_match_max_scan_keys = 1;
             Assertions.assertEquals(1, masterTransMgr.getDbTransInfoByLabelMatch(42, ".*done").size());
         } finally {
             Config.cloud_show_txn_label_match_max_scan_keys = previousMaxScan;
@@ -284,6 +288,7 @@ public class CloudGlobalTransactionMgrTest {
             Assertions.assertTrue(error.getMessage().contains(
                     "SHOW TRANSACTION label scan exceeded 0 ms; use a longer literal prefix"));
             Assertions.assertTrue(error.getMessage().contains("cloud_show_txn_label_match_timeout_ms"));
+            Assertions.assertTrue(error.getMessage().contains("query_timeout"));
         } finally {
             Config.cloud_show_txn_label_match_timeout_ms = previousTimeout;
         }

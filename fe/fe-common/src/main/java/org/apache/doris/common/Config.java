@@ -3297,12 +3297,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int cloud_show_txn_label_match_max_rows = 1000;
 
-    /** Number of transaction infos requested from MetaService on each label scan page. */
-    @ConfField(mutable = true)
-    public static int cloud_show_txn_label_scan_page_size = 1000;
+    @ConfField(mutable = true, description = "Number of transaction infos requested on each label scan page.")
+    public static int cloud_show_txn_label_match_scan_page_size = 1000;
 
-    /** Maximum label keys read plus transaction info keys attempted per cloud label match statement. */
-    @ConfField(mutable = true)
+    @ConfField(mutable = true, description = "Maximum combined label and transaction info key reads per cloud label "
+            + "match statement. A complete final page may use one extra info read to advance.")
     public static int cloud_show_txn_label_match_max_scan_keys = 100000;
 
     /** Timeout in milliseconds for a cloud label match statement, also bounded by the session query timeout. */
