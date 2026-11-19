@@ -110,6 +110,41 @@ public class MaterializedIndexTest {
     }
 
     @Test
+    public void testChangelogRangeLimitPausesUntilCompleteReport() {
+        int rangeLimit = 1_024;
+        long nextVersion = 2L * rangeLimit + 2;
+        for (long version = 2; version < nextVersion; version += 2) {
+            index.addChangelogRows(version, 1);
+        }
+        Assertions.assertEquals(rangeLimit, index.getRowCount());
+
+        index.addChangelogRows(3, 10);
+        index.addChangelogRows(nextVersion, 10);
+        Assertions.assertEquals(rangeLimit, index.getRowCount());
+
+        index.setReportedRowCount(rangeLimit, false, nextVersion);
+        index.addChangelogRows(nextVersion, 10);
+        Assertions.assertEquals(rangeLimit, index.getRowCount());
+
+        index.setReportedRowCount(rangeLimit, true, 2);
+        index.addChangelogRows(2, 10);
+        index.addChangelogRows(4, 10);
+        Assertions.assertEquals(rangeLimit, index.getRowCount());
+        index.addChangelogRows(nextVersion, 1);
+        Assertions.assertEquals(rangeLimit + 1, index.getRowCount());
+        index.addChangelogRows(nextVersion + 2, 10);
+        Assertions.assertEquals(rangeLimit + 1, index.getRowCount());
+    }
+
+    @Test
+    public void testConsecutiveChangelogVersionsFitInOneRange() {
+        for (long version = 2; version <= 1_026; version++) {
+            index.addChangelogRows(version, 1);
+        }
+        Assertions.assertEquals(1_025, index.getRowCount());
+    }
+
+    @Test
     public void testChangelogFlagGsonUpgradeCompatibility() {
         MaterializedIndex changelogIndex = new MaterializedIndex(1L, IndexState.NORMAL);
         Assertions.assertFalse(changelogIndex.isChangelog());
