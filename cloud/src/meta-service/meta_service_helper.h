@@ -254,6 +254,11 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
                   << " status=" << res->status().ShortDebugString();
+    } else if constexpr (std::is_same_v<Response, ScanTxnLabelResponse>) {
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
+                  << " status=" << res->status().ShortDebugString()
+                  << " txn_count=" << res->txn_infos_size() << " has_next=" << res->has_next_key();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse> ||
                          std::is_same_v<Response, GetInstanceResponse> ||

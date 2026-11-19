@@ -66,6 +66,8 @@ import org.apache.doris.cloud.proto.Cloud.PrecommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.PrecommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockResponse;
+import org.apache.doris.cloud.proto.Cloud.ScanTxnLabelRequest;
+import org.apache.doris.cloud.proto.Cloud.ScanTxnLabelResponse;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
@@ -140,6 +142,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import io.grpc.Status;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
 import org.apache.logging.log4j.LogManager;
@@ -166,6 +169,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
@@ -2778,8 +2782,62 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public List<List<String>> getDbTransInfoByLabelMatch(long dbId, String label) throws AnalysisException {
-        throw new AnalysisException(NOT_SUPPORTED_MSG);
+    public List<List<String>> getDbTransInfoByLabelMatch(long dbId, String labelRegex) throws AnalysisException {
+        Pattern pattern = Pattern.compile(labelRegex);
+        int maxRows = Config.cloud_show_txn_label_match_max_rows;
+        ScanTxnLabelRequest.Builder request = ScanTxnLabelRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setDbId(dbId)
+                .setLabelPrefix(getTxnLabelPrefix(labelRegex))
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+        List<TransactionState> states = new ArrayList<>();
+        while (states.size() < maxRows) {
+            request.setLimit(maxRows - states.size());
+            ScanTxnLabelResponse response;
+            try {
+                response = MetaServiceProxy.getInstance().scanTxnLabel(request.build());
+            } catch (RpcException e) {
+                if (Status.fromThrowable(e).getCode() == Status.Code.UNIMPLEMENTED) {
+                    throw new AnalysisException(
+                            "Please upgrade MetaService to use SHOW TRANSACTION WHERE LABEL LIKE", e);
+                }
+                throw new AnalysisException("Failed to scan transaction labels: " + e.getMessage(), e);
+            }
+            if (response.getStatus().getCode() != MetaServiceCode.OK) {
+                throw new AnalysisException("Failed to scan transaction labels: " + response.getStatus().getMsg());
+            }
+            for (TxnInfoPB info : response.getTxnInfosList()) {
+                if (pattern.matcher(info.getLabel()).matches()) {
+                    states.add(TxnUtil.transactionStateFromPb(info));
+                }
+            }
+            if (!response.hasNextKey()) {
+                break;
+            }
+            request.setStartKey(response.getNextKey());
+        }
+        return states.stream()
+                .sorted(TransactionState.TXN_ID_COMPARATOR)
+                .map(state -> TransactionUtil.getTxnStateInfo(state, new ArrayList<>()))
+                .collect(Collectors.toList());
+    }
+
+    private static String getTxnLabelPrefix(String regex) {
+        // SHOW TRANSACTION expands % to .* and leaves other regex syntax intact.
+        if (regex.indexOf('|') >= 0) {
+            return "";
+        }
+        for (int i = 0; i < regex.length(); i++) {
+            char ch = regex.charAt(i);
+            if ("*?{".indexOf(ch) >= 0) {
+                // The preceding literal may be optional.
+                return "";
+            }
+            if (".\\^$+()[]}".indexOf(ch) >= 0) {
+                return regex.substring(0, i);
+            }
+        }
+        return regex;
     }
 
     @Override

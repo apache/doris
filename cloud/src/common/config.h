@@ -184,6 +184,9 @@ CONF_String(test_hdfs_fs_name, "");
 // txn config
 CONF_mInt32(label_keep_max_second, "259200"); //3 * 24 * 3600 seconds
 CONF_Int32(expired_txn_scan_key_nums, "1000");
+// Maximum number of label keys read by one scan_txn_label call.
+CONF_mInt32(max_scan_txn_label_keys, "10000");
+CONF_Validator(max_scan_txn_label_keys, [](int32_t value) -> bool { return value > 0; });
 
 // Maximum number of version of a tablet. If the version num of a tablet exceed limit,
 // the load process will reject new incoming load job of this tablet.

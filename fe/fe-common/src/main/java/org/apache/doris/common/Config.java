@@ -3293,6 +3293,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static int cloud_txn_tablet_batch_size = 50;
 
+    /** Maximum number of matching rows returned by cloud SHOW TRANSACTION WHERE LABEL LIKE. */
+    @ConfField(mutable = true)
+    public static int cloud_show_txn_label_match_max_rows = 1000;
+
     /**
      * Default number of waiting copy jobs for the whole cluster
      */

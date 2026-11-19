@@ -391,6 +391,10 @@ public:
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
                     GetTxnIdResponse* response, ::google::protobuf::Closure* done) override;
 
+    void scan_txn_label(::google::protobuf::RpcController* controller,
+                        const ScanTxnLabelRequest* request, ScanTxnLabelResponse* response,
+                        ::google::protobuf::Closure* done) override;
+
     void get_schema_dict(::google::protobuf::RpcController* controller,
                          const GetSchemaDictRequest* request, GetSchemaDictResponse* response,
                          ::google::protobuf::Closure* done) override;
@@ -1003,6 +1007,12 @@ public:
     void get_txn_id(::google::protobuf::RpcController* controller, const GetTxnIdRequest* request,
                     GetTxnIdResponse* response, ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_txn_id, controller, request, response, done);
+    }
+
+    void scan_txn_label(::google::protobuf::RpcController* controller,
+                        const ScanTxnLabelRequest* request, ScanTxnLabelResponse* response,
+                        ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::scan_txn_label, controller, request, response, done);
     }
 
     void get_schema_dict(::google::protobuf::RpcController* controller,

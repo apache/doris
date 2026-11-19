@@ -328,6 +328,11 @@ public class MetaServiceClient {
                 .getTxnId(request);
     }
 
+    public Cloud.ScanTxnLabelResponse scanTxnLabel(Cloud.ScanTxnLabelRequest request) {
+        return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
+                .scanTxnLabel(request);
+    }
+
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
                 .getCurrentMaxTxnId(request);

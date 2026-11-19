@@ -446,6 +446,11 @@ public class MetaServiceProxy {
                 Cloud.GetTxnIdResponse::getStatus);
     }
 
+    public Cloud.ScanTxnLabelResponse scanTxnLabel(Cloud.ScanTxnLabelRequest request) throws RpcException {
+        return executeWithMetrics("scanTxnLabel", (client) -> client.scanTxnLabel(request),
+                Cloud.ScanTxnLabelResponse::getStatus);
+    }
+
     public Cloud.GetCurrentMaxTxnResponse getCurrentMaxTxnId(Cloud.GetCurrentMaxTxnRequest request)
             throws RpcException {
         return executeWithMetrics("getCurrentMaxTxnId", (client) -> client.getCurrentMaxTxnId(request),

@@ -19,6 +19,7 @@
 #include <gen_cpp/olap_file.pb.h>
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <limits>
@@ -43,6 +44,7 @@
 #include "meta-service/table_stream_metadata_reader.h"
 #include "meta-store/blob_message.h"
 #include "meta-store/clone_chain_reader.h"
+#include "meta-store/codec.h"
 #include "meta-store/document_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
@@ -5552,6 +5554,153 @@ void MetaServiceImpl::get_txn_id(::google::protobuf::RpcController* controller,
     ss << "transaction not found, label=" << label;
     msg = ss.str();
     return;
+}
+
+void MetaServiceImpl::scan_txn_label(::google::protobuf::RpcController* controller,
+                                     const ScanTxnLabelRequest* request,
+                                     ScanTxnLabelResponse* response,
+                                     ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(scan_txn_label, get);
+    if (!request->has_db_id() || request->db_id() < 0 || request->limit() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "a non-negative db_id and a positive limit are required";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "cannot find instance_id with cloud_unique_id=" + request->cloud_unique_id();
+        LOG(WARNING) << msg;
+        return;
+    }
+    RPC_RATE_LIMIT(scan_txn_label)
+
+    const int64_t db_id = request->db_id();
+    std::string begin = txn_label_key_prefix({instance_id, db_id, request->label_prefix()});
+    const std::string end = begin + '\xff';
+    std::string resume_label_key;
+    int64_t resume_txn_id = 0;
+    if (request->has_start_key()) {
+        const auto& start = request->start_key();
+        if (start < begin || start >= end) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "start_key is outside the txn label range";
+            return;
+        }
+        begin = start;
+        // A cursor within a label appends NUL and the first unreturned txn ID to its key.
+        // A cursor between labels is the previous key followed by NUL only.
+        const auto db_prefix = txn_label_key_prefix({instance_id, db_id, ""});
+        std::string_view suffix(start);
+        suffix.remove_prefix(db_prefix.size() - 1); // Keep the label's BYTES_TAG for decoding.
+        if (decode_bytes(&suffix, nullptr) == 0 && suffix.size() > 1 && suffix.front() == '\0') {
+            const char* last = suffix.data() + suffix.size();
+            auto [ptr, ec] = std::from_chars(suffix.data() + 1, last, resume_txn_id);
+            if (ec == std::errc() && ptr == last) {
+                begin.resize(start.size() - suffix.size());
+                resume_label_key = begin;
+            }
+        }
+    }
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        ss << "failed to create txn, db_id=" << db_id << " err=" << err;
+        msg = ss.str();
+        LOG(WARNING) << msg;
+        return;
+    }
+
+    constexpr int batch_size = 128;
+    int labels_left = config::max_scan_txn_label_keys;
+    std::unique_ptr<RangeGetIterator> it;
+    do {
+        err = txn->get(begin, end, &it, true, std::min(labels_left, batch_size));
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            ss << "failed to scan txn labels, db_id=" << db_id << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        while (it->has_next()) {
+            std::vector<std::string> info_keys;
+            std::vector<std::pair<std::string_view, int64_t>> attempts;
+            std::string_view last_label_key;
+            // Batch across labels to avoid a KV round trip for every single-attempt label.
+            do {
+                const auto [key, value] = it->next();
+                last_label_key = key;
+                --labels_left;
+                if (value.size() <= VERSION_STAMP_LEN) {
+                    continue;
+                }
+                TxnLabelPB label;
+                if (!label.ParseFromArray(value.data(), value.size() - VERSION_STAMP_LEN)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = "malformed txn label, key=" + hex(key);
+                    LOG(WARNING) << msg;
+                    return;
+                }
+
+                // An ID cursor survives removal of earlier attempts by the recycler.
+                auto& ids = *label.mutable_txn_ids();
+                std::sort(ids.begin(), ids.end());
+                auto id = key == resume_label_key
+                                  ? std::lower_bound(ids.begin(), ids.end(), resume_txn_id)
+                                  : ids.begin();
+                for (; id != ids.end(); ++id) {
+                    info_keys.push_back(txn_info_key({instance_id, db_id, *id}));
+                    attempts.emplace_back(key, *id);
+                }
+            } while (it->has_next() && info_keys.size() < batch_size);
+
+            std::vector<std::optional<std::string>> info_values;
+            err = txn->batch_get(&info_values, info_keys, Transaction::BatchGetOptions(true));
+            if (err != TxnErrorCode::TXN_OK) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to read txn info, db_id=" << db_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            for (size_t i = 0; i < info_values.size(); ++i) {
+                if (!info_values[i].has_value()) {
+                    continue;
+                }
+                if (response->txn_infos_size() == request->limit()) {
+                    const auto [label_key, txn_id] = attempts[i];
+                    std::string next(label_key);
+                    next.push_back('\0');
+                    next += std::to_string(txn_id);
+                    response->set_next_key(std::move(next));
+                    return;
+                }
+                if (!response->add_txn_infos()->ParseFromString(*info_values[i])) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    msg = "malformed txn info, key=" + hex(info_keys[i]);
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            }
+            if (response->txn_infos_size() == request->limit()) {
+                if (it->has_next() || it->more()) {
+                    std::string next(last_label_key);
+                    next.push_back('\0');
+                    response->set_next_key(std::move(next));
+                }
+                return;
+            }
+        }
+        if (it->more()) {
+            begin = it->next_begin_key();
+        }
+    } while (labels_left > 0 && it->more());
+
+    if (it->more()) {
+        response->set_next_key(std::move(begin));
+    }
 }
 
 void record_txn_commit_stats(doris::cloud::Transaction* txn, const std::string& instance_id,

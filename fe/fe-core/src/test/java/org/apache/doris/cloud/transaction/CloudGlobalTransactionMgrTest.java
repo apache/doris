@@ -44,9 +44,12 @@ import org.apache.doris.cloud.proto.Cloud.CommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
+import org.apache.doris.cloud.proto.Cloud.ScanTxnLabelRequest;
+import org.apache.doris.cloud.proto.Cloud.ScanTxnLabelResponse;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.rpc.VersionHelper;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -81,6 +84,8 @@ import org.apache.doris.transaction.TxnStateChangeCallback;
 import org.apache.doris.tso.TSOService;
 
 import com.google.common.collect.Lists;
+import com.google.protobuf.ByteString;
+import io.grpc.Status;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -143,6 +148,89 @@ public class CloudGlobalTransactionMgrTest {
         }
         if (fakeEditLog != null) {
             fakeEditLog.close();
+        }
+    }
+
+    private static TxnInfoPB scanTxnInfo(long id, String label) {
+        return TxnInfoPB.newBuilder().setDbId(42).setTxnId(id).setLabel(label)
+                .setStatus(Cloud.TxnStatusPB.TXN_STATUS_VISIBLE)
+                .setLoadJobSourceType(Cloud.LoadJobSourceTypePB.LOAD_JOB_SRC_TYPE_BACKEND_STREAMING)
+                .setCoordinator(Cloud.TxnCoordinatorPB.newBuilder()
+                        .setSourceType(Cloud.TxnSourceTypePB.TXN_SOURCE_TYPE_BE))
+                .build();
+    }
+
+    @Test
+    public void testShowTxnLabelMatchPagesAndCapsMatchingRows() throws Exception {
+        int previousMaxRows = Config.cloud_show_txn_label_match_max_rows;
+        Config.cloud_show_txn_label_match_max_rows = 2;
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Cloud.MetaServiceResponseStatus ok =
+                    Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK).build();
+            ByteString firstCursor = ByteString.copyFromUtf8("first");
+            ByteString secondCursor = ByteString.copyFromUtf8("second");
+            Mockito.when(proxy.scanTxnLabel(Mockito.any())).thenReturn(
+                    ScanTxnLabelResponse.newBuilder().setStatus(ok).setNextKey(firstCursor).build(),
+                    ScanTxnLabelResponse.newBuilder().setStatus(ok)
+                            .addTxnInfos(scanTxnInfo(15, "load-old-done"))
+                            .addTxnInfos(scanTxnInfo(99, "load-nonmatch"))
+                            .setNextKey(secondCursor).build(),
+                    ScanTxnLabelResponse.newBuilder().setStatus(ok)
+                            .addTxnInfos(scanTxnInfo(21, "load-new-done"))
+                            .setNextKey(ByteString.copyFromUtf8("unused")).build());
+
+            List<List<String>> rows = masterTransMgr.getDbTransInfoByLabelMatch(42, "load-.*-done");
+            Assertions.assertEquals(2, rows.size());
+            Assertions.assertEquals(List.of("21", "load-new-done"), rows.get(0).subList(0, 2));
+            Assertions.assertEquals(List.of("15", "load-old-done"), rows.get(1).subList(0, 2));
+
+            ArgumentCaptor<ScanTxnLabelRequest> captor = ArgumentCaptor.forClass(ScanTxnLabelRequest.class);
+            Mockito.verify(proxy, Mockito.times(3)).scanTxnLabel(captor.capture());
+            List<ScanTxnLabelRequest> requests = captor.getAllValues();
+            ScanTxnLabelRequest first = requests.get(0);
+            Assertions.assertEquals(42, first.getDbId());
+            Assertions.assertEquals("load-", first.getLabelPrefix());
+            Assertions.assertFalse(first.hasStartKey());
+            Assertions.assertEquals(2, first.getLimit());
+            Assertions.assertEquals(firstCursor, requests.get(1).getStartKey());
+            Assertions.assertEquals(2, requests.get(1).getLimit());
+            Assertions.assertEquals(secondCursor, requests.get(2).getStartKey());
+            Assertions.assertEquals(1, requests.get(2).getLimit());
+        } finally {
+            Config.cloud_show_txn_label_match_max_rows = previousMaxRows;
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {".*done", "load.*|other", "ab?"})
+    public void testShowTxnLabelMatchUsesEmptyPrefixWhenNeeded(String regex) throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.scanTxnLabel(Mockito.any())).thenReturn(ScanTxnLabelResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.OK))
+                    .build());
+
+            Assertions.assertTrue(masterTransMgr.getDbTransInfoByLabelMatch(42, regex).isEmpty());
+            ArgumentCaptor<ScanTxnLabelRequest> captor = ArgumentCaptor.forClass(ScanTxnLabelRequest.class);
+            Mockito.verify(proxy).scanTxnLabel(captor.capture());
+            Assertions.assertEquals("", captor.getValue().getLabelPrefix());
+        }
+    }
+
+    @Test
+    public void testShowTxnLabelMatchRequiresNewMetaService() throws Exception {
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Mockito.when(proxy.scanTxnLabel(Mockito.any()))
+                    .thenThrow(new RpcException("", "method not found", Status.UNIMPLEMENTED.asRuntimeException()));
+
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> masterTransMgr.getDbTransInfoByLabelMatch(42, "load.*"));
+            Assertions.assertTrue(error.getMessage().contains("upgrade MetaService"));
         }
     }
 

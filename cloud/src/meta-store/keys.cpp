@@ -241,6 +241,13 @@ void txn_label_key(const TxnLabelKeyInfo& in, std::string* out) {
     encode_bytes(std::get<2>(in), out);     // label
 }
 
+std::string txn_label_key_prefix(const TxnLabelKeyInfo& in) {
+    std::string key = txn_label_key(in);
+    // Strip BYTE_ESCAPE and BYTES_ENDING, preserving the tag and escaped label bytes.
+    key.resize(key.size() - 2);
+    return key;
+}
+
 void txn_info_key(const TxnInfoKeyInfo& in, std::string* out) {
     encode_prefix(in, out);                // 0x01 "txn" ${instance_id}
     encode_bytes(TXN_KEY_INFIX_INFO, out); // "txn_info"
