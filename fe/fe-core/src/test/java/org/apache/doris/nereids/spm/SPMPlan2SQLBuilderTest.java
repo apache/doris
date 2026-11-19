@@ -60,9 +60,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -2754,6 +2758,25 @@ public class SPMPlan2SQLBuilderTest {
         Expression right = new InPredicate(k, List.of(new IntegerLiteral(1), new IntegerLiteral(2)));
         String sql = new EqualTo(left, right).accept(new SPMExprSqlBuilder(), new SQLRelation());
         Assertions.assertEquals("((k IS NULL) = (k IN (1, 2)))", sql);
+    }
+
+    @Test
+    public void testContainerLiteralsRenderTypedAndEscapedElements() {
+        ArrayLiteral dates = new ArrayLiteral(List.of(new DateV2Literal(2020, 1, 1)));
+        MapLiteral map = new MapLiteral(Map.of(new StringLiteral("a'b\\c"), dates));
+        StructType type = new StructType(List.of(new StructField("col1", map.getDataType(), true, "")));
+        StructLiteral value = new StructLiteral(List.of(map), type);
+        SPMExprSqlBuilder builder = new SPMExprSqlBuilder();
+        String sql = builder.print(value, new SQLRelation());
+        Assertions.assertTrue(sql.contains("map('a''b\\\\c', CAST(array(CAST('2020-01-01' AS DATEV2)"), sql);
+        Cast parsed = (Cast) new NereidsParser().parseExpression(sql);
+        Assertions.assertEquals(value.getDataType().toSql(), parsed.getDataType().toSql());
+
+        ArrayLiteral empty = new ArrayLiteral(List.of(), ArrayType.of(DateV2Type.INSTANCE));
+        Assertions.assertEquals("CAST(array() AS ARRAY<DATEV2>)", builder.print(empty, new SQLRelation()));
+        StructLiteral unspellable = new StructLiteral(List.of(new DateV2Literal(2020, 1, 1), new NullLiteral()));
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> builder.print(unspellable, new SQLRelation()));
     }
 
     @Test

@@ -38,7 +38,9 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.qe.VariableMgr;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -721,7 +723,10 @@ public class SPMPlanner {
         // This controls parser reads only; SET_VAR assignments remain active until statement cleanup.
         LogicalPlan bindPlan = parseSelectWithSqlMode(creatorMode, bindSql,
                 "SPM bindSql must be a SELECT statement: " + bindSql);
-        LogicalPlan planPlan = bindSql.equals(planSql)
+        boolean sameSql = bindSql.equals(planSql);
+        // Snapshot the bind's settings before parsing the plan can apply its own hints.
+        SessionVariable bindSession = sameSql ? null : VariableMgr.cloneSessionVariable(ctx.getSessionVariable());
+        LogicalPlan planPlan = sameSql
                 ? bindPlan
                 : parseSelectWithSqlMode(creatorMode, planSql,
                         "SPM planSql must be a SELECT statement: " + planSql);
@@ -740,6 +745,11 @@ public class SPMPlanner {
         // form of KEY db.key is an EncryptKeyRef (NOT an UnboundFunction): reject on BOTH
         // parsed inputs BEFORE optimizing / storing anything.
         SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan, planPlan);
+        if (!sameSql && SPMOptimizer.hasSqlModeHint(planPlan)) {
+            // A permissive plan-side hint can turn an invalid strict bind into an explicit ANY_VALUE.
+            // Validate the original bind under its own settings before storing that transformation.
+            SPMOptimizer.validateBindAnalysis(ctx, bindPlan, bindSql, bindSession);
+        }
         // Parameterize both whole trees with ONE shared builder (placeholder ids aligned
         // across bind / plan), then optimize the PARAMETERIZED plan tree so the frozen
         // planSql keeps the placeholder ids for the rewrite-time value substitution.
