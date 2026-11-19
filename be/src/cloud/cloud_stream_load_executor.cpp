@@ -18,6 +18,7 @@
 #include "cloud/cloud_stream_load_executor.h"
 
 #include <bvar/bvar.h>
+#include <gen_cpp/cloud.pb.h>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
@@ -71,8 +72,16 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
             VLOG_DEBUG << "2pc commit stream load txn with FE support: " << op_info;
             st = StreamLoadExecutor::operate_txn_2pc(ctx);
         } else if (topt == TxnOpParamType::WITH_TXN_ID) {
-            VLOG_DEBUG << "2pc commit stream load txn directly: " << op_info;
-            st = _exec_env->storage_engine().to_cloud().meta_mgr().commit_txn(*ctx, true);
+            auto& meta_mgr = _exec_env->storage_engine().to_cloud().meta_mgr();
+            cloud::TxnInfoPB txn_info;
+            RETURN_IF_ERROR(meta_mgr.get_txn(ctx->txn_id, ctx->db_id, &txn_info));
+            // Older precommits have no classification. FE can classify those from its catalog.
+            if (!txn_info.has_is_mow_load() || txn_info.is_mow_load()) {
+                st = StreamLoadExecutor::operate_txn_2pc(ctx);
+            } else {
+                VLOG_DEBUG << "2pc commit stream load txn directly: " << op_info;
+                st = meta_mgr.commit_txn(*ctx, true);
+            }
         } else if (topt == TxnOpParamType::WITH_LABEL) {
             VLOG_DEBUG << "2pc commit stream load txn with FE support: " << op_info;
             st = StreamLoadExecutor::operate_txn_2pc(ctx);
@@ -80,10 +89,16 @@ Status CloudStreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
             st = Status::InternalError<false>(
                     "failed to 2pc commit txn, with TxnOpParamType::illegal input, " + op_info);
         }
+        // The coordinator may also be a writer. Remote writer BEs release their entries
+        // when they sync the committed rowset or when the entry expires.
+        if (st.ok() && ctx->txn_id > 0) {
+            _exec_env->storage_engine().to_cloud().txn_delete_bitmap_cache().remove_fenced_txn_info(
+                    ctx->txn_id);
+        }
     } else if (ctx->txn_operation.compare("abort") == 0) {
         if (topt == TxnOpParamType::WITH_TXN_ID) {
             LOG(INFO) << "2pc abort stream load txn directly: " << op_info;
-            st = _exec_env->storage_engine().to_cloud().meta_mgr().abort_txn(*ctx);
+            st = _abort_txn(ctx);
             WARN_IF_ERROR(st, "failed to rollback txn " + op_info);
         } else if (topt == TxnOpParamType::WITH_LABEL) { // maybe a label send to FE to abort
             VLOG_DEBUG << "2pc abort stream load txn with FE support: " << op_info;
@@ -139,6 +154,13 @@ Status CloudStreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     return st;
 }
 
+Status CloudStreamLoadExecutor::_abort_txn(StreamLoadContext* ctx) {
+    auto& engine = _exec_env->storage_engine().to_cloud();
+    RETURN_IF_ERROR(engine.meta_mgr().abort_txn(*ctx));
+    engine.txn_delete_bitmap_cache().remove_fenced_txn_info(ctx->txn_id);
+    return Status::OK();
+}
+
 void CloudStreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
     std::stringstream ss;
     ss << "db_id=" << ctx->db_id << " txn_id=" << ctx->txn_id << " label=" << ctx->label;
@@ -150,8 +172,7 @@ void CloudStreamLoadExecutor::rollback_txn(StreamLoadContext* ctx) {
 
     if (topt == TxnOpParamType::WITH_TXN_ID && ctx->load_type != TLoadType::ROUTINE_LOAD) {
         VLOG_DEBUG << "abort stream load txn directly: " << op_info;
-        WARN_IF_ERROR(_exec_env->storage_engine().to_cloud().meta_mgr().abort_txn(*ctx),
-                      "failed to rollback txn " + op_info);
+        WARN_IF_ERROR(_abort_txn(ctx), "failed to rollback txn " + op_info);
     } else { // maybe a label send to FE to abort
         // does not care about the return status
         // ctx->db_id > 0 && !ctx->label.empty()

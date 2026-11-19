@@ -261,6 +261,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.table_schema_param = _schema;
         wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
         wrequest.write_file_cache = params.write_file_cache();
+        wrequest.is_cloud_mow_2pc = params.is_cloud_mow_2pc();
         wrequest.storage_vault_id = params.storage_vault_id();
         wrequest.enable_table_memtable_backpressure = params.is_adaptive_random_bucket();
         if (tablet.has_changelog_tablet_id()) {
@@ -634,6 +635,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .table_schema_param = _schema,
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = request.write_file_cache(),
+                .is_cloud_mow_2pc = request.is_cloud_mow_2pc(),
                 .storage_vault_id = request.storage_vault_id(),
                 .enable_table_memtable_backpressure = request.is_adaptive_random_bucket(),
                 .load_cancel_status = _load_cancel_status,

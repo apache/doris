@@ -49,6 +49,7 @@ class StartTabletJobResponse;
 class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
+class TxnInfoPB;
 class HostLevelMSRpcRateLimiters;
 class MSBackpressureHandler;
 
@@ -107,6 +108,8 @@ public:
     Status abort_txn(const StreamLoadContext& ctx);
 
     Status precommit_txn(const StreamLoadContext& ctx);
+    Status get_txn(int64_t txn_id, int64_t db_id, TxnInfoPB* info);
+    Status get_pending_rowset(int64_t txn_id, int64_t tablet_id, RowsetSharedPtr* rowset);
 
     /**
      * Prepares a restore job for a tablet to meta-service

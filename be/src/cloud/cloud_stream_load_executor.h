@@ -35,6 +35,9 @@ public:
     Status commit_txn(StreamLoadContext* ctx) override;
 
     void rollback_txn(StreamLoadContext* ctx) override;
+
+private:
+    Status _abort_txn(StreamLoadContext* ctx);
 };
 
 } // namespace doris

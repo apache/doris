@@ -54,6 +54,9 @@ using namespace std::chrono;
 
 namespace doris::cloud {
 
+// FoundationDB limits a single value, including the serialized TxnInfoPB, to 100,000 bytes.
+constexpr size_t fdb_txn_info_value_limit = 100'000;
+
 static constexpr std::string_view kMetaSyncPointDummyKey = "__meta_service_sync_point_dummy_key__";
 
 void repair_tablet_index(std::shared_ptr<TxnKv>& txn_kv, MetaServiceCode& code, std::string& msg,
@@ -124,6 +127,13 @@ static bool validate_table_stream_updates(const CommitTxnRequest* request, MetaS
         }
     }
     return true;
+}
+
+static void append_load_commit_size_error(TxnErrorCode err, std::string& msg) {
+    if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
+        msg += ", likely due to committing too many tablets. "
+               "Please reduce the number of partitions involved in the load.";
+    }
 }
 
 static void append_table_stream_commit_size_error(TxnErrorCode err, std::string& msg) {
@@ -803,24 +813,78 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
     }
 
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_PRECOMMITTED) {
+        if (request->is_mow_load() && txn_info.is_mow_load() &&
+            !txn_info.mow_precommit_table_ids().empty() &&
+            std::ranges::all_of(txn_info.tablet_commit_infos(),
+                                [](const auto& info) { return info.has_pending_rowset_id(); })) {
+            response->set_mow_metadata_persisted(true);
+        }
         code = MetaServiceCode::TXN_ALREADY_PRECOMMITED;
         ss << "transaction is already precommited: db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();
         return;
     }
 
-    LOG(INFO) << "before update txn_info=" << txn_info.ShortDebugString();
+    VLOG_DEBUG << "before update txn_info=" << txn_info.ShortDebugString();
 
     // Update txn_info
     txn_info.set_status(TxnStatusPB::TXN_STATUS_PRECOMMITTED);
 
     auto now_time = system_clock::now();
     uint64_t precommit_time = duration_cast<milliseconds>(now_time.time_since_epoch()).count();
+    if (request->is_mow_load() &&
+        precommit_time > txn_info.prepare_time() + txn_info.timeout_ms()) {
+        code = MetaServiceCode::TXN_INVALID_STATUS;
+        msg = "merge-on-write load expired before precommit";
+        return;
+    }
     txn_info.set_precommit_time(precommit_time);
     if (request->has_commit_attachment()) {
         txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
     }
-    LOG(INFO) << "after update txn_info=" << txn_info.ShortDebugString();
+    if (request->has_is_mow_load()) {
+        txn_info.set_is_mow_load(request->is_mow_load());
+    }
+    if (request->is_mow_load()) {
+        if (request->mow_precommit_table_ids().empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "merge-on-write precommit requires table IDs";
+            return;
+        }
+        txn_info.mutable_mow_precommit_table_ids()->CopyFrom(request->mow_precommit_table_ids());
+        txn_info.mutable_tablet_commit_infos()->CopyFrom(request->tablet_commit_infos());
+
+        std::vector<std::pair<std::string, RowsetMetaCloudPB>> rowsets;
+        scan_tmp_rowset(instance_id, txn_id, txn_kv_, code, msg, &rowsets, nullptr, txn.get());
+        if (code != MetaServiceCode::OK) {
+            return;
+        }
+        std::unordered_map<int64_t, std::string_view> rowset_ids;
+        for (const auto& [key, rowset] : rowsets) {
+            if (rowset.rowset_id_v2().empty() ||
+                !rowset_ids.emplace(rowset.tablet_id(), rowset.rowset_id_v2()).second) {
+                code = MetaServiceCode::TXN_INVALID_STATUS;
+                msg = fmt::format("invalid pending rowset identity for tablet_id={}",
+                                  rowset.tablet_id());
+                return;
+            }
+        }
+        for (auto& info : *txn_info.mutable_tablet_commit_infos()) {
+            auto id = rowset_ids.find(info.tablet_id());
+            info.set_pending_rowset_id(id == rowset_ids.end() ? "" : std::string(id->second));
+        }
+        for (const auto& info : txn_info.tablet_commit_infos()) {
+            rowset_ids.erase(info.tablet_id());
+        }
+        // A fully filtered load has no tablet mappings and no pending rowsets.
+        if (!rowset_ids.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "merge-on-write precommit is missing tablet commit mappings for pending rowsets";
+            return;
+        }
+    }
+    LOG(INFO) << "precommit txn_id=" << txn_id
+              << " tablet_commit_infos_size=" << txn_info.tablet_commit_infos_size();
 
     info_val.clear();
     if (!txn_info.SerializeToString(&info_val)) {
@@ -830,6 +894,12 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
         return;
     }
 
+    if (txn_info.is_mow_load() && info_val.size() > fdb_txn_info_value_limit) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "too many tablets for 2PC on merge-on-write table "
+              "(100,000-byte transaction metadata limit)";
+        return;
+    }
     txn->put(info_key, info_val);
     LOG(INFO) << "xxx put info_key=" << hex(info_key) << " txn_id=" << txn_id;
 
@@ -855,6 +925,9 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
         ss << "failed to commit txn kv, txn_id=" << txn_id << " err=" << err;
         msg = ss.str();
         return;
+    }
+    if (txn_info.is_mow_load()) {
+        response->set_mow_metadata_persisted(true);
     }
 }
 
@@ -1440,20 +1513,20 @@ void scan_tmp_rowset(
         const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
         MetaServiceCode& code, std::string& msg,
         std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* tmp_rowsets_meta,
-        KVStats* stats) {
-    // Create a readonly txn for scan tmp rowset
-    std::stringstream ss;
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::CREATE>(err);
-        ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
-        msg = ss.str();
-        LOG(WARNING) << msg;
-        return;
+        KVStats* stats, Transaction* txn) {
+    std::unique_ptr<Transaction> read_only_txn;
+    const bool snapshot = txn == nullptr;
+    if (snapshot) {
+        auto err = txn_kv->create_txn(&read_only_txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = fmt::format("failed to create txn, txn_id={} err={}", txn_id, err);
+            return;
+        }
+        txn = read_only_txn.get();
     }
     DORIS_CLOUD_DEFER {
-        if (!stats || !txn) return;
+        if (!stats) return;
         stats->get_bytes += txn->get_bytes();
         stats->get_counter += txn->num_get_keys();
     };
@@ -1467,6 +1540,7 @@ void scan_tmp_rowset(
     meta_rowset_tmp_key(rs_tmp_key_info0, &rs_tmp_key0);
     meta_rowset_tmp_key(rs_tmp_key_info1, &rs_tmp_key1);
 
+    std::stringstream ss;
     int num_rowsets = 0;
     DORIS_CLOUD_DEFER_COPY(rs_tmp_key0, rs_tmp_key1) {
         LOG(INFO) << "get tmp rowset meta, txn_id=" << txn_id << " num_rowsets=" << num_rowsets
@@ -1475,10 +1549,13 @@ void scan_tmp_rowset(
 
     std::unique_ptr<RangeGetIterator> it;
     while (it == nullptr /* may be not init */ || it->more()) {
-        err = txn->get(rs_tmp_key0, rs_tmp_key1, &it, true);
-        if (err == TxnErrorCode::TXN_TOO_OLD) {
-            err = txn_kv->create_txn(&txn);
+        auto err = txn->get(rs_tmp_key0, rs_tmp_key1, &it, snapshot);
+        if (err == TxnErrorCode::TXN_TOO_OLD && snapshot) {
+            std::unique_ptr<Transaction> retry_txn;
+            err = txn_kv->create_txn(&retry_txn);
             if (err == TxnErrorCode::TXN_OK) {
+                read_only_txn = std::move(retry_txn);
+                txn = read_only_txn.get();
                 err = txn->get(rs_tmp_key0, rs_tmp_key1, &it, true);
             }
         }
@@ -1493,7 +1570,7 @@ void scan_tmp_rowset(
 
         while (it->has_next()) {
             auto [k, v] = it->next();
-            LOG(INFO) << "range_get rowset_tmp_key=" << hex(k) << " txn_id=" << txn_id;
+            VLOG_DEBUG << "range_get rowset_tmp_key=" << hex(k) << " txn_id=" << txn_id;
             RowsetMetaCloudPB rs_meta;
             if (!rs_meta.ParseFromArray(v.data(), v.size())) {
                 code = MetaServiceCode::PROTOBUF_PARSE_ERR;
@@ -1507,7 +1584,7 @@ void scan_tmp_rowset(
                 code = MetaServiceCode::TXN_ALREADY_ABORTED;
                 msg = "rowset has already been marked as recycled";
                 LOG(WARNING) << msg;
-                continue;
+                return;
             }
             tmp_rowsets_meta->emplace_back(std::string(k.data(), k.size()), std::move(rs_meta));
             ++num_rowsets;
@@ -1723,6 +1800,15 @@ void process_mow_when_commit_txn(
             code = MetaServiceCode::LOCK_EXPIRED;
             return;
         }
+        if (request->has_mow_commit_attempt() &&
+            (lock_info.initiators_size() != 1 ||
+             lock_info.initiators(0) != request->mow_commit_attempt())) {
+            code = MetaServiceCode::LOCK_EXPIRED;
+            msg = fmt::format(
+                    "delete bitmap lock belongs to a different attempt, table_id={}, txn_id={}",
+                    table_id, txn_id);
+            return;
+        }
         txn->remove(lock_keys[i]);
         LOG(INFO) << "xxx remove delete bitmap lock, lock_key=" << hex(lock_keys[i])
                   << " table_id=" << table_id << " txn_id=" << txn_id;
@@ -1890,7 +1976,7 @@ bool MetaServiceImpl::wait_for_committed_txn(const std::string& instance_id,
 void MetaServiceImpl::commit_txn_immediately(
         const CommitTxnRequest* request, CommitTxnResponse* response, MetaServiceCode& code,
         std::string& msg, const std::string& instance_id, int64_t db_id,
-        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& scanned_rowsets,
         TxnErrorCode& err, KVStats& stats) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
@@ -2022,7 +2108,62 @@ void MetaServiceImpl::commit_txn_immediately(
             }
         }
 
-        LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
+        if (request->has_mow_commit_attempt() && !txn_info.is_mow_load()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "fenced commit requires merge-on-write precommit metadata";
+            return;
+        }
+        std::vector<std::pair<std::string, RowsetMetaCloudPB>> fenced_rowsets;
+        auto& tmp_rowsets_meta = txn_info.is_mow_load() ? fenced_rowsets : scanned_rowsets;
+        const bool empty_mow_2pc = txn_info.is_mow_load() && txn_info.tablet_commit_infos().empty();
+        if (txn_info.is_mow_load()) {
+            if (empty_mow_2pc &&
+                (request->has_mow_commit_attempt() || !request->mow_table_ids().empty())) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "merge-on-write 2PC with an empty tablet mapping must commit without a fence";
+                return;
+            }
+            if (!request->is_2pc() || txn_info.mow_precommit_table_ids().empty() ||
+                (!empty_mow_2pc &&
+                 (request->mow_table_ids().empty() || !request->has_mow_commit_attempt() ||
+                  request->mow_commit_attempt() >= -1))) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "merge-on-write 2PC requires FE delete bitmap calculation and a fenced lock";
+                return;
+            }
+            // Read the pending rowsets in the same FDB transaction that publishes them.
+            scan_tmp_rowset(instance_id, txn_id, txn_kv_, code, msg, &fenced_rowsets, nullptr,
+                            txn.get());
+            if (code != MetaServiceCode::OK) {
+                return;
+            }
+            std::unordered_map<int64_t, std::string_view> rowset_ids;
+            for (const auto& [key, rowset] : fenced_rowsets) {
+                rowset_ids.emplace(rowset.tablet_id(), rowset.rowset_id_v2());
+            }
+            std::unordered_set<int64_t> matched_tablets;
+            for (const auto& info : txn_info.tablet_commit_infos()) {
+                auto id = rowset_ids.find(info.tablet_id());
+                std::string_view actual_id = id == rowset_ids.end() ? "" : id->second;
+                if (!info.has_pending_rowset_id() || info.pending_rowset_id() != actual_id ||
+                    (id != rowset_ids.end() && actual_id.empty())) {
+                    code = MetaServiceCode::TXN_INVALID_STATUS;
+                    msg = fmt::format("pending rowset differs from MoW precommit for tablet_id={}",
+                                      info.tablet_id());
+                    return;
+                }
+                if (id != rowset_ids.end()) {
+                    matched_tablets.insert(info.tablet_id());
+                }
+            }
+            if (matched_tablets.size() != fenced_rowsets.size()) {
+                code = MetaServiceCode::TXN_INVALID_STATUS;
+                msg = "unexpected pending rowset for precommitted merge-on-write transaction";
+                return;
+            }
+        }
+
+        VLOG_DEBUG << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
 
         CloneChainReader meta_reader(instance_id, resource_mgr_.get());
 
@@ -2188,10 +2329,54 @@ void MetaServiceImpl::commit_txn_immediately(
             int64_t table_id = tablet_index.table_id();
             table_id_tablet_ids[table_id].push_back(tablet_id);
         }
-        process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
-        if (code != MetaServiceCode::OK) {
-            LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
-            return;
+        if (txn_info.is_mow_load() && !empty_mow_2pc) {
+            std::unordered_set<int64_t> mow_table_ids(request->mow_table_ids().begin(),
+                                                      request->mow_table_ids().end());
+            for (auto table_id : txn_info.mow_precommit_table_ids()) {
+                if (!mow_table_ids.contains(table_id)) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    msg = "missing delete bitmap lock for a precommitted merge-on-write table";
+                    return;
+                }
+            }
+            std::vector<std::string> pending_keys;
+            std::vector<const RowsetMetaCloudPB*> mow_rowsets;
+            for (const auto& [_, rowset] : rowsets) {
+                int64_t tablet_id = rowset.tablet_id();
+                if (mow_table_ids.contains(tablet_ids.at(tablet_id).table_id())) {
+                    pending_keys.push_back(
+                            meta_pending_delete_bitmap_key({instance_id, tablet_id}));
+                    mow_rowsets.push_back(&rowset);
+                }
+            }
+            if (!pending_keys.empty()) {
+                std::vector<std::optional<std::string>> pending_values;
+                auto pending_err = txn->batch_get(&pending_values, pending_keys);
+                if (pending_err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::READ>(pending_err);
+                    msg = "failed to read pending delete bitmaps for merge-on-write 2PC";
+                    return;
+                }
+                for (size_t i = 0; i < mow_rowsets.size(); ++i) {
+                    PendingDeleteBitmapPB bitmap;
+                    if (!pending_values[i] || !bitmap.ParseFromString(*pending_values[i]) ||
+                        bitmap.mow_commit_attempt() != request->mow_commit_attempt() ||
+                        bitmap.next_visible_version() != mow_rowsets[i]->end_version()) {
+                        code = MetaServiceCode::LOCK_EXPIRED;
+                        msg = fmt::format(
+                                "no delete bitmap for commit attempt and version, tablet_id={}",
+                                mow_rowsets[i]->tablet_id());
+                        return;
+                    }
+                }
+            }
+        }
+        if (!empty_mow_2pc) {
+            process_mow_when_commit_txn(request, instance_id, code, msg, txn, table_id_tablet_ids);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "process mow failed, txn_id=" << txn_id << " code=" << code;
+                return;
+            }
         }
 
         // Save rowset meta
@@ -2315,18 +2500,27 @@ void MetaServiceImpl::commit_txn_immediately(
             commit_txn_log.add_table_ids(i.first);
         }
 
-        LOG(INFO) << " before update txn_info=" << txn_info.ShortDebugString();
+        VLOG_DEBUG << " before update txn_info=" << txn_info.ShortDebugString();
 
         // Update txn_info
         txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
 
         auto now_time = system_clock::now();
         uint64_t commit_time = duration_cast<milliseconds>(now_time.time_since_epoch()).count();
-        if ((txn_info.prepare_time() + txn_info.timeout_ms()) < commit_time) {
+        // A MoW 2PC load uses the precommit window even if it has no tablets to fence.
+        const bool is_mow_load = txn_info.is_mow_load();
+        const int64_t start_time =
+                is_mow_load ? txn_info.precommit_time() : txn_info.prepare_time();
+        const int64_t timeout_ms =
+                is_mow_load ? txn_info.precommit_timeout_ms() : txn_info.timeout_ms();
+        uint64_t expiration = start_time + timeout_ms;
+        if (expiration < commit_time) {
             code = MetaServiceCode::UNDEFINED_ERR;
             msg = fmt::format("txn is expired, not allow to commit txn_id={}", txn_id);
-            LOG(INFO) << msg << " prepare_time=" << txn_info.prepare_time()
-                      << " timeout_ms=" << txn_info.timeout_ms() << " commit_time=" << commit_time;
+            LOG(INFO) << msg << " expiration=" << expiration << " is_mow_load=" << is_mow_load
+                      << (is_mow_load ? " precommit_time=" : " prepare_time=") << start_time
+                      << (is_mow_load ? " precommit_timeout_ms=" : " timeout_ms=") << timeout_ms
+                      << " commit_time=" << commit_time;
             return;
         }
         txn_info.set_commit_time(commit_time);
@@ -2339,7 +2533,12 @@ void MetaServiceImpl::commit_txn_immediately(
         txn_info.set_versioned_write(is_versioned_write);
         txn_info.set_versioned_read(is_versioned_read);
 
-        LOG(INFO) << "after update txn_info=" << txn_info.ShortDebugString();
+        VLOG_DEBUG << "after update txn_info=" << txn_info.ShortDebugString();
+        LOG(INFO) << "updated visible txn_id=" << txn_id
+                  << " mow_tablet_count=" << txn_info.tablet_commit_infos_size();
+        txn_info.clear_tablet_commit_infos();
+        txn_info.clear_is_mow_load();
+        txn_info.clear_mow_precommit_table_ids();
         info_val.clear();
         if (!txn_info.SerializeToString(&info_val)) {
             code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -2822,8 +3021,13 @@ void MetaServiceImpl::commit_txn_eventually(
             LOG(WARNING) << msg;
             return;
         }
-        LOG(INFO) << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
+        VLOG_DEBUG << "txn_id=" << txn_id << " txn_info=" << txn_info.ShortDebugString();
 
+        if (txn_info.is_mow_load()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "merge-on-write precommitted transactions must use immediate 2PC commit";
+            return;
+        }
         DCHECK(txn_info.txn_id() == txn_id);
         if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
             code = MetaServiceCode::TXN_ALREADY_ABORTED;
@@ -3255,6 +3459,11 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             return;
         }
 
+        if (txn_info.is_mow_load()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = "merge-on-write precommitted transactions cannot commit as subtransactions";
+            return;
+        }
         // TODO: do more check like txn state
         DCHECK(txn_info.txn_id() == txn_id);
         if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
@@ -3821,13 +4030,24 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     }
 
     std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>> tmp_rowsets_meta;
+    TxnErrorCode err = TxnErrorCode::TXN_OK;
+    if (request->has_mow_commit_attempt()) {
+        // Fenced commits scan their pending rowsets in the publishing transaction.
+        commit_txn_immediately(request, response, code, msg, instance_id, db_id, tmp_rowsets_meta,
+                               err, stats);
+        if (has_table_stream_updates) {
+            append_table_stream_commit_size_error(err, msg);
+        } else {
+            append_load_commit_size_error(err, msg);
+        }
+        return;
+    }
     scan_tmp_rowset(instance_id, txn_id, txn_kv_, code, msg, &tmp_rowsets_meta, &stats);
     if (code != MetaServiceCode::OK) {
         LOG(WARNING) << "scan_tmp_rowset failed, txn_id=" << txn_id << " code=" << code;
         return;
     }
 
-    TxnErrorCode err = TxnErrorCode::TXN_OK;
     if (has_table_stream_updates) {
         commit_txn_immediately(request, response, code, msg, instance_id, db_id, tmp_rowsets_meta,
                                err, stats);
@@ -3841,7 +4061,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
 
     while ((!enable_txn_lazy_commit_feature ||
             (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold))) {
-        if (force_txn_lazy_commit()) {
+        if (!request->is_2pc() && force_txn_lazy_commit()) {
             LOG(INFO) << "fuzzy test force_txn_lazy_commit, txn_id=" << txn_id
                       << " force_posibility=" << config::cloud_txn_lazy_commit_fuzzy_possibility;
             break;
@@ -3859,10 +4079,7 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         }
 
         if (!enable_txn_lazy_commit_feature) {
-            if (err == TxnErrorCode::TXN_BYTES_TOO_LARGE) {
-                msg += ", likely due to committing too many tablets. "
-                       "Please reduce the number of partitions involved in the load.";
-            }
+            append_load_commit_size_error(err, msg);
             return;
         }
 
@@ -4053,6 +4270,9 @@ void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request, 
 
     // Update txn_info
     return_txn_info.set_status(TxnStatusPB::TXN_STATUS_ABORTED);
+    return_txn_info.clear_tablet_commit_infos();
+    return_txn_info.clear_is_mow_load();
+    return_txn_info.clear_mow_precommit_table_ids();
     return_txn_info.set_finish_time(finish_time);
     request->has_reason() ? return_txn_info.set_reason(request->reason())
                           : return_txn_info.set_reason("User Abort");

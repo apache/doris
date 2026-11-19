@@ -636,6 +636,9 @@ private:
     int handle_packed_file_kv(std::string_view key, std::string_view value,
                               PackedFileRecycleStats* stats, int* ret);
 
+    int get_related_rowset_txn(int64_t txn_id, Transaction* txn, TxnInfoPB* txn_info,
+                               int64_t* owner_db_id = nullptr);
+
     // Abort the transaction/job associated with a rowset that is about to be recycled.
     // This function is called during rowset recycling to prevent data loss by ensuring that
     // the transaction/job cannot be committed after its rowset data has been deleted.

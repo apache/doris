@@ -67,6 +67,8 @@ public class HttpStreamLoadTablePropertiesTest {
 
         Deencapsulation.invoke(service, "setHttpStreamLoadTableProperties", params, result);
 
+        Assertions.assertTrue(result.isSetSupportsCloudMow2pc());
+        Assertions.assertTrue(result.isSupportsCloudMow2pc());
         Assertions.assertEquals(41, result.getTableId());
         Assertions.assertEquals(7, result.getBaseSchemaVersion());
         Assertions.assertEquals(1000, result.getGroupCommitIntervalMs());

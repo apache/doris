@@ -54,6 +54,7 @@ struct WriteRequest {
     std::shared_ptr<OlapTableSchemaParam> table_schema_param = nullptr;
     bool is_high_priority = false;
     bool write_file_cache = false;
+    bool is_cloud_mow_2pc = false;
     WriteRequestType write_req_type = WriteRequestType::DATA;
     std::string storage_vault_id;
     bool enable_table_memtable_backpressure = false;

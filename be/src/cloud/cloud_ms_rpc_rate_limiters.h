@@ -38,6 +38,7 @@ namespace doris::cloud {
 #define META_SERVICE_RPC_TYPES(X)                                         \
     X(GET_TABLET_META, get_tablet_meta, "get tablet meta")                \
     X(GET_ROWSET, get_rowset, "get rowset")                               \
+    X(GET_TXN, get_txn, "get txn")                                        \
     X(PREPARE_ROWSET, prepare_rowset, "prepare rowset")                   \
     X(COMMIT_ROWSET, commit_rowset, "commit rowset")                      \
     X(UPDATE_TMP_ROWSET, update_tmp_rowset, "update tmp rowset")          \

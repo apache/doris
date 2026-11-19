@@ -787,6 +787,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_enable_profile(_state->enable_profile());
     request->set_is_incremental(is_incremental);
     request->set_txn_expiration(_parent->_txn_expiration);
+    const auto& table_sink = _parent->_t_sink.olap_table_sink;
+    if (table_sink.__isset.is_cloud_mow_2pc && table_sink.is_cloud_mow_2pc) {
+        request->set_is_cloud_mow_2pc(true);
+    }
     request->set_write_file_cache(_parent->_write_file_cache);
 
     if (_parent->_tablet_finder->is_adaptive_random_bucket()) {

@@ -296,6 +296,7 @@ public class StreamLoadHandler {
             result.setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
             result.setEnableTso(table.enableTso());
             if (this.result != null && fragmentParams.isEmpty()) {
+                this.result.setSupportsCloudMow2pc(true);
                 this.result.setDbId(db.getId());
                 this.result.setTableId(table.getId());
                 this.result.setBaseSchemaVersion(table.getBaseSchemaVersion());

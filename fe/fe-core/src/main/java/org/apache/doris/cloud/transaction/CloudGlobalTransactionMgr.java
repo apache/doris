@@ -68,11 +68,13 @@ import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockResponse;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
+import org.apache.doris.cloud.proto.Cloud.TabletCommitInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -103,6 +105,8 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -407,11 +411,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         builder.setPrecommitTimeoutMs(timeoutMillis);
+        // Cloud HTTP loads precommit through BE, which has the tablet and writer metadata.
+        if (!getMowTables(tableList).isEmpty()) {
+            throw new TransactionCommitFailedException("Merge-on-write 2PC must precommit through the backend");
+        }
 
         final PrecommitTxnRequest precommitTxnRequest = builder.build();
         PrecommitTxnResponse precommitTxnResponse = null;
         try {
-            LOG.info("precommitTxnRequest: {}", precommitTxnRequest);
+            LOG.info("precommit txn {}, db {}", transactionId, db.getId());
             precommitTxnResponse = MetaServiceProxy
                     .getInstance().precommitTxn(precommitTxnRequest);
             LOG.info("precommitTxnResponse: {}", precommitTxnResponse);
@@ -437,39 +445,43 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos,
-                txnCommitAttachment, Collections.emptyList());
+                txnCommitAttachment, false, Collections.emptyList());
     }
 
     private void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment,
-            List<TableStreamUpdateInfo> streamUpdateInfos)
+            boolean is2PC, List<TableStreamUpdateInfo> streamUpdateInfos)
             throws UserException {
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
+        // MetaService distinguishes fenced attempts from the legacy initiator (-1).
+        long mowCommitAttempt = is2PC && !mowTableList.isEmpty()
+                ? (-1L << 62) | (UUID.randomUUID().getLeastSignificantBits() & ((1L << 62) - 2)) : -1;
         try {
             LOG.info("try to commit transaction, transactionId: {}, tableIds: {}", transactionId,
                     tableList.stream().map(Table::getId).collect(Collectors.toList()));
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = null;
             if (!mowTableList.isEmpty()) {
-                if (!checkTransactionStateBeforeCommit(dbId, transactionId)) {
+                if (!is2PC && !checkTransactionStateBeforeCommit(dbId, transactionId)) {
                     return;
                 }
                 DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext(transactionId);
-                getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext);
+                getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext,
+                        mowCommitAttempt);
                 if (lockContext.getBackendToPartitionTablets().isEmpty()) {
                     throw new UserException(
                             "The partition info is empty, table may be dropped, txnid=" + transactionId);
                 }
                 backendToPartitionInfos = getCalcDeleteBitmapInfo(lockContext, null);
             }
-            commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, false,
-                    mowTableList, backendToPartitionInfos, streamUpdateInfos);
+            commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment, is2PC,
+                    mowTableList, backendToPartitionInfos, streamUpdateInfos, mowCommitAttempt);
             // clear signature after commit succeeds
             clearTxnLastSignature(dbId, transactionId);
         } catch (Exception e) {
             if (!mowTableList.isEmpty()) {
                 LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId,
                         e.getMessage());
-                removeDeleteBitmapUpdateLock(mowTableList, transactionId);
+                removeDeleteBitmapUpdateLock(mowTableList, transactionId, mowCommitAttempt);
             }
             throw e;
         }
@@ -720,16 +732,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC,
-            List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos)
-            throws UserException {
-        commitTransactionWithoutLock(dbId, tableList, transactionId, tabletCommitInfos, txnCommitAttachment,
-                is2PC, mowTableList, backendToPartitionInfos, Collections.emptyList());
-    }
-
-    private void commitTransactionWithoutLock(long dbId, List<Table> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment, boolean is2PC,
             List<OlapTable> mowTableList, Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
-            List<TableStreamUpdateInfo> streamUpdateInfos)
+            List<TableStreamUpdateInfo> streamUpdateInfos, long mowCommitAttempt)
             throws UserException {
         if (Config.disable_load_job) {
             throw new TransactionCommitFailedException(
@@ -740,7 +744,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (!mowTableList.isEmpty()) {
             List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
             sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos, mowTableIds,
-                    Config.calculate_delete_bitmap_task_timeout_seconds);
+                    Config.calculate_delete_bitmap_task_timeout_seconds, mowCommitAttempt);
         }
 
         CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder()
@@ -751,6 +755,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .addAllBaseTabletIds(getBaseTabletsFromTables(tableList, tabletCommitInfos))
                 .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
+        if (mowCommitAttempt < -1) {
+            builder.setMowCommitAttempt(mowCommitAttempt);
+        }
         for (OlapTable olapTable : mowTableList) {
             builder.addMowTableIds(olapTable.getId());
         }
@@ -1004,7 +1011,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
-        afterCommitTxnResp(commitTxnResponse, tabletCommitInfos, tabletIds);
+        // A fenced commit must sync the winning rowsets and bitmaps from MetaService.
+        afterCommitTxnResp(commitTxnResponse, builder.hasMowCommitAttempt() ? null : tabletCommitInfos, tabletIds);
         return txnState;
     }
 
@@ -1082,14 +1090,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         List<OlapTable> mowTableList = new ArrayList<>();
         TabletInvertedIndex tabletInvertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
-        for (Table table : tableList) {
-            if (!(table instanceof OlapTable)) {
-                continue;
-            }
-            OlapTable olapTable = (OlapTable) table;
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                continue;
-            }
+        for (OlapTable olapTable : getMowTables(tableList)) {
             boolean hasTabletCommitInfo = tabletCommitInfos.stream().anyMatch(ci -> {
                 TabletMeta tabletMeta = tabletInvertedIndex.getTabletMeta(ci.getTabletId());
                 return tabletMeta != null && tabletMeta.getTableId() == olapTable.getId();
@@ -1281,8 +1282,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void getDeleteBitmapUpdateLock(long transactionId, List<OlapTable> mowTableList,
-            List<TabletCommitInfo> tabletCommitInfos, DeleteBitmapUpdateLockContext lockContext)
-            throws UserException {
+            List<TabletCommitInfo> tabletCommitInfos, DeleteBitmapUpdateLockContext lockContext,
+            long lockInitiator) throws UserException {
         if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep")) {
             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                     "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep");
@@ -1325,7 +1326,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder()
                         .setRequestIp(FrontendOptions.getLocalHostAddressCached());
                 long tableId = entry.getKey();
-                builder.setTableId(tableId).setLockId(transactionId).setInitiator(-1)
+                builder.setTableId(tableId).setLockId(transactionId).setInitiator(lockInitiator)
                         .setExpiration(Config.delete_bitmap_lock_expiration_seconds).setRequireCompactionStats(true);
                 List<Long> tabletList = lockContext.getTableToTabletList().get(tableId);
                 for (Long tabletId : tabletList) {
@@ -1488,14 +1489,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private void removeDeleteBitmapUpdateLock(List<OlapTable> tableList, long transactionId) {
+    private void removeDeleteBitmapUpdateLock(List<OlapTable> tableList, long transactionId,
+            long lockInitiator) {
         for (OlapTable table : tableList) {
             RemoveDeleteBitmapUpdateLockRequest.Builder builder =
                     RemoveDeleteBitmapUpdateLockRequest.newBuilder()
                             .setRequestIp(FrontendOptions.getLocalHostAddressCached());
             builder.setTableId(table.getId())
                     .setLockId(transactionId)
-                    .setInitiator(-1);
+                    .setInitiator(lockInitiator);
             final RemoveDeleteBitmapUpdateLockRequest request = builder.build();
             RemoveDeleteBitmapUpdateLockResponse response = null;
             try {
@@ -1520,7 +1522,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private void sendCalcDeleteBitmaptask(long dbId, long transactionId,
             Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos,
             List<Long> mowTableIds,
-            long calculateDeleteBitmapTaskTimeoutSeconds) throws UserException {
+            long calculateDeleteBitmapTaskTimeoutSeconds, long mowCommitAttempt) throws UserException {
         if (backendToPartitionInfos == null) {
             throw new UserException("failed to send calculate delete bitmap task to be,transactionId=" + transactionId
                     + ",but backendToPartitionInfos is null");
@@ -1560,7 +1562,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     signature = UUID.randomUUID().getLeastSignificantBits();
                 }
             }
-            if (DebugPointUtil.isEnable("sendCalcDbmtask.change_signature")) {
+            if (mowCommitAttempt < -1 || DebugPointUtil.isEnable("sendCalcDbmtask.change_signature")) {
                 signature = UUID.randomUUID().getLeastSignificantBits();
             }
             setTxnLastSignature(dbId, transactionId, signature);
@@ -1574,7 +1576,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         dbId,
                         entry.getValue(),
                         signature,
-                        countDownLatch);
+                        countDownLatch,
+                        mowCommitAttempt);
                 countDownLatch.addMark(entry.getKey(), transactionId);
                 // add to AgentTaskQueue for handling finish report.
                 // not check return value, because the add will success
@@ -1731,7 +1734,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     return true;
                 }
                 DeleteBitmapUpdateLockContext lockContext = new DeleteBitmapUpdateLockContext(transactionId);
-                getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext);
+                getDeleteBitmapUpdateLock(transactionId, mowTableList, tabletCommitInfos, lockContext, -1);
                 if (lockContext.getBackendToPartitionTablets().isEmpty()) {
                     throw new UserException(
                             "The partition info is empty, table may be dropped, txnid=" + transactionId);
@@ -1750,7 +1753,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             if (!mowTableList.isEmpty()) {
                 LOG.warn("commit txn {} failed, release delete bitmap lock, catch exception {}", transactionId,
                         e.getMessage());
-                removeDeleteBitmapUpdateLock(mowTableList, transactionId);
+                removeDeleteBitmapUpdateLock(mowTableList, transactionId, -1);
             }
             throw e;
         } finally {
@@ -1786,7 +1789,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (!mowTableList.isEmpty()) {
             List<Long> mowTableIds = mowTableList.stream().map(Table::getId).collect(Collectors.toList());
             sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos, mowTableIds,
-                    Config.calculate_delete_bitmap_task_timeout_seconds_for_transaction_load);
+                    Config.calculate_delete_bitmap_task_timeout_seconds_for_transaction_load, -1);
         }
 
         cleanSubTransactions(transactionId);
@@ -1962,7 +1965,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
         try {
             commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos,
-                    txnCommitAttachment, streamUpdateInfos);
+                    txnCommitAttachment, false, streamUpdateInfos);
             // Only clear signature after commit succeeds, as BE may retry on failure
             clearTxnLastSignature(db.getId(), transactionId);
         } finally {
@@ -1994,19 +1997,95 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     @Override
     public void commitTransaction2PC(Database db, List<Table> tableList, long transactionId, long timeoutMillis)
             throws UserException {
-        beforeCommitTransaction(tableList, transactionId, timeoutMillis);
-        try {
-            List<OlapTable> mowTableList = getMowTableList(tableList, null);
-            if (!mowTableList.isEmpty()) {
-                if (!checkTransactionStateBeforeCommit(db.getId(), transactionId)) {
+        Set<Long> mowTableIds = getMowTables(tableList).stream().map(Table::getId).collect(Collectors.toSet());
+        for (int attempt = 1; ; attempt++) {
+            try {
+                beforeCommitTransaction(tableList, transactionId, timeoutMillis);
+                try {
+                    List<TabletCommitInfo> tabletCommitInfos = mowTableIds.isEmpty() ? null
+                            : getMow2PCCommitInfos(db.getId(), transactionId, mowTableIds);
+                    // Commit statistics use the persisted MoW tablets.
+                    commitTransactionWithoutLock(db.getId(), tableList, transactionId, tabletCommitInfos, null, true,
+                            Collections.emptyList());
                     return;
+                } finally {
+                    afterCommitTransaction(tableList, transactionId);
+                }
+            } catch (UserException e) {
+                if (e.getErrorCode() != InternalErrorCode.DELETE_BITMAP_LOCK_ERR
+                        || attempt >= Config.mow_calculate_delete_bitmap_retry_times) {
+                    throw e;
+                }
+                LOG.warn("Retry MoW 2PC commit, txnId={}, attempt={}", transactionId, attempt, e);
+                backoff();
+            }
+        }
+    }
+
+    private List<TabletCommitInfo> getMow2PCCommitInfos(long dbId, long txnId, Set<Long> mowTableIds)
+            throws UserException {
+        TxnInfoPB txnInfo = getTxnInfo(dbId, txnId);
+        if (txnInfo == null) {
+            throw new TransactionCommitFailedException("Cannot read transaction " + txnId);
+        }
+        if (txnInfo.getStatus() != TxnStatusPB.TXN_STATUS_PRECOMMITTED) {
+            // Let MetaService report terminal and invalid transaction states.
+            return null;
+        }
+        // A fully filtered load can precommit with no tablets and needs no delete bitmap lock.
+        if (!txnInfo.getIsMowLoad() || txnInfo.getMowPrecommitTableIdsCount() == 0) {
+            throw new TransactionCommitFailedException("Missing MoW precommit metadata for transaction "
+                    + txnId + ". Abort the transaction and reload.");
+        }
+        Set<Long> precommittedMowTableIds = new HashSet<>(txnInfo.getMowPrecommitTableIdsList());
+        List<TabletCommitInfo> commitInfos = new ArrayList<>(txnInfo.getTabletCommitInfosCount());
+        TabletInvertedIndex tabletIndex = Env.getCurrentEnv().getTabletInvertedIndex();
+        for (TabletCommitInfoPB info : txnInfo.getTabletCommitInfosList()) {
+            TabletMeta meta = tabletIndex.getTabletMeta(info.getTabletId());
+            if (meta == null || !mowTableIds.contains(meta.getTableId())
+                    || !precommittedMowTableIds.contains(meta.getTableId())) {
+                throw new TransactionCommitFailedException("Tablet " + info.getTabletId()
+                        + " no longer belongs to a MoW table in transaction " + txnId
+                        + ". Abort the transaction and reload.");
+            }
+            commitInfos.add(new TabletCommitInfo(info.getTabletId(),
+                    getMow2PCBackend(info.getBackendId(), txnInfo.getLoadClusterId())));
+        }
+        return commitInfos;
+    }
+
+    private long getMow2PCBackend(long originalBackendId, String loadClusterId) throws UserException {
+        SystemInfoService systemInfo = Env.getCurrentSystemInfo();
+        Backend original = systemInfo.getBackend(originalBackendId);
+        if (original != null && original.isScheduleAvailable()) {
+            return originalBackendId;
+        }
+        String clusterId = original != null ? original.getCloudClusterId() : loadClusterId;
+        if (!clusterId.isEmpty() && systemInfo instanceof CloudSystemInfoService) {
+            CloudSystemInfoService cloudSystemInfo = (CloudSystemInfoService) systemInfo;
+            for (Backend backend : cloudSystemInfo.getBackendsByClusterId(clusterId)) {
+                if (backend.isScheduleAvailable()) {
+                    return backend.getId();
                 }
             }
-            commitTransactionWithoutLock(db.getId(), tableList, transactionId, null, null, true,
-                    mowTableList, null);
-        } finally {
-            afterCommitTransaction(tableList, transactionId);
         }
+        // The original compute group can be gone. Pending rowsets are stored in the shared vault.
+        for (long backendId : systemInfo.getAllBackendIds(true)) {
+            Backend backend = systemInfo.getBackend(backendId);
+            if (backend != null && backend.isScheduleAvailable()) {
+                return backendId;
+            }
+        }
+        throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                "No available backend to calculate the merge-on-write 2PC delete bitmap");
+    }
+
+    private List<OlapTable> getMowTables(List<Table> tableList) {
+        return tableList.stream()
+                .filter(OlapTable.class::isInstance)
+                .map(OlapTable.class::cast)
+                .filter(OlapTable::getEnableUniqueKeyMergeOnWrite)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -2598,6 +2677,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     subTxnIdToTxnId.get(transactionId));
             transactionId = subTxnIdToTxnId.get(transactionId);
         }
+        TxnInfoPB txnInfo = getTxnInfo(dbId, transactionId);
+        return txnInfo == null ? null : TxnUtil.transactionStateFromPb(txnInfo);
+    }
+
+    private TxnInfoPB getTxnInfo(long dbId, long transactionId) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("try to get transaction state, dbId:{}, transactionId:{}", dbId, transactionId);
         }
@@ -2611,11 +2695,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         GetTxnResponse getTxnResponse = null;
         try {
             if (LOG.isDebugEnabled()) {
-                LOG.info("getTxnRequest:{}", getTxnRequest);
+                LOG.debug("getTxnRequest:{}", getTxnRequest);
             }
             getTxnResponse = MetaServiceProxy
                     .getInstance().getTxn(getTxnRequest);
-            LOG.info("getTxnResponse: {}", getTxnResponse);
+            LOG.debug("getTxnResponse: {}", getTxnResponse);
         } catch (RpcException e) {
             LOG.info("getTransactionState exception: {}", e.getMessage());
             return null;
@@ -2628,7 +2712,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                             + " " + getTxnResponse.getStatus().getMsg());
             return null;
         }
-        return TxnUtil.transactionStateFromPb(getTxnResponse.getTxnInfo());
+        return getTxnResponse.getTxnInfo();
     }
 
     @Override

@@ -1727,6 +1727,76 @@ TEST(RecyclerTest, recycle_prepare_sub_txn_rowset_aborts_parent_before_delete) {
     EXPECT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_ABORTED);
 }
 
+TEST(RecyclerTest, retain_precommitted_mow_tmp_rowset) {
+    RecyclePrepareRowsetConfigGuard config_guard(false);
+
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+    const std::string resource_id = "retain_precommitted_mow_tmp_rowset";
+    auto instance = create_recycler_test_instance(resource_id);
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    auto accessor = recycler.accessor_map_.begin()->second;
+
+    constexpr int64_t db_id = 10300;
+    constexpr int64_t txn_id = 10301;
+    constexpr int64_t tablet_id = 10302;
+    ASSERT_EQ(create_prepared_txn(txn_kv.get(), db_id, tablet_id, txn_id), 0);
+    TxnInfoPB txn_info;
+    ASSERT_EQ(get_txn_info(txn_kv, instance_id, db_id, txn_id, txn_info), 0);
+    txn_info.set_status(TxnStatusPB::TXN_STATUS_PRECOMMITTED);
+    txn_info.set_is_mow_load(true);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(txn_info_key({instance_id, db_id, txn_id}), txn_info.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    doris::TabletSchemaCloudPB schema;
+    schema.set_schema_version(1);
+    auto rowset = create_rowset(resource_id, tablet_id, 10303, 1, schema, txn_id);
+    rowset.mutable_load_id()->set_hi(103);
+    rowset.mutable_load_id()->set_lo(104);
+    ASSERT_EQ(create_tmp_rowset(txn_kv.get(), accessor.get(), rowset, false), 0);
+
+    constexpr int64_t malformed_txn = txn_id - 1;
+    constexpr int64_t visible_txn = txn_id + 1;
+    ASSERT_EQ(create_prepared_txn(txn_kv.get(), db_id, tablet_id, visible_txn), 0);
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    TxnIndexPB malformed_index; // No database ID.
+    txn->put(txn_index_key({instance_id, malformed_txn}), malformed_index.SerializeAsString());
+    TxnInfoPB visible_info;
+    visible_info.set_txn_id(visible_txn);
+    visible_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+    txn->put(txn_info_key({instance_id, db_id, visible_txn}), visible_info.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    auto malformed_rowset = create_rowset(resource_id, tablet_id, 10304, 1, schema, malformed_txn);
+    auto visible_rowset = create_rowset(resource_id, tablet_id, 10305, 1, schema, visible_txn);
+    ASSERT_EQ(create_tmp_rowset(txn_kv.get(), accessor.get(), malformed_rowset, false), 0);
+    ASSERT_EQ(create_tmp_rowset(txn_kv.get(), accessor.get(), visible_rowset, false), 0);
+
+    const std::string retained_metric = "recycler_tmp_rowsets_retained_owner_lookup_failed";
+    const auto retained_before = bvar::Variable::describe_exposed(retained_metric);
+    ASSERT_FALSE(retained_before.empty());
+    ASSERT_EQ(recycler.recycle_tmp_rowsets(), 0);
+    EXPECT_EQ(bvar::Variable::describe_exposed(retained_metric),
+              std::to_string(std::stoll(retained_before) + 1));
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string tmp_rowset_value;
+    EXPECT_EQ(txn->get(meta_rowset_tmp_key({instance_id, txn_id, tablet_id}), &tmp_rowset_value),
+              TxnErrorCode::TXN_OK);
+    EXPECT_EQ(accessor->exists(segment_path(tablet_id, rowset.rowset_id_v2(), 0)), 0);
+    ASSERT_EQ(get_txn_info(txn_kv, instance_id, db_id, txn_id, txn_info), 0);
+    EXPECT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_PRECOMMITTED);
+    EXPECT_EQ(txn->get(meta_rowset_tmp_key({instance_id, malformed_txn, tablet_id}),
+                       &tmp_rowset_value),
+              TxnErrorCode::TXN_OK);
+    auto visible_key = meta_rowset_tmp_key({instance_id, visible_txn, tablet_id});
+    EXPECT_EQ(txn->get(visible_key, &tmp_rowset_value), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    EXPECT_EQ(accessor->exists(segment_path(tablet_id, malformed_rowset.rowset_id_v2(), 0)), 0);
+    EXPECT_EQ(accessor->exists(segment_path(tablet_id, visible_rowset.rowset_id_v2(), 0)), 1);
+}
+
 TEST(RecyclerTest, recycle_sub_txn_tmp_rowset_aborts_parent) {
     RecyclePrepareRowsetConfigGuard config_guard(false);
 

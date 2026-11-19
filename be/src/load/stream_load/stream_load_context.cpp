@@ -377,6 +377,23 @@ bool StreamLoadContext::is_mow_table() const {
            put_result.pipeline_params.is_mow_table;
 }
 
+Status StreamLoadContext::validate_mow_2pc_plan() const {
+    if (!is_mow_table()) {
+        return Status::OK();
+    }
+    const auto& schema = put_result.pipeline_params.fragment.output_sink.olap_table_sink.schema;
+    bool partial_update = schema.__isset.unique_key_update_mode
+                                  ? schema.unique_key_update_mode != TUniqueKeyUpdateMode::UPSERT
+                                  : schema.__isset.is_partial_update && schema.is_partial_update;
+    if (partial_update) {
+        return Status::NotSupported("2PC stream load with merge-on-write partial updates");
+    }
+    if (!schema.changelog_index_schemas.empty()) {
+        return Status::NotSupported("2PC stream load on merge-on-write changelog tables");
+    }
+    return Status::OK();
+}
+
 bool StreamLoadContext::is_tso_enabled() const {
     return put_result.__isset.pipeline_params && put_result.pipeline_params.__isset.enable_tso &&
            put_result.pipeline_params.enable_tso;

@@ -146,6 +146,8 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts("recycler", 
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts("recycler", "recycle_partition_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts("recycler", "recycle_rowset_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycler", "recycle_tmp_rowset_earlest_ts");
+bvar::Adder<int64_t> g_bvar_recycler_tmp_rowsets_retained_owner_lookup_failed(
+        "recycler_tmp_rowsets_retained_owner_lookup_failed");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts("recycler", "recycle_restore_job_earlest_ts");
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);

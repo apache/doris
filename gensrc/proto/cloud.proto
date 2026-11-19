@@ -539,6 +539,13 @@ message TxnTsoFencePB {
     optional int64 fence_tso = 1;
 }
 
+message TabletCommitInfoPB {
+    optional int64 tablet_id = 1;
+    optional int64 backend_id = 2;
+    // Set by MetaService at precommit. An empty string records an omitted rowset.
+    optional string pending_rowset_id = 3;
+}
+
 message TxnInfoPB {
     optional int64 db_id = 1;
     repeated int64 table_ids = 2;
@@ -570,6 +577,10 @@ message TxnInfoPB {
     // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
     optional string load_cluster_id = 22;
     optional int64 commit_tso = 23;
+    repeated TabletCommitInfoPB tablet_commit_infos = 24;
+    // Whether the BE classified the precommitted load as MoW. Absent for older precommits.
+    optional bool is_mow_load = 25;
+    repeated int64 mow_precommit_table_ids = 26 [packed = true];
 }
 
 enum IndexObjectTypePB {
@@ -1090,12 +1101,15 @@ message PrecommitTxnRequest {
     optional TxnCommitAttachmentPB commit_attachment = 4;
     optional int64 precommit_timeout_ms = 5;
     optional string request_ip = 6;
+    repeated TabletCommitInfoPB tablet_commit_infos = 7;
+    optional bool is_mow_load = 8;
+    repeated int64 mow_precommit_table_ids = 9 [packed = true];
 }
 
 message PrecommitTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 txn_id = 2;
-    // TODO: There may be more fields TBD
+    optional bool mow_metadata_persisted = 3;
 }
 
 message CommitTxnRequest {
@@ -1116,6 +1130,8 @@ message CommitTxnRequest {
     repeated TableStreamUpdatePB table_stream_updates = 14;
     // Whether Meta Service should reject commit_tso values at or below its current fence.
     optional bool enable_check_commit_tso_fence = 15;
+    // Initiator of the exclusive MoW 2PC delete-bitmap lock.
+    optional int64 mow_commit_attempt = 16;
 }
 
 message SubTxnInfo {
@@ -1496,6 +1512,8 @@ message GetRowsetRequest {
     optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
     optional string request_ip = 9;
     optional int64 full_compaction_cnt = 10;
+    // Read only the pending rowset for this transaction and tablet.
+    optional int64 pending_txn_id = 11;
 }
 
 message GetRowsetResponse {
@@ -1508,6 +1526,7 @@ message GetRowsetResponse {
     optional int64 partition_max_version = 5;
     // The cluster_id of the requester
     optional string requester_cluster_id = 6;
+    optional bool read_pending_rowset = 7;
 }
 
 message GetSchemaDictRequest {
@@ -2148,6 +2167,8 @@ message RemoveDeleteBitmapResponse {
 
 message PendingDeleteBitmapPB {
     repeated bytes delete_bitmap_keys = 1;
+    optional int64 mow_commit_attempt = 2;
+    optional int64 next_visible_version = 3;
 }
 
 message DeleteBitmapUpdateLockPB {

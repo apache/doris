@@ -27,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "common/bvars.h"
 #include "common/config.h"
@@ -43,6 +44,13 @@
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
+
+void scan_tmp_rowset(
+        const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
+        MetaServiceCode& code, std::string& msg,
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* tmp_rowsets_meta,
+        KVStats* stats, Transaction* txn = nullptr);
+
 // Converts a response code and message to values that older clients can read.
 // set_response_code() stores the original code in actual_code
 // Call this function only from set_response_code() or from unit tests; do not call it from other production code.
@@ -202,6 +210,11 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                   << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
                   << " expiration=" << req->expiration()
                   << " require_compaction_stats=" << req->require_compaction_stats();
+    } else if constexpr (std::is_same_v<Request, PrecommitTxnRequest>) {
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " txn_id=" << req->txn_id()
+                  << " tablet_commit_infos_size=" << req->tablet_commit_infos_size();
+        VLOG_DEBUG << "precommit request=" << req->ShortDebugString();
     } else if constexpr (std::is_same_v<Request, CreateInstanceRequest> ||
                          std::is_same_v<Request, CreateStageRequest> ||
                          std::is_same_v<Request, AlterObjStoreInfoRequest>) {
@@ -224,6 +237,12 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
                   << " response=" << res->ShortDebugString();
+    } else if constexpr (std::is_same_v<Response, GetTxnResponse>) {
+        LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " txn_id=" << res->txn_info().txn_id()
+                  << " tablet_commit_infos_size=" << res->txn_info().tablet_commit_infos_size()
+                  << " status=" << res->status().ShortDebugString();
+        VLOG_DEBUG << "get txn response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetRowsetResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
                 << "finish " << func_name << " remote_caller=" << ctrl->remote_side()

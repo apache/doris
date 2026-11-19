@@ -415,7 +415,8 @@ constexpr bool is_any_v = is_any<T, Ts...>::value;
 
 template <typename Request>
 static std::string debug_info(const Request& req) {
-    if constexpr (is_any_v<Request, CommitTxnRequest, AbortTxnRequest, PrecommitTxnRequest>) {
+    if constexpr (is_any_v<Request, CommitTxnRequest, AbortTxnRequest, PrecommitTxnRequest,
+                           GetTxnRequest>) {
         return fmt::format(" txn_id={}", req.txn_id());
     } else if constexpr (is_any_v<Request, StartTabletJobRequest, FinishTabletJobRequest>) {
         return fmt::format(" tablet_id={}", req.job().idx().tablet_id());
@@ -423,6 +424,8 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" tablet_id={}, lock_id={}", req.tablet_id(), req.lock_id());
     } else if constexpr (is_any_v<Request, GetDeleteBitmapUpdateLockRequest>) {
         return fmt::format(" table_id={}, lock_id={}", req.table_id(), req.lock_id());
+    } else if constexpr (is_any_v<Request, GetRowsetRequest>) {
+        return fmt::format(" tablet_id={}, txn_id={}", req.idx().tablet_id(), req.pending_txn_id());
     } else if constexpr (is_any_v<Request, GetTabletRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, GetObjStoreInfoRequest, ListSnapshotRequest,
@@ -560,6 +563,7 @@ Status retry_rpc(MetaServiceRPC rpc, const Request& req, Response* res,
                  const RpcRateLimitCtx& rate_limit_ctx = {}) {
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::retry_rpc", Status::OK(), &rpc, &req, res);
 
     std::string_view op_name = meta_service_rpc_display_name(rpc);
 
@@ -917,6 +921,15 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
                                                    options.full_sync, read_version));
             RETURN_IF_ERROR(
                     _check_delete_bitmap_v2_correctness(tablet, req, resp, old_max_version));
+        }
+        // The remote rowset list confirms publication even when fast publish was skipped.
+        if (tablet->enable_unique_key_merge_on_write() && !resp.rowset_meta().empty()) {
+            std::vector<int64_t> txn_ids;
+            txn_ids.reserve(resp.rowset_meta_size());
+            for (const auto& rowset : resp.rowset_meta()) {
+                txn_ids.push_back(rowset.txn_id());
+            }
+            tablet->discard_fenced_writer_baselines(txn_ids);
         }
         DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.modify_tablet_meta", {
             auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
@@ -1832,11 +1845,82 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
-    return retry_rpc(MetaServiceRPC::PRECOMMIT_TXN, req, &res, &MetaService_Stub::precommit_txn,
-                     {
-                             .host_limiters = host_level_ms_rpc_rate_limiters_,
-                             .backpressure_handler = ms_backpressure_handler_,
-                     });
+    // Both HTTP entry points plan a single table. Skip metadata lookups for non-MoW loads.
+    req.set_is_mow_load(ctx.is_mow_table());
+    if (req.is_mow_load()) {
+        RETURN_IF_ERROR(ctx.validate_mow_2pc_plan());
+        const auto& sink = ctx.put_result.pipeline_params.fragment.output_sink.olap_table_sink;
+        req.add_mow_precommit_table_ids(sink.table_id);
+        for (const auto& info : ctx.commit_infos) {
+            auto* commit_info = req.add_tablet_commit_infos();
+            commit_info->set_tablet_id(info.tabletId);
+            commit_info->set_backend_id(info.backendId);
+        }
+    }
+    auto precommit = [&]() -> Status {
+        TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::precommit_txn.before_rpc", Status::OK(),
+                                          &req, &res);
+        return retry_rpc(MetaServiceRPC::PRECOMMIT_TXN, req, &res, &MetaService_Stub::precommit_txn,
+                         {
+                                 .host_limiters = host_level_ms_rpc_rate_limiters_,
+                                 .backpressure_handler = ms_backpressure_handler_,
+                         });
+    };
+    auto status = precommit();
+    // A retry can see durable precommit after the original acknowledgement was lost.
+    // A legacy MetaService can report success after dropping the MoW fields.
+    if (req.is_mow_load() &&
+        (status.ok() || res.status().code() == MetaServiceCode::TXN_ALREADY_PRECOMMITED)) {
+        if (res.mow_metadata_persisted()) {
+            // A retry acknowledges the stored mapping. Commit validates it against the
+            // pending rowsets in the same transaction that publishes them.
+            return Status::OK();
+        }
+        return Status::NotSupported(
+                "Cannot precommit a merge-on-write 2PC load: upgrade MetaService");
+    }
+    return status;
+}
+
+Status CloudMetaMgr::get_txn(int64_t txn_id, int64_t db_id, TxnInfoPB* info) {
+    GetTxnRequest req;
+    GetTxnResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(txn_id);
+    if (db_id > 0) {
+        req.set_db_id(db_id);
+    }
+    RETURN_IF_ERROR(retry_rpc(MetaServiceRPC::GET_TXN, req, &res, &MetaService_Stub::get_txn,
+                              {
+                                      .host_limiters = host_level_ms_rpc_rate_limiters_,
+                                      .backpressure_handler = ms_backpressure_handler_,
+                              }));
+    info->Swap(res.mutable_txn_info());
+    return Status::OK();
+}
+
+Status CloudMetaMgr::get_pending_rowset(int64_t txn_id, int64_t tablet_id,
+                                        RowsetSharedPtr* rowset) {
+    GetRowsetRequest req;
+    GetRowsetResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_pending_txn_id(txn_id);
+    req.mutable_idx()->set_tablet_id(tablet_id);
+    RETURN_IF_ERROR(retry_rpc(MetaServiceRPC::GET_ROWSET, req, &res, &MetaService_Stub::get_rowset,
+                              {
+                                      .host_limiters = host_level_ms_rpc_rate_limiters_,
+                                      .backpressure_handler = ms_backpressure_handler_,
+                              }));
+    if (!res.read_pending_rowset()) {
+        return Status::NotSupported("MetaService does not support reading pending rowsets");
+    }
+    if (res.rowset_meta().empty()) {
+        // The caller checks the precommit mapping before accepting an omitted rowset.
+        return Status::OK();
+    }
+    auto meta = std::make_shared<RowsetMeta>();
+    meta->init_from_pb(cloud_rowset_meta_to_doris(std::move(*res.mutable_rowset_meta(0))));
+    return RowsetFactory::create_rowset(nullptr, "", meta, rowset);
 }
 
 Status CloudMetaMgr::prepare_restore_job(const TabletMetaPB& tablet_meta) {
@@ -2037,7 +2121,10 @@ static Status store_delete_bitmap(std::string& rowset_id, DeleteBitmapPB& delete
         return Status::OK();
     }
     DeleteBitmapStoragePB delete_bitmap_storage;
-    if (config::delete_bitmap_store_v2_max_bytes_in_fdb >= 0 &&
+    // Keep fenced bitmaps inline even above the configured file threshold. A losing
+    // attempt could otherwise overwrite a standalone file keyed only by rowset ID.
+    bool fenced_load = req.lock_id() > 0 && req.initiator() < -1;
+    if (!fenced_load && config::delete_bitmap_store_v2_max_bytes_in_fdb >= 0 &&
         delete_bitmap_pb.ByteSizeLong() > config::delete_bitmap_store_v2_max_bytes_in_fdb) {
         // Enable packed file only for load (txn_id > 0)
         bool enable_packed = config::enable_packed_file && txn_id > 0;
@@ -2190,6 +2277,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                 "test update delete bitmap failed, tablet_id: {}, lock_id: {}", tablet.tablet_id(),
                 lock_id);
     });
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::update_delete_bitmap.before_rpc", Status::OK(),
+                                      &req);
     auto st = retry_rpc(MetaServiceRPC::UPDATE_DELETE_BITMAP, req, &res,
                         &MetaService_Stub::update_delete_bitmap,
                         {
@@ -2203,7 +2292,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
         LOG_WARNING(msg);
         CHECK(false) << msg;
     }
-    if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
+    if (res.status().code() == MetaServiceCode::LOCK_EXPIRED ||
+        (initiator < -1 && res.status().code() == MetaServiceCode::VERSION_NOT_MATCH)) {
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}, initiator: "
                 "{}, error_msg: {}",

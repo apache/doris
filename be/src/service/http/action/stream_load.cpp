@@ -842,7 +842,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
     ctx->put_result.pipeline_params.query_options.__set_enable_insert_strict(strictMode);
     if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
-        return Status::NotSupported("stream load 2pc is unsupported for mow table");
+        if (!ctx->put_result.__isset.supports_cloud_mow_2pc ||
+            !ctx->put_result.supports_cloud_mow_2pc) {
+            return Status::NotSupported("stream load 2pc is unsupported for mow table; upgrade FE");
+        }
+        RETURN_IF_ERROR(ctx->validate_mow_2pc_plan());
+        ctx->put_result.pipeline_params.fragment.output_sink.olap_table_sink.__set_is_cloud_mow_2pc(
+                true);
     }
     if (iequal(ctx->group_commit_mode, ASYNC_MODE)) {
         // FIXME find a way to avoid chunked stream load write large WALs

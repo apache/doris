@@ -2031,15 +2031,60 @@ TEST(MetaServiceTest, PrecommitTest1) {
         req.set_txn_id(txn_id);
         req.set_precommit_timeout_ms(36000);
         PrecommitTxnResponse res;
+        req.set_is_mow_load(true);
+        req.add_mow_precommit_table_ids(table_id);
+        // Move the durable prepare time back so the load has expired without sleeping.
+        auto expired = txn_info;
+        expired.set_prepare_time(1);
+        txn->put(info_key, expired.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        auto* expired_info = req.add_tablet_commit_infos();
+        expired_info->set_tablet_id(1234);
+        expired_info->set_backend_id(5678);
+        meta_service->precommit_txn(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_INVALID_STATUS);
+        EXPECT_FALSE(res.has_mow_metadata_persisted());
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(info_key, info_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        req.clear_tablet_commit_infos();
+        cntl.Reset();
+        res.Clear();
+
+        // The rejection must leave the transaction PREPARED, so a smaller request can succeed.
+        for (int i = 0; i < 15000; ++i) {
+            auto* info = req.add_tablet_commit_infos();
+            info->set_tablet_id(10000 + i);
+            info->set_backend_id(5678);
+        }
+        meta_service->precommit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_NE(res.status().msg().find("100,000-byte"), std::string::npos);
+        EXPECT_FALSE(res.has_mow_metadata_persisted());
+
+        req.clear_tablet_commit_infos();
+        auto* tablet_info = req.add_tablet_commit_infos();
+        tablet_info->set_tablet_id(1234);
+        tablet_info->set_backend_id(5678);
+        cntl.Reset();
+        res.Clear();
         meta_service->precommit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                     &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.mow_metadata_persisted());
 
         err = meta_service->txn_kv()->create_txn(&txn);
         ASSERT_EQ(err, TxnErrorCode::TXN_OK);
         ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
         txn_info.ParseFromString(info_val);
         ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_PRECOMMITTED);
+        EXPECT_TRUE(txn_info.is_mow_load());
+        ASSERT_EQ(txn_info.tablet_commit_infos_size(), 1);
+        EXPECT_EQ(txn_info.tablet_commit_infos(0).tablet_id(), 1234);
+        EXPECT_EQ(txn_info.tablet_commit_infos(0).backend_id(), 5678);
+        EXPECT_TRUE(txn_info.tablet_commit_infos(0).has_pending_rowset_id());
+        EXPECT_TRUE(txn_info.tablet_commit_infos(0).pending_rowset_id().empty());
     }
 }
 
@@ -2229,6 +2274,342 @@ TEST(MetaServiceTest, PrecommitTxnReplayDoesNotChangeTxnMetadata) {
     ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
     ASSERT_EQ(info_val, visible_info_val);
     ASSERT_EQ(txn->get(running_key, &replay_running_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+}
+
+TEST(MetaServiceTest, CommitEmptyMow2PCTxnWithoutBitmapLock) {
+    auto meta_service = get_meta_service();
+    constexpr int64_t db_id = 666;
+    constexpr int64_t table_id = 1234;
+
+    brpc::Controller cntl;
+    BeginTxnRequest begin_req;
+    begin_req.set_cloud_unique_id("test_cloud_unique_id");
+    auto* begin_info = begin_req.mutable_txn_info();
+    begin_info->set_db_id(db_id);
+    begin_info->set_label("commit_empty_mow_2pc");
+    begin_info->add_table_ids(table_id);
+    begin_info->set_timeout_ms(36000);
+    begin_info->set_precommit_timeout_ms(36000);
+    BeginTxnResponse begin_res;
+    meta_service->begin_txn(&cntl, &begin_req, &begin_res, nullptr);
+    ASSERT_EQ(begin_res.status().code(), MetaServiceCode::OK);
+    const int64_t txn_id = begin_res.txn_id();
+
+    cntl.Reset();
+    PrecommitTxnRequest precommit_req;
+    precommit_req.set_cloud_unique_id(begin_req.cloud_unique_id());
+    precommit_req.set_db_id(db_id);
+    precommit_req.set_txn_id(txn_id);
+    precommit_req.set_is_mow_load(true);
+    precommit_req.add_mow_precommit_table_ids(table_id);
+    PrecommitTxnResponse precommit_res;
+    meta_service->precommit_txn(&cntl, &precommit_req, &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::OK);
+    EXPECT_TRUE(precommit_res.mow_metadata_persisted());
+
+    cntl.Reset();
+    precommit_res.Clear();
+    meta_service->precommit_txn(&cntl, &precommit_req, &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::TXN_ALREADY_PRECOMMITED);
+    EXPECT_TRUE(precommit_res.mow_metadata_persisted());
+
+    cntl.Reset();
+    CommitTxnRequest commit_req;
+    commit_req.set_cloud_unique_id(begin_req.cloud_unique_id());
+    commit_req.set_db_id(db_id);
+    commit_req.set_txn_id(txn_id);
+    commit_req.set_is_2pc(true);
+    CommitTxnResponse commit_res;
+    // Simulate a rowset appearing after the empty mapping was persisted.
+    constexpr int64_t tablet_id = 1103;
+    const auto rowset = create_rowset(txn_id, tablet_id, 1236);
+    const auto tmp_key = meta_rowset_tmp_key({mock_instance, txn_id, tablet_id});
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(tmp_key, rowset.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    meta_service->commit_txn(&cntl, &commit_req, &commit_res, nullptr);
+    ASSERT_EQ(commit_res.status().code(), MetaServiceCode::TXN_INVALID_STATUS);
+
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->remove(tmp_key);
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto commit = [&] {
+        cntl.Reset();
+        commit_res.Clear();
+        meta_service->commit_txn(&cntl, &commit_req, &commit_res, nullptr);
+        return commit_res.status().code();
+    };
+    commit_req.set_mow_commit_attempt(-42);
+    ASSERT_EQ(commit(), MetaServiceCode::INVALID_ARGUMENT);
+    commit_req.add_mow_table_ids(table_id);
+    ASSERT_EQ(commit(), MetaServiceCode::INVALID_ARGUMENT);
+    commit_req.clear_mow_commit_attempt();
+    ASSERT_EQ(commit(), MetaServiceCode::INVALID_ARGUMENT);
+    commit_req.clear_mow_table_ids();
+
+    const auto info_key = txn_info_key({mock_instance, db_id, txn_id});
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string info_val;
+    ASSERT_EQ(txn->get(info_key, &info_val), TxnErrorCode::TXN_OK);
+    TxnInfoPB txn_info;
+    ASSERT_TRUE(txn_info.ParseFromString(info_val));
+    const auto precommit_time = txn_info.precommit_time();
+
+    // The prepare window is still open, but the precommit window has expired.
+    txn_info.set_precommit_time(1);
+    txn->put(info_key, txn_info.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(commit(), MetaServiceCode::UNDEFINED_ERR);
+    EXPECT_NE(commit_res.status().msg().find("txn is expired"), std::string::npos);
+
+    // An open precommit window permits commit even after the prepare window expires.
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn_info.set_prepare_time(1);
+    txn_info.set_precommit_time(precommit_time);
+    txn->put(info_key, txn_info.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(commit(), MetaServiceCode::OK);
+    EXPECT_EQ(commit_res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+}
+
+TEST(MetaServiceTest, Commit2PCTxnChecksMowLock) {
+    auto meta_service = get_meta_service();
+    const int64_t db_id = 666;
+    const int64_t table_id = 1234;
+    const int64_t partition_id = 1236;
+    const int64_t tablet_id = 1103;
+    const int64_t second_tablet_id = 1104;
+
+    brpc::Controller cntl;
+    BeginTxnRequest begin_req;
+    begin_req.set_cloud_unique_id("test_cloud_unique_id");
+    auto* begin_info = begin_req.mutable_txn_info();
+    begin_info->set_db_id(db_id);
+    begin_info->set_label("commit_mow_2pc_lock");
+    begin_info->add_table_ids(table_id);
+    begin_info->set_timeout_ms(36000);
+    begin_info->set_precommit_timeout_ms(36000);
+    BeginTxnResponse begin_res;
+    meta_service->begin_txn(&cntl, &begin_req, &begin_res, nullptr);
+    ASSERT_EQ(begin_res.status().code(), MetaServiceCode::OK);
+    const int64_t txn_id = begin_res.txn_id();
+
+    create_tablet_with_db_id(meta_service.get(), db_id, table_id, 1235, partition_id, tablet_id);
+    create_tablet_with_db_id(meta_service.get(), db_id, table_id, 1235, partition_id,
+                             second_tablet_id);
+    auto rowset = create_rowset(txn_id, tablet_id, partition_id);
+    auto second_rowset = create_rowset(txn_id, second_tablet_id, partition_id);
+    for (const auto& pending : {rowset, second_rowset}) {
+        CreateRowsetResponse rowset_res;
+        prepare_rowset(meta_service.get(), pending, rowset_res);
+        ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+        commit_rowset(meta_service.get(), pending, rowset_res);
+        ASSERT_EQ(rowset_res.status().code(), MetaServiceCode::OK);
+    }
+
+    cntl.Reset();
+    PrecommitTxnRequest precommit_req;
+    precommit_req.set_cloud_unique_id(begin_req.cloud_unique_id());
+    precommit_req.set_db_id(db_id);
+    precommit_req.set_txn_id(txn_id);
+    precommit_req.set_is_mow_load(true);
+    precommit_req.add_mow_precommit_table_ids(table_id);
+    PrecommitTxnResponse precommit_res;
+    meta_service->precommit_txn(&cntl, &precommit_req, &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_NE(precommit_res.status().msg().find("missing tablet commit mappings"),
+              std::string::npos);
+    EXPECT_FALSE(precommit_res.has_mow_metadata_persisted());
+
+    cntl.Reset();
+    precommit_res.Clear();
+    for (auto id : {tablet_id, second_tablet_id}) {
+        auto* info = precommit_req.add_tablet_commit_infos();
+        info->set_tablet_id(id);
+        info->set_backend_id(5678);
+    }
+    precommit_req.mutable_tablet_commit_infos()->RemoveLast();
+    meta_service->precommit_txn(&cntl, &precommit_req, &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_FALSE(precommit_res.has_mow_metadata_persisted());
+
+    auto* second_info = precommit_req.add_tablet_commit_infos();
+    second_info->set_tablet_id(second_tablet_id);
+    second_info->set_backend_id(5678);
+    cntl.Reset();
+    precommit_res.Clear();
+    meta_service->precommit_txn(&cntl, &precommit_req, &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(precommit_res.mow_metadata_persisted());
+
+    cntl.Reset();
+    precommit_res.Clear();
+    meta_service->precommit_txn(&cntl, &precommit_req, &precommit_res, nullptr);
+    ASSERT_EQ(precommit_res.status().code(), MetaServiceCode::TXN_ALREADY_PRECOMMITED);
+    EXPECT_TRUE(precommit_res.has_mow_metadata_persisted());
+    EXPECT_TRUE(precommit_res.mow_metadata_persisted());
+
+    CommitTxnRequest commit_req;
+    commit_req.set_cloud_unique_id(begin_req.cloud_unique_id());
+    commit_req.set_db_id(db_id);
+    commit_req.set_txn_id(txn_id);
+    commit_req.set_is_2pc(true);
+    commit_req.set_enable_txn_lazy_commit(true);
+    auto commit = [&] {
+        brpc::Controller controller;
+        CommitTxnResponse res;
+        meta_service->commit_txn(&controller, &commit_req, &res, nullptr);
+        EXPECT_FALSE(res.is_lazy_commit());
+        return res;
+    };
+    EXPECT_EQ(commit().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    commit_req.add_mow_table_ids(table_id);
+    EXPECT_EQ(commit().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    commit_req.clear_mow_table_ids();
+    commit_req.add_mow_table_ids(table_id + 1);
+    constexpr int64_t old_attempt = -42;
+    constexpr int64_t new_attempt = -44;
+    commit_req.set_mow_commit_attempt(old_attempt);
+    EXPECT_EQ(commit().status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    commit_req.clear_mow_table_ids();
+    commit_req.add_mow_table_ids(table_id);
+
+    auto acquire = [&](int64_t attempt, int64_t expiration, bool urgent = false) {
+        brpc::Controller controller;
+        GetDeleteBitmapUpdateLockRequest req;
+        req.set_cloud_unique_id(begin_req.cloud_unique_id());
+        req.set_table_id(table_id);
+        req.set_lock_id(txn_id);
+        req.set_initiator(attempt);
+        req.set_expiration(expiration);
+        req.set_urgent(urgent);
+        GetDeleteBitmapUpdateLockResponse res;
+        meta_service->get_delete_bitmap_update_lock(&controller, &req, &res, nullptr);
+        return res.status().code();
+    };
+    auto write_bitmap = [&](int64_t target_tablet, int64_t attempt, int64_t version) {
+        brpc::Controller controller;
+        UpdateDeleteBitmapRequest req;
+        req.set_cloud_unique_id(begin_req.cloud_unique_id());
+        req.set_table_id(table_id);
+        req.set_partition_id(partition_id);
+        req.set_tablet_id(target_tablet);
+        req.set_txn_id(txn_id);
+        req.set_lock_id(txn_id);
+        req.set_initiator(attempt);
+        req.set_next_visible_version(version);
+        UpdateDeleteBitmapResponse res;
+        meta_service->update_delete_bitmap(&controller, &req, &res, nullptr);
+        return res.status().code();
+    };
+    ASSERT_EQ(acquire(old_attempt, 60), MetaServiceCode::OK);
+    EXPECT_EQ(acquire(new_attempt, 60), MetaServiceCode::LOCK_CONFLICT);
+    EXPECT_EQ(acquire(new_attempt, 60, true), MetaServiceCode::LOCK_CONFLICT);
+    EXPECT_EQ(write_bitmap(tablet_id, -1, 2), MetaServiceCode::LOCK_EXPIRED);
+    EXPECT_EQ(commit().status().code(), MetaServiceCode::LOCK_EXPIRED); // Bitmap work is required.
+    ASSERT_EQ(write_bitmap(tablet_id, old_attempt, 2), MetaServiceCode::OK);
+
+    // Simulate lease expiry without sleeping. Only the new attempt may publish.
+    const auto lock_key = meta_delete_bitmap_update_lock_key({mock_instance, table_id, -1});
+    std::unique_ptr<Transaction> kv_txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&kv_txn), TxnErrorCode::TXN_OK);
+    std::string val;
+    ASSERT_EQ(kv_txn->get(lock_key, &val), TxnErrorCode::TXN_OK);
+    DeleteBitmapUpdateLockPB lock;
+    ASSERT_TRUE(lock.ParseFromString(val));
+    lock.set_expiration(1);
+    kv_txn->put(lock_key, lock.SerializeAsString());
+    ASSERT_EQ(kv_txn->commit(), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(acquire(new_attempt, 60), MetaServiceCode::OK);
+    EXPECT_EQ(commit().status().code(), MetaServiceCode::LOCK_EXPIRED);
+    EXPECT_EQ(write_bitmap(tablet_id, old_attempt, 2), MetaServiceCode::LOCK_EXPIRED);
+
+    brpc::Controller unlock_cntl;
+    RemoveDeleteBitmapUpdateLockRequest unlock_req;
+    unlock_req.set_cloud_unique_id(begin_req.cloud_unique_id());
+    unlock_req.set_table_id(table_id);
+    unlock_req.set_lock_id(txn_id);
+    unlock_req.set_initiator(old_attempt);
+    RemoveDeleteBitmapUpdateLockResponse unlock_res;
+    meta_service->remove_delete_bitmap_update_lock(&unlock_cntl, &unlock_req, &unlock_res, nullptr);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&kv_txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(kv_txn->get(lock_key, &val), TxnErrorCode::TXN_OK);
+    ASSERT_TRUE(lock.ParseFromString(val));
+    ASSERT_EQ(lock.initiators_size(), 1);
+    EXPECT_EQ(lock.initiators(0), new_attempt);
+
+    cntl.Reset();
+    GetTxnRequest get_req;
+    get_req.set_cloud_unique_id(begin_req.cloud_unique_id());
+    get_req.set_db_id(db_id);
+    get_req.set_txn_id(txn_id);
+    GetTxnResponse get_res;
+    meta_service->get_txn(&cntl, &get_req, &get_res, nullptr);
+    ASSERT_EQ(get_res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(get_res.txn_info().status(), TxnStatusPB::TXN_STATUS_PRECOMMITTED);
+    ASSERT_TRUE(get_res.txn_info().is_mow_load());
+    ASSERT_EQ(get_res.txn_info().tablet_commit_infos_size(), 2);
+    EXPECT_EQ(get_res.txn_info().tablet_commit_infos(0).tablet_id(), tablet_id);
+    EXPECT_EQ(get_res.txn_info().tablet_commit_infos(0).backend_id(), 5678);
+    EXPECT_EQ(get_res.txn_info().tablet_commit_infos(0).pending_rowset_id(), rowset.rowset_id_v2());
+    EXPECT_EQ(get_res.txn_info().tablet_commit_infos(1).pending_rowset_id(),
+              second_rowset.rowset_id_v2());
+    ASSERT_EQ(get_res.txn_info().mow_precommit_table_ids_size(), 1);
+    EXPECT_EQ(get_res.txn_info().mow_precommit_table_ids(0), table_id);
+
+    commit_req.set_mow_commit_attempt(new_attempt);
+    EXPECT_EQ(commit().status().code(), MetaServiceCode::LOCK_EXPIRED);
+    ASSERT_EQ(write_bitmap(tablet_id, new_attempt, 2), MetaServiceCode::OK);
+
+    brpc::Controller pending_cntl;
+    GetRowsetRequest pending_req;
+    pending_req.set_cloud_unique_id(begin_req.cloud_unique_id());
+    pending_req.set_pending_txn_id(txn_id);
+    pending_req.mutable_idx()->set_tablet_id(tablet_id);
+    GetRowsetResponse pending_res;
+    meta_service->get_rowset(&pending_cntl, &pending_req, &pending_res, nullptr);
+    ASSERT_EQ(pending_res.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(pending_res.read_pending_rowset());
+    ASSERT_EQ(pending_res.rowset_meta_size(), 1);
+    EXPECT_EQ(pending_res.rowset_meta(0).rowset_id_v2(), rowset.rowset_id_v2());
+    EXPECT_TRUE(pending_res.rowset_meta(0).has_tablet_schema());
+
+    // Model an intervening publish. Commit must recheck the version in its KV transaction.
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&kv_txn), TxnErrorCode::TXN_OK);
+    VersionPB version;
+    version.set_version(2);
+    kv_txn->put(partition_version_key({mock_instance, db_id, table_id, partition_id}),
+                version.SerializeAsString());
+    ASSERT_EQ(kv_txn->commit(), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(commit().status().code(), MetaServiceCode::LOCK_EXPIRED);
+    ASSERT_EQ(write_bitmap(tablet_id, new_attempt, 3), MetaServiceCode::OK);
+    ASSERT_EQ(write_bitmap(second_tablet_id, new_attempt, 3), MetaServiceCode::OK);
+
+    // Simulate the recycler removing part of the acknowledged load. The surviving rowset
+    // already has the winning bitmap, but must not be made visible on its own.
+    auto missing_key = meta_rowset_tmp_key({mock_instance, txn_id, second_tablet_id});
+    std::string missing_value;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&kv_txn), TxnErrorCode::TXN_OK);
+    ASSERT_EQ(kv_txn->get(missing_key, &missing_value), TxnErrorCode::TXN_OK);
+    kv_txn->remove(missing_key);
+    ASSERT_EQ(kv_txn->commit(), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(commit().status().code(), MetaServiceCode::TXN_INVALID_STATUS);
+    cntl.Reset();
+    meta_service->get_txn(&cntl, &get_req, &get_res, nullptr);
+    ASSERT_EQ(get_res.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(get_res.txn_info().status(), TxnStatusPB::TXN_STATUS_PRECOMMITTED);
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&kv_txn), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(kv_txn->get(meta_rowset_key({mock_instance, tablet_id, 3}), &val),
+              TxnErrorCode::TXN_KEY_NOT_FOUND);
+    kv_txn->put(missing_key, missing_value);
+    ASSERT_EQ(kv_txn->commit(), TxnErrorCode::TXN_OK);
+
+    auto committed = commit();
+    ASSERT_EQ(committed.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(committed.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    EXPECT_EQ(committed.txn_info().tablet_commit_infos_size(), 0);
 }
 
 TEST(MetaServiceTest, CommitTxnTest) {
@@ -6465,9 +6846,11 @@ void testUrgentLoadDeleteBitmapLock(int lock_version) {
         return res.status().code();
     };
 
+    constexpr int64_t fenced_attempt = -42;
     // An urgent load must preserve an active schema change lock.
     ASSERT_EQ(get_lock(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, 100, 100, false), MetaServiceCode::OK);
     ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::LOCK_CONFLICT);
+    ASSERT_EQ(get_lock(888, fenced_attempt, 60, true), MetaServiceCode::LOCK_CONFLICT);
     check_delete_bitmap_lock_id(meta_service.get(), table_id, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
     if (lock_version == 2) {
         check_mow_tablet_job_key(meta_service.get(), table_id, 100, true);
@@ -6493,8 +6876,17 @@ void testUrgentLoadDeleteBitmapLock(int lock_version) {
     }
     remove_delete_bitmap_lock(meta_service.get(), table_id);
 
-    // The existing force-take behavior for another load lock is unchanged.
+    ASSERT_EQ(get_lock(COMPACTION_DELETE_BITMAP_LOCK_ID, 103, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, fenced_attempt, 60, true), MetaServiceCode::OK);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    ASSERT_EQ(get_lock(777, -1, 60, true), MetaServiceCode::LOCK_CONFLICT);
+    ASSERT_EQ(get_lock(777, -44, 60, true), MetaServiceCode::LOCK_CONFLICT);
+    check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+
+    // An urgent 1PC load can still take another 1PC load's lock.
     ASSERT_EQ(get_lock(777, -1, 100, false), MetaServiceCode::OK);
+    ASSERT_EQ(get_lock(888, fenced_attempt, 60, true), MetaServiceCode::LOCK_CONFLICT);
     ASSERT_EQ(get_lock(888, -1, 60, true), MetaServiceCode::OK);
     check_delete_bitmap_lock_id(meta_service.get(), table_id, 888);
     remove_delete_bitmap_lock(meta_service.get(), table_id);

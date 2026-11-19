@@ -555,6 +555,7 @@ struct TCalcDeleteBitmapPartitionInfo {
 struct TCalcDeleteBitmapRequest {
     1: required Types.TTransactionId transaction_id
     2: required list<TCalcDeleteBitmapPartitionInfo> partitions;
+    3: optional i64 lock_initiator; // Per-attempt fence for cloud MoW 2PC.
 }
 
 struct TClearAlterTaskRequest {

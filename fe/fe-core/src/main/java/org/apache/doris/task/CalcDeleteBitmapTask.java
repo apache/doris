@@ -37,16 +37,18 @@ public class CalcDeleteBitmapTask extends AgentTask  {
     private long transactionId;
     private List<TCalcDeleteBitmapPartitionInfo> partitionInfos;
     private List<Long> errorTablets;
+    private final long lockInitiator;
 
     public CalcDeleteBitmapTask(long backendId, long transactionId, long dbId,
             List<TCalcDeleteBitmapPartitionInfo> partitionInfos, long signature,
-            MarkedCountDownLatch<Long, Long> latch) {
+            MarkedCountDownLatch<Long, Long> latch, long lockInitiator) {
         super(null, backendId, TTaskType.CALCULATE_DELETE_BITMAP, dbId, -1L, -1L, -1L, -1L, signature);
         this.transactionId = transactionId;
         this.partitionInfos = partitionInfos;
         this.errorTablets = new ArrayList<Long>();
         this.isFinished = false;
         this.latch = latch;
+        this.lockInitiator = lockInitiator;
     }
 
     public void countDownLatch(long backendId, long transactionId) {
@@ -90,6 +92,9 @@ public class CalcDeleteBitmapTask extends AgentTask  {
     public TCalcDeleteBitmapRequest toThrift() {
         TCalcDeleteBitmapRequest calcDeleteBitmapRequest = new TCalcDeleteBitmapRequest(transactionId,
                 partitionInfos);
+        if (lockInitiator < -1) {
+            calcDeleteBitmapRequest.setLockInitiator(lockInitiator);
+        }
         return calcDeleteBitmapRequest;
     }
 

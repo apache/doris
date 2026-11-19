@@ -209,6 +209,8 @@ public class StreamLoadHandlerTest {
         OlapTable second = Mockito.spy(new OlapTable());
         Mockito.doReturn(42L).when(second).getId();
         generateMetadataPlan(handler, second, request);
+        Assertions.assertTrue(result.isSetSupportsCloudMow2pc());
+        Assertions.assertTrue(result.isSupportsCloudMow2pc());
         Assertions.assertEquals(17, result.getDbId());
         Assertions.assertEquals(41, result.getTableId());
         Assertions.assertEquals(7, result.getBaseSchemaVersion());

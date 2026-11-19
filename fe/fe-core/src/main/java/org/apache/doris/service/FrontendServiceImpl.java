@@ -3264,6 +3264,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TOlapTableSink sink = httpStreamParams.getParams().getFragment().getOutputSink().getOlapTableSink();
         result.getPipelineParams().setIsMowTable(table.getEnableUniqueKeyMergeOnWrite());
         result.getPipelineParams().setEnableTso(table.enableTso());
+        result.setSupportsCloudMow2pc(true);
         result.setTableId(sink.getTableId());
         result.setBaseSchemaVersion(sink.getBaseSchemaVersion());
         result.setGroupCommitIntervalMs(table.getGroupCommitIntervalMs());

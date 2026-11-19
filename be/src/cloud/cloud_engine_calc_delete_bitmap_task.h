@@ -20,7 +20,11 @@
 #include <gen_cpp/AgentService_types.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -36,7 +40,9 @@ class CloudTabletCalcDeleteBitmapTask {
 public:
     CloudTabletCalcDeleteBitmapTask(CloudStorageEngine& engine, int64_t tablet_id,
                                     int64_t transaction_id, int64_t version,
-                                    const std::vector<int64_t>& sub_txn_ids);
+                                    const std::vector<int64_t>& sub_txn_ids,
+                                    int64_t lock_initiator = -1,
+                                    CloudEngineCalcDeleteBitmapTask* engine_task = nullptr);
     ~CloudTabletCalcDeleteBitmapTask() = default;
 
     void set_compaction_stats(int64_t ms_base_compaction_cnt, int64_t ms_cumulative_compaction_cnt,
@@ -57,6 +63,8 @@ private:
     int64_t _transaction_id;
     int64_t _version;
     std::vector<int64_t> _sub_txn_ids;
+    const int64_t _lock_initiator;
+    CloudEngineCalcDeleteBitmapTask* const _engine_task;
 
     int64_t _ms_base_compaction_cnt {-1};
     int64_t _ms_cumulative_compaction_cnt {-1};
@@ -75,11 +83,17 @@ public:
 
     void add_error_tablet_id(int64_t tablet_id, const Status& err);
     void add_succ_tablet_id(int64_t tablet_id);
+    Status get_pending_rowset_id(int64_t tablet_id, std::string_view* rowset_id);
+    Status recover_pending_rowset(int64_t tablet_id, RowsetSharedPtr* rowset);
 
 private:
     CloudStorageEngine& _engine;
     const TCalcDeleteBitmapRequest& _cal_delete_bitmap_req;
+    const int64_t _lock_initiator;
     std::mutex _mutex;
+    std::once_flag _load_precommit_once;
+    Status _load_precommit_status;
+    std::unordered_map<int64_t, std::string> _pending_rowset_ids;
     std::vector<TTabletId>* _error_tablet_ids;
     std::vector<TTabletId>* _succ_tablet_ids;
 

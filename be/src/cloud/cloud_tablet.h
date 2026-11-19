@@ -326,7 +326,8 @@ public:
 
     Status save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                     DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                    int64_t next_visible_version, RowsetSharedPtr rowset);
+                                    int64_t next_visible_version, RowsetSharedPtr rowset,
+                                    int64_t lock_initiator = -1);
 
     Status calc_delete_bitmap_for_compaction(const std::vector<RowsetSharedPtr>& input_rowsets,
                                              const RowsetSharedPtr& output_rowset,
@@ -420,6 +421,8 @@ public:
     // This should be called after receiving FE notification or when new rowsets are added
     // @return Status::OK() if successfully applied, error otherwise
     void apply_visible_pending_rowsets();
+
+    void discard_fenced_writer_baselines(const std::vector<int64_t>& txn_ids);
 
     void try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
                                        int64_t version_update_time_ms);

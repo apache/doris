@@ -48,12 +48,6 @@ namespace doris::cloud {
 void get_txn_db_id(TxnKv* txn_kv, const std::string& instance_id, int64_t txn_id,
                    MetaServiceCode& code, std::string& msg, int64_t* db_id, KVStats* stats);
 
-void scan_tmp_rowset(
-        const std::string& instance_id, int64_t txn_id, std::shared_ptr<TxnKv> txn_kv,
-        MetaServiceCode& code, std::string& msg,
-        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>* tmp_rowsets_meta,
-        KVStats* stats);
-
 void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stats,
                          std::unique_ptr<Transaction>& txn, MetaServiceCode& code,
                          std::string& msg);

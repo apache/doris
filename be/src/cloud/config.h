@@ -252,6 +252,7 @@ DECLARE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run);
 DECLARE_mInt32(ms_rpc_qps_default);
 DECLARE_mInt32(ms_rpc_qps_get_tablet_meta);
 DECLARE_mInt32(ms_rpc_qps_get_rowset);
+DECLARE_mInt32(ms_rpc_qps_get_txn);
 DECLARE_mInt32(ms_rpc_qps_prepare_rowset);
 DECLARE_mInt32(ms_rpc_qps_commit_rowset);
 DECLARE_mInt32(ms_rpc_qps_update_tmp_rowset);

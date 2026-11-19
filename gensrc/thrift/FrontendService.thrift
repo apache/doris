@@ -656,6 +656,8 @@ struct TStreamLoadPutResult {
     7: optional bool wait_internal_group_commit_finish = false
     8: optional i64 group_commit_interval_ms
     9: optional i64 group_commit_data_bytes
+    // Required by BE before executing a cloud MoW two-phase load.
+    10: optional bool supports_cloud_mow_2pc
 }
 
 struct TStreamLoadMultiTablePutResult {

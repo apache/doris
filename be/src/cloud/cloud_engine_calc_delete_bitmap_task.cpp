@@ -17,11 +17,15 @@
 
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 
+#include <bvar/reducer.h>
 #include <fmt/format.h>
+#include <gen_cpp/cloud.pb.h>
 
 #include <memory>
 #include <random>
+#include <shared_mutex>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 
 #include "cloud/cloud_meta_mgr.h"
@@ -31,6 +35,8 @@
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/base_tablet.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_meta.h"
@@ -39,11 +45,20 @@
 
 namespace doris {
 
+static bvar::Adder<int64_t> g_cloud_mow_2pc_baseline_recompute_count(
+        "cloud_mow_2pc_baseline_recompute_count");
+// Counts cache misses and cached baselines that do not match the pinned rowset.
+static bvar::Adder<int64_t> g_cloud_mow_2pc_cache_recovery_count(
+        "cloud_mow_2pc_cache_recovery_count");
+
 CloudEngineCalcDeleteBitmapTask::CloudEngineCalcDeleteBitmapTask(
         CloudStorageEngine& engine, const TCalcDeleteBitmapRequest& cal_delete_bitmap_req,
         std::vector<TTabletId>* error_tablet_ids, std::vector<TTabletId>* succ_tablet_ids)
         : _engine(engine),
           _cal_delete_bitmap_req(cal_delete_bitmap_req),
+          _lock_initiator(cal_delete_bitmap_req.__isset.lock_initiator
+                                  ? cal_delete_bitmap_req.lock_initiator
+                                  : -1),
           _error_tablet_ids(error_tablet_ids),
           _succ_tablet_ids(succ_tablet_ids) {
     _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
@@ -84,7 +99,8 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
         for (size_t i = 0; i < partition.tablet_ids.size(); i++) {
             auto tablet_id = partition.tablet_ids[i];
             auto tablet_calc_delete_bitmap_ptr = std::make_shared<CloudTabletCalcDeleteBitmapTask>(
-                    _engine, tablet_id, transaction_id, version, partition.sub_txn_ids);
+                    _engine, tablet_id, transaction_id, version, partition.sub_txn_ids,
+                    _lock_initiator, this);
             if (has_compaction_stats) {
                 tablet_calc_delete_bitmap_ptr->set_compaction_stats(
                         partition.base_compaction_cnts[i], partition.cumulative_compaction_cnts[i],
@@ -122,14 +138,65 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     return _res;
 }
 
+Status CloudEngineCalcDeleteBitmapTask::get_pending_rowset_id(int64_t tablet_id,
+                                                              std::string_view* rowset_id) {
+    const int64_t txn_id = _cal_delete_bitmap_req.transaction_id;
+    std::call_once(_load_precommit_once, [&] {
+        cloud::TxnInfoPB txn;
+        _load_precommit_status = _engine.meta_mgr().get_txn(txn_id, -1, &txn);
+        if (!_load_precommit_status.ok()) {
+            return;
+        }
+        if (!txn.is_mow_load() || txn.status() != cloud::TxnStatusPB::TXN_STATUS_PRECOMMITTED) {
+            _load_precommit_status = Status::InternalError<false>(
+                    "Missing precommitted MoW transaction info for txn_id={}. Abort and reload.",
+                    txn_id);
+            return;
+        }
+        for (const auto& info : txn.tablet_commit_infos()) {
+            if (info.has_pending_rowset_id()) {
+                _pending_rowset_ids.emplace(info.tablet_id(), info.pending_rowset_id());
+            }
+        }
+    });
+    RETURN_IF_ERROR(_load_precommit_status);
+    const auto& pending_rowset_ids = _pending_rowset_ids;
+    auto expected = pending_rowset_ids.find(tablet_id);
+    if (expected == pending_rowset_ids.end()) {
+        return Status::InternalError<false>(
+                "Missing MoW precommit rowset mapping, txn_id={}, tablet_id={}", txn_id, tablet_id);
+    }
+    *rowset_id = expected->second;
+    return Status::OK();
+}
+
+Status CloudEngineCalcDeleteBitmapTask::recover_pending_rowset(int64_t tablet_id,
+                                                               RowsetSharedPtr* rowset) {
+    const int64_t txn_id = _cal_delete_bitmap_req.transaction_id;
+    std::string_view expected;
+    RETURN_IF_ERROR(get_pending_rowset_id(tablet_id, &expected));
+    RETURN_IF_ERROR(_engine.meta_mgr().get_pending_rowset(txn_id, tablet_id, rowset));
+    const auto actual_id = *rowset ? (*rowset)->rowset_id().to_string() : std::string();
+    // A missing rowset is safe only when precommit recorded an omitted rowset.
+    if (actual_id != expected) {
+        return Status::InternalError<false>(
+                "Pending rowset differs from MoW precommit, txn_id={}, tablet_id={}", txn_id,
+                tablet_id);
+    }
+    return Status::OK();
+}
+
 CloudTabletCalcDeleteBitmapTask::CloudTabletCalcDeleteBitmapTask(
         CloudStorageEngine& engine, int64_t tablet_id, int64_t transaction_id, int64_t version,
-        const std::vector<int64_t>& sub_txn_ids)
+        const std::vector<int64_t>& sub_txn_ids, int64_t lock_initiator,
+        CloudEngineCalcDeleteBitmapTask* engine_task)
         : _engine(engine),
           _tablet_id(tablet_id),
           _transaction_id(transaction_id),
           _version(version),
-          _sub_txn_ids(sub_txn_ids) {
+          _sub_txn_ids(sub_txn_ids),
+          _lock_initiator(lock_initiator),
+          _engine_task(engine_task) {
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER,
             fmt::format("CloudTabletCalcDeleteBitmapTask#_transaction_id={}", _transaction_id));
@@ -190,20 +257,36 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
                 _ms_tablet_state.value() != // an SC job finished on other BEs during this load job
                         static_cast<std::underlying_type_t<TabletState>>(tablet->tablet_state()));
     };
-    if (should_sync_rowsets()) {
+    bool sync_required = should_sync_rowsets();
+    if (sync_required) {
         auto sync_st = tablet->sync_rowsets();
         if (!sync_st.ok()) {
             LOG(WARNING) << "failed to sync rowsets. tablet_id=" << _tablet_id
                          << ", txn_id=" << _transaction_id << ", status=" << sync_st;
             return sync_st;
         }
-        if (tablet->tablet_state() != TABLET_RUNNING) [[unlikely]] {
-            LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
-                         "tablet_id: "
-                      << _tablet_id << " txn_id: " << _transaction_id
-                      << ", request_version=" << _version;
-            return Status::OK();
+    }
+    if ((sync_required || _lock_initiator != -1) && tablet->tablet_state() != TABLET_RUNNING) {
+        LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
+                     "tablet_id: "
+                  << _tablet_id << " txn_id: " << _transaction_id
+                  << ", request_version=" << _version;
+        if (_lock_initiator != -1) {
+            if (tablet->tablet_state() != TABLET_NOTREADY) {
+                return Status::InternalError<false>("Tablet {} cannot publish in state {}",
+                                                    _tablet_id,
+                                                    static_cast<int>(tablet->tablet_state()));
+            }
+            RowsetSharedPtr rowset;
+            RETURN_IF_ERROR(_engine_task->recover_pending_rowset(_tablet_id, &rowset));
+            if (rowset != nullptr) {
+                // Schema change will compute the bitmap. Record the fenced publish version.
+                auto bitmap = std::make_shared<DeleteBitmap>(_tablet_id);
+                return tablet->save_delete_bitmap_to_ms(_version, _transaction_id, bitmap, -1,
+                                                        _version, rowset, _lock_initiator);
+            }
         }
+        return Status::OK();
     }
     auto sync_rowset_time_us = MonotonicMicros() - t2;
     max_version = tablet->max_version_unlocked();
@@ -242,7 +325,8 @@ Status CloudTabletCalcDeleteBitmapTask::handle(int64_t queue_time_us) const {
     Status status;
     if (_sub_txn_ids.empty()) {
         // Check empty rowset for non-sub_txn case
-        if (_engine.txn_delete_bitmap_cache().is_empty_rowset(_transaction_id, _tablet_id)) {
+        if (_lock_initiator == -1 &&
+            _engine.txn_delete_bitmap_cache().is_empty_rowset(_transaction_id, _tablet_id)) {
             LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
                       << " is empty rowset, skip delete bitmap calculation";
             return Status::OK();
@@ -339,16 +423,75 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     RowsetIdUnorderedSet rowset_ids;
     std::shared_ptr<PartialUpdateInfo> partial_update_info;
     std::shared_ptr<PublishStatus> publish_status;
-    int64_t txn_expiration;
+    int64_t txn_expiration = 0;
     TxnPublishInfo previous_publish_info;
     ChangelogTxnInfo attach_changelog;
     Status status = _engine.txn_delete_bitmap_cache().get_tablet_txn_info(
             transaction_id, _tablet_id, &rowset, &delete_bitmap, &rowset_ids, &txn_expiration,
             &partial_update_info, &publish_status, &previous_publish_info, &attach_changelog);
-    if (status != Status::OK()) {
-        LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id << ", " << txn_str
-                     << ", status=" << status;
-        return status;
+    const bool fenced = _lock_initiator != -1;
+    bool baseline_recompute = false;
+    if (status.ok() && fenced) {
+        // The transaction lookup is shared across tablets. A cached rowset for the same
+        // transaction and tablet cannot supply a baseline for a different pinned rowset.
+        std::string_view pending_rowset_id;
+        RETURN_IF_ERROR(_engine_task->get_pending_rowset_id(_tablet_id, &pending_rowset_id));
+        if (rowset->rowset_id().to_string() != pending_rowset_id) {
+            status = Status::Error<ErrorCode::NOT_FOUND, false>(
+                    "writer baseline does not match pinned rowset");
+        } else if (rowset->tablet_schema()->has_sequence_col()) {
+            // Without a sequence column, pending rows beat visible rows, so self-marks stay valid.
+            // Compaction can invalidate a sequence self-mark. The multi-segment and
+            // segment-compaction sentinels share INVALID_SEGMENT_ID, which the probe skips.
+            // Intra-load duplicates on sequence tables may also trigger a safe recompute.
+            std::shared_lock lock(delete_bitmap->lock);
+            const auto& bitmap = delete_bitmap->delete_bitmap;
+            const auto pending_id = rowset->rowset_id();
+            for (auto mark = bitmap.lower_bound({pending_id, 0U, 0U});
+                 mark != bitmap.end() && std::get<0>(mark->first) == pending_id; ++mark) {
+                if (std::get<1>(mark->first) != DeleteBitmap::INVALID_SEGMENT_ID) {
+                    baseline_recompute = true;
+                    status = Status::Error<ErrorCode::NOT_FOUND, false>(
+                            "writer baseline has pending-rowset delete marks");
+                    break;
+                }
+            }
+        }
+    }
+    if (!status.ok()) {
+        if (!fenced || !status.is<ErrorCode::NOT_FOUND>()) {
+            LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << _tablet_id << ", "
+                         << txn_str << ", status=" << status;
+            return status;
+        }
+
+        if (baseline_recompute) {
+            g_cloud_mow_2pc_baseline_recompute_count << 1;
+        } else {
+            g_cloud_mow_2pc_cache_recovery_count << 1;
+        }
+        rowset.reset();
+        rowset_ids.clear();
+        txn_expiration = 0;
+        partial_update_info.reset();
+        publish_status.reset();
+        attach_changelog = {};
+        RETURN_IF_ERROR(_engine_task->recover_pending_rowset(_tablet_id, &rowset));
+        if (rowset == nullptr) {
+            return Status::OK(); // MetaService recorded an omitted rowset at precommit.
+        }
+        // An empty baseline forces the existing publish calculation to visit every visible rowset.
+        delete_bitmap = std::make_shared<DeleteBitmap>(_tablet_id);
+    } else if (fenced) {
+        // A retry can assign a different version while the losing attempt is still running.
+        // Keep both the bitmap and the pending rowset's mutable metadata private to this attempt.
+        delete_bitmap = std::make_shared<DeleteBitmap>(*delete_bitmap);
+        auto meta = std::make_shared<RowsetMeta>();
+        DORIS_CHECK(meta->init(rowset->rowset_meta().get()));
+        RowsetSharedPtr private_rowset;
+        RETURN_IF_ERROR(
+                RowsetFactory::create_rowset(rowset->tablet_schema(), "", meta, &private_rowset));
+        rowset = std::move(private_rowset);
     }
 
     rowset->set_version(Version(version, version));
@@ -360,8 +503,13 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         // tablets fetch the published metadata instead of using the BE fast-publish cache.
         rowset->rowset_meta()->set_commit_tso(0);
     }
+    if (_lock_initiator != -1 && rowset->num_segments() == 0) {
+        return tablet->save_delete_bitmap_to_ms(version, transaction_id, delete_bitmap, -1, version,
+                                                rowset, _lock_initiator);
+    }
     TabletTxnInfo txn_info;
     txn_info.rowset = rowset;
+    txn_info.lock_initiator = _lock_initiator;
     txn_info.delete_bitmap = delete_bitmap;
     txn_info.attach_changelog = attach_changelog;
     txn_info.rowset_ids = rowset_ids;
@@ -371,7 +519,8 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
                              .base_compaction_cnt = _ms_base_compaction_cnt,
                              .cumulative_compaction_cnt = _ms_cumulative_compaction_cnt,
                              .cumulative_point = _ms_cumulative_point};
-    if (txn_info.publish_status && (*(txn_info.publish_status) == PublishStatus::SUCCEED) &&
+    if (_lock_initiator == -1 && txn_info.publish_status &&
+        *txn_info.publish_status == PublishStatus::SUCCEED &&
         version == previous_publish_info.publish_version &&
         _ms_base_compaction_cnt == previous_publish_info.base_compaction_cnt &&
         _ms_cumulative_compaction_cnt == previous_publish_info.cumulative_compaction_cnt &&
@@ -386,7 +535,8 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
         int64_t next_visible_version =
                 txn_info.is_txn_load ? txn_info.next_visible_version : version;
         RETURN_IF_ERROR(tablet->save_delete_bitmap_to_ms(version, transaction_id, delete_bitmap,
-                                                         lock_id, next_visible_version, rowset));
+                                                         lock_id, next_visible_version, rowset,
+                                                         _lock_initiator));
 
         LOG(INFO) << "tablet=" << _tablet_id << ", " << txn_str
                   << ", publish_status=SUCCEED, not need to re-calculate delete_bitmaps.";

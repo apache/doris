@@ -1978,19 +1978,9 @@ int64_t calculate_restore_job_expired_time(
     return final_expiration;
 }
 
-int InstanceRecycler::abort_txn_for_related_rowset(int64_t txn_id) {
-    AbortTxnRequest req;
-    TxnInfoPB txn_info;
-    MetaServiceCode code = MetaServiceCode::OK;
-    std::string msg;
-    std::stringstream ss;
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG_WARNING("failed to create txn").tag("err", err);
-        return -1;
-    }
-
+int InstanceRecycler::get_related_rowset_txn(int64_t txn_id, Transaction* txn, TxnInfoPB* txn_info,
+                                             int64_t* owner_db_id) {
+    TxnErrorCode err;
     // get txn index
     TxnIndexPB txn_idx_pb;
     auto index_key = txn_index_key({instance_id_, txn_id});
@@ -1998,10 +1988,8 @@ int InstanceRecycler::abort_txn_for_related_rowset(int64_t txn_id) {
     err = txn->get(index_key, &index_val);
     if (err != TxnErrorCode::TXN_OK) {
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            // maybe recycled
-            LOG_WARNING("txn index not found, txn_id={} instance_id={}", txn_id, instance_id_)
-                    .tag("key", hex(index_key))
-                    .tag("txn_id", txn_id);
+            VLOG_DEBUG << "txn index already recycled, txn_id=" << txn_id
+                       << " instance_id=" << instance_id_ << " key=" << hex(index_key);
             return 0;
         }
         LOG_WARNING("failed to get txn index")
@@ -2043,12 +2031,8 @@ int InstanceRecycler::abort_txn_for_related_rowset(int64_t txn_id) {
     err = txn->get(info_key, &info_val);
     if (err != TxnErrorCode::TXN_OK) {
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            // maybe recycled
-            LOG_WARNING("txn info not found, txn_id={} owner_txn_id={} instance_id={}", txn_id,
-                        owner_txn_id, instance_id_)
-                    .tag("key", hex(info_key))
-                    .tag("txn_id", txn_id)
-                    .tag("owner_txn_id", owner_txn_id);
+            VLOG_DEBUG << "txn info already recycled, txn_id=" << txn_id
+                       << " instance_id=" << instance_id_ << " key=" << hex(info_key);
             return 0;
         }
         LOG_WARNING("failed to get txn info")
@@ -2058,7 +2042,7 @@ int InstanceRecycler::abort_txn_for_related_rowset(int64_t txn_id) {
                 .tag("owner_txn_id", owner_txn_id);
         return -1;
     }
-    if (!txn_info.ParseFromString(info_val)) {
+    if (!txn_info->ParseFromString(info_val)) {
         LOG_WARNING("failed to parse txn info")
                 .tag("err", err)
                 .tag("key", hex(info_key))
@@ -2066,14 +2050,38 @@ int InstanceRecycler::abort_txn_for_related_rowset(int64_t txn_id) {
                 .tag("owner_txn_id", owner_txn_id);
         return -1;
     }
-    if (!txn_info.has_txn_id() || txn_info.txn_id() != owner_txn_id) {
+    if (!txn_info->has_txn_id() || txn_info->txn_id() != owner_txn_id) {
         LOG_WARNING("malformed txn info, txn id does not match owner txn id")
                 .tag("key", hex(info_key))
                 .tag("txn_id", txn_id)
                 .tag("owner_txn_id", owner_txn_id)
-                .tag("txn_info_txn_id", txn_info.txn_id());
+                .tag("txn_info_txn_id", txn_info->txn_id());
         return -1;
     }
+
+    if (owner_db_id != nullptr) {
+        *owner_db_id = db_id;
+    }
+    return 0;
+}
+
+int InstanceRecycler::abort_txn_for_related_rowset(int64_t txn_id) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG_WARNING("failed to create txn").tag("err", err);
+        return -1;
+    }
+    TxnInfoPB txn_info;
+    int64_t db_id;
+    if (get_related_rowset_txn(txn_id, txn.get(), &txn_info, &db_id) != 0) {
+        return -1;
+    }
+    if (!txn_info.has_txn_id()) {
+        return 0; // The owner metadata has already been recycled.
+    }
+    const int64_t owner_txn_id = txn_info.txn_id();
+    const auto info_key = txn_info_key({instance_id_, db_id, owner_txn_id});
 
     if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
         LOG_INFO("txn has already been aborted, txn_id={} owner_txn_id={}", txn_id, owner_txn_id)
@@ -2091,6 +2099,10 @@ int InstanceRecycler::abort_txn_for_related_rowset(int64_t txn_id) {
         return -1;
     }
 
+    AbortTxnRequest req;
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    std::stringstream ss;
     req.set_txn_id(owner_txn_id);
     req.set_db_id(db_id);
 
@@ -6675,11 +6687,17 @@ int InstanceRecycler::recycle_tmp_rowsets() {
 
     int64_t earlest_ts = std::numeric_limits<int64_t>::max();
 
+    // The scan groups rowsets by transaction. Reuse the owner check within that group.
+    int64_t checked_txn_id = -1;
+    bool skip_txn_rowsets = false;
+    bool owner_lookup_failed = false;
+    std::unique_ptr<Transaction> visible_owner_check;
     auto handle_rowset_kv = [&num_scanned, &num_expired, &tmp_rowset_keys, &expired_rowset_size,
                              &total_rowset_key_size, &total_rowset_value_size, &earlest_ts,
                              &tmp_rowset_keys_to_mark_recycled, &tmp_rowset_keys_to_abort, this,
-                             &metrics_context, &tmp_rowsets, &tmp_rowset_ref_count_keys](
-                                    std::string_view k, std::string_view v) -> int {
+                             &metrics_context, &tmp_rowsets, &tmp_rowset_ref_count_keys,
+                             &checked_txn_id, &skip_txn_rowsets, &owner_lookup_failed,
+                             &visible_owner_check](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         total_rowset_key_size += k.size();
         total_rowset_value_size += v.size();
@@ -6696,6 +6714,57 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         int64_t current_time = ::time(nullptr);
         if (current_time < expiration) { // not expired
             return 0;
+        }
+        if (instance_info_.status() != InstanceInfoPB::DELETED && rowset.txn_id() > 0) {
+            if (checked_txn_id != rowset.txn_id()) {
+                checked_txn_id = rowset.txn_id();
+                visible_owner_check.reset();
+                std::unique_ptr<Transaction> txn;
+                auto err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    LOG_WARNING("failed to create rowset owner check")
+                            .tag("txn_id", checked_txn_id)
+                            .tag("err", err);
+                    owner_lookup_failed = true;
+                    skip_txn_rowsets = true;
+                } else {
+                    TxnInfoPB info;
+                    owner_lookup_failed =
+                            get_related_rowset_txn(checked_txn_id, txn.get(), &info) != 0;
+                    skip_txn_rowsets = owner_lookup_failed ||
+                                       (info.is_mow_load() &&
+                                        info.status() == TxnStatusPB::TXN_STATUS_PRECOMMITTED);
+                    if (!skip_txn_rowsets && info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
+                        visible_owner_check = std::move(txn);
+                    }
+                }
+            }
+            if (skip_txn_rowsets) {
+                if (owner_lookup_failed) {
+                    g_bvar_recycler_tmp_rowsets_retained_owner_lookup_failed << 1;
+                }
+                return 0;
+            }
+            if (visible_owner_check) {
+                // A commit can remove a temporary key after the scan read it. Recycle only
+                // keys that still exist in the snapshot that saw the VISIBLE owner.
+                std::string value;
+                auto err = visible_owner_check->get(k, &value, true);
+                if (err != TxnErrorCode::TXN_OK) {
+                    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                        LOG_WARNING("failed to recheck visible transaction's temporary rowset")
+                                .tag("txn_id", checked_txn_id)
+                                .tag("err", err);
+                        owner_lookup_failed = true;
+                        skip_txn_rowsets = true;
+                        g_bvar_recycler_tmp_rowsets_retained_owner_lookup_failed << 1;
+                    }
+                    return 0;
+                }
+                if (v != value) {
+                    return 0;
+                }
+            }
         }
         ++num_expired;
         expired_rowset_size += v.size();
@@ -7006,6 +7075,9 @@ int InstanceRecycler::abort_timeout_txn() {
 
             DCHECK(txn_info.status() != TxnStatusPB::TXN_STATUS_VISIBLE);
             txn_info.set_status(TxnStatusPB::TXN_STATUS_ABORTED);
+            txn_info.clear_tablet_commit_infos();
+            txn_info.clear_is_mow_load();
+            txn_info.clear_mow_precommit_table_ids();
             txn_info.set_finish_time(current_time);
             txn_info.set_reason("timeout");
             VLOG_DEBUG << "txn_info=" << txn_info.ShortDebugString();

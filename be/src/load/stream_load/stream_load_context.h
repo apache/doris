@@ -159,6 +159,7 @@ public:
     std::string brief(bool detail = false) const;
 
     bool is_mow_table() const;
+    Status validate_mow_2pc_plan() const;
     bool is_tso_enabled() const;
 
     Status allocate_schema_buffer() {

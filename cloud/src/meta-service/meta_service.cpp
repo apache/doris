@@ -3266,6 +3266,47 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         return;
     }
 
+    if (request->has_pending_txn_id()) {
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            msg = "failed to create pending rowset read transaction";
+            return;
+        }
+        std::string val;
+        const auto key = meta_rowset_tmp_key({instance_id, request->pending_txn_id(), tablet_id});
+        err = txn->get(key, &val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            response->set_read_pending_rowset(true);
+            return;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = "failed to read pending rowset";
+            return;
+        }
+        auto* rowset = response->add_rowset_meta();
+        if (!rowset->ParseFromString(val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse pending rowset";
+            return;
+        }
+        if (!rowset->has_tablet_schema() &&
+            !try_fetch_and_parse_schema(txn.get(), rowset->mutable_tablet_schema(), instance_id,
+                                        rowset->index_id(), rowset->schema_version(), code, msg,
+                                        is_version_read_enabled(instance_id),
+                                        resource_mgr_.get())) {
+            return;
+        }
+        if (rowset->has_variant_type_in_schema()) {
+            fill_schema_from_dict(code, msg, instance_id, txn.get(), rowset);
+        }
+        if (code == MetaServiceCode::OK) {
+            response->set_read_pending_rowset(true);
+        }
+        return;
+    }
+
     if (!request->has_base_compaction_cnt() || !request->has_cumulative_compaction_cnt() ||
         !request->has_cumulative_point()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -4579,8 +4620,9 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     // lock_id = -1 : compaction
     // lock_id = -2 : schema change
     // lock_id = -3 : compaction update delete bitmap without lock
+    bool fenced_load = !without_lock && request->lock_id() > 0 && request->initiator() < -1;
+    PendingDeleteBitmapPB delete_bitmap_keys;
     if (request->lock_id() > 0 || request->lock_id() == -2) {
-        PendingDeleteBitmapPB delete_bitmap_keys;
         delete_bitmap_keys.mutable_delete_bitmap_keys()->Add(delete_bitmap_keys_v1.begin(),
                                                              delete_bitmap_keys_v1.end());
         delete_bitmap_keys.mutable_delete_bitmap_keys()->Add(delete_bitmap_keys_v2.begin(),
@@ -4654,6 +4696,13 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     if (!remove_pre_rowset_delete_bitmap(code, msg, ss, txn_kv_, txn, stats, request, instance_id,
                                          non_exist_rowset_ids, txn_stats)) {
         return;
+    }
+    if (fenced_load) {
+        // The initial pending record is cleanup intent. Mark it ready only with the final write.
+        delete_bitmap_keys.set_mow_commit_attempt(request->initiator());
+        delete_bitmap_keys.set_next_visible_version(request->next_visible_version());
+        txn->put(meta_pending_delete_bitmap_key({instance_id, tablet_id}),
+                 delete_bitmap_keys.SerializeAsString());
     }
     err = txn->commit();
     txn_stats.total_txn_put_keys += txn->num_put_keys();
@@ -5130,8 +5179,15 @@ static bool put_delete_bitmap_update_lock_key(MetaServiceCode& code, std::string
     return true;
 }
 
-static bool can_load_force_take_delete_bitmap_lock(int64_t current_lock_id) {
-    return current_lock_id != SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID;
+static bool can_load_force_take_delete_bitmap_lock(
+        const DeleteBitmapUpdateLockPB& current, const GetDeleteBitmapUpdateLockRequest& request) {
+    if (current.lock_id() <= 0) {
+        return current.lock_id() != SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID;
+    }
+    // A fenced load keeps its lease. An urgent fenced request cannot preempt another load.
+    return request.initiator() >= -1 &&
+           std::ranges::none_of(current.initiators(),
+                                [](int64_t initiator) { return initiator < -1; });
 }
 
 bool MetaServiceImpl::get_mow_tablet_stats_and_meta(MetaServiceCode& code, std::string& msg,
@@ -5508,9 +5564,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                 msg = "failed to parse DeleteBitmapUpdateLockPB";
                 return;
             }
-            if (urgent && can_load_force_take_delete_bitmap_lock(lock_info.lock_id())) {
-                // since currently only the FE Master initiates the lock request for import tasks,
-                // and it does so in a single-threaded manner, there is no need to check the lock id here
+            if (urgent && can_load_force_take_delete_bitmap_lock(lock_info, *request)) {
                 DCHECK(request->lock_id() > 0);
                 lock_info.clear_initiators();
                 std::string key0 = mow_tablet_job_key({instance_id, table_id, 0});
@@ -5538,7 +5592,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v2(
                               << " expiration=" << lock_info.expiration() << " now=" << now
                               << " initiator_size=" << lock_info.initiators_size();
                     lock_info.clear_initiators();
-                } else if (lock_info.lock_id() != request->lock_id()) {
+                } else if (lock_info.lock_id() != request->lock_id() ||
+                           (request->lock_id() > 0 && lock_info.initiators_size() == 1 &&
+                            (lock_info.initiators(0) < -1 || request->initiator() < -1) &&
+                            lock_info.initiators(0) != request->initiator())) {
                     ss << "already be locked by lock_id=" << lock_info.lock_id()
                        << " expiration=" << lock_info.expiration() << " now=" << now
                        << ", request lock_id=" << request->lock_id() << " table_id=" << table_id
@@ -5762,9 +5819,7 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
                 msg = "failed to parse DeleteBitmapUpdateLockPB";
                 return;
             }
-            if (urgent && can_load_force_take_delete_bitmap_lock(lock_info.lock_id())) {
-                // since currently only the FE Master initiates the lock request for import tasks,
-                // and it does so in a single-threaded manner, there is no need to check the lock id here
+            if (urgent && can_load_force_take_delete_bitmap_lock(lock_info, *request)) {
                 DCHECK(request->lock_id() > 0);
                 LOG(INFO) << "force take delete bitmap update lock, table_id=" << table_id
                           << " lock_id=" << request->lock_id()
@@ -5774,7 +5829,10 @@ void MetaServiceImpl::get_delete_bitmap_update_lock_v1(
                 LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
                           << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
                 lock_info.clear_initiators();
-            } else if (lock_info.lock_id() != request->lock_id()) {
+            } else if (lock_info.lock_id() != request->lock_id() ||
+                       (request->lock_id() > 0 && lock_info.initiators_size() == 1 &&
+                        (lock_info.initiators(0) < -1 || request->initiator() < -1) &&
+                        lock_info.initiators(0) != request->initiator())) {
                 ss << "already be locked. request lock_id=" << request->lock_id()
                    << " locked by lock_id=" << lock_info.lock_id() << " table_id=" << table_id
                    << " now=" << now << " expiration=" << lock_info.expiration();

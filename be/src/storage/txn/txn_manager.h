@@ -100,6 +100,7 @@ struct TabletTxnInfo {
     bool is_txn_load = false;
     std::vector<RowsetSharedPtr> invisible_rowsets;
     int64_t lock_id;
+    int64_t lock_initiator = -1;
     int64_t next_visible_version;
 
     TxnState state {TxnState::PREPARED};

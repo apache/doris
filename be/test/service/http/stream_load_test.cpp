@@ -17,18 +17,33 @@
 
 #include "service/http/action/stream_load.h"
 
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
+#include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <future>
+#include <initializer_list>
 #include <memory>
+#include <string_view>
+#include <utility>
 
+#include "cloud/config.h"
 #include "common/config.h"
+#include "common/status.h"
+#include "cpp/sync_point.h"
 #include "event2/buffer.h"
 #include "event2/event.h"
 #include "event2/http.h"
 #include "event2/http_struct.h"
 #include "evhttp.h"
 #include "load/group_commit/wal/wal_manager.h"
+#include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
+#include "load/stream_load/stream_load_executor.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/action/http_stream.h"
 #include "service/http/ev_http_server.h"
@@ -53,6 +68,82 @@ public:
 
 void http_request_done_cb(struct evhttp_request* req, void* arg) {
     event_base_loopbreak((struct event_base*)arg);
+}
+
+extern TStreamLoadPutResult k_stream_load_put_result;
+
+TEST_F(StreamLoadTest, CloudMow2PCRequiresFECapabilityInBothHandlers) {
+    auto* env = ExecEnv::GetInstance();
+    const auto old_deploy_mode = config::deploy_mode;
+    auto* old_cluster = env->cluster_info();
+    auto old_stream_mgr = std::move(env->_new_load_stream_mgr);
+    auto old_executor = std::move(env->_stream_load_executor);
+    const auto old_put_result = k_stream_load_put_result;
+    ClusterInfo cluster;
+    auto* sync = SyncPoint::get_instance();
+    Defer restore {[&] {
+        sync->disable_processing();
+        k_stream_load_put_result = old_put_result;
+        env->set_stream_load_executor(std::move(old_executor));
+        env->set_new_load_stream_mgr(std::move(old_stream_mgr));
+        env->set_cluster_info(old_cluster);
+        config::deploy_mode = old_deploy_mode;
+    }};
+    config::deploy_mode = "cloud";
+    env->set_cluster_info(&cluster);
+    env->set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
+    env->set_stream_load_executor(std::make_unique<StreamLoadExecutor>(env));
+
+    SyncPoint::CallbackGuard put_guard;
+    sync->set_call_back(
+            "HttpStreamAction::process_put.before_rpc",
+            [](auto&& args) {
+                *try_any_cast<TStreamLoadPutResult*>(args[0]) = k_stream_load_put_result;
+                *try_any_cast_ret<Status>(args) = {Status::OK(), true};
+            },
+            &put_guard);
+    sync->enable_processing();
+
+    StreamLoadAction stream_load(env);
+    HttpStreamAction http_stream(env);
+    std::unique_ptr<evhttp_request, decltype(&evhttp_request_free)> ev_request(
+            evhttp_request_new(nullptr, nullptr), evhttp_request_free);
+    HttpRequest request(ev_request.get());
+
+    for (int capability : {-1, 0, 1}) {
+        SCOPED_TRACE(capability);
+        k_stream_load_put_result = TStreamLoadPutResult();
+        k_stream_load_put_result.status.__set_status_code(TStatusCode::OK);
+        TPipelineFragmentParams plan;
+        plan.__set_is_mow_table(true);
+        k_stream_load_put_result.__set_pipeline_params(plan);
+        if (capability != -1) {
+            k_stream_load_put_result.__set_supports_cloud_mow_2pc(capability == 1);
+        }
+
+        for (bool use_http_stream : {false, true}) {
+            SCOPED_TRACE(use_http_stream);
+            auto ctx = std::make_shared<StreamLoadContext>(env);
+            ctx->two_phase_commit = true;
+            ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
+            auto status = use_http_stream ? http_stream.process_put(&request, ctx)
+                                          : stream_load._process_put(&request, ctx);
+            env->new_load_stream_mgr()->remove(ctx->id);
+            const auto& sink = ctx->put_result.pipeline_params.fragment.output_sink.olap_table_sink;
+            if (capability == 1) {
+                EXPECT_TRUE(status.ok()) << status;
+                EXPECT_TRUE(sink.__isset.is_cloud_mow_2pc && sink.is_cloud_mow_2pc);
+                EXPECT_EQ(ctx->load_status_future.wait_for(std::chrono::seconds(0)),
+                          std::future_status::ready);
+            } else {
+                EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+                EXPECT_NE(status.msg().find("upgrade FE"), std::string_view::npos);
+                EXPECT_FALSE(sink.__isset.is_cloud_mow_2pc);
+                EXPECT_EQ(ctx->load_status_future.wait_for(std::chrono::seconds(0)),
+                          std::future_status::timeout);
+            }
+        }
+    }
 }
 
 TEST_F(StreamLoadTest, TestHeader) {

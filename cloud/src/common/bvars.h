@@ -705,6 +705,7 @@ extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_submitted;
 extern bvar::Adder<int64_t> g_bvar_txn_lazy_committer_finished;
 
 // recycler's bvars
+extern bvar::Adder<int64_t> g_bvar_recycler_tmp_rowsets_retained_owner_lookup_failed;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_index_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_partition_earlest_ts;
 extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_rowset_earlest_ts;

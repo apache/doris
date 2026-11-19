@@ -17,6 +17,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
 
@@ -26,10 +27,12 @@
 #include <memory>
 #include <random>
 #include <set>
+#include <string>
 #include <utility>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "cpp/sync_point.h"
@@ -38,6 +41,7 @@
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet_meta.h"
+#include "storage/txn/txn_manager.h"
 #include "util/defer_op.h"
 #include "util/uid_util.h"
 
@@ -368,6 +372,152 @@ TEST_F(CloudMetaMgrTest, abort_txn_uses_label_when_txn_id_is_missing) {
     EXPECT_EQ(captured_req.db_id(), ctx.db_id);
     EXPECT_TRUE(captured_req.has_label());
     EXPECT_EQ(captured_req.label(), ctx.label);
+}
+
+TEST_F(CloudMetaMgrTest, PrecommitRequiresMetaServiceAckForMow) {
+    CloudMetaMgr meta_mgr;
+    StreamLoadContext ctx(nullptr);
+    ctx.txn_id = 20002;
+    ctx.db_id = 10001;
+    ctx.put_result.__isset.pipeline_params = true;
+    ctx.put_result.pipeline_params.__set_is_mow_table(true);
+    ctx.put_result.pipeline_params.fragment.output_sink.olap_table_sink.table_id = 101;
+
+    TTabletCommitInfo commit_info;
+    commit_info.tabletId = 201;
+    commit_info.backendId = 301;
+    ctx.commit_infos.push_back(commit_info);
+
+    bool acknowledge = false;
+    bool already_precommitted = false;
+    bool requested_mow = false;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "CloudMetaMgr::precommit_txn.before_rpc",
+            [&](auto&& args) {
+                auto* req = try_any_cast<PrecommitTxnRequest*>(args[0]);
+                auto* res = try_any_cast<PrecommitTxnResponse*>(args[1]);
+                auto* ret = try_any_cast<std::pair<Status, bool>*>(args.back());
+                requested_mow = req->is_mow_load();
+                if (requested_mow) {
+                    ASSERT_EQ(req->tablet_commit_infos_size(), 1);
+                    EXPECT_EQ(req->tablet_commit_infos(0).tablet_id(), 201);
+                    EXPECT_EQ(req->tablet_commit_infos(0).backend_id(), 301);
+                } else {
+                    EXPECT_EQ(req->tablet_commit_infos_size(), 0);
+                }
+                auto code = already_precommitted ? MetaServiceCode::TXN_ALREADY_PRECOMMITED
+                                                 : MetaServiceCode::OK;
+                res->mutable_status()->set_code(code);
+                if (acknowledge) {
+                    res->set_mow_metadata_persisted(true);
+                }
+                *ret = {already_precommitted ? Status::InternalError("already precommitted")
+                                             : Status::OK(),
+                        true};
+            },
+            &guard);
+    sp->enable_processing();
+    Defer cleanup {[&] { sp->disable_processing(); }};
+
+    auto old_server = meta_mgr.precommit_txn(ctx);
+    EXPECT_FALSE(old_server.ok());
+    EXPECT_NE(old_server.to_string().find("upgrade MetaService"), std::string::npos);
+    EXPECT_TRUE(requested_mow);
+    acknowledge = true;
+    EXPECT_TRUE(meta_mgr.precommit_txn(ctx).ok());
+    already_precommitted = true;
+    EXPECT_TRUE(meta_mgr.precommit_txn(ctx).ok());
+    acknowledge = false;
+    EXPECT_FALSE(meta_mgr.precommit_txn(ctx).ok());
+    ctx.put_result.pipeline_params.__set_is_mow_table(false);
+    EXPECT_FALSE(meta_mgr.precommit_txn(ctx).ok());
+    already_precommitted = false;
+    EXPECT_TRUE(meta_mgr.precommit_txn(ctx).ok());
+    EXPECT_FALSE(requested_mow);
+}
+
+TEST_F(CloudMetaMgrTest, LosingMow2PCAttemptCannotSeedCommittedBitmapCache) {
+    CloudStorageEngine losing_engine(EngineOptions {});
+    CloudStorageEngine winning_engine(EngineOptions {});
+    TabletMetaSharedPtr tablet_meta(
+            new TabletMeta(1001, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
+                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK, TCompressionType::LZ4F));
+    CloudTablet losing_tablet(losing_engine, std::make_shared<TabletMeta>(*tablet_meta));
+    CloudTablet winning_tablet(winning_engine, std::make_shared<TabletMeta>(*tablet_meta));
+
+    const auto old_write_version = config::delete_bitmap_store_write_version;
+    config::delete_bitmap_store_write_version = 1;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    UpdateDeleteBitmapRequest persisted;
+    sp->set_call_back(
+            "CloudMetaMgr::update_delete_bitmap.before_rpc",
+            [&](auto&& args) {
+                persisted.CopyFrom(*try_any_cast<UpdateDeleteBitmapRequest*>(args[0]));
+                *try_any_cast<std::pair<Status, bool>*>(args.back()) = {Status::OK(), true};
+            },
+            &guard);
+    sp->enable_processing();
+    Defer cleanup {[&] {
+        config::delete_bitmap_store_write_version = old_write_version;
+        sp->disable_processing();
+    }};
+
+    constexpr int64_t txn_id = 12345;
+    const auto pending_id = losing_engine.next_rowset_id();
+    const auto original_id = losing_engine.next_rowset_id();
+    const auto intervening_id = losing_engine.next_rowset_id();
+    auto publish = [&](CloudStorageEngine& engine, CloudTablet& tablet, int64_t version,
+                       int64_t attempt) {
+        engine._txn_delete_bitmap_cache =
+                std::make_unique<CloudTxnDeleteBitmapCache>(1024U * 1024U);
+        auto& cache = engine.txn_delete_bitmap_cache();
+        ASSERT_TRUE(cache.init().ok());
+        auto rowset_meta = std::make_shared<RowsetMeta>();
+        rowset_meta->set_rowset_type(BETA_ROWSET);
+        rowset_meta->set_rowset_id(pending_id);
+        rowset_meta->set_version(Version(version, version));
+        rowset_meta->set_tablet_schema(tablet.tablet_schema());
+        TabletTxnInfo txn_info;
+        txn_info.lock_initiator = attempt;
+        ASSERT_TRUE(RowsetFactory::create_rowset(tablet.tablet_schema(), "", rowset_meta,
+                                                 &txn_info.rowset)
+                            .ok());
+        // Simulate the writer's INIT entry before either fenced attempt writes to MetaService.
+        cache.set_tablet_txn_info(txn_id, tablet.tablet_id(),
+                                  std::make_shared<DeleteBitmap>(tablet.tablet_id()), {},
+                                  txn_info.rowset, 0, nullptr, {}, true);
+        auto bitmap = std::make_shared<DeleteBitmap>(tablet.tablet_id());
+        bitmap->add({original_id, 0U, DeleteBitmap::TEMP_VERSION_COMMON}, 0);
+        if (version == 3) {
+            bitmap->add({intervening_id, 0U, DeleteBitmap::TEMP_VERSION_COMMON}, 0);
+        }
+        auto status =
+                tablet.save_delete_bitmap(&txn_info, txn_id, bitmap, nullptr, {}, -1, version);
+        ASSERT_TRUE(status.ok()) << status;
+    };
+
+    ASSERT_NO_FATAL_FAILURE(publish(losing_engine, losing_tablet, 2, -42));
+    EXPECT_EQ(persisted.initiator(), -42);
+    ASSERT_EQ(persisted.rowset_ids_size(), 1);
+    EXPECT_EQ(persisted.versions(0), 2);
+    ASSERT_NO_FATAL_FAILURE(publish(winning_engine, winning_tablet, 3, -44));
+    EXPECT_EQ(persisted.initiator(), -44);
+    ASSERT_EQ(persisted.rowset_ids_size(), 2);
+    EXPECT_EQ(persisted.versions(0), 3);
+    EXPECT_EQ(persisted.versions(1), 3);
+
+    // When BE A syncs the version published by BE B, its cache cannot satisfy
+    // the read-side SUCCEED check, so sync fetches version 3 from MetaService.
+    DeleteBitmapPtr cached;
+    std::shared_ptr<PublishStatus> state;
+    auto status = losing_engine.txn_delete_bitmap_cache().get_delete_bitmap(
+            txn_id, losing_tablet.tablet_id(), &cached, nullptr, &state);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(state, nullptr);
+    EXPECT_EQ(*state, PublishStatus::INIT);
 }
 
 TEST_F(CloudMetaMgrTest, inverted_index_format_survives_meta_pb_conversion) {

@@ -212,6 +212,7 @@ DEFINE_mBool(enable_ms_rpc_host_level_rate_limit_dry_run, "true");
 DEFINE_mInt32(ms_rpc_qps_default, "100");
 DEFINE_mInt32(ms_rpc_qps_get_tablet_meta, "-1");
 DEFINE_mInt32(ms_rpc_qps_get_rowset, "-1");
+DEFINE_mInt32(ms_rpc_qps_get_txn, "-1");
 DEFINE_mInt32(ms_rpc_qps_prepare_rowset, "-1");
 DEFINE_mInt32(ms_rpc_qps_commit_rowset, "-1");
 DEFINE_mInt32(ms_rpc_qps_update_tmp_rowset, "-1");

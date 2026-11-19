@@ -266,8 +266,10 @@ Status CloudRowsetBuilder::set_txn_related_info() {
         // This allows CalcDeleteBitmapTask to detect and skip gracefully,
         // while using minimal memory (~16 bytes per entry).
         if (_skip_writing_rowset_metadata) {
-            _engine.txn_delete_bitmap_cache().mark_empty_rowset(_req.txn_id, _tablet->tablet_id(),
-                                                                _req.txn_expiration);
+            if (!_req.is_cloud_mow_2pc) {
+                _engine.txn_delete_bitmap_cache().mark_empty_rowset(
+                        _req.txn_id, _tablet->tablet_id(), _req.txn_expiration);
+            }
             return Status::OK();
         }
         if (config::enable_merge_on_write_correctness_check &&
@@ -283,9 +285,12 @@ Status CloudRowsetBuilder::set_txn_related_info() {
                 return st;
             }
         }
+        // Fenced commits can reuse the writer's bitmap, but a precommitted load can remain
+        // open for days. Keep its baseline only for the cache's minimum retention window.
         _engine.txn_delete_bitmap_cache().set_tablet_txn_info(
                 _req.txn_id, _tablet->tablet_id(), _delete_bitmap, *_rowset_ids, _rowset,
-                _req.txn_expiration, _partial_update_info, _attach_changelog);
+                _req.txn_expiration, _partial_update_info, _attach_changelog,
+                _req.is_cloud_mow_2pc);
     } else {
         // TSO-enabled rowsets must become visible from MS rowset meta.
         if (config::enable_cloud_make_rs_visible_on_be && !_tablet_schema->is_tso_enabled()) {

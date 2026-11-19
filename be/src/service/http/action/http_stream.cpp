@@ -39,6 +39,7 @@
 #include "common/metrics/metrics.h"
 #include "common/status.h"
 #include "common/utils.h"
+#include "cpp/sync_point.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/group_commit/group_commit_mgr.h"
 #include "load/load_path_mgr.h"
@@ -256,9 +257,6 @@ Status HttpStreamAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 
     RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx));
 
-    // Here, transactions are set from fe's NativeInsertStmt.
-    // TODO(zs) : How to support two_phase_commit
-
     return Status::OK();
 }
 
@@ -383,11 +381,16 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
     // plan this load
     TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     int64_t stream_load_put_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-            master_addr.hostname, master_addr.port,
-            [&request, ctx](FrontendServiceConnection& client) {
-                client->streamLoadPut(ctx->put_result, request);
-            }));
+    auto put = [&]() -> Status {
+        TEST_SYNC_POINT_RETURN_WITH_VALUE("HttpStreamAction::process_put.before_rpc", Status::OK(),
+                                          &ctx->put_result);
+        return ThriftRpcHelper::rpc<FrontendServiceClient>(
+                master_addr.hostname, master_addr.port,
+                [&request, ctx](FrontendServiceConnection& client) {
+                    client->streamLoadPut(ctx->put_result, request);
+                });
+    };
+    RETURN_IF_ERROR(put());
     ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
     Status plan_status(Status::create(ctx->put_result.status));
@@ -395,13 +398,19 @@ Status HttpStreamAction::process_put(HttpRequest* http_req,
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
-    if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
-        return Status::NotSupported("http stream 2pc is unsupported for mow table");
-    }
     ctx->db = ctx->put_result.pipeline_params.db_name;
     ctx->table = ctx->put_result.pipeline_params.table_name;
     ctx->txn_id = ctx->put_result.pipeline_params.txn_conf.txn_id;
     ctx->label = ctx->put_result.pipeline_params.import_label;
+    if (config::is_cloud_mode() && ctx->two_phase_commit && ctx->is_mow_table()) {
+        if (!ctx->put_result.__isset.supports_cloud_mow_2pc ||
+            !ctx->put_result.supports_cloud_mow_2pc) {
+            return Status::NotSupported("http stream 2pc is unsupported for mow table; upgrade FE");
+        }
+        RETURN_IF_ERROR(ctx->validate_mow_2pc_plan());
+        ctx->put_result.pipeline_params.fragment.output_sink.olap_table_sink.__set_is_cloud_mow_2pc(
+                true);
+    }
     ctx->put_result.pipeline_params.__set_wal_id(ctx->wal_id);
     if (http_req != nullptr && http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
         // FIXME find a way to avoid chunked stream load write large WALs

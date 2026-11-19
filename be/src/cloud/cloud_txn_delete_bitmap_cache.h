@@ -18,6 +18,7 @@
 #pragma once
 
 #include <mutex>
+#include <vector>
 
 #include "storage/olap_common.h"
 #include "storage/partial_update_info.h"
@@ -48,9 +49,9 @@ public:
 
     void set_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                              DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids,
-                             RowsetSharedPtr rowset, int64_t txn_expirationm,
+                             RowsetSharedPtr rowset, int64_t txn_expiration,
                              std::shared_ptr<PartialUpdateInfo> partial_update_info,
-                             const ChangelogTxnInfo& attach_changelog = {});
+                             const ChangelogTxnInfo& attach_changelog = {}, bool fenced = false);
 
     Status update_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                                   DeleteBitmapPtr delete_bitmap,
@@ -60,6 +61,9 @@ public:
     void remove_expired_tablet_txn_info();
 
     void remove_unused_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id);
+
+    void remove_fenced_txn_info(TTransactionId txn_id);
+    void remove_fenced_txn_infos(const std::vector<TTransactionId>& txn_ids, int64_t tablet_id);
 
     // Mark a rowset as empty/skipped (lightweight marker, no rowset stored)
     // Used for empty rowsets when skip_writing_empty_rowset_metadata is enabled
@@ -112,16 +116,18 @@ private:
         // used to determine if the retry needs to re-calculate the delete bitmap
         TxnPublishInfo publish_info;
         ChangelogTxnInfo attach_changelog;
+        bool fenced = false;
         TxnVal() : txn_expiration(0) {};
         TxnVal(RowsetSharedPtr rowset_, int64_t txn_expiration_,
                std::shared_ptr<PartialUpdateInfo> partial_update_info_,
                std::shared_ptr<PublishStatus> publish_status_,
-               const ChangelogTxnInfo& attach_changelog_)
+               const ChangelogTxnInfo& attach_changelog_, bool fenced_)
                 : rowset(std::move(rowset_)),
                   txn_expiration(txn_expiration_),
                   partial_update_info(std::move(partial_update_info_)),
                   publish_status(std::move(publish_status_)),
-                  attach_changelog(attach_changelog_) {}
+                  attach_changelog(attach_changelog_),
+                  fenced(fenced_) {}
     };
 
     std::map<TxnKey, TxnVal> _txn_map;

@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -65,12 +66,19 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
+import org.apache.doris.task.AgentBatchTask;
+import org.apache.doris.task.AgentTask;
+import org.apache.doris.task.AgentTaskExecutor;
+import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.CalcDeleteBitmapTask;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TCloudVersionInfo;
 import org.apache.doris.thrift.TFrontendSyncCloudVersionRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTabletCommitInfo;
+import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.SubTransactionState;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -468,6 +476,161 @@ public class CloudGlobalTransactionMgrTest {
         } finally {
             disableChangelog(table);
             Config.enable_feature_changelog = originalEnableFeatureChangelog;
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true, ok", "false, ok", "true, lock", "true, calc", "true, retry", "true, empty",
+            "true, legacy", "true, moved"})
+    public void testCommit2PCWithPersistedTabletInfos(boolean mow, String outcome) throws Exception {
+        boolean lockFails = outcome.equals("lock");
+        boolean calcFails = outcome.equals("calc");
+        boolean retry = outcome.equals("retry");
+        boolean legacy = outcome.equals("legacy");
+        boolean emptyMapping = outcome.equals("empty");
+        boolean needsBitmapLock = mow && !legacy && !emptyMapping;
+        long txnId = 123533;
+        long tabletId = 10002;
+        boolean moved = outcome.equals("moved");
+        long backendId = moved ? Env.getCurrentSystemInfo().getAllBackendIds(true).get(0)
+                : CatalogTestUtil.testBackendId1;
+        long loadingBackendId = moved ? Long.MAX_VALUE : backendId;
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        CloudPartition partition = addCloudPartition(1000);
+        OlapTable table = getCloudTable(partition);
+        Deencapsulation.setField(table, "keysType", KeysType.UNIQUE_KEYS);
+        table.setEnableUniqueKeyMergeOnWrite(mow);
+        masterEnv.getTabletInvertedIndex().addTablet(tabletId, new TabletMeta(db.getId(), table.getId(),
+                partition.getId(), partition.getBaseIndex().getId(), 0, TStorageMedium.HDD, false));
+
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Cloud.MetaServiceResponseStatus ok = Cloud.MetaServiceResponseStatus.newBuilder()
+                .setCode(MetaServiceCode.OK).build();
+        TxnInfoPB prepared = buildTxnInfo(txnId).toBuilder().clearTableIds().addTableIds(table.getId())
+                .setStatus(Cloud.TxnStatusPB.TXN_STATUS_PRECOMMITTED).build();
+        if (mow && !legacy) {
+            prepared = prepared.toBuilder().setIsMowLoad(true).addMowPrecommitTableIds(table.getId()).build();
+            if (needsBitmapLock) {
+                prepared = prepared.toBuilder().addTabletCommitInfos(Cloud.TabletCommitInfoPB.newBuilder()
+                        .setTabletId(tabletId).setBackendId(loadingBackendId)
+                        .setPendingRowsetId("pending-rowset")).build();
+            }
+        }
+        Mockito.when(proxy.getTxn(Mockito.any())).thenReturn(Cloud.GetTxnResponse.newBuilder()
+                .setStatus(ok).setTxnInfo(prepared).build());
+        Mockito.when(proxy.getDeleteBitmapUpdateLock(Mockito.any())).thenReturn(
+                Cloud.GetDeleteBitmapUpdateLockResponse.newBuilder()
+                        .setStatus(lockFails ? Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(MetaServiceCode.INVALID_ARGUMENT).setMsg("test lock failure").build() : ok)
+                        .addBaseCompactionCnts(0).addCumulativeCompactionCnts(0).addCumulativePoints(0).build());
+        Mockito.when(proxy.removeDeleteBitmapUpdateLock(Mockito.any())).thenReturn(
+                Cloud.RemoveDeleteBitmapUpdateLockResponse.newBuilder().setStatus(ok).build());
+        CommitTxnResponse committed = CommitTxnResponse.newBuilder().setStatus(ok)
+                .setTxnInfo(prepared.toBuilder().setStatus(Cloud.TxnStatusPB.TXN_STATUS_VISIBLE)).build();
+        if (retry) {
+            Mockito.when(proxy.commitTxn(Mockito.any())).thenReturn(CommitTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(MetaServiceCode.LOCK_EXPIRED))
+                    .build(), committed);
+        } else {
+            Mockito.when(proxy.commitTxn(Mockito.any())).thenReturn(committed);
+        }
+
+        ArgumentCaptor<AgentBatchTask> batch = ArgumentCaptor.forClass(AgentBatchTask.class);
+        boolean originalEnableNotify = Config.enable_notify_be_after_load_txn_commit;
+        Config.enable_notify_be_after_load_txn_commit = true;
+        try (MockedStatic<MetaServiceProxy> proxyMock = Mockito.mockStatic(MetaServiceProxy.class);
+                MockedStatic<VersionHelper> versions = mockVersionHelper();
+                MockedStatic<AgentTaskExecutor> tasks = Mockito.mockStatic(AgentTaskExecutor.class)) {
+            proxyMock.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            versions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenReturn(partitionVersion(4));
+            tasks.when(() -> AgentTaskExecutor.submit(Mockito.any())).thenAnswer(invocation -> {
+                AgentBatchTask sent = invocation.getArgument(0);
+                for (AgentTask task : sent.getAllTasks()) {
+                    if (task instanceof CalcDeleteBitmapTask) {
+                        CalcDeleteBitmapTask calc = (CalcDeleteBitmapTask) task;
+                        Assertions.assertTrue(calc.toThrift().isSetLockInitiator());
+                        Assertions.assertTrue(calc.toThrift().getLockInitiator() < -1);
+                        Assertions.assertNotEquals(calc.getSignature(), calc.toThrift().getLockInitiator());
+                        if (calcFails) {
+                            calc.countDownToZero("test bitmap calculation failed");
+                        } else {
+                            calc.countDownLatch(backendId, txnId);
+                        }
+                        AgentTaskQueue.removeTask(backendId, TTaskType.CALCULATE_DELETE_BITMAP, task.getSignature());
+                    }
+                }
+                return null;
+            });
+            if (lockFails || calcFails || legacy) {
+                UserException error = Assertions.assertThrows(UserException.class,
+                        () -> masterTransMgr.commitTransaction2PC(db, List.of(table), txnId, 1000));
+                String expected = lockFails ? "test lock failure"
+                        : calcFails ? "test bitmap calculation failed" : "Abort the transaction and reload";
+                Assertions.assertTrue(error.getMessage().contains(expected), error.getMessage());
+                if (calcFails) {
+                    tasks.verify(() -> AgentTaskExecutor.submit(Mockito.any()));
+                } else {
+                    tasks.verifyNoInteractions();
+                }
+            } else {
+                masterTransMgr.commitTransaction2PC(db, List.of(table), txnId, 1000);
+                if (needsBitmapLock) {
+                    tasks.verify(() -> AgentTaskExecutor.submit(batch.capture()), Mockito.times(retry ? 2 : 1));
+                    for (AgentBatchTask submitted : batch.getAllValues()) {
+                        Assertions.assertEquals(1, submitted.getAllTasks().size());
+                        Assertions.assertInstanceOf(CalcDeleteBitmapTask.class, submitted.getAllTasks().get(0));
+                    }
+                    CalcDeleteBitmapTask calc = (CalcDeleteBitmapTask) batch.getAllValues().get(0).getAllTasks().get(0);
+                    Assertions.assertEquals(backendId, calc.getBackendId());
+                    Mockito.verify(proxy).getDeleteBitmapUpdateLock(Mockito.argThat(
+                            request -> request.getInitiator() == calc.toThrift().getLockInitiator()));
+                    Assertions.assertEquals(List.of(tabletId), calc.getCalcDeleteBimapPartitionInfos().get(0)
+                            .getTabletIds());
+                    Assertions.assertEquals(5, calc.getCalcDeleteBimapPartitionInfos().get(0).getVersion());
+                } else {
+                    tasks.verifyNoInteractions();
+                }
+            }
+        } finally {
+            Config.enable_notify_be_after_load_txn_commit = originalEnableNotify;
+        }
+        Assertions.assertNull(table.getCommitLockOwner());
+        ArgumentCaptor<Cloud.GetDeleteBitmapUpdateLockRequest> locks =
+                ArgumentCaptor.forClass(Cloud.GetDeleteBitmapUpdateLockRequest.class);
+        int lockCount = needsBitmapLock ? (retry ? 2 : 1) : 0;
+        Mockito.verify(proxy, Mockito.times(lockCount)).getDeleteBitmapUpdateLock(locks.capture());
+        if (lockCount > 0) {
+            Cloud.GetDeleteBitmapUpdateLockRequest lock = locks.getAllValues().get(0);
+            Assertions.assertEquals(txnId, lock.getLockId());
+            Assertions.assertEquals(table.getId(), lock.getTableId());
+            Assertions.assertEquals(tabletId, lock.getTabletIndexes(0).getTabletId());
+            Assertions.assertTrue(lock.getInitiator() < -1);
+        }
+        if (lockFails || calcFails || retry) {
+            Mockito.verify(proxy).removeDeleteBitmapUpdateLock(Mockito.argThat(
+                    request -> request.getLockId() == txnId && request.getTableId() == table.getId()
+                            && request.getInitiator() == locks.getAllValues().get(0).getInitiator()));
+        } else {
+            Mockito.verify(proxy, Mockito.never()).removeDeleteBitmapUpdateLock(Mockito.any());
+        }
+        if (lockFails || calcFails || legacy) {
+            Mockito.verify(proxy, Mockito.never()).commitTxn(Mockito.any());
+        } else {
+            ArgumentCaptor<CommitTxnRequest> commits = ArgumentCaptor.forClass(CommitTxnRequest.class);
+            Mockito.verify(proxy, Mockito.times(retry ? 2 : 1)).commitTxn(commits.capture());
+            CommitTxnRequest committedRequest = commits.getValue();
+            Assertions.assertTrue(committedRequest.getIs2Pc());
+            Assertions.assertEquals(needsBitmapLock ? List.of(table.getId()) : List.of(),
+                    committedRequest.getMowTableIdsList());
+            if (needsBitmapLock) {
+                Assertions.assertEquals(locks.getValue().getInitiator(), committedRequest.getMowCommitAttempt());
+                if (retry) {
+                    Assertions.assertNotEquals(commits.getAllValues().get(0).getMowCommitAttempt(),
+                            committedRequest.getMowCommitAttempt());
+                }
+            } else {
+                Assertions.assertFalse(committedRequest.hasMowCommitAttempt());
+            }
         }
     }
 

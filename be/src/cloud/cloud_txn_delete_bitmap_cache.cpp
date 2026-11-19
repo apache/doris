@@ -20,6 +20,7 @@
 #include <fmt/core.h>
 
 #include <chrono>
+#include <ctime>
 #include <memory>
 #include <shared_mutex>
 
@@ -61,6 +62,7 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         std::shared_ptr<PartialUpdateInfo>* partial_update_info,
         std::shared_ptr<PublishStatus>* publish_status, TxnPublishInfo* previous_publish_info,
         ChangelogTxnInfo* attach_changelog) {
+    Status st;
     {
         std::shared_lock<std::shared_mutex> rlock(_rwlock);
         TxnKey key(transaction_id, tablet_id);
@@ -75,6 +77,17 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
                     "not found txn info, tablet_id={}, transaction_id={}", tablet_id,
                     transaction_id);
         }
+        // The background sweep may lag the deadline. An expired fenced baseline or an
+        // evicted bitmap must take the durable recovery path.
+        if (iter->second.fenced && iter->second.txn_expiration <= std::time(nullptr)) {
+            return Status::Error<ErrorCode::NOT_FOUND, false>(
+                    "expired fenced writer baseline, tablet_id={}, txn_id={}", tablet_id,
+                    transaction_id);
+        }
+        st = get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr);
+        if (iter->second.fenced && !st.ok()) {
+            return st;
+        }
         *rowset = iter->second.rowset;
         *txn_expiration = iter->second.txn_expiration;
         *partial_update_info = iter->second.partial_update_info;
@@ -84,8 +97,6 @@ Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
             *attach_changelog = iter->second.attach_changelog;
         }
     }
-
-    auto st = get_delete_bitmap(transaction_id, tablet_id, delete_bitmap, rowset_ids, nullptr);
 
     if (st.is<ErrorCode::NOT_FOUND>()) {
         // Because of the rowset_ids become empty, all delete bitmap
@@ -191,33 +202,33 @@ void CloudTxnDeleteBitmapCache::set_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, DeleteBitmapPtr delete_bitmap,
         const RowsetIdUnorderedSet& rowset_ids, RowsetSharedPtr rowset, int64_t txn_expiration,
         std::shared_ptr<PartialUpdateInfo> partial_update_info,
-        const ChangelogTxnInfo& attach_changelog) {
+        const ChangelogTxnInfo& attach_changelog, bool fenced) {
     int64_t txn_expiration_min =
             duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
                     .count() +
             config::tablet_txn_info_min_expired_seconds;
-    txn_expiration = std::max(txn_expiration_min, txn_expiration);
+    txn_expiration = fenced ? txn_expiration_min : std::max(txn_expiration_min, txn_expiration);
+    std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
+    CacheKey key(key_str);
+    auto val = new DeleteBitmapCacheValue(delete_bitmap, rowset_ids);
+    size_t charge = sizeof(DeleteBitmapCacheValue);
+    for (auto& [k, v] : val->delete_bitmap->delete_bitmap) {
+        charge += v.getSizeInBytes();
+    }
+
     {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         TxnKey txn_key(transaction_id, tablet_id);
         std::shared_ptr<PublishStatus> publish_status =
                 std::make_shared<PublishStatus>(PublishStatus::INIT);
         _txn_map[txn_key] = TxnVal(rowset, txn_expiration, std::move(partial_update_info),
-                                   std::move(publish_status), attach_changelog);
+                                   std::move(publish_status), attach_changelog, fenced);
         _expiration_txn.emplace(txn_expiration, txn_key);
-    }
-    std::string key_str = fmt::format("{}/{}", transaction_id, tablet_id);
-    CacheKey key(key_str);
 
-    auto val = new DeleteBitmapCacheValue(delete_bitmap, rowset_ids);
-    size_t charge = sizeof(DeleteBitmapCacheValue);
-    for (auto& [k, v] : val->delete_bitmap->delete_bitmap) {
-        charge += v.getSizeInBytes();
+        // Install both halves under the same lock so expiry or abort cannot leave an orphan.
+        auto* handle = insert(key, val, charge, charge, CachePriority::NORMAL);
+        release(handle);
     }
-    auto* handle = insert(key, val, charge, charge, CachePriority::NORMAL);
-    // must call release handle to reduce the reference count,
-    // otherwise there will be memory leak
-    release(handle);
     LOG_INFO("set txn related delete bitmap")
             .tag("txn_id", transaction_id)
             .tag("expiration", txn_expiration)
@@ -328,6 +339,33 @@ void CloudTxnDeleteBitmapCache::remove_unused_tablet_txn_info(TTransactionId tra
         CacheKey cache_key(key_str);
         erase(cache_key);
         _txn_map.erase(txn_key);
+    }
+}
+
+void CloudTxnDeleteBitmapCache::remove_fenced_txn_info(TTransactionId txn_id) {
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
+    auto iter = _txn_map.lower_bound(TxnKey(txn_id, 0));
+    while (iter != _txn_map.end() && iter->first.txn_id == txn_id) {
+        if (iter->second.fenced) {
+            std::string key = fmt::format("{}/{}", txn_id, iter->first.tablet_id);
+            erase(CacheKey(key));
+            iter = _txn_map.erase(iter);
+        } else {
+            ++iter;
+        }
+    }
+}
+
+void CloudTxnDeleteBitmapCache::remove_fenced_txn_infos(const std::vector<TTransactionId>& txn_ids,
+                                                        int64_t tablet_id) {
+    std::unique_lock<std::shared_mutex> wlock(_rwlock);
+    for (auto txn_id : txn_ids) {
+        auto iter = _txn_map.find(TxnKey(txn_id, tablet_id));
+        if (iter != _txn_map.end() && iter->second.fenced) {
+            std::string key = fmt::format("{}/{}", txn_id, tablet_id);
+            erase(CacheKey(key));
+            _txn_map.erase(iter);
+        }
     }
 }
 

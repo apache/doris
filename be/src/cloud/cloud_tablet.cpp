@@ -92,8 +92,6 @@ bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_fallback_c
         "capture_with_freshness_tolerance_fallback_count_window",
         &g_capture_with_freshness_tolerance_fallback_count, 30);
 
-static constexpr int LOAD_INITIATOR_ID = -1;
-
 namespace {
 
 bool is_schema_change_output_rowset(const RowsetSharedPtr& rowset,
@@ -1241,9 +1239,12 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         DCHECK(changelog_delete_bitmap != nullptr);
     }
 
-    // update delete bitmap info, in order to avoid recalculation when trying again
-    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
-            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE));
+    const bool fenced = txn_info->lock_initiator != -1;
+    if (!fenced) {
+        // Preserve the calculation for a legacy publish retry.
+        RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+                txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE));
+    }
 
     if (txn_info->partial_update_info != nullptr && rowset_writer != nullptr &&
         rowset_writer->num_rows() > 0) {
@@ -1261,6 +1262,7 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     }
 
     if (build_changelog) {
+        DORIS_CHECK(!fenced); // MoW 2PC plans reject changelog before the writer starts.
         for (const auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
             if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID &&
                 std::get<0>(key) == cur_build_rid) {
@@ -1271,21 +1273,24 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
         auto* changelog_tablet = static_cast<CloudTablet*>(txn_info->attach_changelog.tablet.get());
         RETURN_IF_ERROR(changelog_tablet->save_delete_bitmap_to_ms(
                 cur_version, txn_id, txn_info->attach_changelog.delete_bitmap, lock_id,
-                next_visible_version, txn_info->attach_changelog.rowset));
+                next_visible_version, txn_info->attach_changelog.rowset, txn_info->lock_initiator));
         RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
                 txn_id, changelog_tablet->tablet_id(), txn_info->attach_changelog.delete_bitmap,
                 cur_rowset_ids, PublishStatus::SUCCEED, txn_info->publish_info));
     }
 
     RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
-                                             next_visible_version, rowset));
+                                             next_visible_version, rowset,
+                                             txn_info->lock_initiator));
 
-    // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
-    // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
-    // delete bitmap correctness check. If we store the new_delete_bitmap, the delete bitmap correctness check will fail
-    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
-            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED,
-            txn_info->publish_info));
+    // A successful write can lose the fence before commit. Leave fenced attempts out of
+    // the read-side cache so a BE that calculated version N fetches the winner at N+1.
+    if (!fenced) {
+        // Preserve sentinel marks for the correctness check on a legacy publish retry.
+        RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+                txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED,
+                txn_info->publish_info));
+    }
 
     DBUG_EXECUTE_IF("CloudTablet::save_delete_bitmap.enable_sleep", {
         auto sleep_sec = dp->param<int>("sleep", 5);
@@ -1309,7 +1314,8 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
 Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id,
                                              DeleteBitmapPtr delete_bitmap, int64_t lock_id,
-                                             int64_t next_visible_version, RowsetSharedPtr rowset) {
+                                             int64_t next_visible_version, RowsetSharedPtr rowset,
+                                             int64_t lock_initiator) {
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto iter = delete_bitmap->delete_bitmap.begin();
          iter != delete_bitmap->delete_bitmap.end(); ++iter) {
@@ -1329,7 +1335,7 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
         storage_resource = *storage_resource_result.value();
     }
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
-            *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(), new_delete_bitmap.get(),
+            *this, ms_lock_id, lock_initiator, new_delete_bitmap.get(), new_delete_bitmap.get(),
             rowset->rowset_id().to_string(), storage_resource,
             config::delete_bitmap_store_write_version, table_id(), txn_id, is_explicit_txn,
             next_visible_version));
@@ -1646,10 +1652,12 @@ void CloudTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
 Status CloudTablet::check_delete_bitmap_cache(int64_t txn_id,
                                               DeleteBitmap* expected_delete_bitmap) {
     DeleteBitmapPtr cached_delete_bitmap;
-    CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
-    Status st = engine.txn_delete_bitmap_cache().get_delete_bitmap(
-            txn_id, tablet_id(), &cached_delete_bitmap, nullptr, nullptr);
-    if (st.ok()) {
+    std::shared_ptr<PublishStatus> publish_status;
+    Status st = _engine.txn_delete_bitmap_cache().get_delete_bitmap(
+            txn_id, tablet_id(), &cached_delete_bitmap, nullptr, &publish_status);
+    // A fenced writer keeps its INIT baseline after publish. An intervening rowset can
+    // add deletes to the attempt's bitmap while its cached baseline still has the old count.
+    if (st.ok() && *publish_status == PublishStatus::SUCCEED) {
         const auto expected_cardinality = expected_delete_bitmap->cardinality();
         const auto cached_cardinality = cached_delete_bitmap->cardinality();
         if (expected_cardinality != cached_cardinality) {
@@ -2126,6 +2134,10 @@ void CloudTablet::clear_unused_visible_pending_rowsets() {
     while (!_visible_pending_rs_map.empty() && _visible_pending_rs_map.size() > max_version_count) {
         _visible_pending_rs_map.erase(--_visible_pending_rs_map.end());
     }
+}
+
+void CloudTablet::discard_fenced_writer_baselines(const std::vector<int64_t>& txn_ids) {
+    _engine.txn_delete_bitmap_cache().remove_fenced_txn_infos(txn_ids, tablet_id());
 }
 
 void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
