@@ -168,25 +168,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     // Init schema (Tuple/Slot) related params.
     protected void initSchemaParams() throws UserException {
-        destSlotDescByName = Maps.newHashMap();
-        for (SlotDescriptor slot : desc.getSlots()) {
-            destSlotDescByName.put(slot.getColumn().getName(), slot);
-        }
         params = new TFileScanRangeParams();
         params.setDestTupleId(desc.getId().asInt());
-        List<String> partitionKeys = getPathPartitionKeys();
-        List<Column> columns = getPinnedBaseSchema();
-        params.setNumOfColumnsFromFile(columns.size() - partitionKeys.size());
+        destSlotDescByName = Maps.newHashMap();
+        // Defaults attach to slot IDs. Binding file/partition categories here would request execution
+        // properties (including vended storage credentials) before the projection and filters are final.
         for (SlotDescriptor slot : desc.getSlots()) {
+            destSlotDescByName.put(slot.getColumn().getName(), slot);
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            TColumnCategory category = classifyColumn(slot, partitionKeys);
-            slotInfo.setCategory(category);
-            slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
-        setColumnPositionMapping();
         // For query, set src tuple id to -1.
         params.setSrcTupleId(-1);
         // Set enable_mapping_varbinary from catalog or TVF
@@ -211,7 +204,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     }
 
     /**
-     * Full schema used to position-map file columns in {@link #setColumnPositionMapping()}. Version-BLIND
+     * Full schema used to position-map file columns in {@link #setColumnPositionMapping(List)}. Version-BLIND
      * by default; the plugin-driven scan overrides this to THIS reference's pinned snapshot schema so a
      * statement reading the same table at multiple versions (e.g. a self-join {@code FOR VERSION AS OF}
      * across a schema change) maps each side's columns against the schema it actually reads, instead of
@@ -230,6 +223,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
         params.unsetRequiredSlots();
         List<String> partitionKeys = getPathPartitionKeys();
+        params.setNumOfColumnsFromFile(getPinnedBaseSchema().size() - partitionKeys.size());
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = existingSlotInfoById.get(slot.getId().asInt());
             if (slotInfo == null) {
@@ -241,8 +235,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             slotInfo.setIsFileSlot(isFileSlot(category));
             params.addToRequiredSlots(slotInfo);
         }
-        // Update required slots and column_idxs in scanRangeLocations.
-        setColumnPositionMapping();
+        setColumnPositionMapping(partitionKeys);
     }
 
     protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
@@ -279,8 +272,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeStartTime();
         }
         convertPredicate();
-        createScanRangeLocations();
         updateRequiredSlots();
+        createScanRangeLocations();
         if (ConnectContext.get().getExecutor() != null) {
             ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeFinishTime();
         }
@@ -295,7 +288,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected void convertPredicate() {
     }
 
-    private void setColumnPositionMapping()
+    private void setColumnPositionMapping(List<String> partitionKeys)
             throws UserException {
         TableIf tbl = getTargetTable();
         List<Integer> columnIdxs = Lists.newArrayList();
@@ -310,7 +303,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
         boolean needsRowIdFetch = desc.getSlots().stream()
                 .anyMatch(slot -> slot.getColumn().getName().startsWith(Column.GLOBAL_ROWID_COL));
-        List<String> partitionKeys = needsRowIdFetch ? getPathPartitionKeys() : Collections.emptyList();
         Map<String, TColumnCategory> columnCategories = new HashMap<>();
         for (int i = 0; i < columns.size(); i++) {
             String columnName = columns.get(i).getName();

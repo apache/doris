@@ -32,6 +32,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
@@ -49,6 +50,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -124,6 +126,53 @@ public class FileQueryScanNodeTest {
     public void setUp() {
         table = Mockito.mock(TableIf.class);
         Mockito.when(table.getName()).thenReturn("test_table");
+    }
+
+    @Test
+    public void partitionLayoutIsLoadedAfterPredicateConversionAndBeforeRangeCreation() throws Exception {
+        List<String> stages = new ArrayList<>();
+        TestFileQueryScanNode node = new TestFileQueryScanNode(new SessionVariable()) {
+            @Override
+            protected void convertPredicate() {
+                stages.add("filter");
+            }
+
+            @Override
+            protected List<String> getPathPartitionKeys() {
+                stages.add("partition keys");
+                return List.of("p");
+            }
+
+            @Override
+            public void createScanRangeLocations() {
+                stages.add("ranges");
+                Assertions.assertEquals(1, params.getNumOfColumnsFromFile());
+                Assertions.assertTrue(params.getRequiredSlots().get(0).isIsFileSlot());
+                Assertions.assertEquals(TColumnCategory.PARTITION_KEY, params.getRequiredSlots().get(1).getCategory());
+                Assertions.assertFalse(params.getRequiredSlots().get(1).isIsFileSlot());
+                Assertions.assertEquals(List.of(0), params.getColumnIdxs());
+            }
+        };
+        node.setTargetTable(table);
+        TupleDescriptor desc = node.getTupleDescriptor();
+        desc.setTable(table);
+        List<Column> columns = List.of(new Column("id", Type.INT), new Column("p", Type.INT));
+        Mockito.when(table.getBaseSchema(false)).thenReturn(columns);
+        Mockito.when(table.getFullSchema()).thenReturn(columns);
+        for (int i = 0; i < columns.size(); i++) {
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(i + 1), desc.getId());
+            slot.setColumn(columns.get(i));
+            desc.addSlot(slot);
+        }
+        new ConnectContext().setThreadLocalInfo();
+        try {
+            node.initSchemaParamsForTest();
+            Assertions.assertTrue(stages.isEmpty());
+            node.finalizeForNereids();
+            Assertions.assertEquals(List.of("filter", "partition keys", "ranges"), stages);
+        } finally {
+            ConnectContext.remove();
+        }
     }
 
     @Test
