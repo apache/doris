@@ -22,13 +22,13 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
         "regexp_replace(cast(${column} as string), " +
                 "'([0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2})[.]000000', '\\\\1')"
     }
-    sql """ set default_variant_enable_doc_mode = false """
+    sql """ set debug_variant_enable_doc_mode = false """
     sql """DROP TABLE IF EXISTS test_predefine"""
     def count = new Random().nextInt(10);
     if (new Random().nextInt(100) < 50) {
         count = "1000"
     }
-    sql """ set default_variant_max_subcolumns_count = ${count} """
+    sql """ set debug_variant_max_subcolumns_count = ${count} """
     sql """ set enable_variant_flatten_nested = true """
     sql """
         CREATE TABLE `test_predefine` (

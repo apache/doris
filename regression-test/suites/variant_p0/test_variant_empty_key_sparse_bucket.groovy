@@ -17,13 +17,13 @@
 
 suite("test_variant_empty_key_sparse_bucket", "nonConcurrent") {
     def variantV2Function = "parse_to_variant"
-    sql "SET default_variant_enable_doc_mode = false"
+    sql "SET debug_variant_enable_doc_mode = false"
     sql "SET use_v3_storage_format = false"
-    sql "SET default_variant_enable_typed_paths_to_sparse = false"
-    sql "SET default_variant_sparse_hash_shard_count = 3"
+    sql "SET debug_variant_enable_typed_paths_to_sparse = false"
+    sql "SET debug_variant_sparse_hash_shard_count = 3"
     sql "SET enable_rewrite_element_at_to_slot = true"
 
-    sql "SET default_variant_max_subcolumns_count = 0"
+    sql "SET debug_variant_max_subcolumns_count = 0"
     sql "DROP TABLE IF EXISTS test_variant_empty_key_no_sparse"
     sql """
         CREATE TABLE test_variant_empty_key_no_sparse (
@@ -55,7 +55,7 @@ suite("test_variant_empty_key_sparse_bucket", "nonConcurrent") {
         ORDER BY k
     """
 
-    sql "SET default_variant_max_subcolumns_count = 3"
+    sql "SET debug_variant_max_subcolumns_count = 3"
     sql "DROP TABLE IF EXISTS test_variant_empty_key_sparse_bucket"
     sql """
         CREATE TABLE test_variant_empty_key_sparse_bucket (

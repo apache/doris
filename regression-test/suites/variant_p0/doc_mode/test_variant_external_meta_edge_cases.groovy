@@ -17,7 +17,7 @@
 
 suite("variant_external_meta_doc_value", "p0") {
     def variantV2Function = "parse_to_variant"
-    sql """ set default_variant_enable_doc_mode = true """
+    sql """ set debug_variant_enable_doc_mode = true """
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
