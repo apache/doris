@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "exprs/function/array/function_arrays_overlap.h"
+
 #include <gtest/gtest.h>
 
 #include <memory>
@@ -27,6 +29,8 @@
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
+#include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/thread_context.h"
 
 namespace doris {
 
@@ -285,6 +289,25 @@ TEST(function_arrays_overlap_test, both_const_arguments) {
     }
     check_const_arrays_overlap(types, {{{large, TestArray {}}, UInt8(0)}});
     check_const_arrays_overlap(types, {{{large, Null()}, Null()}});
+}
+
+TEST(function_arrays_overlap_test, hash_set_allocation_is_tracked) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "ArraysOverlapHashSet");
+    auto switch_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const auto baseline = tracker->consumption();
+    {
+        OverlapHashSet<Int32> set;
+        for (Int32 value = 0; value < 1024; ++value) {
+            set.insert(value);
+        }
+        EXPECT_EQ(set.size(), 1024);
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_GT(tracker->consumption(), baseline);
+    }
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker->consumption(), baseline);
 }
 
 TEST(function_arrays_overlap_test, prepared_decimal_set) {

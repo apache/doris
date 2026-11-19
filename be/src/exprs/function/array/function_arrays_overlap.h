@@ -41,6 +41,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exec/common/hash_table/hash.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "exprs/function/array/function_array_index.h"
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function.h"
@@ -58,12 +59,16 @@ template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
 
+// Keep phmap's equality semantics; doris::EqualTo treats floating-point NaNs as equal.
+template <typename T>
+using OverlapHashSet = doris::flat_hash_set<T, DefaultHash<T>, phmap::priv::hash_default_eq<T>>;
+
 template <PrimitiveType PType>
 struct OverlapSetImpl {
     using ArrayView = ArrayDataView<PType>;
     using ElementNativeType =
             typename NativeType<typename PrimitiveTypeTraits<PType>::ColumnType::value_type>::Type;
-    using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
+    using Set = OverlapHashSet<ElementNativeType>;
     Set set;
     bool has_null = false;
 
@@ -99,7 +104,7 @@ template <>
 struct OverlapSetImpl<TYPE_DECIMALV2> {
     using ArrayView = ArrayDataView<TYPE_DECIMALV2>;
     using ElementNativeType = Int128;
-    using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
+    using Set = OverlapHashSet<ElementNativeType>;
     Set set;
     bool has_null = false;
 
@@ -134,7 +139,7 @@ struct OverlapSetImpl<TYPE_DECIMALV2> {
 template <>
 struct OverlapSetImpl<TYPE_STRING> {
     using ArrayView = ArrayDataView<TYPE_STRING>;
-    using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
+    using Set = OverlapHashSet<StringRef>;
     Set set;
     bool has_null = false;
 
