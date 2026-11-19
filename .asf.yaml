@@ -41,175 +41,326 @@ github:
     squash:  true
     merge:   false
     rebase:  false
-  protected_branches:
-    # master, branch-4.2 and branch-4.1 use the migrated TeamCity contexts.
-    # Performance reports results without gating these branches.
-    master:
-      required_status_checks:
-        strict: false
-        contexts:
-          - License Check
-          - Check for secrets
-          - Clang Formatter
-          - CheckStyle
-          - TeamCity/p0
-          - TeamCity/nonconcurrent
-          - TeamCity/external
-          - TeamCity/cloud_p0
-          - TeamCity/vault_p0
-          - TeamCity/feut
-          - TeamCity/beut
-          - Build Third Party Libraries (Linux)
-          - Build Third Party Libraries (macOS)
-          - Build Third Party Libraries (macOS-arm64)
-          - TeamCity/compile
-          - code-review
-          - TeamCity/cloudut
-      required_pull_request_reviews:
-        dismiss_stale_reviews: true
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-    branch-4.2:
-      required_status_checks:
-        strict: false
-        contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
-          - TeamCity/feut
-          - TeamCity/beut
-          - TeamCity/cloudut
-          - TeamCity/compile
-          - TeamCity/p0
-          - TeamCity/nonconcurrent
-          - TeamCity/external
-          - TeamCity/cloud_p0
-          - TeamCity/vault_p0
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-    branch-4.1:
-      required_status_checks:
-        strict: false
-        contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
-          - TeamCity/feut
-          - TeamCity/beut
-          - TeamCity/cloudut
-          - TeamCity/compile
-          - TeamCity/p0
-          - TeamCity/nonconcurrent
-          - TeamCity/external
-          - TeamCity/cloud_p0
-          - TeamCity/vault_p0
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-    branch-4.0:
-      required_status_checks:
-        strict: false
-        contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
-          - FE UT (Doris FE UT)
-          - BE UT (Doris BE UT)
-          - Cloud UT (Doris Cloud UT)
-          - COMPILE (DORIS_COMPILE)
-          - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (nonConcurrent)
-          - External Regression (Doris External Regression)
-          - cloud_p0 (Doris Cloud Regression)
-          - vault_p0 (Doris Cloud Regression)
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-    branch-3.1:
-      required_status_checks:
-        strict: false
-        contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
-          - Build Third Party Libraries (Linux)
-          - FE UT (Doris FE UT)
-          - BE UT (Doris BE UT)
-          - Cloud UT (Doris Cloud UT)
-          - COMPILE (DORIS_COMPILE)
-          - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (nonConcurrent)
-          - External Regression (Doris External Regression)
-          - cloud_p0 (Doris Cloud Regression)
-          - vault_p0 (Doris Cloud Regression)
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-    branch-3.0:
-      required_status_checks:
-        strict: false
-        contexts:
-          - License Check
-          - Clang Formatter
-          - CheckStyle
-          - Build Broker
-          - Build Third Party Libraries (Linux)
-          - FE UT (Doris FE UT)
-          - BE UT (Doris BE UT)
-          - Cloud UT (Doris Cloud UT)
-          - COMPILE (DORIS_COMPILE)
-          - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (nonConcurrent)
-          - External Regression (Doris External Regression)
-          - cloud_p0 (Doris Cloud Regression)
-          - vault_p0 (Doris Cloud Regression)
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-    branch-2.1:
-      required_status_checks:
-        strict: false
-        contexts:
-          - License Check
-          - CheckStyle
-          - Build Broker
-          - Build Third Party Libraries (Linux)
-          - COMPILE (DORIS_COMPILE)
-          - External Regression (Doris External Regression)
-          - FE UT (Doris FE UT)
-          - BE UT (Doris BE UT)
-          - P0 Regression (Doris Regression)
-      required_pull_request_reviews:
-        require_code_owner_reviews: true
-        required_approving_review_count: 1
-        dismiss_stale_reviews: true
-    branch-2.0:
-      required_status_checks:
-        strict: false
-        contexts:
-          - License Check
-          - CheckStyle
-          - P0 Regression (Doris Regression)
-          - External Regression (Doris External Regression)
-          - FE UT (Doris FE UT)
-          - BE UT (Doris BE UT)
-          - Build Broker
-          - Build Third Party Libraries (Linux)
-          - Build Third Party Libraries (macOS)
-          - COMPILE (DORIS_COMPILE)
-      required_pull_request_reviews:
-        dismiss_stale_reviews: true
-        required_approving_review_count: 1
+  # Clear legacy protections so obsolete required checks do not remain active.
+  protected_branches: ~
+  # CI and review rules retain the classic default administrator bypass.
+  # Force-push and deletion protection have no bypass, including for admins.
+  # RepositoryRole 5 is the repository administrator role.
+  rulesets:
+    - name: "Doris branch safety"
+      target: branch
+      enforcement: active
+      bypass_actors: []
+      conditions:
+        ref_name:
+          include:
+            - "refs/heads/master"
+            - "refs/heads/branch-4.2"
+            - "refs/heads/branch-4.1"
+            - "refs/heads/branch-4.0"
+            - "refs/heads/branch-3.1"
+            - "refs/heads/branch-3.0"
+            - "refs/heads/branch-2.1"
+            - "refs/heads/branch-2.0"
+          exclude: []
+      rules:
+        - type: deletion
+        - type: non_fast_forward
+    - name: "Doris master"
+      target: branch
+      enforcement: active
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+      conditions:
+        ref_name:
+          include:
+            - "refs/heads/master"
+          exclude: []
+      rules:
+        - type: pull_request
+          parameters:
+            dismiss_stale_reviews_on_push: true
+            require_code_owner_review: true
+            require_last_push_approval: false
+            required_approving_review_count: 1
+            required_review_thread_resolution: false
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: "License Check"
+              - context: "Check for secrets"
+              - context: "Clang Formatter"
+              - context: "CheckStyle"
+              - context: "TeamCity/p0"
+              - context: "TeamCity/nonconcurrent"
+              - context: "TeamCity/external"
+              - context: "TeamCity/cloud_p0"
+              - context: "TeamCity/vault_p0"
+              - context: "TeamCity/feut"
+              - context: "TeamCity/beut"
+              - context: "Build Third Party Libraries (Linux)"
+              - context: "Build Third Party Libraries (macOS)"
+              - context: "Build Third Party Libraries (macOS-arm64)"
+              - context: "TeamCity/compile"
+              - context: "code-review"
+              - context: "TeamCity/cloudut"
+    - name: "Doris branch-4.2"
+      target: branch
+      enforcement: active
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+      conditions:
+        ref_name:
+          include:
+            - "refs/heads/branch-4.2"
+          exclude: []
+      rules:
+        - type: pull_request
+          parameters:
+            dismiss_stale_reviews_on_push: true
+            require_code_owner_review: true
+            require_last_push_approval: false
+            required_approving_review_count: 1
+            required_review_thread_resolution: false
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: "License Check"
+              - context: "Clang Formatter"
+              - context: "CheckStyle"
+              - context: "Build Broker"
+              - context: "TeamCity/feut"
+              - context: "TeamCity/beut"
+              - context: "TeamCity/cloudut"
+              - context: "TeamCity/compile"
+              - context: "TeamCity/p0"
+              - context: "TeamCity/nonconcurrent"
+              - context: "TeamCity/external"
+              - context: "TeamCity/cloud_p0"
+              - context: "TeamCity/vault_p0"
+    - name: "Doris branch-4.1"
+      target: branch
+      enforcement: active
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+      conditions:
+        ref_name:
+          include:
+            - "refs/heads/branch-4.1"
+          exclude: []
+      rules:
+        - type: pull_request
+          parameters:
+            dismiss_stale_reviews_on_push: true
+            require_code_owner_review: true
+            require_last_push_approval: false
+            required_approving_review_count: 1
+            required_review_thread_resolution: false
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: "License Check"
+              - context: "Clang Formatter"
+              - context: "CheckStyle"
+              - context: "Build Broker"
+              - context: "TeamCity/feut"
+              - context: "TeamCity/beut"
+              - context: "TeamCity/cloudut"
+              - context: "TeamCity/compile"
+              - context: "TeamCity/p0"
+              - context: "TeamCity/nonconcurrent"
+              - context: "TeamCity/external"
+              - context: "TeamCity/cloud_p0"
+              - context: "TeamCity/vault_p0"
+    - name: "Doris branch-4.0"
+      target: branch
+      enforcement: active
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+      conditions:
+        ref_name:
+          include:
+            - "refs/heads/branch-4.0"
+          exclude: []
+      rules:
+        - type: pull_request
+          parameters:
+            dismiss_stale_reviews_on_push: true
+            require_code_owner_review: true
+            require_last_push_approval: false
+            required_approving_review_count: 1
+            required_review_thread_resolution: false
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: "License Check"
+              - context: "Clang Formatter"
+              - context: "CheckStyle"
+              - context: "Build Broker"
+              - context: "FE UT (Doris FE UT)"
+              - context: "BE UT (Doris BE UT)"
+              - context: "Cloud UT (Doris Cloud UT)"
+              - context: "COMPILE (DORIS_COMPILE)"
+              - context: "P0 Regression (Doris Regression)"
+              - context: "NonConcurrent Regression (nonConcurrent)"
+              - context: "External Regression (Doris External Regression)"
+              - context: "cloud_p0 (Doris Cloud Regression)"
+              - context: "vault_p0 (Doris Cloud Regression)"
+    - name: "Doris branch-3.1"
+      target: branch
+      enforcement: active
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+      conditions:
+        ref_name:
+          include:
+            - "refs/heads/branch-3.1"
+          exclude: []
+      rules:
+        - type: pull_request
+          parameters:
+            dismiss_stale_reviews_on_push: true
+            require_code_owner_review: true
+            require_last_push_approval: false
+            required_approving_review_count: 1
+            required_review_thread_resolution: false
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: "License Check"
+              - context: "Clang Formatter"
+              - context: "CheckStyle"
+              - context: "Build Broker"
+              - context: "Build Third Party Libraries (Linux)"
+              - context: "FE UT (Doris FE UT)"
+              - context: "BE UT (Doris BE UT)"
+              - context: "Cloud UT (Doris Cloud UT)"
+              - context: "COMPILE (DORIS_COMPILE)"
+              - context: "P0 Regression (Doris Regression)"
+              - context: "NonConcurrent Regression (nonConcurrent)"
+              - context: "External Regression (Doris External Regression)"
+              - context: "cloud_p0 (Doris Cloud Regression)"
+              - context: "vault_p0 (Doris Cloud Regression)"
+    - name: "Doris branch-3.0"
+      target: branch
+      enforcement: active
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+      conditions:
+        ref_name:
+          include:
+            - "refs/heads/branch-3.0"
+          exclude: []
+      rules:
+        - type: pull_request
+          parameters:
+            dismiss_stale_reviews_on_push: true
+            require_code_owner_review: true
+            require_last_push_approval: false
+            required_approving_review_count: 1
+            required_review_thread_resolution: false
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: "License Check"
+              - context: "Clang Formatter"
+              - context: "CheckStyle"
+              - context: "Build Broker"
+              - context: "Build Third Party Libraries (Linux)"
+              - context: "FE UT (Doris FE UT)"
+              - context: "BE UT (Doris BE UT)"
+              - context: "Cloud UT (Doris Cloud UT)"
+              - context: "COMPILE (DORIS_COMPILE)"
+              - context: "P0 Regression (Doris Regression)"
+              - context: "NonConcurrent Regression (nonConcurrent)"
+              - context: "External Regression (Doris External Regression)"
+              - context: "cloud_p0 (Doris Cloud Regression)"
+              - context: "vault_p0 (Doris Cloud Regression)"
+    - name: "Doris branch-2.1"
+      target: branch
+      enforcement: active
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+      conditions:
+        ref_name:
+          include:
+            - "refs/heads/branch-2.1"
+          exclude: []
+      rules:
+        - type: pull_request
+          parameters:
+            dismiss_stale_reviews_on_push: true
+            require_code_owner_review: true
+            require_last_push_approval: false
+            required_approving_review_count: 1
+            required_review_thread_resolution: false
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: "License Check"
+              - context: "CheckStyle"
+              - context: "Build Broker"
+              - context: "Build Third Party Libraries (Linux)"
+              - context: "COMPILE (DORIS_COMPILE)"
+              - context: "External Regression (Doris External Regression)"
+              - context: "FE UT (Doris FE UT)"
+              - context: "BE UT (Doris BE UT)"
+              - context: "P0 Regression (Doris Regression)"
+    - name: "Doris branch-2.0"
+      target: branch
+      enforcement: active
+      bypass_actors:
+        - actor_id: 5
+          actor_type: RepositoryRole
+          bypass_mode: always
+      conditions:
+        ref_name:
+          include:
+            - "refs/heads/branch-2.0"
+          exclude: []
+      rules:
+        - type: pull_request
+          parameters:
+            dismiss_stale_reviews_on_push: true
+            require_code_owner_review: false
+            require_last_push_approval: false
+            required_approving_review_count: 1
+            required_review_thread_resolution: false
+        - type: required_status_checks
+          parameters:
+            strict_required_status_checks_policy: false
+            required_status_checks:
+              - context: "License Check"
+              - context: "CheckStyle"
+              - context: "P0 Regression (Doris Regression)"
+              - context: "External Regression (Doris External Regression)"
+              - context: "FE UT (Doris FE UT)"
+              - context: "BE UT (Doris BE UT)"
+              - context: "Build Broker"
+              - context: "Build Third Party Libraries (Linux)"
+              - context: "Build Third Party Libraries (macOS)"
+              - context: "COMPILE (DORIS_COMPILE)"
   collaborators:
     - Yukang-Lian
     - Hastyshell
