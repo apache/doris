@@ -236,7 +236,7 @@ Status CloudCumulativeCompaction::request_global_lock() {
     // Set input version range to let meta-service check version range conflict
     compaction_job->set_check_input_versions_range(_enable_parallel_cumu_compaction);
     cloud::StartTabletJobResponse resp;
-    Status st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    Status st = _engine.meta_mgr().prepare_tablet_job(*cloud_tablet(), job, &resp);
     if (!st.ok()) {
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time
@@ -961,7 +961,7 @@ void CloudCumulativeCompaction::update_cumulative_point(int64_t input_cumulative
     compaction_job->set_lease(now + config::lease_compaction_interval_seconds);
     // No need to set expiration time, since there is no output rowset
     cloud::StartTabletJobResponse start_resp;
-    auto st = _engine.meta_mgr().prepare_tablet_job(job, &start_resp);
+    auto st = _engine.meta_mgr().prepare_tablet_job(*cloud_tablet(), job, &start_resp);
     if (!st.ok()) {
         if (start_resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time

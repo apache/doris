@@ -836,6 +836,8 @@ message TabletJobInfoPB {
     optional TabletIndexPB idx = 1;
     repeated TabletCompactionJobPB compaction = 4;
     optional TabletSchemaChangeJobPB schema_change = 5;
+    // Persist the table setting so job completion and recycling select the same lock protocol.
+    optional bool enable_delete_bitmap_lock_v2 = 6;
 }
 
 message CompactionLogPB {
@@ -2095,6 +2097,8 @@ message UpdateDeleteBitmapRequest {
     optional bool enable_remove_pre_rowsets_delete_bitmap_by_keys = 20;
     // stats of pre-rowset delete bitmaps in [start_version, end_version) used for point delete
     repeated PreRowsetDeleteBitmapStatsPB pre_rowset_delete_bitmap_stats = 21;
+    // Lock protocol of the table, independent of the delete bitmap storage version.
+    optional bool enable_delete_bitmap_lock_v2 = 22;
     // 50-51: used for storage v2
     repeated string delta_rowset_ids = 50;
     repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
@@ -2177,6 +2181,7 @@ message GetDeleteBitmapUpdateLockRequest {
     repeated TabletIndexPB tablet_indexes = 8;
     optional string request_ip = 9;
     optional bool urgent = 10;
+    optional bool enable_delete_bitmap_lock_v2 = 11;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
@@ -2194,6 +2199,7 @@ message RemoveDeleteBitmapUpdateLockRequest {
     optional int64 lock_id = 4;
     optional int64 initiator = 5;
     optional string request_ip = 6;
+    optional bool enable_delete_bitmap_lock_v2 = 7;
 }
 
 message RemoveDeleteBitmapUpdateLockResponse {

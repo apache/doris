@@ -2561,8 +2561,7 @@ Status CloudCompactionMixin::execute_compact() {
                     // lock will not release, in this situation, be need to send this rpc to ms
                     // to try to release delete bitmap lock.
                     _engine.meta_mgr().remove_delete_bitmap_update_lock(
-                            _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
-                            _tablet->tablet_id());
+                            *cloud_tablet(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator());
                 }
                 submit_profile_record(false, profile_start_time_ms, ex.what());
             });

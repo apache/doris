@@ -1922,6 +1922,59 @@ TEST(MetaServiceJobTest, StopTokenReplacesStaleStopToken) {
     }
 }
 
+TEST(MetaServiceJobTest, TableDeleteBitmapLockVersionOnAbort) {
+    auto old_white_list = config::delete_bitmap_lock_v2_white_list;
+    config::delete_bitmap_lock_v2_white_list = "";
+    DORIS_CLOUD_DEFER {
+        config::delete_bitmap_lock_v2_white_list = old_white_list;
+    };
+    auto meta_service = get_meta_service();
+    MOCK_GET_INSTANCE_ID(instance_id);
+
+    constexpr int64_t table_id = 501, tablet_id = 504, initiator = 505;
+    ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), table_id, 502, 503, tablet_id, true));
+    remove_delete_bitmap_lock(meta_service.get(), table_id);
+    brpc::Controller cntl;
+    StartTabletJobRequest start;
+    auto* job = start.mutable_job();
+    job->mutable_idx()->set_tablet_id(tablet_id);
+    job->set_enable_delete_bitmap_lock_v2(true);
+    auto* compaction = job->add_compaction();
+    compaction->set_id("v2_compaction");
+    compaction->set_initiator("BE1");
+    compaction->set_type(TabletCompactionJobPB::CUMULATIVE);
+    compaction->set_base_compaction_cnt(0);
+    compaction->set_cumulative_compaction_cnt(0);
+    compaction->set_expiration(time(nullptr) + 60);
+    compaction->set_lease(time(nullptr) + 60);
+    StartTabletJobResponse start_res;
+    meta_service->start_tablet_job(&cntl, &start, &start_res, nullptr);
+    ASSERT_EQ(start_res.status().code(), MetaServiceCode::OK) << start_res.status().msg();
+
+    GetDeleteBitmapUpdateLockRequest lock;
+    lock.set_cloud_unique_id("test_cloud_unique_id");
+    lock.set_table_id(table_id);
+    lock.set_lock_id(COMPACTION_DELETE_BITMAP_LOCK_ID);
+    lock.set_initiator(initiator);
+    lock.set_expiration(60);
+    lock.set_enable_delete_bitmap_lock_v2(true);
+    GetDeleteBitmapUpdateLockResponse lock_res;
+    meta_service->get_delete_bitmap_update_lock(&cntl, &lock, &lock_res, nullptr);
+    ASSERT_EQ(lock_res.status().code(), MetaServiceCode::OK) << lock_res.status().msg();
+    check_job_key(meta_service.get(), instance_id, table_id, initiator, true);
+
+    // A Recycler abort supplies the job identity and initiator. The start record carries the mode.
+    FinishTabletJobRequest abort;
+    abort.set_action(FinishTabletJobRequest::ABORT);
+    abort.mutable_job()->CopyFrom(*job);
+    abort.mutable_job()->clear_enable_delete_bitmap_lock_v2();
+    abort.mutable_job()->mutable_compaction(0)->set_delete_bitmap_lock_initiator(initiator);
+    FinishTabletJobResponse abort_res;
+    meta_service->finish_tablet_job(&cntl, &abort, &abort_res, nullptr);
+    ASSERT_EQ(abort_res.status().code(), MetaServiceCode::OK) << abort_res.status().msg();
+    check_job_key(meta_service.get(), instance_id, table_id, initiator, false);
+}
+
 TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();

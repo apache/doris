@@ -166,7 +166,7 @@ Status CloudIndexChangeCompaction::request_global_lock(bool& should_skip_err) {
     }
 
     cloud::StartTabletJobResponse resp;
-    Status st = _engine.meta_mgr().prepare_tablet_job(job, &resp);
+    Status st = _engine.meta_mgr().prepare_tablet_job(*cloud_tablet(), job, &resp);
     if (!st.ok()) {
         if (resp.status().code() == cloud::STALE_TABLET_CACHE) {
             // set last_sync_time to 0 to force sync tablet next time

@@ -1927,12 +1927,22 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
     return Status::OK();
 }
 
-Status CloudMetaMgr::prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res) {
+template <typename Request>
+static void set_delete_bitmap_lock_version(const CloudTablet& tablet, Request& request) {
+    if (auto enable_v2 = tablet.tablet_meta()->enable_delete_bitmap_lock_v2();
+        enable_v2.has_value()) {
+        request.set_enable_delete_bitmap_lock_v2(*enable_v2);
+    }
+}
+
+Status CloudMetaMgr::prepare_tablet_job(const CloudTablet& tablet, const TabletJobInfoPB& job,
+                                        StartTabletJobResponse* res) {
     VLOG_DEBUG << "prepare_tablet_job: " << job.ShortDebugString();
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::prepare_tablet_job", Status::OK(), job, res);
 
     StartTabletJobRequest req;
     req.mutable_job()->CopyFrom(job);
+    set_delete_bitmap_lock_version(tablet, *req.mutable_job());
     req.set_cloud_unique_id(config::cloud_unique_id);
     return retry_rpc(MetaServiceRPC::START_TABLET_JOB, req, res,
                      &MetaService_Stub::start_tablet_job,
@@ -2096,6 +2106,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
     req.set_is_explicit_txn(is_explicit_txn);
+    set_delete_bitmap_lock_version(tablet, req);
     if (txn_id > 0) {
         req.set_txn_id(txn_id);
     }
@@ -2309,6 +2320,7 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
     req.set_initiator(initiator);
     // set expiration time for compaction and schema_change
     req.set_expiration(config::delete_bitmap_lock_expiration_seconds);
+    set_delete_bitmap_lock_version(tablet, req);
     int retry_times = 0;
     Status st;
     std::default_random_engine rng = make_random_engine();
@@ -2374,8 +2386,10 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
     return st;
 }
 
-void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id,
-                                                    int64_t initiator, int64_t tablet_id) {
+void CloudMetaMgr::remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
+                                                    int64_t initiator) {
+    int64_t table_id = tablet.table_id();
+    int64_t tablet_id = tablet.tablet_id();
     LOG(INFO) << "remove_delete_bitmap_update_lock ,table_id: " << table_id
               << ",lock_id:" << lock_id << ",initiator:" << initiator << ",tablet_id:" << tablet_id;
     RemoveDeleteBitmapUpdateLockRequest req;
@@ -2385,6 +2399,7 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
     req.set_tablet_id(tablet_id);
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
+    set_delete_bitmap_lock_version(tablet, req);
     auto st = retry_rpc(MetaServiceRPC::REMOVE_DELETE_BITMAP_UPDATE_LOCK, req, &res,
                         &MetaService_Stub::remove_delete_bitmap_update_lock,
                         {

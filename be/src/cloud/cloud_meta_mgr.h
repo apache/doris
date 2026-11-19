@@ -142,7 +142,8 @@ public:
      */
     Status get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode);
 
-    Status prepare_tablet_job(const TabletJobInfoPB& job, StartTabletJobResponse* res);
+    Status prepare_tablet_job(const CloudTablet& tablet, const TabletJobInfoPB& job,
+                              StartTabletJobResponse* res);
 
     Status commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJobResponse* res);
 
@@ -167,8 +168,8 @@ public:
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);
 
-    void remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id, int64_t initiator,
-                                          int64_t tablet_id);
+    void remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
+                                          int64_t initiator);
 
     // Fill version holes by creating empty rowsets for missing versions
     Status fill_version_holes(CloudTablet* tablet, int64_t max_version,

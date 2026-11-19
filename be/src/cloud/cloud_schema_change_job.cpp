@@ -138,7 +138,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     new_tablet_idx->set_index_id(_new_tablet->index_id());
     new_tablet_idx->set_partition_id(_new_tablet->partition_id());
     cloud::StartTabletJobResponse start_resp;
-    auto st = _cloud_storage_engine.meta_mgr().prepare_tablet_job(job, &start_resp);
+    auto st = _cloud_storage_engine.meta_mgr().prepare_tablet_job(*_new_tablet, job, &start_resp);
     if (!st.ok()) {
         if (start_resp.status().code() == cloud::JOB_ALREADY_SUCCESS) {
             st = _new_tablet->sync_rowsets();
@@ -691,8 +691,7 @@ void CloudSchemaChangeJob::clean_up_on_failure() {
     if (_new_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _new_tablet->enable_unique_key_merge_on_write()) {
         _cloud_storage_engine.meta_mgr().remove_delete_bitmap_update_lock(
-                _new_tablet->table_id(), SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, _initiator,
-                _new_tablet->tablet_id());
+                *_new_tablet, SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, _initiator);
     }
     for (const auto& output_rs : _output_rowsets) {
         if (output_rs.use_count() > 2) {

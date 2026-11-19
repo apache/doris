@@ -174,6 +174,9 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             setStoragePolicy(storagePolicy);
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
             throw new AnalysisException("Can not change UNIQUE KEY to Merge-On-Write mode");
+        } else if (properties.containsKey(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2)) {
+            throw new AnalysisException(PropertyAnalyzer.ENABLE_DELETE_BITMAP_LOCK_V2
+                    + " can only be specified when creating a table");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)) {
             throw new AnalysisException("Can not change enable_duplicate_without_keys_by_default");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {

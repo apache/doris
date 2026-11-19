@@ -590,7 +590,8 @@ public class CloudRestoreJob extends RestoreJob {
         requestBuilder.setDbId(dbId);
         Cloud.CreateTabletsResponse resp;
         try {
-            resp = ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).sendCreateTabletsRpc(requestBuilder);
+            resp = ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).sendCreateTabletsRpc(requestBuilder,
+                    olapTable);
         } catch (Exception e) {
             String errMsg = String.format("cloud restore job restore tablets failed, dbId=%d, tableName=%s, "
                     + "vault name=%s, errMsg=%s", dbId, olapTable.getName(), storageVaultName, e.getMessage());

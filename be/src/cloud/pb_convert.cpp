@@ -820,6 +820,11 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     if (in.has_inverted_index_storage_format()) {
         out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
+    if (in.has_enable_delete_bitmap_lock_v2()) {
+        out->set_enable_delete_bitmap_lock_v2(in.enable_delete_bitmap_lock_v2());
+    } else {
+        out->clear_enable_delete_bitmap_lock_v2();
+    }
 }
 
 void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
@@ -910,6 +915,11 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     }
     if (in.has_inverted_index_storage_format()) {
         out->set_inverted_index_storage_format(in.inverted_index_storage_format());
+    }
+    if (in.has_enable_delete_bitmap_lock_v2()) {
+        out->set_enable_delete_bitmap_lock_v2(in.enable_delete_bitmap_lock_v2());
+    } else {
+        out->clear_enable_delete_bitmap_lock_v2();
     }
 }
 
@@ -1009,6 +1019,11 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_inverted_index_storage_format()) {
         out->set_inverted_index_storage_format(in.inverted_index_storage_format());
     }
+    if (in.has_enable_delete_bitmap_lock_v2()) {
+        out->set_enable_delete_bitmap_lock_v2(in.enable_delete_bitmap_lock_v2());
+    } else {
+        out->clear_enable_delete_bitmap_lock_v2();
+    }
 }
 
 void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
@@ -1099,6 +1114,11 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     }
     if (in.has_inverted_index_storage_format()) {
         out->set_inverted_index_storage_format(in.inverted_index_storage_format());
+    }
+    if (in.has_enable_delete_bitmap_lock_v2()) {
+        out->set_enable_delete_bitmap_lock_v2(in.enable_delete_bitmap_lock_v2());
+    } else {
+        out->clear_enable_delete_bitmap_lock_v2();
     }
 }
 
