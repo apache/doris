@@ -77,6 +77,8 @@ class DatasourcePropertyMaskingTest {
 
     @Test
     void urlsRemoveUserInfoAndMaskSensitiveQueryValues() {
+        // Only selected native keys treat hashes literally; ordinary URL fragments remain omitted.
+        assertRendered("uri", "s3://bucket/logs/file#1.csv", "s3://bucket/logs/file");
         assertRendered("uri", "https://fixture:fixture-password@api.example.com/v1?region=east&token=fixture-token",
                 "https://api.example.com/v1?region=east&token=" + MASK);
         assertRendered("iceberg.rest.uri", "https://api.example.com/v1?Password=one;password=two&scope=read",
@@ -280,13 +282,15 @@ class DatasourcePropertyMaskingTest {
         assertRendered("fs.defaultFS", "viewfs://fixture:fixture-password@my-cluster/ns1?token=fixture-token",
                 "viewfs://my-cluster/ns1?token=" + MASK);
         assertRendered("fs.defaultFS", "viewfs://my-cluster/ns1?sig=fixture", MASK);
+        assertRendered("fs.defaultFS", "viewfs://fixture:fixture-password@mount_table/ns1?token=fixture-token",
+                "viewfs://mount_table/ns1?token=" + MASK);
     }
 
     @Test
     void nativeFilesystemLocationsRemainVisible() {
         NeedAuditEncryption audit = () -> true;
         for (String uri : List.of("gs://example_bucket/warehouse", "gs://example_bucket.example.com/warehouse",
-                "hdfs:///data.csv", "hdfs:/data.csv", "viewfs:///warehouse")) {
+                "hdfs:///data.csv", "hdfs:/data.csv", "viewfs:///warehouse", "viewfs://mount_table/warehouse")) {
             assertRendered("uri", uri, uri);
             for (String prefix : List.of("create catalog example properties (",
                     "alter catalog example set properties (")) {
@@ -305,7 +309,9 @@ class DatasourcePropertyMaskingTest {
         for (String uri : List.of("gs://example_bucket:9000/warehouse", "gs://example%5Fbucket/warehouse",
                 "gs://example_bucket/warehouse?X-Goog-Signature=fixture-signature", "gs:relative",
                 "hdfs:relative", "viewfs:relative", "s3://example_bucket/warehouse", "s3:///warehouse",
-                "https:///warehouse", "hdfs:///data.csv?sig=fixture-signature", "viewfs:///path;password=fixture")) {
+                "https:///warehouse", "hdfs:///data.csv?sig=fixture-signature", "viewfs:///path;password=fixture",
+                "viewfs://mount%5Ftable/warehouse", "viewfs://mount_table:password/warehouse",
+                "viewfs://mount_table:70000/warehouse", "viewfs://mount_table/warehouse?sig=fixture")) {
             assertRendered("uri", uri, MASK);
         }
         assertRendered("custom.password", "gs://example_bucket/warehouse", MASK);

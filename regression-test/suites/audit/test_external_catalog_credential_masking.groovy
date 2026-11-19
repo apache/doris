@@ -44,7 +44,8 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
         'fs.defaultFS': 'viewfs://masking-cluster',
         'gs.uri': 'gs://example_bucket/warehouse?token=fixture-gcs-token',
         'hdfs.uri': 'hdfs:///data.csv',
-        'viewfs.uri': 'viewfs:///warehouse'
+        'viewfs.uri': 'viewfs:///warehouse',
+        'viewfs.named.uri': 'viewfs://mount_table/warehouse'
     ]
     Map<String, String> azureLocations = [
         'azure.abfs.uri': 'abfs://warehouse@account.dfs.core.windows.net/tables',
@@ -133,6 +134,7 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             assertEquals('gs://example_bucket/warehouse?token=*XXX', shownProperties['gs.uri'])
             assertEquals('hdfs:///data.csv', shownProperties['hdfs.uri'])
             assertEquals('viewfs:///warehouse', shownProperties['viewfs.uri'])
+            assertEquals('viewfs://mount_table/warehouse', shownProperties['viewfs.named.uri'])
             azureLocations.each { key, location ->
                 String rendered = "${location}?token=*XXX&region=east"
                 assertEquals(rendered, shownProperties[key])
@@ -216,6 +218,7 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             assertTrue(credentialStmt.contains('gs://example_bucket/warehouse?token=*XXX'))
             assertTrue(credentialStmt.contains('hdfs:///data.csv'))
             assertTrue(credentialStmt.contains('viewfs:///warehouse'))
+            assertTrue(credentialStmt.contains('viewfs://mount_table/warehouse'))
             azureLocations.each { key, location ->
                 assertTrue(credentialStmt.contains("${location}?token=*XXX&region=east"))
             }

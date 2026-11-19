@@ -30,7 +30,8 @@ class LineageCatalogPropertyMaskingTest {
     @Test
     void catalogMetadataPreservesNativeFilesystemLocations() throws Exception {
         Map<String, String> raw = Map.of("gs.uri", "gs://example_bucket/warehouse",
-                "hdfs.uri", "hdfs:///data.csv", "fs.defaultFS", "viewfs:///warehouse");
+                "hdfs.uri", "hdfs:///data.csv", "fs.defaultFS", "viewfs:///warehouse",
+                "viewfs.uri", "viewfs://mount_table/warehouse");
         CatalogIf<?> catalog = Mockito.mock(CatalogIf.class);
         Mockito.when(catalog.getProperties()).thenReturn(raw);
         Method sanitize = LineageUtils.class.getDeclaredMethod("sanitizeCatalogProperties", CatalogIf.class);

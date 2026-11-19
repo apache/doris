@@ -51,7 +51,7 @@ final class DatasourcePropertyRedactor {
     private static final Pattern DRIVER_URL_KEY = Pattern.compile("(?i)(?:^|[._-])driver[._-]url$");
     private static final Pattern AMBIGUOUS_LOCAL_PATH = Pattern.compile("[\\p{Cntrl}?#@;]|://");
     private static final Pattern RESOLVED_FILE_LOCATION = Pattern.compile(
-            "^([a-zA-Z][a-zA-Z0-9+.-]*)://([^/?#]*)([^?#]*)(\\?[^#]*)?(#.*)?$", Pattern.DOTALL);
+            "^([a-zA-Z][a-zA-Z0-9+.-]*)://([^/?#]*)([^?]*)(\\?.*)?$", Pattern.DOTALL);
     private static final String HOST = "(?:[a-zA-Z0-9_][a-zA-Z0-9._-]*|"
             + "\\[[a-fA-F0-9:.]+(?:%[a-zA-Z0-9_.~-]+)?\\])(?::[0-9]+)?";
     private static final Pattern HOST_PATTERN = Pattern.compile(HOST);
@@ -113,7 +113,7 @@ final class DatasourcePropertyRedactor {
     }
 
     private static String redactAddress(String address) {
-        return redactAddress(address, null);
+        return redactAddress(address, null, null);
     }
 
     static String redactResolvedFileLocation(String location) {
@@ -128,16 +128,17 @@ final class DatasourcePropertyRedactor {
             String path = parts.group(3);
             // A resolved singleton may contain literal glob characters; encode only for URI validation.
             String encodedPath = new URI(null, "placeholder", path, null, null).getRawPath();
+            // Selected keys are already decoded: '#' is literal, including in a query-shaped suffix.
+            String rawQuery = parts.group(4) == null ? null : parts.group(4).substring(1);
             String address = parts.group(1) + "://" + parts.group(2) + encodedPath
-                    + (parts.group(4) == null ? "" : parts.group(4))
-                    + (parts.group(5) == null ? "" : parts.group(5));
-            return redactAddress(address, path);
+                    + (rawQuery == null ? "" : "?" + rawQuery.replace("#", "%23"));
+            return redactAddress(address, path, rawQuery);
         } catch (URISyntaxException | IllegalArgumentException e) {
             return MASK;
         }
     }
 
-    private static String redactAddress(String address, String resolvedPath) {
+    private static String redactAddress(String address, String resolvedPath, String resolvedQuery) {
         if (address.isEmpty()) {
             return address;
         }
@@ -176,6 +177,12 @@ final class DatasourcePropertyRedactor {
                 if (!isGcsBucket(authority)) {
                     return MASK;
                 }
+            } else if ("viewfs".equals(scheme)) {
+                // ViewFS authorities name configured mount tables, which need not be DNS hostnames.
+                authority = authority.substring(authority.lastIndexOf('@') + 1);
+                if (!isPlainHosts(authority)) {
+                    return MASK;
+                }
             } else if (uri.getHost() == null) {
                 return MASK;
             }
@@ -187,7 +194,7 @@ final class DatasourcePropertyRedactor {
                     || ENCODED_ESCAPE.matcher(path).find())) {
                 return MASK;
             }
-            String query = redactQuery(uri.getRawQuery());
+            String query = redactQuery(resolvedPath == null ? uri.getRawQuery() : resolvedQuery);
             if (MASK.equals(query)) {
                 return MASK;
             }

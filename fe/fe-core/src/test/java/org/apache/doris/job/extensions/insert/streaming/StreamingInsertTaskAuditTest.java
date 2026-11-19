@@ -329,17 +329,49 @@ public class StreamingInsertTaskAuditTest {
     }
 
     @Test
+    public void testLiteralHashesRemainDistinctInFinalAudit() throws Exception {
+        for (String stem : List.of("file", "file?version=x")) {
+            List<TBrokerFileStatus> files = List.of(
+                    new TBrokerFileStatus("s3://bucket/logs/" + stem + "#1.csv", false, 10, true),
+                    new TBrokerFileStatus("s3://bucket/logs/" + stem + "#2.csv", false, 20, true));
+            for (List<TBrokerFileStatus> batch : List.of(List.of(files.get(0)), files)) {
+                for (boolean fail : List.of(false, true)) {
+                    AuditEvent event = runTask(fail ? new RuntimeException("insert failed") : null,
+                            S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true, batch, () -> { });
+                    Assertions.assertTrue(event.stmt.contains("#1.csv"), event.stmt);
+                    if (batch.size() > 1) {
+                        Assertions.assertTrue(event.stmt.contains("#2.csv"), event.stmt);
+                    }
+                    Assertions.assertFalse(event.stmt.contains("private-value"), event.stmt);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testNotificationRetainsLiteralHashInFinalAudit() throws Exception {
+        List<TBrokerFileStatus> files = List.of(
+                new TBrokerFileStatus("s3://bucket/logs/file#1.csv", false, 10, true));
+        S3EventSourceOffsetProvider provider = Mockito.mock(S3EventSourceOffsetProvider.class);
+        Mockito.when(provider.getSourceType()).thenReturn("s3");
+        AuditEvent event = runTask(null, S3_SQL, provider,
+                new S3EventOffset(List.of("logs/file#1.csv"), files), true, files, () -> { });
+        Assertions.assertTrue(event.stmt.contains("file#1.csv"), event.stmt);
+        Assertions.assertFalse(event.stmt.contains("private-value"), event.stmt);
+    }
+
+    @Test
     public void testSelectedFileCredentialsAreMaskedInFinalAudit() throws Exception {
         List<TBrokerFileStatus> files = List.of(
-                new TBrokerFileStatus("s3://fixture:fixture-userinfo@bucket/input/1.csv?token=fixture-token",
+                new TBrokerFileStatus("s3://fixture:fixture-userinfo@bucket/input/file#1.csv?token=fixture-token",
                         false, 10, true),
-                new TBrokerFileStatus("s3://fixture:fixture-userinfo@bucket/input/2.csv?token=fixture-token",
+                new TBrokerFileStatus("s3://fixture:fixture-userinfo@bucket/input/file#2.csv?token=fixture-token",
                         false, 20, true));
         List<String> originalPaths = files.stream().map(TBrokerFileStatus::getPath).collect(Collectors.toList());
         AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
                 files, () -> { });
-        Assertions.assertTrue(event.stmt.contains("1.csv"), event.stmt);
-        Assertions.assertTrue(event.stmt.contains("2.csv"), event.stmt);
+        Assertions.assertTrue(event.stmt.contains("file#1.csv"), event.stmt);
+        Assertions.assertTrue(event.stmt.contains("file#2.csv"), event.stmt);
         for (String secret : List.of("fixture-userinfo", "fixture-token", "private-value")) {
             Assertions.assertFalse(event.stmt.contains(secret), event.stmt);
         }
@@ -350,7 +382,7 @@ public class StreamingInsertTaskAuditTest {
     @Test
     public void testSignedSelectedFileRemainsMasked() throws Exception {
         List<TBrokerFileStatus> files = List.of(new TBrokerFileStatus(
-                "s3://bucket/input/1.csv?X-Amz-Signature=fixture-signature", false, 10, true));
+                "s3://bucket/input/file#1.csv?X-Amz-Signature=fixture-signature", false, 10, true));
         AuditEvent event = runTask(null, S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true,
                 files, () -> { });
         Assertions.assertFalse(event.stmt.contains("fixture-signature"), event.stmt);
