@@ -79,6 +79,8 @@ class DatasourcePropertyMaskingTest {
     void urlsRemoveUserInfoAndMaskSensitiveQueryValues() {
         // Only selected native keys treat hashes literally; ordinary URL fragments remain omitted.
         assertRendered("uri", "s3://bucket/logs/file#1.csv", "s3://bucket/logs/file");
+        assertRendered("uri", "s3://bucket/logs/100%.csv", MASK);
+        assertRendered("uri", "s3://bucket/logs/literal%252F.csv", MASK);
         assertRendered("uri", "https://fixture:fixture-password@api.example.com/v1?region=east&token=fixture-token",
                 "https://api.example.com/v1?region=east&token=" + MASK);
         assertRendered("iceberg.rest.uri", "https://api.example.com/v1?Password=one;password=two&scope=read",

@@ -216,7 +216,10 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         return DatasourcePropertyRedactor.redact(key, value);
     }
 
-    /** Sanitize one task-selected file location, never an untrusted SQL property or URI-list string. */
+    /**
+     * Sanitize one task-selected file location whose native path is already decoded.
+     * Never use this for untrusted SQL properties or URI-list strings.
+     */
     public static String redactResolvedFileLocation(String location) {
         return DatasourcePropertyRedactor.redactResolvedFileLocation(location);
     }

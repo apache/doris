@@ -186,12 +186,12 @@ final class DatasourcePropertyRedactor {
             } else if (uri.getHost() == null) {
                 return MASK;
             }
-            String path = resolvedPath == null ? uri.getPath()
-                    : URLDecoder.decode(resolvedPath.replace("+", "%2B"), StandardCharsets.UTF_8);
-            // Matrix parameters and nested encodings have no common credential grammar across SDKs.
+            // Source metadata already decoded native keys; decoding again corrupts literal '%' and '%HH' names.
+            String path = resolvedPath == null ? uri.getPath() : resolvedPath;
+            // Ambiguous path syntax remains hidden; another encoding layer applies only to ordinary URI paths.
             if (path != null && (path.contains(";") || (resolvedPath == null && path.contains(","))
                     || path.contains("://") || path.contains(",//")
-                    || ENCODED_ESCAPE.matcher(path).find())) {
+                    || (resolvedPath == null && ENCODED_ESCAPE.matcher(path).find()))) {
                 return MASK;
             }
             String query = redactQuery(resolvedPath == null ? uri.getRawQuery() : resolvedQuery);

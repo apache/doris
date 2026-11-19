@@ -329,6 +329,42 @@ public class StreamingInsertTaskAuditTest {
     }
 
     @Test
+    public void testLiteralPercentNamesRemainDistinctInFinalAudit() throws Exception {
+        for (List<String> names : List.of(List.of("100%.csv", "101%.csv"),
+                List.of("literal%GG.csv", "other%GG.csv"), List.of("literal%2F.csv", "other%2F.csv"),
+                List.of("literal%252F.csv", "other%252F.csv"), List.of("plus+percent%.csv", "other+percent%.csv"))) {
+            List<TBrokerFileStatus> files = List.of(
+                    new TBrokerFileStatus("s3://bucket/logs/" + names.get(0), false, 10, true),
+                    new TBrokerFileStatus("s3://bucket/logs/" + names.get(1), false, 20, true));
+            for (List<TBrokerFileStatus> batch : List.of(List.of(files.get(0)), files)) {
+                for (boolean fail : List.of(false, true)) {
+                    AuditEvent event = runTask(fail ? new RuntimeException("insert failed") : null,
+                            S3_SQL, new S3SourceOffsetProvider(), new S3Offset(), true, batch, () -> { });
+                    Assertions.assertTrue(event.stmt.contains(names.get(0)), event.stmt);
+                    if (batch.size() > 1) {
+                        Assertions.assertTrue(event.stmt.contains(names.get(1)), event.stmt);
+                    }
+                    Assertions.assertFalse(event.stmt.contains("private-value"), event.stmt);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testNotificationRetainsLiteralPercentInFinalAudit() throws Exception {
+        List<TBrokerFileStatus> files = List.of(
+                new TBrokerFileStatus("s3://bucket/logs/100%.csv", false, 10, true));
+        S3EventSourceOffsetProvider provider = Mockito.mock(S3EventSourceOffsetProvider.class);
+        Mockito.when(provider.getSourceType()).thenReturn("s3");
+        for (boolean fail : List.of(false, true)) {
+            AuditEvent event = runTask(fail ? new RuntimeException("insert failed") : null, S3_SQL, provider,
+                    new S3EventOffset(List.of("logs/100%.csv"), files), true, files, () -> { });
+            Assertions.assertTrue(event.stmt.contains("100%.csv"), event.stmt);
+            Assertions.assertFalse(event.stmt.contains("private-value"), event.stmt);
+        }
+    }
+
+    @Test
     public void testLiteralHashesRemainDistinctInFinalAudit() throws Exception {
         for (String stem : List.of("file", "file?version=x")) {
             List<TBrokerFileStatus> files = List.of(
