@@ -133,8 +133,8 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
             if (code != TxnErrorCode::TXN_OK) {
                 // Reject rather than accept a cloud_unique_id whose node membership is unchecked.
                 LOG(WARNING) << "use degraded format cloud_unique_id, but failed to get instance, "
-                                "cloud_unique_id="
-                             << cloud_unique_id << " err=" << msg;
+                                "instance_id="
+                             << id << " err=" << msg;
                 return "";
             }
             if (instance.has_status() && instance.status() == InstanceInfoPB::DELETED) {
@@ -153,8 +153,8 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
             }
             if (!registered) {
                 LOG(WARNING) << "use degraded format cloud_unique_id, but node is not registered, "
-                                "cloud_unique_id="
-                             << cloud_unique_id << " instance_id=" << id;
+                                "instance_id="
+                             << id;
                 return "";
             }
         }
@@ -258,7 +258,7 @@ bool MetaServiceProxy::check_request_instance_id(const ::google::protobuf::Messa
     status->set_code(MetaServiceCode::INVALID_ARGUMENT);
     status->set_msg("instance_id does not belong to cloud_unique_id");
     LOG(WARNING) << status->msg() << ", request=" << descriptor->name()
-                 << " instance_id=" << instance_id << " cloud_unique_id=" << cloud_unique_id;
+                 << " instance_id=" << instance_id;
     return false;
 }
 

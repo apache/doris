@@ -1706,6 +1706,71 @@ private:
     std::vector<std::string> messages_;
 };
 
+TEST(MetaServiceHttpTest, InstanceValidationDoesNotLogCloudUniqueId) {
+    auto meta_service = get_meta_service(false);
+    const bool check_instance_id = config::enable_check_instance_id;
+    config::enable_check_instance_id = true;
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        config::enable_check_instance_id = check_instance_id;
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+
+    const std::string instance_id = "validation_log_instance";
+    const std::string cloud_unique_id = "1:" + instance_id + ":registered-secret-marker";
+    const std::string forged_cloud_unique_id = "1:" + instance_id + ":forged-secret-marker";
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* cluster = instance.add_clusters();
+    cluster->set_cluster_id("validation_log_cluster");
+    cluster->set_cluster_name("validation_log_cluster");
+    cluster->set_type(ClusterPB::COMPUTE);
+    auto* node = cluster->add_nodes();
+    node->set_cloud_unique_id(cloud_unique_id);
+    node->set_ip("127.0.0.1");
+    node->set_heartbeat_port(9050);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({instance_id}), instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    meta_service->resource_mgr()->refresh_instance(instance_id, instance);
+
+    auto get_cluster = [&](const std::string& unique_id, const std::string& request_instance_id) {
+        brpc::Controller ctrl;
+        GetClusterRequest req;
+        req.set_cloud_unique_id(unique_id);
+        req.set_instance_id(request_instance_id);
+        GetClusterResponse res;
+        meta_service->get_cluster(&ctrl, &req, &res, nullptr);
+        return res.status().code();
+    };
+    ServerLogSink sink;
+    ASSERT_EQ(get_cluster(cloud_unique_id, instance_id), MetaServiceCode::OK);
+    EXPECT_EQ(get_cluster(cloud_unique_id, "other_instance"), MetaServiceCode::INVALID_ARGUMENT);
+    EXPECT_EQ(get_cluster(forged_cloud_unique_id, ""), MetaServiceCode::INVALID_ARGUMENT);
+
+    sp->set_call_back("get_instance_id_err", [](auto&& args) {
+        *try_any_cast<std::string*>(args[0]) = "can't find node from cache";
+    });
+    sp->set_call_back("is_instance_id_registered", [](auto&& args) {
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+    });
+    sp->enable_processing();
+    EXPECT_EQ(get_cluster(cloud_unique_id, ""), MetaServiceCode::INVALID_ARGUMENT);
+
+    std::string logs;
+    for (const auto& message : sink.messages()) {
+        logs += message + "\n";
+    }
+    EXPECT_NE(logs.find("instance_id does not belong to cloud_unique_id"), std::string::npos);
+    EXPECT_NE(logs.find("but node is not registered"), std::string::npos);
+    EXPECT_NE(logs.find("but failed to get instance"), std::string::npos);
+    EXPECT_NE(logs.find("instance_id=" + instance_id), std::string::npos);
+    EXPECT_EQ(logs.find("registered-secret-marker"), std::string::npos);
+    EXPECT_EQ(logs.find("forged-secret-marker"), std::string::npos);
+}
+
 TEST(MetaServiceHttpTest, HttpRequestLogsMaskCredentials) {
     const int old_vlog_level = google::SetVLOGLevel("meta_service_http", -1);
     DORIS_CLOUD_DEFER {
