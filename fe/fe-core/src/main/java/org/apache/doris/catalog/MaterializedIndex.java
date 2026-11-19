@@ -35,6 +35,8 @@ import java.util.Map;
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
  */
 public class MaterializedIndex extends MetaObject implements GsonPostProcessable {
+    private static final int MAX_CHANGELOG_ROW_COUNT_RANGES = 1_024;
+
     public enum IndexState {
         NORMAL,
         @Deprecated
@@ -232,7 +234,9 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         if (changelogRowCountVersions == null) {
             changelogRowCountVersions = TreeRangeSet.create();
         }
-        if (changelogRowCountVersions.contains(version)) {
+        // At capacity, wait for a complete report to free ranges without losing deduplication history.
+        if (changelogRowCountVersions.asRanges().size() >= MAX_CHANGELOG_ROW_COUNT_RANGES
+                || changelogRowCountVersions.contains(version)) {
             return;
         }
         changelogRowCountVersions.add(Range.closedOpen(version, version + 1));
