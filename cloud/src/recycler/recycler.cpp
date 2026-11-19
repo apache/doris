@@ -67,11 +67,11 @@
 #endif
 #include "common/bvars.h"
 #include "common/config.h"
-#include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/rowset_segment_id.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
+#include "cpp/aws_sdk.h"
 #include "cpp/sync_point.h"
 #include "meta-store/codec.h"
 #include "meta-store/document_message.h"
@@ -80,6 +80,10 @@
 #include "recycler/sync_executor.h"
 #include "recycler/util.h"
 #include "snapshot/snapshot_manager_factory.h"
+
+#ifdef USE_AZURE
+#include "cpp/obj-storage/client/azure_obj_storage_client.h"
+#endif
 
 namespace doris::cloud {
 
@@ -495,7 +499,10 @@ void Recycler::check_recycle_tasks() {
 
 int Recycler::start(brpc::Server* server) {
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
-    S3Environment::getInstance();
+    ensure_aws_sdk_initialized(config::aws_log_level);
+#ifdef USE_AZURE
+    initialize_azure_sdk(config::azure_log_level);
+#endif
 
     if (config::enable_checker) {
         checker_ = std::make_unique<Checker>(txn_kv_);
@@ -695,7 +702,7 @@ int InstanceRecycler::init_obj_store_accessors() {
 #ifdef UNIT_TEST
         auto accessor = std::make_shared<MockAccessor>();
 #else
-        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
+        auto s3_conf = parse_recycler_storage_config(obj_info);
         if (!s3_conf) {
             LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
             return -1;
@@ -773,10 +780,11 @@ int InstanceRecycler::init_storage_vault_accessors() {
 #endif
         } else if (vault.has_obj_info()) {
             // TODO: Propagate object storage session tokens to Recycler in a follow-up PR.
-            auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
+            auto s3_conf = parse_recycler_storage_config(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, invalid conf, instance_id="
-                             << instance_id_ << " s3_vault=" << vault.obj_info().ShortDebugString();
+                             << instance_id_ << " resource_id=" << vault.id()
+                             << " name=" << vault.name();
                 continue;
             }
 
@@ -785,13 +793,12 @@ int InstanceRecycler::init_storage_vault_accessors() {
             if (ret != 0) {
                 LOG(WARNING) << "failed to init s3 accessor. instance_id=" << instance_id_
                              << " resource_id=" << vault.id() << " name=" << vault.name()
-                             << " ret=" << ret
-                             << " s3_vault=" << encryt_sk(vault.obj_info().ShortDebugString());
+                             << " ret=" << ret;
                 continue;
             }
             LOG(INFO) << "succeed to init s3 accessor. instance_id=" << instance_id_
-                      << " resource_id=" << vault.id() << " name=" << vault.name() << " ret=" << ret
-                      << " s3_vault=" << encryt_sk(vault.obj_info().ShortDebugString());
+                      << " resource_id=" << vault.id() << " name=" << vault.name()
+                      << " ret=" << ret;
             accessor_map_.emplace(vault.id(), std::move(accessor));
         }
     }
@@ -3939,18 +3946,23 @@ int InstanceRecycler::delete_rowset_data(const RowsetMetaCloudPB& rs_meta_pb) {
         }
     }
 
-    // Process delete bitmap - check where it's stored.
-    DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
-    if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rowset_id,
-                                                       &delete_bitmap_storage_type) != 0) {
-        LOG_WARNING("failed to decrement delete bitmap packed file ref count")
-                .tag("instance_id", instance_id_)
-                .tag("tablet_id", tablet_id)
-                .tag("rowset_id", rowset_id);
+    int should_delete_dbm = may_have_versioned_delete_bitmap(rs_meta_pb.partition_id(), tablet_id);
+    if (should_delete_dbm == 1) {
+        DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
+        std::vector<std::string> rowset_dbm_keys;
+        if (decrement_delete_bitmap_packed_file_ref_counts(
+                    tablet_id, rowset_id, &delete_bitmap_storage_type, nullptr) != 0) {
+            LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                    .tag("instance_id", instance_id_)
+                    .tag("tablet_id", tablet_id)
+                    .tag("rowset_id", rowset_id);
+            return -1;
+        }
+        if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
+            file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+        }
+    } else if (should_delete_dbm != 0) {
         return -1;
-    }
-    if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
-        file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
     }
     // TODO(AlexYue): seems could do do batch
     return accessor->delete_files(file_paths);
@@ -4198,6 +4210,7 @@ int InstanceRecycler::decrement_packed_file_ref_counts(const doris::RowsetMetaCl
 int InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts(
         int64_t tablet_id, const std::string& rowset_id, DeleteBitmapStorageType* out_storage_type,
         std::vector<std::string>* keys) {
+    TEST_SYNC_POINT("InstanceRecycler::decrement_delete_bitmap_packed_file_ref_counts");
     if (out_storage_type) {
         *out_storage_type = DeleteBitmapStorageType::NOT_FOUND;
     }
@@ -4605,23 +4618,30 @@ int InstanceRecycler::delete_rowset_data(
             continue;
         }
 
-        DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
-        std::vector<std::string> rowset_dbm_keys;
-        if (decrement_delete_bitmap_packed_file_ref_counts(
-                    tablet_id, rowset_id, &delete_bitmap_storage_type,
-                    delete_bitmap_key_groups ? &rowset_dbm_keys : nullptr) != 0) {
-            LOG_WARNING("failed to decrement delete bitmap packed file ref count")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id)
-                    .tag("rowset_id", rowset_id);
+        int should_delete_dbm = may_have_versioned_delete_bitmap(rs.partition_id(), tablet_id);
+        if (should_delete_dbm == 1) {
+            DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
+            std::vector<std::string> rowset_dbm_keys;
+            if (decrement_delete_bitmap_packed_file_ref_counts(
+                        tablet_id, rowset_id, &delete_bitmap_storage_type,
+                        delete_bitmap_key_groups ? &rowset_dbm_keys : nullptr) != 0) {
+                LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", rowset_id)
+                        .tag("task_type", metrics_context.operation_type);
+                ret = -1;
+                continue;
+            }
+            if (!rowset_dbm_keys.empty() && delete_bitmap_key_groups) {
+                delete_bitmap_key_groups->emplace_back(std::move(rowset_dbm_keys));
+            }
+            if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
+                file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
+            }
+        } else if (should_delete_dbm != 0) {
             ret = -1;
             continue;
-        }
-        if (!rowset_dbm_keys.empty() && delete_bitmap_key_groups) {
-            delete_bitmap_key_groups->emplace_back(std::move(rowset_dbm_keys));
-        }
-        if (delete_bitmap_storage_type == DeleteBitmapStorageType::STANDALONE_FILE) {
-            file_paths.push_back(delete_bitmap_path(tablet_id, rowset_id));
         }
 
         // Process inverted indexes
@@ -4827,8 +4847,7 @@ bool InstanceRecycler::is_tablet_recycled(int64_t tablet_id) {
     return recycled_tablets_.contains(tablet_id);
 }
 
-int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partition_id,
-                                                                int64_t tablet_id) {
+int InstanceRecycler::may_have_versioned_delete_bitmap(int64_t partition_id, int64_t tablet_id) {
     bool is_mow = true;
     if (partition_id != -1) {
         std::lock_guard lock(partition_mow_cache_mutex);
@@ -4898,7 +4917,7 @@ int InstanceRecycler::should_delete_versioned_delete_bitmap_kvs(int64_t partitio
 
 int InstanceRecycler::delete_versioned_delete_bitmap_kvs(int64_t partition_id, int64_t tablet_id,
                                                          const std::string& rowset_id) {
-    int ret = should_delete_versioned_delete_bitmap_kvs(partition_id, tablet_id);
+    int ret = may_have_versioned_delete_bitmap(partition_id, tablet_id);
     if (ret <= 0) {
         return ret;
     }
@@ -5250,12 +5269,21 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id, RecyclerMetricsContext& 
                     .tag("rowset_id", rs_meta.rowset_id_v2());
             return -1;
         }
-        if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rs_meta.rowset_id_v2(),
-                                                           nullptr) != 0) {
-            LOG_WARNING("failed to decrement delete bitmap packed file ref count")
-                    .tag("instance_id", instance_id_)
-                    .tag("tablet_id", tablet_id)
-                    .tag("rowset_id", rs_meta.rowset_id_v2());
+        int should_delete_dbm = may_have_versioned_delete_bitmap(rs_meta.partition_id(), tablet_id);
+        if (should_delete_dbm == 1) {
+            DeleteBitmapStorageType delete_bitmap_storage_type = DeleteBitmapStorageType::NOT_FOUND;
+            std::vector<std::string> rowset_dbm_keys;
+            if (decrement_delete_bitmap_packed_file_ref_counts(tablet_id, rs_meta.rowset_id_v2(),
+                                                               &delete_bitmap_storage_type,
+                                                               nullptr) != 0) {
+                LOG_WARNING("failed to decrement delete bitmap packed file ref count")
+                        .tag("instance_id", instance_id_)
+                        .tag("tablet_id", tablet_id)
+                        .tag("rowset_id", rs_meta.rowset_id_v2())
+                        .tag("task_type", metrics_context.operation_type);
+                return -1;
+            }
+        } else if (should_delete_dbm != 0) {
             return -1;
         }
         recycle_rowsets_number += 1;
@@ -7577,38 +7605,12 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
     const auto& object_store_info = stage_it->obj_info();
     auto stage_access_type = stage_it->has_access_type() ? stage_it->access_type() : StagePB::AKSK;
 
-    S3Conf s3_conf;
+    std::optional<ObjStorageResourceConfig> s3_conf;
     if (stage_type == StagePB::EXTERNAL) {
         if (stage_access_type == StagePB::AKSK) {
-            auto conf = S3Conf::from_obj_store_info(object_store_info);
-            if (!conf) {
-                return -1;
-            }
-
-            s3_conf = std::move(*conf);
+            s3_conf = parse_recycler_storage_config(object_store_info);
         } else if (stage_access_type == StagePB::BUCKET_ACL) {
-            auto conf = S3Conf::from_obj_store_info(object_store_info, true /* skip_aksk */);
-            if (!conf) {
-                return -1;
-            }
-
-            s3_conf = std::move(*conf);
-            if (instance_info_.ram_user().has_encryption_info()) {
-                AkSkPair plain_ak_sk_pair;
-                int ret = decrypt_ak_sk_helper(
-                        instance_info_.ram_user().ak(), instance_info_.ram_user().sk(),
-                        instance_info_.ram_user().encryption_info(), &plain_ak_sk_pair);
-                if (ret != 0) {
-                    LOG(WARNING) << "fail to decrypt ak sk. instance_id: " << instance_id_
-                                 << " ram_user: " << proto_to_json(instance_info_.ram_user());
-                    return -1;
-                }
-                s3_conf.ak = std::move(plain_ak_sk_pair.first);
-                s3_conf.sk = std::move(plain_ak_sk_pair.second);
-            } else {
-                s3_conf.ak = instance_info_.ram_user().ak();
-                s3_conf.sk = instance_info_.ram_user().sk();
-            }
+            s3_conf = parse_recycler_storage_config(object_store_info, &instance_info_.ram_user());
         } else {
             LOG(INFO) << "Unsupported stage access type=" << stage_access_type
                       << ", instance_id=" << instance_id_ << ", stage_id=" << stage_id;
@@ -7621,21 +7623,19 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
             return -1;
         }
 
-        const auto& old_obj = instance_info_.obj_info()[idx - 1];
-        auto conf = S3Conf::from_obj_store_info(old_obj);
-        if (!conf) {
-            return -1;
-        }
-
-        s3_conf = std::move(*conf);
-        s3_conf.prefix = object_store_info.prefix();
+        auto vault = instance_info_.obj_info()[idx - 1];
+        vault.set_prefix(object_store_info.prefix());
+        s3_conf = parse_recycler_storage_config(std::move(vault));
     } else {
         LOG(WARNING) << "unknown stage type " << stage_type;
         return -1;
     }
 
+    if (!s3_conf) {
+        return -1;
+    }
     std::shared_ptr<S3Accessor> s3_accessor;
-    int ret = S3Accessor::create(std::move(s3_conf), &s3_accessor);
+    int ret = S3Accessor::create(std::move(*s3_conf), &s3_accessor);
     if (ret != 0) {
         LOG(WARNING) << "failed to init s3 accessor ret=" << ret;
         return -1;
@@ -7693,7 +7693,7 @@ int InstanceRecycler::recycle_stage() {
         int ret = SYNC_POINT_HOOK_RETURN_VALUE(
                 [&] {
                     auto& old_obj = instance_info_.obj_info()[idx - 1];
-                    auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+                    auto s3_conf = parse_recycler_storage_config(old_obj);
                     if (!s3_conf) {
                         return -1;
                     }
@@ -7795,9 +7795,10 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         }
 
         const auto& old_obj = instance_info_.obj_info()[idx - 1];
-        auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+        auto s3_conf = parse_recycler_storage_config(old_obj);
         if (!s3_conf) {
-            LOG(WARNING) << "failed to init s3_conf with obj_info=" << old_obj.ShortDebugString();
+            LOG(WARNING) << "failed to parse stage object storage configuration, instance_id="
+                         << instance_id_ << " object_store_id=" << old_obj.id();
             continue;
         }
 
@@ -8315,7 +8316,7 @@ int InstanceRecycler::scan_and_statistics_stage() {
         int ret = SYNC_POINT_HOOK_RETURN_VALUE(
                 [&] {
                     auto& old_obj = instance_info_.obj_info()[idx - 1];
-                    auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+                    auto s3_conf = parse_recycler_storage_config(old_obj);
                     if (!s3_conf) {
                         return 0;
                     }
@@ -8364,7 +8365,7 @@ int InstanceRecycler::scan_and_statistics_expired_stage_objects() {
                 continue;
             }
             const auto& old_obj = instance_info_.obj_info()[idx - 1];
-            auto s3_conf = S3Conf::from_obj_store_info(old_obj);
+            auto s3_conf = parse_recycler_storage_config(old_obj);
             if (!s3_conf) {
                 continue;
             }

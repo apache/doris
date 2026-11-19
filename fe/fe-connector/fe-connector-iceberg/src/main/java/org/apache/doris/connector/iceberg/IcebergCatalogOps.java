@@ -26,9 +26,9 @@ import org.apache.doris.connector.spi.ddl.PartitionFieldChange;
 import org.apache.doris.connector.spi.ddl.TagChange;
 
 import com.google.common.base.Splitter;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.ManageSnapshots;
-import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
@@ -39,24 +39,23 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdatePartitionSpec;
-import org.apache.iceberg.UpdateRequirement;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.ImmutableTableCommit;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
-import org.apache.iceberg.catalog.TableCommit;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
-import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.jdbc.JdbcCatalog;
+import org.apache.iceberg.rest.DorisRESTSessionCatalog;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
-import org.apache.iceberg.util.Tasks;
 import org.apache.iceberg.view.View;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -64,7 +63,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -92,12 +90,6 @@ import java.util.stream.Stream;
  * metadata layer) is kept INTERNAL to the default impl.
  */
 public interface IcebergCatalogOps {
-
-    /** Commits REST table changes through the session catalog that produced the current table/catalog adapter. */
-    @FunctionalInterface
-    interface RestTableCommit {
-        void commit(List<TableCommit> commits);
-    }
 
     /**
      * Lists the top-level database (namespace) names, or an empty list when the catalog does not
@@ -304,7 +296,6 @@ public interface IcebergCatalogOps {
         private final boolean viewEnabled;
         private final Optional<String> externalCatalogName;
         private final Function<Table, Runnable> tableCleanup;
-        private final RestTableCommit restTableCommit;
 
         public CatalogBackedIcebergCatalogOps(Catalog catalog) {
             this(catalog, false, false, true, Optional.empty(), table -> () -> { });
@@ -331,13 +322,6 @@ public interface IcebergCatalogOps {
         public CatalogBackedIcebergCatalogOps(Catalog catalog, ViewCatalog viewCatalog, boolean restFlavor,
                 boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName,
                 Function<Table, Runnable> tableCleanup) {
-            this(catalog, viewCatalog, restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName,
-                    tableCleanup, null);
-        }
-
-        public CatalogBackedIcebergCatalogOps(Catalog catalog, ViewCatalog viewCatalog, boolean restFlavor,
-                boolean nestedNamespaceEnabled, boolean viewEnabled, Optional<String> externalCatalogName,
-                Function<Table, Runnable> tableCleanup, RestTableCommit restTableCommit) {
             this.catalog = catalog;
             this.viewCatalog = viewCatalog;
             this.restFlavor = restFlavor;
@@ -345,7 +329,6 @@ public interface IcebergCatalogOps {
             this.viewEnabled = viewEnabled;
             this.externalCatalogName = externalCatalogName;
             this.tableCleanup = tableCleanup;
-            this.restTableCommit = restTableCommit;
         }
 
         @Override
@@ -535,70 +518,72 @@ public interface IcebergCatalogOps {
 
         @Override
         public void setTableProperties(String dbName, String tableName, Map<String, String> properties) {
-            TableIdentifier identifier = toTableIdentifier(dbName, tableName);
             withTable(dbName, tableName, table -> {
-                commitTableProperties(identifier, table, properties);
+                UpdateProperties updateProperties = properties.containsKey(TableProperties.FORMAT_VERSION)
+                        ? rowLineageAwareProperties(table) : table.updateProperties();
+                properties.forEach(updateProperties::set);
+                updateProperties.commit();
                 return null;
             });
         }
 
-        /**
-         * Applies the property map with Iceberg's optimistic commit contract while validating every metadata base
-         * that can actually be committed. {@link Table#updateProperties()} refreshes inside its retry loop, so a
-         * one-time precheck can validate a different schema from the one eventually upgraded.
-         */
-        private void commitTableProperties(TableIdentifier identifier, Table table, Map<String, String> properties) {
+        private UpdateProperties rowLineageAwareProperties(Table table) {
             if (!(table instanceof HasTableOperations)) {
                 throw new DorisConnectorException(
-                        "Cannot update properties for an Iceberg table without metadata operations: " + table.name());
+                        "Cannot safely set Iceberg format version without metadata operations: " + table.name());
             }
-
             TableOperations operations = ((HasTableOperations) table).operations();
-            TableMetadata current = operations.current();
-            Tasks.foreach(operations)
-                    .retry(current.propertyTryAsInt(TableProperties.COMMIT_NUM_RETRIES,
-                            TableProperties.COMMIT_NUM_RETRIES_DEFAULT))
-                    .exponentialBackoff(
-                            current.propertyTryAsInt(TableProperties.COMMIT_MIN_RETRY_WAIT_MS,
-                                    TableProperties.COMMIT_MIN_RETRY_WAIT_MS_DEFAULT),
-                            current.propertyTryAsInt(TableProperties.COMMIT_MAX_RETRY_WAIT_MS,
-                                    TableProperties.COMMIT_MAX_RETRY_WAIT_MS_DEFAULT),
-                            current.propertyTryAsInt(TableProperties.COMMIT_TOTAL_RETRY_TIME_MS,
-                                    TableProperties.COMMIT_TOTAL_RETRY_TIME_MS_DEFAULT),
-                            2.0)
-                    .onlyRetryOn(CommitFailedException.class)
-                    .run(taskOps -> {
-                        TableMetadata base = taskOps.refresh();
-                        Map<String, String> updatedProperties = new HashMap<>(base.properties());
-                        updatedProperties.putAll(properties);
-                        MetricsConfig.validate(updatedProperties, base.schema());
-                        IcebergSchemaUtils.validateRowLineageFormatVersionUpgrade(base, properties);
-                        TableMetadata updated = base.replaceProperties(updatedProperties);
-                        boolean requiresSchemaFence =
-                                IcebergSchemaUtils.requiresRowLineageFormatVersionUpgrade(base, properties);
-                        if (requiresSchemaFence && restTableCommit != null) {
-                            commitSchemaFencedRestUpgrade(identifier, base, updated);
-                        } else if (requiresSchemaFence && restFlavor) {
-                            throw new DorisConnectorException(
-                                    "Cannot safely upgrade a wrapped Iceberg REST catalog to v3");
-                        } else {
-                            taskOps.commit(base, updated);
-                        }
-                    });
+            // Iceberg refreshes the base on each retry. Validate in the commit hook, after that refresh.
+            return new BaseTable(new RowLineageUpgradeOperations(operations, restFlavor), table.name())
+                    .updateProperties();
         }
 
-        /**
-         * REST servers can rebase property updates onto a newer metadata version without returning a conflict.
-         * Bind a row-lineage format upgrade to the exact schema generation that was validated on the client.
-         */
-        private void commitSchemaFencedRestUpgrade(
-                TableIdentifier identifier, TableMetadata base, TableMetadata updated) {
-            TableCommit tableCommit = TableCommit.create(identifier, base, updated);
-            TableCommit fencedCommit = ImmutableTableCommit.builder()
-                    .from(tableCommit)
-                    .addRequirements(new UpdateRequirement.AssertCurrentSchemaID(base.currentSchemaId()))
-                    .build();
-            restTableCommit.commit(Collections.singletonList(fencedCommit));
+        private static final class RowLineageUpgradeOperations implements TableOperations {
+            private final TableOperations delegate;
+            private final boolean restFlavor;
+
+            private RowLineageUpgradeOperations(TableOperations delegate, boolean restFlavor) {
+                this.delegate = delegate;
+                this.restFlavor = restFlavor;
+            }
+
+            @Override
+            public TableMetadata current() {
+                return delegate.current();
+            }
+
+            @Override
+            public TableMetadata refresh() {
+                return delegate.refresh();
+            }
+
+            @Override
+            public void commit(TableMetadata base, TableMetadata updated) {
+                if (base.formatVersion() < IcebergSchemaUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION
+                        && updated.formatVersion() >= IcebergSchemaUtils.ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+                    IcebergSchemaUtils.validateRowLineageSchema(base.schema());
+                    if (restFlavor || DorisRESTSessionCatalog.isRestTableOperations(delegate)) {
+                        DorisRESTSessionCatalog.commitWithCurrentSchema(delegate, base, updated);
+                        return;
+                    }
+                }
+                delegate.commit(base, updated);
+            }
+
+            @Override
+            public FileIO io() {
+                return delegate.io();
+            }
+
+            @Override
+            public String metadataFileLocation(String fileName) {
+                return delegate.metadataFileLocation(fileName);
+            }
+
+            @Override
+            public LocationProvider locationProvider() {
+                return delegate.locationProvider();
+            }
         }
 
         @Override

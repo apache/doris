@@ -27,6 +27,7 @@
 #include <stdlib.h>
 
 #include <memory>
+#include <sstream>
 #include <unordered_map>
 #include <vector>
 
@@ -43,6 +44,7 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/remote_scan_cache_write_limiter.h"
+#include "io/fs/read_ahead_metrics.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -54,7 +56,8 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/schema.h"
-#include "storage/segment/column_reader.h"
+#include "storage/segment/column_read_ahead_resources.h"
+#include "storage/segment/segment.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 #include "util/defer_op.h"
@@ -62,6 +65,8 @@
 #include "util/lru_cache.h"
 #include "util/simd/bits.h"
 #include "util/thrift_util.h"
+#include "util/time.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -133,10 +138,12 @@ static void extract_slot_ref(const VExprSPtr& expr, TupleDescriptor* tuple_desc,
 }
 
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
-                      const TQueryOptions& query_options, const TabletSchema& schema,
-                      size_t block_size) {
+                      const TQueryOptions& query_options, const std::string& timezone,
+                      const TabletSchema& schema, size_t block_size) {
     _runtime_state = RuntimeState::create_unique();
     _runtime_state->set_query_options(query_options);
+    // Python UDF open binds schemas such as timestamp[us, tz=UTC] to this state.
+    _runtime_state->set_timezone(timezone);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
     for (const auto* slot : tuple_desc()->slots()) {
@@ -309,9 +316,14 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
             static_cast<__int128_t>(request->uuid().uuid_high()) << 64 | request->uuid().uuid_low();
     SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     auto cache_handle = LookupConnectionCache::instance()->get(uuid);
+    const auto& timezone = request->has_time_zone() && !request->time_zone().empty()
+                                   ? request->time_zone()
+                                   : TimezoneUtils::default_time_zone;
     _binary_row_format = request->is_binary_row();
     _tablet = DORIS_TRY(ExecEnv::get_tablet(request->tablet_id()));
-    if (cache_handle != nullptr) {
+    // SET time_zone='UTC' can reuse a prepared UUID whose cached client uses +08:00.
+    // Rebuild on timezone changes; existing requests retain their original contexts.
+    if (cache_handle != nullptr && cache_handle->runtime_state()->timezone() == timezone) {
         _reusable = cache_handle;
         _profile_metrics.hit_lookup_cache = true;
     } else {
@@ -355,16 +367,12 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                     &t_query_options));
         }
         RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                           *_tablet->tablet_schema(), 1));
+                                           timezone, *_tablet->tablet_schema(), 1));
         if (uuid != 0) {
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
         }
     }
     _init_remote_scan_cache_write_limiter();
-    // Set timezone from request for functions like from_unixtime()
-    if (request->has_time_zone() && !request->time_zone().empty()) {
-        _reusable->runtime_state()->set_timezone(request->time_zone());
-    }
     if (request->has_version() && request->version() >= 0) {
         _version = request->version();
     }
@@ -380,6 +388,11 @@ Status PointQueryExecutor::lookup_up() {
     RETURN_IF_ERROR(_lookup_row_key());
     RETURN_IF_ERROR(_lookup_row_data());
     RETURN_IF_ERROR(_output_data());
+    if (_tablet != nullptr) {
+        // Timestamp before the counter -- see olap_scanner.cpp.
+        _tablet->last_query_scan_time_ms.store(UnixMillis(), std::memory_order_relaxed);
+        _tablet->query_scan_count->increment(1);
+    }
     return Status::OK();
 }
 
@@ -417,13 +430,29 @@ void PointQueryExecutor::print_profile() {
             _profile_metrics.read_stats.file_cache_stats.remote_io_timer,
             _profile_metrics.read_stats.file_cache_stats.write_cache_io_timer);
 
+    const auto read_ahead_profile = [&]() {
+        if (_profile_metrics.read_stats.read_ahead_stats == nullptr &&
+            _read_stats.read_ahead_stats == nullptr) {
+            return std::string {};
+        }
+        RuntimeProfile profile("PageReadAhead");
+        for (auto* stats : {&_profile_metrics.read_stats, &_read_stats}) {
+            if (stats->read_ahead_stats != nullptr) {
+                stats->read_ahead_stats->update_profile(&profile);
+            }
+        }
+        std::ostringstream output;
+        profile.pretty_print(&output);
+        return "\n" + output.str();
+    };
+
     constexpr static int kSlowThreholdUs = 50 * 1000; // 50ms
     if (total_us > kSlowThreholdUs) {
-        LOG(WARNING) << "slow query, " << stats_str;
+        LOG(WARNING) << "slow query, " << stats_str << read_ahead_profile();
     } else if (VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << stats_str;
+        VLOG_DEBUG << stats_str << read_ahead_profile();
     } else {
-        LOG_EVERY_N(INFO, 1000) << stats_str;
+        LOG_EVERY_N(INFO, 1000) << stats_str << read_ahead_profile();
     }
 }
 
@@ -528,6 +557,12 @@ Status PointQueryExecutor::_lookup_row_key() {
 Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
+    std::shared_ptr<io::FileRangeReadContext> read_ahead_context;
+    if (segment_v2::ColumnReadAheadResources::enabled()) {
+        auto* scheduler = ExecEnv::GetInstance()->file_range_read_scheduler();
+        DORIS_CHECK(scheduler != nullptr);
+        read_ahead_context = scheduler->create_context();
+    }
     {
         auto result_columns_guard = _result_block->mutate_columns_scoped();
         MutableColumns& result_columns = result_columns_guard.mutable_columns();
@@ -555,7 +590,8 @@ Status PointQueryExecutor::_lookup_row_data() {
                 RETURN_IF_ERROR(_tablet->lookup_row_data(
                         _row_read_ctxs[i]._primary_key, _row_read_ctxs[i]._row_location.value(),
                         _row_read_ctxs[i]._segment, *(_row_read_ctxs[i]._rowset_ptr),
-                        _profile_metrics.read_stats, value, use_row_cache, &io_ctx));
+                        _profile_metrics.read_stats, value, use_row_cache, &io_ctx,
+                        read_ahead_context));
                 // serialize value to block, currently only jsonb row format
                 RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         _reusable->get_data_type_serdes(), value.data(), value.size(),
@@ -598,38 +634,24 @@ Status PointQueryExecutor::_lookup_row_data() {
                                            return seg->id() == row_loc.segment_id;
                                        });
                 const auto& segment = *it;
-                const auto tablet_schema = _tablet->tablet_schema();
+                StorageReadOptions read_options(_read_stats);
+                read_options.use_page_cache = !config::disable_storage_page_cache;
+                read_options.io_ctx = io_ctx;
+                // Point reads bypass TabletReader, so supply the rowset's synthesized constants.
+                read_options.version = rowset->version();
+                read_options.commit_tso = rowset->commit_tso();
+                std::vector<segment_v2::RowIdColumnRead> column_reads;
+                column_reads.reserve(_reusable->missing_col_uids().size());
                 for (int cid : _reusable->missing_col_uids()) {
-                    int pos = _reusable->get_col_uid_to_idx().at(cid);
-                    std::vector<segment_v2::rowid_t> row_ids {
-                            static_cast<segment_v2::rowid_t>(row_loc.row_id)};
-                    auto& column = result_columns[pos];
-                    std::unique_ptr<ColumnIterator> iter;
-                    SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
-                    int32_t index = slot->col_unique_id() >= 0
-                                            ? tablet_schema->field_index(slot->col_unique_id())
-                                            : tablet_schema->field_index(slot->col_name());
-                    // A light schema change adds a column without writing anything, and
-                    // BaseTablet::_max_version_schema only moves forward on write, so until the
-                    // next load the tablet schema here does not have it. No segment holds it
-                    // either, so describe it from the slot and let the segment answer with its
-                    // default -- the same answer it gives once a load does bring the column in.
-                    TabletColumn column_awaiting_a_load;
-                    if (index < 0) {
-                        column_awaiting_a_load = ReadSchema::tablet_column_from_slot(*slot);
-                    }
-                    const TabletColumn& read_column =
-                            index >= 0 ? tablet_schema->column(index) : column_awaiting_a_load;
-                    StorageReadOptions storage_read_options(_read_stats);
-                    storage_read_options.io_ctx = io_ctx;
-                    // A point lookup bypasses TabletReader, so supply the rowset context here. For
-                    // example, reading __DORIS_VERSION_COL__ from rowset [7-7] must return 7
-                    // instead of its on-disk placeholder 0.
-                    storage_read_options.version = rowset->version();
-                    storage_read_options.commit_tso = rowset->commit_tso();
-                    RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
-                            read_column, slot, row_ids, column, storage_read_options, iter));
+                    const int pos = _reusable->get_col_uid_to_idx().at(cid);
+                    column_reads.push_back({.slot = _reusable->tuple_desc()->slots()[pos],
+                                            .result = &result_columns[pos]});
                 }
+                const std::vector<segment_v2::rowid_t> row_ids {
+                        static_cast<segment_v2::rowid_t>(row_loc.row_id)};
+                RETURN_IF_ERROR(segment->read_columns_by_rowids(*_tablet->tablet_schema(), row_ids,
+                                                                column_reads, read_options,
+                                                                read_ahead_context));
             }
         }
         if (result_columns.size() > _reusable->include_col_uids().size()) {

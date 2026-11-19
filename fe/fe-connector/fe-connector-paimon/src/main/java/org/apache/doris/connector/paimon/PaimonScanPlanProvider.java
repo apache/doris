@@ -177,7 +177,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     // readers to dodge native-reader bugs. Default false (legacy default).
     //
     private static final String FORCE_JNI_SCANNER = "force_jni_scanner";
-    private static final String ENABLE_FILE_SCANNER_V2 = "enable_file_scanner_v2";
     private static final String PAIMON_FILE_PATH_COL = "__paimon_file_path";
     private static final String PAIMON_ROW_POSITION_COL = "__paimon_row_index";
 
@@ -287,14 +286,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             return false;
         }
         return Boolean.parseBoolean(session.getSessionProperties().get(FORCE_JNI_SCANNER));
-    }
-
-    static boolean isFileScannerV2Enabled(ConnectorSession session) {
-        if (session == null) {
-            return true;
-        }
-        return Boolean.parseBoolean(
-                session.getSessionProperties().getOrDefault(ENABLE_FILE_SCANNER_V2, "true"));
     }
 
     /**
@@ -757,10 +748,6 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             throw new DorisConnectorException(
                     "Paimon metadata columns are only supported by FileScannerV2 native Parquet/ORC "
                             + "reader; actual reader is JNI");
-        }
-        if (!isFileScannerV2Enabled(session)) {
-            throw new DorisConnectorException(
-                    "Paimon metadata columns require FileScannerV2 native Parquet/ORC reader");
         }
     }
 

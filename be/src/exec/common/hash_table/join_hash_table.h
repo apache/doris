@@ -463,6 +463,8 @@ private:
             if (!build_idx) {
                 probe_idxs[matched_cnt] = probe_idx;
                 build_idxs[matched_cnt] = 0;
+                // A previous NULL-key probe may leave 1 here; the no-match sentinel is not NULL.
+                null_flags[matched_cnt] = 0;
                 picking_null_keys = false;
                 matched_cnt++;
             }

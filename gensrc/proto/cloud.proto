@@ -762,6 +762,7 @@ message TabletMetaInfoPB { // For update tablet meta
     optional int32 vertical_compaction_num_columns_per_group = 15;
     optional string group_commit_mode = 16;
     optional doris.BinlogConfigPB binlog_config = 17;
+    optional doris.RowTtlConfigPB row_ttl_config = 18;
 }
 
 message TabletCompactionJobPB {
@@ -1430,6 +1431,7 @@ message UpdateTabletRequest {
 
 message UpdateTabletResponse {
     optional MetaServiceResponseStatus status = 1;
+    optional int64 row_ttl_config_version = 2;
 }
 
 message UpdateTabletSchemaRequest {
@@ -1642,6 +1644,11 @@ message CreateInstanceResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message BootstrapInstanceRequest {
+    optional string instance_id = 1;
+    optional ClusterPB initial_fe_cluster = 2;
+}
+
 message AlterInstanceRequest {
     enum Operation {
         UNKNOWN                     = 0;
@@ -1667,6 +1674,7 @@ message AlterInstanceRequest {
     optional string name = 3;
     optional string request_ip = 4;
     map<string, string> properties = 5; // key is the Name of SnapshotProperty value.
+    optional string cloud_unique_id = 6; // For auth
 }
 
 message AlterInstanceResponse {
@@ -1804,17 +1812,6 @@ message GetIamResponse {
     optional MetaServiceResponseStatus status = 1;
     optional RamUserPB iam_user = 2;
     optional RamUserPB ram_user = 3;
-}
-
-message AlterIamRequest {
-    optional string account_id = 1;
-    optional string ak = 2;
-    optional string sk = 3;
-    optional string request_ip = 4;
-}
-
-message AlterIamResponse {
-    optional MetaServiceResponseStatus status = 1;
 }
 
 message AlterRamUserRequest {
@@ -2517,6 +2514,7 @@ service MetaService {
     rpc alter_storage_vault(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
     rpc update_ak_sk(UpdateAkSkRequest) returns (UpdateAkSkResponse);
     rpc create_instance(CreateInstanceRequest) returns (CreateInstanceResponse);
+    rpc bootstrap_instance(BootstrapInstanceRequest) returns (CreateInstanceResponse);
     rpc alter_instance(AlterInstanceRequest) returns (AlterInstanceResponse);
     rpc get_instance(GetInstanceRequest) returns (GetInstanceResponse);
     rpc alter_cluster(AlterClusterRequest) returns (AlterClusterResponse);
@@ -2530,7 +2528,6 @@ service MetaService {
     rpc get_stage(GetStageRequest) returns (GetStageResponse);
     rpc drop_stage(DropStageRequest) returns (DropStageResponse);
     rpc get_iam(GetIamRequest) returns (GetIamResponse);
-    rpc alter_iam(AlterIamRequest) returns (AlterIamResponse);
     rpc alter_ram_user(AlterRamUserRequest) returns (AlterRamUserResponse);
     // copy into
     rpc begin_copy(BeginCopyRequest) returns (BeginCopyResponse);
@@ -2572,7 +2569,6 @@ service MetaService {
 };
 
 service RecyclerService {
-    rpc recycle_instance(RecycleInstanceRequest) returns (RecycleInstanceResponse);
     rpc http(MetaServiceHttpRequest) returns (MetaServiceHttpResponse);
 };
 

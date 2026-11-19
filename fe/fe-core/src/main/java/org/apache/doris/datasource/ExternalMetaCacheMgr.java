@@ -25,6 +25,7 @@ import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
 import org.apache.doris.connector.cache.MetaCacheGovernance;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.datasource.doris.DorisExternalMetaCache;
@@ -53,6 +54,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.annotation.Nullable;
@@ -103,6 +105,9 @@ public class ExternalMetaCacheMgr {
     private ExternalRowCountCache rowCountCache;
 
     public ExternalMetaCacheMgr(boolean isCheckpointCatalog) {
+        // The cache module is parent-first across connector plugins, so resource cleanup shares one FE owner.
+        MetaCacheCleanup.configureResourceReclaimer((description, cleanup) -> ExternalResourceReclaimer.getInstance()
+                .submit(description, cleanup));
         MetaCacheGovernance.configureGlobalMaxWeight(configuredGlobalMaxWeight());
         rowCountRefreshExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
@@ -121,10 +126,14 @@ public class ExternalMetaCacheMgr {
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "FileListingExecutor", 10, true);
 
-        scheduleExecutor = newThreadPool(isCheckpointCatalog,
+        ThreadPoolExecutor splitExecutor = newThreadPool(isCheckpointCatalog,
                 Config.max_external_cache_loader_thread_pool_size,
                 Config.max_external_cache_loader_thread_pool_size * 1000,
                 "scheduleExecutor", 10, true);
+        // Split tasks resubmit themselves under backpressure. Blocking admission would pin both
+        // the planning thread (before its timeout wait) and workers needed to drain a full pool.
+        splitExecutor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        scheduleExecutor = splitExecutor;
 
         fsCache = new FileSystemCache();
         rowCountCache = new ExternalRowCountCache(rowCountRefreshExecutor);
@@ -142,7 +151,7 @@ public class ExternalMetaCacheMgr {
         return parsed == 0L ? OptionalLong.empty() : OptionalLong.of(parsed);
     }
 
-    private ExecutorService newThreadPool(boolean isCheckpointCatalog, int numThread, int queueSize,
+    private ThreadPoolExecutor newThreadPool(boolean isCheckpointCatalog, int numThread, int queueSize,
             String poolName, int timeoutSeconds,
             boolean needRegisterMetric) {
         String executorNamePrefix = isCheckpointCatalog ? "Checkpoint" : "NotCheckpoint";
@@ -231,14 +240,24 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalog(long catalogId) {
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        invalidateCatalogCaches(catalogId, catalog == null ? null : catalog.getName(), "invalidateCatalog",
+                cache -> cache.invalidateCatalogEntries(catalogId));
+    }
+
+    private void invalidateCatalogCaches(long catalogId, String catalogName, String operation,
+            Consumer<ExternalMetaCache> invalidation) {
         try {
             try {
                 routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                        cache, catalogId, "invalidateCatalog",
-                        () -> cache.invalidateCatalogEntries(catalogId)));
+                        cache, catalogId, operation, () -> invalidation.accept(cache)));
             } finally {
-                // This cache has no catalog-scoped key, so catalog invalidation must clear it globally.
-                invalidateSortedPartitionsCache();
+                if (catalogName != null) {
+                    Env.getCurrentEnv().onCatalogChanged(catalogName);
+                } else {
+                    // Legacy ID-only removals may reach this after the catalog has been unpublished.
+                    invalidateSortedPartitionsCache();
+                }
             }
         } finally {
             rowCountCache.invalidateCatalog(catalogId);
@@ -252,17 +271,13 @@ public class ExternalMetaCacheMgr {
     }
 
     public void removeCatalog(long catalogId) {
-        try {
-            try {
-                routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                        cache, catalogId, "removeCatalog",
-                        () -> cache.invalidateCatalog(catalogId)));
-            } finally {
-                invalidateSortedPartitionsCache();
-            }
-        } finally {
-            rowCountCache.invalidateCatalog(catalogId);
-        }
+        CatalogIf<?> catalog = getCatalog(catalogId);
+        removeCatalog(catalogId, catalog == null ? null : catalog.getName());
+    }
+
+    /** Retirement can follow unpublication, so retain the owner's name without looking it up again. */
+    public void removeCatalog(long catalogId, String catalogName) {
+        invalidateCatalogCaches(catalogId, catalogName, "removeCatalog", cache -> cache.invalidateCatalog(catalogId));
     }
 
     public void removeCatalogByEngine(long catalogId, String engine) {
@@ -284,8 +299,11 @@ public class ExternalMetaCacheMgr {
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidateDbMetadataCache", () -> cache.invalidateDb(catalogId, dbName)));
         } finally {
-            // This cache has no database-scoped key, so database invalidation must clear it globally.
-            invalidateSortedPartitionsCache();
+            // Loaded database refreshes call this directly; notify every derived query cache here.
+            CatalogIf<?> catalog = getCatalog(catalogId);
+            if (catalog != null) {
+                Env.getCurrentEnv().onDatabaseChanged(catalog.getName(), dbName);
+            }
         }
     }
 
@@ -306,8 +324,7 @@ public class ExternalMetaCacheMgr {
         } finally {
             CatalogIf<?> catalog = getCatalog(catalogId);
             if (catalog != null) {
-                Env.getCurrentEnv().getSortedPartitionsCacheManager()
-                        .invalidateTable(catalog.getName(), dbName, tableName);
+                Env.getCurrentEnv().onTableChanged(catalog.getName(), dbName, tableName);
             }
         }
     }

@@ -107,6 +107,42 @@ Scan planning follows the same shape: the generic `PluginDrivenScanNode`
 `ConnectorScanPlanProvider` — note the interface lives in fe-connector-spi
 (`spi.scan`), not in fe-core.
 
+**Streaming scans.** `ConnectorScanRequest.getScanContext()` carries the
+scan's cancellation signal and progress counters; partition-batch requests
+share the same context. Check it before advancing file/partition iterators
+and issuing each remote request, including internal pagination. A cancelled
+listing must propagate cancellation instead of caching a partial result.
+The engine closes each split source serially with its reader, drops queued
+ranges on LIMIT/cancellation/error, and joins the statement's producers
+before releasing read transactions and statement metadata. An SDK call that
+cannot be interrupted may finish later; it must not issue another request
+after observing cancellation.
+
+Partitioned connectors may implement `streamPartitionSources` to batch metadata
+independently of directory work. The hook opens a bounded set of cooperating
+sources without remote I/O. A source reports a metadata dependency through
+`isBlocked`; the engine releases its worker until completion. If `hasNext`
+returns false while waiting, retain that dependency, including a completed one,
+until the next read attempt so readiness cannot be mistaken for end of input.
+Use the existing METADATA scheduler for metadata loading and let SPLIT sources
+claim small directory batches; neither stage may wait for child tasks. The
+default hook keeps ordinary partition-batch sources unchanged.
+
+`SET first_split_wait_timeout_ms = 2500` bounds the first split wait, including
+enumeration executor queueing. The default is 30000 ms; values must be positive.
+`SET_VAR` and FE forwarding are supported. Preparation before enumeration is
+still governed by the query timeout. A first-split timeout stops production
+and reports observed partition, file, split, and unfinished-producer counts.
+`fetch_splits_max_wait_time_ms` continues to control subsequent BE fetches.
+
+`split_producer_parallelism` defaults to 0, which preserves the scheduler-derived
+producer count. A positive value caps producers per scan; a whole-scan streaming
+source uses one producer.
+
+**Iceberg encryption.** The [encrypted-read admission contract](docs/iceberg-encryption-read.md)
+defines the default-off configuration, initial scope and backend negotiation
+requirements. Encrypted scan execution remains unavailable at this stage.
+
 **Classloading.** Plugins load child-first, each carrying its own runtime
 closure. Wherever engine code crosses into a plugin — or a bundled library
 resolves classes by name, or a plugin spawns worker threads — the
@@ -283,9 +319,19 @@ Rules for `of(map)`:
   condition *holds*, so the lambda states the failure case — the opposite of
   Guava's `checkArgument`. Reversing it compiles cleanly and inverts the check.
 - **Mark secrets `sensitive = true`** and implement `toString()` as
-  `ConnectorPropertiesUtils.toMaskedString(this)`. That covers logs only; the
-  `SHOW CREATE CATALOG` masking is a separate, hand-maintained list in fe-core
-  (`DatasourcePrintableMap.SENSITIVE_KEY`).
+  `ConnectorPropertiesUtils.toMaskedString(this)`. That covers logs only. For
+  `SHOW CREATE CATALOG`, the audit log and the other places that print catalog
+  properties, also declare the keys in `ConnectorProvider#securitySurface()`:
+  pass `ConnectorPropertiesUtils.getSensitiveKeys(<properties class>)` (or the
+  metastore dispatcher's `MetaStoreProviders.sensitivePropertyKeys()`) to
+  `withSensitiveKeys(...)`, so the same mark drives both. A namespace passed
+  through to a client unenumerated (Trino's `trino.*`, Fluss's lake options)
+  is declared with `withSensitiveKeyPrefix(prefix, markers...)`. The engine
+  adds both to its masking list (`DatasourcePrintableMap`) when it registers
+  the provider. Storage credentials (`s3.secret_key`, ...) are already on that
+  list. A path is not a secret: don't mark a keytab or certificate *path*
+  `sensitive`, since the list is matched by key name across every catalog,
+  resource and storage vault.
 - **Never pass the raw map into anything that can reach user-visible output.**
   It holds the credentials. `ConnectorTableSchema`'s table properties are the
   trap: `SHOW CREATE TABLE` renders them unmasked, and the only thing keeping

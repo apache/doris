@@ -20,7 +20,10 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.iceberg.IcebergCatalogOps.CatalogBackedIcebergCatalogOps;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -31,23 +34,38 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.UpdateRequirement;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.catalog.TableCommit;
+import org.apache.iceberg.catalog.SessionCatalog.SessionContext;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
+import org.apache.iceberg.rest.DorisRESTSessionCatalog;
+import org.apache.iceberg.rest.Endpoint;
+import org.apache.iceberg.rest.HTTPClient;
+import org.apache.iceberg.rest.requests.UpdateTableRequest;
+import org.apache.iceberg.rest.requests.UpdateTableRequestParser;
+import org.apache.iceberg.rest.responses.ConfigResponse;
+import org.apache.iceberg.rest.responses.ConfigResponseParser;
+import org.apache.iceberg.rest.responses.ErrorResponse;
+import org.apache.iceberg.rest.responses.ErrorResponseParser;
+import org.apache.iceberg.rest.responses.LoadTableResponse;
+import org.apache.iceberg.rest.responses.LoadTableResponseParser;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class IcebergLineageDdlKnownBugsTest {
     private static final TableIdentifier IDENTIFIER = TableIdentifier.of("db", "events");
@@ -136,39 +154,28 @@ public class IcebergLineageDdlKnownBugsTest {
 
     @Test
     public void restUpgradeFencesValidatedSchemaGeneration() throws Exception {
-        try (InMemoryCatalog catalog = catalog()) {
-            catalog.createTable(IDENTIFIER, new Schema(
-                            Types.NestedField.optional(1, "id", Types.LongType.get())),
-                    PartitionSpec.unpartitioned(), Collections.singletonMap("format-version", "2"));
-            Table underlying = catalog.loadTable(IDENTIFIER);
-            TableOperations operations = ((HasTableOperations) underlying).operations();
-            int validatedSchemaId = operations.current().currentSchemaId();
-            RestServerMergingCommit restCommit = new RestServerMergingCommit(operations);
-            Catalog catalogApi = new SingleTableCatalog(
-                    new BaseTable(operations, IDENTIFIER.toString()));
-
-            Map<String, String> properties = new LinkedHashMap<>();
-            properties.put(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "134217728");
-            properties.put(TableProperties.FORMAT_VERSION, "3");
+        try (RestUpgradeFixture fixture = new RestUpgradeFixture(true)) {
+            int validatedSchemaId = fixture.current().currentSchemaId();
             DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> new CatalogBackedIcebergCatalogOps(catalogApi, null, true, false, true, Optional.empty(),
-                            table -> () -> { }, restCommit)
-                            .setTableProperties("db", "events", properties));
-
+                    fixture::upgrade);
             Assertions.assertTrue(exception.getMessage().contains("_ROW_ID"), exception.getMessage());
-            TableCommit attempted = restCommit.attemptedCommit();
-            Assertions.assertNotNull(attempted);
-            Assertions.assertTrue(attempted.requirements().stream()
-                            .anyMatch(requirement -> requirement instanceof UpdateRequirement.AssertCurrentSchemaID
-                                    && ((UpdateRequirement.AssertCurrentSchemaID) requirement).schemaId()
-                                    == validatedSchemaId),
-                    "REST upgrade must assert the exact schema generation that Doris validated");
+            fixture.assertSingleSchemaCheckedCommit(validatedSchemaId);
+            Assertions.assertEquals(2, fixture.current().formatVersion());
+            Assertions.assertFalse(
+                    fixture.current().properties().containsKey(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES));
+            Assertions.assertNotNull(fixture.current().schema().findField("_ROW_ID"));
+        }
+    }
 
-            Table after = catalog.loadTable(IDENTIFIER);
-            Assertions.assertEquals(2,
-                    ((HasTableOperations) after).operations().current().formatVersion());
-            Assertions.assertFalse(after.properties().containsKey(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES));
-            Assertions.assertNotNull(after.schema().findField("_ROW_ID"));
+    @Test
+    public void restUpgradeWorksWithoutMultiTableCommitEndpoint() throws Exception {
+        try (RestUpgradeFixture fixture = new RestUpgradeFixture(false)) {
+            int validatedSchemaId = fixture.current().currentSchemaId();
+            fixture.upgrade();
+            fixture.assertSingleSchemaCheckedCommit(validatedSchemaId);
+            Assertions.assertEquals(3, fixture.current().formatVersion());
+            Assertions.assertEquals("134217728",
+                    fixture.current().properties().get(TableProperties.WRITE_TARGET_FILE_SIZE_BYTES));
         }
     }
 
@@ -281,26 +288,94 @@ public class IcebergLineageDdlKnownBugsTest {
         }
     }
 
-    private static final class RestServerMergingCommit implements IcebergCatalogOps.RestTableCommit {
-        private final TableOperations operations;
-        private TableCommit attemptedCommit;
+    private static final class RestUpgradeFixture implements AutoCloseable {
+        private static final String TABLE_PATH = "/v1/namespaces/db/tables/events";
+        private final InMemoryCatalog storage = catalog();
+        private final Table table = storage.createTable(IDENTIFIER,
+                new Schema(Types.NestedField.optional(1, "id", Types.LongType.get())),
+                PartitionSpec.unpartitioned(), Map.of(TableProperties.FORMAT_VERSION, "2"));
+        private final TableOperations operations = ((HasTableOperations) table).operations();
+        private final AtomicInteger updateRequests = new AtomicInteger();
+        private final AtomicReference<UpdateTableRequest> updateRequest = new AtomicReference<>();
+        private final HttpServer server;
+        private final DorisRESTSessionCatalog rest;
+        private final boolean addConcurrentColumn;
 
-        private RestServerMergingCommit(TableOperations operations) {
-            this.operations = operations;
+        private RestUpgradeFixture(boolean addConcurrentColumn) throws IOException {
+            this.addConcurrentColumn = addConcurrentColumn;
+            server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            server.createContext("/v1/config", exchange -> respond(exchange, 200,
+                    ConfigResponseParser.toJson(ConfigResponse.builder()
+                            .withEndpoints(List.of(Endpoint.V1_LOAD_TABLE, Endpoint.V1_UPDATE_TABLE)).build())));
+            server.createContext(TABLE_PATH, this::handleTable);
+            server.start();
+            rest = new DorisRESTSessionCatalog(config -> HTTPClient.builder(config)
+                    .uri(config.get(CatalogProperties.URI)).build(), ignored -> table.io());
+            rest.initialize("rest", Map.of(CatalogProperties.URI,
+                    "http://127.0.0.1:" + server.getAddress().getPort(), "rest.auth.type", "none",
+                    CatalogProperties.FILE_IO_IMPL, "org.apache.iceberg.inmemory.InMemoryFileIO"));
         }
 
-        private TableCommit attemptedCommit() {
-            return attemptedCommit;
+        private void upgrade() {
+            CatalogBackedIcebergCatalogOps catalogOps = new CatalogBackedIcebergCatalogOps(
+                    rest.asCatalog(SessionContext.createEmpty()));
+            catalogOps.setTableProperties("db", "events", Map.of(TableProperties.FORMAT_VERSION, "3",
+                    TableProperties.WRITE_TARGET_FILE_SIZE_BYTES, "134217728"));
+        }
+
+        private void handleTable(HttpExchange exchange) throws IOException {
+            if ("POST".equals(exchange.getRequestMethod())) {
+                updateRequests.incrementAndGet();
+                UpdateTableRequest request = UpdateTableRequestParser.fromJson(
+                        new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                updateRequest.set(request);
+                if (addConcurrentColumn) {
+                    table.updateSchema().addColumn("_ROW_ID", Types.LongType.get()).commit();
+                }
+                TableMetadata base = current();
+                try {
+                    request.requirements().forEach(requirement -> requirement.validate(base));
+                } catch (CommitFailedException e) {
+                    respond(exchange, 409, ErrorResponseParser.toJson(ErrorResponse.builder().responseCode(409)
+                            .withType("CommitFailedException").withMessage(e.getMessage()).build()));
+                    return;
+                }
+                TableMetadata.Builder updated = TableMetadata.buildFrom(base);
+                request.updates().forEach(update -> update.applyTo(updated));
+                operations.commit(base, updated.build());
+            }
+            respond(exchange, 200, LoadTableResponseParser.toJson(
+                    LoadTableResponse.builder().withTableMetadata(current()).build()));
+        }
+
+        private TableMetadata current() {
+            return operations.refresh();
+        }
+
+        private void assertSingleSchemaCheckedCommit(int schemaId) {
+            Assertions.assertEquals(1, updateRequests.get());
+            Assertions.assertTrue(updateRequest.get().requirements().stream()
+                    .anyMatch(requirement -> requirement instanceof UpdateRequirement.AssertCurrentSchemaID
+                            && ((UpdateRequirement.AssertCurrentSchemaID) requirement).schemaId() == schemaId));
+        }
+
+        private static void respond(HttpExchange exchange, int status, String body) throws IOException {
+            byte[] response = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, response.length);
+            try (var out = exchange.getResponseBody()) {
+                out.write(response);
+            }
         }
 
         @Override
-        public void commit(List<TableCommit> commits) {
-            attemptedCommit = commits.get(0);
-            new BaseTable(operations, IDENTIFIER.toString())
-                    .updateSchema().addColumn("_ROW_ID", Types.LongType.get()).commit();
-            TableMetadata serverBase = operations.refresh();
-            attemptedCommit.requirements().forEach(requirement -> requirement.validate(serverBase));
-            throw new AssertionError("REST schema fence did not reject a server-side schema merge");
+        public void close() throws Exception {
+            try {
+                rest.close();
+            } finally {
+                server.stop(0);
+                storage.close();
+            }
         }
     }
 

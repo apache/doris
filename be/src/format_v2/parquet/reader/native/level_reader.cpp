@@ -43,7 +43,7 @@ public:
     LevelReaderImpl(io::FileReaderSPtr file, tparquet::ColumnChunk column_chunk,
                     NativeFieldSchema* field, size_t total_rows, size_t max_buffer_size,
                     io::IOContext* io_ctx, bool enable_page_cache, std::string page_cache_file_key,
-                    ParquetReaderCompat compat)
+                    ParquetReaderCompat compat, std::shared_ptr<ParquetColumnCrypto> crypto)
             : _file(std::move(file)),
               _column_chunk(std::move(column_chunk)),
               _field(field),
@@ -52,7 +52,8 @@ public:
               _io_ctx(io_ctx),
               _enable_page_cache(enable_page_cache),
               _page_cache_file_key(std::move(page_cache_file_key)),
-              _compat(compat) {}
+              _compat(compat),
+              _crypto(std::move(crypto)) {}
 
     Status init() override {
         DORIS_CHECK(_file != nullptr);
@@ -76,7 +77,7 @@ public:
         _chunk_reader = std::make_unique<ColumnChunkReader<IN_COLLECTION, false>>(
                 _stream.get(), &_column_chunk, _field, nullptr, _total_rows, _io_ctx,
                 ParquetPageReadContext(_enable_page_cache, _page_cache_file_key,
-                                       _compat.data_page_v2_always_compressed),
+                                       _compat.data_page_v2_always_compressed, _crypto),
                 &chunk_range);
         return _chunk_reader->init();
     }
@@ -169,6 +170,7 @@ private:
     std::string _page_cache_file_key;
     ParquetReaderCompat _compat;
     size_t _current_row = 0;
+    std::shared_ptr<ParquetColumnCrypto> _crypto;
     std::unique_ptr<io::BufferedFileStreamReader> _stream;
     std::unique_ptr<ColumnChunkReader<IN_COLLECTION, false>> _chunk_reader;
 };
@@ -177,19 +179,19 @@ Status LevelReader::create(io::FileReaderSPtr file, tparquet::ColumnChunk column
                            NativeFieldSchema* field, size_t total_rows, size_t max_buffer_size,
                            io::IOContext* io_ctx, bool enable_page_cache,
                            const std::string& page_cache_file_key,
-                           const ParquetReaderCompat& compat,
-                           std::unique_ptr<LevelReader>* reader) {
+                           const ParquetReaderCompat& compat, std::unique_ptr<LevelReader>* reader,
+                           std::shared_ptr<ParquetColumnCrypto> crypto) {
     DORIS_CHECK(reader != nullptr);
     DORIS_CHECK(field != nullptr);
     std::unique_ptr<Impl> impl;
     if (field->repetition_level > 0) {
         impl = std::make_unique<LevelReaderImpl<true>>(
                 std::move(file), std::move(column_chunk), field, total_rows, max_buffer_size,
-                io_ctx, enable_page_cache, page_cache_file_key, compat);
+                io_ctx, enable_page_cache, page_cache_file_key, compat, std::move(crypto));
     } else {
         impl = std::make_unique<LevelReaderImpl<false>>(
                 std::move(file), std::move(column_chunk), field, total_rows, max_buffer_size,
-                io_ctx, enable_page_cache, page_cache_file_key, compat);
+                io_ctx, enable_page_cache, page_cache_file_key, compat, std::move(crypto));
     }
     RETURN_IF_ERROR(impl->init());
     reader->reset(new LevelReader(std::move(impl)));

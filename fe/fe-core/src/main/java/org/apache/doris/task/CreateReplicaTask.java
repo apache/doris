@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.IndexToThriftConvertor;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.RowTtlConfig;
 import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
@@ -138,10 +139,13 @@ public class CreateReplicaTask extends AgentTask {
     private Map<Object, Object> objectPool;
     private List<Integer> rowStoreColumnUniqueIds;
 
+    private final boolean variantEscapeDotsInKeys;
     private boolean variantEnableFlattenNested;
 
     private TEncryptionAlgorithm tdeAlgorithm;
     private Map<String, List<String>> columnSeqMapping;
+    private RowTtlConfig rowTtlConfig;
+    private int rowTtlTimeZoneOffsetSeconds;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -167,10 +171,12 @@ public class CreateReplicaTask extends AgentTask {
                              List<Integer> rowStoreColumnUniqueIds,
                              Map<Object, Object> objectPool,
                              long rowStorePageSize,
-                             boolean variantEnableFlattenNested,
+                             boolean variantEnableFlattenNested, boolean variantEscapeDotsInKeys,
                              long storagePageSize, TEncryptionAlgorithm tdeAlgorithm,
                              long storageDictPageSize, Map<String, List<String>> columnSeqMapping,
-                             int verticalCompactionNumColumnsPerGroup) {
+                             int verticalCompactionNumColumnsPerGroup,
+                             RowTtlConfig rowTtlConfig,
+                             int rowTtlTimeZoneOffsetSeconds) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -218,10 +224,13 @@ public class CreateReplicaTask extends AgentTask {
         this.objectPool = objectPool;
         this.rowStorePageSize = rowStorePageSize;
         this.variantEnableFlattenNested = variantEnableFlattenNested;
+        this.variantEscapeDotsInKeys = variantEscapeDotsInKeys;
         this.storagePageSize = storagePageSize;
         this.storageDictPageSize = storageDictPageSize;
         this.tdeAlgorithm = tdeAlgorithm;
         this.columnSeqMapping = columnSeqMapping;
+        this.rowTtlConfig = rowTtlConfig;
+        this.rowTtlTimeZoneOffsetSeconds = rowTtlTimeZoneOffsetSeconds;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -317,6 +326,7 @@ public class CreateReplicaTask extends AgentTask {
         int versionCol = -1;
         int commitTsoCol = -1;
         int rowLsnCol = -1;
+        int ttlCol = -1;
         List<TColumn> tColumns = null;
         Object tCols = objectPool.get(columns);
         if (tCols != null) {
@@ -361,6 +371,9 @@ public class CreateReplicaTask extends AgentTask {
             if (column.isRowLsnColumn()) {
                 rowLsnCol = i;
             }
+            if (column.isTtlColumn()) {
+                ttlCol = i;
+            }
         }
         tSchema.setColumns(tColumns);
         tSchema.setDeleteSignIdx(deleteSign);
@@ -368,6 +381,12 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setVersionColIdx(versionCol);
         tSchema.setCommitTsoColIdx(commitTsoCol);
         tSchema.setRowLsnColIdx(rowLsnCol);
+        tSchema.setTtlColIdx(ttlCol);
+        tSchema.setRowTtlDurationUs(ttlCol >= 0 ? rowTtlConfig.getDurationUs() : -1);
+        if (ttlCol >= 0 && rowTtlConfig.getDurationUs() >= 0) {
+            createTabletReq.setRowTtlConfig(rowTtlConfig.toThrift());
+        }
+        tSchema.setRowTtlTimeZoneOffsetSeconds(ttlCol >= 0 ? rowTtlTimeZoneOffsetSeconds : 0);
         tSchema.setRowStoreColCids(rowStoreColumnUniqueIds);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             tSchema.setClusterKeyUids(clusterKeyUids);
@@ -395,6 +414,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
         tSchema.setVariantEnableFlattenNested(variantEnableFlattenNested);
+        tSchema.setVariantEscapeDotsInKeys(variantEscapeDotsInKeys);
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
         tSchema.setRowStorePageSize(rowStorePageSize);

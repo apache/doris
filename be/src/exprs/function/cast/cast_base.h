@@ -18,9 +18,12 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <type_traits>
+#include <utility>
 
 #include "core/assert_cast.h"
-#include "core/block/block.h"
+#include "core/block/column_with_type_and_name.h"
 #include "core/call_on_type_index.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
@@ -46,6 +49,15 @@
 #include "exprs/function/function_helpers.h"
 
 namespace doris {
+
+class RuntimeState;
+
+struct CastOptions {
+    bool strict_mode = false;
+    bool check_overflow_for_decimal = false;
+    bool string_as_jsonb_string = false;
+    bool jsonb_string_as_string = false;
+};
 
 enum class DatelikeParseMode {
     NON_STRICT,
@@ -108,8 +120,12 @@ inline ColumnNullable::MutablePtr create_empty_nullable_column(const DataTypePtr
 
 namespace CastWrapper {
 
-using WrapperType = std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, uint32_t,
-                                         size_t, const NullMap::value_type*)>;
+using WrapperType =
+        std::function<Status(RuntimeState*, const ColumnWithTypeAndName&, ColumnWithTypeAndName&,
+                             size_t, const NullMap::value_type*)>;
+using FunctionContextWrapperType =
+        std::function<Status(FunctionContext*, const ColumnWithTypeAndName&, ColumnWithTypeAndName&,
+                             size_t, const NullMap::value_type*)>;
 
 using ElementWrappers = std::vector<WrapperType>;
 
@@ -118,39 +134,52 @@ WrapperType create_unsupport_wrapper(const String error_msg);
 WrapperType create_unsupport_wrapper(const String from_type_name, const String to_type_name);
 //// Generic conversion of any type to String.
 
-Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
-                                  const ColumnNumbers& arguments, uint32_t result,
-                                  size_t input_rows_count,
+Status cast_from_generic_to_jsonb(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                                  ColumnWithTypeAndName& target_column, size_t input_rows_count,
                                   const NullMap::value_type* null_map = nullptr);
 
 // string to bitmap or hll object
-Status cast_from_string_to_generic(FunctionContext* context, Block& block,
-                                   const ColumnNumbers& arguments, uint32_t result,
-                                   size_t input_rows_count,
+Status cast_from_string_to_generic(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                                   ColumnWithTypeAndName& target_column, size_t input_rows_count,
                                    const NullMap::value_type* null_map = nullptr);
 
-Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
-                                        const ColumnNumbers& arguments, uint32_t result,
+Status cast_from_string_to_complex_type(RuntimeState* state,
+                                        const ColumnWithTypeAndName& source_column,
+                                        ColumnWithTypeAndName& target_column,
                                         size_t input_rows_count,
                                         const NullMap::value_type* null_map = nullptr);
 
-Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Block& block,
-                                                    const ColumnNumbers& arguments, uint32_t result,
+Status cast_from_string_to_complex_type_strict_mode(RuntimeState* state,
+                                                    const ColumnWithTypeAndName& source_column,
+                                                    ColumnWithTypeAndName& target_column,
                                                     size_t input_rows_count,
                                                     const NullMap::value_type* null_map = nullptr);
 
-// prepare_unpack_dictionaries -> prepare_remove_nullable -> prepare_impl
+// bind_cast_executor -> prepare_remove_nullable -> prepare_impl
 
-WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
-                                        const DataTypePtr& to_type);
+WrapperType bind_cast_executor(const CastOptions& options, const DataTypePtr& from_type,
+                               const DataTypePtr& to_type);
 
-WrapperType prepare_remove_nullable(FunctionContext* context, const DataTypePtr& from_type,
+FunctionContextWrapperType bind_cast_executor(FunctionContext* context,
+                                              const DataTypePtr& from_type,
+                                              const DataTypePtr& to_type);
+
+WrapperType prepare_remove_nullable(const CastOptions& options, const DataTypePtr& from_type,
                                     const DataTypePtr& to_type);
 
-WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType prepare_impl(const CastOptions& options, const DataTypePtr& from_type,
                          const DataTypePtr& to_type);
 
-ElementWrappers get_element_wrappers(FunctionContext* context, const DataTypes& from_element_types,
+Status execute_wrapper(RuntimeState* state, const WrapperType& wrapper,
+                       const ColumnWithTypeAndName& source_column,
+                       ColumnWithTypeAndName& target_column, size_t rows);
+
+Status execute_wrapper(FunctionContext* context, const FunctionContextWrapperType& wrapper,
+                       const ColumnWithTypeAndName& source_column,
+                       ColumnWithTypeAndName& target_column, size_t rows);
+
+ElementWrappers get_element_wrappers(const CastOptions& options,
+                                     const DataTypes& from_element_types,
                                      const DataTypes& to_element_types);
 
 /// A child of an ARRAY/MAP/STRUCT column inherits the NULL state of the row it belongs to: when a
@@ -204,30 +233,28 @@ inline std::string cast_mode_type_to_string(CastModeType cast_mode, const DataTy
 class CastToBase {
 public:
     virtual ~CastToBase() = default;
-    virtual Status execute_impl(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, uint32_t result,
-                                size_t input_rows_count,
-                                const NullMap::value_type* null_map = nullptr) const = 0;
+    virtual Status execute_impl(RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                                ColumnWithTypeAndName& target_column, size_t input_rows_count,
+                                const NullMap::value_type* parent_null_map = nullptr) const = 0;
 };
 
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
 class CastToImpl : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                        const NullMap::value_type* /*parent_null_map*/ = nullptr) const override {
         return Status::RuntimeError(
                 "not support  {} ",
-                cast_mode_type_to_string(CastMode, block.get_by_position(arguments[0]).type,
-                                         block.get_by_position(result).type));
+                cast_mode_type_to_string(CastMode, source_column.type, target_column.type));
     }
 };
 
 #ifdef BE_TEST
-inline CastWrapper::WrapperType get_cast_wrapper(FunctionContext* context,
-                                                 const DataTypePtr& from_type,
-                                                 const DataTypePtr& to_type) {
-    return CastWrapper::prepare_unpack_dictionaries(context, from_type, to_type);
+inline CastWrapper::FunctionContextWrapperType get_cast_wrapper(FunctionContext* context,
+                                                                const DataTypePtr& from_type,
+                                                                const DataTypePtr& to_type) {
+    return CastWrapper::bind_cast_executor(context, from_type, to_type);
 }
 #endif
 } // namespace doris

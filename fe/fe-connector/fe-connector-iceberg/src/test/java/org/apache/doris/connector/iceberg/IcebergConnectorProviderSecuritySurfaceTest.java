@@ -37,6 +37,21 @@ public class IcebergConnectorProviderSecuritySurfaceTest {
         Assertions.assertEquals(Collections.singletonList("iceberg.jdbc.driver_url"),
                 surface.jdbcDriverUrlKeys());
         Assertions.assertEquals("iceberg.catalog.type", surface.jdbcDriverUrlFlavorKey());
-        Assertions.assertTrue(surface.ssrfEndpointKeys().isEmpty());
+        Assertions.assertEquals(Collections.singletonList("kms.endpoint"), surface.ssrfEndpointKeys());
+    }
+
+    @Test
+    public void declaresTheSecretsOfEveryMetastoreFlavor() {
+        // iceberg.jdbc.password was printed in clear by SHOW CREATE CATALOG before it was declared here:
+        // fe-core's own list does not know it.
+        ConnectorSecuritySurface surface = new IcebergConnectorProvider().securitySurface();
+        for (String key : new String[] {"iceberg.jdbc.password", "iceberg.rest.oauth2.token",
+                "iceberg.rest.oauth2.credential", "aws.glue.session-token", "dlf.secret_key"}) {
+            Assertions.assertTrue(surface.sensitiveKeys().contains(key), key + " missing from "
+                    + surface.sensitiveKeys());
+        }
+        Assertions.assertFalse(surface.sensitiveKeys().contains("hadoop.kerberos.keytab"),
+                "a keytab is a path, not a secret");
+        Assertions.assertFalse(surface.sensitiveKeys().contains("iceberg.jdbc.user"));
     }
 }

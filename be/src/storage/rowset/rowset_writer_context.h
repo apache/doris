@@ -116,6 +116,11 @@ struct RowsetWriterContext {
     // coexist in a single pass. V2/V3 keep columns_to_do_index_compaction:
     // their per-column CLucene directories cannot split an index off a column.
     std::set<std::pair<int32_t, int64_t>> snii_indexes_to_do_compaction;
+
+    bool has_index_compaction() const {
+        return !columns_to_do_index_compaction.empty() || !snii_indexes_to_do_compaction.empty();
+    }
+
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     // need to figure out the sub type of compaction
     ReaderType compaction_type = ReaderType::UNKNOWN;
@@ -242,7 +247,7 @@ struct RowsetWriterContext {
             }
         }();
 
-        bool is_s3_fs = fs->type() == io::FileSystemType::S3;
+        bool is_obj_storage_fs = fs->type() == io::FileSystemType::OBJECT_STORAGE;
 
         auto algorithm = encrypt_algorithm;
 
@@ -277,7 +282,8 @@ struct RowsetWriterContext {
 
         // Only enable merge file for S3 file system, not for HDFS or other remote file systems
         packed_file_active = allow_packed_file && config::is_cloud_mode() &&
-                             config::enable_packed_file && !has_v1_inverted_index && is_s3_fs;
+                             config::enable_packed_file && !has_v1_inverted_index &&
+                             is_obj_storage_fs;
 
         if (packed_file_active) {
             io::PackedAppendContext append_info;

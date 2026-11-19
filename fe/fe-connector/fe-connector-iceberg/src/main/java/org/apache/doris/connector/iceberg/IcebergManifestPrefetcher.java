@@ -87,6 +87,7 @@ final class IcebergManifestPrefetcher implements CloseableIterator<IcebergManife
     // Completion callbacks never acquire the registry lock. Reserve one slot for the close signal.
     private final BlockingQueue<Pending> ready;
     private volatile boolean closed;
+    private final AtomicBoolean resourcesClosed = new AtomicBoolean();
     private boolean coldManifestConsumed;
     private final ConnectorContext context;
     private final IcebergManifestReadContext readContext;
@@ -291,6 +292,7 @@ final class IcebergManifestPrefetcher implements CloseableIterator<IcebergManife
             whenComplete((value, failure) -> {
                 completionTarget.set(null);
                 scheduler.removeSpaceListener(onSpace);
+                scheduler.remove(this);
                 if (!closed) {
                     ready.add(pendingLoad);
                 }
@@ -309,6 +311,7 @@ final class IcebergManifestPrefetcher implements CloseableIterator<IcebergManife
             // Cancellation can race callback registration in tryExecute.
             if (isDone()) {
                 scheduler.removeSpaceListener(onSpace);
+                scheduler.remove(this);
             }
         }
 
@@ -359,8 +362,8 @@ final class IcebergManifestPrefetcher implements CloseableIterator<IcebergManife
         return failure;
     }
 
-    @Override
-    public void close() throws IOException {
+    /** Stops admission and wakes the consumer without closing its iterator on the cancelling thread. */
+    void cancel() {
         List<Pending> unused;
         synchronized (pending) {
             if (closed) {
@@ -380,6 +383,13 @@ final class IcebergManifestPrefetcher implements CloseableIterator<IcebergManife
                 task.future.cancel(false);
             }
         }
-        manifests.close();
+    }
+
+    @Override
+    public void close() throws IOException {
+        cancel();
+        if (resourcesClosed.compareAndSet(false, true)) {
+            manifests.close();
+        }
     }
 }

@@ -1557,8 +1557,8 @@ bool VecDateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& tim
 }
 
 void VecDateTimeValue::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
-    const auto tp =
-            cctz::convert(cctz::civil_second(_year, _month, _day, _hour, _minute, _second), ctz);
+    const auto tp = TimezoneUtils::convert_local_to_instant(
+            cctz::civil_second(_year, _month, _day, _hour, _minute, _second), ctz);
     *timestamp = tp.time_since_epoch().count();
 }
 
@@ -2741,17 +2741,17 @@ bool DateV2Value<T>::unix_timestamp(int64_t* timestamp, const std::string& timez
 template <typename T>
 void DateV2Value<T>::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
     if constexpr (is_datetime) {
-        const auto tp =
-                cctz::convert(cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_,
-                                                 date_v2_value_.day_, date_v2_value_.hour_,
-                                                 date_v2_value_.minute_, date_v2_value_.second_),
-                              ctz);
+        const auto tp = TimezoneUtils::convert_local_to_instant(
+                cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_,
+                                   date_v2_value_.hour_, date_v2_value_.minute_,
+                                   date_v2_value_.second_),
+                ctz);
         *timestamp = tp.time_since_epoch().count();
     } else {
-        const auto tp =
-                cctz::convert(cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_,
-                                                 date_v2_value_.day_, 0, 0, 0),
-                              ctz);
+        const auto tp = TimezoneUtils::convert_local_to_instant(
+                cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_,
+                                   0, 0, 0),
+                ctz);
         *timestamp = tp.time_since_epoch().count();
     }
 }
@@ -2773,12 +2773,8 @@ void DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
     DCHECK(is_datetime) << "Function unix_timestamp with double_t timestamp only support "
                            "datetimev2 value type.";
     if constexpr (is_datetime) {
-        const auto tp =
-                cctz::convert(cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_,
-                                                 date_v2_value_.day_, date_v2_value_.hour_,
-                                                 date_v2_value_.minute_, date_v2_value_.second_),
-                              ctz);
-        timestamp->first = tp.time_since_epoch().count();
+        unix_timestamp(&timestamp->first, ctz);
+        // The whole-second conversion leaves the input fraction unchanged.
         timestamp->second = date_v2_value_.microsecond_;
     }
 }

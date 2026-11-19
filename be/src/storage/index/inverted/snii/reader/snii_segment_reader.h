@@ -115,6 +115,12 @@ public:
         return directory_.entries();
     }
 
+    // The directory entry of (index_id, suffix), owned by this reader; nullptr when it has none.
+    const format::LogicalIndexMetadataRef* find_logical_index(uint64_t index_id,
+                                                              std::string_view suffix) const {
+        return directory_.find(index_id, suffix);
+    }
+
     Status index_exists(uint64_t index_id, std::string_view suffix, bool* const exists) const;
 
     // Loads the adjacent Core/STI/DBD group for (index_id, suffix) and builds a

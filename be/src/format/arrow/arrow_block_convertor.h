@@ -58,9 +58,9 @@ public:
     virtual Status init();
     const std::shared_ptr<arrow::Schema>& arrow_schema() const { return _arrow_schema; }
 
-    Status convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
-                            std::shared_ptr<arrow::RecordBatch>* result, size_t start_row = 0,
-                            size_t end_row = 0) const;
+    virtual Status convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
+                                    std::shared_ptr<arrow::RecordBatch>* result,
+                                    size_t start_row = 0, size_t end_row = 0) const;
 
     virtual Status convert_from_arrow(const std::shared_ptr<arrow::RecordBatch>& batch,
                                       const DataTypes& types, Block* block) const;
@@ -113,6 +113,9 @@ class ArrowFlightArrowBlockConvertor final : public DorisArrowBlockConvertor {
 public:
     using DorisArrowBlockConvertor::DorisArrowBlockConvertor;
     Status init() override;
+    Status convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
+                            std::shared_ptr<arrow::RecordBatch>* result, size_t start_row = 0,
+                            size_t end_row = 0) const override;
 
 protected:
     Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
@@ -124,7 +127,17 @@ protected:
 
 class PythonArrowBlockConvertor final : public DorisArrowBlockConvertor {
 public:
-    using DorisArrowBlockConvertor::DorisArrowBlockConvertor;
+    PythonArrowBlockConvertor(std::shared_ptr<arrow::Schema> schema,
+                              const cctz::time_zone& timezone)
+            : DorisArrowBlockConvertor(std::move(schema), timezone) {}
+    PythonArrowBlockConvertor(const Block& header, std::string timezone_name,
+                              const cctz::time_zone& timezone, bool datetime_naive)
+            : DorisArrowBlockConvertor(header, std::move(timezone_name), timezone),
+              _datetime_naive(datetime_naive) {}
+    Status init() override;
+
+private:
+    const bool _datetime_naive = false;
 };
 
 Status make_zero_column_arrow_batch(const std::shared_ptr<arrow::Schema>& schema, int64_t rows,

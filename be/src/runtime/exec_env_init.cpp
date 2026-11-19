@@ -21,6 +21,7 @@
 #include <simdjson.h>
 #include <sys/resource.h>
 
+#include <algorithm>
 #include <cerrno> // IWYU pragma: keep
 #include <cstdint>
 #include <cstdlib>
@@ -47,7 +48,8 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "cpp/token_bucket_rate_limiter.h"
+#include "cpp/aws_sdk.h"
+#include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
@@ -61,9 +63,12 @@
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/partial_block_writeback_manager.h"
 #include "io/fs/file_meta_cache.h"
+#include "io/fs/file_range_read_scheduler.h"
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_reader.h"
+#include "io/fs/read_io_trace.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/group_commit/group_commit_mgr.h"
@@ -131,6 +136,10 @@
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
+
+#ifdef USE_AZURE
+#include "cpp/obj-storage/client/azure_obj_storage_client.h"
+#endif
 
 // clang-format off
 // this must after util/brpc_client_cache.h
@@ -201,6 +210,10 @@ ExecEnv::~ExecEnv() {
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
+    ensure_aws_sdk_initialized(config::aws_log_level);
+#ifdef USE_AZURE
+    initialize_azure_sdk(config::azure_log_level);
+#endif
     return env->_init(store_paths, spill_store_paths, broken_paths);
 }
 
@@ -243,6 +256,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _result_queue_mgr = new ResultQueueMgr();
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
+    // A cached transport keeps the timeout of the caller that opened it, so the Arrow Flight
+    // cancellation keeps its own, opened with its short timeout, and none of them reaches another
+    // caller. Each idle connection holds an FE thrift thread, so at most two are kept per FE.
+    _flight_cancel_frontend_client_cache = new FrontendServiceClientCache(2);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
     TimezoneUtils::load_timezones_to_cache();
@@ -278,13 +295,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(32)
                               .build(&_send_table_stats_thread_pool));
 
-    auto [s3_file_upload_min_threads, s3_file_upload_max_threads] =
+    auto [upload_min_threads, upload_max_threads] =
             get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
                             config::num_s3_file_upload_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(cast_set<int>(s3_file_upload_min_threads))
-                              .set_max_threads(cast_set<int>(s3_file_upload_max_threads))
-                              .build(&_s3_file_upload_thread_pool));
+                              .set_min_threads(cast_set<int>(upload_min_threads))
+                              .set_max_threads(cast_set<int>(upload_max_threads))
+                              .build(&_obj_storage_upload_thread_pool));
 
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
@@ -301,12 +318,27 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     static_cast<void>(ThreadPoolBuilder("S3FileSystemThreadPool")
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
-                              .build(&_s3_file_system_thread_pool));
+                              .build(&_obj_storage_file_system_thread_pool));
+    // Give every race slot an S3 thread; a smaller pool queues S3 legs behind each other.
+    const int peer_race_s3_max_threads =
+            std::max(config::max_peer_race_s3_thread_num, config::max_concurrent_peer_races);
+    LOG(INFO) << "PeerRaceS3ThreadPool max_threads=" << peer_race_s3_max_threads
+              << ", max_peer_race_s3_thread_num=" << config::max_peer_race_s3_thread_num
+              << ", max_concurrent_peer_races=" << config::max_concurrent_peer_races;
     static_cast<void>(ThreadPoolBuilder("PeerRaceS3ThreadPool")
                               .set_min_threads(config::min_peer_race_s3_thread_num)
-                              .set_max_threads(config::max_peer_race_s3_thread_num)
+                              .set_max_threads(peer_race_s3_max_threads)
                               .build(&_peer_race_s3_thread_pool));
     RETURN_IF_ERROR(init_mem_env());
+
+    if (config::is_cloud_mode()) {
+        io::FileRangeReadSchedulerOptions options {
+                .max_bytes_per_query = cast_set<size_t>(config::read_ahead_max_bytes_per_query),
+                .max_bytes_per_be = cast_set<size_t>(config::read_ahead_max_bytes_per_be),
+        };
+        RETURN_IF_ERROR(io::FileRangeReadScheduler::create(
+                options, _segment_prefetch_thread_pool.get(), &_file_range_read_scheduler));
+    }
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -316,6 +348,25 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _file_cache_factory = new io::FileCacheFactory();
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);
+    if (config::is_cloud_mode()) {
+        io::PartialBlockWritebackOptions options {
+                .block_size = cast_set<size_t>(config::file_cache_each_block_size),
+                .worker_count = cast_set<size_t>(config::hole_fill_workers_per_be),
+                .remote_read_thread_count = config::hole_fill_remote_read_threads_per_be,
+                .merge_delay_ms = config::hole_fill_merge_delay_ms,
+                .max_pending_bytes = cast_set<size_t>(config::hole_fill_max_pending_bytes_per_be),
+                .hole_fill_coalesce =
+                        {
+                                .max_gap_bytes = cast_set<size_t>(config::hole_fill_max_gap_bytes),
+                                .max_range_bytes =
+                                        cast_set<size_t>(config::hole_fill_max_range_bytes),
+                                .max_read_amplification_ratio =
+                                        config::hole_fill_max_read_amplification_ratio,
+                        },
+        };
+        RETURN_IF_ERROR(io::PartialBlockWritebackManager::create(
+                options, &_partial_block_writeback_manager));
+    }
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
     _init_runtime_filter_timer_queue();
@@ -367,6 +418,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
+    _flight_cancel_frontend_client_cache->init_metrics("flight_cancel_frontend");
     _broker_client_cache->init_metrics("broker");
     static_cast<void>(_result_mgr->init());
     Status status = _load_path_mgr->init();
@@ -475,8 +527,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     init_simdjson_parser();
 
-    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
-    S3ClientFactory::instance();
     return Status::OK();
 }
 
@@ -558,6 +608,7 @@ Status ExecEnv::init_mem_env() {
 
     _id_manager = new IdManager();
     _cache_manager = CacheManager::create_global_instance();
+    init_fluss_union_tail_cache();
 
     int64_t storage_cache_limit =
             ParseUtil::parse_mem_spec(config::storage_page_cache_limit, MemInfo::mem_limit(),
@@ -772,7 +823,7 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
     _subcolumns_tree_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SubcolumnsTree");
-    _s3_file_buffer_tracker =
+    _obj_storage_buffer_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
     _stream_load_pipe_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
@@ -881,6 +932,8 @@ void ExecEnv::destroy() {
 
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
+    SAFE_SHUTDOWN(_file_range_read_scheduler);
+    SAFE_SHUTDOWN(_partial_block_writeback_manager);
     SAFE_STOP(_runtime_filter_timer_queue);
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
     _load_stream_mgr.reset();
@@ -917,11 +970,12 @@ void ExecEnv::destroy() {
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_segment_prefetch_thread_pool);
-    SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
+    SAFE_SHUTDOWN(_obj_storage_upload_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
-    SAFE_SHUTDOWN(_s3_file_system_thread_pool);
+    SAFE_SHUTDOWN(_obj_storage_file_system_thread_pool);
     SAFE_SHUTDOWN(_peer_race_s3_thread_pool);
+    io::ReadIOTrace::shutdown();
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_udf_close_workers_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
@@ -970,29 +1024,35 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_workload_sched_mgr);
     SAFE_DELETE(_workload_group_manager);
+    _partial_block_writeback_manager.reset(nullptr);
     SAFE_DELETE(_file_cache_factory);
     SAFE_DELETE(_runtime_filter_timer_queue);
     SAFE_DELETE(_dict_factory);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
-    _s3_file_system_thread_pool.reset(nullptr);
+    _obj_storage_file_system_thread_pool.reset(nullptr);
     _peer_race_s3_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
+    _file_range_read_scheduler.reset(nullptr);
     _segment_prefetch_thread_pool.reset(nullptr);
-    _s3_file_upload_thread_pool.reset(nullptr);
+    _obj_storage_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _udf_close_workers_thread_pool.reset(nullptr);
     _write_cooldown_meta_executors.reset(nullptr);
 
     SAFE_DELETE(_broker_client_cache);
+    SAFE_DELETE(_flight_cancel_frontend_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);
     SAFE_DELETE(_result_queue_mgr);
 
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
+
+    // Scanner schedulers and query owners are gone; release tail entries while CacheManager is alive.
+    destroy_fluss_union_tail_cache();
 
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
@@ -1044,6 +1104,21 @@ void ExecEnv::destroy() {
 namespace doris::config {
 namespace {
 
+void resize_hole_fill_workers(int32_t old_value, int32_t new_value) {
+    if (old_value == new_value) {
+        return;
+    }
+    auto* manager = ExecEnv::GetInstance()->partial_block_writeback_manager();
+    if (manager == nullptr) {
+        return;
+    }
+    Status status = manager->resize_workers(cast_set<size_t>(new_value));
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to resize partial block writeback workers from " << old_value
+                     << " to " << new_value << ": " << status;
+    }
+}
+
 void refresh_ms_rpc_rate_limiters() {
     auto* services = ExecEnv::GetInstance()->ms_rpc_rate_limit_services();
     if (services != nullptr) {
@@ -1069,6 +1144,22 @@ void refresh_ms_backpressure_coordinator_params() {
 }
 
 } // namespace
+
+DEFINE_ON_UPDATE(hole_fill_workers_per_be, resize_hole_fill_workers);
+DEFINE_ON_UPDATE(hole_fill_remote_read_threads_per_be, [](int32_t old_value, int32_t new_value) {
+    auto* manager = ExecEnv::GetInstance()->partial_block_writeback_manager();
+    if (manager != nullptr && old_value != new_value) {
+        WARN_IF_ERROR(manager->resize_remote_read_threads(new_value),
+                      "Failed to resize partial block remote-read pool");
+    }
+});
+
+DEFINE_ON_UPDATE(hole_fill_merge_delay_ms, [](int32_t, int32_t new_value) {
+    auto* manager = ExecEnv::GetInstance()->partial_block_writeback_manager();
+    if (manager != nullptr) {
+        manager->set_merge_delay_ms(new_value);
+    }
+});
 
 // Callback to update warmup download rate limiter when config changes is registered
 DEFINE_ON_UPDATE(file_cache_warmup_download_rate_limit_bytes_per_second,

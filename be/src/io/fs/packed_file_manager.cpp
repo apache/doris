@@ -192,7 +192,7 @@ void write_small_file_to_cache_async(const std::string& small_file_path, const S
     std::string data_copy(data.data, data.size);
     size_t data_size = data.size;
 
-    auto* thread_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    auto* thread_pool = ExecEnv::GetInstance()->obj_storage_upload_thread_pool();
     if (thread_pool == nullptr) {
         // Fallback to sync write if thread pool not available
         do_write_to_file_cache(small_file_path, data_copy, tablet_id, expiration_time);
@@ -524,7 +524,9 @@ Status PackedFileManager::get_packed_slice_location(const std::string& path,
     std::lock_guard<std::mutex> lock(_global_index_mutex);
     auto it = _global_slice_locations.find(path);
     if (it == _global_slice_locations.end()) {
-        return Status::NotFound("File not found in global packed index: {}", path);
+        // Not an error for the caller: a file too large to be packed is never indexed here
+        return Status::Error<ErrorCode::NOT_FOUND, false>(
+                "File not found in global packed index: {}", path);
     }
 
     *location = it->second->location();

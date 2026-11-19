@@ -130,7 +130,8 @@ TxnErrorCode collect_pending_table_stream_drops(
     return iter->error_code();
 }
 
-Checker::Checker(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
+Checker::Checker(std::shared_ptr<TxnKv> txn_kv)
+        : txn_kv_(std::move(txn_kv)), resource_mgr_(std::make_shared<ResourceManager>(txn_kv_)) {
     ip_port_ = std::string(butil::my_ip_cstr()) + ":" + std::to_string(config::brpc_listen_port);
 }
 
@@ -150,13 +151,18 @@ int Checker::start() {
                 std::chrono::seconds(config::recycler_sleep_before_scheduling_seconds));
         while (!stopped()) {
             std::vector<InstanceInfoPB> instances;
-            get_all_instances(txn_kv_.get(), instances);
+            if (get_all_instances(txn_kv_.get(), instances) != 0) {
+                // Do not publish a partial owner index after a failed scan.
+                instances.clear();
+            }
             LOG(INFO) << "Checker get instances: " << [&instances] {
                 std::stringstream ss;
                 for (auto& i : instances) ss << ' ' << i.instance_id();
                 return ss.str();
             }();
             if (!instances.empty()) {
+                auto shared_storage_index =
+                        std::make_shared<SharedStorageIndex>(txn_kv_, instances);
                 // enqueue instances
                 std::lock_guard lock(mtx_);
                 for (auto& instance : instances) {
@@ -169,7 +175,8 @@ int Checker::start() {
                             pending_instance_map_.insert({instance.instance_id(), enqueue_time_s});
                     // skip instance already in pending queue
                     if (success) {
-                        pending_instance_queue_.push_back(std::move(instance));
+                        pending_instance_queue_.push_back(
+                                {std::move(instance), shared_storage_index});
                     }
                 }
                 pending_instance_cond_.notify_all();
@@ -193,6 +200,7 @@ int Checker::start() {
         while (!stopped()) {
             // fetch instance to check
             InstanceInfoPB instance;
+            std::shared_ptr<SharedStorageIndex> shared_storage_index;
             long enqueue_time_s = 0;
             {
                 std::unique_lock lock(mtx_);
@@ -202,7 +210,9 @@ int Checker::start() {
                 if (stopped()) {
                     return;
                 }
-                instance = std::move(pending_instance_queue_.front());
+                instance = std::move(pending_instance_queue_.front().instance);
+                shared_storage_index =
+                        std::move(pending_instance_queue_.front().shared_storage_index);
                 pending_instance_queue_.pop_front();
                 enqueue_time_s = pending_instance_map_[instance.instance_id()];
                 pending_instance_map_.erase(instance.instance_id());
@@ -217,7 +227,9 @@ int Checker::start() {
                     continue;
                 }
             }
-            auto checker = std::make_shared<InstanceChecker>(txn_kv_, instance.instance_id());
+            auto checker = std::make_shared<InstanceChecker>(txn_kv_, instance.instance_id(),
+                                                             resource_mgr_,
+                                                             std::move(shared_storage_index));
             if (checker->init(instance) != 0) {
                 LOG(WARNING) << "failed to init instance checker, instance_id="
                              << instance.instance_id();
@@ -424,7 +436,7 @@ void Checker::do_inspect(const InstanceInfoPB& instance) {
                                  << " key=" << hex(check_job_key);
         return;
     }
-    auto checker = InstanceChecker(txn_kv_, instance.instance_id());
+    auto checker = InstanceChecker(txn_kv_, instance.instance_id(), resource_mgr_);
     if (checker.init(instance) != 0) {
         LOG_CHECK_INTERVAL_ALARM << "failed to init instance checker, instance_id="
                                  << instance.instance_id();
@@ -519,16 +531,156 @@ int key_exist(TxnKv* txn_kv, std::string_view key) {
     }
 }
 
-InstanceChecker::InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id)
-        : txn_kv_(txn_kv), instance_id_(instance_id) {
+SharedStorageIndex::SharedStorageIndex(std::shared_ptr<TxnKv> txn_kv,
+                                       std::optional<std::vector<InstanceInfoPB>> instances)
+        : txn_kv_(std::move(txn_kv)), preloaded_instances_(std::move(instances)) {}
+
+std::optional<SharedStorageIndex::StorageLocation> SharedStorageIndex::s3_location(
+        const ObjectStoreInfoPB& obj_info) {
+    // Missing connection info must not make unrelated resources match.
+    if (obj_info.endpoint().empty() || obj_info.bucket().empty()) {
+        return std::nullopt;
+    }
+    return StorageLocation {"s3", obj_info.endpoint(), obj_info.bucket(), obj_info.prefix()};
+}
+
+std::optional<SharedStorageIndex::StorageLocation> SharedStorageIndex::hdfs_location(
+        const HdfsVaultInfo& hdfs_info) {
+    if (hdfs_info.build_conf().fs_name().empty()) {
+        return std::nullopt;
+    }
+    return StorageLocation {"hdfs", hdfs_info.build_conf().fs_name(), "", hdfs_info.prefix()};
+}
+
+void SharedStorageIndex::ensure_loaded() {
+    std::call_once(load_once_, [this] {
+        load_status_ = load_all_instances();
+        if (load_status_ != 0) {
+            // Never expose a partially built index.
+            instance_resource_locations_.clear();
+            location_to_owners_.clear();
+        }
+    });
+}
+
+int SharedStorageIndex::load_all_instances() {
+    std::vector<InstanceInfoPB> instances;
+    if (preloaded_instances_.has_value()) {
+        instances = std::move(*preloaded_instances_);
+        preloaded_instances_.reset();
+    } else if (get_all_instances(txn_kv_.get(), instances) != 0) {
+        return -1;
+    }
+    // Load all instances, even those not scheduled for checking: decoupled
+    // instances can still share storage with the checked one.
+    for (const auto& instance : instances) {
+        if (load_instance(instance) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int SharedStorageIndex::load_instance(const InstanceInfoPB& instance) {
+    const std::string& instance_id = instance.instance_id();
+    // Register the instance even if it has no resources, so that it can be told
+    // apart from an unknown instance.
+    instance_resource_locations_[instance_id];
+    // Locations of the resources in `resource_ids` are filled by the vault scan below.
+    for (const auto& resource_id : instance.resource_ids()) {
+        add_resource(instance_id, resource_id, std::nullopt);
+    }
+    for (const auto& obj_info : instance.obj_info()) {
+        add_resource(instance_id, obj_info.id(), s3_location(obj_info));
+    }
+    if (instance.resource_ids().empty()) {
+        return 0;
+    }
+    return load_storage_vaults(instance_id);
+}
+
+int SharedStorageIndex::load_storage_vaults(const std::string& instance_id) {
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv_->create_txn(&txn) != TxnErrorCode::TXN_OK) {
+        return -1;
+    }
+    auto iter = txn->full_range_get(storage_vault_key({instance_id, ""}),
+                                    storage_vault_key({instance_id, "\xff"}));
+    for (auto entry = iter->next(); entry.has_value(); entry = iter->next()) {
+        StorageVaultPB vault;
+        if (!vault.ParseFromArray(entry->second.data(), entry->second.size())) {
+            LOG_WARNING("malformed storage vault").tag("instance_id", instance_id);
+            return -1;
+        }
+        std::optional<StorageLocation> location;
+        if (vault.has_obj_info()) {
+            location = s3_location(vault.obj_info());
+        } else if (vault.has_hdfs_info()) {
+            location = hdfs_location(vault.hdfs_info());
+        }
+        add_resource(instance_id, vault.id(), std::move(location));
+    }
+    return iter->is_valid() ? 0 : -1;
+}
+
+void SharedStorageIndex::add_resource(const std::string& instance_id,
+                                      const std::string& resource_id,
+                                      std::optional<StorageLocation> location) {
+    auto& resource_location = instance_resource_locations_[instance_id][resource_id];
+    if (!location.has_value()) {
+        return;
+    }
+    if (!resource_location.has_value()) {
+        resource_location = location;
+    }
+    location_to_owners_[std::move(*location)].push_back({instance_id, resource_id});
+}
+
+int SharedStorageIndex::get_shared_resource_owners(std::string_view instance_id,
+                                                   SharedResourceOwners* owners) {
+    ensure_loaded();
+    owners->clear();
+    if (load_status_ != 0) {
+        return -1;
+    }
+    auto instance = instance_resource_locations_.find(std::string(instance_id));
+    if (instance == instance_resource_locations_.end()) {
+        LOG_WARNING("instance not found while checking shared resources")
+                .tag("instance_id", instance_id);
+        return -1;
+    }
+    for (const auto& [resource_id, location] : instance->second) {
+        if (location.has_value()) {
+            (*owners)[resource_id] = location_to_owners_.at(*location);
+        } else {
+            // Without a known location, the resource is only owned by its own instance.
+            (*owners)[resource_id] = {{instance->first, resource_id}};
+        }
+    }
+    return 0;
+}
+
+InstanceChecker::InstanceChecker(std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+                                 std::shared_ptr<ResourceManager> resource_mgr,
+                                 std::shared_ptr<SharedStorageIndex> shared_storage_index)
+        : txn_kv_(txn_kv),
+          instance_id_(instance_id),
+          resource_mgr_(std::move(resource_mgr)),
+          shared_storage_index_(std::move(shared_storage_index)) {
     snapshot_manager_ = create_snapshot_manager(txn_kv);
-    resource_mgr_ = std::make_shared<ResourceManager>(std::move(txn_kv));
-    resource_mgr_->init();
+    if (!shared_storage_index_) {
+        shared_storage_index_ = std::make_shared<SharedStorageIndex>(txn_kv);
+    }
+    if (!resource_mgr_) {
+        resource_mgr_ = std::make_shared<ResourceManager>(std::move(txn_kv));
+        resource_mgr_->init();
+    }
 }
 
 int InstanceChecker::init(const InstanceInfoPB& instance) {
     table_stream_versioned_write_ = instance.multi_version_status() == MULTI_VERSION_WRITE_ONLY ||
                                     instance.multi_version_status() == MULTI_VERSION_READ_WRITE;
+    resource_mgr_->refresh_instance(instance_id_, instance);
 
     int ret = init_obj_store_accessors(instance);
     if (ret != 0) {
@@ -543,7 +695,7 @@ int InstanceChecker::init_obj_store_accessors(const InstanceInfoPB& instance) {
 #ifdef UNIT_TEST
         auto accessor = std::make_shared<MockAccessor>();
 #else
-        auto s3_conf = S3Conf::from_obj_store_info(obj_info);
+        auto s3_conf = parse_recycler_storage_config(obj_info);
         if (!s3_conf) {
             LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
             return -1;
@@ -602,7 +754,7 @@ int InstanceChecker::init_storage_vault_accessors(const InstanceInfoPB& instance
 #ifdef UNIT_TEST
             auto accessor = std::make_shared<MockAccessor>();
 #else
-            auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
+            auto s3_conf = parse_recycler_storage_config(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
                 return -1;
@@ -655,6 +807,7 @@ int InstanceChecker::do_check() {
 
     struct TabletFiles {
         int64_t tablet_id {0};
+        std::string resource_id;
         std::unordered_set<std::string> files;
     };
     TabletFiles tablet_files_cache;
@@ -678,7 +831,8 @@ int InstanceChecker::do_check() {
         };
 
         ++num_scanned_with_segment;
-        if (tablet_files_cache.tablet_id != rs_meta.tablet_id()) {
+        if (tablet_files_cache.tablet_id != rs_meta.tablet_id() ||
+            tablet_files_cache.resource_id != rs_meta.resource_id()) {
             long tablet_volume = 0;
             // Clear cache
             tablet_files_cache.tablet_id = 0;
@@ -706,7 +860,12 @@ int InstanceChecker::do_check() {
                 tablet_files_cache.files.insert(std::move(file->path));
                 tablet_volume += file->size;
             }
+            if (!list_iter->is_valid()) {
+                check_ret = -1;
+                return;
+            }
             tablet_files_cache.tablet_id = rs_meta.tablet_id();
+            tablet_files_cache.resource_id = rs_meta.resource_id();
             instance_volume += tablet_volume;
         }
 
@@ -744,7 +903,13 @@ int InstanceChecker::do_check() {
         }
 
         TabletIndexPB tablet_index;
-        if (get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index) == -1) {
+        CloneChainReader reader(instance_id_, resource_mgr_.get());
+        int index_ret =
+                get_tablet_idx(txn_kv_.get(), instance_id_, rs_meta.tablet_id(), tablet_index);
+        if (index_ret == 1) {
+            err = reader.get_tablet_index(txn.get(), rs_meta.tablet_id(), &tablet_index);
+        }
+        if (index_ret < 0 || err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get tablet index, tablet_id= " << rs_meta.tablet_id();
             check_ret = -1;
             return;
@@ -754,16 +919,20 @@ int InstanceChecker::do_check() {
                 meta_schema_key({instance_id_, tablet_index.index_id(), rs_meta.schema_version()});
         ValueBuf tablet_schema_val;
         err = cloud::blob_get(txn.get(), tablet_schema_key, &tablet_schema_val);
-
+        auto* schema = rs_meta.mutable_tablet_schema();
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            // Clone/rollback rowsets may reference a schema that only exists in
+            // versioned metadata, possibly in an ancestor of the current instance.
+            err = reader.get_tablet_schema(txn.get(), tablet_index.index_id(),
+                                           rs_meta.schema_version(), schema);
+        } else if (err == TxnErrorCode::TXN_OK && !parse_schema_value(tablet_schema_val, schema)) {
+            check_ret = -1;
+            LOG(WARNING) << "malformed schema value, key=" << hex(tablet_schema_key);
+            return;
+        }
         if (err != TxnErrorCode::TXN_OK) {
             check_ret = -1;
             LOG(WARNING) << "failed to get schema, err=" << err;
-            return;
-        }
-
-        auto* schema = rs_meta.mutable_tablet_schema();
-        if (!parse_schema_value(tablet_schema_val, schema)) {
-            LOG(WARNING) << "malformed schema value, key=" << hex(tablet_schema_key);
             return;
         }
 
@@ -884,12 +1053,6 @@ int InstanceChecker::get_bucket_lifecycle(int64_t* lifecycle_days) {
 }
 
 int InstanceChecker::do_inverted_check() {
-    if (accessor_map_.size() > 1) {
-        LOG(INFO) << "currently not support inverted check for multi accessor. instance_id="
-                  << instance_id_;
-        return 0;
-    }
-
     LOG(INFO) << "begin to inverted check objects instance_id=" << instance_id_;
     int check_ret = 0;
     long num_scanned = 0;
@@ -907,15 +1070,23 @@ int InstanceChecker::do_inverted_check() {
 
     struct TabletRowsets {
         int64_t tablet_id {0};
-        std::unordered_set<std::string> rowset_ids;
+        std::unordered_map<std::string /* rowset_id */, std::string /* resource_id */> rowsets;
     };
     TabletRowsets tablet_rowsets_cache;
 
     RowsetIndexesFormatV1 rowset_index_cache_v1;
     RowsetIndexesFormatV2 rowset_index_cache_v2;
 
-    // Return 0 if check success, return 1 if file is garbage data, negative if error occurred
-    auto check_segment_file = [&](const std::string& obj_key) {
+    // A rowset only covers segments under the root of its own vault, a copy in another vault is a
+    // leak. A resource without accessor (an HDFS vault in a build without HDFS) is trusted.
+    auto stored_under = [&](const std::string& resource_id, const StorageRoot& root) {
+        auto it = accessor_map_.find(resource_id);
+        return it == accessor_map_.end() || it->second->root() == root;
+    };
+
+    // Return 0 if check success, return 1 if file is garbage data, negative if error occurred.
+    // `root` is the storage root the object was listed from.
+    auto check_segment_file = [&](const std::string& obj_key, const StorageRoot& root) {
         std::vector<std::string> str;
         butil::SplitString(obj_key, '/', &str);
         // data/{tablet_id}/{rowset_id}_{seg_num}.dat
@@ -947,16 +1118,16 @@ int InstanceChecker::do_inverted_check() {
         }
 
         if (tablet_rowsets_cache.tablet_id == tablet_id) {
-            if (tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
+            auto it = tablet_rowsets_cache.rowsets.find(rowset_id);
+            if (it != tablet_rowsets_cache.rowsets.end() && stored_under(it->second, root)) {
                 return 0;
-            } else {
-                LOG(WARNING) << "rowset not exists, key=" << obj_key;
-                return -1;
             }
         }
-        // Get all rowset id of this tablet
-        tablet_rowsets_cache.tablet_id = tablet_id;
-        tablet_rowsets_cache.rowset_ids.clear();
+        // A cache miss is read again, a rowset may have committed after the cache was loaded. The
+        // cache claims the tablet only after a complete read, a failed read must not leave a
+        // partial rowset set that reports the next objects of the tablet as leaks.
+        tablet_rowsets_cache.tablet_id = 0;
+        tablet_rowsets_cache.rowsets.clear();
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
@@ -968,6 +1139,7 @@ int InstanceChecker::do_inverted_check() {
         auto end = meta_rowset_key({instance_id_, tablet_id, INT64_MAX});
         while (it == nullptr /* may be not init */ || (it->more() && !stopped())) {
             TxnErrorCode err = txn->get(begin, end, &it);
+            TEST_SYNC_POINT_CALLBACK("InstanceChecker::do_inverted_check.get_rowsets_err", &err);
             if (err != TxnErrorCode::TXN_OK) {
                 LOG(WARNING) << "failed to get rowset kv, err=" << err;
                 return -1;
@@ -983,7 +1155,7 @@ int InstanceChecker::do_inverted_check() {
                     LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
                     return -1;
                 }
-                tablet_rowsets_cache.rowset_ids.insert(rowset.rowset_id_v2());
+                tablet_rowsets_cache.rowsets.emplace(rowset.rowset_id_v2(), rowset.resource_id());
                 if (!it->has_next()) {
                     begin = k;
                     begin.push_back('\x00'); // Update to next smallest key for iteration
@@ -991,10 +1163,21 @@ int InstanceChecker::do_inverted_check() {
                 }
             }
         }
+        if (stopped()) {
+            // The loop above stops early when the checker is stopped, the rowsets are incomplete
+            return -1;
+        }
+        tablet_rowsets_cache.tablet_id = tablet_id;
 
-        if (!tablet_rowsets_cache.rowset_ids.contains(rowset_id)) {
+        auto owner = tablet_rowsets_cache.rowsets.find(rowset_id);
+        if (owner == tablet_rowsets_cache.rowsets.end()) {
             // Garbage data leak
             LOG(WARNING) << "rowset should be recycled, key=" << obj_key;
+            return 1;
+        }
+        if (!stored_under(owner->second, root)) {
+            LOG(WARNING) << "segment is not in the storage vault of its rowset, key=" << obj_key
+                         << " resource_id=" << owner->second;
             return 1;
         }
 
@@ -1049,20 +1232,38 @@ int InstanceChecker::do_inverted_check() {
     // so we choose to skip here.
     TEST_SYNC_POINT_RETURN_WITH_VALUE("InstanceChecker::do_inverted_check", (int)0);
 
-    for (auto& [_, accessor] : accessor_map_) {
+    // List each storage location once, resources sharing one would count its leaks repeatedly.
+    // Compare `location()`, not the normalized `uri()` ("a/b" and "a//b" hold different objects).
+    std::unordered_set<std::string> checked_locations;
+    for (auto& [resource_id, accessor] : accessor_map_) {
+        if (!checked_locations.insert(accessor->location()).second) {
+            LOG(INFO) << "skip inverted check of a storage location already checked, instance_id="
+                      << instance_id_ << " resource_id=" << resource_id
+                      << " uri=" << accessor->uri();
+            continue;
+        }
+        const StorageRoot& root = accessor->root();
         std::unique_ptr<ListIterator> list_iter;
+        // A vault that fails to list does not stop the check of the others
         int ret = accessor->list_directory("data", &list_iter);
         if (ret != 0) {
-            return -1;
+            LOG(WARNING) << "failed to list data directory. uri=" << accessor->uri();
+            check_ret = -1;
+            continue;
         }
 
         for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
+            if (stopped()) {
+                // Otherwise each remaining object would start a rowset read cut short by the stop
+                LOG(INFO) << "inverted check stopped, instance_id=" << instance_id_;
+                return -1;
+            }
             const auto& path = file->path;
             if (path == "data/packed_file" || path.starts_with("data/packed_file/")) {
                 continue; // packed_file has dedicated check logic
             }
             ++num_scanned;
-            int ret = check_segment_file(path);
+            int ret = check_segment_file(path, root);
             if (ret != 0) {
                 LOG(WARNING) << "failed to check segment file, uri=" << accessor->uri()
                              << " path=" << path;
@@ -1086,7 +1287,7 @@ int InstanceChecker::do_inverted_check() {
 
         if (!list_iter->is_valid()) {
             LOG(WARNING) << "failed to list data directory. uri=" << accessor->uri();
-            return -1;
+            check_ret = -1;
         }
     }
     return num_file_leak > 0 ? 1 : check_ret;

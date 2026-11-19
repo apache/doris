@@ -45,6 +45,7 @@
 #include "service/backend_options.h"
 #include "util/bvar_helper.h"
 #include "util/jni-util.h"
+#include "util/threadpool.h"
 
 namespace doris::io {
 

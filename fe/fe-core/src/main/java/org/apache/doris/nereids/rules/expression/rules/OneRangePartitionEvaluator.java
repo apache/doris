@@ -40,13 +40,12 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.functions.Monotonic;
+import org.apache.doris.nereids.trees.expressions.functions.RangeInferable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MaxLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -69,6 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 
@@ -532,8 +532,8 @@ public class OneRangePartitionEvaluator<K>
         for (int i = 0; i < children.size(); i++) {
             Expression child = children.get(i);
             EvaluateRangeResult childResult;
-            if (child instanceof Monotonic) {
-                childResult = visitMonotonic(child, context);
+            if (child instanceof RangeInferable) {
+                childResult = visitRangeInferable(child, context);
             } else {
                 childResult = child.accept(this, context);
             }
@@ -1005,21 +1005,21 @@ public class OneRangePartitionEvaluator<K>
         }
     }
 
-    public EvaluateRangeResult visitMonotonic(Expression monotonic, EvaluateRangeInput context) {
-        EvaluateRangeResult rangeResult = evaluateChildrenThenThis(monotonic, context);
-        if (!rangeResult.result.getClass().equals(monotonic.getClass())) {
+    public EvaluateRangeResult visitRangeInferable(Expression expression, EvaluateRangeInput context) {
+        EvaluateRangeResult rangeResult = evaluateChildrenThenThis(expression, context);
+        if (!rangeResult.result.getClass().equals(expression.getClass())) {
             return rangeResult;
         }
-        return computeMonotonicFunctionRange(rangeResult, context);
+        return computeFunctionRange(rangeResult, context);
     }
 
-    private EvaluateRangeResult computeMonotonicFunctionRange(EvaluateRangeResult result, EvaluateRangeInput context) {
-        Monotonic func = (Monotonic) result.result;
+    private EvaluateRangeResult computeFunctionRange(EvaluateRangeResult result, EvaluateRangeInput context) {
+        RangeInferable func = (RangeInferable) result.result;
         if (context.rangeMap.containsKey(func)) {
             return new EvaluateRangeResult((Expression) func, ImmutableMap.of((Expression) func,
                     context.rangeMap.get(func)), result.childrenResult);
         }
-        int childIndex = func.getMonotonicFunctionChildIndex();
+        int childIndex = func.getRangeInputChildIndex();
         Expression funcChild = func.child(childIndex);
         boolean isNullable = partitionSlotContainsNull.getOrDefault(funcChild, true);
         Expression withNullable = func.withConstantArgs(isNullable ? new Nullable(funcChild)
@@ -1039,51 +1039,17 @@ public class OneRangePartitionEvaluator<K>
         Literal lower = span.hasLowerBound() ? span.lowerEndpoint().getValue() : null;
         Literal upper = span.hasUpperBound() && !(span.upperEndpoint().getValue() instanceof MaxLiteral)
                 ? span.upperEndpoint().getValue() : null;
-        if (!func.isMonotonic(lower, upper)) {
-            return result;
-        }
-        Expression lowerValue = lower != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(lower),
-                expressionRewriteContext) : null;
-        Expression upperValue = upper != null ? FoldConstantRuleOnFE.evaluate(func.withConstantArgs(upper),
-                expressionRewriteContext) : null;
-        if (!checkFoldConstantValueIsValid(lowerValue, upperValue)) {
+        Optional<ColumnRange> inferredRange = func.inferRange(lower, upper, expressionRewriteContext);
+        if (!inferredRange.isPresent()) {
             return result;
         }
 
-        if (!func.isPositive()) {
-            Expression temp = lowerValue;
-            lowerValue = upperValue;
-            upperValue = temp;
+        ColumnRange newRange = inferredRange.get();
+        context.rangeMap.put((Expression) func, newRange);
+        Map<Expression, ColumnRange> newRanges = ImmutableMap.of((Expression) func, newRange);
+        if (newRange.isSingleton()) {
+            return new EvaluateRangeResult(newRange.getLowerBound().getValue(), newRanges, result.childrenResult);
         }
-        LinkedHashMap<Expression, ColumnRange> newRanges = Maps.newLinkedHashMap();
-        ColumnRange newRange = ColumnRange.all();
-        if (lowerValue instanceof Literal && upperValue instanceof Literal && lowerValue.equals(upperValue)) {
-            newRange = ColumnRange.singleton((Literal) lowerValue);
-            context.rangeMap.put((Expression) func, newRange);
-            newRanges.put((Expression) func, newRange);
-            return new EvaluateRangeResult(lowerValue, newRanges, result.childrenResult);
-        } else {
-            if (lowerValue instanceof Literal) {
-                newRange = newRange.withLowerBound((Literal) lowerValue);
-            }
-            if (upperValue instanceof Literal) {
-                newRange = newRange.withUpperBound((Literal) upperValue);
-            }
-            if (newRange.isEmptyRange() || !newRange.span().hasLowerBound() && !newRange.span().hasUpperBound()) {
-                return result;
-            }
-            context.rangeMap.put((Expression) func, newRange);
-            newRanges.put((Expression) func, newRange);
-            return new EvaluateRangeResult((Expression) func, newRanges, result.childrenResult);
-        }
-    }
-
-    // only allow literal(except NullLiteral) and null
-    private boolean checkFoldConstantValueIsValid(Expression lowerValue, Expression upperValue) {
-        if (lowerValue instanceof NullLiteral || upperValue instanceof NullLiteral) {
-            return false;
-        }
-        return (lowerValue == null || lowerValue instanceof Literal)
-                && (upperValue == null || upperValue instanceof Literal);
+        return new EvaluateRangeResult((Expression) func, newRanges, result.childrenResult);
     }
 }

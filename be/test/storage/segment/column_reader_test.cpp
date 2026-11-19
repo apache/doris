@@ -24,37 +24,52 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <iterator>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
+#include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "core/column/column_map.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "cpp/sync_point.h"
+#include "io/fs/file_range_read_scheduler.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/read_ahead_metrics.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
+#include "storage/segment/column_read_ahead_controller.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/mock/mock_segment.h"
+#include "storage/segment/read_ahead_file_column_iterator.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
+#include "util/defer_op.h"
 #include "util/json/path_in_data.h"
+#include "util/threadpool.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -98,6 +113,40 @@ public:
     void convert_to_place_holder_column(MutableColumnPtr& dst, size_t count) {
         _convert_to_place_holder_column(dst, count);
     }
+};
+
+class CorruptNextReadFileReader final : public io::FileReader {
+public:
+    explicit CorruptNextReadFileReader(io::FileReaderSPtr inner) : _inner(std::move(inner)) {
+        DORIS_CHECK(_inner != nullptr);
+    }
+
+    Status close() override { return _inner->close(); }
+    const io::Path& path() const override { return _inner->path(); }
+    size_t size() const override { return _inner->size(); }
+    bool closed() const override { return _inner->closed(); }
+    int64_t mtime() const override { return _inner->mtime(); }
+    const std::string& get_data_dir_path() override { return _inner->get_data_dir_path(); }
+
+    void corrupt_next_read() { _corrupt_next_read = true; }
+    size_t read_calls() const { return _read_calls; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        ++_read_calls;
+        RETURN_IF_ERROR(_inner->read_at(offset, result, bytes_read, io_ctx));
+        if (_corrupt_next_read.exchange(false)) {
+            DORIS_CHECK(*bytes_read > 0);
+            result.data[0] ^= 1;
+        }
+        return Status::OK();
+    }
+
+private:
+    const io::FileReaderSPtr _inner;
+    std::atomic<bool> _corrupt_next_read {false};
+    std::atomic<size_t> _read_calls {0};
 };
 
 TColumnAccessPath create_data_access_path(std::vector<std::string> path) {
@@ -188,6 +237,21 @@ public:
         return ColumnIterator::set_access_paths(all_access_paths, predicate_access_paths);
     }
 
+    Status prepare_read_ahead(const ColumnReadAheadHint& hint) override {
+        if (const auto* scan = std::get_if<ScanReadAheadHint>(&hint.request)) {
+            read_ahead_batches.emplace_back(scan->candidate_rows->begin(),
+                                            scan->candidate_rows->end());
+            read_ahead_roles.push_back(scan->role);
+            read_ahead_reverse.push_back(scan->reverse);
+        } else {
+            auto rows = std::get<ExactRowReadAheadHint>(hint.request).rowids;
+            read_ahead_batches.emplace_back(rows.begin(), rows.end());
+            read_ahead_roles.push_back(ColumnReadAheadRole::EAGER);
+            read_ahead_reverse.push_back(false);
+        }
+        return Status::OK();
+    }
+
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override {
@@ -206,6 +270,9 @@ public:
         collect_methods.clear();
         routed_all_access_paths.clear();
         routed_predicate_access_paths.clear();
+        read_ahead_batches.clear();
+        read_ahead_roles.clear();
+        read_ahead_reverse.clear();
     }
 
     void convert_to_place_holder_column(MutableColumnPtr& dst, size_t count) {
@@ -218,6 +285,9 @@ public:
     std::vector<PrefetcherInitMethod> collect_methods;
     TColumnAccessPaths routed_all_access_paths;
     TColumnAccessPaths routed_predicate_access_paths;
+    std::vector<std::vector<rowid_t>> read_ahead_batches;
+    std::vector<ColumnReadAheadRole> read_ahead_roles;
+    std::vector<bool> read_ahead_reverse;
 
 private:
     void record_collect_method(PrefetcherInitMethod init_method) {
@@ -257,6 +327,19 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
+    Status prepare_read_ahead(const ColumnReadAheadHint& hint) override {
+        if (const auto* scan = std::get_if<ScanReadAheadHint>(&hint.request)) {
+            read_ahead_batches.emplace_back(scan->candidate_rows->begin(),
+                                            scan->candidate_rows->end());
+            read_ahead_roles.push_back(scan->role);
+        } else {
+            auto rows = std::get<ExactRowReadAheadHint>(hint.request).rowids;
+            read_ahead_batches.emplace_back(rows.begin(), rows.end());
+            read_ahead_roles.push_back(ColumnReadAheadRole::EAGER);
+        }
+        return Status::OK();
+    }
+
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override {
@@ -272,6 +355,8 @@ public:
     std::vector<size_t> next_batch_sizes;
     std::vector<std::vector<rowid_t>> read_by_rowids_batches;
     std::vector<PrefetcherInitMethod> collect_methods;
+    std::vector<std::vector<rowid_t>> read_ahead_batches;
+    std::vector<ColumnReadAheadRole> read_ahead_roles;
 
 private:
     void record_collect_method(PrefetcherInitMethod init_method) {
@@ -322,11 +407,86 @@ public:
         return Status::OK();
     }
 
+    Status prepare_read_ahead(const ColumnReadAheadHint& hint) override {
+        if (const auto* scan = std::get_if<ScanReadAheadHint>(&hint.request)) {
+            read_ahead_batches.emplace_back(scan->candidate_rows->begin(),
+                                            scan->candidate_rows->end());
+            read_ahead_roles.push_back(scan->role);
+        } else {
+            auto rows = std::get<ExactRowReadAheadHint>(hint.request).rowids;
+            read_ahead_batches.emplace_back(rows.begin(), rows.end());
+            read_ahead_roles.push_back(ColumnReadAheadRole::EAGER);
+        }
+        return Status::OK();
+    }
+
     ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
     std::vector<ordinal_t> seek_ordinals;
     std::vector<size_t> next_batch_sizes;
     std::vector<std::vector<rowid_t>> read_by_rowids_batches;
+    std::vector<std::vector<rowid_t>> read_ahead_batches;
+    std::vector<ColumnReadAheadRole> read_ahead_roles;
+
+private:
+    std::vector<ordinal_t> _offsets;
+    ordinal_t _current_ordinal = 0;
+};
+
+class SequentialOffsetFileColumnIterator final : public FileColumnIterator {
+public:
+    explicit SequentialOffsetFileColumnIterator(std::vector<ordinal_t> offsets)
+            : FileColumnIterator(create_test_reader(false, offsets.size() - 1)),
+              _offsets(std::move(offsets)) {
+        DORIS_CHECK(_offsets.size() > 1);
+        get_current_page()->next_array_item_ordinal = _offsets[0];
+    }
+
+    Status seek_to_ordinal(ordinal_t ord) override {
+        DORIS_CHECK(ord < _offsets.size());
+        _current_ordinal = ord;
+        get_current_page()->next_array_item_ordinal = _offsets[_current_ordinal];
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
+        DORIS_CHECK(_current_ordinal + *n < _offsets.size());
+        auto& offsets = assert_cast<ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*dst);
+        for (size_t i = 0; i < *n; ++i) {
+            offsets.insert_value(_offsets[_current_ordinal + i]);
+        }
+        _current_ordinal += *n;
+        get_current_page()->next_array_item_ordinal = _offsets[_current_ordinal];
+        if (has_null != nullptr) {
+            *has_null = false;
+        }
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          MutableColumnPtr& dst) override {
+        auto& offsets = assert_cast<ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*dst);
+        for (size_t i = 0; i < count; ++i) {
+            DORIS_CHECK(rowids[i] < _offsets.size());
+            offsets.insert_value(_offsets[rowids[i]]);
+        }
+        return Status::OK();
+    }
+
+    Status prepare_read_ahead(const ColumnReadAheadHint& hint) override {
+        if (const auto* scan = std::get_if<ScanReadAheadHint>(&hint.request)) {
+            read_ahead_batches.emplace_back(scan->candidate_rows->begin(),
+                                            scan->candidate_rows->end());
+        } else {
+            auto rows = std::get<ExactRowReadAheadHint>(hint.request).rowids;
+            read_ahead_batches.emplace_back(rows.begin(), rows.end());
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
+
+    std::vector<std::vector<rowid_t>> read_ahead_batches;
 
 private:
     std::vector<ordinal_t> _offsets;
@@ -510,6 +670,19 @@ TrackingOffsetIterator create_tracking_offset_iterator() {
     auto* tracker = file_iterator.get();
     return {std::make_unique<OffsetFileColumnIterator>(std::move(file_iterator)), tracker};
 }
+
+ThreadPool* read_ahead_test_executor() {
+    static std::unique_ptr<ThreadPool> executor = []() {
+        std::unique_ptr<ThreadPool> result;
+        Status status = ThreadPoolBuilder("ColumnReadAheadTest")
+                                .set_min_threads(2)
+                                .set_max_threads(8)
+                                .build(&result);
+        DORIS_CHECK(status.ok());
+        return result;
+    }();
+    return executor.get();
+}
 } // namespace
 
 static const std::string COLUMN_READER_FILE_TEST_DIR = "./ut_dir/column_reader_test";
@@ -531,9 +704,855 @@ protected:
         config::disable_storage_page_cache = _old_disable_storage_page_cache;
     }
 
+    Status create_int_column_file(const std::string& name, size_t num_rows, size_t page_size,
+                                  ColumnMetaPB* meta, io::FileReaderSPtr* file_reader) {
+        DORIS_CHECK(meta != nullptr);
+        DORIS_CHECK(file_reader != nullptr);
+        const std::string path = COLUMN_READER_FILE_TEST_DIR + "/" + name;
+        auto fs = io::global_local_filesystem();
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(fs->create_file(path, &file_writer));
+
+        ColumnWriterOptions writer_options;
+        writer_options.meta = meta;
+        meta->set_column_id(0);
+        meta->set_unique_id(0);
+        meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+        meta->set_length(0);
+        meta->set_encoding(PLAIN_ENCODING);
+        meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
+        meta->set_is_nullable(false);
+        writer_options.data_page_size = page_size;
+        writer_options.need_zone_map = false;
+
+        TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT);
+        std::unique_ptr<ColumnWriter> writer;
+        RETURN_IF_ERROR(ColumnWriter::create(writer_options, &column, file_writer.get(), &writer));
+        RETURN_IF_ERROR(writer->init());
+        auto values = ColumnInt32::create();
+        for (size_t ordinal = 0; ordinal < num_rows; ++ordinal) {
+            values->insert_value(cast_set<int32_t>(ordinal));
+        }
+        RETURN_IF_ERROR(writer->append(*values, 0, num_rows));
+        RETURN_IF_ERROR(writer->finish());
+        RETURN_IF_ERROR(writer->write_data());
+        RETURN_IF_ERROR(writer->write_ordinal_index());
+        RETURN_IF_ERROR(file_writer->close());
+        return fs->open_file(path, file_reader);
+    }
+
+    Status create_dict_column_file(size_t num_rows, ColumnMetaPB* meta,
+                                   io::FileReaderSPtr* file_reader) {
+        const std::string path = COLUMN_READER_FILE_TEST_DIR + "/read_ahead_dict";
+        auto fs = io::global_local_filesystem();
+        io::FileWriterPtr file_writer;
+        RETURN_IF_ERROR(fs->create_file(path, &file_writer));
+        meta->set_column_id(0);
+        meta->set_unique_id(0);
+        meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_VARCHAR));
+        meta->set_length(64);
+        meta->set_encoding(DICT_ENCODING);
+        meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
+        meta->set_is_nullable(false);
+        ColumnWriterOptions options;
+        options.meta = meta;
+        options.data_page_size = 128;
+        options.need_zone_map = false;
+        TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_VARCHAR);
+        column.set_length(64);
+        std::unique_ptr<ColumnWriter> writer;
+        RETURN_IF_ERROR(ColumnWriter::create(options, &column, file_writer.get(), &writer));
+        RETURN_IF_ERROR(writer->init());
+        auto values = ColumnString::create();
+        for (size_t i = 0; i < num_rows; ++i) {
+            std::string value(i % 7 + 1, 'a');
+            values->insert_data(value.data(), value.size());
+        }
+        RETURN_IF_ERROR(writer->append(*values, 0, num_rows));
+        RETURN_IF_ERROR(writer->finish());
+        RETURN_IF_ERROR(writer->write_data());
+        RETURN_IF_ERROR(writer->write_ordinal_index());
+        RETURN_IF_ERROR(file_writer->close());
+        return fs->open_file(path, file_reader);
+    }
+
+    void check_page_driven_scan(bool reverse, bool cached, bool reject, bool cache_race = false) {
+        constexpr size_t num_rows = 64;
+        ColumnMetaPB meta;
+        io::FileReaderSPtr source;
+        auto status = create_int_column_file("page_driven_scan", num_rows, sizeof(int32_t) * 2,
+                                             &meta, &source);
+        ASSERT_TRUE(status.ok()) << status;
+        ColumnReaderOptions reader_options;
+        std::shared_ptr<ColumnReader> reader;
+        status = ColumnReader::create(reader_options, meta, num_rows, source, &reader);
+        ASSERT_TRUE(status.ok()) << status;
+        if (cached) {
+            // Populate real PageIO cache entries before installing read-ahead. Repeat for LRU-K
+            // admission; subsequent reads must progress without going through the range buffer.
+            for (int pass = 0; pass < 2; ++pass) {
+                ColumnIteratorUPtr warmup;
+                ASSERT_TRUE(reader->new_iterator(&warmup, nullptr).ok());
+                OlapReaderStatistics warmup_stats;
+                ASSERT_TRUE(warmup->init({
+                                                 .use_page_cache = true,
+                                                 .file_reader = source.get(),
+                                                 .stats = &warmup_stats,
+                                                 .io_ctx = {},
+                                         })
+                                    .ok());
+                ASSERT_TRUE(warmup->seek_to_ordinal(0).ok());
+                MutableColumnPtr column = ColumnInt32::create();
+                size_t count = num_rows;
+                ASSERT_TRUE(warmup->next_batch(&count, column).ok());
+                ASSERT_EQ(count, num_rows);
+            }
+        }
+
+        std::unique_ptr<io::FileRangeReadScheduler> scheduler;
+        status = io::FileRangeReadScheduler::create(
+                {.max_bytes_per_query = reject ? 1UL : 1024 * 1024UL,
+                 .max_bytes_per_be = 2 * 1024 * 1024},
+                read_ahead_test_executor(), &scheduler);
+        ASSERT_TRUE(status.ok()) << status;
+        auto resources = std::make_shared<ColumnReadAheadResources>(
+                source, scheduler.get(), scheduler->create_context(), io::FileRangeReadIOContext {},
+                ColumnReadAheadIOOptions {
+                        .range_plan = {.coalesce_options = {.max_gap_bytes = 64 * 1024,
+                                                            .max_range_bytes = 1024 * 1024,
+                                                            .max_read_amplification_ratio = 2.0},
+                                       .cache_block_size = 1024 * 1024,
+                                       .block_fill_min_coverage = 1.0},
+                        .page_cache_probe = cached && !cache_race
+                                                    ? make_storage_page_cache_probe(source)
+                                                    : ReadAheadPageCacheProbe {},
+                        .range_consumer_factory = {}});
+        OlapReaderStatistics stats;
+        stats.read_ahead_stats = resources->statistics;
+        ColumnIteratorUPtr iterator;
+        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
+        ASSERT_TRUE(iterator->init({.use_page_cache = cached,
+                                    .file_reader = source.get(),
+                                    .stats = &stats,
+                                    .io_ctx = {},
+                                    .read_ahead = resources})
+                            .ok());
+        roaring::Roaring rows;
+        rows.addRange(0, num_rows);
+        ScanReadAheadHint request {.candidate_rows = &rows, .reverse = reverse};
+        ASSERT_TRUE(iterator->prepare_read_ahead(request).ok());
+        EXPECT_EQ(stats.read_ahead_stats->candidate_pages.value(), 2);
+        EXPECT_EQ(stats.read_ahead_stats->submitted_ranges.value() == 0,
+                  (cached && !cache_race) || reject);
+        const int64_t init_ns = stats.read_ahead_stats->column_init_time.value();
+        EXPECT_GT(init_ns, 0);
+
+        // A repeated initialization (e.g. another complex-column read phase) does no work.
+        ASSERT_TRUE(iterator->prepare_read_ahead(request).ok());
+        EXPECT_EQ(stats.read_ahead_stats->candidate_pages.value(), 2);
+        // No later call can rely on the scanner's original row bitmap or current batch.
+        rows = roaring::Roaring {};
+        const std::vector<rowid_t> rowids =
+                reverse ? std::vector<rowid_t> {60, 61, 62, 63, 40, 41, 42, 43, 0, 1, 2, 3}
+                        : std::vector<rowid_t> {0, 1, 2, 3, 20, 21, 22, 23, 60, 61, 62, 63};
+        MutableColumnPtr output = ColumnInt32::create();
+        for (size_t begin = 0; begin < rowids.size(); begin += 4) {
+            // Exercise both sequential page loading and exact-rowid page loading.
+            if (begin == 0) {
+                ASSERT_TRUE(iterator->seek_to_ordinal(rowids[begin]).ok());
+                size_t count = 4;
+                ASSERT_TRUE(iterator->next_batch(&count, output).ok());
+                ASSERT_EQ(count, 4);
+            } else {
+                ASSERT_TRUE(iterator->read_by_rowids(rowids.data() + begin, 4, output).ok());
+            }
+        }
+        ASSERT_EQ(output->size(), rowids.size());
+        const auto& values = assert_cast<const ColumnInt32&>(*output).get_data();
+        for (size_t index = 0; index < rowids.size(); ++index) {
+            EXPECT_EQ(values[index], rowids[index]);
+        }
+        auto& metrics = *stats.read_ahead_stats;
+        EXPECT_EQ(metrics.current_batch_plan_time.value(), 0);
+        EXPECT_EQ(metrics.column_init_time.value(), init_ns);
+        EXPECT_GT(metrics.page_advance_time.value(), 0);
+        EXPECT_GT(metrics.candidate_pages.value(), 2);
+        EXPECT_GE(metrics.column_plan_time.value(), init_ns + metrics.page_advance_time.value());
+        if (cached) {
+            EXPECT_GT(stats.cached_pages_num, 0);
+            EXPECT_EQ(metrics.page_cache_hits.value(),
+                      cache_race ? 0 : metrics.candidate_pages.value());
+            if (cache_race) {
+                EXPECT_GT(metrics.submitted_ranges.value(), 0);
+            } else {
+                EXPECT_EQ(metrics.submitted_ranges.value(), 0);
+            }
+            EXPECT_EQ(metrics.consumed_page_bytes.value(), 0);
+            EXPECT_EQ(metrics.fallback_pages.value(), 0);
+        } else if (reject) {
+            EXPECT_GT(metrics.rejected_batches.value(), 0);
+            EXPECT_GT(metrics.fallback_pages.value(), 0);
+            EXPECT_EQ(metrics.consumed_page_bytes.value(), 0);
+        } else {
+            EXPECT_GT(metrics.consumed_page_bytes.value(), 0);
+            EXPECT_EQ(metrics.fallback_pages.value(), 0);
+        }
+        iterator.reset();
+        scheduler->shutdown();
+        read_ahead_test_executor()->wait();
+        EXPECT_EQ(resources->context->resident_bytes(), 0);
+    }
+
+    void check_exact_row_read_ahead(bool corrupt) {
+        constexpr size_t num_rows = 64;
+        ColumnMetaPB meta;
+        io::FileReaderSPtr file;
+        ASSERT_TRUE(create_int_column_file("read_ahead_exact", num_rows, sizeof(int32_t) * 2, &meta,
+                                           &file)
+                            .ok());
+        auto source = std::make_shared<CorruptNextReadFileReader>(std::move(file));
+        std::shared_ptr<ColumnReader> reader;
+        ASSERT_TRUE(ColumnReader::create({}, meta, num_rows, source, &reader).ok());
+        OrdinalIndexReader* index = nullptr;
+        OlapReaderStatistics stats;
+        ASSERT_TRUE(reader->get_ordinal_index_reader(index, &stats).ok());
+        const auto pointer = index->begin().page();
+        const io::FileRange expected {.offset = pointer.offset, .size = pointer.size};
+        std::unique_ptr<io::FileRangeReadScheduler> scheduler;
+        ASSERT_TRUE(io::FileRangeReadScheduler::create({.max_bytes_per_query = 1024 * 1024,
+                                                        .max_bytes_per_be = 2 * 1024 * 1024},
+                                                       read_ahead_test_executor(), &scheduler)
+                            .ok());
+        std::vector<io::FileRange> consumed;
+        auto resources = std::make_shared<ColumnReadAheadResources>(
+                source, scheduler.get(), scheduler->create_context(), io::FileRangeReadIOContext {},
+                ColumnReadAheadIOOptions {
+                        .range_plan = {.coalesce_options = {.max_gap_bytes = 0,
+                                                            .max_range_bytes = 1024 * 1024,
+                                                            .max_read_amplification_ratio = 1.0},
+                                       .cache_block_size = 1024 * 1024,
+                                       .block_fill_min_coverage = 1.0},
+                        .range_consumer_factory = [&]() -> io::ReadAheadRangeConsumer {
+                            return [&](const io::FileRangeRead& read) {
+                                consumed.push_back(read.range());
+                            };
+                        }});
+        ColumnIteratorUPtr iterator;
+        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
+        ASSERT_TRUE(iterator->init({.file_reader = source.get(),
+                                    .stats = &stats,
+                                    .io_ctx = {},
+                                    .read_ahead = resources})
+                            .ok());
+        if (corrupt) {
+            source->corrupt_next_read();
+        }
+        const size_t before = source->read_calls();
+        const rowid_t rowid = 0;
+        ASSERT_TRUE(iterator->prepare_read_ahead(ExactRowReadAheadHint {{&rowid, 1}}).ok());
+        MutableColumnPtr output = ColumnInt32::create();
+        ASSERT_TRUE(iterator->read_by_rowids(&rowid, 1, output).ok());
+        ASSERT_EQ(output->size(), 1);
+        EXPECT_EQ(assert_cast<const ColumnInt32&>(*output).get_data()[0], 0);
+        EXPECT_EQ(source->read_calls(), before + (corrupt ? 2 : 1));
+        EXPECT_THAT(consumed, ::testing::ElementsAre(expected));
+        EXPECT_EQ(resources->statistics->fallback_pages.value(), corrupt ? 1 : 0);
+        EXPECT_EQ(resources->statistics->fallback_bytes.value(), corrupt ? expected.size : 0);
+        auto* controller =
+                static_cast<ReadAheadFileColumnIterator*>(iterator.get())->_read_ahead.get();
+        EXPECT_FALSE(controller->_window->pending(0));
+        const auto candidates = resources->statistics->candidate_pages.value();
+        ASSERT_TRUE(iterator->prepare_read_ahead(ExactRowReadAheadHint {{&rowid, 1}}).ok());
+        EXPECT_EQ(resources->statistics->candidate_pages.value(), candidates);
+    }
+
 private:
     bool _old_disable_storage_page_cache = false;
 };
+
+TEST_F(ColumnReaderTest, ReadAheadSubclassPreservesDictionaryInitAndOffsetAccessPaths) {
+    const bool old_low_cardinality = config::enable_low_cardinality_optimize;
+    Defer restore {[&] { config::enable_low_cardinality_optimize = old_low_cardinality; }};
+    config::enable_low_cardinality_optimize = true;
+    constexpr size_t num_rows = 128;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr file;
+    ASSERT_TRUE(create_dict_column_file(num_rows, &meta, &file).ok());
+    auto source = std::make_shared<CorruptNextReadFileReader>(std::move(file));
+    std::unique_ptr<io::FileRangeReadScheduler> scheduler;
+    ASSERT_TRUE(io::FileRangeReadScheduler::create(
+                        {.max_bytes_per_query = 1024 * 1024, .max_bytes_per_be = 2 * 1024 * 1024},
+                        read_ahead_test_executor(), &scheduler)
+                        .ok());
+    for (bool offsets_only : {false, true}) {
+        SCOPED_TRACE(offsets_only);
+        std::shared_ptr<ColumnReader> reader;
+        ASSERT_TRUE(ColumnReader::create({}, meta, num_rows, source, &reader).ok());
+        OlapReaderStatistics stats;
+        OrdinalIndexReader* index = nullptr;
+        ASSERT_TRUE(reader->get_ordinal_index_reader(index, &stats).ok());
+        auto resources = std::make_shared<ColumnReadAheadResources>(
+                source, scheduler.get(), scheduler->create_context(), io::FileRangeReadIOContext {},
+                ColumnReadAheadIOOptions {
+                        .range_plan = {.coalesce_options = {.max_gap_bytes = 0,
+                                                            .max_range_bytes = 1024 * 1024,
+                                                            .max_read_amplification_ratio = 1.0},
+                                       .cache_block_size = 1024 * 1024,
+                                       .block_fill_min_coverage = 1.0}});
+        ColumnIteratorUPtr iterator;
+        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
+        ASSERT_NE(dynamic_cast<ReadAheadStringColumnIterator*>(iterator.get()), nullptr);
+        iterator->set_column_name("s");
+        if (offsets_only) {
+            const TColumnAccessPaths paths {
+                    create_meta_access_path({"s", ColumnIterator::ACCESS_OFFSET})};
+            ASSERT_TRUE(iterator->set_access_paths(paths, paths).ok());
+        }
+        EXPECT_EQ(iterator->column_name(), "s");
+        EXPECT_EQ(iterator->read_offset_only(), offsets_only);
+        EXPECT_FALSE(iterator->read_null_map_only());
+        // Corrupt the init-time data-page probe, after loading the ordinal index normally.
+        source->corrupt_next_read();
+        auto status = iterator->init({.is_predicate_column = true,
+                                      .file_reader = source.get(),
+                                      .stats = &stats,
+                                      .io_ctx = {.reader_type = ReaderType::READER_QUERY},
+                                      .read_ahead = resources});
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_TRUE(iterator->is_all_dict_encoding());
+        EXPECT_GT(stats.total_pages_num, 0);
+        EXPECT_EQ(resources->statistics->candidate_pages.value(), 0);
+        // Both the failed probe and its retry read from the original source before any hint.
+        EXPECT_EQ(resources->statistics->fallback_pages.value(), 2);
+        std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
+        iterator->collect_prefetchers(prefetchers, PrefetcherInitMethod::FROM_ROWIDS);
+        EXPECT_TRUE(prefetchers.empty());
+        roaring::Roaring rows;
+        rows.addRange(0, num_rows);
+        ASSERT_TRUE(iterator->prepare_read_ahead(ScanReadAheadHint {.candidate_rows = &rows}).ok());
+        ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+        MutableColumnPtr output = ColumnString::create();
+        size_t count = num_rows;
+        ASSERT_TRUE(iterator->next_batch(&count, output).ok());
+        ASSERT_EQ(count, num_rows);
+        ASSERT_EQ(output->size(), num_rows);
+        const auto& strings = assert_cast<const ColumnString&>(*output);
+        size_t previous_offset = 0;
+        for (size_t i = 0; i < num_rows; ++i) {
+            EXPECT_EQ(strings.get_offsets()[i] - previous_offset, i % 7 + 1);
+            previous_offset = strings.get_offsets()[i];
+            if (!offsets_only) {
+                EXPECT_EQ(strings.get_data_at(i).to_string(), std::string(i % 7 + 1, 'a'));
+            }
+        }
+    }
+    read_ahead_test_executor()->wait();
+}
+
+TEST_F(ColumnReaderTest, ReadAheadSubclassMaterializesFilteredLazyRows) {
+    constexpr size_t num_rows = 64;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr source;
+    ASSERT_TRUE(create_int_column_file("read_ahead_lazy", num_rows, 16, &meta, &source).ok());
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(ColumnReader::create({}, meta, num_rows, source, &reader).ok());
+    std::unique_ptr<io::FileRangeReadScheduler> scheduler;
+    ASSERT_TRUE(io::FileRangeReadScheduler::create(
+                        {.max_bytes_per_query = 1024 * 1024, .max_bytes_per_be = 2 * 1024 * 1024},
+                        read_ahead_test_executor(), &scheduler)
+                        .ok());
+    auto resources = std::make_shared<ColumnReadAheadResources>(
+            source, scheduler.get(), scheduler->create_context(), io::FileRangeReadIOContext {},
+            ColumnReadAheadIOOptions {
+                    .range_plan = {.coalesce_options = {.max_gap_bytes = 0,
+                                                        .max_range_bytes = 1024 * 1024,
+                                                        .max_read_amplification_ratio = 1.0},
+                                   .cache_block_size = 1024 * 1024,
+                                   .block_fill_min_coverage = 1.0}});
+    ColumnIteratorUPtr iterator;
+    ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
+    iterator->set_column_name("lazy_output");
+    iterator->set_lazy_output_requirement();
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(iterator->init({.file_reader = source.get(),
+                                .stats = &stats,
+                                .io_ctx = {},
+                                .read_ahead = resources})
+                        .ok());
+    iterator->set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    roaring::Roaring rows;
+    rows.addRange(0, num_rows);
+    ASSERT_TRUE(iterator->prepare_read_ahead(ScanReadAheadHint {.candidate_rows = &rows}).ok());
+    EXPECT_EQ(resources->statistics->candidate_pages.value(), 0);
+    MutableColumnPtr output = ColumnInt32::create();
+    size_t count = num_rows;
+    ASSERT_TRUE(iterator->next_batch(&count, output).ok());
+    ASSERT_EQ(output->size(), num_rows);
+    const std::array<rowid_t, 2> rowids {3, 57};
+    IColumn::Filter filter;
+    filter.resize_fill(num_rows, 0);
+    for (auto rowid : rowids) {
+        filter[rowid] = 1;
+    }
+    output = IColumn::mutate(output->filter(filter, rowids.size()));
+    iterator->set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    EXPECT_TRUE(iterator->need_to_read());
+    EXPECT_TRUE(iterator->need_to_read_meta_columns());
+    EXPECT_EQ(iterator->column_name(), "lazy_output");
+    EXPECT_EQ(iterator->read_requirement(), ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    ASSERT_TRUE(iterator->prepare_read_ahead(ExactRowReadAheadHint {rowids}).ok());
+    ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), output).ok());
+    iterator->finalize_lazy_phase(output);
+    ASSERT_EQ(output->size(), rowids.size());
+    const auto& values = assert_cast<const ColumnInt32&>(*output).get_data();
+    EXPECT_EQ(values[0], 3);
+    EXPECT_EQ(values[1], 57);
+    EXPECT_GT(resources->statistics->candidate_pages.value(), 0);
+    read_ahead_test_executor()->wait();
+}
+
+TEST_F(ColumnReaderTest, ReadAheadSelectionDoesNotPropagateToNestedChildren) {
+    auto reader = create_test_reader(false, 64, FieldType::OLAP_FIELD_TYPE_ARRAY);
+    reader->_sub_readers = {
+            create_test_reader(false, 64),
+            create_test_reader(false, 64, FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)};
+    ColumnIteratorUPtr iterator;
+    ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
+    auto* array = dynamic_cast<ArrayFileColumnIterator*>(iterator.get());
+    ASSERT_NE(array, nullptr);
+    EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(array->_item_iterator.get()), nullptr);
+    auto* offsets = array->_offset_iterator->_offset_iterator.get();
+    EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(offsets), nullptr);
+}
+
+TEST_F(ColumnReaderTest, SegmentSelectsReadAheadScalarSubclasses) {
+    const auto old_cloud_id = config::cloud_unique_id;
+    const bool old_read_ahead = config::enable_query_read_ahead;
+    const bool old_async_write = config::enable_async_file_cache_write;
+    Defer restore {[&] {
+        config::cloud_unique_id = old_cloud_id;
+        config::enable_query_read_ahead = old_read_ahead;
+        config::enable_async_file_cache_write = old_async_write;
+    }};
+    config::cloud_unique_id = "ReadAheadIteratorTest";
+    config::enable_query_read_ahead = true;
+    config::enable_async_file_cache_write = true;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr source;
+    ASSERT_TRUE(create_int_column_file("wrapper_factory", 64, 32, &meta, &source).ok());
+    auto schema = std::make_shared<TabletSchema>();
+    TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                        FieldType::OLAP_FIELD_TYPE_INT);
+    column.set_unique_id(0);
+    column.set_name("i");
+    schema->append_column(column);
+    testing::NiceMock<MockSegment> segment(schema);
+    segment.set_file_reader_for_test(source);
+    segment._num_rows = 64;
+    auto footer = std::make_shared<SegmentFooterPB>();
+    footer->set_num_rows(64);
+    *footer->add_columns() = meta;
+    ON_CALL(segment, _get_segment_footer(testing::_, testing::_, testing::_))
+            .WillByDefault([&](std::shared_ptr<SegmentFooterPB>& result, OlapReaderStatistics*,
+                               const io::IOContext*) {
+                result = footer;
+                return Status::OK();
+            });
+    OlapReaderStatistics stats;
+    StorageReadOptions options(stats);
+    options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    options.all_access_paths[0] = {create_data_access_path({"i"})};
+    options.predicate_access_paths = options.all_access_paths;
+    ColumnIteratorUPtr iterator;
+    ASSERT_TRUE(segment.new_column_iterator(column, &iterator, &options).ok());
+    EXPECT_NE(dynamic_cast<ReadAheadFileColumnIterator*>(iterator.get()), nullptr);
+    EXPECT_EQ(iterator->column_name(), "i");
+    EXPECT_EQ(iterator->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
+    // A persisted extracted scalar path can also produce a FileColumnIterator.
+    auto extracted = column;
+    extracted.set_path_info(PathInData("v.i"));
+    extracted.set_parent_unique_id(9);
+    ASSERT_TRUE(segment.new_column_iterator(extracted, &iterator, &options).ok());
+    EXPECT_NE(dynamic_cast<FileColumnIterator*>(iterator.get()), nullptr);
+    EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(iterator.get()), nullptr);
+    auto missing = column;
+    missing.set_unique_id(1);
+    missing.set_default_value("42");
+    ASSERT_TRUE(segment.new_column_iterator(missing, &iterator, &options).ok());
+    EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(iterator.get()), nullptr);
+    EXPECT_NE(dynamic_cast<ConstantColumnIterator*>(iterator.get()), nullptr);
+    for (int disabled_gate = 0; disabled_gate < 4; ++disabled_gate) {
+        SCOPED_TRACE(disabled_gate);
+        config::enable_query_read_ahead = disabled_gate != 0;
+        config::enable_async_file_cache_write = disabled_gate != 1;
+        config::cloud_unique_id = disabled_gate == 2 ? "" : "ReadAheadIteratorTest";
+        options.io_ctx.reader_type =
+                disabled_gate == 3 ? ReaderType::READER_BASE_COMPACTION : ReaderType::READER_QUERY;
+        ASSERT_TRUE(segment.new_column_iterator(column, &iterator, &options).ok());
+        EXPECT_NE(dynamic_cast<FileColumnIterator*>(iterator.get()), nullptr);
+        EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(iterator.get()), nullptr);
+    }
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorAdvancesReadAheadOnPageReads) {
+    check_page_driven_scan(false, false, false);
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorAdvancesReadAheadInReverseBatches) {
+    check_page_driven_scan(true, false, false);
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorAdvancesReadAheadThroughPageCacheHits) {
+    check_page_driven_scan(false, true, false);
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorAdvancesReadAheadAfterBudgetRejection) {
+    check_page_driven_scan(false, false, true);
+}
+
+TEST_F(ColumnReaderTest, PageCacheHitAfterPlanningReleasesUnusedRange) {
+    check_page_driven_scan(false, true, false, true);
+}
+
+TEST_F(ColumnReaderTest, IndependentIteratorsShareBudgetAndOutliveDestroyedController) {
+    constexpr size_t num_rows = 64;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr source;
+    ASSERT_TRUE(create_int_column_file("read_ahead_lifetime", num_rows, sizeof(int32_t) * 2, &meta,
+                                       &source)
+                        .ok());
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(ColumnReader::create({}, meta, num_rows, source, &reader).ok());
+    OlapReaderStatistics stats;
+    OrdinalIndexReader* index = nullptr;
+    ASSERT_TRUE(reader->get_ordinal_index_reader(index, &stats).ok());
+    const auto first_page = index->begin().page();
+    std::unique_ptr<io::FileRangeReadScheduler> scheduler;
+    ASSERT_TRUE(io::FileRangeReadScheduler::create(
+                        {.max_bytes_per_query = first_page.size, .max_bytes_per_be = 1024 * 1024},
+                        read_ahead_test_executor(), &scheduler)
+                        .ok());
+    auto options = ColumnReadAheadIOOptions {
+            .range_plan = {.coalesce_options = {.max_gap_bytes = 0,
+                                                .max_range_bytes = 1024 * 1024,
+                                                .max_read_amplification_ratio = 1.0},
+                           .cache_block_size = 1024 * 1024,
+                           .block_fill_min_coverage = 1.0}};
+    auto resources = std::make_shared<ColumnReadAheadResources>(
+            source, scheduler.get(), scheduler->create_context(), io::FileRangeReadIOContext {},
+            options);
+    ColumnIteratorUPtr first, second;
+    ASSERT_TRUE(reader->new_iterator(&first, nullptr, nullptr, true).ok());
+    ASSERT_TRUE(reader->new_iterator(&second, nullptr, nullptr, true).ok());
+    for (auto* iterator : {first.get(), second.get()}) {
+        ASSERT_TRUE(iterator->init({.file_reader = source.get(),
+                                    .stats = &stats,
+                                    .io_ctx = {},
+                                    .read_ahead = resources})
+                            .ok());
+    }
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool entered = false;
+    bool released = false;
+    auto* sync = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync->set_call_back(
+            "FileRangeReadScheduler::_run_task:before_publish_ready",
+            [&](auto&&) {
+                std::unique_lock lock(mutex);
+                entered = true;
+                cv.notify_all();
+                cv.wait(lock, [&] { return released; });
+            },
+            &guard);
+    sync->enable_processing();
+    Defer cleanup {[&] {
+        {
+            std::lock_guard lock(mutex);
+            released = true;
+        }
+        cv.notify_all();
+        scheduler->shutdown();
+        read_ahead_test_executor()->wait();
+        sync->disable_processing();
+        sync->clear_all_call_backs();
+    }};
+    const rowid_t first_row = 0;
+    const rowid_t last_row = num_rows - 1;
+    ASSERT_TRUE(first->prepare_read_ahead(ExactRowReadAheadHint {{&first_row, 1}}).ok());
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&] { return entered; }));
+    }
+    // The first range still owns the entire shared query budget. The second iterator must fall
+    // back independently, and destroying the first controller must not cancel their query.
+    ASSERT_TRUE(second->prepare_read_ahead(ExactRowReadAheadHint {{&last_row, 1}}).ok());
+    EXPECT_GT(resources->statistics->rejected_batches.value(), 0);
+    first.reset();
+    EXPECT_FALSE(resources->context->cancelled());
+    EXPECT_EQ(resources->context->resident_bytes(), first_page.size);
+    {
+        std::lock_guard lock(mutex);
+        released = true;
+    }
+    cv.notify_all();
+    scheduler->shutdown();
+    read_ahead_test_executor()->wait();
+    EXPECT_EQ(resources->context->resident_bytes(), 0);
+    MutableColumnPtr output = ColumnInt32::create();
+    ASSERT_TRUE(second->read_by_rowids(&last_row, 1, output).ok());
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(*output).get_data()[0], last_row);
+    EXPECT_EQ(resources->statistics->fallback_pages.value(), 1);
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorPreparesCompressedPageByteWindow) {
+    constexpr size_t num_rows = 64;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr source;
+    ASSERT_TRUE(create_int_column_file("read_ahead_window", num_rows, sizeof(int32_t) * 2, &meta,
+                                       &source)
+                        .ok());
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(ColumnReader::create({}, meta, num_rows, source, &reader).ok());
+    std::unique_ptr<io::FileRangeReadScheduler> scheduler;
+    ASSERT_TRUE(io::FileRangeReadScheduler::create(
+                        {.max_bytes_per_query = 1024 * 1024, .max_bytes_per_be = 2 * 1024 * 1024},
+                        read_ahead_test_executor(), &scheduler)
+                        .ok());
+    auto resources = std::make_shared<ColumnReadAheadResources>(
+            source, scheduler.get(), scheduler->create_context(), io::FileRangeReadIOContext {},
+            ColumnReadAheadIOOptions {
+                    .range_plan = {.coalesce_options = {.max_gap_bytes = 64 * 1024,
+                                                        .max_range_bytes = 1024 * 1024,
+                                                        .max_read_amplification_ratio = 2.0},
+                                   .cache_block_size = 1024 * 1024,
+                                   .block_fill_min_coverage = 1.0}},
+            ColumnReadAheadOptions {.window_bytes = 1024 * 1024});
+    ColumnIteratorUPtr iterator;
+    ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(iterator->init({.file_reader = source.get(),
+                                .stats = &stats,
+                                .io_ctx = {},
+                                .read_ahead = resources})
+                        .ok());
+    roaring::Roaring rows;
+    rows.addRange(0, num_rows);
+    ASSERT_TRUE(iterator->prepare_read_ahead(ScanReadAheadHint {.candidate_rows = &rows}).ok());
+    EXPECT_GT(resources->statistics->candidate_pages.value(), 1);
+    auto* controller = static_cast<ReadAheadFileColumnIterator*>(iterator.get())->_read_ahead.get();
+    EXPECT_EQ(controller->_window->pending_bytes(),
+              static_cast<size_t>(resources->statistics->candidate_bytes.value()));
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorConsumesSubmittedReadAheadPage) {
+    check_exact_row_read_ahead(false);
+}
+
+TEST_F(ColumnReaderTest, FileColumnIteratorFallsBackAfterReadAheadChecksumFailure) {
+    check_exact_row_read_ahead(true);
+}
+
+TEST_F(ColumnReaderTest, StructReadAheadKeepsChildrenOnOriginalPath) {
+    auto null_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* null_tracker = null_iterator.get();
+    auto eager_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* eager_tracker = eager_iterator.get();
+    eager_iterator->set_read_requirement(ColumnIterator::ReadRequirement::PREDICATE);
+    auto lazy_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* lazy_tracker = lazy_iterator.get();
+    lazy_iterator->set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+
+    std::vector<ColumnIteratorUPtr> children;
+    children.emplace_back(std::move(eager_iterator));
+    children.emplace_back(std::move(lazy_iterator));
+    StructFileColumnIterator iterator(create_test_reader(true), std::move(null_iterator),
+                                      std::move(children));
+    iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
+
+    roaring::Roaring scan_rowids;
+    scan_rowids.addRange(0, 16);
+    const rowid_t current_rowids[] = {2, 5};
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    auto status = iterator.prepare_read_ahead(ExactRowReadAheadHint {current_rowids});
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(eager_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(lazy_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(null_tracker->read_ahead_batches.empty());
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    status = iterator.prepare_read_ahead(ExactRowReadAheadHint {current_rowids});
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(eager_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(lazy_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(null_tracker->read_ahead_batches.empty());
+}
+
+TEST_F(ColumnReaderTest, MapReadAheadKeepsOffsetsOnOriginalPath) {
+    auto offsets_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>();
+    auto* offsets_tracker = offsets_file_iterator.get();
+    auto offsets_iterator =
+            std::make_unique<OffsetFileColumnIterator>(std::move(offsets_file_iterator));
+    auto key_iterator = std::make_unique<TrackingColumnIterator>();
+    key_iterator->set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    auto value_iterator = std::make_unique<TrackingColumnIterator>();
+    value_iterator->set_read_requirement(ColumnIterator::ReadRequirement::SKIP);
+    MapFileColumnIterator iterator(create_test_reader(false, 10), nullptr,
+                                   std::move(offsets_iterator), std::move(key_iterator),
+                                   std::move(value_iterator));
+    iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
+
+    roaring::Roaring scan_rowids;
+    scan_rowids.addRange(0, 10);
+    const rowid_t current_rowids[] = {1, 3};
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    ASSERT_TRUE(iterator.prepare_read_ahead(ExactRowReadAheadHint {current_rowids}).ok());
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    ASSERT_TRUE(iterator.prepare_read_ahead(ExactRowReadAheadHint {current_rowids}).ok());
+
+    EXPECT_TRUE(offsets_tracker->read_ahead_batches.empty());
+}
+
+TEST_F(ColumnReaderTest, ArrayReadAheadKeepsOffsetsOnOriginalPath) {
+    auto offsets_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>();
+    auto* offsets_tracker = offsets_file_iterator.get();
+    auto offsets_iterator =
+            std::make_unique<OffsetFileColumnIterator>(std::move(offsets_file_iterator));
+    auto item_iterator = std::make_unique<TrackingColumnIterator>();
+    item_iterator->set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    ArrayFileColumnIterator iterator(create_test_reader(false, 10), std::move(offsets_iterator),
+                                     std::move(item_iterator), nullptr);
+    iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
+
+    roaring::Roaring scan_rowids;
+    scan_rowids.addRange(0, 10);
+    const rowid_t current_rowids[] = {1, 3};
+
+    iterator.set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    ASSERT_TRUE(iterator.prepare_read_ahead(ExactRowReadAheadHint {current_rowids}).ok());
+    iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    ASSERT_TRUE(iterator.prepare_read_ahead(ExactRowReadAheadHint {current_rowids}).ok());
+
+    EXPECT_TRUE(offsets_tracker->read_ahead_batches.empty());
+}
+
+TEST_F(ColumnReaderTest, MapRowidReadKeepsChildrenOnOriginalPath) {
+    auto offsets_file_iterator = std::make_unique<RowidOffsetFileColumnIterator>();
+    auto* offsets_tracker = offsets_file_iterator.get();
+    auto offsets_iterator =
+            std::make_unique<OffsetFileColumnIterator>(std::move(offsets_file_iterator));
+    auto key_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* key_tracker = key_iterator.get();
+    auto value_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* value_tracker = value_iterator.get();
+    MapFileColumnIterator iterator(create_test_reader(false, 10), nullptr,
+                                   std::move(offsets_iterator), std::move(key_iterator),
+                                   std::move(value_iterator));
+
+    roaring::Roaring scan_rowids;
+    scan_rowids.addRange(0, 10);
+    const rowid_t current_rowids[] = {1, 3};
+    auto status = iterator.prepare_read_ahead(
+            ScanReadAheadHint {.candidate_rows = &scan_rowids, .reverse = true});
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(offsets_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(key_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(value_tracker->read_ahead_batches.empty());
+
+    MutableColumnPtr output = ColumnMap::create(ColumnInt32::create(), ColumnInt32::create(),
+                                                ColumnMap::COffsets::create());
+    status = iterator.read_by_rowids(current_rowids, std::size(current_rowids), output);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(key_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(value_tracker->read_ahead_batches.empty());
+    EXPECT_THAT(key_tracker->seek_ordinals, ::testing::ElementsAre(1, 3));
+    EXPECT_THAT(value_tracker->seek_ordinals, ::testing::ElementsAre(1, 3));
+}
+
+TEST_F(ColumnReaderTest, ArraySequentialReadKeepsItemsOnOriginalPath) {
+    auto offsets_file_iterator = std::make_unique<SequentialOffsetFileColumnIterator>(
+            std::vector<ordinal_t> {0, 2, 3, 6});
+    auto* offsets_tracker = offsets_file_iterator.get();
+    auto offsets_iterator =
+            std::make_unique<OffsetFileColumnIterator>(std::move(offsets_file_iterator));
+    auto item_iterator = std::make_unique<TrackingColumnIterator>();
+    auto* item_tracker = item_iterator.get();
+    ArrayFileColumnIterator iterator(create_test_reader(false, 3), std::move(offsets_iterator),
+                                     std::move(item_iterator), nullptr);
+
+    roaring::Roaring scan_rowids;
+    scan_rowids.addRange(0, 3);
+    auto status = iterator.prepare_read_ahead(
+            ScanReadAheadHint {.candidate_rows = &scan_rowids, .reverse = false});
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(offsets_tracker->read_ahead_batches.empty());
+    EXPECT_TRUE(item_tracker->read_ahead_batches.empty());
+
+    status = iterator.seek_to_ordinal(0);
+    ASSERT_TRUE(status.ok()) << status;
+    MutableColumnPtr output =
+            ColumnArray::create(ColumnInt32::create(), ColumnArray::ColumnOffsets::create());
+    size_t rows = 2;
+    status = iterator.next_batch(&rows, output);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_TRUE(item_tracker->read_ahead_batches.empty());
+    EXPECT_THAT(item_tracker->next_batch_sizes, ::testing::ElementsAre(3));
+}
+
+TEST_F(ColumnReaderTest, StructLazyMapReadAllowsDifferentChildOrdinals) {
+    for (bool skip_keys : {false, true}) {
+        SCOPED_TRACE(skip_keys);
+        auto skipped = std::make_unique<FileColumnIterator>(create_test_reader());
+        auto* skipped_ptr = skipped.get();
+        skipped->set_read_requirement(ColumnIterator::ReadRequirement::SKIP);
+        auto active = std::make_unique<TrackingColumnIterator>();
+        auto* active_ptr = active.get();
+        active->set_read_requirement(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        ColumnIteratorUPtr keys = skip_keys ? ColumnIteratorUPtr(std::move(skipped))
+                                            : ColumnIteratorUPtr(std::move(active));
+        ColumnIteratorUPtr values = skip_keys ? ColumnIteratorUPtr(std::move(active))
+                                              : ColumnIteratorUPtr(std::move(skipped));
+        auto offsets = std::make_unique<OffsetFileColumnIterator>(
+                std::make_unique<SequentialOffsetFileColumnIterator>(
+                        std::vector<ordinal_t> {0, 2, 3, 6}));
+        auto map = std::make_unique<MapFileColumnIterator>(
+                create_test_reader(false, 3, FieldType::OLAP_FIELD_TYPE_MAP), nullptr,
+                std::move(offsets), std::move(keys), std::move(values));
+        map->set_read_requirement_self(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        std::vector<ColumnIteratorUPtr> children;
+        children.push_back(std::move(map));
+        StructFileColumnIterator iterator(
+                create_test_reader(false, 3, FieldType::OLAP_FIELD_TYPE_STRUCT), nullptr,
+                std::move(children));
+        iterator.set_read_requirement_self(ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+        iterator.set_read_phase(ColumnIterator::ReadPhase::LAZY);
+
+        // Real skipped scalar iterators do not seek. The lazy sibling starts at item 2,
+        // while the skipped child stays at 0, including when read-ahead is disabled.
+        ASSERT_TRUE(iterator.seek_to_ordinal(1).ok());
+        EXPECT_EQ(skipped_ptr->get_current_ordinal(), 0);
+        EXPECT_EQ(active_ptr->get_current_ordinal(), 2);
+        MutableColumnPtr output = ColumnStruct::create(Columns {ColumnMap::create(
+                ColumnInt32::create(), ColumnInt32::create(), ColumnMap::COffsets::create())});
+        const rowid_t rowids[] = {1, 2};
+        auto status = iterator.read_by_rowids(rowids, std::size(rowids), output);
+        ASSERT_TRUE(status.ok()) << status;
+        const auto& result = assert_cast<const ColumnMap&>(
+                assert_cast<const ColumnStruct&>(*output).get_column(0));
+        EXPECT_EQ(output->size(), 2);
+        EXPECT_THAT(result.get_offsets(), ::testing::ElementsAre(1, 4));
+        EXPECT_EQ(result.get_keys().size(), 4);
+        EXPECT_EQ(result.get_values().size(), 4);
+        EXPECT_EQ(skipped_ptr->get_current_ordinal(), 0);
+        EXPECT_EQ(active_ptr->get_current_ordinal(), 6);
+        EXPECT_TRUE(active_ptr->read_ahead_batches.empty());
+    }
+}
 
 TEST_F(ColumnReaderTest, NullMapOnlyReadBySparseRowidsAcrossPages) {
     ColumnMetaPB meta;

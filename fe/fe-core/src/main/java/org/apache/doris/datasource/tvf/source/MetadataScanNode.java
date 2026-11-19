@@ -63,7 +63,7 @@ public class MetadataScanNode extends ExternalScanNode {
         TMetaScanNode metaScanNode = new TMetaScanNode();
         metaScanNode.setTupleId(desc.getId().asInt());
         metaScanNode.setMetadataType(this.tvf.getMetadataType());
-        TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
+        TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentityForRpc();
         metaScanNode.setCurrentUserIdent(tCurrentUser);
         planNode.setMetaScanNode(metaScanNode);
     }

@@ -21,6 +21,7 @@ import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.JvmSizeUtils;
 import org.apache.doris.connector.cache.MetaCache;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
 import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimate;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimator;
@@ -104,6 +105,7 @@ final class IcebergTableCache {
                 .<TableIdentifier, TableOwner>builder("iceberg-table", spec, IcebergTableCache::scope)
                 .removalListener((identifier, tableOwner, reason) -> tableOwner.release())
                 .discardListener((identifier, tableOwner) -> tableOwner.release())
+                .retainIf(tableOwner -> tableOwner.cacheable)
                 .sizeEstimator(IcebergCacheSizeEstimator::estimateTableEntry)
                 .build());
     }
@@ -122,8 +124,9 @@ final class IcebergTableCache {
      * Returns the cached table for {@code identifier} if present and unexpired, else runs {@code loader} (the
      * live remote {@code loadTable}), caches and returns it. When caching is disabled ({@link #isEnabled()} is
      * false) {@code loader} runs every call and nothing is cached. A hit refreshes the entry's expiry
-     * (access-based). The loader runs OUTSIDE Caffeine's compute lock (single-flight per key) and its exception
-     * propagates unwrapped.
+     * (access-based). Concurrent misses use isolated load scopes until the loaded table can be classified;
+     * only completed plaintext tables are shared. Loaders run outside Caffeine's lock and failures propagate
+     * unwrapped.
      */
     TableLease borrow(TableIdentifier identifier, Supplier<Table> loader) {
         while (true) {
@@ -131,7 +134,9 @@ final class IcebergTableCache {
                 throw new IllegalStateException("Iceberg table cache is already closed");
             }
             TableOwner[] loadedHere = {null};
-            TableOwner owner = entry.get(identifier, ignored -> {
+            // A declined encrypted load still carries a live SDK manager. Keep that in-flight value
+            // private to this borrow too, so concurrent statements cannot reuse its unwrapped keys.
+            TableOwner owner = entry.getForLoadScope(identifier, loadedHere, ignored -> {
                 IcebergCatalogResourceTracker.LoadGuard guard =
                         resourceTracker == null ? null : resourceTracker.beginLoad();
                 try {
@@ -220,7 +225,9 @@ final class IcebergTableCache {
     /** Seals new borrows and retires every cache owner, including loaders that publish after invalidation. */
     void close() {
         if (closed.compareAndSet(false, true)) {
-            owner.invalidateCatalog();
+            // FE may already have retired the owner before scheduling connector.close(). Remove this exact
+            // registration, which is idempotent after owner.close(), rather than invalidating a closed owner.
+            owner.remove(entry);
         }
     }
 
@@ -271,6 +278,7 @@ final class IcebergTableCache {
         private final String snapshotMetadataJson;
         private final String snapshotMetadataLocation;
         final MetaCacheSizeEstimate sizeEstimate;
+        private final boolean cacheable;
         // A newly loaded value starts with a cache reference and a temporary loader reference. The temporary
         // reference bridges publication/discard to the first borrow, including invalidation-before-publication.
         private final AtomicInteger references;
@@ -278,9 +286,12 @@ final class IcebergTableCache {
         private TableOwner(Table table, Runnable cleanup, boolean loading, boolean estimateWeight) {
             this.table = table;
             this.cleanup = cleanup;
+            // SDK managers cache unwrapped keys. Even an unweighted cache must release this table
+            // with its statement, so a later statement performs its own catalog/KMS authorization.
+            this.cacheable = !IcebergEncryptionRead.isEncrypted(table);
             String[] metadataJson = {null};
             String[] metadataLocation = {null};
-            this.sizeEstimate = estimateWeight
+            this.sizeEstimate = estimateWeight && cacheable
                     ? MetaCacheSizeEstimator.estimateSafely("iceberg_table_estimator_failure",
                             () -> {
                                 if (!IcebergCacheSizeEstimator.areSnapshotsLoaded(table)) {
@@ -339,7 +350,18 @@ final class IcebergTableCache {
         private void release() {
             int remaining = references.decrementAndGet();
             if (remaining == 0) {
-                cleanup.run();
+                // Drop cache/borrower ownership synchronously; physical FileIO close belongs to the host reclaimer.
+                // Keep the plugin's loader alive through the close, even when replay uses the FE context loader.
+                MetaCacheCleanup.reclaimResource("Iceberg table " + table.name(), () -> {
+                    Thread thread = Thread.currentThread();
+                    ClassLoader previous = thread.getContextClassLoader();
+                    try {
+                        thread.setContextClassLoader(IcebergTableCache.class.getClassLoader());
+                        cleanup.run();
+                    } finally {
+                        thread.setContextClassLoader(previous);
+                    }
+                });
             } else if (remaining < 0) {
                 throw new IllegalStateException("Iceberg table owner released too many times: " + table.name());
             }

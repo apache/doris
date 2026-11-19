@@ -523,6 +523,11 @@ public class IcebergPredicateConverter {
             return null;
         }
         Types.NestedField field = schema.caseInsensitiveFindField(colName);
+        if (field != null && field.type().typeId() == TypeID.UNKNOWN) {
+            // UNKNOWN ignores any physical value, including its null-count/bounds statistics.
+            // For example, an old same-ID STRING field must not prune `unknown_col <=> NULL`.
+            return null;
+        }
         // Iceberg 1.11 widens retained four-byte DATE bounds to unscaled longs. Pruning those
         // epoch-day bounds with nanosecond predicates can discard matching files in every planner.
         return field != null && unsafeNanosFields.contains(field.fieldId()) ? null : field;

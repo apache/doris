@@ -119,12 +119,21 @@ protected:
 
     Status prepare_merge_input_rowsets_execution(MergeInputRowsetsContext* context);
 
+    // Select storage once, before any source segment registers its rows.
+    void prepare_rowid_conversion(const RowsetWriterContext& ctx);
+    bool should_compress_rowid_conversion(const RowsetWriterContext& ctx) const;
+
     Status execute_merge_input_rowsets(MergeInputRowsetsContext* context);
 
     Status finish_merge_input_rowsets_execution(MergeInputRowsetsContext* context);
     void snapshot_changelog_ttl();
+    void snapshot_row_ttl();
     bool pick_expired_changelog_rowset(const std::vector<RowsetSharedPtr>& candidates);
     void filter_changelog_ttl_rowsets();
+    // Whether the rowset is expired changelog, which this compaction drops instead of merging it.
+    bool is_expired_changelog_rowset(const RowsetSharedPtr& rowset) const;
+    // Counts this compaction in the changelog TTL cleanup metrics as it finishes, if it drops expired changelog.
+    void record_changelog_ttl_cleanup(bool succeeded) const;
 
     virtual Status prepare_merge_input_rowsets(MergeInputRowsetsResult* /*result*/) {
         return Status::OK();

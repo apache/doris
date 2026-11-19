@@ -50,11 +50,22 @@ enum class FileCacheMissPolicy : uint8_t {
     REMOTE_ONLY_ON_MISS = 1,
 };
 
+/// Provenance for opt-in physical IO diagnostics. NORMAL keeps synchronous query reads and
+/// unrelated background reads distinguishable via reader_type.
+enum class FileReadTraceSource : uint8_t { NORMAL, READ_AHEAD, HOLE_FILL };
+
 struct FileReaderStats {
     size_t read_calls = 0;
     size_t read_bytes = 0;
     int64_t read_time_ns = 0;
     size_t read_rows = 0;
+
+    void merge_from(const FileReaderStats& other) {
+        read_calls += other.read_calls;
+        read_bytes += other.read_bytes;
+        read_time_ns += other.read_time_ns;
+        read_rows += other.read_rows;
+    }
 };
 
 struct FileCacheStatistics {
@@ -76,10 +87,24 @@ struct FileCacheStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t io_adaptor_lookup_count = 0;
+    int64_t io_adaptor_lookup_time_ns = 0;
+    int64_t io_adaptor_local_reads = 0;
+    int64_t io_adaptor_local_time_ns = 0;
+    int64_t io_adaptor_bypass_count = 0;
+    int64_t io_adaptor_bypass_bytes = 0;
+    int64_t io_adaptor_remote_bytes = 0;
+    int64_t io_adaptor_remote_time_ns = 0;
+    int64_t io_adaptor_local_probes = 0;
+    int64_t io_adaptor_remote_probes = 0;
+    int64_t io_adaptor_remote_failures = 0;
+    int64_t io_adaptor_fallback_local = 0;
     int64_t async_cache_write_submitted = 0;
     int64_t async_cache_write_rejected = 0;
     int64_t async_cache_write_buffer_alloc_fail = 0;
     int64_t async_cache_write_drop_stale_epoch = 0;
+    int64_t async_copy_to_user_timer = 0;
+    int64_t async_submit_write_timer = 0;
     int64_t inflight_write_buffer_index_hit = 0;
     int64_t inflight_write_buffer_index_miss = 0;
     int64_t probe_downloaded_hit = 0;
@@ -153,10 +178,24 @@ struct FileCacheStatistics {
         lock_wait_timer += other.lock_wait_timer;
         get_timer += other.get_timer;
         set_timer += other.set_timer;
+        io_adaptor_lookup_count += other.io_adaptor_lookup_count;
+        io_adaptor_lookup_time_ns += other.io_adaptor_lookup_time_ns;
+        io_adaptor_local_reads += other.io_adaptor_local_reads;
+        io_adaptor_local_time_ns += other.io_adaptor_local_time_ns;
+        io_adaptor_bypass_count += other.io_adaptor_bypass_count;
+        io_adaptor_bypass_bytes += other.io_adaptor_bypass_bytes;
+        io_adaptor_remote_bytes += other.io_adaptor_remote_bytes;
+        io_adaptor_remote_time_ns += other.io_adaptor_remote_time_ns;
+        io_adaptor_local_probes += other.io_adaptor_local_probes;
+        io_adaptor_remote_probes += other.io_adaptor_remote_probes;
+        io_adaptor_remote_failures += other.io_adaptor_remote_failures;
+        io_adaptor_fallback_local += other.io_adaptor_fallback_local;
         async_cache_write_submitted += other.async_cache_write_submitted;
         async_cache_write_rejected += other.async_cache_write_rejected;
         async_cache_write_buffer_alloc_fail += other.async_cache_write_buffer_alloc_fail;
         async_cache_write_drop_stale_epoch += other.async_cache_write_drop_stale_epoch;
+        async_copy_to_user_timer += other.async_copy_to_user_timer;
+        async_submit_write_timer += other.async_submit_write_timer;
         inflight_write_buffer_index_hit += other.inflight_write_buffer_index_hit;
         inflight_write_buffer_index_miss += other.inflight_write_buffer_index_miss;
         probe_downloaded_hit += other.probe_downloaded_hit;
@@ -222,11 +261,15 @@ struct FileCacheStatistics {
 };
 
 struct IOContext {
+    FileReadTraceSource read_trace_source {FileReadTraceSource::NORMAL};
+    uint64_t read_trace_id {0}; // read-ahead range or hole-fill task; zero when not traced
     ReaderType reader_type = ReaderType::UNKNOWN;
     // FIXME(plat1ko): Seems `is_disposable` can be inferred from the `reader_type`?
     bool is_disposable = false;
     bool is_index_data = false;
     bool read_file_cache = true;
+    // Only explicitly enabled query IO may use adaptation; warmup and background IO default off.
+    bool enable_file_cache_io_adaptor = false;
     // TODO(lightman): use following member variables to control file cache
     bool is_persistent = false;
     // stop reader when reading, used in some interrupted operations

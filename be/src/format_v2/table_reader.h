@@ -71,6 +71,7 @@ namespace doris {
 class Block;
 struct DeleteFileDesc;
 class RuntimeState;
+class ShardedKVCache;
 } // namespace doris
 
 namespace doris::format {
@@ -230,6 +231,7 @@ public:
                     _current_file_description->is_immutable);
         return _current_task->data_file->is_immutable;
     }
+    bool TEST_conjuncts_empty() const { return _conjuncts.empty(); }
 #endif
 
     // Prepare for reading a new split/task.
@@ -416,6 +418,9 @@ protected:
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
     // Some table formats expose UUID as raw bytes rather than the native Doris UUID type.
     virtual bool preserve_binary_uuid() const { return false; }
+
+    // The descriptor belongs to the current split. File readers copy it before initialization.
+    virtual const TFileEncryptionInfo* file_encryption_info() const { return nullptr; }
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual void configure_mapper_options(TableColumnMapperOptions*) const {}
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
@@ -1436,6 +1441,12 @@ protected:
         DORIS_CHECK(column != nullptr);
         DORIS_CHECK(mapping.file_type != nullptr);
         DORIS_CHECK(mapping.table_type != nullptr);
+        if (mapping.table_type->is_null_literal()) {
+            // ARRAY/MAP retain a physical child stream to recover offsets. UNKNOWN values must
+            // still be NULL, rather than cast from that stream (for example STRING to UInt8).
+            return _materialize_default_or_missing_column(mapping, nullptr, rows, column,
+                                                          nullable_parent_null_map);
+        }
         *column = file_column;
         if (!mapping.is_trivial) {
             if (!mapping.child_mappings.empty()) {
@@ -2021,6 +2032,15 @@ protected:
         const ColumnMapping* value_mapping = nullptr;
         for (const auto& child_mapping : mapping.child_mappings) {
             if (!child_mapping.file_local_id.has_value()) {
+                if (child_mapping.table_type->is_null_literal()) {
+                    // Iceberg map keys are required, so only the value can be UNKNOWN. Its
+                    // mapping deliberately has no file ID even though the parent has offsets.
+                    DORIS_CHECK(
+                            assert_cast<const DataTypeMap&>(*remove_nullable(mapping.table_type))
+                                    .get_value_type()
+                                    ->is_null_literal());
+                    value_mapping = &child_mapping;
+                }
                 continue;
             }
             if (*child_mapping.file_local_id == 0) {
@@ -2239,7 +2259,7 @@ protected:
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;
-    DeletionVector* _deletion_vector = nullptr;
+    std::shared_ptr<DeletionVector> _deletion_vector;
     TFileScanRangeParams* _scan_params;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;

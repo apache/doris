@@ -40,10 +40,12 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+// Adding a format source changes unity groups; cache calls cannot depend on a neighbor's includes.
+#include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/iceberg_delete_file_reader_helper.h"
 #include "format/table/iceberg_scan_semantics.h"
-#include "format/table/paimon_reader.h"
+#include "format/table/paimon_deletion_vector.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
@@ -109,10 +111,14 @@ std::string file_format_to_string(FileFormat format) {
         return "JNI";
     case FileFormat::ARROW:
         return "ARROW";
+    case FileFormat::MONGODB:
+        return "MONGODB";
     case FileFormat::ES_HTTP:
         return "ES_HTTP";
     case FileFormat::WAL:
         return "WAL";
+    case FileFormat::LANCE:
+        return "LANCE";
     }
     return "UNKNOWN";
 }
@@ -263,51 +269,6 @@ bool find_column_identity_path_by_id(const std::vector<ColumnDefinition>& fields
         path->pop_back();
     }
     return false;
-}
-
-ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field) {
-    ColumnDefinition identity;
-    if (field.__isset.id) {
-        identity.identifier = Field::create_field<TYPE_INT>(field.id);
-    }
-    identity.name = field.__isset.name ? field.name : "";
-    identity.name_mapping =
-            field.__isset.name_mapping ? field.name_mapping : std::vector<std::string> {};
-    identity.has_name_mapping =
-            field.__isset.name_mapping_is_authoritative && field.name_mapping_is_authoritative;
-    if (!field.__isset.nestedField) {
-        return identity;
-    }
-    if (field.nestedField.__isset.struct_field && field.nestedField.struct_field.__isset.fields) {
-        for (const auto& child_ptr : field.nestedField.struct_field.fields) {
-            if (const auto* child = get_field_ptr(child_ptr); child != nullptr) {
-                identity.children.push_back(build_schema_identity_from_external_field(*child));
-            }
-        }
-    } else if (field.nestedField.__isset.array_field &&
-               field.nestedField.array_field.__isset.item_field) {
-        if (const auto* child = get_field_ptr(field.nestedField.array_field.item_field);
-            child != nullptr) {
-            identity.children.push_back(build_schema_identity_from_external_field(*child));
-            identity.children.back().name = "element";
-        }
-    } else if (field.nestedField.__isset.map_field) {
-        if (field.nestedField.map_field.__isset.key_field) {
-            if (const auto* child = get_field_ptr(field.nestedField.map_field.key_field);
-                child != nullptr) {
-                identity.children.push_back(build_schema_identity_from_external_field(*child));
-                identity.children.back().name = "key";
-            }
-        }
-        if (field.nestedField.map_field.__isset.value_field) {
-            if (const auto* child = get_field_ptr(field.nestedField.map_field.value_field);
-                child != nullptr) {
-                identity.children.push_back(build_schema_identity_from_external_field(*child));
-                identity.children.back().name = "value";
-            }
-        }
-    }
-    return identity;
 }
 
 const ColumnDefinition* find_identity_child(const ColumnDefinition& projected_child,
@@ -517,21 +478,8 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
 
 const schema::external::TField* find_external_root_field(const TFileScanRangeParams* params,
                                                          const ColumnDefinition& column) {
-    if (params == nullptr || !params->__isset.history_schema_info ||
-        params->history_schema_info.empty()) {
-        return nullptr;
-    }
-    const auto* schema = &params->history_schema_info.front();
-    if (params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == params->current_schema_id) {
-                schema = &candidate_schema;
-                break;
-            }
-        }
-    }
-    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+    const auto* schema = find_current_schema(params);
+    if (schema == nullptr || !schema->__isset.root_field || !schema->root_field.__isset.fields) {
         return nullptr;
     }
     if (!supports_iceberg_scan_semantics_v1(params)) {
@@ -771,16 +719,7 @@ std::optional<ColumnDefinition> TableReader::_find_table_column_by_field_id(
                                          : nullptr;
     };
 
-    const auto* current_schema = &_scan_params->history_schema_info.front();
-    if (_scan_params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : _scan_params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == _scan_params->current_schema_id) {
-                current_schema = &candidate_schema;
-                break;
-            }
-        }
-    }
+    const auto* current_schema = find_current_schema(_scan_params);
     if (const auto* field = find_field(*current_schema); field != nullptr) {
         return build_schema_column_from_external_field(
                 *field, std::move(type), supports_iceberg_scan_semantics_v1(_scan_params));
@@ -858,16 +797,7 @@ std::optional<std::vector<ColumnDefinition>> TableReader::_find_table_column_pat
         return result;
     };
 
-    const auto* current_schema = &_scan_params->history_schema_info.front();
-    if (_scan_params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : _scan_params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == _scan_params->current_schema_id) {
-                current_schema = &candidate_schema;
-                break;
-            }
-        }
-    }
+    const auto* current_schema = find_current_schema(_scan_params);
     if (auto path = build_path(*current_schema); path.has_value()) {
         return path;
     }
@@ -922,16 +852,7 @@ TableReader::_find_table_column_identity_path_by_field_id(int32_t field_id,
         return std::nullopt;
     };
 
-    const auto* current_schema = &_scan_params->history_schema_info.front();
-    if (_scan_params->__isset.current_schema_id) {
-        for (const auto& candidate_schema : _scan_params->history_schema_info) {
-            if (candidate_schema.__isset.schema_id &&
-                candidate_schema.schema_id == _scan_params->current_schema_id) {
-                current_schema = &candidate_schema;
-                break;
-            }
-        }
-    }
+    const auto* current_schema = find_current_schema(_scan_params);
     if (auto path = find_path(*current_schema); path.has_value()) {
         return path;
     }
@@ -1397,6 +1318,10 @@ Status TableReader::create_next_reader(bool* eos) {
 
 Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     DORIS_CHECK(reader != nullptr);
+    const auto* encryption = file_encryption_info();
+    if (encryption != nullptr && _format != FileFormat::PARQUET) {
+        return Status::NotSupported("File encryption [UNSUPPORTED_FILE_FORMAT]");
+    }
     const bool enable_mapping_timestamp_tz = _scan_params != nullptr &&
                                              _scan_params->__isset.enable_mapping_timestamp_tz &&
                                              _scan_params->enable_mapping_timestamp_tz;
@@ -1412,7 +1337,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                hive_parquet_time_zone, preserve_binary_uuid(), _parquet_profile_cache);
+                hive_parquet_time_zone, preserve_binary_uuid(), _parquet_profile_cache,
+                encryption == nullptr ? std::nullopt : std::optional(*encryption));
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
@@ -1644,8 +1570,8 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
         bool decoded_cache_hit = false;
         _deletion_vector = options.cache->get<DeletionVector>(
                 desc.key,
-                [&]() -> DeletionVector* {
-                    auto deletion_vector = std::make_unique<DeletionVector>();
+                [&]() -> std::shared_ptr<DeletionVector> {
+                    auto deletion_vector = std::make_shared<DeletionVector>();
 
                     DeletionVectorReader dv_reader(_runtime_state, _scanner_profile, *_scan_params,
                                                    desc, _io_ctx.get());
@@ -1654,8 +1580,6 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         return nullptr;
                     }
 
-                    size_t bytes_read = desc.size;
-                    std::vector<char> buffer(bytes_read);
                     DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
                         create_status =
                                 Status::IOError("injected format v2 deletion vector read failure");
@@ -1665,8 +1589,14 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         create_status = Status::EndOfFile("stop read.");
                         return nullptr;
                     });
-                    create_status =
-                            dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
+                    std::vector<char> buffer;
+                    if (desc.format == DeleteFileDesc::Format::PAIMON) {
+                        create_status = read_paimon_deletion_vector_buffer(dv_reader, desc, buffer);
+                    } else {
+                        buffer.resize(desc.size);
+                        create_status = dv_reader.read_at(desc.start_offset,
+                                                          {buffer.data(), buffer.size()});
+                    }
                     const auto& file_cache_stats = dv_reader.file_cache_statistics();
                     COUNTER_UPDATE(_profile.dv_file_cache_hit_count,
                                    file_cache_stats.num_local_io_total);
@@ -1678,15 +1608,14 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         return nullptr;
                     }
 
-                    const char* buf = buffer.data();
                     SCOPED_TIMER(_profile.parse_delete_file_time);
-                    create_status = parse_deletion_vector(buf, bytes_read, desc.format,
+                    create_status = parse_deletion_vector(buffer.data(), buffer.size(), desc.format,
                                                           deletion_vector.get());
                     if (!create_status.ok()) [[unlikely]] {
                         return nullptr;
                     }
                     COUNTER_UPDATE(_profile.num_delete_rows, deletion_vector->cardinality());
-                    return deletion_vector.release();
+                    return deletion_vector;
                 },
                 &decoded_cache_hit);
         RETURN_IF_ERROR(create_status);

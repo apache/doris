@@ -40,13 +40,13 @@ void BreakIteratorWrapper::initialize() {
         if (U_FAILURE(status)) {
             std::string error_msg = "EMOJI RK failed to initialize: ";
             error_msg += u_errorName(status);
-            _CLTHROWT(CL_ERR_IllegalArgument, error_msg.c_str());
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
         }
         EMOJI.applyPattern("[[:Emoji:][:Extended_Pictographic:]]", status);
         if (U_FAILURE(status)) {
             std::string error_msg = "EMOJI failed to initialize: ";
             error_msg += u_errorName(status);
-            _CLTHROWT(CL_ERR_IllegalArgument, error_msg.c_str());
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
         }
     });
 }
@@ -91,14 +91,14 @@ void BreakIteratorWrapper::set_text(const UChar* text, int32_t start, int32_t le
     if (U_FAILURE(status)) {
         std::string error_msg = "Failed to create UText: ";
         error_msg += u_errorName(status);
-        _CLTHROWT(CL_ERR_Runtime, error_msg.c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
     }
 
     rbbi_->setText(utext.get(), status);
     if (U_FAILURE(status)) {
         std::string error_msg = "Failed to set text: ";
         error_msg += u_errorName(status);
-        _CLTHROWT(CL_ERR_Runtime, error_msg.c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, error_msg);
     }
 
     status_ = UBRK_WORD_NONE;

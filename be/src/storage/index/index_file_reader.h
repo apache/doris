@@ -36,6 +36,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -101,6 +102,10 @@ public:
             doris::snii::reader::LogicalIndexOpenMode open_mode) const;
     // SNII only: every entry of the container directory, text and blob kinds alike.
     Result<std::vector<doris::snii::format::LogicalIndexMetadataRef>> snii_logical_indexes() const;
+    // SNII only: the kind of one directory entry, nothing when the directory has no such entry.
+    // A directory can hold thousands of VARIANT paths, so a lookup does not copy it.
+    Result<std::optional<doris::snii::format::LogicalIndexKind>> snii_logical_index_kind(
+            uint64_t index_id, std::string_view suffix) const;
     // SNII only: reads the CoreMetadata of one text logical index with the caller's IO context.
     Status snii_core_metadata(uint64_t index_id, std::string_view suffix,
                               doris::snii::format::CoreMetadata* out,

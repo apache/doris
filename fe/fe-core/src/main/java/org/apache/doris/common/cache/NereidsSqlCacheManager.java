@@ -95,6 +95,9 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
+import java.util.stream.Stream;
 
 /**
  * NereidsSqlCacheManager
@@ -104,6 +107,7 @@ public class NereidsSqlCacheManager {
     // key: <ctl.db>:<user>:<sql>
     // value: SqlCacheContext
     private volatile Cache<String, SqlCacheContext> sqlCaches;
+    private final SqlCacheMetadataVersions metadataVersions = new SqlCacheMetadataVersions();
 
     public NereidsSqlCacheManager() {
         sqlCaches = buildSqlCaches(
@@ -112,13 +116,16 @@ public class NereidsSqlCacheManager {
         );
     }
 
+    public SqlCacheMetadataVersions.Snapshot newMetadataSnapshot() {
+        return metadataVersions.snapshot();
+    }
+
     @VisibleForTesting
     public Cache<String, SqlCacheContext> getSqlCaches() {
         return sqlCaches;
     }
 
     public void invalidateAboutTable(TableIf tableIf) {
-        Set<String> invalidateKeys = new LinkedHashSet<>();
         FullTableName invalidateTableName = null;
         DatabaseIf database = tableIf.getDatabase();
         if (database != null) {
@@ -130,30 +137,48 @@ public class NereidsSqlCacheManager {
             }
         }
 
-        for (Entry<String, SqlCacheContext> kv : sqlCaches.asMap().entrySet()) {
-            String key = kv.getKey();
-            SqlCacheContext context = kv.getValue();
-            for (Entry<TableReference, TableVersion> nameToVersion : context.getUsedTables().entrySet()) {
-                FullTableName tableName = nameToVersion.getKey().tableName;
-                TableVersion tableVersion = nameToVersion.getValue();
-                if (tableVersion.id == tableIf.getId()) {
-                    invalidateKeys.add(key);
-                    break;
-                }
-                if (tableName.equals(invalidateTableName)) {
-                    invalidateKeys.add(key);
-                    break;
-                }
-            }
-        }
+        invalidateAboutTable(tableIf.getId(), invalidateTableName);
+    }
 
-        for (String invalidateKey : invalidateKeys) {
-            sqlCaches.invalidate(invalidateKey);
-        }
+    /** Also accepts the identity of a table that has already been dropped or renamed. */
+    public void invalidateAboutTable(long tableId, FullTableName invalidateTableName) {
+        metadataVersions.invalidateTable(tableId, invalidateTableName);
+        invalidateEntries(context -> context.getUsedTables().entrySet().stream()
+                .anyMatch(entry -> entry.getValue().id == tableId
+                        || entry.getKey().tableName.equals(invalidateTableName))
+                || context.getUsedViews().containsKey(invalidateTableName));
     }
 
     public void invalidateAll() {
+        metadataVersions.invalidateAll();
         sqlCaches.invalidateAll();
+    }
+
+    public void invalidateAboutDatabase(String catalog, String db) {
+        invalidateAboutNamespace(catalog, db);
+    }
+
+    public void invalidateAboutCatalog(String catalog) {
+        invalidateAboutNamespace(catalog, null);
+    }
+
+    private void invalidateAboutNamespace(String catalog, String db) {
+        metadataVersions.invalidateNamespace(catalog, db);
+        invalidateEntries(context -> Stream.concat(
+                context.getUsedTables().keySet().stream().map(reference -> reference.tableName),
+                context.getUsedViews().keySet().stream())
+                .anyMatch(name -> name.catalog.equals(catalog) && (db == null || name.db.equals(db))));
+    }
+
+    private void invalidateEntries(Predicate<SqlCacheContext> affected) {
+        Set<String> invalidateKeys = new LinkedHashSet<>();
+        for (Entry<String, SqlCacheContext> entry : sqlCaches.asMap().entrySet()) {
+            SqlCacheContext context = entry.getValue();
+            if (affected.test(context)) {
+                invalidateKeys.add(entry.getKey());
+            }
+        }
+        sqlCaches.invalidateAll(invalidateKeys);
     }
 
     public static synchronized void updateConfig() {
@@ -217,7 +242,7 @@ public class NereidsSqlCacheManager {
         if (sqlCaches.getIfPresent(key) == null && sqlCacheContext.getOrComputeCacheKeyMd5(sessionVariable) != null
                 && sqlCacheContext.getResultSetInFe().isPresent()) {
             sqlCacheContext.setAffectQueryResultVariables(sessionVariable);
-            sqlCaches.put(key, sqlCacheContext);
+            publishIfDependenciesValid(connectContext, key, sqlCacheContext);
         }
     }
 
@@ -267,7 +292,7 @@ public class NereidsSqlCacheManager {
                 return;
             }
 
-            sqlCaches.put(key, sqlCacheContext);
+            publishIfDependenciesValid(connectContext, key, sqlCacheContext);
         }
     }
 
@@ -348,24 +373,9 @@ public class NereidsSqlCacheManager {
             if (privilegeChanged(connectContext, env, sqlCacheContext)) {
                 return invalidateCache(key);
             }
-            IsChanged tableIsChanged = tablesOrDataChanged(env, sqlCacheContext, connectContext.getStatementContext());
-            if (tableIsChanged.changed) {
-                if (tableIsChanged.invalidCache) {
-                    return invalidateCache(key);
-                } else {
-                    return Optional.empty();
-                }
-            }
-            IsChanged viewIsChanged = viewsChanged(env, sqlCacheContext);
-            if (viewIsChanged.changed) {
-                if (viewIsChanged.invalidCache) {
-                    return invalidateCache(key);
-                } else {
-                    return Optional.empty();
-                }
-            }
-            if (externalCatalogChanged(env, sqlCacheContext)) {
-                return invalidateCache(key);
+            IsChanged dependencies = dependenciesChanged(env, sqlCacheContext, connectContext.getStatementContext());
+            if (dependencies.changed) {
+                return dependencies.invalidCache ? invalidateCache(key) : Optional.empty();
             }
 
             LogicalEmptyRelation whateverPlan = new LogicalEmptyRelation(new RelationId(0), ImmutableList.of());
@@ -434,8 +444,52 @@ public class NereidsSqlCacheManager {
         }
     }
 
+    private void publishIfDependenciesValid(ConnectContext context, String key, SqlCacheContext candidate) {
+        // Connector sessions also capture the current statement's scope, which can retain old table handles.
+        StatementContext executing = context.getStatementContext();
+        try (StatementContext validation = new StatementContext(context, null)) {
+            context.setStatementContext(validation);
+            boolean changed;
+            try {
+                changed = dependenciesChanged(context.getEnv(), candidate, validation).changed;
+            } finally {
+                // This operation has no scan-finish callback, including when Arrow Flight defers query cleanup.
+                validation.closeConnectorStatementScope();
+            }
+            if (!changed) {
+                sqlCaches.put(key, candidate);
+            }
+        } catch (Throwable t) {
+            LOG.warn("Skip publishing SQL cache for query {} because dependency validation failed",
+                    candidate.getQueryId(), t);
+        } finally {
+            context.setStatementContext(executing);
+        }
+    }
+
+    // DML publishes table/partition versions; validate them here on admission and lookup instead of scanning
+    // cached queries while transaction publication or replay holds table write locks. Metadata journals also
+    // advance the independent revision fence because their mutations need not change data versions.
+    private IsChanged dependenciesChanged(Env env, SqlCacheContext context, StatementContext statement) {
+        if (!context.metadataVersionsMatch()) {
+            return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
+        }
+        IsChanged tables = tablesOrDataChanged(env, context, statement);
+        if (tables.changed) {
+            return tables;
+        }
+        IsChanged views = viewsChanged(env, context);
+        if (views.changed) {
+            return views;
+        }
+        if (externalCatalogChanged(env, context) || !context.metadataVersionsMatch()) {
+            return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
+        }
+        return IsChanged.NOT_CHANGED;
+    }
+
     private IsChanged tablesOrDataChanged(Env env, SqlCacheContext sqlCacheContext, StatementContext statement) {
-        if (sqlCacheContext.hasUnsupportedTables()) {
+        if (!sqlCacheContext.supportSqlCache()) {
             return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
         }
 
@@ -451,24 +505,29 @@ public class NereidsSqlCacheManager {
             TableIf tableIf = findTableIf(env, scanTable.getKey().tableName);
             if (tableIf == null) {
                 return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
-            } else if (tableIf.isTemporary()) {
+            }
+            if (tableIf.isTemporary()) {
                 return IsChanged.CHANGED_BUT_NOT_INVALIDATE_CACHE;
-            } else if (tableVersion.id != tableIf.getId()) { // should after isTemporary condition
+            }
+            if (tableVersion.id != tableIf.getId()) { // should after isTemporary condition
                 return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
             }
             if (tableIf instanceof OlapTable) {
                 OlapTable olapTable = (OlapTable) tableIf;
-                long currentTableVersion = 0L;
-                try {
-                    currentTableVersion = olapTable.getVisibleVersion();
-                } catch (RpcException e) {
-                    LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
+                if (olapSchemaChanged(olapTable, tableVersion)) {
                     return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                 }
-                long cacheTableVersion = tableVersion.version;
-                // some partitions have been dropped, or delete or updated or replaced,
-                // or insert rows into new partition?
-                if (currentTableVersion != cacheTableVersion) {
+                try {
+                    long currentTableVersion = olapTable.getVisibleVersion();
+                    boolean versionMatches = currentTableVersion == tableVersion.version;
+                    if (tableVersion.olapVersion != null && tableVersion.olapVersion.isUsable()) {
+                        versionMatches = tableVersion.olapVersion.matches(olapTable, currentTableVersion);
+                    }
+                    if (!versionMatches) {
+                        return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
+                    }
+                } catch (RpcException e) {
+                    LOG.warn("table {}, in cloud getVisibleVersion exception", olapTable.getName(), e);
                     return IsChanged.CHANGED_AND_INVALIDATE_CACHE;
                 }
                 if (tableIf instanceof MTMV) {
@@ -524,6 +583,19 @@ public class NereidsSqlCacheManager {
             }
         }
         return IsChanged.NOT_CHANGED;
+    }
+
+    private boolean olapSchemaChanged(OlapTable table, TableVersion version) {
+        if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
+            return true;
+        }
+        try {
+            return table.hasRowTtl() || (version.schemaVersion >= 0
+                    && (version.baseIndexId != table.getBaseIndexId()
+                        || version.schemaVersion != table.getBaseSchemaVersion()));
+        } finally {
+            table.readUnlock();
+        }
     }
 
     private IsChanged viewsChanged(Env env, SqlCacheContext sqlCacheContext) {

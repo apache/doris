@@ -297,7 +297,7 @@ under the License.
         <javax.servlet-api.version>3.1.0</javax.servlet-api.version>
         <!-- Spring Framework 7 and Jetty EE11 require Jakarta Servlet 6.1. -->
         <jakarta.servlet-api.version>6.1.0</jakarta.servlet-api.version>
-        <je.version>18.3.14-doris-SNAPSHOT</je.version>
+        <je.version>18.3.18-doris-SNAPSHOT</je.version>
         <commons-io.version>2.18.0</commons-io.version>
         <commons-beanutils.version>1.11.0</commons-beanutils.version>
         <json-simple.version>1.1.1</json-simple.version>
@@ -369,6 +369,10 @@ under the License.
              1.12.0), and its parent pom pins Arrow Java 19.0.0 — the same version as arrow.version above,
              so the fe-connector-adbc plugin introduces no second Arrow. -->
         <adbc.version>0.24.0</adbc.version>
+        <!-- Lance Java SDK for fe-connector-lance. It declares Arrow 18.3.0; the Arrow artifacts managed below
+             pin it to arrow.version, as fe-core did when it carried Lance. Changing it means changing the
+             glibc 2.17 JNI pins in docker/thirdparties/lance-jni-helpers.sh too. -->
+        <lance.version>12.0.0</lance.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
 
@@ -2045,6 +2049,11 @@ under the License.
                 <groupId>org.apache.arrow.adbc</groupId>
                 <artifactId>adbc-driver-jni</artifactId>
                 <version>${adbc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.lance</groupId>
+                <artifactId>lance-core</artifactId>
+                <version>${lance.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.immutables</groupId>

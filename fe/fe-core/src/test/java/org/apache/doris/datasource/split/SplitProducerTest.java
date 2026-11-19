@@ -20,6 +20,7 @@ package org.apache.doris.datasource.split;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.datasource.scan.FederationBackendPolicy;
 import org.apache.doris.spi.Split;
@@ -47,15 +48,19 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 
 class SplitProducerTest {
@@ -79,10 +84,128 @@ class SplitProducerTest {
             }
 
             @Override
+            public void remove(Runnable task) {
+                group.remove(task);
+            }
+
+            @Override
             public void execute(Runnable task) {
                 group.execute(task);
             }
         };
+    }
+
+    @Test
+    void producingThenWaitingDoesNotKeepResubmitting() throws Exception {
+        Fixture fixture = new Fixture(1, 3);
+        ManualExecutor executor = new ManualExecutor();
+        CompletableFuture<Void> dependency = new CompletableFuture<>();
+        RecordingSource source = new RecordingSource(1, 0, 2) {
+            private boolean first = true;
+            private boolean paused;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return paused ? dependency : null;
+            }
+
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                paused = first;
+                first = false;
+                return super.getNextBatch();
+            }
+        };
+        fixture.start(executor, source, () -> 0L);
+        executor.runUntilIdle();
+        Assertions.assertEquals(1, fixture.assignment.getAssignedSplits(fixture.backend).size());
+        Assertions.assertEquals(0, fixture.completions.get());
+        dependency.complete(null);
+        executor.runUntilIdle();
+        Assertions.assertEquals(Arrays.asList(0L, 2L), identities(fixture.source().getNextBatch(2)));
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
+    @Test
+    void asynchronousMetadataWaitReleasesWorkerAndResumesOnCompletion() throws Exception {
+        Fixture fixture = new Fixture(1, 3);
+        ManualExecutor executor = new ManualExecutor();
+        CompletableFuture<Void> dependency = new CompletableFuture<>();
+        RecordingSource source = new RecordingSource(1, 0) {
+            private boolean awaiting = true;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return awaiting ? dependency : null;
+            }
+
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                awaiting = false;
+                return super.getNextBatch();
+            }
+        };
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+        Assertions.assertEquals(0, fixture.completions.get());
+        Assertions.assertTrue(fixture.assignment.getAssignedSplits(fixture.backend).isEmpty());
+        dependency.complete(null);
+        executor.runUntilIdle();
+        Assertions.assertEquals(Collections.singletonList(0L), identities(fixture.source().getNextBatch(1)));
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
+    @Test
+    void metadataCompletionRacingEmptyReadDoesNotBecomeEndOfInput() throws Exception {
+        Fixture fixture = new Fixture(1, 3);
+        ManualExecutor executor = new ManualExecutor();
+        RecordingSource source = new RecordingSource(1, 0) {
+            private final CompletableFuture<Void> dependency = new CompletableFuture<>();
+            private CompletableFuture<Void> blocked;
+            private boolean first = true;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return blocked;
+            }
+
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                if (first) {
+                    first = false;
+                    blocked = dependency;
+                    dependency.complete(null);
+                    return Collections.emptyList();
+                }
+                blocked = null;
+                return super.getNextBatch();
+            }
+        };
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+        Assertions.assertEquals(Collections.singletonList(0L), identities(fixture.source().getNextBatch(1)));
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
+    @Test
+    void metadataFailureWakesProducerAndReachesConsumer() throws Exception {
+        Fixture fixture = new Fixture(1, 3);
+        ManualExecutor executor = new ManualExecutor();
+        CompletableFuture<Void> dependency = new CompletableFuture<>();
+        RecordingSource source = new RecordingSource(1, 0) {
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return dependency;
+            }
+        };
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+        dependency.completeExceptionally(new IllegalStateException("metadata failed"));
+        executor.runUntilIdle();
+        Assertions.assertTrue(Assertions.assertThrows(UserException.class,
+                () -> fixture.source().getNextBatch(1)).getMessage().contains("metadata failed"));
+        Assertions.assertEquals(1, source.closeCalls.get());
+        Assertions.assertEquals(1, fixture.completions.get());
     }
 
     @Test
@@ -102,6 +225,28 @@ class SplitProducerTest {
         }
         Assertions.assertEquals(Arrays.asList(0L, 2L, 4L, 6L, 8L), actual);
         Assertions.assertTrue(consumer.getNextBatch(1).isEmpty());
+        Assertions.assertEquals(1, fixture.completions.get());
+    }
+
+    @Test
+    void partiallyOfferedBatchResumesWithoutLosingOrRepeatingSplits() throws Exception {
+        Fixture fixture = new Fixture(3, 3);
+        fixture.assignment.addToQueue(Arrays.asList(split(0), split(2)));
+        ManualExecutor executor = new ManualExecutor();
+        RecordingSource source = new RecordingSource(3, 4, 6, 8);
+        fixture.start(executor, source);
+        executor.runUntilIdle();
+
+        Assertions.assertEquals(3, fixture.assignment.getAssignedSplits(fixture.backend).size());
+        Assertions.assertEquals(0, fixture.completions.get());
+        SplitSource consumer = fixture.source();
+        Assertions.assertEquals(Arrays.asList(0L, 2L, 4L), identities(consumer.getNextBatch(3)));
+        executor.runUntilIdle();
+        Assertions.assertEquals(Arrays.asList(6L, 8L), identities(consumer.getNextBatch(3)));
+        Assertions.assertTrue(consumer.getNextBatch(1).isEmpty());
+        Assertions.assertEquals(1, fixture.conversions.get(4L));
+        Assertions.assertEquals(1, fixture.conversions.get(6L));
+        Assertions.assertEquals(1, fixture.conversions.get(8L));
         Assertions.assertEquals(1, fixture.completions.get());
     }
 
@@ -132,6 +277,119 @@ class SplitProducerTest {
                 Assertions.assertEquals(1, fixture.completions.get());
             } finally {
                 release.countDown();
+                pool.close();
+                Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+            }
+        }
+    }
+
+    @Test
+    void assignmentStopReleasesFairAdmissionsWithoutClosingTheQueryGroup() throws Exception {
+        for (boolean waitingForCapacity : new boolean[] {false, true}) {
+            Fixture fixture = new Fixture(1, 1);
+            RecordingSource source = new RecordingSource(1, 0);
+            CountDownLatch entered = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            try (FairTaskExecutor pool = new FairTaskExecutor(1, Thread::new)) {
+                FairTaskExecutor.Group group = pool.newGroup(1);
+                group.execute(() -> {
+                    entered.countDown();
+                    try {
+                        release.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                });
+                try {
+                    Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+                    if (waitingForCapacity) {
+                        group.execute(() -> { });
+                    }
+                    fixture.start(scheduler(group), source);
+                    fixture.assignment.stop();
+                    fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+                    Assertions.assertEquals(waitingForCapacity ? 1 : 0, group.queuedTasks());
+                    Assertions.assertFalse(group.isClosed());
+                    Assertions.assertEquals(0, source.next, "a stopped source must never be read");
+                    Assertions.assertEquals(1, source.closeCalls.get());
+                    Assertions.assertEquals(1, fixture.completions.get());
+                } finally {
+                    release.countDown();
+                    pool.close();
+                    Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+                }
+            }
+        }
+    }
+
+    @Test
+    void sourceErrorClosesOnItsWorkerAndCompletesTermination() throws Exception {
+        for (boolean failRead : new boolean[] {true, false}) {
+            Fixture fixture = new Fixture(1, 1);
+            AssertionError expected = new AssertionError("SDK worker failed");
+            AtomicReference<Thread> reader = new AtomicReference<>();
+            AtomicReference<Thread> closer = new AtomicReference<>();
+            CountDownLatch entered = new CountDownLatch(1);
+            RecordingSource source = new RecordingSource(1) {
+                @Override
+                public List<Split> getNextBatch() {
+                    reader.set(Thread.currentThread());
+                    entered.countDown();
+                    if (failRead) {
+                        throw expected;
+                    }
+                    return Collections.emptyList();
+                }
+
+                @Override
+                public void close() {
+                    closer.set(Thread.currentThread());
+                    super.close();
+                    if (!failRead) {
+                        throw expected;
+                    }
+                }
+            };
+            try (FairTaskExecutor pool = new FairTaskExecutor(1, Thread::new)) {
+                try {
+                    fixture.start(scheduler(pool.newGroup(1)), source);
+                    Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+                    fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+                    UserException failure = Assertions.assertThrows(UserException.class,
+                            () -> fixture.assignment.getAssignedSplits(fixture.backend));
+                    Assertions.assertSame(expected, failure.getCause());
+                    Assertions.assertSame(reader.get(), closer.get());
+                    Assertions.assertEquals(1, source.closeCalls.get());
+                    Assertions.assertEquals(1, fixture.completions.get());
+                } finally {
+                    fixture.assignment.stop();
+                    pool.close();
+                    Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
+                }
+            }
+        }
+    }
+
+    @Test
+    void completionErrorPublishesFailureAndStillCompletesTermination() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        RecordingSource source = new RecordingSource(1);
+        AssertionError expected = new AssertionError("Completion failed");
+        try (FairTaskExecutor pool = new FairTaskExecutor(1, Thread::new)) {
+            try {
+                new SplitProducer(fixture.assignment, scheduler(pool.newGroup(1)), source, failure -> {
+                    fixture.completions.incrementAndGet();
+                    throw expected;
+                }).start();
+                fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+                UserException failure = Assertions.assertThrows(UserException.class,
+                        () -> fixture.assignment.getAssignedSplits(fixture.backend));
+                Assertions.assertSame(expected, failure.getCause());
+                Assertions.assertEquals(1, source.closeCalls.get());
+                Assertions.assertEquals(1, fixture.completions.get());
+            } finally {
+                fixture.assignment.stop();
                 pool.close();
                 Assertions.assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS));
             }
@@ -231,8 +489,8 @@ class SplitProducerTest {
         }).when(second.generator).startSplit(Mockito.anyInt());
         try {
             Future<?> initialized = planner.submit(() -> {
-                first.assignment.init();
-                second.assignment.init();
+                first.assignment.init(1000);
+                second.assignment.init(1000);
                 return null;
             });
             initialized.get(5, TimeUnit.SECONDS);
@@ -257,9 +515,9 @@ class SplitProducerTest {
 
     @Test
     void partialMultiBackendSubmissionDoesNotReplayOrReassignTheBatch() throws Exception {
-        Fixture fixture = new Fixture(2, 1);
+        Fixture fixture = new Fixture(2, 2);
         ManualExecutor executor = new ManualExecutor();
-        fixture.assignment.addToQueue(Collections.singletonList(split(1)));
+        fixture.assignment.addToQueue(Arrays.asList(split(1), split(5)));
         RecordingSource source = new RecordingSource(2, 0, 3);
         fixture.start(executor, source);
         executor.runNext();
@@ -270,6 +528,7 @@ class SplitProducerTest {
         SplitSource other = new SplitSource(fixture.otherBackend, fixture.assignment, 1000);
         Assertions.assertEquals(Collections.singletonList(1L), identities(other.getNextBatch(1)));
         executor.runUntilIdle();
+        Assertions.assertEquals(Collections.singletonList(5L), identities(other.getNextBatch(1)));
         Assertions.assertEquals(Collections.singletonList(3L), identities(other.getNextBatch(1)));
         Assertions.assertTrue(other.getNextBatch(1).isEmpty());
         Assertions.assertTrue(fixture.source().getNextBatch(1).isEmpty());
@@ -287,12 +546,12 @@ class SplitProducerTest {
         fixture.assignment.addToQueue(Collections.singletonList(split(0)));
         SplitSource consumer = fixture.source();
         Mockito.doAnswer(call -> {
-            boolean offered = (boolean) call.callRealMethod();
-            if (!offered) {
+            int accepted = (int) call.callRealMethod();
+            if (accepted == 0) {
                 Assertions.assertEquals(Collections.singletonList(0L), identities(consumer.getNextBatch(1)));
             }
-            return offered;
-        }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.any());
+            return accepted;
+        }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any());
         ManualExecutor executor = new ManualExecutor();
         RecordingSource source = new RecordingSource(1, 2);
         fixture.start(executor, source);
@@ -302,6 +561,139 @@ class SplitProducerTest {
         Assertions.assertEquals(Collections.singletonList(2L), identities(consumer.getNextBatch(1)));
         Assertions.assertTrue(consumer.getNextBatch(1).isEmpty());
         Assertions.assertEquals(1, source.closeCalls.get());
+    }
+
+    @Test
+    void producerFailureIsPublishedBeforeSlowSourceClosure() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        CountDownLatch closing = new CountDownLatch(1);
+        CountDownLatch releaseClose = new CountDownLatch(1);
+        IOException original = new IOException("file listing failed");
+        RecordingSource source = new RecordingSource(1, 0) {
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                throw original;
+            }
+
+            @Override
+            public void close() {
+                closing.countDown();
+                try {
+                    Assertions.assertTrue(releaseClose.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+                super.close();
+            }
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            fixture.start(executor, source);
+            Assertions.assertTrue(closing.await(5, TimeUnit.SECONDS));
+            UserException failure = Assertions.assertThrows(UserException.class,
+                    () -> fixture.assignment.getAssignedSplits(fixture.backend));
+            Assertions.assertSame(original, failure.getCause());
+            Assertions.assertFalse(fixture.assignment.getTerminationFuture().isDone());
+            releaseClose.countDown();
+            fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals(1, source.closeCalls.get());
+        } finally {
+            releaseClose.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void cancellationRacingSubmissionRemovesTheLateQueuedTask() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        CountDownLatch submitting = new CountDownLatch(1);
+        CountDownLatch admit = new CountDownLatch(1);
+        CountDownLatch releaseWorker = new CountDownLatch(1);
+        ThreadPoolExecutor enumeration = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(1)) {
+            @Override
+            public void execute(Runnable task) {
+                if (task instanceof SplitProducer) {
+                    submitting.countDown();
+                    try {
+                        Assertions.assertTrue(admit.await(5, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RejectedExecutionException(e);
+                    }
+                }
+                super.execute(task);
+            }
+        };
+        ExecutorService planner = Executors.newSingleThreadExecutor();
+        RecordingSource source = new RecordingSource(1, 0);
+        try {
+            enumeration.submit(() -> {
+                try {
+                    Assertions.assertTrue(releaseWorker.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            Future<?> submission = planner.submit(() -> fixture.start(enumeration, source));
+            Assertions.assertTrue(submitting.await(5, TimeUnit.SECONDS));
+            fixture.assignment.stop();
+            fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+            admit.countDown();
+            submission.get(5, TimeUnit.SECONDS);
+            Assertions.assertTrue(enumeration.getQueue().isEmpty(), "the stopped scan must not remain queued");
+            Assertions.assertEquals(1, source.closeCalls.get());
+        } finally {
+            admit.countDown();
+            releaseWorker.countDown();
+            planner.shutdownNow();
+            enumeration.shutdownNow();
+            Assertions.assertTrue(planner.awaitTermination(5, TimeUnit.SECONDS));
+            Assertions.assertTrue(enumeration.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void firstSplitDeadlineIncludesEnumerationExecutorQueueing() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        ManualExecutor enumeration = new ManualExecutor();
+        RecordingSource source = new RecordingSource(1, 0);
+        Mockito.doAnswer(call -> {
+            fixture.assignment.startEnumeration();
+            fixture.start(enumeration, source);
+            return null;
+        }).when(fixture.generator).startSplit(Mockito.anyInt());
+        UserException failure = Assertions.assertThrows(UserException.class, () -> fixture.assignment.init(50));
+        Assertions.assertTrue(failure.getMessage().contains("active_producers=1"), failure.getMessage());
+        Assertions.assertTrue(fixture.assignment.getTerminationFuture().isDone());
+        Assertions.assertEquals(1, source.closeCalls.get());
+        enumeration.runUntilIdle();
+        Assertions.assertEquals(1, source.closeCalls.get());
+    }
+
+    @Test
+    void queuedProducerClosesWithoutRunningTheEnumerationExecutor() throws Exception {
+        Fixture fixture = new Fixture(1, 1);
+        ManualExecutor enumeration = new ManualExecutor();
+        ManualExecutor cleanup = new ManualExecutor();
+        RecordingSource source = new RecordingSource(1, 0);
+        new SplitProducer(fixture.assignment, enumeration, source, failure -> {
+            Assertions.assertNull(failure);
+            fixture.completions.incrementAndGet();
+        }, cleanup).start();
+        fixture.assignment.stop();
+        Assertions.assertFalse(fixture.assignment.getTerminationFuture().isDone());
+        cleanup.runUntilIdle();
+        Assertions.assertEquals(1, source.closeCalls.get());
+        Assertions.assertEquals(1, fixture.completions.get());
+        Assertions.assertTrue(fixture.assignment.getTerminationFuture().isDone());
+        // The stale queued task must neither reopen the source nor complete it twice.
+        enumeration.runUntilIdle();
+        Assertions.assertEquals(1, source.closeCalls.get());
+        Assertions.assertEquals(1, fixture.completions.get());
+        Assertions.assertTrue(fixture.source().getNextBatch(1).isEmpty());
     }
 
     @Test
@@ -347,8 +739,58 @@ class SplitProducerTest {
             Assertions.assertTrue(reading.await(5, TimeUnit.SECONDS));
             fixture.assignment.stop();
             Assertions.assertEquals(0, source.closeCalls.get());
+            Assertions.assertFalse(fixture.assignment.getTerminationFuture().isDone());
             release.countDown();
+            fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
             Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, source.closeCalls.get());
+            Assertions.assertEquals(1, fixture.completions.get());
+            Mockito.verify(fixture.policy, Mockito.never()).computeScanRangeAssignment(Mockito.any());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    void readThatOutlivesItsStatementLoadsNothingIntoTheClosedScope() throws Exception {
+        // Stopping the scan only flags a producer that is already inside getNextBatch, and the statement then
+        // closes its connector scope. When that read goes on to resolve its table (Iceberg's streamSplits borrows
+        // one through the scope), the closed scope refuses it, so it borrows nothing that would never be returned.
+        // MUTATION: a scope that still loads after closeAll -> loads==1 -> red.
+        Fixture fixture = new Fixture(1, 1);
+        ConnectorStatementScopeImpl scope = new ConnectorStatementScopeImpl();
+        AtomicInteger loads = new AtomicInteger();
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        RecordingSource source = new RecordingSource(1, 0) {
+            @Override
+            public List<Split> getNextBatch() throws IOException {
+                reading.countDown();
+                try {
+                    Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException(e);
+                }
+                scope.computeIfAbsent("iceberg:table:1:db:tbl", () -> {
+                    loads.incrementAndGet();
+                    return (AutoCloseable) () -> { };
+                });
+                return super.getNextBatch();
+            }
+        };
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            fixture.start(executor, source);
+            Assertions.assertTrue(reading.await(5, TimeUnit.SECONDS));
+            fixture.assignment.stop();
+            scope.closeAll();
+            release.countDown();
+            fixture.assignment.getTerminationFuture().get(5, TimeUnit.SECONDS);
+            Assertions.assertTrue(source.closed.await(5, TimeUnit.SECONDS));
+            Assertions.assertEquals(0, loads.get(), "the closed scope refuses the late read's load");
             Assertions.assertEquals(1, source.closeCalls.get());
             Assertions.assertEquals(1, fixture.completions.get());
             Mockito.verify(fixture.policy, Mockito.never()).computeScanRangeAssignment(Mockito.any());
@@ -438,12 +880,12 @@ class SplitProducerTest {
                 if (beforeOffer) {
                     fixture.assignment.setException(expected);
                 }
-                boolean offered = (boolean) call.callRealMethod();
+                int accepted = (int) call.callRealMethod();
                 if (!beforeOffer) {
                     fixture.assignment.setException(expected);
                 }
-                return offered;
-            }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.any());
+                return accepted;
+            }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any());
             ManualExecutor executor = new ManualExecutor();
             RecordingSource source = new RecordingSource(1, 2);
             fixture.start(executor, source);
@@ -506,10 +948,10 @@ class SplitProducerTest {
         Fixture fixture = new Fixture(1, 100);
         fixture.assignment = Mockito.spy(fixture.assignment);
         Mockito.doAnswer(call -> {
-            boolean result = (boolean) call.callRealMethod();
+            int result = (int) call.callRealMethod();
             fixture.assignment.stop();
             return result;
-        }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.any());
+        }).when(fixture.assignment).offerBatch(Mockito.any(), Mockito.any(), Mockito.anyInt(), Mockito.any());
         ManualExecutor executor = new ManualExecutor();
         RecordingSource source = new RecordingSource(1, 0, 2, 4);
         fixture.start(executor, source);
@@ -637,7 +1079,7 @@ class SplitProducerTest {
                 }
                 completions.incrementAndGet();
                 assignment.finishSchedule();
-            }, nanoTime).start();
+            }, Runnable::run, nanoTime).start();
         }
 
         SplitSource source() {

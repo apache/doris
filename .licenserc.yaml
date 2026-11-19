@@ -83,6 +83,7 @@ header:
     - "fe/fe-connector/fe-connector-hive/src/main/resources/hms.conf.template"
     - "fe/fe-connector/fe-connector-iceberg/src/main/resources/iceberg.conf.template"
     - "fe/fe-connector/fe-connector-jdbc/src/main/resources/jdbc.conf.template"
+    - "fe/fe-connector/fe-connector-lance/src/main/resources/lance.conf.template"
     - "fe/fe-connector/fe-connector-paimon/src/main/resources/paimon.conf.template"
     - "fe/fe-connector/fe-connector-trino/src/main/resources/trino-connector.conf.template"
     # Golden 4.1.3 upgrade fixtures, emitted by Gen413Fixtures running real 4.1.3
@@ -96,6 +97,13 @@ header:
     - "fe/fe-core/src/test/resources/upgrade/413/labels.db.txt"
     - "fe/fe-core/src/test/resources/upgrade/413/labels.ds.txt"
     - "fe/fe-core/src/test/resources/upgrade/413/labels.tbl.txt"
+    # Same for the golden 4.1.5 (Lance catalog) fixtures emitted by Gen415Fixtures;
+    # upgrade/415/generator/Gen415Fixtures.java stays checked.
+    - "fe/fe-core/src/test/resources/upgrade/415/PROVENANCE.txt"
+    - "fe/fe-core/src/test/resources/upgrade/415/editlog.index"
+    - "fe/fe-core/src/test/resources/upgrade/415/labels.db.txt"
+    - "fe/fe-core/src/test/resources/upgrade/415/labels.ds.txt"
+    - "fe/fe-core/src/test/resources/upgrade/415/labels.tbl.txt"
     - "fe/fe-core/src/main/java/software/amazon/awssdk/core/client/builder/SdkDefaultClientBuilder.java"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaLexer.g4"
     - "fe/fe-core/src/main/antlr4/org/apache/doris/nereids/JavaParser.g4"

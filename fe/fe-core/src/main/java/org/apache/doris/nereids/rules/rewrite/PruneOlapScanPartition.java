@@ -237,7 +237,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
             if (!selectedPartitions.isEmpty() && !selectedPartitions.contains(partition.getId())) {
                 continue;
             }
-            MaterializedIndex baseIndex = partition.getBaseIndex();
+            MaterializedIndex baseIndex = table.getPartitionIndex(partition, table.getBaseIndexId());
             for (Tablet tablet : baseIndex.getTablets()) {
                 if (manuallySpecifiedTabletIds.contains(tablet.getId())) {
                     selectPartitionIds.add(partition.getId());

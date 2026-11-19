@@ -25,6 +25,8 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <set>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -42,6 +44,10 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 
+namespace doris::format::parquet {
+class ParquetFileCrypto;
+}
+
 namespace doris::io {
 struct IOContext;
 } // namespace doris::io
@@ -50,6 +56,31 @@ namespace doris::format::parquet::native {
 using ::doris::ColumnString;
 using segment_v2::RowRange;
 using segment_v2::RowRanges;
+
+struct ColumnReaderOptions {
+    size_t max_buf_size = 0;
+    const cctz::time_zone* timezone = nullptr;
+    std::optional<const cctz::time_zone*> int96_timezone_override = std::nullopt;
+    bool enable_page_cache = false;
+    std::string page_cache_file_key;
+    ParquetReaderCompat compat {};
+    bool enable_strict_mode = false;
+};
+
+// Shared by one recursive construction only. Referenced metadata/ranges must outlive the readers;
+// for example, row_ranges belongs to NativeColumnReader, never to this temporary context.
+struct ColumnReaderCreateContext {
+    io::FileReaderSPtr file;
+    const tparquet::RowGroup& row_group;
+    const RowRanges& row_ranges;
+    const std::unordered_map<int, tparquet::OffsetIndex>& col_offsets;
+    const std::set<uint64_t>& column_ids;
+    const std::set<uint64_t>& filter_column_ids;
+    int row_group_ordinal;
+    io::IOContext* io_ctx = nullptr;
+    ColumnReaderOptions options {};
+    const ParquetFileCrypto* file_crypto = nullptr;
+};
 
 #ifdef BE_TEST
 Status init_decode_context_for_test(const NativeFieldSchema& field, const cctz::time_zone* ctz,
@@ -244,16 +275,8 @@ public:
         return ResultError(Status::NotSupported("Parquet dictionary values are not supported"));
     }
 
-    static Status create(
-            io::FileReaderSPtr file, NativeFieldSchema* field, const tparquet::RowGroup& row_group,
-            const RowRanges& row_ranges, const cctz::time_zone* ctz, io::IOContext* io_ctx,
-            std::unique_ptr<ColumnReader>& reader, size_t max_buf_size,
-            const std::unordered_map<int, tparquet::OffsetIndex>& col_offsets, RuntimeState* state,
-            bool in_collection = false, const std::set<uint64_t>& column_ids = {},
-            const std::set<uint64_t>& filter_column_ids = {},
-            const std::string& page_cache_file_key = {}, const ParquetReaderCompat& compat = {},
-            bool enable_strict_mode = false,
-            std::optional<const cctz::time_zone*> int96_timezone_override = std::nullopt);
+    static Status create(const ColumnReaderCreateContext& context, NativeFieldSchema* field,
+                         bool in_collection, std::unique_ptr<ColumnReader>& reader);
     virtual const std::vector<level_t>& get_rep_level() const = 0;
     virtual const std::vector<level_t>& get_def_level() const = 0;
     virtual ColumnStatistics column_statistics() = 0;
@@ -268,6 +291,20 @@ public:
 
     NativeFieldSchema* get_field_schema() const { return _field_schema; }
     void set_column_in_nested() { _in_nested = true; }
+
+private:
+    static Status _create_array_reader(const ColumnReaderCreateContext& context,
+                                       NativeFieldSchema* field,
+                                       std::unique_ptr<ColumnReader>& reader);
+    static Status _create_map_reader(const ColumnReaderCreateContext& context,
+                                     NativeFieldSchema* field,
+                                     std::unique_ptr<ColumnReader>& reader);
+    static Status _create_struct_reader(const ColumnReaderCreateContext& context,
+                                        NativeFieldSchema* field, bool in_collection,
+                                        std::unique_ptr<ColumnReader>& reader);
+    static Status _create_scalar_reader(const ColumnReaderCreateContext& context,
+                                        NativeFieldSchema* field, bool in_collection,
+                                        std::unique_ptr<ColumnReader>& reader);
 
 protected:
     void _generate_read_ranges(RowRange page_row_range, RowRanges* result_ranges) const;
@@ -300,9 +337,9 @@ public:
               _chunk_meta(chunk_meta),
               _offset_index(offset_index) {}
     ~ScalarColumnReader() override { close(); }
-    Status init(io::FileReaderSPtr file, NativeFieldSchema* field, size_t max_buf_size,
-                RuntimeState* state, const std::string& page_cache_file_key,
-                const ParquetReaderCompat& compat, bool enable_strict_mode);
+    Status init(io::FileReaderSPtr file, NativeFieldSchema* field,
+                const ColumnReaderOptions& options,
+                std::shared_ptr<ParquetColumnCrypto> crypto = nullptr);
     Status read_column_data(ColumnPtr& doris_column, const DataTypePtr& type,
                             const std::shared_ptr<NativeSchemaNode>& root_node,
                             FilterMap& filter_map, size_t batch_size, size_t* read_rows, bool* eof,

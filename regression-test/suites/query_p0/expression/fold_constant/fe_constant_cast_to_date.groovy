@@ -110,7 +110,7 @@ suite("fe_constant_cast_to_date") {
     }
     test {
         sql """select cast("2024-05-01T00:00+14:30" as date)"""
-        exception "Time zone offset couldn't be larger than 14:00"
+        exception "date/datetime literal [2024-05-01T00:00:00+14:30] is invalid"
     }
     test {
         sql """select cast("2024-05-01T00:00+08:25" as date)"""

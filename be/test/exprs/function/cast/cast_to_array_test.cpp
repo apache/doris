@@ -219,7 +219,8 @@ TEST_F(FunctionCastTest, test_from_null_literal_array_to_nested_array) {
             {std::move(from_column), from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto* result_array =
             check_and_get_column<ColumnArray>(block.get_by_position(1).column.get());
@@ -265,7 +266,8 @@ TEST_F(FunctionCastTest, test_from_nested_null_literal_array_to_deeper_array) {
             {std::move(from_column), from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
     EXPECT_EQ(to_type->to_string(*block.get_by_position(1).column, 0), "[[null]]");
 }
 
@@ -284,7 +286,8 @@ TEST_F(FunctionCastTest, test_from_non_null_array_to_nested_array_is_rejected) {
             from,
             {nullptr, to_type, "to"},
     };
-    EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    EXPECT_FALSE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                    nullptr));
 }
 
 // Build a Nullable(Array(Nullable(ElementDataType))) column. A row marked as NULL by `null_map`
@@ -321,7 +324,8 @@ TEST_F(FunctionCastTest, test_cast_array_null_row_skips_hidden_payload) {
              from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(result.is_null_at(0));
@@ -351,7 +355,8 @@ TEST_F(FunctionCastTest, test_cast_nested_array_null_row_skips_hidden_payload) {
             {std::move(from_column), from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(result.is_null_at(0));
@@ -376,7 +381,8 @@ TEST_F(FunctionCastTest, test_cast_array_null_row_skips_hidden_string_payload) {
              from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(result.is_null_at(0));
@@ -400,7 +406,9 @@ TEST_F(FunctionCastTest, test_cast_array_visible_element_still_fails) {
              from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+    EXPECT_FALSE(
+            fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(), nullptr)
+                    .ok());
 }
 
 // Without strict mode the out of range element of a visible row becomes NULL, while the NULL row
@@ -420,7 +428,8 @@ TEST_F(FunctionCastTest, test_cast_array_non_strict_null_row) {
              from_type, "from"},
             {nullptr, to_type, "to"},
     };
-    ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+    ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                   nullptr));
 
     const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_TRUE(result.is_null_at(0));

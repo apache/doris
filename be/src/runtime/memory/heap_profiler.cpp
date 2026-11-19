@@ -65,14 +65,16 @@ bool HeapProfiler::get_prof_dump(const std::string& profile_file_name) {
 #endif
 }
 
-static std::string jeprof_profile_to_dot(const std::string& profile_file_name) {
+std::string HeapProfiler::jeprof_profile_to_dot(const std::string& profile_file_name) {
     AgentUtils util;
-    const static std::string jeprof_path = fmt::format("{}/bin/jeprof", std::getenv("DORIS_HOME"));
-    const static std::string binary_path =
-            fmt::format("{}/lib/doris_be", std::getenv("DORIS_HOME"));
+    const std::string jeprof_path = fmt::format("{}/bin/jeprof", std::getenv("DORIS_HOME"));
+    const std::string binary_path = fmt::format("{}/lib/doris_be", std::getenv("DORIS_HOME"));
     // https://doris.apache.org/community/developer-guide/debug-tool/#3-jeprof-parses-heap-profile
-    std::string jeprof_cmd =
-            fmt::format("{} --dot {} {}", jeprof_path, binary_path, profile_file_name);
+    // The configuration can contain shell syntax. Keep paths such as "log$(pwd)" literal.
+    // The -- separator also prevents a path from becoming a jeprof option.
+    std::string jeprof_cmd = fmt::format("{} --dot -- {} {}", AgentUtils::shell_quote(jeprof_path),
+                                         AgentUtils::shell_quote(binary_path),
+                                         AgentUtils::shell_quote(profile_file_name));
     std::string msg;
     bool rc = util.exec_cmd(jeprof_cmd, &msg);
     if (!rc) {
@@ -116,16 +118,22 @@ bool HeapProfiler::check_enable_heap_profiler() {
 }
 
 std::string HeapProfiler::dump_heap_profile() {
-    if (!config::jeprofile_dir.empty()) {
-        auto st = io::global_local_filesystem()->create_directory(config::jeprofile_dir);
+    std::string profile_dir;
+    {
+        // A configuration update can replace this string during a dump.
+        // Copy it under the update lock. Use the same directory for both file operations.
+        std::lock_guard<std::mutex> lock(*config::get_mutable_string_config_lock());
+        profile_dir = config::jeprofile_dir;
+    }
+    if (!profile_dir.empty()) {
+        auto st = io::global_local_filesystem()->create_directory(profile_dir);
         if (!st.ok()) {
             LOG(WARNING) << "create jeprofile dir failed.";
             return "";
         }
     }
-    std::string profile_file_name =
-            fmt::format("{}/jeheap_dump.{}.{}.{}.heap", config::jeprofile_dir, std::time(nullptr),
-                        getpid(), rand());
+    std::string profile_file_name = fmt::format("{}/jeheap_dump.{}.{}.{}.heap", profile_dir,
+                                                std::time(nullptr), getpid(), rand());
     if (get_prof_dump(profile_file_name)) {
         return profile_file_name;
     } else {

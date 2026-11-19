@@ -32,6 +32,7 @@ import org.apache.doris.planner.PlanShape;
 import org.apache.doris.planner.PlanShapeDsl;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.TableFunctionNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -74,7 +75,6 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         SessionVariable sv = connectContext.getSessionVariable();
         sv.setEnableLocalShufflePlanner(true);
         sv.setEnableLocalShuffle(true);
-        sv.setEnableNereidsDistributePlanner(true);
         sv.setEnableSqlCache(false);
         sv.setIgnoreStorageDataDistribution(true);
         sv.setPipelineTaskNum("4");
@@ -85,6 +85,9 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         sv.aggPhase = 0;
         sv.enableBroadcastJoinForcePassthrough = false;
         sv.enableShareHashTableForBroadcastJoin = true;
+        sv.enableLocalExchangeBeforeStreamingAgg = false;
+        sv.enableLocalExchangeBeforeAgg = true;
+        sv.disableStreamPreaggregations = false;
         if (tweaks != null) {
             tweaks.accept(sv);
         }
@@ -601,7 +604,8 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         // exchange (and thus a two-phase aggregation): the streaming partial agg lives
         // in the lower fragment, with an FE-inserted LE(LOCAL_HASH) below it.  The fix
         // makes that LE carry [k2] (the grouping key) rather than [k1] (the child
-        // table distribution).
+        // table distribution).  The pooling scan is serial, so the streaming agg keeps
+        // that LE even with enable_local_exchange_before_streaming_agg=false.
         setupLocalShuffleSession(null);
         assertPlanShape(
                 "select k2, count(*) from test.t1 group by k2",
@@ -632,10 +636,14 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
 
     @Test
     public void testSetOperationUnderAggHasHashShuffle() throws Exception {
-        // Non-pooling UNION ALL under an agg.  The outer agg's group key requires a
-        // LOCAL_EXECUTION_HASH_SHUFFLE directly above the UnionNode (above each
-        // branch's pre-agg).
-        setupLocalShuffleSession(sv -> sv.setIgnoreStorageDataDistribution(false));
+        // Non-pooling UNION ALL under the streaming preagg of a two-phase agg.  With
+        // enable_local_exchange_before_streaming_agg=true the preagg's group key requires a
+        // LOCAL_EXECUTION_HASH_SHUFFLE directly above the UnionNode (above each branch's
+        // pre-agg).
+        setupLocalShuffleSession(sv -> {
+            sv.setIgnoreStorageDataDistribution(false);
+            sv.enableLocalExchangeBeforeStreamingAgg = true;
+        });
         assertPlanShape(
                 "select k1, count(*) from (select k1 from test.t1 union all select k1 from test.t2) u group by k1",
                 anyTree(
@@ -644,6 +652,107 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
                                         union(
                                                 anyTree(olapScan()),
                                                 anyTree(olapScan()))))));
+    }
+
+    @Test
+    public void testSetOperationUnderStreamingAggKeepsUnionDistributionByDefault() throws Exception {
+        // Same plan with enable_local_exchange_before_streaming_agg=false (default).  BE
+        // StreamingAggOperatorX keeps the inherited distribution unless the child breaks the
+        // grouping-key distribution (#66222), and a union never does, so the FE planner must not
+        // put a local exchange between the streaming preagg and the UnionNode either.
+        setupLocalShuffleSession(sv -> sv.setIgnoreStorageDataDistribution(false));
+        assertPlanShape(
+                "select k1, count(*) from (select k1 from test.t1 union all select k1 from test.t2) u group by k1",
+                anyTree(
+                        agg(
+                                union(
+                                        anyTree(olapScan()),
+                                        anyTree(olapScan())))));
+    }
+
+    @Test
+    public void testStreamingAggHashShufflesAfterChildThatBreaksKeyDistribution() throws Exception {
+        // enable_local_exchange_before_streaming_agg=false (default) still hashes the streaming
+        // preagg's input by its grouping keys when the child spreads rows with a non-hash local
+        // exchange of its own, as BE child_breaks_local_key_distribution() decides: the
+        // ADAPTIVE_PASSTHROUGH probe side of a nested loop join, and the PASSTHROUGH input of a
+        // table function.  The scans are non-pooling so neither child is serial.
+        setupLocalShuffleSession(sv -> sv.setIgnoreStorageDataDistribution(false));
+        assertPlanShape(
+                "select t1.k2, count(*) from test.t1 join test.t2 on t1.v1 > t2.v2 group by t1.k2",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        nestedLoopJoin(
+                                                localExchange(ADAPTIVE_PT, olapScan()),
+                                                exchange())))));
+        assertPlanShape(
+                "select e, count(*) from test.t1 lateral view explode(array(k1, k2)) tmp as e group by e",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        node(TableFunctionNode.class,
+                                                localExchange(PT, olapScan("t1")))))));
+    }
+
+    @Test
+    public void testLocalPhaseAggHashShufflesAfterChildThatBreaksKeyDistribution() throws Exception {
+        // With enable_local_exchange_before_agg=false a LOCAL-phase AggSink (streaming preagg off)
+        // keeps the inherited distribution only while its child keeps the key distribution, as BE
+        // AggSinkOperatorX decides since #63766. After the ADAPTIVE_PASSTHROUGH probe side of a
+        // nested loop join, the PASSTHROUGH input of a table function, or a serial pooling scan it
+        // still hashes its input by the grouping keys.
+        setupLocalShuffleSession(sv -> {
+            sv.setIgnoreStorageDataDistribution(false);
+            sv.enableLocalExchangeBeforeAgg = false;
+            sv.disableStreamPreaggregations = true;
+        });
+        assertPlanShape(
+                "select t1.k2, count(*) from test.t1 join test.t2 on t1.v1 > t2.v2 group by t1.k2",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        nestedLoopJoin(
+                                                localExchange(ADAPTIVE_PT, olapScan()),
+                                                exchange())))));
+        assertPlanShape(
+                "select e, count(*) from test.t1 lateral view explode(array(k1, k2)) tmp as e group by e",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        node(TableFunctionNode.class,
+                                                localExchange(PT, olapScan("t1")))))));
+        setupLocalShuffleSession(sv -> {
+            sv.enableLocalExchangeBeforeAgg = false;
+            sv.disableStreamPreaggregations = true;
+        });
+        assertPlanShape(
+                "select k2, count(*) from test.t1 group by k2",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        localExchange(PT, olapScan("t1"))))));
+    }
+
+    @Test
+    public void testDistinctStreamingPreAggPassesThroughTableFunctionOutput() throws Exception {
+        // A GROUP BY without aggregate functions runs its LOCAL phase as a streaming distinct
+        // preagg. With enable_local_exchange_before_agg=false BE DistinctStreamingAggOperatorX
+        // still applies enable_distinct_streaming_agg_force_passthrough (default true) after a
+        // child that breaks the key distribution (#63766), so above a table function, whose
+        // output is NOOP, the FE planner adds the PASSTHROUGH local exchange it adds with the
+        // switch on.
+        setupLocalShuffleSession(sv -> {
+            sv.setIgnoreStorageDataDistribution(false);
+            sv.enableLocalExchangeBeforeAgg = false;
+        });
+        assertPlanShape(
+                "select e from test.t1 lateral view explode(array(k1, k2)) tmp as e group by e",
+                anyTree(
+                        agg(
+                                localExchange(PT,
+                                        node(TableFunctionNode.class,
+                                                localExchange(PT, olapScan("t1")))))));
     }
 
     @Test

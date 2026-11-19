@@ -54,10 +54,12 @@ class ThreadPool;
 struct StorePath;
 struct CachePath;
 namespace io {
+class FileRangeReadScheduler;
 class FDCache;
 class FileCacheFactory;
 class HdfsMgr;
 class PackedFileManager;
+class PartialBlockWritebackManager;
 } // namespace io
 
 namespace segment_v2 {
@@ -131,6 +133,7 @@ class LookupConnectionCache;
 class RowCache;
 class DummyLRUCache;
 class CacheManager;
+class LRUCachePolicy;
 class IdManager;
 class ProcessProfile;
 class HeapProfiler;
@@ -164,6 +167,8 @@ public:
 
     // Stop all threads and delete resources.
     void destroy();
+    void init_fluss_union_tail_cache();
+    void destroy_fluss_union_tail_cache();
 
     /// Returns the first created exec env instance. In a normal doris, this is
     /// the only instance. In test setups with multiple ExecEnv's per process,
@@ -200,6 +205,10 @@ public:
     ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
+    // Only for the FE calls that cancel an Arrow Flight query, see ArrowFlightBatchReaderBase.
+    ClientCache<FrontendServiceClient>* flight_cancel_frontend_client_cache() {
+        return _flight_cancel_frontend_client_cache;
+    }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
     WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
@@ -253,7 +262,9 @@ public:
     std::shared_ptr<MemTrackerLimiter> subcolumns_tree_tracker() {
         return _subcolumns_tree_tracker;
     }
-    std::shared_ptr<MemTrackerLimiter> s3_file_buffer_tracker() { return _s3_file_buffer_tracker; }
+    std::shared_ptr<MemTrackerLimiter> obj_storage_buffer_tracker() {
+        return _obj_storage_buffer_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> parquet_meta_tracker() { return _parquet_meta_tracker; }
 
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
@@ -261,12 +272,20 @@ public:
         return _buffered_reader_prefetch_thread_pool.get();
     }
     ThreadPool* send_table_stats_thread_pool() { return _send_table_stats_thread_pool.get(); }
-    ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
+    ThreadPool* obj_storage_upload_thread_pool() { return _obj_storage_upload_thread_pool.get(); }
     ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
     ThreadPool* non_block_close_thread_pool();
-    ThreadPool* s3_file_system_thread_pool() { return _s3_file_system_thread_pool.get(); }
+    ThreadPool* obj_storage_file_system_thread_pool() {
+        return _obj_storage_file_system_thread_pool.get();
+    }
     ThreadPool* udf_close_workers_pool() { return _udf_close_workers_thread_pool.get(); }
     ThreadPool* segment_prefetch_thread_pool() { return _segment_prefetch_thread_pool.get(); }
+    io::FileRangeReadScheduler* file_range_read_scheduler() {
+        return _file_range_read_scheduler.get();
+    }
+    io::PartialBlockWritebackManager* partial_block_writeback_manager() {
+        return _partial_block_writeback_manager.get();
+    }
     ThreadPool* peer_race_s3_thread_pool() { return _peer_race_s3_thread_pool.get(); }
 
     void init_file_cache_factory(std::vector<doris::CachePath>& cache_paths);
@@ -369,7 +388,7 @@ public:
     // Defined out of line: assigning the unique_ptr destroys the old pointee,
     // which would require ThreadPool to be complete here.
     void set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool);
-    void set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool);
+    void set_obj_storage_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool);
     void set_file_cache_factory(io::FileCacheFactory* factory) { _file_cache_factory = factory; }
     // Defined out of line: assigning the unique_ptr destroys the old pointee,
     // which would require io::FDCache to be complete here.
@@ -402,6 +421,7 @@ public:
     LookupConnectionCache* get_lookup_connection_cache() { return _lookup_connection_cache; }
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
+    LRUCachePolicy* get_fluss_union_tail_cache() { return _fluss_union_tail_cache; }
     IdManager* get_id_manager() { return _id_manager; }
     ProcessProfile* get_process_profile() { return _process_profile; }
     HeapProfiler* get_heap_profiler() { return _heap_profiler; }
@@ -464,6 +484,7 @@ private:
     ResultQueueMgr* _result_queue_mgr = nullptr;
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
+    ClientCache<FrontendServiceClient>* _flight_cancel_frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
 
     // The default tracker consumed by mem hook. If the thread does not attach other trackers,
@@ -489,7 +510,7 @@ private:
     // TODO, looking forward to more accurate tracking.
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
     std::shared_ptr<MemTrackerLimiter> _subcolumns_tree_tracker;
-    std::shared_ptr<MemTrackerLimiter> _s3_file_buffer_tracker;
+    std::shared_ptr<MemTrackerLimiter> _obj_storage_buffer_tracker;
 
     // Tracking memory consumption of parquet meta
     std::shared_ptr<MemTrackerLimiter> _parquet_meta_tracker;
@@ -500,16 +521,18 @@ private:
     // Threadpool used to send TableStats to FE
     std::unique_ptr<ThreadPool> _send_table_stats_thread_pool;
     // Threadpool used to upload local file to s3
-    std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
+    std::unique_ptr<ThreadPool> _obj_storage_upload_thread_pool;
     // Pool used by join node to build hash table
     // Pool to use a new thread to release object
     std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
     std::unique_ptr<ThreadPool> _non_block_close_thread_pool;
-    std::unique_ptr<ThreadPool> _s3_file_system_thread_pool;
+    std::unique_ptr<ThreadPool> _obj_storage_file_system_thread_pool;
     // for java-udf to close
     std::unique_ptr<ThreadPool> _udf_close_workers_thread_pool;
     // Threadpool used to prefetch segment file cache blocks
     std::unique_ptr<ThreadPool> _segment_prefetch_thread_pool;
+    std::unique_ptr<io::FileRangeReadScheduler> _file_range_read_scheduler;
+    std::unique_ptr<io::PartialBlockWritebackManager> _partial_block_writeback_manager;
     std::unique_ptr<ThreadPool> _peer_race_s3_thread_pool;
 
     FragmentMgr* _fragment_mgr = nullptr;
@@ -596,6 +619,7 @@ private:
     io::PackedFileManager* _packed_file_manager = nullptr;
     S3RateLimiterHolder* _warmup_download_rate_limiter = nullptr;
     std::unique_ptr<MSRpcRateLimitServices> _ms_rpc_rate_limit_services;
+    LRUCachePolicy* _fluss_union_tail_cache = nullptr;
 };
 
 template <>

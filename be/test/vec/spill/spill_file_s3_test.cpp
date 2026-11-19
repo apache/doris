@@ -16,7 +16,7 @@
 // under the License.
 
 // Tests spill on object storage (spill_storage_type=s3) against an in-memory
-// ObjStorageClient injected through S3ClientFactory. Covers the write/read round trip,
+// ObjStorageClient injected through ObjStorageClientFactory. Covers the write/read round trip,
 // cleanup (file gc and its retry), the capacity limit, upload back pressure and request
 // statistics.
 
@@ -45,16 +45,19 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
 #include "exec/operator/spill_counters.h"
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
+#include "exec/spill/spill_s3_file_reader.h"
+#include "exec/spill/spill_s3_file_writer.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
@@ -69,7 +72,6 @@
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uid_util.h"
@@ -404,18 +406,18 @@ public:
     static void SetUpTestSuite() {
         _mock_client = std::make_shared<MockObjStorageClient>(&mock_store());
         std::shared_ptr<io::ObjStorageClient> client = _mock_client;
-        S3ClientFactory::instance().set_client_creator_for_test(
-                [client](const S3ClientConf&) { return client; });
+        ObjStorageClientFactory::instance().set_client_creator_for_test(
+                [client](const ObjStorageClientConfig&) { return client; });
 
         auto* exec_env = ExecEnv::GetInstance();
-        if (exec_env->s3_file_upload_thread_pool() == nullptr) {
+        if (exec_env->obj_storage_upload_thread_pool() == nullptr) {
             std::unique_ptr<ThreadPool> pool;
             ASSERT_TRUE(ThreadPoolBuilder("s3_upload_file_thread_pool")
                                 .set_min_threads(4)
                                 .set_max_threads(8)
                                 .build(&pool)
                                 .ok());
-            exec_env->set_s3_file_upload_thread_pool(std::move(pool));
+            exec_env->set_obj_storage_upload_thread_pool(std::move(pool));
             _owned_upload_pool = true;
         }
         if (exec_env->non_block_close_thread_pool() == nullptr) {
@@ -429,26 +431,26 @@ public:
             _owned_close_pool = true;
         }
 
-        S3Conf s3_conf;
-        s3_conf.bucket = kBucket;
-        s3_conf.prefix = kVaultPrefix;
-        s3_conf.client_conf.ak = "ak";
-        s3_conf.client_conf.sk = "sk";
-        s3_conf.client_conf.endpoint = "http://spill-mock-endpoint";
-        s3_conf.client_conf.region = "region";
-        s3_conf.client_conf.bucket = kBucket;
-        auto fs_or = io::S3FileSystem::create(s3_conf, "spill_s3_test_vault");
+        ObjStorageResourceConfig s3_conf {
+                .bucket = kBucket,
+                .prefix = kVaultPrefix,
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = "http://spill-mock-endpoint"},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                    .secret_key = "sk"}},
+                        .region = "region"}};
+        auto fs_or = io::ObjStorageFileSystem::create(s3_conf, "spill_s3_test_vault");
         ASSERT_TRUE(fs_or.has_value()) << fs_or.error();
         _s3_fs = fs_or.value();
     }
 
     static void TearDownTestSuite() {
         _s3_fs.reset();
-        S3ClientFactory::instance().clear_client_creator_for_test();
+        ObjStorageClientFactory::instance().clear_client_creator_for_test();
         _mock_client.reset();
         auto* exec_env = ExecEnv::GetInstance();
         if (_owned_upload_pool) {
-            exec_env->set_s3_file_upload_thread_pool(nullptr);
+            exec_env->set_obj_storage_upload_thread_pool(nullptr);
         }
         if (_owned_close_pool) {
             exec_env->set_non_block_close_thread_pool(nullptr);
@@ -464,6 +466,7 @@ protected:
         _saved_inflight = config::spill_s3_max_inflight_upload_bytes;
         _saved_check_after_upload = config::enable_s3_object_check_after_upload;
         _saved_read_coalesce = config::spill_s3_read_coalesce_bytes;
+        _saved_enable_file_cache = config::enable_file_cache;
         // The manager talks to meta-service through the cloud storage engine only in cloud
         // mode; there is no engine in this test, so pin the mode regardless of earlier tests.
         _saved_deploy_mode = config::deploy_mode;
@@ -477,6 +480,8 @@ protected:
         config::s3_write_buffer_size = 8 * 1024;
         config::spill_file_part_size_bytes = 32 * 1024;
         config::spill_storage_limit_bytes = 0;
+        // The mock S3 fixture has no FileCacheFactory; S3 spill explicitly bypasses file cache.
+        config::enable_file_cache = false;
 
         _runtime_state = std::make_unique<MockRuntimeState>();
         _profile = std::make_unique<RuntimeProfile>("test");
@@ -513,6 +518,7 @@ protected:
         config::spill_s3_max_inflight_upload_bytes = _saved_inflight;
         config::enable_s3_object_check_after_upload = _saved_check_after_upload;
         config::spill_s3_read_coalesce_bytes = _saved_read_coalesce;
+        config::enable_file_cache = _saved_enable_file_cache;
         config::deploy_mode = _saved_deploy_mode;
         config::cloud_unique_id = _saved_cloud_unique_id;
         BackendOptions::set_localhost(_saved_localhost);
@@ -642,7 +648,7 @@ protected:
 
     // Wait until no upload is queued or running.
     static void _wait_uploads_idle() {
-        auto* pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+        auto* pool = ExecEnv::GetInstance()->obj_storage_upload_thread_pool();
         for (int i = 0; i < 500 && (pool->get_queue_size() > 0 || pool->num_active_threads() > 0);
              ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -776,7 +782,7 @@ protected:
     }
 
     static inline std::shared_ptr<MockObjStorageClient> _mock_client;
-    static inline std::shared_ptr<io::S3FileSystem> _s3_fs;
+    static inline std::shared_ptr<io::ObjStorageFileSystem> _s3_fs;
     static inline bool _owned_upload_pool = false;
     static inline bool _owned_close_pool = false;
 
@@ -793,10 +799,66 @@ protected:
     int64_t _saved_inflight = 0;
     bool _saved_check_after_upload = true;
     int64_t _saved_read_coalesce = 0;
+    bool _saved_enable_file_cache = true;
     std::string _saved_deploy_mode;
     std::string _saved_cloud_unique_id;
     std::string _saved_localhost;
 };
+
+TEST_F(SpillFileS3Test, WriterFactoryUsesS3Subclass) {
+    _create_manager();
+    SpillFileSPtr spill_file;
+    ASSERT_TRUE(_manager->create_spill_file("query_factory/sort-1", spill_file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    ASSERT_NE(dynamic_cast<SpillS3FileWriter*>(writer.get()), nullptr);
+    ASSERT_TRUE(writer->close().ok());
+    writer.reset();
+    spill_file.reset();
+}
+
+TEST_F(SpillFileS3Test, ReaderFactoryUsesS3Subclass) {
+    _create_manager();
+    Status st;
+    auto spill_file = _write_blocks("query_reader_factory/sort-1", {}, &st);
+    ASSERT_TRUE(st.ok()) << st;
+    auto reader = spill_file->create_reader(_runtime_state.get(), _profile.get());
+    ASSERT_NE(dynamic_cast<SpillS3FileReader*>(reader.get()), nullptr);
+    ASSERT_TRUE(reader->open().ok());
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(reader->read(&block, &eos).ok());
+    ASSERT_TRUE(eos);
+    ASSERT_TRUE(reader->close().ok());
+    ASSERT_EQ(mock_store().get_requests, 0);
+    ASSERT_EQ(_counter(profile::SPILL_REMOTE_READ_REQUESTS), 0);
+}
+
+TEST_F(SpillFileS3Test, ImplicitClosePreservesRemoteAccounting) {
+    _create_manager();
+    SpillFileSPtr spill_file;
+    ASSERT_TRUE(_manager->create_spill_file("query_implicit/sort-1", spill_file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(spill_file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    std::mt19937 rng(42);
+    auto block = _random_string_block(rng, 8, 100);
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), block).ok());
+
+    // Destruction must dispatch the S3 footer, upload and accounting hooks before the
+    // base destructor runs; no explicit close is issued here.
+    writer.reset();
+    ASSERT_TRUE(spill_file->ready_for_reading());
+    const auto object_bytes =
+            static_cast<int64_t>(_object(spill_root() + "/query_implicit/sort-1/0").size());
+    ASSERT_GT(object_bytes, 0);
+    ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES), object_bytes);
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), object_bytes);
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), object_bytes);
+    ASSERT_EQ(_read_all(spill_file), _column_values(block));
+    spill_file.reset();
+    ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
+    ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
+}
 
 TEST_F(SpillFileS3Test, RemoteStoreLayout) {
     _create_manager();
@@ -817,15 +879,15 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
 // newest one. A configured ID always wins.
 TEST_F(SpillFileS3Test, SelectVaultFileSystem) {
     auto make_fs = [](const std::string& id) {
-        S3Conf conf;
-        conf.bucket = kBucket;
-        conf.prefix = "vault_" + id;
-        conf.client_conf.ak = "ak";
-        conf.client_conf.sk = "sk";
-        conf.client_conf.endpoint = "http://spill-mock-endpoint";
-        conf.client_conf.region = "region";
-        conf.client_conf.bucket = kBucket;
-        auto fs = io::S3FileSystem::create(conf, id);
+        ObjStorageResourceConfig conf {
+                .bucket = kBucket,
+                .prefix = "vault_" + id,
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = "http://spill-mock-endpoint"},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                    .secret_key = "sk"}},
+                        .region = "region"}};
+        auto fs = io::ObjStorageFileSystem::create(conf, id);
         EXPECT_TRUE(fs.has_value()) << fs.error();
         return io::RemoteFileSystemSPtr(fs.value());
     };
@@ -867,15 +929,15 @@ TEST_F(SpillFileS3Test, VaultChangeKeepsExistingFilesAndPendingDeletesPinned) {
     ASSERT_TRUE(status.ok()) << status;
     const auto first_values = _read_all(first);
 
-    S3Conf second_conf;
-    second_conf.bucket = kBucket;
-    second_conf.prefix = "spill_s3_second_vault";
-    second_conf.client_conf.ak = "ak";
-    second_conf.client_conf.sk = "sk";
-    second_conf.client_conf.endpoint = "http://spill-mock-endpoint";
-    second_conf.client_conf.region = "region";
-    second_conf.client_conf.bucket = kBucket;
-    auto second_fs_or = io::S3FileSystem::create(second_conf, "spill_s3_second_vault");
+    ObjStorageResourceConfig second_conf {
+            .bucket = kBucket,
+            .prefix = "spill_s3_second_vault",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "http://spill-mock-endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                .secret_key = "sk"}},
+                    .region = "region"}};
+    auto second_fs_or = io::ObjStorageFileSystem::create(second_conf, "spill_s3_second_vault");
     ASSERT_TRUE(second_fs_or.has_value()) << second_fs_or.error();
     _data_dir->init_remote_fs(second_fs_or.value(), kEndpoint);
 
@@ -1423,6 +1485,39 @@ TEST_F(SpillFileS3Test, ReadCoalescesAdjacentBlocks) {
     }
 }
 
+TEST_F(SpillFileS3Test, ReadCoalesceClampedBySpillBufferSize) {
+    constexpr int64_t kWindow = 1024 * 1024;
+    config::spill_file_part_size_bytes = 8 * kWindow;
+    config::spill_s3_read_coalesce_bytes = 8 * kWindow;
+    auto query_options = _runtime_state->query_options();
+    query_options.__set_spill_buffer_size_bytes(kWindow);
+    _runtime_state->set_query_options(query_options);
+    _create_manager();
+    std::mt19937 rng(61);
+    std::vector<Block> blocks;
+    for (int i = 0; i < 8; ++i) {
+        blocks.push_back(_random_string_block(rng, 256, 1024));
+    }
+    Status st;
+    auto spill_file = _write_blocks("query_read_buffer_limit/sort-1", blocks, &st);
+    ASSERT_TRUE(st.ok()) << st;
+    auto keys = mock_store().keys_with_prefix(kBucket, spill_root() + "/query_read_buffer_limit/");
+    ASSERT_EQ(keys.size(), 1);
+    const std::string object = _object(keys[0]);
+    ASSERT_GT(object.size(), kWindow);
+    const auto offsets = _block_offsets(object);
+    std::vector<size_t> expected_gets {64 * 1024};
+    auto reads = _coalesced_reads(offsets, kWindow);
+    expected_gets.insert(expected_gets.end(), reads.begin(), reads.end());
+
+    _reset_get_stats();
+    ASSERT_EQ(_read_all(spill_file), _values_of(blocks));
+    ASSERT_EQ(_get_sizes(), expected_gets);
+    ASSERT_EQ(_counter(profile::SPILL_REMOTE_READ_REQUESTS), expected_gets.size());
+    auto* io_ctx = _runtime_state->get_query_ctx()->resource_ctx()->io_context();
+    ASSERT_EQ(io_ctx->spill_read_bytes_from_local_storage(), 0);
+}
+
 // A read size smaller than the block offset array: the probe reads only its tail and one
 // more GET fetches the rest of the footer, then every block is read alone.
 TEST_F(SpillFileS3Test, FooterLargerThanProbe) {
@@ -1666,7 +1761,7 @@ TEST_F(SpillFileS3Test, UploadQueueBoundsWriter) {
     config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    auto* upload_pool = ExecEnv::GetInstance()->obj_storage_upload_thread_pool();
 
     std::mt19937 rng(11);
     std::vector<Block> blocks;
@@ -1821,7 +1916,7 @@ TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
     config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    auto* upload_pool = ExecEnv::GetInstance()->obj_storage_upload_thread_pool();
 
     std::mt19937 rng(13);
     std::vector<Block> blocks;
@@ -2116,7 +2211,7 @@ TEST_F(SpillFileS3Test, LateUploadFailureDrainsPart) {
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
-// CreateMultipartUpload fails after the first buffer filled. S3FileWriter keeps that full buffer
+// CreateMultipartUpload fails after the first buffer filled. ObjStorageFileWriter keeps that full buffer
 // without counting it, so another append (the footer of close()) would overflow it: the part
 // must refuse every append after a failed one, and no upload may be issued.
 TEST_F(SpillFileS3Test, CreateMultipartFailureIsSafe) {

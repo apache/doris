@@ -32,6 +32,7 @@ import org.apache.iceberg.encryption.EncryptionManager;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
+import org.apache.iceberg.rest.DorisRESTSessionCatalog;
 import org.apache.iceberg.transforms.Transforms;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.TypeUtil;
@@ -253,7 +254,8 @@ public final class IcebergNestedColumnEvolution {
     }
 
     private static boolean isRestTableOperations(TableOperations operations) {
-        return "RESTTableOperations".equalsIgnoreCase(operations.getClass().getSimpleName());
+        return DorisRESTSessionCatalog.isRestTableOperations(operations)
+                || "RESTTableOperations".equalsIgnoreCase(operations.getClass().getSimpleName());
     }
 
     private static void validateNotUsedByRetainedPartitionSpec(

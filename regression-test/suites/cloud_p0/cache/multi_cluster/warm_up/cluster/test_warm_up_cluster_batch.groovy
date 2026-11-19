@@ -211,11 +211,16 @@ suite("test_warm_up_cluster_batch", "nonConcurrent") {
                 }
                 int batch = (round + 1) / 2
                 def hotspotBeforeQueries = getHotspotCounts()
-                // One real scan per table is enough to advance the hotspot counters for this batch.
-                tableNames.each { tableName ->
-                    def result = sql(dataQueries[tableName])
-                    assertTrue(!result.isEmpty() && result[0].every { it != null },
-                            "Data query should read nonempty ${tableName}")
+                // After its first report, BE reports a partition again only when its queries per
+                // day grew by at least 5 or its last access moved by at least 60 seconds since that
+                // report (get_return_partitions() in cloud_tablet_hotspot.cpp). Each scan adds one,
+                // and batches can be less than 60 seconds apart, so scan each table 5 times.
+                for (int i = 0; i < 5; i++) {
+                    tableNames.each { tableName ->
+                        def result = sql(dataQueries[tableName])
+                        assertTrue(!result.isEmpty() && result[0].every { it != null },
+                                "Data query should read nonempty ${tableName}")
+                    }
                 }
                 // Require hotspot counters for these new table/partition IDs to advance beyond
                 // the pre-query snapshot, without assuming identical FE and BE timestamps.

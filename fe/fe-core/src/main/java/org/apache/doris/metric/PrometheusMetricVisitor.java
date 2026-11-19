@@ -118,11 +118,11 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         sb.append(Joiner.on(" ").join(TYPE, JVM_GC, "gauge\n"));
         for (GarbageCollector gc : jvmStats.getGc()) {
             sb.append(JVM_GC).append("{");
-            sb.append("name=\"").append(gc.getName()).append(" Count").append("\", ").append("type=\"count\"} ")
-                    .append(gc.getCollectionCount()).append("\n");
+            sb.append("name=\"").append(escapeLabelValue(gc.getName())).append(" Count").append("\", ")
+                    .append("type=\"count\"} ").append(gc.getCollectionCount()).append("\n");
             sb.append(JVM_GC).append("{");
-            sb.append("name=\"").append(gc.getName()).append(" Time").append("\", ").append("type=\"time\"} ")
-                    .append(gc.getCollectionTime().getMillis()).append("\n");
+            sb.append("name=\"").append(escapeLabelValue(gc.getName())).append(" Time").append("\", ")
+                    .append("type=\"time\"} ").append(gc.getCollectionTime().getMillis()).append("\n");
         }
 
         // threads
@@ -164,7 +164,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         List<MetricLabel> labels = metric.getLabels();
         if (!labels.isEmpty()) {
             sb.append("{");
-            List<String> labelStrs = labels.stream().map(l -> l.getKey() + "=\"" + l.getValue()
+            List<String> labelStrs = labels.stream().map(l -> l.getKey() + "=\"" + escapeLabelValue(l.getValue())
                     + "\"").collect(Collectors.toList());
             sb.append(Joiner.on(", ").join(labelStrs));
             sb.append("}");
@@ -184,7 +184,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             if (kv.length == 1) {
                 names.add(kv[0]);
             } else if (kv.length == 2) {
-                tags.add(String.format("%s=\"%s\"", kv[0], kv[1]));
+                tags.add(String.format("%s=\"%s\"", kv[0], escapeLabelValue(kv[1])));
             }
         }
         final String fullName = prefix + String.join("_", names);
@@ -195,7 +195,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     public void visitHistogram(String prefix, String name, Histogram histogram, List<MetricLabel> labels) {
         final String fullName = prefix + name.replace('.', '_');
         List<String> tags = labels.stream()
-                .map(l -> l.getKey() + "=\"" + l.getValue() + "\"")
+                .map(l -> l.getKey() + "=\"" + escapeLabelValue(l.getValue()) + "\"")
                 .collect(Collectors.toList());
         appendHistogram(fullName, histogram, tags);
     }
@@ -264,34 +264,36 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         Collection<OlapTable.Statistics> values = tabletStatMgr.getCloudTableStats();
         long totalTableSize = tabletStatMgr.getTotalTableSize();
         for (OlapTable.Statistics stats : values) {
+            String dbName = escapeLabelValue(stats.getDbName());
+            String tableName = escapeLabelValue(stats.getTableName());
             dataSizeBuilder.append("doris_fe_table_data_size{db_name=\"");
-            dataSizeBuilder.append(stats.getDbName());
+            dataSizeBuilder.append(dbName);
             dataSizeBuilder.append("\", table_name=\"");
-            dataSizeBuilder.append(stats.getTableName());
+            dataSizeBuilder.append(tableName);
             dataSizeBuilder.append("\"} ");
             dataSizeBuilder.append(stats.getDataSize());
             dataSizeBuilder.append("\n");
 
             rowsetCountBuilder.append("doris_fe_table_rowset_count{db_name=\"");
-            rowsetCountBuilder.append(stats.getDbName());
+            rowsetCountBuilder.append(dbName);
             rowsetCountBuilder.append("\", table_name=\"");
-            rowsetCountBuilder.append(stats.getTableName());
+            rowsetCountBuilder.append(tableName);
             rowsetCountBuilder.append("\"} ");
             rowsetCountBuilder.append(stats.getRowsetCount());
             rowsetCountBuilder.append("\n");
 
             segmentCountBuilder.append("doris_fe_table_segment_count{db_name=\"");
-            segmentCountBuilder.append(stats.getDbName());
+            segmentCountBuilder.append(dbName);
             segmentCountBuilder.append("\", table_name=\"");
-            segmentCountBuilder.append(stats.getTableName());
+            segmentCountBuilder.append(tableName);
             segmentCountBuilder.append("\"} ");
             segmentCountBuilder.append(stats.getSegmentCount());
             segmentCountBuilder.append("\n");
 
             tableRowCountBuilder.append("doris_fe_table_row_count{db_name=\"");
-            tableRowCountBuilder.append(stats.getDbName());
+            tableRowCountBuilder.append(dbName);
             tableRowCountBuilder.append("\", table_name=\"");
-            tableRowCountBuilder.append(stats.getTableName());
+            tableRowCountBuilder.append(tableName);
             tableRowCountBuilder.append("\"} ");
             tableRowCountBuilder.append(stats.getRowCount());
             tableRowCountBuilder.append("\n");
@@ -351,7 +353,7 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             Map<String, List<String>> workloadGroupMap = Env.getCurrentEnv().getWorkloadGroupMgr()
                     .getWorkloadGroupQueryDetail();
             for (Map.Entry<String, List<String>> entry : workloadGroupMap.entrySet()) {
-                String name = entry.getKey();
+                String name = escapeLabelValue(entry.getKey());
                 List<String> valList = entry.getValue();
                 tmpSb.append(String.format("%s{name=\"%s\", type=\"%s\"} %s\n", counterTitle, name, "running_query_num",
                         valList.get(0)));
@@ -362,5 +364,12 @@ public class PrometheusMetricVisitor extends MetricVisitor {
         } catch (Exception e) {
             logger.warn("error happends when get workload group query detail ", e);
         }
+    }
+
+    // The text format requires a backslash, a double quote and a line feed in a label value to be escaped,
+    // and names such as a table name may contain any of them. A label value may be null (a table warm-up job
+    // has no source cluster), which is written as null, as the concatenation without escaping wrote it.
+    private static String escapeLabelValue(String value) {
+        return String.valueOf(value).replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
     }
 }

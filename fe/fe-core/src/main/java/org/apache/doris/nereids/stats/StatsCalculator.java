@@ -150,6 +150,7 @@ import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.model.StatisticsBuilder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -381,14 +382,21 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
-     * returns the sum of deltaRowCount for all selected partitions or for the table.
+     * The rows loaded into the base index which the collected column statistics don't describe yet, i.e. the
+     * population {@link FilterEstimation#estimate} retries a zero estimate with. It is deliberately not
+     * restricted to an index which keeps one row per base row: such an index must not add the delta to its own
+     * row count ({@link TableStatsMeta#getRowCountWithDeltaRows} gates that), but stale column statistics
+     * affect every index in the same way, and for an index which aggregates the rows the delta is an upper
+     * bound of the rows it gained.
      */
-    private long computeDeltaRowCount(OlapScan olapScan) {
+    @VisibleForTesting
+    long computeDeltaRowCount(OlapScan olapScan) {
+        OlapTable olapTable = olapScan.getTable();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapScan.getTable().getId());
+        TableStatsMeta tableMeta = analysisManager.findTableStatsStatus(olapTable.getId());
         long deltaRowCount = 0;
         if (tableMeta != null) {
-            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapScan.getTable());
+            deltaRowCount = tableMeta.getBaseIndexDeltaRowCount(olapTable);
         }
         return deltaRowCount;
     }
@@ -471,7 +479,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             rowCount = olapTable.getRowCountForIndex(olapScan.getSelectedIndexId(), true);
             if (rowCount == -1) {
                 if (tableMeta != null) {
-                    rowCount = tableMeta.getRowCount(olapScan.getSelectedIndexId()) + computeDeltaRowCount(olapScan);
+                    // The collected row count and the rows loaded since it was collected are read as one
+                    // snapshot.
+                    rowCount = tableMeta.getRowCountWithDeltaRows(olapTable, olapScan.getSelectedIndexId());
                 }
             }
         }

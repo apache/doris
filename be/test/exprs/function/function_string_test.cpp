@@ -2979,8 +2979,8 @@ TEST(function_string_test, function_translate_mixed_const_map_test) {
         FunctionUtils function_utils(type, {type, type, type}, false);
         auto* context = function_utils.get_fn_ctx();
         context->set_constant_cols(
-                {nullptr, std::make_shared<ColumnPtrWrapper>(block.get_by_position(1).column),
-                 std::make_shared<ColumnPtrWrapper>(block.get_by_position(2).column)});
+                {nullptr, std::make_shared<ConstantExprResult>(block.get_by_position(1).column),
+                 std::make_shared<ConstantExprResult>(block.get_by_position(2).column)});
         ASSERT_TRUE(
                 function->open(context, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
         ASSERT_TRUE(

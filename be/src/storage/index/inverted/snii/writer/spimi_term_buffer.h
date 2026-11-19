@@ -287,8 +287,9 @@ private:
     // Reports the signed change in REAL resident bytes (resident_bytes()) to
     // mem_reporter_ since the previous call, then caches the new total.
     // Single-source diff: every grow/reset/free emits EXACTLY ONE delta
-    // (self-balancing -> impossible to double-count or miss a negative). No-op when
-    // mem_reporter_ is null.
+    // (self-balancing -> impossible to double-count or miss a negative). An attached
+    // global limiter is told only when the arena or the resident total moved enough
+    // to change its decision (see the definition). No-op when both are null.
     void report_arena_delta();
     Status merge_runs_streamed(const StreamedTermConsumer& fn);
     Status prepare_run_merge();
@@ -389,6 +390,10 @@ private:
     // doubles as the buffer's registry identity.
     GlobalMemoryLimiter* global_limiter_ = nullptr;
     std::atomic<bool> global_spill_requested_ {false};
+    // The arena size and resident total of the limiter's last decision;
+    // report_arena_delta() stays off the registry mutex until one of them moves.
+    uint64_t reported_arena_ = 0;
+    int64_t decided_resident_ = 0;
     // Forced-spill floor / run-file cap (see the public setters above).
     uint64_t forced_spill_min_arena_bytes_ = kDefaultForcedSpillMinArenaBytes;
     size_t max_run_files_ = kDefaultMaxRunFilesPerBuffer;

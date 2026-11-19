@@ -1339,6 +1339,74 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathNtileBucketCountsAcrossSpilledBatches)
     check_ntile_bucket_counts_across_batches(true);
 }
 
+// The multiple Block/partition assertions form one scenario; gtest macros inflate complexity.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(AnalyticSinkOperatorTest, NonSpillNtileKeepsOneBucketPerFunctionAcrossBlocksAndPruning) {
+    Initialize(3);
+    state->_query_options.__set_enable_spill(false);
+    const auto type = std::make_shared<DataTypeInt64>();
+    create_operator(true, 2, "ntile", {type}, type);
+    sink->_agg_functions.resize(2);
+    sink->_num_agg_input = {1, 1};
+    sink->_offsets_of_aggregate_states.resize(2);
+    sink->_change_to_nullable_flags.resize(2, false);
+    sink->_agg_expr_ctxs.resize(2);
+    for (size_t i = 0; i < 2; ++i) {
+        auto* fn = create_agg_fn(pool, "ntile", {type}, type, false, true);
+        sink->_agg_functions[i] = fn;
+        sink->_offsets_of_aggregate_states[i] = i * fn->size_of_data();
+        sink->_total_size_of_aggregate_states = 2 * fn->size_of_data();
+        sink->_align_aggregate_states = fn->align_of_data();
+        sink->_agg_expr_ctxs[i] = {MockLiteral::create_const<DataTypeInt64>(i + 2, 1)};
+    }
+    sink->_partition_by_eq_expr_ctxs = MockSlotRef::create_mock_contexts(0, type);
+    TAnalyticWindow window;
+    window.type = TAnalyticWindowType::ROWS;
+    TAnalyticWindowBoundary window_end;
+    window_end.type = TAnalyticWindowBoundaryType::CURRENT_ROW;
+    window.__set_window_end(window_end);
+    create_window_type(false, true, window);
+    sink->_enable_spill_analytic = false;
+    create_local_state();
+
+    Block empty;
+    ASSERT_TRUE(sink->sink(state.get(), &empty, false).ok());
+    for (size_t i = 0; i < 2; ++i) {
+        EXPECT_EQ(sink_local_state->_agg_input_columns[i][0]->size(), 0);
+    }
+
+    // The first partition spans Blocks; later partitions allow the old rows to be pruned.
+    const std::vector<std::vector<int64_t>> keys_by_block {
+            {1, 1, 1}, {1, 2, 2}, {3, 3, 3}, {4, 4, 4}, {5, 5, 5}};
+    for (size_t block_index = 0; block_index < keys_by_block.size(); ++block_index) {
+        Block input = ColumnHelper::create_block<DataTypeInt64>(keys_by_block[block_index]);
+        const auto status =
+                sink->sink(state.get(), &input, block_index + 1 == keys_by_block.size());
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        for (size_t i = 0; i < 2; ++i) {
+            ASSERT_EQ(sink_local_state->_agg_input_columns[i][0]->size(), 1);
+            EXPECT_EQ(sink_local_state->_agg_input_columns[i][0]->get_int(0), i + 2);
+        }
+    }
+    EXPECT_GT(sink_local_state->_have_removed_rows, 0);
+
+    MutableBlock actual;
+    Block output;
+    bool eos = false;
+    while (!eos) {
+        const auto status = source->get_block(state.get(), &output, &eos);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        ASSERT_TRUE(actual.merge(output).ok());
+    }
+    auto expected = ColumnHelper::create_block<DataTypeInt64>(
+            {1, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5},
+            {1, 1, 2, 2, 1, 2, 1, 1, 2, 1, 1, 2, 1, 1, 2});
+    expected.insert({ColumnHelper::create_column<DataTypeInt64>(
+                             {1, 1, 2, 3, 1, 2, 1, 2, 3, 1, 2, 3, 1, 2, 3}),
+                     type, "three_bucket_result"});
+    EXPECT_TRUE(ColumnHelper::block_equal(actual.to_block(), expected));
+}
+
 TEST_F(AnalyticSinkOperatorTest, SpillNtileBucketCountStorageDoesNotGrowWithPartitions) {
     Initialize(65535);
     std::vector<int64_t> bucket_counts(32);

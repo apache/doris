@@ -188,6 +188,19 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * The columns BE materializes from each range instead of reading them, when the provider can name them
+     * without building its scan-node properties. The engine asks while it initializes the scan node, before
+     * it has attached the filter, so a provider whose properties depend on the filter (and cost something to
+     * build) avoids building them for nothing. Must agree with the
+     * {@link ScanNodePropertyKeys#PATH_PARTITION_KEYS} it returns later.
+     *
+     * @return the columns, or empty (the default) to have the engine read them from the properties
+     */
+    default Optional<List<String>> getPathPartitionKeys(ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
      * Plans the scan described by {@code request}, returning the ranges that cover the requested data.
      *
      * <p>This is the one method a scanning connector must implement. Everything the engine can tell it about
@@ -220,6 +233,29 @@ public interface ConnectorScanPlanProvider {
      */
     default boolean supportsBatchScan(ConnectorSession session, ConnectorTableHandle handle) {
         return false;
+    }
+
+    /**
+     * Number of partitions assigned to one split-production batch. The batch-mode threshold and
+     * the amount of work in a batch serve different purposes: the former selects the asynchronous
+     * path, while this size bounds each connector request. Connectors with cheap, incremental
+     * partition resolution may choose a smaller size than the legacy read-session batch.
+     */
+    default int partitionBatchSize(ConnectorSession session, int partitionCount, int parallelism) {
+        return 1024;
+    }
+
+    /**
+     * Optionally opens cooperating sources for the complete pruned partition set in {@code request}.
+     * A connector can batch metadata independently of directory work and share the results between
+     * sources. No remote I/O may run here. Each source has one serial reader, may report an asynchronous
+     * dependency through {@link ConnectorSplitSource#isBlocked()}, and must release its shared resources
+     * when all sources close or the scan is cancelled. The engine owns admission and backpressure.
+     * Empty means to use the engine's ordinary partition-batch sources.
+     */
+    default Optional<List<ConnectorSplitSource>> streamPartitionSources(ConnectorSession session,
+            ConnectorScanRequest request, int partitionsPerTask, int maxSources) {
+        return Optional.empty();
     }
 
     /**

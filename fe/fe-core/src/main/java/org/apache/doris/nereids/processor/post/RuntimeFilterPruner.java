@@ -202,7 +202,8 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
 
     @Override
     public PhysicalFilter visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
-        filter.child().accept(this, context);
+        // Hidden predicates do not add selectivity, but must preserve the child's effective source.
+        propagateEffectiveSrc(filter, context);
 
         boolean visibleFilter = false;
 
@@ -255,21 +256,21 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
 
     /**
      * Visit child and propagate effective source type if applicable.
-     * Shared by visitPhysicalHashAggregate.
+     * Shared by visitPhysicalFilter and visitPhysicalHashAggregate.
      *
      * Note: agg is not regarded as an effective source itself. For example:
      * q1: A join (select x, sum(y) as z from B group by x) T on A.a = T.x
      * q2: A join (select x, sum(y) as z from B group by x) T on A.a = T.z
      * RF on q1 is not effective, but RF on q2 is. Let RF judge by ndv.
      */
-    private <T extends Plan> T propagateEffectiveSrc(T aggregate, CascadesContext context) {
+    private <T extends Plan> T propagateEffectiveSrc(T plan, CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        aggregate.child(0).accept(this, context);
-        if (ctx.isEffectiveSrcNode(aggregate.child(0))) {
-            RuntimeFilterContext.EffectiveSrcType childType = ctx.getEffectiveSrcType(aggregate.child(0));
-            ctx.addEffectiveSrcNode(aggregate, childType);
+        plan.child(0).accept(this, context);
+        if (ctx.isEffectiveSrcNode(plan.child(0))) {
+            RuntimeFilterContext.EffectiveSrcType childType = ctx.getEffectiveSrcType(plan.child(0));
+            ctx.addEffectiveSrcNode(plan, childType);
         }
-        return aggregate;
+        return plan;
     }
 
     /**

@@ -269,6 +269,22 @@ class S3CompatibleFileSystemTest {
         Assertions.assertEquals(2, storage.pagesServed);
     }
 
+    @Test
+    void cancellationInsideMarkerPaginationPreventsTheNextRequest() throws IOException {
+        PagingObjStorage storage = new PagingObjStorage(List.of(
+                new RemoteObjects(List.of(remoteObject("data/a/")), true, "t1"),
+                new RemoteObjects(List.of(remoteObject("data/file.csv")), false, null)));
+        try (FileIterator iterator = new TestFileSystem(storage).list(Location.of("s3://bucket/data"))
+                .withCancellationCheck(() -> {
+                    if (storage.pagesServed == 1) {
+                        throw new java.util.concurrent.CancellationException("scan stopped");
+                    }
+                })) {
+            Assertions.assertThrows(java.util.concurrent.CancellationException.class, iterator::hasNext);
+        }
+        Assertions.assertEquals(1, storage.pagesServed);
+    }
+
     private static RemoteObject remoteObject(String key) {
         return new RemoteObject(key, key, "etag", key.endsWith("/") ? 0 : 10, 1234567890L);
     }
