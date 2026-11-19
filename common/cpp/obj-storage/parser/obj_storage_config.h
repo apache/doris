@@ -23,6 +23,7 @@
 #include <string_view>
 #include <variant>
 
+#include "cpp/obj-storage/auth/azure/azure_auth.h"
 #include "cpp/obj-storage/client/obj_storage_client.h"
 
 namespace doris {
@@ -110,7 +111,7 @@ using GcpObjStorageAuthConfig = std::variant<AnonymousObjStorageAuth, GcpHmacObj
 
 struct AzureObjStorageAuthConfig {
     std::string account_name;
-    std::string account_key;
+    AzureAuthConfig credential {};
     bool operator==(const AzureObjStorageAuthConfig&) const = default;
 };
 

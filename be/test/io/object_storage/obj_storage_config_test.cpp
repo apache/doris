@@ -56,7 +56,7 @@ TEST(ObjStorageConfigTest, CredentialChangesPreserveTarget) {
 TEST(ObjStorageConfigTest, ResourceFieldsDoNotChangeClientIdentity) {
     AzureObjStorageConfig azure;
     azure.connection.endpoint = "https://account.blob.core.windows.net";
-    azure.auth = {"account", "key"};
+    azure.auth = {"account", AzureSharedKeyConfig {"key"}};
     ObjStorageResourceConfig first {.bucket = "container-1", .prefix = "/root/", .client = azure};
     auto second = first;
     second.bucket = "container-2";
@@ -221,7 +221,7 @@ TEST(ObjStorageConfigTest, ExplicitPropertyProviderPreservesGcpAndAzureAuthentic
     ASSERT_TRUE(std::holds_alternative<AzureObjStorageConfig>(azure_resource.client));
     const auto& azure = std::get<AzureObjStorageConfig>(azure_resource.client);
     EXPECT_EQ(azure.auth.account_name, "account");
-    EXPECT_EQ(azure.auth.account_key, "key");
+    EXPECT_EQ(std::get<AzureSharedKeyConfig>(azure.auth.credential).account_key, "key");
     EXPECT_FALSE(azure.validate());
 }
 
@@ -891,7 +891,7 @@ TEST(ObjStorageConfigTest, AzurePreservesLegacyPoolSizePropertyParsing) {
 TEST(ObjStorageConfigTest, AzureTypedConfigStillRejectsPoolSize) {
     AzureObjStorageConfig config {
             .connection = {.endpoint = "https://account.blob.core.windows.net"},
-            .auth = {.account_name = "account", .account_key = "key"}};
+            .auth = {.account_name = "account", .credential = AzureSharedKeyConfig {"key"}}};
     EXPECT_FALSE(config.validate());
     config.connection.max_connections = 100;
     auto error = config.validate();

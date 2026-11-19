@@ -306,10 +306,10 @@ TEST(S3AccessorLocationTest, location_distinguishes_provider_credentials) {
     EXPECT_NE(hmac, location(gcp));
 
     AzureObjStorageConfig azure;
-    azure.auth = {.account_name = "account1", .account_key = "secret1"};
+    azure.auth = {.account_name = "account1", .credential = AzureSharedKeyConfig {"secret1"}};
     auto account1 = location(azure);
     EXPECT_EQ(account1.find("secret1"), std::string::npos);
-    azure.auth.account_key = "secret2";
+    azure.auth.credential = AzureSharedKeyConfig {"secret2"};
     EXPECT_EQ(account1, location(azure));
     azure.auth.account_name = "account2";
     EXPECT_NE(account1, location(azure));
