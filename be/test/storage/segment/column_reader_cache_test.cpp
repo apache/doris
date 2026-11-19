@@ -301,14 +301,16 @@ TEST_F(ColumnReaderCacheTest, IndexExceptionsInvalidateReader) {
             }
             throw std::bad_alloc();
         };
-        EXPECT_ANY_THROW(failed->_ordinal_index->_load_once.call(throw_failure));
+        EXPECT_ANY_THROW(static_cast<void>(failed->_ordinal_index->_load_once.call(throw_failure)));
         ColumnIteratorOptions options;
         options.stats = &_stats;
         if (doris_exception) {
-            EXPECT_THROW(failed->_load_ordinal_index(false, false, options), doris::Exception);
+            EXPECT_THROW(static_cast<void>(failed->_load_ordinal_index(false, false, options)),
+                         doris::Exception);
             EXPECT_TRUE(failed->healthy_status().is<ErrorCode::MEM_LIMIT_EXCEEDED>());
         } else {
-            EXPECT_THROW(failed->_load_ordinal_index(false, false, options), std::bad_alloc);
+            EXPECT_THROW(static_cast<void>(failed->_load_ordinal_index(false, false, options)),
+                         std::bad_alloc);
             EXPECT_TRUE(failed->healthy_status().is<ErrorCode::INTERNAL_ERROR>());
         }
         EXPECT_TRUE(_cache->get_available_readers(false).empty());
@@ -507,15 +509,21 @@ TEST_F(ColumnReaderCacheTest, ConcurrentReplacementsKeepOneCacheEntry) {
             // All callers have missed before any publishes a replacement.
             ready.arrive_and_wait();
             readers[i] = _cache->_insert_direct({1, {}}, candidate);
+            EXPECT_EQ(readers[i], candidate);
         });
     }
     for (auto& thread : threads) {
         thread.join();
     }
-    ASSERT_NE(readers[0], failed);
+    auto cached = _cache->_lookup({1, {}});
+    ASSERT_NE(cached, nullptr);
+    bool cached_is_candidate = false;
     for (const auto& reader : readers) {
-        EXPECT_EQ(reader, readers[0]);
+        EXPECT_NE(reader, failed);
+        EXPECT_TRUE(reader->healthy_status().ok());
+        cached_is_candidate |= (cached == reader);
     }
+    EXPECT_TRUE(cached_is_candidate);
     EXPECT_EQ(_cache->_lru_list.size(), 1);
     EXPECT_EQ(_cache->_cache_map.size(), 1);
 }
