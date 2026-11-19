@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -216,8 +217,13 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
         analyzedRecursiveChild = new LogicalRecursiveUnionProducer<>(aliasQuery.getAlias(),
                 forceOutputNullable(analyzedRecursiveChild, ImmutableList.of()));
 
-        // create LogicalRecursiveUnion
         LogicalUnion logicalUnion = (LogicalUnion) parsedCtePlan;
+        // The recursive UNION is replaced after its terms are analyzed separately, so
+        // the regular set-operation check never sees these deduplication keys.
+        if (logicalUnion.getQualifier() != Qualifier.ALL) {
+            anchorChildOutputs.forEach(CheckAnalysis::checkSpatialGroupingType);
+        }
+
         ImmutableList.Builder<NamedExpression> newOutputs = ImmutableList
                 .builderWithExpectedSize(anchorChildOutputs.size());
         for (Slot slot : anchorChildOutputs) {

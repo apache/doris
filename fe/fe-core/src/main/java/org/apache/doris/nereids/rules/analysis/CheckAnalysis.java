@@ -302,7 +302,7 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         }
     }
 
-    private void checkSpatialGroupingType(Expression expression) {
+    static void checkSpatialGroupingType(Expression expression) {
         if (expression.getDataType().toCatalogDataType().typeContainsSpatialType()) {
             throw new AnalysisException("GROUP BY and DISTINCT do not support spatial keys: " + expression.toSql());
         }
