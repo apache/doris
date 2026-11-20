@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -63,9 +64,17 @@ public class ShowCatalogRecycleBinCommand extends ShowCommand {
             .add("RemoteDataSize")
             .build();
 
+    private static final String NAME = "name";
+    private static final String TYPE = "type";
+    private static final String DB_ID = "dbid";
+    private static final String TABLE_ID = "tableid";
+
     private Expression whereClause;
     private String nameValue;
     private boolean isAccurateMatch;
+    private String typeValue;
+    private String dbIdValue;
+    private String tableIdValue;
 
     /**
      * constructor
@@ -98,59 +107,153 @@ public class ShowCatalogRecycleBinCommand extends ShowCommand {
 
         if (!analyzeWhereClause()) {
             throw new AnalysisException("Where clause should like: Name = \"name\", "
-                    + " or Name LIKE \"matcher\"");
+                    + "or Name LIKE \"matcher\", or Type = \"Database|Table|Partition\", "
+                    + "or DbId = \"db_id\", or TableId = \"table_id\", "
+                    + "or compound predicate with operator AND. "
+                    + "Duplicate filters on the same column are not allowed.");
         }
     }
 
     private boolean analyzeWhereClause() {
         if (whereClause == null) {
             return true;
-        } else if (whereClause instanceof EqualTo) {
-            EqualTo equalTo = (EqualTo) whereClause;
-            if (equalTo.left() instanceof UnboundSlot
-                    && equalTo.child(0).toSql().toLowerCase(Locale.ROOT).equals("name")
-                    && equalTo.right() instanceof Literal) {
-                nameValue = ((Literal) equalTo.right()).getStringValue();
-            } else {
-                return false;
-            }
-            isAccurateMatch = true;
-        } else if (whereClause instanceof Like) {
-            Like like = (Like) whereClause;
-            if (like.left() instanceof UnboundSlot
-                    && like.child(0).toSql().toLowerCase(Locale.ROOT).equals("name")
-                    && like.right() instanceof Literal) {
-                nameValue = ((Literal) like.right()).getStringValue();
-            } else {
-                return false;
-            }
-        } else {
-            return false;
         }
-        return !Strings.isNullOrEmpty(nameValue);
+        List<Expression> andExprs = ExpressionUtils.extractConjunction(whereClause);
+        for (Expression expr : andExprs) {
+            if (!analyzeSinglePredicate(expr)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean analyzeSinglePredicate(Expression expr) {
+        if (expr instanceof EqualTo) {
+            EqualTo equalTo = (EqualTo) expr;
+            if (!(equalTo.left() instanceof UnboundSlot) || !(equalTo.right() instanceof Literal)) {
+                return false;
+            }
+            String colName = equalTo.child(0).toSql().toLowerCase(Locale.ROOT);
+            String value = ((Literal) equalTo.right()).getStringValue();
+            if (Strings.isNullOrEmpty(value)) {
+                return false;
+            }
+            boolean isDuplicateFilter = false;
+            switch (colName) {
+                case NAME:
+                    if (nameValue != null) {
+                        isDuplicateFilter = true;
+                    } else {
+                        nameValue = value;
+                        isAccurateMatch = true;
+                    }
+                    break;
+                case TYPE:
+                    if (typeValue != null) {
+                        isDuplicateFilter = true;
+                    } else {
+                        typeValue = value;
+                    }
+                    break;
+                case DB_ID:
+                    if (dbIdValue != null) {
+                        isDuplicateFilter = true;
+                    } else {
+                        dbIdValue = value;
+                    }
+                    break;
+                case TABLE_ID:
+                    if (tableIdValue != null) {
+                        isDuplicateFilter = true;
+                    } else {
+                        tableIdValue = value;
+                    }
+                    break;
+                default:
+                    return false;
+            }
+            if (isDuplicateFilter) {
+                return false;
+            }
+            return true;
+        } else if (expr instanceof Like) {
+            Like like = (Like) expr;
+            if (!(like.left() instanceof UnboundSlot) || !(like.right() instanceof Literal)) {
+                return false;
+            }
+            String colName = like.child(0).toSql().toLowerCase(Locale.ROOT);
+            if (!colName.equals(NAME)) {
+                return false;
+            }
+            String value = ((Literal) like.right()).getStringValue();
+            if (Strings.isNullOrEmpty(value)) {
+                return false;
+            }
+            if (nameValue != null) {
+                if (!nameValue.equals(value)) {
+                    return false;
+                }
+            } else {
+                nameValue = value;
+                isAccurateMatch = false;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private Predicate<List<String>> getRowPredicate() throws AnalysisException {
+        Predicate<String> namePredicate = getNamePredicate();
+        Predicate<String> typePredicate = getTypePredicate();
+        Predicate<String> dbIdPredicate = getDbIdPredicate();
+        Predicate<String> tableIdPredicate = getTableIdPredicate();
+        return row -> namePredicate.test(row.get(1))
+                && typePredicate.test(row.get(0))
+                && dbIdPredicate.test(row.get(2))
+                && tableIdPredicate.test(row.get(3));
     }
 
     private Predicate<String> getNamePredicate() throws AnalysisException {
-        if (whereClause == null) {
+        if (nameValue == null) {
             return name -> true;
         }
         if (isAccurateMatch) {
             return CaseSensibility.PARTITION.getCaseSensibility()
                     ? name -> name.equals(nameValue)
                     : name -> name.equalsIgnoreCase(nameValue);
-        } else {
-            PatternMatcher patternMatcher = PatternMatcherWrapper.createMysqlPattern(
-                    nameValue, CaseSensibility.PARTITION.getCaseSensibility());
-            return patternMatcher::match;
         }
+        PatternMatcher patternMatcher = PatternMatcherWrapper.createMysqlPattern(
+                nameValue, CaseSensibility.PARTITION.getCaseSensibility());
+        return patternMatcher::match;
+    }
+
+    private Predicate<String> getTypePredicate() {
+        if (typeValue == null) {
+            return type -> true;
+        }
+        return type -> type.equalsIgnoreCase(typeValue);
+    }
+
+    private Predicate<String> getDbIdPredicate() {
+        if (dbIdValue == null) {
+            return dbId -> true;
+        }
+        return dbId -> dbId.equals(dbIdValue);
+    }
+
+    private Predicate<String> getTableIdPredicate() {
+        if (tableIdValue == null) {
+            return tableId -> true;
+        }
+        return tableId -> tableId.equals(tableIdValue);
     }
 
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
-        Predicate<String> predicate = getNamePredicate();
+        Predicate<List<String>> predicate = getRowPredicate();
         List<List<String>> infos = Env.getCurrentRecycleBin().getInfo().stream()
-                .filter(i -> predicate.test(i.get(1)))
+                .filter(predicate)
                 .collect(Collectors.toList());
         return new ShowResultSet(getMetaData(), infos);
     }
