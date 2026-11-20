@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -73,7 +74,7 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
 
     @Test
     public void testWriteOutFile() throws Exception {
-        String sql = "select * from T1 join T2 on T1.id = T2.id into outfile 'file://~/result.csv'\n"
+        String sql = "select * from T1 join T2 on T1.id = T2.id into outfile 'hdfs://nn/results/output_'\n"
                 + " format as csv\n"
                 + " properties (\n"
                 + "    \"column_separator\" = \",\",\n"
@@ -83,6 +84,36 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                 + ")";
         Assertions.assertTrue(getOutputFragment(sql).getExplainString(TExplainLevel.BRIEF)
                 .contains("FILE SINK"));
+    }
+
+    @Test
+    public void testLocalOutfileRequiresEnabledSetting() throws Exception {
+        String stmt = "select * from T1 into outfile 'file:///tmp/result_' format as parquet "
+                + "properties ('enable_int96_timestamps'='false', 'file_suffix'='test.parquet')";
+        boolean previous = Config.enable_outfile_to_local;
+        try {
+            Config.enable_outfile_to_local = false;
+            Exception disabled = Assertions.assertThrows(Exception.class, () -> getOutputFragment(stmt));
+            Assertions.assertTrue(disabled.getMessage().contains("enable_outfile_to_local"), disabled.getMessage());
+            Config.enable_outfile_to_local = true;
+            TResultFileSinkOptions options = getFileSinkOptions(stmt);
+            Assertions.assertEquals("/tmp/result_", options.getFilePath());
+            Assertions.assertEquals("test.parquet", options.getFileSuffix());
+            Exception mismatch = Assertions.assertThrows(Exception.class, () -> getOutputFragment(
+                    "select * from T1 into outfile 'file:///tmp/result_' properties ('broker.name'='broker')"));
+            Assertions.assertTrue(mismatch.getMessage().contains("Unsupported local OUTFILE properties"),
+                    mismatch.getMessage());
+        } finally {
+            Config.enable_outfile_to_local = previous;
+        }
+    }
+
+    @Test
+    public void testFileSuffixIsANameComponent() {
+        Exception error = Assertions.assertThrows(Exception.class, () -> getOutputFragment(
+                "select * from T1 into outfile 'hdfs://nn/results/output_' properties "
+                        + "('hadoop.username'='doris', 'file_suffix'='data/part')"));
+        Assertions.assertTrue(error.getMessage().contains("file_suffix"), error.getMessage());
     }
 
     @Test

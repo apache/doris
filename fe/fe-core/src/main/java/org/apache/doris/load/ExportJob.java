@@ -81,6 +81,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Data
@@ -179,6 +180,7 @@ public class ExportJob implements Writable {
     private boolean isReplayed = false;
 
     private SessionVariable sessionVariables;
+    private Set<String> authenticatedRoles = Set.of();
 
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();

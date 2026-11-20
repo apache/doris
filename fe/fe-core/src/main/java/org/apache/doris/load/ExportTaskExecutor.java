@@ -199,6 +199,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(exportJob.getTableName().getDb());
         connectContext.setCurrentUserIdentity(exportJob.getUserIdentity());
+        connectContext.setAuthenticatedRoles(exportJob.getAuthenticatedRoles());
         UUID uuid = UUID.randomUUID();
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         connectContext.setQueryId(queryId);

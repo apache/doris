@@ -143,10 +143,6 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
                     tableNameInfo.getDb() + ": " + tableNameInfo.getTbl());
         }
 
-        if (!Config.enable_outfile_to_local && path.startsWith(OutFileClause.LOCAL_FILE_PREFIX)) {
-            throw new AnalysisException("`enable_outfile_to_local` = false, exporting file to local fs is disabled.");
-        }
-
         // check phases
         checkAllParameters(ctx, tableNameInfo, fileProperties);
 
@@ -278,7 +274,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         exportJob.setWhereStr(this.expr.isPresent() ? this.expr.get().toSql() : "");
         // set path
         try {
-            exportJob.setExportPath(this.brokerDesc.get().getFileLocationForExport(this.path));
+            exportJob.setExportPath(this.brokerDesc.get().getFileLocationForExport(this.path, ctx));
         } catch (RuntimeException e) {
             throw new AnalysisException("Invalid export path: " + this.path + ", " + e.getMessage(), e);
         }
@@ -356,6 +352,7 @@ public class ExportCommand extends Command implements NeedAuditEncryption, Forwa
         // set sessions
         exportJob.setQualifiedUser(ctx.getQualifiedUser());
         exportJob.setUserIdentity(ctx.getCurrentUserIdentity());
+        exportJob.setAuthenticatedRoles(ctx.getAuthenticatedRoles());
 
         // set data consistency
         if (fileProperties.containsKey(DATA_CONSISTENCY)) {
