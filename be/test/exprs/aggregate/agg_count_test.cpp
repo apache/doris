@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/agg_function_test.h"
 
@@ -29,6 +30,26 @@ TEST_F(AggregateFunctionCountTest, test_int64) {
                std::make_shared<DataTypeInt64>());
 
     execute(Block({ColumnHelper::create_column_with_name<DataTypeInt64>({1, 2, 3})}),
+            ColumnHelper::create_column_with_name<DataTypeInt64>({3}));
+}
+
+TEST_F(AggregateFunctionCountTest, test_nullable_int64_without_null) {
+    create_agg("count", false,
+               {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())},
+               std::make_shared<DataTypeInt64>());
+
+    execute(Block({ColumnHelper::create_nullable_column_with_name<DataTypeInt64>({1, 2, 3, 4},
+                                                                                 {0, 0, 0, 0})}),
+            ColumnHelper::create_column_with_name<DataTypeInt64>({4}));
+}
+
+TEST_F(AggregateFunctionCountTest, test_nullable_int64_with_null) {
+    create_agg("count", false,
+               {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())},
+               std::make_shared<DataTypeInt64>());
+
+    execute(Block({ColumnHelper::create_nullable_column_with_name<DataTypeInt64>({1, 2, 3, 4, 5},
+                                                                                 {0, 1, 0, 1, 0})}),
             ColumnHelper::create_column_with_name<DataTypeInt64>({3}));
 }
 } // namespace doris
