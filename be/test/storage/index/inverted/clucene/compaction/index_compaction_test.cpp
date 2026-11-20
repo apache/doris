@@ -582,6 +582,15 @@ protected:
         EXPECT_TRUE(_tablet->init().ok());
     }
 
+    static void _check_wiki_native_columns(const RowsetWriterContext& ctx) {
+        // Phrase-enabled analyzed columns and untokenized columns merge natively.
+        // The phrase-disabled groups (5-8, 13-16, 21-24, 29-32) rebuild their norms.
+        // Selection precedes row filtering, so this also holds when every row is deleted.
+        const std::set<int32_t> native_columns = {0,  1,  2,  3,  4,  9,  10, 11, 12, 17, 18,
+                                                  19, 20, 25, 26, 27, 28, 33, 34, 35, 36};
+        EXPECT_EQ(ctx.columns_to_do_index_compaction, native_columns);
+    }
+
     void _run_normal_wiki_test(bool with_delete = false, const std::string& delete_pred = "",
                                int64_t max_rows_per_segment = 100000,
                                int output_rowset_segment_number = 1) {
@@ -632,11 +641,7 @@ protected:
                 EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
                           _tablet_schema->num_columns());
             }
-            // Phrase-enabled analyzed columns and untokenized columns merge natively.
-            // The phrase-disabled groups (5-8, 13-16, 21-24, 29-32) rebuild their norms.
-            const std::set<int32_t> native_columns = {0,  1,  2,  3,  4,  9,  10, 11, 12, 17, 18,
-                                                      19, 20, 25, 26, 27, 28, 33, 34, 35, 36};
-            EXPECT_EQ(ctx.columns_to_do_index_compaction, native_columns);
+            _check_wiki_native_columns(ctx);
             EXPECT_EQ(compaction._output_rowset->num_segments(), output_rowset_segment_number)
                     << compaction._output_rowset->num_segments();
         };
@@ -1558,11 +1563,7 @@ TEST_F(IndexCompactionTest, tes_wikipedia_dup_v2_with_total_delete) {
                                      const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
                   _tablet_schema->num_columns());
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == _tablet_schema->num_columns());
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(0));
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(3));
+        _check_wiki_native_columns(ctx);
         EXPECT_TRUE(compaction._output_rowset->num_segments() == 0);
     };
 
@@ -1631,11 +1632,7 @@ TEST_F(IndexCompactionTest, tes_wikipedia_mow_v2_with_total_delete) {
                                      const RowsetWriterContext& ctx) {
         EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
                   _tablet_schema->num_columns() - 1);
-        EXPECT_EQ(ctx.columns_to_do_index_compaction.size(), _tablet_schema->num_columns() - 1);
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(0));
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(3));
+        _check_wiki_native_columns(ctx);
         EXPECT_TRUE(compaction._output_rowset->num_segments() == 0);
     };
 
