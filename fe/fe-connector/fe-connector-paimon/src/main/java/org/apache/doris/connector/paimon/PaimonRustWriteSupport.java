@@ -38,7 +38,7 @@ public final class PaimonRustWriteSupport {
 
     public static boolean isSupported(FileStoreTable table, List<String> columns,
             Map<String, String> storageOptions) {
-        return !unsupportedReason(table, columns, storageOptions).isPresent();
+        return unsupportedReason(table, columns, storageOptions).isEmpty();
     }
 
     public static Optional<String> unsupportedReason(FileStoreTable table, List<String> columns,
