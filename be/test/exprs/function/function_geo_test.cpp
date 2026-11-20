@@ -3983,6 +3983,40 @@ TEST(VGeoFunctionsTest, function_geo_st_contains_const_polygon_across_blocks) {
     EXPECT_EQ((RowResults {1, 0}), runner.run(small_polygon, points));
 }
 
+static void expect_constant_geography_polygon_point_relations(
+        size_t constant_arg, const std::string& polygon,
+        const std::vector<std::optional<std::string>>& points) {
+    SCOPED_TRACE(constant_arg);
+    const size_t count = points.size();
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    const RowResults exterior(count, 0);
+    ConstShapeRunner runner("st_intersects", constant_arg, type);
+    const auto [initial_checks, initial_builds] = geography_point_polygon_work_for_test();
+    EXPECT_EQ(exterior, runner.run(polygon, points, true));
+    const auto [reference_checks, reference_builds] = geography_point_polygon_work_for_test();
+    EXPECT_GE(reference_checks - initial_checks, count * count);
+    EXPECT_EQ(reference_builds, initial_builds);
+    EXPECT_EQ(exterior, runner.run(polygon, points));
+    EXPECT_EQ(exterior, runner.run(polygon, points));
+    const auto [cached_checks, cached_builds] = geography_point_polygon_work_for_test();
+    EXPECT_LE(cached_checks - reference_checks, 2 * count);
+    EXPECT_EQ(cached_builds - reference_builds, 1);
+    const char* const suffix = constant_arg == 0 ? "_polygon_first" : "_point_first";
+    ::testing::Test::RecordProperty(std::string("uncached_checks") + suffix,
+                                    reference_checks - initial_checks);
+    ::testing::Test::RecordProperty(std::string("cached_checks_two_blocks") + suffix,
+                                    cached_checks - reference_checks);
+
+    const auto boundary = spatial_test_wkb(geography_test_hex("POINT (0 10)"));
+    const auto inside = spatial_test_wkb(geography_test_hex("POINT (0 5)"));
+    const std::vector<std::optional<std::string>> mixed = {std::nullopt, boundary, inside,
+                                                           points.front()};
+    const auto small = spatial_test_wkb(geography_test_hex("POLYGON ((-2 -2,2 -2,0 2,-2 -2))"));
+    EXPECT_EQ((RowResults {std::nullopt, 1, 1, 0}), runner.run(polygon, mixed));
+    EXPECT_EQ((RowResults {std::nullopt, 0, 0, 0}), runner.run(small, mixed));
+    EXPECT_EQ(geography_point_polygon_work_for_test()[1] - cached_builds, 1);
+}
+
 TEST(VGeoFunctionsTest, ConstantGeographyPolygonReusesIndexForPointPredicates) {
     constexpr size_t count = 128;
     std::ostringstream polygon_wkt;
@@ -3995,34 +4029,8 @@ TEST(VGeoFunctionsTest, ConstantGeographyPolygonReusesIndexForPointPredicates) {
     }
     polygon_wkt << "10 -10,0 10,-10 -10))";
     const auto polygon = spatial_test_wkb(geography_test_hex(polygon_wkt.str()));
-    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
-    const RowResults exterior(count, 0);
     for (size_t constant_arg : {0, 1}) {
-        SCOPED_TRACE(constant_arg);
-        ConstShapeRunner runner("st_intersects", constant_arg, type);
-        const auto [initial_checks, initial_builds] = geography_point_polygon_work_for_test();
-        EXPECT_EQ(exterior, runner.run(polygon, points, true));
-        const auto [reference_checks, reference_builds] = geography_point_polygon_work_for_test();
-        EXPECT_GE(reference_checks - initial_checks, count * count);
-        EXPECT_EQ(reference_builds, initial_builds);
-        EXPECT_EQ(exterior, runner.run(polygon, points));
-        EXPECT_EQ(exterior, runner.run(polygon, points));
-        const auto [cached_checks, cached_builds] = geography_point_polygon_work_for_test();
-        EXPECT_LE(cached_checks - reference_checks, 2 * count);
-        EXPECT_EQ(cached_builds - reference_builds, 1);
-        const auto suffix = constant_arg == 0 ? "_polygon_first" : "_point_first";
-        RecordProperty(std::string("uncached_checks") + suffix, reference_checks - initial_checks);
-        RecordProperty(std::string("cached_checks_two_blocks") + suffix,
-                       cached_checks - reference_checks);
-
-        const auto boundary = spatial_test_wkb(geography_test_hex("POINT (0 10)"));
-        const auto inside = spatial_test_wkb(geography_test_hex("POINT (0 5)"));
-        const std::vector<std::optional<std::string>> mixed = {std::nullopt, boundary, inside,
-                                                               points.front()};
-        const auto small = spatial_test_wkb(geography_test_hex("POLYGON ((-2 -2,2 -2,0 2,-2 -2))"));
-        EXPECT_EQ((RowResults {std::nullopt, 1, 1, 0}), runner.run(polygon, mixed));
-        EXPECT_EQ((RowResults {std::nullopt, 0, 0, 0}), runner.run(small, mixed));
-        EXPECT_EQ(geography_point_polygon_work_for_test()[1] - cached_builds, 1);
+        expect_constant_geography_polygon_point_relations(constant_arg, polygon, points);
     }
 }
 
