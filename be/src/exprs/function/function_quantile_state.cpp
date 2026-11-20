@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -82,6 +83,8 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
 
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
+
     template <bool is_nullable>
     Status execute_internal(const ColumnPtr& column, const DataTypePtr& data_type,
                             MutableColumnPtr& column_result, float compression) const {
@@ -122,13 +125,21 @@ public:
         const DataTypePtr& data_type = block.get_by_position(arguments[0]).type;
         const auto* compression_arg = check_and_get_column_const<ColumnFloat32>(
                 block.get_by_position(arguments.back()).column.get());
-        float compression = 2048;
+        float compression = QUANTILE_STATE_COMPRESSION_DEFAULT;
         if (compression_arg) {
             auto compression_arg_val = compression_arg->get_value<TYPE_FLOAT>();
             if (compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN &&
                 compression_arg_val <= QUANTILE_STATE_COMPRESSION_MAX) {
                 compression = compression_arg_val;
             }
+        }
+        // A mixed-version cluster cannot safely exchange newly created low-C states to old BEs.
+        if (compression < QUANTILE_STATE_COMPRESSION_DEFAULT &&
+            !config::enable_low_compression_quantile_state) {
+            return Status::InvalidArgument(
+                    "TO_QUANTILE_STATE compression below {} requires "
+                    "enable_low_compression_quantile_state after all readers are upgraded",
+                    QUANTILE_STATE_COMPRESSION_DEFAULT);
         }
         MutableColumnPtr column_result = get_return_type_impl({})->create_column();
         column_result->resize(input_rows_count);

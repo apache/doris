@@ -20,9 +20,11 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <algorithm>
 #include <atomic>
 #include <barrier>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <future>
 #include <thread>
@@ -158,7 +160,7 @@ static void expect_digest_samples(const QuantileState& state, int count, double 
 }
 
 TEST(QuantileStateTest, AddValueRetainsSampleAtExplicitLimit) {
-    for (float compression : {QUANTILE_STATE_COMPRESSION_MIN, QUANTILE_STATE_COMPRESSION_MAX}) {
+    for (float compression : {QUANTILE_STATE_COMPRESSION_DEFAULT, QUANTILE_STATE_COMPRESSION_MAX}) {
         for (double value : {-100.0, 100.0}) {
             QuantileState state(compression);
             for (int i = 0; i < QUANTILE_STATE_EXPLICIT_NUM - 1; ++i) {
@@ -179,6 +181,154 @@ TEST(QuantileStateTest, AddValueRetainsSampleAtExplicitLimit) {
             expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 2, std::min(0.0, value),
                                   std::max(0.0, value));
         }
+    }
+}
+
+TEST(QuantileStateTest, LowCompressionBoundaryAndDefault) {
+    EXPECT_EQ(QUANTILE_STATE_COMPRESSION_DEFAULT, QuantileState()._compression);
+    for (float compression : {128.0F, 128.5F, 256.0F, 2047.0F, 2048.0F}) {
+        QuantileState state(compression);
+        const auto limit = std::min<size_t>(QUANTILE_STATE_EXPLICIT_NUM,
+                                            static_cast<size_t>(std::ceil(compression)));
+        for (size_t i = 0; i < limit; ++i) {
+            state.add_value(0);
+        }
+        ASSERT_EQ(EXPLICIT, state._type) << compression;
+        state.add_value(100);
+        expect_digest_samples(state, limit + 1, 0, 100);
+        EXPECT_EQ(0, state._explicit_data.capacity());
+        EXPECT_EQ(compression, state._mutable_tdigest().compression());
+        if (compression < QUANTILE_STATE_COMPRESSION_DEFAULT) {
+            EXPECT_EQ(std::ceil(compression), state._mutable_tdigest().max_unprocessed());
+        }
+    }
+}
+
+TEST(QuantileStateTest, LowCompression1440SamplesRetainLessBuffer) {
+    QuantileState low(128);
+    QuantileState normal;
+    for (int i = 0; i < 1440; ++i) {
+        low.add_value(i);
+        normal.add_value(i);
+    }
+    ASSERT_EQ(TDIGEST, low._type);
+    ASSERT_EQ(EXPLICIT, normal._type);
+    const auto& digest = low._mutable_tdigest();
+    const size_t retained_bytes =
+            (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
+            digest._cumulative.capacity() * sizeof(Weight);
+    EXPECT_LT(retained_bytes, normal._explicit_data.capacity() * sizeof(double));
+    EXPECT_EQ(0, low._explicit_data.capacity());
+    expect_digest_samples(low, 1440, 0, 1439);
+}
+
+static void expect_low_mixed_result_roundtrip(QuantileState result) {
+    ASSERT_EQ(TDIGEST, result._type);
+    EXPECT_EQ(128, result._compression);
+    EXPECT_EQ(128, result._mutable_tdigest().compression());
+    EXPECT_EQ(128, result._mutable_tdigest().max_unprocessed());
+    EXPECT_EQ(0, result._explicit_data.capacity());
+    expect_digest_samples(result, 960, 0, 959);
+    std::vector<uint8_t> bytes(result.get_serialized_size());
+    ASSERT_EQ(bytes.size(), result.serialize(bytes.data()));
+    QuantileState restored;
+    ASSERT_TRUE(restored.deserialize(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size())));
+    EXPECT_EQ(128, restored._compression);
+    restored.add_value(1000);
+    expect_digest_samples(restored, 961, 0, 1000);
+}
+
+TEST(QuantileStateTest, LowCompressionMixedMergeAndRoundTrip) {
+    QuantileState low(128);
+    QuantileState high(2048);
+    for (int i = 0; i < 480; ++i) {
+        low.add_value(i);
+        high.add_value(i + 480);
+    }
+    auto low_copy = low;
+    auto low_first = low;
+    low_first.merge(high);
+    auto high_first = high;
+    high_first.merge(low);
+    expect_low_mixed_result_roundtrip(low_first);
+    expect_low_mixed_result_roundtrip(high_first);
+    EXPECT_EQ(480, serialized_digest_weight(low_copy));
+    EXPECT_EQ(2048, high._compression);
+}
+
+TEST(QuantileStateTest, EmptyAndExplicitMergeUseNonemptyCompression) {
+    QuantileState low(128);
+    QuantileState high(2048);
+    for (int i = 0; i < 64; ++i) {
+        low.add_value(i);
+        high.add_value(i + 64);
+    }
+    QuantileState empty;
+    empty.merge(low);
+    EXPECT_EQ(128, empty._compression);
+    EXPECT_EQ(EXPLICIT, empty._type);
+    empty.merge(high);
+    EXPECT_EQ(EXPLICIT, empty._type);
+    EXPECT_EQ(128, empty._explicit_data.size());
+    empty.add_value(128);
+    expect_digest_samples(empty, 129, 0, 128);
+
+    auto reverse = high;
+    reverse.merge(low);
+    EXPECT_EQ(128, reverse._compression);
+    EXPECT_EQ(EXPLICIT, reverse._type);
+    reverse.add_value(128);
+    expect_digest_samples(reverse, 129, 0, 128);
+}
+
+TEST(QuantileStateTest, ReadOversizedLowExplicitThenAppend) {
+    QuantileState legacy(2048);
+    for (int i = 0; i < 1440; ++i) {
+        legacy.add_value(i);
+    }
+    std::vector<uint8_t> bytes(legacy.get_serialized_size());
+    ASSERT_EQ(bytes.size(), legacy.serialize(bytes.data()));
+    const float low_compression = 128;
+    std::memcpy(bytes.data(), &low_compression, sizeof(low_compression));
+    QuantileState restored;
+    ASSERT_TRUE(restored.deserialize(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size())));
+    ASSERT_EQ(EXPLICIT, restored._type);
+    ASSERT_EQ(1440, restored._explicit_data.size());
+    auto merged = restored;
+    QuantileState singleton(2048);
+    singleton.add_value(1440);
+    merged.merge(singleton);
+    expect_digest_samples(merged, 1441, 0, 1440);
+    restored.add_value(1440);
+    EXPECT_EQ(0, restored._explicit_data.capacity());
+    expect_digest_samples(restored, 1441, 0, 1440);
+}
+
+TEST(QuantileStateTest, LowCompressionThreePartialTreesAndSelfMerge) {
+    QuantileState first(2048);
+    QuantileState second(256);
+    QuantileState third(128);
+    for (int i = 0; i < 480; ++i) {
+        first.add_value(10);
+        second.add_value(20);
+        third.add_value(30);
+    }
+    auto left_tree = first;
+    left_tree.merge(second);
+    left_tree.merge(third);
+    auto right_tree = second;
+    right_tree.merge(third);
+    auto reverse = first;
+    reverse.merge(right_tree);
+    for (auto state : {left_tree, reverse}) {
+        EXPECT_EQ(128, state._compression);
+        EXPECT_EQ(128, state._mutable_tdigest().compression());
+        EXPECT_EQ(128, state._mutable_tdigest().max_unprocessed());
+        expect_digest_samples(state, 1440, 10, 30);
+        const auto before = state;
+        state.merge(state);
+        expect_digest_samples(state, 2880, 10, 30);
+        expect_digest_samples(before, 1440, 10, 30);
     }
 }
 

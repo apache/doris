@@ -39,7 +39,12 @@ namespace doris {
 // Shares a digest across QuantileState copies and detaches it before sample
 // writes. Readers use shared locks; compression uses an exclusive lock.
 struct QuantileState::TDigestHolder {
-    explicit TDigestHolder(float compression) : digest(compression) {}
+    // At C=128 the explicit state converts on sample 129. Keeping the default 8*C
+    // unprocessed buffer would retain more centroids than the original 128 doubles.
+    explicit TDigestHolder(float compression)
+            : digest(compression, compression < QUANTILE_STATE_COMPRESSION_DEFAULT
+                                          ? static_cast<Index>(std::ceil(compression))
+                                          : 0) {}
     TDigestHolder(const TDigestHolder& other) : digest(other.digest) {}
 
     std::shared_lock<std::shared_mutex> lock_processed_digest() {
@@ -92,9 +97,9 @@ TDigest& QuantileState::_mutable_tdigest() {
     return _tdigest_ptr->digest;
 }
 
-QuantileState::QuantileState() : _type(EMPTY), _compression(QUANTILE_STATE_COMPRESSION_MIN) {}
+QuantileState::QuantileState() : _compression(QUANTILE_STATE_COMPRESSION_DEFAULT) {}
 
-QuantileState::QuantileState(float compression) : _type(EMPTY), _compression(compression) {}
+QuantileState::QuantileState(float compression) : _compression(compression) {}
 
 QuantileState::QuantileState(const Slice& slice) {
     if (!deserialize(slice)) {
@@ -131,14 +136,14 @@ void QuantileState::set_compression(float compression) {
 }
 
 bool QuantileState::is_valid(const Slice& slice) {
-    if (slice.size < 1) {
+    if (slice.size < sizeof(float) + 1) {
         return false;
     }
     const uint8_t* ptr = (uint8_t*)slice.data;
     const uint8_t* end = (uint8_t*)slice.data + slice.size;
     float compress_value = unaligned_load<float>(ptr);
-    if (compress_value < QUANTILE_STATE_COMPRESSION_MIN ||
-        compress_value > QUANTILE_STATE_COMPRESSION_MAX) {
+    if (!(compress_value >= QUANTILE_STATE_COMPRESSION_MIN &&
+          compress_value <= QUANTILE_STATE_COMPRESSION_MAX)) {
         return false;
     }
     ptr += sizeof(float);
@@ -246,7 +251,9 @@ bool QuantileState::deserialize(const Slice& slice) {
         // make sure that num_explicit is positive
         uint16_t num_explicits = decode_fixed16_le(ptr);
         ptr += sizeof(uint16_t);
-        _explicit_data.reserve(std::min(num_explicits * 2, QUANTILE_STATE_EXPLICIT_NUM));
+        if (_compression >= QUANTILE_STATE_COMPRESSION_DEFAULT) {
+            _explicit_data.reserve(std::min(num_explicits * 2, QUANTILE_STATE_EXPLICIT_NUM));
+        }
         _explicit_data.resize(num_explicits);
         memcpy(&_explicit_data[0], ptr, num_explicits * sizeof(double));
         ptr += num_explicits * sizeof(double);
@@ -303,93 +310,140 @@ size_t QuantileState::serialize(uint8_t* dst) const {
     return ptr - dst;
 }
 
+size_t QuantileState::_explicit_limit() const {
+    return std::min<size_t>(QUANTILE_STATE_EXPLICIT_NUM,
+                            static_cast<size_t>(std::ceil(_compression)));
+}
+
+void QuantileState::_convert_to_tdigest() {
+    DCHECK(_type == SINGLE || _type == EXPLICIT);
+    auto holder = std::make_shared<TDigestHolder>(_compression);
+    if (_type == SINGLE) {
+        holder->digest.add(static_cast<float>(_single_data));
+    } else {
+        for (double value : _explicit_data) {
+            holder->digest.add(static_cast<float>(value));
+        }
+    }
+    _tdigest_ptr = std::move(holder);
+    // A converted group no longer needs its explicit buffer; clear() alone retains its capacity.
+    std::vector<double>().swap(_explicit_data);
+    _type = TDIGEST;
+}
+
+void QuantileState::_normalize_low_digest() {
+    if (_type != TDIGEST || _compression >= QUANTILE_STATE_COMPRESSION_DEFAULT) {
+        return;
+    }
+    if (_tdigest_ptr->digest.compression() == _compression &&
+        _tdigest_ptr->digest.max_unprocessed() == static_cast<Index>(std::ceil(_compression))) {
+        return;
+    }
+    // A lower outer C cannot be implemented by merely relabeling a higher-C digest;
+    // rebuild from weighted centroids rather than replaying their means as unit samples.
+    auto rebuilt = std::make_shared<TDigestHolder>(_compression);
+    {
+        std::shared_lock lock(_tdigest_ptr->mutex);
+        rebuilt->digest.merge(&_tdigest_ptr->digest);
+    }
+    _tdigest_ptr = std::move(rebuilt);
+}
+
+void QuantileState::_merge_explicit(const QuantileState& other) {
+    DCHECK(other._type == EXPLICIT);
+    if (_type == SINGLE && _compression >= QUANTILE_STATE_COMPRESSION_DEFAULT) {
+        // Retain the high-C insertion order: copy the explicit partial, then add the singleton.
+        _type = EXPLICIT;
+        _explicit_data = other._explicit_data;
+        add_value(_single_data);
+        return;
+    }
+    if (_type == EXPLICIT &&
+        _explicit_data.size() + other._explicit_data.size() <= _explicit_limit()) {
+        _explicit_data.insert(_explicit_data.end(), other._explicit_data.begin(),
+                              other._explicit_data.end());
+        return;
+    }
+    if (_type == EXPLICIT) {
+        // A historical explicit partial can exceed the newly selected low-C limit.
+        _convert_to_tdigest();
+    } else if (_type == SINGLE && other._explicit_data.size() + 1 > _explicit_limit()) {
+        _convert_to_tdigest();
+    }
+    if (_type == TDIGEST) {
+        auto& digest = _mutable_tdigest();
+        for (double value : other._explicit_data) {
+            digest.add(static_cast<float>(value));
+        }
+        return;
+    }
+    for (double value : other._explicit_data) {
+        add_value(value);
+    }
+}
+
 void QuantileState::merge(const QuantileState& other) {
     if (this == &other) {
         const QuantileState source(other);
         merge(source);
         return;
     }
-    switch (other._type) {
-    case EMPTY:
-        break;
-    case SINGLE: {
-        add_value(other._single_data);
-        break;
-    }
-    case EXPLICIT: {
-        switch (_type) {
-        case EMPTY:
-            _type = EXPLICIT;
-            _explicit_data = other._explicit_data;
-            break;
-        case SINGLE:
-            _type = EXPLICIT;
-            _explicit_data = other._explicit_data;
-            add_value(_single_data);
-            break;
-        case EXPLICIT:
-            if (_explicit_data.size() + other._explicit_data.size() > QUANTILE_STATE_EXPLICIT_NUM) {
-                _type = TDIGEST;
-                _tdigest_ptr = std::make_shared<TDigestHolder>(_compression);
-                for (int i = 0; i < _explicit_data.size(); i++) {
-                    _tdigest_ptr->digest.add((float)_explicit_data[i]);
-                }
-                for (int i = 0; i < other._explicit_data.size(); i++) {
-                    _tdigest_ptr->digest.add((float)other._explicit_data[i]);
-                }
-            } else {
-                _explicit_data.insert(_explicit_data.end(), other._explicit_data.begin(),
-                                      other._explicit_data.end());
-            }
-            break;
-        case TDIGEST: {
-            auto& digest = _mutable_tdigest();
-            for (int i = 0; i < other._explicit_data.size(); i++) {
-                digest.add((float)other._explicit_data[i]);
-            }
-            break;
-        }
-        default:
-            break;
-        }
-        break;
-    }
-    case TDIGEST: {
-        switch (_type) {
-        case EMPTY:
-            _type = TDIGEST;
-            _tdigest_ptr = other._tdigest_ptr;
-            break;
-        case SINGLE:
-            _type = TDIGEST;
-            _tdigest_ptr = other._tdigest_ptr;
-            _mutable_tdigest().add((float)_single_data);
-            break;
-        case EXPLICIT: {
-            _type = TDIGEST;
-            _tdigest_ptr = other._tdigest_ptr;
-            auto& digest = _mutable_tdigest();
-            for (int i = 0; i < _explicit_data.size(); i++) {
-                digest.add((float)_explicit_data[i]);
-            }
-            break;
-        }
-        case TDIGEST: {
-            auto& digest = _mutable_tdigest();
-            std::shared_lock lock(other._tdigest_ptr->mutex);
-#ifdef BE_TEST
-            TEST_SYNC_POINT("QuantileState::merge:source_locked");
-#endif
-            digest.merge(&other._tdigest_ptr->digest);
-            break;
-        }
-        default:
-            break;
-        }
-        break;
-    }
-    default:
+    if (other._type == EMPTY) {
         return;
+    }
+    if (_type == EMPTY) {
+        // EMPTY carries no precision choice: the first nonempty input supplies both samples and C.
+        *this = other;
+        _normalize_low_digest();
+        return;
+    }
+
+    // A low-C partial cannot regain precision by merging into a high-C partial. Keep the
+    // existing high-C choice, but use the minimum C whenever either input is low.
+    const float result_compression = (_compression < QUANTILE_STATE_COMPRESSION_DEFAULT ||
+                                      other._compression < QUANTILE_STATE_COMPRESSION_DEFAULT)
+                                             ? std::min(_compression, other._compression)
+                                             : _compression;
+    _compression = result_compression;
+    _normalize_low_digest();
+
+    if (other._type == SINGLE) {
+        add_value(other._single_data);
+    } else if (other._type == EXPLICIT) {
+        _merge_explicit(other);
+    } else if (other._type == TDIGEST) {
+        if (_type != TDIGEST) {
+            const auto& source_digest = other._tdigest_ptr->digest;
+            const bool can_share = result_compression >= QUANTILE_STATE_COMPRESSION_DEFAULT ||
+                                   (result_compression == other._compression &&
+                                    source_digest.compression() == result_compression &&
+                                    source_digest.max_unprocessed() ==
+                                            static_cast<Index>(std::ceil(result_compression)));
+            if (can_share) {
+                // Preserve the legacy high-C fast path. Low-C sharing additionally requires
+                // matching inner metadata; otherwise a 128 outer header could hide a 2048 digest.
+                _tdigest_ptr = other._tdigest_ptr;
+                const auto old_type = _type;
+                _type = TDIGEST;
+                auto& digest = _mutable_tdigest();
+                if (old_type == SINGLE) {
+                    digest.add(static_cast<float>(_single_data));
+                } else {
+                    for (double value : _explicit_data) {
+                        digest.add(static_cast<float>(value));
+                    }
+                    std::vector<double>().swap(_explicit_data);
+                }
+                return;
+            }
+            _convert_to_tdigest();
+        }
+        auto& digest = _mutable_tdigest();
+        std::shared_lock lock(other._tdigest_ptr->mutex);
+#ifdef BE_TEST
+        TEST_SYNC_POINT("QuantileState::merge:source_locked");
+#endif
+        digest.merge(&other._tdigest_ptr->digest);
     }
 }
 
@@ -405,15 +459,10 @@ void QuantileState::add_value(const double& value) {
         _type = EXPLICIT;
         break;
     case EXPLICIT:
-        if (_explicit_data.size() == QUANTILE_STATE_EXPLICIT_NUM) {
-            _tdigest_ptr = std::make_shared<TDigestHolder>(_compression);
-            for (int i = 0; i < _explicit_data.size(); i++) {
-                _tdigest_ptr->digest.add((float)_explicit_data[i]);
-            }
-            _tdigest_ptr->digest.add((float)value);
-            _explicit_data.clear();
-            _explicit_data.shrink_to_fit();
-            _type = TDIGEST;
+        // A legacy explicit state may already exceed a newly selected low-C limit.
+        if (_explicit_data.size() >= _explicit_limit()) {
+            _convert_to_tdigest();
+            _tdigest_ptr->digest.add(static_cast<float>(value));
         } else {
             _explicit_data.emplace_back(value);
         }
