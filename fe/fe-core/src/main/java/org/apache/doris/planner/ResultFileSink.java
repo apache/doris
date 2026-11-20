@@ -54,10 +54,15 @@ public class ResultFileSink extends DataSink {
     }
 
     //gen header names
-    private String genNames(ArrayList<String> headerNames, String columnSeparator, String lineDelimiter) {
+    static String encodeCsvField(String value) {
+        return "\"" + value.replace("\"", "\"\"") + "\"";
+    }
+
+    static String genNames(ArrayList<String> headerNames, String columnSeparator,
+            String lineDelimiter, boolean csvQuote) {
         StringBuilder sb = new StringBuilder();
         for (String name : headerNames) {
-            sb.append(name).append(columnSeparator);
+            sb.append(csvQuote ? encodeCsvField(name) : name).append(columnSeparator);
         }
         String headerName = sb.substring(0, sb.length() - columnSeparator.length());
         headerName += lineDelimiter;
@@ -69,7 +74,8 @@ public class ResultFileSink extends DataSink {
         if (Util.isCsvFormat(outFileClause.getFileFormatType())) {
             if (outFileClause.getHeaderType().equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
                     || outFileClause.getHeaderType().equals(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)) {
-                header = genNames(labels, outFileClause.getColumnSeparator(), outFileClause.getLineDelimiter());
+                header = genNames(labels, outFileClause.getColumnSeparator(), outFileClause.getLineDelimiter(),
+                        outFileClause.isCsvQuote());
             }
             headerType = outFileClause.getHeaderType();
         }

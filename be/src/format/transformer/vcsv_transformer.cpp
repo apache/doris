@@ -42,7 +42,7 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
                                  const VExprContextSPtrs& output_vexpr_ctxs,
                                  bool output_object_data, std::string_view header_type,
                                  std::string_view header, std::string_view column_separator,
-                                 std::string_view line_delimiter, bool with_bom,
+                                 std::string_view line_delimiter, bool with_bom, bool csv_quote,
                                  TFileCompressType::type compress_type,
                                  const THiveSerDeProperties* hive_serde_properties)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
@@ -50,6 +50,8 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
           _line_delimiter(line_delimiter),
           _file_writer(file_writer),
           _with_bom(with_bom),
+          // Hive text uses its own separator escaping; a CSV option must not add quotes to it.
+          _csv_quote(csv_quote && hive_serde_properties == nullptr),
           _compress_type(compress_type),
           _is_text_format(hive_serde_properties != nullptr) {
     if (!header.empty()) {
@@ -120,22 +122,52 @@ Status VCSVTransformer::write(const Block& block) {
     auto ser_col = ColumnString::create();
     ser_col->reserve(block.columns());
     VectorBufferWriter buffer_writer(*ser_col.get());
+    MutableColumnPtr cell_col;
+    std::unique_ptr<VectorBufferWriter> cell_writer;
+    // Quote the complete serialized value, so an array such as [1, 2] remains one CSV field.
+    if (_csv_quote) {
+        cell_col = ColumnString::create();
+        cell_writer =
+                std::make_unique<VectorBufferWriter>(assert_cast<ColumnString&>(*cell_col.get()));
+    }
     for (int i = 0; i < block.rows(); i++) {
         for (size_t col_id = 0; col_id < block.columns(); col_id++) {
             if (col_id != 0) {
                 buffer_writer.write(_column_separator.data(), _column_separator.size());
             }
-            Status st = _is_text_format ? _serdes[col_id]->serialize_one_cell_to_hive_text(
-                                                  *(block.get_by_position(col_id).column), i,
-                                                  buffer_writer, _options)
-                                        : _serdes[col_id]->serialize_one_cell_to_json(
-                                                  *(block.get_by_position(col_id).column), i,
-                                                  buffer_writer, _options);
+            BufferWritable& writer = _csv_quote ? *cell_writer : buffer_writer;
+            Status st =
+                    _is_text_format
+                            ? _serdes[col_id]->serialize_one_cell_to_hive_text(
+                                      *(block.get_by_position(col_id).column), i, writer, _options)
+                            : _serdes[col_id]->serialize_one_cell_to_json(
+                                      *(block.get_by_position(col_id).column), i, writer, _options);
             if (!st.ok()) {
                 // VectorBufferWriter must do commit before deconstruct,
                 // or it may throw DCHECK failure.
+                if (_csv_quote) {
+                    cell_writer->commit();
+                }
                 buffer_writer.commit();
                 return st;
+            }
+            if (_csv_quote) {
+                cell_writer->commit();
+                const auto cell = cell_col->get_data_at(0);
+                buffer_writer.write('"');
+                size_t chunk_begin = 0;
+                for (size_t pos = 0; pos < cell.size; ++pos) {
+                    if (cell.data[pos] != '"') {
+                        continue;
+                    }
+                    // CSV doubles embedded quotes: a"b becomes "a""b".
+                    buffer_writer.write(cell.data + chunk_begin, pos - chunk_begin);
+                    buffer_writer.write("\"\"", 2);
+                    chunk_begin = pos + 1;
+                }
+                buffer_writer.write(cell.data + chunk_begin, cell.size - chunk_begin);
+                buffer_writer.write('"');
+                cell_col->clear();
             }
         }
         buffer_writer.write(_line_delimiter.data(), _line_delimiter.size());
@@ -169,7 +201,20 @@ std::string VCSVTransformer::_gen_csv_header_types() {
     std::string types;
     int num_columns = (int)_output_vexpr_ctxs.size();
     for (int i = 0; i < num_columns; ++i) {
-        types += type_to_string(_output_vexpr_ctxs[i]->root()->data_type()->get_primitive_type());
+        std::string type =
+                type_to_string(_output_vexpr_ctxs[i]->root()->data_type()->get_primitive_type());
+        if (_csv_quote) {
+            types += '"';
+            for (char c : type) {
+                if (c == '"') {
+                    types += '"';
+                }
+                types += c;
+            }
+            types += '"';
+        } else {
+            types += type;
+        }
         if (i < num_columns - 1) {
             types += _column_separator;
         }

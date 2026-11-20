@@ -122,7 +122,7 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
         _file_format_transformer = std::make_unique<VCSVTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, false, "csv", "",
                 _hive_serde_properties->field_delim, _hive_serde_properties->line_delim, false,
-                _hive_compress_type, _hive_serde_properties);
+                false, _hive_compress_type, _hive_serde_properties);
         return _file_format_transformer->open();
     }
     default: {
