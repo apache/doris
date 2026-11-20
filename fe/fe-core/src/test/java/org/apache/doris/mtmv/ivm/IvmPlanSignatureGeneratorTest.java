@@ -50,7 +50,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
@@ -60,7 +59,6 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.List;
 
 class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
@@ -202,88 +200,67 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testSinkTruncationAfterRowIdDoesNotChangeSignature() {
+    void testBothSinksSkipTruncationInContinuousProjectChain() {
         LogicalOlapScan scan = buildMowScan(1, "t");
         LogicalProject<?> rowIdProject = buildRowIdProject(scan, scan.getOutput().subList(0, 2));
-        Slot name = rowIdProject.getOutput().get(2);
-        LogicalProject<?> truncation = new LogicalProject<>(ImmutableList.of(
-                rowIdProject.getOutput().get(0), rowIdProject.getOutput().get(1),
-                truncate(name, 1, 16)), rowIdProject);
-        LogicalProject<?> passthrough = new LogicalProject<>(ImmutableList.of(
-                new Alias(truncation.getOutput().get(2), name.getName()),
-                truncation.getOutput().get(0), truncation.getOutput().get(1)), truncation);
+        LogicalProject<?> truncated = truncateLastColumn(rowIdProject, 1);
+        LogicalProject<?> passthrough = new LogicalProject<>(ImmutableList.copyOf(truncated.getOutput()), truncated);
+        String baseline = signatureForNormalizedPlan(buildScanRoot(rowIdProject)).getSha256();
 
-        IvmPlanSignature baseline = signatureForNormalizedPlan(rowIdProject);
-        LogicalOlapTableSink<?> sink = buildBoundStringSink(passthrough, name.getName());
-        Assertions.assertEquals(baseline.getSha256(), signatureForNormalizedPlan(sink).getSha256());
-        Assertions.assertNotEquals(baseline.getSha256(), signatureForNormalizedPlan(truncation).getSha256());
-        IvmPlanSignatureGenerator protectedState = new IvmPlanSignatureGenerator(ImmutableSet.of(name.getName()));
-        Assertions.assertNotEquals(baseline.getSha256(), protectedState.generate(sink).getSha256());
+        Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildScanRoot(passthrough)).getSha256());
+        Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildTableSink(scan, passthrough)).getSha256());
+        Assertions.assertNotEquals(baseline, signatureForNormalizedPlan(truncated).getSha256());
     }
 
     @Test
-    void testSinkTruncationDoesNotCrossAnotherComputation() {
+    void testTruncationBelowRowIdComputationRemainsInSignature() {
         LogicalOlapScan scan = buildMowScan(1, "t");
-        Slot id = scan.getOutput().get(0);
-        Slot name = scan.getOutput().get(1);
-        LogicalProject<?> truncation = new LogicalProject<>(ImmutableList.of(id, truncate(name, 1, 16)), scan);
-        LogicalProject<?> rowIdProject = new LogicalProject<>(ImmutableList.of(id,
-                truncation.getOutput().get(1),
-                new Alias(IvmUtil.buildRowIdHash(truncation.getOutput()), Column.IVM_ROW_ID_COL)), truncation);
+        LogicalProject<?> truncated = truncateLastColumn(scan, 1);
+        LogicalProject<?> rowIdProject = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                .add(new Alias(IvmUtil.buildRowIdHash(truncated.getOutput()), Column.IVM_ROW_ID_COL))
+                .addAll(truncated.getOutput()).build(), truncated);
+        String baseline = signatureForNormalizedPlan(rowIdProject).getSha256();
 
-        IvmPlanSignature baseline = signatureForNormalizedPlan(rowIdProject);
-        Assertions.assertEquals(baseline.getSha256(),
-                signatureForNormalizedPlan(buildBoundStringSink(rowIdProject, name.getName())).getSha256());
+        Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildScanRoot(rowIdProject)).getSha256());
+        Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildTableSink(scan, rowIdProject)).getSha256());
     }
 
     @Test
-    void testSinkKeepsQueryTruncationBelowInputMapping() {
+    void testNonProjectBreaksSinkProjectChain() {
         LogicalOlapScan scan = buildMowScan(1, "t");
-        Slot id = scan.getOutput().get(0);
-        Slot name = scan.getOutput().get(1);
-        LogicalProject<?> query = new LogicalProject<>(ImmutableList.of(id, truncate(name, 1, 16)), scan);
-        LogicalProject<?> inputMapping = new LogicalProject<>(ImmutableList.of(
-                query.getOutput().get(0), query.getOutput().get(1),
-                new Alias(new IntegerLiteral(0), Column.DELETE_SIGN)), query);
+        LogicalProject<?> truncated = truncateLastColumn(scan, 1);
+        LogicalFilter<?> filter = new LogicalFilter<>(
+                ImmutableSet.of(new LessThan(new IntegerLiteral(0), truncated.getOutput().get(0))), truncated);
+        String baseline = signatureForNormalizedPlan(truncated).getSha256();
 
-        Assertions.assertEquals(signatureForNormalizedPlan(query).getSha256(),
-                signatureForNormalizedPlan(buildBoundStringSink(inputMapping, name.getName())).getSha256());
+        Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildScanRoot(filter)).getSha256());
+        Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildTableSink(scan, filter)).getSha256());
     }
 
     @Test
-    void testSinkOnlySkipsProjectsThatMatchWriteTruncation() {
+    void testSubstringStartingAfterFirstCharacterRemainsInSignature() {
         LogicalOlapScan scan = buildMowScan(1, "t");
-        Slot id = scan.getOutput().get(0);
-        Slot name = scan.getOutput().get(1);
-        List<List<NamedExpression>> outputs = ImmutableList.of(
-                ImmutableList.of(id, truncate(name, 2, 16)),
-                ImmutableList.of(id, truncate(name, 1, 15)),
-                ImmutableList.of(new Alias(new IntegerLiteral(1), id.getName()), truncate(name, 1, 16)));
-        for (List<NamedExpression> expressions : outputs) {
-            LogicalProject<?> project = new LogicalProject<>(expressions, scan);
-            Assertions.assertEquals(signatureForNormalizedPlan(project).getSha256(),
-                    signatureForNormalizedPlan(buildBoundStringSink(project, name.getName())).getSha256());
-        }
+        LogicalProject<?> substring = truncateLastColumn(scan, 2);
+        String baseline = signatureForNormalizedPlan(substring).getSha256();
+
+        Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildScanRoot(substring)).getSha256());
+        Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildTableSink(scan, substring)).getSha256());
     }
 
-    private Alias truncate(Slot input, int start, int length) {
-        return new Alias(new Substring(input, new IntegerLiteral(start), new IntegerLiteral(length)), input.getName());
-    }
-
-    private LogicalOlapTableSink<?> buildBoundStringSink(Plan child, String stringColumnName) {
+    private LogicalProject<?> truncateLastColumn(Plan child, int start) {
         List<Slot> outputs = child.getOutput();
-        List<Slot> schema = outputs.stream()
-                .map(slot -> slot.getName().equals(stringColumnName) ? new SlotReference(
-                        stringColumnName, VarcharType.createVarcharType(16), slot.nullable()) : slot)
-                .collect(ImmutableList.toImmutableList());
-        OlapTable table = buildMtmvFromPlan(schema.stream()
-                .filter(slot -> !IvmUtil.isCommonHiddenSlot(slot.getName()))
-                .collect(ImmutableList.toImmutableList()));
-        LogicalOlapTableSink<?> sink = new LogicalOlapTableSink<>(new Database(), table, table.getBaseSchema(),
-                ImmutableList.of(), ImmutableList.copyOf(outputs), false, TPartialUpdateNewRowPolicy.APPEND,
+        Slot input = outputs.get(outputs.size() - 1);
+        Substring substring = new Substring(input, new IntegerLiteral(start), new IntegerLiteral(16));
+        return new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                .addAll(outputs.subList(0, outputs.size() - 1))
+                .add(new Alias(substring, input.getName()))
+                .build(), child);
+    }
+
+    private LogicalOlapTableSink<?> buildTableSink(LogicalOlapScan scan, Plan child) {
+        return new LogicalOlapTableSink<>(new Database(), scan.getTable(), scan.getTable().getBaseSchema(),
+                ImmutableList.of(), ImmutableList.copyOf(child.getOutput()), false, TPartialUpdateNewRowPolicy.APPEND,
                 DMLCommandType.INSERT, child);
-        return (LogicalOlapTableSink<?>) sink.withChildAndUpdateOutput(child, ImmutableList.of(),
-                Collections.emptyMap(), schema);
     }
 
     @Test

@@ -85,7 +85,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 /**
@@ -247,7 +246,7 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         // The plan is not published here: the caller publishes it, and does so for both table models.
         // What this model adds to a normalized plan is the layout its refresh reads, which is published
         // as the signature that pins the layout down.
-        IvmPlanSignature planSignature = new IvmPlanSignatureGenerator(maintenanceColumnNames()).generate(result);
+        IvmPlanSignature planSignature = new IvmPlanSignatureGenerator().generate(result);
         rewriteResult.setPlanSignature(planSignature);
         IvmRewriteContext.Mode mode = ivmRewriteContext.getMode();
         if (mode == IvmRewriteContext.Mode.INCREMENTAL) {
@@ -274,19 +273,6 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
                 + " INCREMENTAL FALLBACK or REFRESH MATERIALIZED VIEW " + mtmv.getName()
                 + " COMPLETE to rebuild the IVM layout baseline and publish its matching signature.";
         throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
-    }
-
-    private Set<String> maintenanceColumnNames() {
-        Set<String> names = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        List<Slot> identityKeys = rewriteResult.getIdentityKeySlots();
-        if (identityKeys != null) {
-            identityKeys.forEach(slot -> names.add(slot.getName()));
-        }
-        IvmAggMeta aggMeta = rewriteResult.getAggMeta();
-        if (aggMeta != null) {
-            requiredAggStateSlots(aggMeta).forEach(slot -> names.add(slot.getName()));
-        }
-        return names;
     }
 
     /**
@@ -1347,6 +1333,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
         Set<String> persistedColumns = normalizedPlan.getOutput().stream()
                 .map(Slot::getName)
                 .collect(Collectors.toSet());
+        List<Slot> requiredStateSlots = new ArrayList<>();
+        requiredStateSlots.add(aggMeta.getGroupCountSlot());
         // A visible column the analyzer stores under a generated name (an unnamed aggregate such as
         // COUNT(v1), or a hidden state column the pool shared with it) cannot be checked by name: the MV
         // renames it after normalize, so its incremental refresh was never maintainable.
@@ -1354,7 +1342,14 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
                 .filter(IvmAggTarget::visibleColumnNameIsGenerated)
                 .map(target -> target.getVisibleSlot().getName())
                 .collect(Collectors.toSet());
-        for (Slot stateSlot : requiredAggStateSlots(aggMeta)) {
+        for (IvmAggTarget target : aggMeta.getAggTargets()) {
+            if (aggFunctionRegistry.visibleColumnHoldsValueState(target)) {
+                requiredStateSlots.add(target.getValueStateSlot() != null
+                        ? target.getValueStateSlot() : target.getVisibleSlot());
+            }
+            requiredStateSlots.addAll(target.getHiddenStateSlots().values());
+        }
+        for (Slot stateSlot : requiredStateSlots) {
             if (!persistedColumns.contains(stateSlot.getName())
                     && !generatedColumnNames.contains(stateSlot.getName())) {
                 throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
@@ -1363,19 +1358,6 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
                                 + " could not read the old aggregate state");
             }
         }
-    }
-
-    private List<Slot> requiredAggStateSlots(IvmAggMeta aggMeta) {
-        List<Slot> requiredStateSlots = new ArrayList<>();
-        requiredStateSlots.add(aggMeta.getGroupCountSlot());
-        for (IvmAggTarget target : aggMeta.getAggTargets()) {
-            if (aggFunctionRegistry.visibleColumnHoldsValueState(target)) {
-                requiredStateSlots.add(target.getValueStateSlot() != null
-                        ? target.getValueStateSlot() : target.getVisibleSlot());
-            }
-            requiredStateSlots.addAll(target.getHiddenStateSlots().values());
-        }
-        return requiredStateSlots;
     }
 
     private NamedExpression rewriteIvmHiddenOutput(NamedExpression output, Map<String, Slot> ivmHiddenSlotsByName) {
