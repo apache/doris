@@ -27,17 +27,23 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.datasource.ExternalRowCountCache;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.metacache.CacheSpec;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.MoreExecutors;
 import mockit.Injectable;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
@@ -53,6 +59,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 
 
@@ -227,7 +234,7 @@ public class HMSExternalTableTest {
     }
 
     @Test
-    public void testFetchRowCountFillsMetaCacheOnlyWhenRequested() throws Exception {
+    public void testOnlyExplicitAnalyzeListsFilesAndRetainsItsKnownRowCount() throws Exception {
         long catalogId = 100L;
         String localDbName = "test_db";
         String partitionValue = "2026-05-21";
@@ -254,43 +261,70 @@ public class HMSExternalTableTest {
         HiveExternalMetaCache.HiveFileStatus status = new HiveExternalMetaCache.HiveFileStatus();
         status.setLength(128L);
         fileCacheValue.getFiles().add(status);
-        List<HiveExternalMetaCache.FileCacheValue> files = Collections.singletonList(fileCacheValue);
-
+        status.setPath(LocationPath.of(partitionLocation + "/data"));
         HiveExternalMetaCache hiveCache = Mockito.mock(HiveExternalMetaCache.class);
         Mockito.when(hiveCache.getAllPartitionsWithCache(Mockito.eq(table), Mockito.anyList()))
                 .thenReturn(partitions);
         Mockito.when(hiveCache.getAllPartitionsWithoutCache(Mockito.eq(table), Mockito.anyList()))
                 .thenReturn(partitions);
-        Mockito.when(hiveCache.getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(true), Mockito.eq(true),
-                        Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull()))
-                .thenReturn(files);
-        Mockito.when(hiveCache.getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(false), Mockito.eq(true),
-                        Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull()))
-                .thenReturn(files);
 
         Env env = Mockito.mock(Env.class);
         ExternalMetaCacheMgr extMetaCacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(extMetaCacheMgr);
         Mockito.when(extMetaCacheMgr.hive(catalogId)).thenReturn(hiveCache);
+        ExecutorService executor = MoreExecutors.newDirectExecutorService();
+        MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, HiveExternalMetaCache.FileCacheValue> files =
+                new MetaCacheEntry<>("files", key -> null, CacheSpec.of(true, 600, 10), executor);
+        MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, Long> sizes =
+                new MetaCacheEntry<>("sizes", key -> null, CacheSpec.of(true, 600, 10), executor);
+        HiveExternalMetaCache.FileCacheKey key = new HiveExternalMetaCache.FileCacheKey(
+                catalogId, table.getId(), partitionLocation, inputFormat, Collections.singletonList(partitionValue));
+        HiveFileListingCache listing = new HiveFileListingCache(files, sizes, 1 << 20, 1 << 20);
+        Mockito.when(hiveCache.getCachedFileSize(partitions)).thenAnswer(call -> {
+            Long size = sizes.peekIfPresent(key);
+            return size == null ? -1L : size;
+        });
+        Mockito.when(hiveCache.openFiles(Mockito.eq(partitions.get(0)), Mockito.eq(true),
+                Mockito.any(FileSystemDirectoryLister.class), Mockito.eq(table), Mockito.any()))
+                .thenAnswer(call -> listing.open(key, () -> HiveFileIterator.of(fileCacheValue), () -> false));
+        ExternalRowCountCache rowCounts = new ExternalRowCountCache(executor);
+        Mockito.when(extMetaCacheMgr.getRowCountCache()).thenReturn(rowCounts);
 
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedStatic<StatisticsUtil> mockedStats = Mockito.mockStatic(StatisticsUtil.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            mockedStats.when(() -> StatisticsUtil.findTable(catalogId, table.getDbId(), table.getId()))
+                    .thenReturn(table);
+            Assertions.assertEquals(-1L, table.fetchRowCountWithMetaCache(true));
+            Assertions.assertEquals(-1L, table.fetchRowCount());
+            Assertions.assertEquals(-1L, table.getRowCount());
+            Assertions.assertEquals(-1L, rowCounts.getCachedRowCountIfPresent(
+                    catalogId, table.getDbId(), table.getId()));
+            Mockito.verify(hiveCache, Mockito.never()).openFiles(Mockito.any(), Mockito.anyBoolean(),
+                    Mockito.any(), Mockito.any(), Mockito.any());
+            Mockito.verify(hiveCache, Mockito.never()).getFilesByPartitions(Mockito.anyList(), Mockito.anyBoolean(),
+                    Mockito.anyBoolean(), Mockito.any(), Mockito.any());
 
-            Assertions.assertEquals(32L, table.fetchRowCountWithMetaCache(true));
-            Mockito.verify(hiveCache).getAllPartitionsWithCache(Mockito.eq(table), Mockito.anyList());
-            Mockito.verify(hiveCache, Mockito.never())
-                    .getAllPartitionsWithoutCache(Mockito.eq(table), Mockito.anyList());
-            Mockito.verify(hiveCache).getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(true),
-                    Mockito.eq(true), Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull());
-
-            Mockito.clearInvocations(hiveCache);
-
-            Assertions.assertEquals(32L, table.fetchRowCount());
-            Mockito.verify(hiveCache).getAllPartitionsWithoutCache(Mockito.eq(table), Mockito.anyList());
-            Mockito.verify(hiveCache, Mockito.never())
-                    .getAllPartitionsWithCache(Mockito.eq(table), Mockito.anyList());
-            Mockito.verify(hiveCache).getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(false),
-                    Mockito.eq(true), Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull());
+            Assertions.assertEquals(32L, table.getRowCountForAnalyze());
+            Assertions.assertEquals(128L, sizes.peekIfPresent(key));
+            sizes.invalidateAll();
+            Assertions.assertEquals(32L, table.getRowCount(),
+                    "Known analysis rows must survive missing summaries or a different partition sample");
+            Mockito.verify(hiveCache, Mockito.times(1)).openFiles(Mockito.any(), Mockito.anyBoolean(),
+                    Mockito.any(), Mockito.any(), Mockito.any());
+            // A complete list hit cannot reconstruct the independently evicted summary. The
+            // explicit row-result publication must still replace the previously cached UNKNOWN.
+            Deencapsulation.invoke(rowCounts, "invalidateTable", catalogId, table.getDbId(), table.getId());
+            Assertions.assertEquals(-1L, table.getRowCount());
+            Assertions.assertEquals(32L, table.getRowCountForAnalyze());
+            Assertions.assertNull(sizes.peekIfPresent(key));
+            Assertions.assertNotNull(files.peekIfPresent(key));
+            Assertions.assertEquals(32L, table.getRowCount());
+        } finally {
+            files.close();
+            sizes.close();
+            executor.shutdownNow();
         }
     }
 

@@ -556,6 +556,12 @@ public class HiveStreamingSplitTest {
             });
             field(node, "backendPolicy", policy);
             node.initializeAssignment();
+            Mockito.when(cache.openFiles(Mockito.any(), Mockito.anyBoolean(), Mockito.isNull(),
+                    Mockito.eq(table), Mockito.any())).thenAnswer(call -> {
+                        List<HiveExternalMetaCache.FileCacheValue> values = cache.getFilesByPartitions(
+                                Collections.singletonList(call.getArgument(0)), call.getArgument(1), false, null, table);
+                        return org.apache.doris.datasource.hive.HiveFileIterator.of(values.get(0));
+                    });
             Mockito.when(cache.getFilesByPartitions(Mockito.anyList(), Mockito.anyBoolean(), Mockito.anyBoolean(),
                     Mockito.isNull(), Mockito.eq(table))).thenAnswer(call -> {
                         int count = active.incrementAndGet();

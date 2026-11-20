@@ -49,6 +49,7 @@ public class ExternalRowCountCache {
 
     private static final Logger LOG = LogManager.getLogger(ExternalRowCountCache.class);
     private final AsyncLoadingCache<RowCountKey, Optional<Long>> rowCountCache;
+    private final Executor executor;
     private final ConcurrentHashMap<LoadKey, Set<LoadFence>> inFlightLoads = new ConcurrentHashMap<>();
     // A catalog refresh changes this generation in O(1). Old cache entries remain bounded by
     // Caffeine's size/expiry policy but are never addressable by a new metadata generation.
@@ -79,6 +80,7 @@ public class ExternalRowCountCache {
 
     ExternalRowCountCache(ExecutorService executor, Ticker ticker, RowCountCacheLoader loader,
             long maxGenerationEntries) {
+        this.executor = executor;
         catalogGenerations = Caffeine.newBuilder().maximumSize(maxGenerationEntries).build();
         dbGenerations = Caffeine.newBuilder().maximumSize(maxGenerationEntries).build();
         // 1. set expireAfterWrite to 1 day, avoid too many entries
@@ -218,6 +220,11 @@ public class ExternalRowCountCache {
 
     private CompletableFuture<Optional<Long>> loadWithInvalidationFence(
             RowCountKey key, Executor executor, Supplier<Optional<Long>> loader) {
+        return loadWithInvalidationFence(key, executor, loader, false);
+    }
+
+    private CompletableFuture<Optional<Long>> loadWithInvalidationFence(
+            RowCountKey key, Executor executor, Supplier<Optional<Long>> loader, boolean publishKnownResult) {
         LoadFence fence = new LoadFence();
         LoadKey loadKey = new LoadKey(key);
         publicationLock.readLock().lock();
@@ -249,11 +256,20 @@ public class ExternalRowCountCache {
             try {
                 if (throwable != null) {
                     publishedFuture.completeExceptionally(throwable);
-                } else if (fence.invalidated) {
-                    publishedFuture.complete(null);
-                } else {
-                    publishedFuture.complete(value);
+                    return;
                 }
+                if (fence.invalidated || (publishKnownResult
+                        && (!isCatalogGenerationCurrent(key.catalogId, key.catalogGeneration)
+                        || !isDbGenerationCurrent(key.catalogId, key.dbId, key.dbGeneration)))) {
+                    publishedFuture.complete(null);
+                    return;
+                }
+                if (publishKnownResult && value != null && value.orElse(TableIf.UNKNOWN_ROW_COUNT) >= 0) {
+                    // Only a completed result is shared: ordinary planning must not wait for
+                    // explicit ANALYZE's directory listing. Publication is ordered with invalidation.
+                    rowCountCache.put(key, CompletableFuture.completedFuture(value));
+                }
+                publishedFuture.complete(value);
             } finally {
                 removeInFlightLoad(loadKey, fence);
                 publicationLock.readLock().unlock();
@@ -309,10 +325,15 @@ public class ExternalRowCountCache {
     }
 
     static Optional<Long> loadRowCount(RowCountKey rowCountKey, boolean fillMetaCache) {
+        return loadRowCount(rowCountKey, fillMetaCache, false);
+    }
+
+    private static Optional<Long> loadRowCount(RowCountKey rowCountKey, boolean fillMetaCache, boolean forAnalyze) {
         try {
             ExternalTable table = (ExternalTable) StatisticsUtil.findTable(
                     rowCountKey.catalogId, rowCountKey.dbId, rowCountKey.tableId);
-            return Optional.of(table.fetchRowCountWithMetaCache(fillMetaCache));
+            return Optional.of(forAnalyze ? table.fetchRowCountForAnalyze()
+                    : table.fetchRowCountWithMetaCache(fillMetaCache));
         } catch (Exception e) {
             String message = String.format("Failed to get table row count with catalogId %s, dbId %s, tableId %s. "
                             + "Reason %s",
@@ -329,6 +350,30 @@ public class ExternalRowCountCache {
             // So we return null when exception happen.
             // The caller treats null as an uncached UNKNOWN result, so the next read can retry.
             return null;
+        }
+    }
+
+    /** Explicit analysis retains its estimate even if a later sample or scalar cache entry differs. */
+    public long getRowCountForAnalyze(long catalogId, long dbId, long tableId) {
+        try {
+            RowCountKey key;
+            CompletableFuture<Optional<Long>> loaded;
+            publicationLock.readLock().lock();
+            try {
+                key = new RowCountKey(catalogId, dbId, tableId,
+                        currentCatalogGeneration(catalogId), currentDbGeneration(catalogId, dbId));
+                // The loader resolves the current table by ID, rather than capturing a retired handle.
+                loaded = loadWithInvalidationFence(key, executor, () -> loadRowCount(key, true, true), true);
+            } finally {
+                publicationLock.readLock().unlock();
+            }
+            Optional<Long> value = loaded.get();
+            return value != null && isCatalogGenerationCurrent(catalogId, key.catalogGeneration)
+                    && isDbGenerationCurrent(catalogId, dbId, key.dbGeneration)
+                    ? value.orElse(TableIf.UNKNOWN_ROW_COUNT) : TableIf.UNKNOWN_ROW_COUNT;
+        } catch (Exception e) {
+            LOG.warn("Failed to obtain analysis row count for {}.{}.{}", catalogId, dbId, tableId, e);
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
     }
 

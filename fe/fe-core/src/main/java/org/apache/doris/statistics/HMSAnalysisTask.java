@@ -95,7 +95,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
 
     // Collect the partition column stats through HMS metadata.
     // Get all the partition values and calculate the stats based on the values.
-    private void getPartitionColumnStats() {
+    private void getPartitionColumnStats() throws AnalysisException {
         Set<String> partitionNames = hmsExternalTable.getPartitionNames();
         Set<String> ndvPartValues = Sets.newHashSet();
         long numNulls = 0;
@@ -123,11 +123,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
                 }
             }
         }
-        // getRowCount may return 0 if cache is empty, in this case, call fetchRowCount.
-        long count = hmsExternalTable.getRowCount();
-        if (count == 0) {
-            count = hmsExternalTable.fetchRowCount();
-        }
+        long count = getMetadataRowCount();
         dataSize = dataSize * count / partitionNames.size();
         numNulls = numNulls * count / partitionNames.size();
         int ndv = ndvPartValues.size();
@@ -146,11 +142,7 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
 
     // Collect the spark analyzed column stats through HMS metadata.
     private void getHmsColumnStats() throws Exception {
-        // getRowCount may return 0 if cache is empty, in this case, call fetchRowCount.
-        long count = hmsExternalTable.getRowCount();
-        if (count == 0) {
-            count = hmsExternalTable.fetchRowCount();
-        }
+        long count = getMetadataRowCount();
 
         Map<String, String> params = buildSqlParams();
         Map<StatsType, String> statsParams = new HashMap<>();
@@ -171,6 +163,21 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(ANALYZE_PARTITION_COLUMN_TEMPLATE);
         runQuery(sql);
+    }
+
+    private long getMetadataRowCount() throws AnalysisException {
+        if (info.rowCount > 0) {
+            return info.rowCount;
+        }
+        long count = hmsExternalTable.getRowCount();
+        if (count <= 0) {
+            count = hmsExternalTable.getRowCountForAnalyze();
+        }
+        if (count < 0) {
+            // Let doExecute fall back to SQL rather than persisting invalid negative statistics.
+            throw new AnalysisException("Hive row count is not available");
+        }
+        return count;
     }
 
     private String updateMinValue(String currentMin, String value) {

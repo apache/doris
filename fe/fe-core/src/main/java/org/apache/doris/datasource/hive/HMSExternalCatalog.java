@@ -75,6 +75,9 @@ import java.util.concurrent.atomic.AtomicLong;
 public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
+    public static final String FILE_LISTING_CACHE_ENTRY_MAX_BYTES = "hive.file_listing_cache_entry_max_bytes";
+    public static final String FILE_LISTING_CACHE_PENDING_MAX_BYTES = "hive.file_listing_cache_pending_max_bytes";
+
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
     public static final String PARTITION_CACHE_TTL_SECOND = "partition.cache.ttl-second";
     public static final String HIVE_STAGING_DIR = "hive.staging_dir";
@@ -317,6 +320,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
             // Validate before publishing catalog properties because scan planning parses the same value later.
             FileFormatUtils.parseHiveParquetTimeZone(hiveParquetTimeZone);
         }
+        for (String key : java.util.Arrays.asList(
+                FILE_LISTING_CACHE_ENTRY_MAX_BYTES, FILE_LISTING_CACHE_PENDING_MAX_BYTES)) {
+            String value = property.getOrDefault(key, null);
+            if (value != null) {
+                org.apache.doris.datasource.metacache.CacheSpec.checkLongProperty(value, 0L, key);
+            }
+        }
         // check file.meta.cache.ttl-second parameter
         String fileMetaCacheTtlSecond = property.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, CACHE_NO_TTL)
@@ -494,7 +504,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
             // must still be retired when the generic reset cleanup throws.
             String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
             String partitionCacheTtl = updatedProps.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
-            if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)) {
+            if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)
+                    || updatedProps.containsKey(FILE_LISTING_CACHE_ENTRY_MAX_BYTES)
+                    || updatedProps.containsKey(FILE_LISTING_CACHE_PENDING_MAX_BYTES)) {
                 Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
             }
             if (updatedProps.keySet().stream()

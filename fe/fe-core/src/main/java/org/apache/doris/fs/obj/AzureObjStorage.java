@@ -25,6 +25,8 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
+import org.apache.doris.fs.FileSystemIOException;
+import org.apache.doris.fs.RemoteIterator;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import com.azure.core.http.rest.PagedIterable;
@@ -62,13 +64,19 @@ import java.nio.ByteOrder;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Deque;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
@@ -571,6 +579,93 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             throw new RuntimeException("Azure FileSystem list files failed: "
                     + ExceptionUtils.getRootCauseMessage(e), e);
         }
+    }
+
+    public RemoteIterator<RemoteFile> listFilesIterator(String remotePath, boolean recursive,
+            BooleanSupplier cancelled) throws FileSystemIOException {
+        final String normalized;
+        final S3URI uri;
+        try {
+            normalized = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
+            uri = S3URI.create(normalized, isUsePathStyle, forceParsingByStandardUri);
+        } catch (Exception e) {
+            throw new FileSystemIOException(e.getMessage(), e);
+        }
+        String base = normalized.substring(0, normalized.length() - uri.getKey().length());
+        String prefix = uri.getKey().endsWith("/") ? uri.getKey() : uri.getKey() + "/";
+        return new RemoteIterator<RemoteFile>() {
+            private final Deque<Iterator<BlobItem>> directories = new ArrayDeque<>();
+            private BlobContainerClient container;
+            private boolean started;
+            private boolean closed;
+            private RemoteFile next;
+
+            @Override
+            public boolean hasNext() throws FileSystemIOException {
+                if (closed) {
+                    return false;
+                }
+                if (cancelled.getAsBoolean()) {
+                    throw new CancellationException("File listing cancelled");
+                }
+                if (next != null) {
+                    return true;
+                }
+                try {
+                    if (!started) {
+                        container = getClient().getBlobContainerClient(uri.getBucket());
+                        directories.push(container.listBlobsByHierarchy(prefix).iterator());
+                        started = true;
+                    }
+                    while (!directories.isEmpty()) {
+                        if (cancelled.getAsBoolean()) {
+                            throw new CancellationException("File listing cancelled");
+                        }
+                        Iterator<BlobItem> iterator = directories.peek();
+                        if (!iterator.hasNext()) {
+                            directories.pop();
+                            continue;
+                        }
+                        BlobItem item = iterator.next();
+                        if (Boolean.TRUE.equals(item.isPrefix())) {
+                            if (recursive) {
+                                directories.push(container.listBlobsByHierarchy(item.getName()).iterator());
+                            }
+                            continue;
+                        }
+                        BlobItemProperties props = item.getProperties();
+                        next = new RemoteFile(S3ObjStorage.toPath(base, item.getName()), false,
+                                props.getContentLength(), props.getContentLength(),
+                                props.getLastModified().getSecond(), null);
+                        return true;
+                    }
+                    return false;
+                } catch (CancellationException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new FileSystemIOException("Azure FileSystem list files failed: "
+                            + ExceptionUtils.getRootCauseMessage(e), e);
+                }
+            }
+
+            @Override
+            public RemoteFile next() throws FileSystemIOException {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                RemoteFile file = next;
+                next = null;
+                return file;
+            }
+
+            @Override
+            public void close() {
+                closed = true;
+                next = null;
+                directories.clear();
+                container = null;
+            }
+        };
     }
 
     public PagedResponse<BlobItem> getPagedBlobItems(BlobContainerClient client, ListBlobsOptions options,

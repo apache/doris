@@ -23,7 +23,14 @@ package org.apache.doris.fs;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.fs.remote.RemoteFile;
 
+import java.util.function.BooleanSupplier;
+
 public interface DirectoryLister {
+    default RemoteIterator<RemoteFile> listFilesUncached(FileSystem fs, boolean recursive, TableIf table,
+            String location, BooleanSupplier cancelled) throws FileSystemIOException {
+        return listFiles(fs, recursive, table, location);
+    }
+
     RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
             throws FileSystemIOException;
 }

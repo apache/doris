@@ -47,6 +47,12 @@ public class AzureFileSystem extends ObjFileSystem {
     }
 
     @Override
+    public org.apache.doris.fs.RemoteIterator<RemoteFile> listFilesIterator(String remotePath, boolean recursive,
+            java.util.function.BooleanSupplier cancelled) throws org.apache.doris.fs.FileSystemIOException {
+        return ((AzureObjStorage) getObjStorage()).listFilesIterator(remotePath, recursive, cancelled);
+    }
+
+    @Override
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
         AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
         return azureObjStorage.listFiles(remotePath, recursive, result);

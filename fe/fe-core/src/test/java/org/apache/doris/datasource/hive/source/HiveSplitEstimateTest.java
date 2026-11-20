@@ -196,6 +196,9 @@ public class HiveSplitEstimateTest {
         Mockito.when(cache.getFilesByPartitions(Mockito.anyList(), Mockito.anyBoolean(), Mockito.anyBoolean(),
                 Mockito.isNull(), Mockito.same(table))).thenAnswer(call -> call.<List<HivePartition>>getArgument(0)
                         .stream().map(files::get).collect(Collectors.toList()));
+        Mockito.when(cache.openFiles(Mockito.any(), Mockito.anyBoolean(), Mockito.isNull(),
+                Mockito.same(table), Mockito.any())).thenAnswer(call ->
+                        org.apache.doris.datasource.hive.HiveFileIterator.of(files.get(call.getArgument(0))));
         Env env = Mockito.mock(Env.class);
         ExternalMetaCacheMgr manager = Mockito.mock(ExternalMetaCacheMgr.class);
         ExecutorService executor = Executors.newFixedThreadPool(2);

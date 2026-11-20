@@ -73,6 +73,13 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
         return listInternal(fs, recursive, table, new TransactionDirectoryListingCacheKey(transactionId, location));
     }
 
+    @Override
+    public RemoteIterator<RemoteFile> listFilesUncached(FileSystem fs, boolean recursive, TableIf table,
+            String location, java.util.function.BooleanSupplier cancelled) throws FileSystemIOException {
+        // FetchingValueHolder retains the whole directory even when global caching is abandoned.
+        return delegate.listFilesUncached(fs, recursive, table, location, cancelled);
+    }
+
     private RemoteIterator<RemoteFile> listInternal(FileSystem fs, boolean recursive, TableIf table,
                                                     TransactionDirectoryListingCacheKey cacheKey)
             throws FileSystemIOException {

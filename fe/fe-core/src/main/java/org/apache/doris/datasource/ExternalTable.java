@@ -314,6 +314,15 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return fetchRowCount();
     }
 
+    public long fetchRowCountForAnalyze() {
+        return fetchRowCountWithMetaCache(true);
+    }
+
+    public long getRowCountForAnalyze() {
+        return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache()
+                .getRowCountForAnalyze(catalog.getId(), dbId, id);
+    }
+
     @Override
     public long getAvgRowLength() {
         return 0;

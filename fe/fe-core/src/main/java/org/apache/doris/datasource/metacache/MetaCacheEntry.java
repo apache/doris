@@ -422,6 +422,91 @@ public class MetaCacheEntry<K, V> {
         }
     }
 
+    /** A loader whose dependent publications must stay bound to this physical cache generation. */
+    @FunctionalInterface
+    public interface OwnerBoundLoader<K, V> extends Function<K, V> {
+        V load(MetaCacheEntry<K, V> owner, K key);
+
+        @Override
+        default V apply(K key) {
+            throw new IllegalStateException("Owner-bound loader requires its physical cache entry");
+        }
+    }
+
+    /** Capture invalidation before a paged external load starts, rather than at final publication. */
+    public StreamingLoad beginStreamingLoad(K key) {
+        return new StreamingLoad(key, beginKeyMutation(key));
+    }
+
+    public final class StreamingLoad implements AutoCloseable {
+        private final K key;
+        private final KeyMutationToken mutation;
+        private final long startNanos = System.nanoTime();
+        private boolean finished;
+        private boolean outcomeRecorded;
+
+        private StreamingLoad(K key, KeyMutationToken mutation) {
+            this.key = key;
+            this.mutation = mutation;
+        }
+
+        public boolean publish(V value) {
+            com.google.common.base.Preconditions.checkState(!finished, "Streaming load is closed");
+            Objects.requireNonNull(value, "value");
+            if (!effectiveEnabled || closed.get()) {
+                return false;
+            }
+            if (weightBounded) {
+                return admitWeightedValue(key, value, null, false, mutation, -1L, true)
+                        == AdmissionResult.ADMITTED;
+            }
+            synchronized (admissionLock) {
+                if (closed.get() || !isKeyMutationCurrent(key, mutation)) {
+                    return false;
+                }
+                advanceKeyMutation(key);
+                putNonWeightedValue(key, value);
+                return true;
+            }
+        }
+
+        /** A completed oversized refresh must retire the old list, but cannot evict a newer writer. */
+        public void invalidateIfCurrent() {
+            com.google.common.base.Preconditions.checkState(!finished, "Streaming load is closed");
+            synchronized (admissionLock) {
+                if (!closed.get() && isKeyMutationCurrent(key, mutation)) {
+                    invalidateKey(key);
+                }
+            }
+        }
+
+        public void recordSuccess() {
+            if (outcomeRecorded) {
+                return;
+            }
+            outcomeRecorded = true;
+            recordLoadSuccess(startNanos);
+        }
+
+        public void recordFailure(Throwable error) {
+            // A failed read can also fail during cleanup. Preserve the first outcome and error.
+            if (outcomeRecorded) {
+                return;
+            }
+            outcomeRecorded = true;
+            recordLoadFailure(startNanos, error);
+        }
+
+        @Override
+        public void close() {
+            if (finished) {
+                return;
+            }
+            finished = true;
+            endKeyMutation(key, mutation);
+        }
+    }
+
     /** Result of an atomic compare-and-replace operation. */
     public enum ReplaceResult {
         REPLACED,
@@ -1539,6 +1624,9 @@ public class MetaCacheEntry<K, V> {
             throw new UnsupportedOperationException(
                     String.format("Entry '%s' requires a contextual miss loader.", name));
         }
+        if (loader instanceof OwnerBoundLoader) {
+            return ((OwnerBoundLoader<K, V>) loader).load(this, key);
+        }
         return loader.apply(key);
     }
 
@@ -1547,17 +1635,25 @@ public class MetaCacheEntry<K, V> {
         long startNanos = System.nanoTime();
         try {
             V value = loadFunction.apply(key);
-            loadSuccessCount.incrementAndGet();
-            totalLoadTimeNanos.addAndGet(System.nanoTime() - startNanos);
-            lastLoadSuccessTimeMs.set(System.currentTimeMillis());
+            recordLoadSuccess(startNanos);
             return value;
         } catch (RuntimeException | Error e) {
-            loadFailureCount.incrementAndGet();
-            totalLoadTimeNanos.addAndGet(System.nanoTime() - startNanos);
-            lastLoadFailureTimeMs.set(System.currentTimeMillis());
-            lastError.set(e.toString());
+            recordLoadFailure(startNanos, e);
             throw e;
         }
+    }
+
+    private void recordLoadSuccess(long startNanos) {
+        loadSuccessCount.incrementAndGet();
+        totalLoadTimeNanos.addAndGet(System.nanoTime() - startNanos);
+        lastLoadSuccessTimeMs.set(System.currentTimeMillis());
+    }
+
+    private void recordLoadFailure(long startNanos, Throwable error) {
+        loadFailureCount.incrementAndGet();
+        totalLoadTimeNanos.addAndGet(System.nanoTime() - startNanos);
+        lastLoadFailureTimeMs.set(System.currentTimeMillis());
+        lastError.set(error.toString());
     }
 
     private KeyMutationToken beginKeyMutation(K key) {

@@ -28,7 +28,9 @@ import org.apache.doris.datasource.property.common.AwsCredentialsProviderFactory
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.fs.FileSystemIOException;
 import org.apache.doris.fs.GlobListResult;
+import org.apache.doris.fs.RemoteIterator;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import org.apache.commons.lang3.StringUtils;
@@ -90,10 +92,14 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 public class S3ObjStorage implements ObjStorage<S3Client> {
@@ -197,6 +203,100 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
 
         return Status.OK;
+    }
+
+    public RemoteIterator<RemoteFile> listFilesIterator(String remotePath, boolean recursive,
+            BooleanSupplier cancelled) throws FileSystemIOException {
+        final S3URI uri;
+        try {
+            uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
+        } catch (Exception e) {
+            throw new FileSystemIOException(e.getMessage(), e);
+        }
+        String key = uri.getKey();
+        String base = remotePath.substring(0, remotePath.length() - key.length());
+        String prefix = key.endsWith("/") ? key : key + "/";
+        return new RemoteIterator<RemoteFile>() {
+            private Iterator<S3Object> objects = Collections.emptyIterator();
+            private Iterator<CommonPrefix> directories = Collections.emptyIterator();
+            private String token;
+            private boolean finished;
+            private boolean observedFile;
+            private RemoteFile next;
+
+            @Override
+            public boolean hasNext() throws FileSystemIOException {
+                if (cancelled.getAsBoolean()) {
+                    throw new CancellationException("File listing cancelled");
+                }
+                if (next != null) {
+                    return true;
+                }
+                try {
+                    while (true) {
+                        while (objects.hasNext()) {
+                            S3Object file = objects.next();
+                            if (file.key().equals(prefix)) {
+                                continue;
+                            }
+                            next = new RemoteFile(toPath(base, file.key()), false, file.size(), 0L,
+                                    file.lastModified().toEpochMilli(), null);
+                            return true;
+                        }
+                        if (directories.hasNext()) {
+                            next = new RemoteFile(toPath(uri.getBucket(), directories.next().prefix()),
+                                    true, 0L, 0L, 0L, null);
+                            return true;
+                        }
+                        if (finished) {
+                            return false;
+                        }
+                        if (cancelled.getAsBoolean()) {
+                            throw new CancellationException("File listing cancelled");
+                        }
+                        ListObjectsV2Request.Builder request = ListObjectsV2Request.builder()
+                                .bucket(uri.getBucket()).prefix(prefix).continuationToken(token);
+                        if (!recursive) {
+                            request.delimiter("/");
+                        }
+                        ListObjectsV2Response response = getClient().listObjectsV2(request.build());
+                        objects = response.contents().iterator();
+                        directories = recursive ? Collections.emptyIterator() : response.commonPrefixes().iterator();
+                        token = response.nextContinuationToken();
+                        finished = token == null;
+                    }
+                } catch (NoSuchKeyException e) {
+                    if (observedFile) {
+                        throw new FileSystemIOException(Status.ErrCode.COMMON_ERROR, e.getMessage(), e);
+                    }
+                    close();
+                    return false;
+                } catch (CancellationException e) {
+                    throw e;
+                } catch (Exception e) {
+                    throw new FileSystemIOException(Status.ErrCode.COMMON_ERROR, e.getMessage(), e);
+                }
+            }
+
+            @Override
+            public RemoteFile next() throws FileSystemIOException {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                observedFile = true;
+                RemoteFile file = next;
+                next = null;
+                return file;
+            }
+
+            @Override
+            public void close() {
+                objects = Collections.emptyIterator();
+                directories = Collections.emptyIterator();
+                next = null;
+                finished = true;
+            }
+        };
     }
 
     protected static Path toPath(String schemaAndBucket, String key) {

@@ -20,7 +20,11 @@
 
 package org.apache.doris.fs;
 
-public interface RemoteIterator<T> {
+public interface RemoteIterator<T> extends AutoCloseable {
+    @Override
+    default void close() throws FileSystemIOException {
+    }
+
     boolean hasNext() throws FileSystemIOException;
 
     T next() throws FileSystemIOException;
