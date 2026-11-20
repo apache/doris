@@ -1137,5 +1137,8 @@ struct ExtractType<T(U)> {
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt128>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt136>));          \
     INSTANTIATION(JoinOpType, (FixedKeyHashTableContext<UInt256>));          \
-    INSTANTIATION(JoinOpType, (MethodOneString));
+    INSTANTIATION(JoinOpType, (MethodOneString));                            \
+    INSTANTIATION(JoinOpType, (PackedStringJoinContext<UInt32>));            \
+    INSTANTIATION(JoinOpType, (PackedStringJoinContext<UInt64>));            \
+    INSTANTIATION(JoinOpType, (PackedStringJoinContext<UInt128>));
 } // namespace doris
