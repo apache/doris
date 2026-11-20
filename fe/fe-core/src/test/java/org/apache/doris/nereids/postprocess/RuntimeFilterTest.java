@@ -29,6 +29,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
+import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor;
 import org.apache.doris.nereids.processor.post.RuntimeFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -272,6 +273,168 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
+    public void testExpandRuntimeFilterThroughLeftOuterJoin() {
+        try {
+            for (String condition : ImmutableList.of("lo_orderdate = d_datekey", "d_datekey = lo_orderdate")) {
+                String sql = "select * from lineorder left join dates on " + condition
+                        + " inner join customer on lo_orderdate = c_custkey";
+                Assertions.assertEquals(1, getRuntimeFilters(sql).get().size());
+
+                connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+                RuntimeFilterContext context = getRuntimeFilterContext(sql);
+                checkRuntimeFilterExprs(context.getNereidsRuntimeFilter(), ImmutableList.of(
+                        Pair.of("c_custkey", "lo_orderdate"), Pair.of("c_custkey", "d_datekey")));
+                Assertions.assertEquals(1, context.getLegacyFilters().size());
+                Assertions.assertEquals(2, context.getLegacyFilters().get(0).toThrift().getPlanIdToTargetExprSize());
+                connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+            }
+        } finally {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        }
+    }
+
+    @Test
+    public void testExpandRuntimeFilterThroughRightOuterJoin() {
+        try {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+            for (String condition : ImmutableList.of("lo_orderdate = d_datekey", "d_datekey = lo_orderdate")) {
+                List<RuntimeFilter> filters = getRuntimeFilters(
+                        "select * from lineorder right join dates on " + condition
+                                + " inner join customer on d_datekey = c_custkey").get().stream()
+                        .filter(rf -> rf.getSrcExpr().toSql().equals("c_custkey"))
+                        .collect(Collectors.toList());
+                checkRuntimeFilterExprs(filters, ImmutableList.of(
+                        Pair.of("c_custkey", "d_datekey"), Pair.of("c_custkey", "lo_orderdate")));
+            }
+        } finally {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        }
+    }
+
+    @Test
+    public void testExpandRuntimeFilterThroughNestedOuterJoins() {
+        try {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+            List<RuntimeFilter> filters = getRuntimeFilters(
+                    "select * from lineorder left join dates on lo_orderdate = d_datekey"
+                            + " left join supplier on lo_orderdate = s_suppkey"
+                            + " inner join customer on lo_orderdate = c_custkey").get();
+            checkRuntimeFilterExprs(filters, ImmutableList.of(
+                    Pair.of("c_custkey", "lo_orderdate"), Pair.of("c_custkey", "d_datekey"),
+                    Pair.of("c_custkey", "s_suppkey")));
+        } finally {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        }
+    }
+
+    @Test
+    public void testDoNotExpandOuterJoinRuntimeFilterThroughExpressions() {
+        try {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+            for (String condition : ImmutableList.of("lo_orderdate = d_datekey + 1",
+                    "lo_orderdate + 1 = d_datekey")) {
+                List<RuntimeFilter> filters = getRuntimeFilters(
+                        "select * from lineorder left join dates on " + condition
+                                + " inner join customer on lo_orderdate = c_custkey").get();
+                Assertions.assertEquals(1, filters.size(), condition);
+                checkRuntimeFilterExprs(filters, ImmutableList.of(Pair.of("c_custkey", "lo_orderdate")));
+            }
+        } finally {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        }
+    }
+
+    @Test
+    public void testDoNotExpandOuterJoinRuntimeFilterThroughNullSafeEquality() {
+        try {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+            for (boolean nullSafeBuilder : ImmutableList.of(false, true)) {
+                PhysicalHashJoin<?, ?> baseJoin = findFirstHashJoin(planAfterPostProcess(
+                        "select * from lineorder left join dates on lo_orderdate = d_datekey"));
+                EqualTo condition = (EqualTo) baseJoin.getHashJoinConjuncts().get(0);
+                // Use physical predicates: SQL rewrites may simplify <=> on NOT NULL keys to =.
+                Expression lowerCondition = nullSafeBuilder ? condition
+                        : new NullSafeEqual(condition.left(), condition.right());
+                PhysicalHashJoin<?, ?> join = new PhysicalHashJoin<>(JoinType.LEFT_OUTER_JOIN,
+                        ImmutableList.of(lowerCondition), ImmutableList.of(),
+                        new DistributeHint(DistributeType.NONE), Optional.empty(), null,
+                        baseJoin.left(), baseJoin.right());
+                RuntimeFilterContext context = new RuntimeFilterContext(connectContext.getSessionVariable(),
+                        RuntimeFilterId.createGenerator());
+                SlotReference source = new SlotReference("source_key", condition.left().getDataType());
+                PushDownContext pushDown = PushDownContext.createPushDownContext(context,
+                        newHashJoinBuilder(nullSafeBuilder), source, condition.left(),
+                        TRuntimeFilterType.IN_OR_BLOOM, false, 1, 0);
+                join.accept(new RuntimeFilterPushDownVisitor(), pushDown);
+                Assertions.assertEquals(nullSafeBuilder ? 0 : 1, context.getNereidsRuntimeFilter().size());
+            }
+        } finally {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        }
+    }
+
+    @Test
+    public void testDoNotExpandOuterJoinRuntimeFilterFromNonPreservedSide() {
+        try {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+            for (JoinType joinType : ImmutableList.of(JoinType.LEFT_OUTER_JOIN, JoinType.RIGHT_OUTER_JOIN,
+                    JoinType.FULL_OUTER_JOIN)) {
+                PhysicalHashJoin<?, ?> baseJoin = findFirstHashJoin(planAfterPostProcess(
+                        "select * from lineorder left join dates on lo_orderdate = d_datekey"));
+                EqualTo condition = (EqualTo) baseJoin.getHashJoinConjuncts().get(0);
+                PhysicalHashJoin<?, ?> join = new PhysicalHashJoin<>(joinType, ImmutableList.of(condition),
+                        ImmutableList.of(), new DistributeHint(DistributeType.NONE), Optional.empty(), null,
+                        baseJoin.left(), baseJoin.right());
+                Expression probe = joinType.isRightOuterJoin() ? condition.left() : condition.right();
+                RuntimeFilterContext context = new RuntimeFilterContext(connectContext.getSessionVariable(),
+                        RuntimeFilterId.createGenerator());
+                SlotReference source = new SlotReference("source_key", probe.getDataType());
+                PushDownContext pushDown = PushDownContext.createPushDownContext(context,
+                        newHashJoinBuilder(false), source, probe, TRuntimeFilterType.IN_OR_BLOOM,
+                        false, 1, 0);
+                join.accept(new RuntimeFilterPushDownVisitor(), pushDown);
+                List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
+                Assertions.assertEquals(1, filters.size());
+                Assertions.assertEquals(probe, filters.get(0).getTargetExpression());
+            }
+        } finally {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        }
+    }
+
+    @Test
+    public void testOuterJoinExpansionKeepsNonBlockingRequirement() {
+        try {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
+            for (JoinType joinType : ImmutableList.of(JoinType.LEFT_OUTER_JOIN, JoinType.RIGHT_OUTER_JOIN)) {
+                PhysicalHashJoin<?, ?> baseJoin = findFirstHashJoin(planAfterPostProcess(
+                        "select * from lineorder left join dates on lo_orderdate = d_datekey"));
+                EqualTo condition = (EqualTo) baseJoin.getHashJoinConjuncts().get(0);
+                PhysicalHashJoin<?, ?> join = new PhysicalHashJoin<>(joinType, ImmutableList.of(condition),
+                        ImmutableList.of(), new DistributeHint(DistributeType.NONE), Optional.empty(), null,
+                        baseJoin.left(), baseJoin.right());
+                Expression probe = joinType.isLeftOuterJoin() ? condition.left() : condition.right();
+                RuntimeFilterContext context = new RuntimeFilterContext(connectContext.getSessionVariable(),
+                        RuntimeFilterId.createGenerator());
+                SlotReference source = new SlotReference("source_key", probe.getDataType());
+                AbstractPhysicalPlan builder = newHashJoinBuilder(false);
+                PushDownContext pushDown = PushDownContext.createPushDownContext(context, builder,
+                        source, probe, TRuntimeFilterType.IN_OR_BLOOM, false, 1, 0).withNonBlocking(true);
+                join.accept(new RuntimeFilterPushDownVisitor(), pushDown);
+                List<RuntimeFilter> filters = context.getNereidsRuntimeFilter();
+                Assertions.assertEquals(2, filters.size());
+                for (RuntimeFilter filter : filters) {
+                    Assertions.assertSame(builder, filter.getBuilderNode());
+                    Assertions.assertEquals(source, filter.getSrcExpr());
+                    Assertions.assertTrue(filter.isNonBlocking());
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
+        }
+    }
+
+    @Test
     public void testDoNotPushDownNonNullPropagatingRuntimeFilterThroughOuterJoin() {
         String sql = "select * from lineorder left outer join customer on lo_custkey = c_custkey"
                 + " inner join supplier on coalesce(c_custkey, 0) = s_suppkey";
@@ -392,7 +555,7 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
-    public void testPushDownThroughUnsupportedJoinType() {
+    public void testPushDownThroughOuterJoinWithExpansion() {
         String sql = "select c_custkey from (select c_custkey from (select lo_custkey from lineorder inner join dates"
                 + " on lo_orderdate = d_datekey) a"
                 + " inner join (select c_custkey from customer left outer join supplier on c_custkey = s_suppkey) b"
@@ -403,8 +566,9 @@ public class RuntimeFilterTest extends SSBTestBase {
 
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
         filters = getRuntimeFilters(sql).get();
-        // Expansion through inner joins creates additional RFs
-        Assertions.assertEquals(5, filters.size());
+        // Expand to lineorder through the inner join and to supplier through the left outer join.
+        Assertions.assertEquals(6, filters.size());
+        Assertions.assertTrue(filters.stream().anyMatch(rf -> rf.getTargetSlot().getName().equals("s_suppkey")));
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
 
     }
