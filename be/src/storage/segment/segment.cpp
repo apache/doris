@@ -67,6 +67,7 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/predicate/predicate_creator.h"
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/schema.h"
 #include "storage/segment/column_meta_accessor.h"
@@ -90,6 +91,72 @@
 namespace doris::segment_v2 {
 
 namespace {
+
+std::shared_ptr<AndBlockColumnPredicate> merge_predicates_with_key_range(
+        int32_t column_id, const std::shared_ptr<AndBlockColumnPredicate>& predicates,
+        const ReadSchema& schema, const StorageReadOptions& read_options,
+        const TabletSchema& tablet_schema, ColumnReader& reader) {
+    const auto agg = read_options.push_down_agg_type_opt;
+    if (read_options.key_ranges.size() != 1 ||
+        read_options.io_ctx.reader_type != ReaderType::READER_QUERY ||
+        (agg != TPushAggOp::NONE && agg != TPushAggOp::COUNT_ON_INDEX) ||
+        tablet_schema.sort_type() != SortType::LEXICAL ||
+        !tablet_schema.cluster_key_uids().empty() || tablet_schema.num_key_columns() == 0 ||
+        (tablet_schema.keys_type() == UNIQUE_KEYS &&
+         (tablet_schema.num_key_columns() != 1 || tablet_schema.has_sequence_col()))) {
+        return predicates;
+    }
+
+    const auto& column = *schema.column(column_id);
+    const auto uid = column.unique_id();
+    const auto data_type = schema.data_type(column_id);
+    const auto type = data_type->get_primitive_type();
+    const auto storage_type = reader.get_vec_data_type();
+    // Scalar comparisons exclude NULL, which can be inside a seek range.
+    if (uid != tablet_schema.column(0).unique_id() || !column.is_key() || column.has_path_info() ||
+        column.is_nullable() || !is_int(type) || !storage_type || reader.is_nullable() ||
+        storage_type->get_primitive_type() != type) {
+        return predicates;
+    }
+
+    const auto& range = read_options.key_ranges.front();
+    const auto supported_bound = [uid, type](const RowCursor* bound) {
+        return bound == nullptr ||
+               (bound->field_count() == 1 && bound->column(0)->unique_id() == uid &&
+                bound->field(0).get_type() == type);
+    };
+    if ((range.lower_key == nullptr && range.upper_key == nullptr) ||
+        !supported_bound(range.lower_key) || !supported_bound(range.upper_key)) {
+        return predicates;
+    }
+
+    auto merged = AndBlockColumnPredicate::create_shared();
+    // The rowset reader groups individual column predicates under a single AND.
+    std::set<std::shared_ptr<const ColumnPredicate>> column_predicates;
+    predicates->get_all_column_predicate(column_predicates);
+    for (const auto& predicate : column_predicates) {
+        merged->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+    }
+    if (range.lower_key != nullptr) {
+        const auto& lower = range.lower_key->field(0);
+        auto predicate = range.include_lower
+                                 ? create_comparison_predicate<PredicateType::GE>(
+                                           column_id, column.name(), data_type, lower, false)
+                                 : create_comparison_predicate<PredicateType::GT>(
+                                           column_id, column.name(), data_type, lower, false);
+        merged->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+    }
+    if (range.upper_key != nullptr) {
+        const auto& upper = range.upper_key->field(0);
+        auto predicate = range.include_upper
+                                 ? create_comparison_predicate<PredicateType::LE>(
+                                           column_id, column.name(), data_type, upper, false)
+                                 : create_comparison_predicate<PredicateType::LT>(
+                                           column_id, column.name(), data_type, upper, false);
+        merged->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+    }
+    return merged;
+}
 
 Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
                                      const StorageReadOptions& read_options,
@@ -451,7 +518,9 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
             can_apply_predicate_safely(column_id, *schema,
                                        read_options.target_cast_type_for_variants, read_options)) {
             bool matched = true;
-            RETURN_IF_ERROR(reader->match_condition(entry.second.get(), &matched));
+            auto predicates = merge_predicates_with_key_range(
+                    column_id, entry.second, *schema, read_options, *_tablet_schema, *reader);
+            RETURN_IF_ERROR(reader->match_condition(predicates.get(), &matched));
             if (!matched) {
                 // any condition not satisfied, return.
                 *iter = std::make_unique<EmptySegmentIterator>(*schema);
