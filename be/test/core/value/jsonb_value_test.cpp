@@ -20,6 +20,8 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <string_view>
+#include <vector>
 
 using std::string;
 
@@ -53,6 +55,35 @@ TEST(JsonBinaryValueTest, TestValidation) {
     for (size_t i = 0; i < valid_strs.size(); i++) {
         auto status = json_val.from_json_string(valid_strs[i].c_str(), valid_strs[i].size());
         EXPECT_TRUE(status.ok()) << "Should succeed for: [" << valid_strs[i] << "]";
+    }
+}
+
+TEST(JsonBinaryValueTest, ReusedValueMatchesFreshParse) {
+    // Each document is shorter than the previous one, so the reused input buffer still holds
+    // bytes of the previous document right after it, such as digits after a root number.
+    const std::vector<string> docs = {
+            R"({"key":"a long string value","list":[1,2,3,4,5,6,7,8,9,10]})",
+            "12345678901234567890123456789",
+            "-1234567",
+            "1",
+            R"("abcdef")",
+            "[1",
+            "true",
+            R"({"k":1})",
+            "nul",
+            "[]",
+    };
+    JsonBinaryValue reused;
+    for (const auto& doc : docs) {
+        JsonBinaryValue fresh;
+        const Status fresh_status = fresh.from_json_string(doc);
+        const Status reused_status = reused.from_json_string(doc);
+        ASSERT_EQ(fresh_status.ok(), reused_status.ok()) << doc;
+        if (fresh_status.ok()) {
+            EXPECT_EQ(std::string_view(fresh.value(), fresh.size()),
+                      std::string_view(reused.value(), reused.size()))
+                    << doc;
+        }
     }
 }
 } // namespace doris
