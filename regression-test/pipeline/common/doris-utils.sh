@@ -91,7 +91,53 @@ function start_doris_recycler() {
     cd - || return 1
 }
 
+# CI operators may explicitly select a preconfigured, unprivileged runtime.
+# Preserve managed hosts as the default; never repair preconfigured hosts here.
+function check_preconfigured_java() {
+    if [[ "${JAVA_HOME:-}" != /* || ! -x "${JAVA_HOME}/bin/java" || ! -x "${JAVA_HOME}/bin/javac" ]]; then
+        echo "ERROR: preconfigured runtime requires an absolute JAVA_HOME with a JDK." >&2
+        return 1
+    fi
+    local actual
+    actual=$("${JAVA_HOME}/bin/java" -XshowSettings:properties -version 2>&1) || return 1
+    actual=$(printf '%s\n' "${actual}" | awk '$1 == "java.specification.version" {print $3}')
+    if [[ -z "${DORIS_CI_JAVA_MAJOR:-}" || "${actual}" != "${DORIS_CI_JAVA_MAJOR}" ]]; then
+        echo "ERROR: JAVA_HOME does not match DORIS_CI_JAVA_MAJOR." >&2
+        return 1
+    fi
+    export PATH="${JAVA_HOME}/bin:${PATH}"
+}
+
+function check_preconfigured_be_limits() {
+    local max_map_count nofile
+    max_map_count=$(cat /proc/sys/vm/max_map_count) || return 1
+    nofile=$(ulimit -Sn) || return 1
+    if [[ ! "${max_map_count}" =~ ^[0-9]+$ ]] || ((max_map_count < 2000000)); then
+        echo "ERROR: host vm.max_map_count must be at least 2000000." >&2
+        return 1
+    fi
+    if [[ "${nofile}" != unlimited ]] && { [[ ! "${nofile}" =~ ^[0-9]+$ ]] || ((nofile < 200000)); }; then
+        echo "ERROR: container nofile must be at least 200000." >&2
+        return 1
+    fi
+    if [[ $(ulimit -Sc) != unlimited ]]; then
+        echo "ERROR: container core limit must be unlimited." >&2
+        return 1
+    fi
+    # Preserve the original swapoff contract. Reading host /proc/swaps must work;
+    # an unreadable file or any enabled swap is a failed precondition.
+    if ! awk 'NR > 1 {bad=1} END {exit (NR == 0 || bad)}' /proc/swaps; then
+        echo "ERROR: host swap must already be disabled." >&2
+        return 1
+    fi
+}
+
 function install_java() {
+    case "${DORIS_CI_ENV_MODE:-managed}" in
+        preconfigured) check_preconfigured_java; return $? ;;
+        managed) ;;
+        *) echo "ERROR: unknown DORIS_CI_ENV_MODE." >&2; return 1 ;;
+    esac
     if ! java -version >/dev/null ||
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
         sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
@@ -122,19 +168,26 @@ install_maven() {
 
 function start_doris_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if install_java && [[ -z "${JAVA_HOME}" ]]; then
+    install_java || return 1
+    if [[ -z "${JAVA_HOME:-}" ]]; then
         # default to use java-8
         JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
         export JAVA_HOME
     fi
-    if [[ ! -f /usr/local/jacoco/lib/jacocoagent.jar ]]; then
+    local jacoco_agent="${DORIS_CI_JACOCO_AGENT:-/usr/local/jacoco/lib/jacocoagent.jar}"
+    if [[ "${DORIS_CI_ENV_MODE:-managed}" == preconfigured ]]; then
+        if [[ "${jacoco_agent}" != /* || ! -r "${jacoco_agent}" ]] || ! command -v mysql >/dev/null; then
+            echo "ERROR: preconfigured FE requires a readable local JaCoCo agent and mysql client." >&2
+            return 1
+        fi
+    elif [[ ! -f /usr/local/jacoco/lib/jacocoagent.jar ]]; then
         rm -rf /usr/local/jacoco/ && mkdir -p /usr/local/jacoco/
         wget -c -t3 -q "${JACOCO_DOWNLOAD_URL:-https://qa-build-hk.oss-cn-hongkong.aliyuncs.com/tools/jacoco-0.8.13.zip}"
         if ! command -v unzip >/dev/null; then sudo apt update && sudo apt install -y unzip; fi
         unzip -o jacoco-0.8.13.zip -d /usr/local/jacoco/
     fi
-    export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
-    "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
+    export JACOCO_COVERAGE_OPT="-javaagent:${jacoco_agent}=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
+    "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon || return 1
 
     if ! mysql --version >/dev/null; then sudo apt update && sudo apt install -y mysql-client; fi
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
@@ -153,7 +206,8 @@ function start_doris_fe() {
 
 function start_doris_be() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if install_java && [[ -z "${JAVA_HOME}" ]]; then
+    install_java || return 1
+    if [[ -z "${JAVA_HOME:-}" ]]; then
         # default to use java-8
         JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
         export JAVA_HOME
@@ -164,11 +218,15 @@ function start_doris_be() {
     export ASAN_SYMBOLIZER_PATH
     export ASAN_OPTIONS="symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:use_sigaltstack=0:detect_leaks=0:fast_unwind_on_malloc=0:check_malloc_usable_size=0"
     export TCMALLOC_SAMPLE_PARAMETER=524288
-    sysctl -w vm.max_map_count=2000000 &&
-        ulimit -n 200000 &&
-        ulimit -c unlimited &&
-        swapoff -a &&
-        ./bin/start_be.sh --daemon
+    if [[ "${DORIS_CI_ENV_MODE:-managed}" == preconfigured ]]; then
+        check_preconfigured_be_limits || return 1
+    else
+        sysctl -w vm.max_map_count=2000000 &&
+            ulimit -n 200000 &&
+            ulimit -c unlimited &&
+            swapoff -a || return 1
+    fi
+    ./bin/start_be.sh --daemon || return 1
 
     sleep 2
     local i=1
