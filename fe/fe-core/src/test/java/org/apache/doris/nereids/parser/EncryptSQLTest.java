@@ -54,6 +54,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
                     Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Mockito.doReturn(null).when(mock).getPendingCancelReason();
                     Profile profile = new Profile(false, 0, 0);
                     Deencapsulation.setField(mock, "profile", profile);
                     Mockito.doReturn(profile).when(mock).getProfile();
@@ -484,6 +485,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
                     Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Mockito.doReturn(null).when(mock).getPendingCancelReason();
                     Profile profile = new Profile(false, 0, 0);
                     Deencapsulation.setField(mock, "profile", profile);
                     Mockito.doReturn(profile).when(mock).getProfile();
@@ -515,6 +517,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
                     Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Mockito.doReturn(null).when(mock).getPendingCancelReason();
                     Profile profile = new Profile(false, 0, 0);
                     Deencapsulation.setField(mock, "profile", profile);
                     Mockito.doReturn(profile).when(mock).getProfile();
@@ -546,6 +549,7 @@ public class EncryptSQLTest extends ParserTestBase {
                 Mockito.withSettings().defaultAnswer(Mockito.CALLS_REAL_METHODS),
                 (mock, context) -> {
                     Mockito.doReturn(false).when(mock).isForwardToMaster();
+                    Mockito.doReturn(null).when(mock).getPendingCancelReason();
                     Profile profile = new Profile(false, 0, 0);
                     Deencapsulation.setField(mock, "profile", profile);
                     Mockito.doReturn(profile).when(mock).getProfile();
