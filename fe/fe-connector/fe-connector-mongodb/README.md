@@ -306,7 +306,9 @@ null, arrays and other families: their `$expr/$type` checks test the field itsel
 than array elements. Sorted quantiles preserve duplicate frequencies before boundary
 deduplication; ranges cover `(-infinity,b1)`, `[b1,b2)`, ..., `[bn,+infinity)` by omitting
 infinite ends. Neither validators nor homogeneous samples justify removing a custom-field
-complement. Too few distinct `_id` samples yield a complete single scan.
+complement. When quantiles produce no internal boundary, either `_id` or a custom
+field uses one complete single scan; two unbounded typed scans would add work without
+partitioning the useful key space.
 The source candidate is ANDed with each partition; SQL residuals remain in Doris,
 including when predicate/projection pushdown switches are off or strict decoding is used.
 

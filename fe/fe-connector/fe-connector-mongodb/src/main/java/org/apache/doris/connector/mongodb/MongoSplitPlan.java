@@ -101,7 +101,9 @@ final class MongoSplitPlan {
                 boundaries.add(value);
             }
         }
-        if (wholeId && boundaries.isEmpty()) {
+        // Without an internal bound, typed ranges plus their complement add a full scan
+        // without splitting the useful key space. One complete cursor preserves all BSON types.
+        if (boundaries.isEmpty()) {
             return single(requested, admitted, "insufficient_boundaries");
         }
         var types = "integer".equals(family) ? List.of("int", "long") : List.of(family);
@@ -158,6 +160,11 @@ final class MongoSplitPlan {
         byte[] bytes = new byte[buffer.remaining()];
         buffer.get(bytes);
         return bytes;
+    }
+
+    byte[] partitionBytes(int index) {
+        // Thrift descriptors are mutable; each caller owns its bytes while the frozen plan stays private.
+        return partitions.get(index).clone();
     }
 
     BsonDocument partition(int index) {

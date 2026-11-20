@@ -37,6 +37,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 class MongoRangePlannerTest {
     private static class Client extends MongoSnapshotPlanTest.Client {
@@ -94,6 +99,42 @@ class MongoRangePlannerTest {
         var result = new TTableFormatFileDesc();
         range.populateRangeParams(result, new TFileRangeDesc());
         return result.getMongodbParams();
+    }
+
+    @Test
+    void familyClassifierPreservesExactTypesFrequencyAndDeterministicTies() {
+        var integer = new org.bson.BsonInt64(Long.MIN_VALUE);
+        var date = new org.bson.BsonDateTime(Long.MAX_VALUE);
+        var objectId = new org.bson.BsonObjectId(new org.bson.types.ObjectId("800000000000000000000000"));
+        Assertions.assertEquals("integer", MongoRangePlanner.family(new BsonInt32(1)));
+        Assertions.assertEquals("integer", MongoRangePlanner.family(integer));
+        Assertions.assertEquals("date", MongoRangePlanner.family(date));
+        Assertions.assertEquals("objectId", MongoRangePlanner.family(objectId));
+        for (BsonValue unsupported : List.of(org.bson.BsonNull.VALUE, new org.bson.BsonDouble(1.0),
+                new org.bson.BsonDecimal128(org.bson.types.Decimal128.parse("1.000")),
+                new org.bson.BsonString("value"), org.bson.BsonBoolean.TRUE, new org.bson.BsonArray(),
+                new org.bson.BsonDocument(), new org.bson.BsonTimestamp(1, 1))) {
+            Assertions.assertEquals("", MongoRangePlanner.family(unsupported));
+        }
+        Assertions.assertEquals("integer", MongoRangePlanner.family(List.of(integer, new BsonInt32(1), date)));
+        Assertions.assertEquals("date", MongoRangePlanner.family(List.of(integer, date, objectId)));
+        Assertions.assertEquals("date", MongoRangePlanner.family(List.of(objectId, date, integer)));
+        Assertions.assertEquals("", MongoRangePlanner.family(List.<BsonValue>of(org.bson.BsonNull.VALUE)));
+    }
+
+    @Test
+    void mutatingWireFilterDoesNotCorruptTheMemoizedPlan() {
+        var properties = properties();
+        var client = new Client();
+        var provider = new MongoScanPlanProvider(properties, () -> client);
+        var session = session(new MongoSnapshotPlanTest.Scope(), options("range"));
+        var request = ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build();
+        var first = descriptor(provider.planScan(session, request).get(0));
+        byte[] expected = first.getSplit().getFilterBson().clone();
+        java.util.Arrays.fill(first.getSplit().getFilterBson(), (byte) 0);
+        var fresh = descriptor(provider.planScan(session, request).get(0));
+        Assertions.assertArrayEquals(expected, fresh.getSplit().getFilterBson());
+        Assertions.assertEquals(1, client.probes);
     }
 
     @Test
@@ -594,6 +635,86 @@ class MongoRangePlannerTest {
             }
         }
         Assertions.assertTrue(limited);
+    }
+
+    @Test
+    void customFieldWithoutInternalBoundsPublishesOneSnapshotDescriptor() {
+        var properties = properties();
+        var client = new Client();
+        var policy = new java.util.HashMap<>(options("range"));
+        policy.put("max_file_split_num", "2");
+        policy.put("mongodb_split_field", "sequence");
+        var session = session(new MongoSnapshotPlanTest.Scope(), policy);
+        var provider = new MongoScanPlanProvider(properties, () -> client);
+        var table = table(properties, "collection");
+        var ranges = provider.planScan(session, ConnectorScanRequest.builder(table, List.of()).build());
+        Assertions.assertEquals(1, ranges.size());
+        var scan = descriptor(ranges.get(0));
+        Assertions.assertEquals(1, scan.getVersion());
+        Assertions.assertEquals("single", scan.getSplit().getStrategy());
+        Assertions.assertEquals("insufficient_boundaries", scan.getSplit().getReason());
+        Assertions.assertEquals(client.time.getTime(), scan.getSnapshot().getTimestampSeconds());
+        Assertions.assertEquals("1", provider.getScanNodeProperties(session, table, List.of(), Optional.empty())
+                .get("splits_actual"));
+        Assertions.assertEquals(1, client.probes);
+    }
+
+    @Test
+    void assertionErrorCompletesTheSharedRangePlanForEveryWaiter() throws Exception {
+        assertFatalRangeFailure(new AssertionError("controlled range failure"));
+    }
+
+    @Test
+    void outOfMemoryErrorCompletesTheSharedRangePlanForEveryWaiter() throws Exception {
+        assertFatalRangeFailure(new OutOfMemoryError("controlled range failure"));
+    }
+
+    private static void assertFatalRangeFailure(Error fatal) throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var waiting = new CountDownLatch(1);
+        var loads = new AtomicInteger();
+        var client = new Client() {
+            @Override
+            public MongoSplitProbe probeSplits(MongoTableHandle table, String field, String preference,
+                    TMongoSnapshot snapshot, int rows, long timeoutMs, Runnable checkCancelled) {
+                loads.incrementAndGet();
+                entered.countDown();
+                try {
+                    Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new CancellationException();
+                }
+                throw fatal;
+            }
+        };
+        var properties = properties();
+        var session = session(new MongoSnapshotPlanTest.Scope(), options("range"));
+        var request = ConnectorScanRequest.builder(table(properties, "collection"), List.of()).build();
+        var provider = new MongoScanPlanProvider(properties, () -> client);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var owner = executor.submit(() -> provider.planScan(session, request));
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var waiter = executor.submit(() -> {
+                waiting.countDown();
+                return provider.planScan(session, request);
+            });
+            Assertions.assertTrue(waiting.await(5, TimeUnit.SECONDS));
+            release.countDown();
+            Assertions.assertSame(fatal, Assertions.assertThrows(ExecutionException.class,
+                    () -> owner.get(1, TimeUnit.SECONDS)).getCause());
+            Assertions.assertSame(fatal, Assertions.assertThrows(ExecutionException.class,
+                    () -> waiter.get(1, TimeUnit.SECONDS)).getCause());
+            Assertions.assertSame(fatal, Assertions.assertThrows(Error.class,
+                    () -> provider.planScan(session, request)));
+            Assertions.assertEquals(1, loads.get());
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
     }
 
 }

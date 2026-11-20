@@ -22,6 +22,7 @@ import argparse
 import base64
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, localcontext
 import json
@@ -334,6 +335,52 @@ def id_coverage_commands(source, catalog):
         finally:
             database.command("profile", 0)
     print("PASS: _id ranges read each BSON family once with one data pass and no sample getMore", flush=True)
+
+
+def custom_no_boundaries_commands(source, catalog, profilers):
+    records = []
+    for name, maximum in [("integer_records", 2), ("date_records", 2), ("duplicate_records", 8)]:
+        for streaming in [False, True]:
+            for member in profilers:
+                member[DATABASE].command("profile", 0)
+                member[DATABASE]["system.profile"].drop()
+                member[DATABASE].command("profile", 2)
+            token = "mongodb_unbounded_custom_" + uuid.uuid4().hex
+            try:
+                statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,"
+                             "max_file_split_num=" + str(maximum) + ",mongodb_split_field='split_key',"
+                             "batch_size=16,enable_profile=true,profile_level=2,enable_external_table_batch_mode="
+                             + str(streaming).lower() + ") */ /* " + token + " */ seq FROM " + catalog
+                             + "." + DATABASE + "." + name + " ORDER BY seq")
+                assert snapshot_checks.sql(statement) == tuple((index,) for index in range(ROWS))
+                timestamp, text = profile(token)
+                reads = []
+                samples = []
+                for member in profilers:
+                    for entry in member[DATABASE]["system.profile"].find({"appName": APPLICATION}):
+                        command = entry.get("originatingCommand", entry.get("command", {}))
+                        if command.get("aggregate") == name:
+                            samples.append(command)
+                        if command.get("find") == name and command.get("limit") != 1:
+                            reads.append((entry, command))
+                assert reads and samples, "Both the frozen-plan probe and native reader must run"
+                examined = sum(entry.get("docsExamined", 0) for entry, _ in reads)
+                # No internal boundary means the typed scan and its complement both scan the
+                # collection. The complete single fallback must leave exactly one data pass.
+                assert examined == ROWS, f"{name}: unbounded custom plan examined {examined}, expected {ROWS}"
+                assert sum(entry.get("nreturned", 0) for entry, _ in reads) == ROWS
+                assert set(map(int, re.findall(r"MongoSplitActual:\s*(\d+)", text))) == {1}
+                assert "insufficient_boundaries" in text
+                for command in samples + [command for _, command in reads]:
+                    assert command["readConcern"]["atClusterTime"] == timestamp
+                assert all(not command.get("filter") for _, command in reads)
+                records.append(dict(collection=name, maximum=maximum, streaming=streaming,
+                                    rows=ROWS, examined=examined, actual=1))
+            finally:
+                for member in profilers:
+                    member[DATABASE].command("profile", 0)
+    print("PASS: custom fields without internal bounds keep one complete data pass at the original T", flush=True)
+    return records
 
 
 def matrix(catalog):
@@ -743,6 +790,10 @@ def main():
             if index == 0:
                 coverage_commands(source, catalog)
                 id_coverage_commands(source, catalog)
+            with ExitStack() as cleanup:
+                profilers = [source] if index == 0 else [cleanup.enter_context(pymongo.MongoClient(
+                    uri, datetime_conversion=DatetimeConversion.DATETIME_AUTO)) for uri in state["shard_uris"]]
+                custom_no_boundaries_commands(source, catalog, profilers)
             matrix(catalog)
             rejection_cases(catalog)
             precision_oracle(source, catalog)

@@ -186,9 +186,13 @@ final class MongoSnapshot {
                         throw new DorisConnectorException("MongoDB did not return a usable snapshot timestamp");
                     }
                     selected.complete(value);
-                } catch (RuntimeException failure) {
-                    // A failed selection stays failed for the whole statement; never select a newer T.
+                } catch (Throwable failure) {
+                    // Every failed selection, including a fatal Error, completes the shared pin.
+                    // Waiters must fail promptly and must never select a newer T for this statement.
                     selected.completeExceptionally(failure);
+                    if (failure instanceof Error fatal) {
+                        throw fatal;
+                    }
                 }
             }
             try {
@@ -199,6 +203,9 @@ final class MongoSnapshot {
             } catch (TimeoutException timeout) {
                 throw new DorisConnectorException("MongoDB snapshot planning deadline exceeded");
             } catch (ExecutionException failure) {
+                if (failure.getCause() instanceof Error fatal) {
+                    throw fatal;
+                }
                 if (failure.getCause() instanceof RuntimeException runtime) {
                     throw runtime;
                 }

@@ -157,7 +157,7 @@ final class MongoRangePlanner {
         }
         int admitted = budget.admit(source, Math.min(requested, descriptorMaximum), descriptorBytes);
         try {
-            var values = probe.samples().stream().filter(v -> family.equals(family(List.of(v)))).toList();
+            var values = probe.samples().stream().filter(v -> family.equals(family(v))).toList();
             MongoSplitPlan plan = MongoSplitPlan.ranges(field, family, values, requested, admitted)
                     .withDescriptorBudget(descriptorBytes);
             budget.refund(source, admitted - plan.size(), descriptorBytes);
@@ -199,16 +199,20 @@ final class MongoRangePlanner {
         MongoSnapshot.checkQueryCancelled(session);
     }
 
+    static String family(BsonValue value) {
+        return value.isInt32() || value.isInt64() ? "integer"
+                : value.isObjectId() ? "objectId" : value.isDateTime() ? "date" : "";
+    }
+
     static String family(List<BsonValue> samples) {
         Map<String, Integer> counts = new HashMap<>();
         for (BsonValue value : samples) {
-            String family = value.isInt32() || value.isInt64() ? "integer"
-                    : value.isObjectId() ? "objectId" : value.isDateTime() ? "date" : "";
+            String family = family(value);
             if (!family.isEmpty()) {
                 counts.merge(family, 1, Integer::sum);
             }
         }
-        // Deterministic tie breaking affects balance only; every other family remains in NOT E.
+        // Deterministic ties affect balance only; the complete partitions still cover every source type.
         return counts.keySet().stream().sorted().max(java.util.Comparator.comparingInt(counts::get)).orElse("");
     }
 
@@ -331,8 +335,12 @@ final class MongoRangePlanner {
             if (owner) {
                 try {
                     selected.complete(loader.get());
-                } catch (RuntimeException failure) {
+                } catch (Throwable failure) {
+                    // A fatal loader failure must wake every waiter instead of leaving the memo pending.
                     selected.completeExceptionally(failure);
+                    if (failure instanceof Error fatal) {
+                        throw fatal;
+                    }
                 }
             }
             while (true) {
@@ -348,6 +356,9 @@ final class MongoRangePlanner {
                     Thread.currentThread().interrupt();
                     throw new CancellationException("MongoDB split planning interrupted");
                 } catch (ExecutionException failure) {
+                    if (failure.getCause() instanceof Error fatal) {
+                        throw fatal;
+                    }
                     if (failure.getCause() instanceof RuntimeException runtime) {
                         throw runtime;
                     }
