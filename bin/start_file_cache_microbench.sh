@@ -110,8 +110,8 @@ java_version="$(
     set -e
     jdk_version "${JAVA_HOME}/bin/java"
 )"
-if [[ "${java_version}" -ne 17 ]]; then
-    echo "ERROR: The jdk_version is ${java_version}, it must be 17."
+if [[ "${java_version}" -ne 17 && "${java_version}" -ne 21 ]]; then
+    echo "ERROR: The jdk_version is ${java_version}, it must be 17 or 21."
     exit 1
 fi
 

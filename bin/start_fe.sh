@@ -320,8 +320,15 @@ if [[ "${java_version}" -eq 17 ]]; then
         exit 1
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
+elif [[ "${java_version}" -eq 21 ]]; then
+    # JDK 21 falls back to the JDK 17 options when no dedicated line is configured
+    final_java_opt="${JAVA_OPTS_FOR_JDK_21:-${JAVA_OPTS_FOR_JDK_17}}"
+    if [[ -z "${final_java_opt}" ]]; then
+        echo "Neither JAVA_OPTS_FOR_JDK_21 nor JAVA_OPTS_FOR_JDK_17 is set in fe.conf"
+        exit 1
+    fi
 else
-    echo "ERROR: The jdk_version is ${java_version}, must be 17."
+    echo "ERROR: The jdk_version is ${java_version}, must be 17 or 21."
     exit 1
 fi
 log "Using Java version ${java_version}"
@@ -351,6 +358,11 @@ add_java_opt_if_missing "--add-opens=java.security.jgss/sun.security.krb5=ALL-UN
 add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
+if [[ "${java_version}" -ge 21 ]]; then
+    # Gson builds adapters for every field of a persisted class, and on JDK 21 java.lang.Thread
+    # (reachable through lock fields) references jdk.internal.vm.Continuation.
+    add_java_opt_if_missing "--add-opens=java.base/jdk.internal.vm=ALL-UNNAMED"
+fi
 
 log "${final_java_opt}"
 export JAVA_OPTS="${final_java_opt}"
