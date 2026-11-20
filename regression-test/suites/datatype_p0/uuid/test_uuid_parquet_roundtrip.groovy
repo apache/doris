@@ -15,22 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.nio.file.Files
-import java.nio.file.Paths
+import org.apache.doris.regression.util.ExportTestHelper
 
 // Checklist: G08 G09 G11 G13 H08.
 suite("test_uuid_parquet_roundtrip") {
-    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
-    return
-
-    if (!getFeConfig("enable_outfile_to_local").equalsIgnoreCase("true")) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_uuid_parquet_roundtrip")
-        return
-    }
-    def backend = sql_return_maparray("SHOW BACKENDS").find { it.Alive == "true" }
-    String securePath = sql_return_maparray(
-            "SHOW BACKEND CONFIG LIKE 'user_files_secure_path' FROM ${backend.BackendId}")[0].Value
-    def outputDirectory = Files.createTempDirectory(Paths.get(securePath), "test_uuid_parquet_roundtrip_")
+    def storage = new ExportTestHelper(delegate)
+    String prefix = "regression/test_uuid_parquet_roundtrip/${UUID.randomUUID()}/"
+    String root = storage.uri(prefix)
     try {
         sql "DROP TABLE IF EXISTS uuid_file_parquet"
         sql """CREATE TABLE uuid_file_parquet (id INT, u UUID, a ARRAY<UUID>, s STRUCT<k:UUID>)
@@ -43,17 +34,17 @@ suite("test_uuid_parquet_roundtrip") {
                (3, NULL, NULL, NULL)"""
         qt_source "SELECT * FROM uuid_file_parquet ORDER BY id"
         sql """SELECT * FROM uuid_file_parquet ORDER BY id
-               INTO OUTFILE "file://${outputDirectory}/parquet_" FORMAT AS parquet"""
-        String path = "${outputDirectory.fileName}/parquet_*"
+               INTO OUTFILE "${root}parquet_" FORMAT AS parquet PROPERTIES (${storage.storageProperties()})"""
+        String path = "${root}parquet_*"
         sql "DROP TABLE IF EXISTS uuid_file_reload_parquet"
         sql "CREATE TABLE uuid_file_reload_parquet LIKE uuid_file_parquet"
         sql """INSERT INTO uuid_file_reload_parquet
-               SELECT * FROM local("file_path"="${path}", "format"="parquet",
-                                   "backend_id"="${backend.BackendId}")"""
+               SELECT * FROM S3("uri"="${path}", "format"="parquet",
+                                   ${storage.storageProperties()})"""
         qt_roundtrip "SELECT * FROM uuid_file_reload_parquet ORDER BY id"
-        order_qt_inferred_types """DESC FUNCTION local(
-            "file_path"="${path}", "format"="parquet", "backend_id"="${backend.BackendId}")"""
+        order_qt_inferred_types """DESC FUNCTION S3(
+            "uri"="${path}", "format"="parquet", ${storage.storageProperties()})"""
     } finally {
-        assertTrue(outputDirectory.toFile().deleteDir())
+        storage.deleteFiles(prefix)
     }
 }

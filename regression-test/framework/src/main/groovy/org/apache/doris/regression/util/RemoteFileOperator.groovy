@@ -17,8 +17,15 @@
 
 package org.apache.doris.regression.util
 
+import com.amazonaws.services.s3.model.GetObjectRequest
+import com.azure.storage.blob.BlobContainerClient
+import com.azure.storage.blob.BlobContainerClientBuilder
+import com.azure.storage.blob.models.ListBlobsOptions
+import com.azure.storage.common.StorageSharedKeyCredential
+import org.apache.doris.regression.suite.Suite
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.time.Duration
 import java.util.concurrent.TimeUnit
 import java.security.SecureRandom
 
@@ -314,73 +321,106 @@ class UniquePathGenerator {
     }
 }
 
-/**
- * Test helper class for managing temporary files/directories during export regression tests.
- * Automates the creation, collection, and cleanup of temporary directories (both local and remote).
- * <p>Key Responsibilities:
- * <ul>
- *   <li>Generate unique local/remote temporary directories using {@link UniquePathGenerator}</li>
- *   <li>Handle remote directory creation via {@link RemoteFileOperator}</li>
- *   <li>Facilitate file collection from remote hosts to local directory</li>
- *   <li>Automatically clean up temporary resources (local/remote) via {@link AutoCloseable} interface</li>
- * </ul>
- *
- * <p>Lifecycle:
- * <ol>
- *   <li>On initialization: Creates unique local and remote directories, initializes SSH operator</li>
- *   <li>During test: Use {@link #collect()} to download files from remote to local directory</li>
- *   <li>On cleanup (via try-with-resources or explicit close()): Deletes remote directory and local directory</li>
- * </ol>
- *
- * <p>Usage Example:
- * <pre>
- * // Initialize with target hosts
- * List<String> testHosts = Arrays.asList("192.168.1.10", "192.168.1.11");
- *
- * // Use try-with-resources to ensure automatic cleanup
- * try (ExportTestHelper testHelper = new ExportTestHelper(testHosts)) {
- *     // Test logic that generates files in testHelper.remoteDir on remote hosts
- *     runExportTest(testHelper.remoteDir);
- *
- *     // Collect generated files to local directory
- *     testHelper.collect();
- *
- *     // Verify exported files in testHelper.localDir
- *     assertExportedFiles(testHelper.localDir);
- * }
- * // Cleanup happens automatically here: remote and local dirs are deleted
- * </pre>
- */
-class ExportTestHelper implements AutoCloseable {
-    private static final Logger logger = LoggerFactory.getLogger(ExportTestHelper.class)
-    String localDir 
-    String remoteDir
-    RemoteFileOperator operator
-    boolean deleteTmpFile = false
+class ExportTestHelper {
+    private final Suite suite
+    private final String bucket
+    private final String endpoint
+    private final BlobContainerClient azure
 
-    public ExportTestHelper(List<String> hosts) {
-        localDir = UniquePathGenerator.generateUniqueLocalPath("/tmp", RemoteFileOperator.SAFETY_PREFIX+"_l")
-        remoteDir = UniquePathGenerator.generateUniqueLocalPath("/tmp", RemoteFileOperator.SAFETY_PREFIX)
-
-        operator = new RemoteFileOperator(hosts, "root")
-        operator.createRemoteDirectories(remoteDir)
-        deleteTmpFile = true
+    ExportTestHelper(Suite suite) {
+        this.suite = suite
+        bucket = suite.getS3BucketName()
+        String configuredEndpoint = suite.getS3Endpoint()
+        if ("azure".equalsIgnoreCase(suite.getS3Provider())) {
+            if (configuredEndpoint == "azure-endpoint") {
+                configuredEndpoint = "${suite.getS3AK()}.blob.core.windows.net"
+            }
+            if (!configuredEndpoint.contains("://")) {
+                configuredEndpoint = "https://${configuredEndpoint}"
+            }
+            azure = new BlobContainerClientBuilder()
+                    .endpoint(configuredEndpoint)
+                    .containerName(bucket)
+                    .credential(new StorageSharedKeyCredential(suite.getS3AK(), suite.getS3SK()))
+                    .buildClient()
+        }
+        endpoint = configuredEndpoint
     }
 
-    public void collect() {
-        operator.scpToLocal(remoteDir, localDir)
+    String storageProperties() {
+        return """
+            "s3.endpoint"="${endpoint}", "s3.region"="${suite.getS3Region()}",
+            "s3.access_key"="${suite.getS3AK()}", "s3.secret_key"="${suite.getS3SK()}",
+            "provider"="${suite.getS3Provider()}"
+        """
     }
 
-    @Override
-    void close() throws Exception {
-        if (deleteTmpFile && operator) {
-            operator.deleteRemoteDirectories(remoteDir)
-            def localDirFile = new File(localDir);
-            if (localDirFile.exists() && localDir.contains(RemoteFileOperator.SAFETY_PREFIX)) {
-                if (localDirFile.deleteDir()) {
-                    logger.info("Successfully deleted local temporary directory: ${localDir}");
+    String uri(String prefix) {
+        return "s3://${bucket}/${prefix}"
+    }
+
+    List<String> keys(String prefix) {
+        if (azure != null) {
+            return azure.listBlobs(new ListBlobsOptions().setPrefix(prefix), Duration.ofMinutes(1)).collect { it.name }
+        }
+        def client = suite.getS3Client()
+        def result = []
+        def page = client.listObjects(bucket, prefix)
+        while (true) {
+            result.addAll(page.objectSummaries.collect { it.key })
+            if (!page.truncated) {
+                return result
+            }
+            page = client.listNextBatchOfObjects(page)
+        }
+    }
+
+    List<File> downloadFiles(String prefix, File directory) {
+        java.nio.file.Files.createDirectories(directory.toPath())
+        return keys(prefix).findAll { !it.endsWith("/") }.collect { key ->
+            File file = new File(directory, key.tokenize("/").last())
+            download(key, file)
+            file
+        }
+    }
+
+    private void download(String key, File file) {
+        if (azure != null) {
+            azure.getBlobClient(key).downloadToFile(file.absolutePath, true)
+        } else {
+            suite.getS3Client().getObject(new GetObjectRequest(bucket, key), file)
+        }
+    }
+
+    void deleteFiles(String prefix) {
+        keys(prefix).each { key ->
+            if (azure != null) {
+                azure.getBlobClient(key).delete()
+            } else {
+                suite.getS3Client().deleteObject(bucket, key)
+            }
+        }
+    }
+
+    static void withParquetOutfile(Suite suite, String query, Closure consumeFile) {
+        def helper = new ExportTestHelper(suite)
+        String prefix = "regression/outfile/${UUID.randomUUID()}/"
+        try {
+            suite.sql """${query} INTO OUTFILE 's3://${helper.bucket}/${prefix}part_' FORMAT AS PARQUET
+                PROPERTIES (${helper.storageProperties()})"""
+            def files = helper.keys(prefix)
+            assert !files.isEmpty()
+            for (String key : files) {
+                File file = File.createTempFile("doris-outfile-", ".parquet")
+                try {
+                    helper.download(key, file)
+                    consumeFile(file.absolutePath)
+                } finally {
+                    file.delete()
                 }
             }
+        } finally {
+            helper.deleteFiles(prefix)
         }
     }
 }

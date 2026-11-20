@@ -25,7 +25,6 @@ import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.analysis.ToSqlParams;
@@ -2066,8 +2065,7 @@ public class StmtExecutor {
         TResultFileSinkOptions sinkOptions = outFileClause.toSinkOptions();
 
         // 2. set brokerNetAddress
-        StorageType storageType = outFileClause.getBrokerDesc() == null
-                ? StorageBackend.StorageType.LOCAL : outFileClause.getBrokerDesc().getStorageType();
+        StorageType storageType = outFileClause.getBrokerDesc().getStorageType();
         if (storageType == StorageType.BROKER) {
             // set the broker address for OUTFILE sink
             String brokerName = outFileClause.getBrokerDesc().getName();

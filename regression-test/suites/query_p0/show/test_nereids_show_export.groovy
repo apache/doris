@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.util.ExportTestHelper
+
 suite("test_nereids_show_export") {
     sql """ drop database if exists  test_nereids_show_export_db"""
     sql """create database test_nereids_show_export_db"""
@@ -34,22 +36,13 @@ suite("test_nereids_show_export") {
 
     // export config
     def table_export_name = "test_nereids_show_export"
-    def outfile_path_prefix = """/tmp/test_export_basic"""
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """${outfile_path_prefix}/${table_export_name}_${uuid}"""
+    def bucket = getS3BucketName()
+    def prefix = "regression/test_nereids_show_export/${UUID.randomUUID()}/"
+    def helper = new ExportTestHelper(delegate)
+    def storage = "WITH S3 (${helper.storageProperties()})"
     def label = "label_xxyyzz_1"
     def label1 = "label_xxyyzz_2"
     def label2 = "label_xxyyzz_3"
-    def machine_user_name = "root"
-
-    def check_path_exists = { dir_path ->
-        mkdirRemotePathOnAllBE(machine_user_name, dir_path)
-    }
-
-    def delete_files = { dir_path ->
-        deleteRemotePathOnAllBE(machine_user_name, dir_path)
-    }
-
     def waiting_export = { the_db, export_label ->
         while (true) {
             def res = sql """ show export from ${the_db} where label = "${export_label}" """
@@ -65,42 +58,39 @@ suite("test_nereids_show_export") {
     }
 
     try {
-        // check export path
-        check_path_exists.call("${outFilePath}")
-
         // exec export 1
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "s3://${bucket}/${prefix}"
             PROPERTIES(
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) ${storage};
         """
         waiting_export.call("test_nereids_show_export_db", label)
 
         // exec export 2
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "s3://${bucket}/${prefix}"
             PROPERTIES(
                 "label" = "${label1}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) ${storage};
         """
         waiting_export.call("test_nereids_show_export_db", label1)
 
         // exec export 3
         sql """
-            EXPORT TABLE ${table_export_name} TO "file://${outFilePath}/"
+            EXPORT TABLE ${table_export_name} TO "s3://${bucket}/${prefix}"
             PROPERTIES(
                 "label" = "${label2}",
                 "format" = "csv",
                 "column_separator"=",",
                 "data_consistency" = "none"
-            );
+            ) ${storage};
         """
         waiting_export.call("test_nereids_show_export_db", label2)
 
@@ -170,6 +160,6 @@ suite("test_nereids_show_export") {
     } finally {
         try_sql("DROP TABLE IF EXISTS test_nereids_show_export")
         try_sql("DROP DATABASE IF EXISTS test_nereids_show_export_db")
-        delete_files.call("${outFilePath}")
+        helper.deleteFiles(prefix)
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -73,7 +74,7 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
 
     @Test
     public void testWriteOutFile() throws Exception {
-        String sql = "select * from T1 join T2 on T1.id = T2.id into outfile 'file://~/result.csv'\n"
+        String sql = "select * from T1 join T2 on T1.id = T2.id into outfile 'hdfs://nn/results/output_'\n"
                 + " format as csv\n"
                 + " properties (\n"
                 + "    \"column_separator\" = \",\",\n"
@@ -83,6 +84,19 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
                 + ")";
         Assertions.assertTrue(getOutputFragment(sql).getExplainString(TExplainLevel.BRIEF)
                 .contains("FILE SINK"));
+    }
+
+    @Test
+    public void rejectsLocalOutfileWithLegacyOptionEnabled() {
+        boolean previous = Config.enable_outfile_to_local;
+        try {
+            Config.enable_outfile_to_local = true;
+            Exception error = Assertions.assertThrows(Exception.class, () -> getOutputFragment(
+                    "select * from T1 into outfile 'file:///tmp/export_' properties ('broker.name'='broker')"));
+            Assertions.assertTrue(error.getMessage().contains("local disk"), error.getMessage());
+        } finally {
+            Config.enable_outfile_to_local = previous;
+        }
     }
 
     @Test

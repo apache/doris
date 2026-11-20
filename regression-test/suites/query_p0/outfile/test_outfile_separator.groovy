@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.ExportTestHelper
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -23,41 +23,11 @@ import java.nio.file.Paths
 
 suite("test_outfile_separator") {
 
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile_separator")
-        return
-    }
     def dbName = context.config.getDbNameByFile(context.file)
     def tableName = "outfile_test_separator"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_separator_${uuid}"""
+    def helper = new ExportTestHelper(delegate)
+    def prefix = "regression/test_outfile_separator/${UUID.randomUUID()}/"
+    def downloadDir = new File(System.getProperty("java.io.tmpdir"), "doris-outfile-${UUID.randomUUID()}")
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -72,17 +42,12 @@ suite("test_outfile_separator") {
         qt_select_1 """ SELECT * FROM ${tableName} t ORDER BY k1; """
 
         // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
         sql """
-            SELECT * FROM ${tableName} t INTO OUTFILE "file://${outFilePath}/" properties("column_separator" = "\\\\x01");
+            SELECT * FROM ${tableName} t INTO OUTFILE "${helper.uri(prefix)}"
+            PROPERTIES (${helper.storageProperties()}, "column_separator" = "\\\\x01");
         """
-        File[] files = path.listFiles()
-        assert files.length == 1
+        def files = helper.downloadFiles(prefix, downloadDir)
+        assert files.size() == 1
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
         assert outLines.size() == 2
 
@@ -98,13 +63,8 @@ suite("test_outfile_separator") {
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
+        downloadDir.deleteDir()
+        helper.deleteFiles(prefix)
     }
 
 }

@@ -15,22 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import java.nio.file.Files
-import java.nio.file.Paths
+import org.apache.doris.regression.util.ExportTestHelper
 
 // Checklist: G02 G11 G13.
 suite("test_uuid_csv_roundtrip") {
-    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
-    return
-
-    if (!getFeConfig("enable_outfile_to_local").equalsIgnoreCase("true")) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_uuid_csv_roundtrip")
-        return
-    }
-    def backend = sql_return_maparray("SHOW BACKENDS").find { it.Alive == "true" }
-    String securePath = sql_return_maparray(
-            "SHOW BACKEND CONFIG LIKE 'user_files_secure_path' FROM ${backend.BackendId}")[0].Value
-    def outputDirectory = Files.createTempDirectory(Paths.get(securePath), "test_uuid_csv_roundtrip_")
+    def storage = new ExportTestHelper(delegate)
+    String prefix = "regression/test_uuid_csv_roundtrip/${UUID.randomUUID()}/"
+    String root = storage.uri(prefix)
     try {
         sql "DROP TABLE IF EXISTS uuid_file_csv"
         sql """CREATE TABLE uuid_file_csv (id INT, u UUID, a ARRAY<UUID>, s STRUCT<k:UUID>)
@@ -43,15 +34,15 @@ suite("test_uuid_csv_roundtrip") {
                (3, NULL, NULL, NULL)"""
         qt_source "SELECT * FROM uuid_file_csv ORDER BY id"
         sql """SELECT id, u FROM uuid_file_csv ORDER BY id
-               INTO OUTFILE "file://${outputDirectory}/csv_" FORMAT AS csv"""
-        String path = "${outputDirectory.fileName}/csv_*"
+               INTO OUTFILE "${root}csv_" FORMAT AS csv PROPERTIES (${storage.storageProperties()})"""
+        String path = "${root}csv_*"
         sql "DROP TABLE IF EXISTS uuid_file_reload_csv"
         sql "CREATE TABLE uuid_file_reload_csv LIKE uuid_file_csv"
         sql """INSERT INTO uuid_file_reload_csv (id, u)
-               SELECT * FROM local("file_path"="${path}", "format"="csv",
-                                   "backend_id"="${backend.BackendId}")"""
+               SELECT * FROM S3("uri"="${path}", "format"="csv",
+                                   ${storage.storageProperties()})"""
         qt_roundtrip "SELECT id, u FROM uuid_file_reload_csv ORDER BY id"
     } finally {
-        assertTrue(outputDirectory.toFile().deleteDir())
+        storage.deleteFiles(prefix)
     }
 }

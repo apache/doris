@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.codehaus.groovy.runtime.IOGroovyMethods
+import org.apache.doris.regression.util.ExportTestHelper
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -23,44 +23,10 @@ import java.nio.file.Paths
 
 suite("test_outfile") {
 
-    def outFile = "/tmp"
-    def urlHost = ""
-    def csvFiles = ""
-    
-    StringBuilder strBuilder = new StringBuilder()
-    strBuilder.append("curl --location-trusted -u " + context.config.jdbcUser + ":" + context.config.jdbcPassword)
-    if ((context.config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false) {
-        strBuilder.append(" https://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-        strBuilder.append(" --cert " + context.config.otherConfigs.get("trustCert") + " --cacert " + context.config.otherConfigs.get("trustCACert") + " --key " + context.config.otherConfigs.get("trustCAKey"))
-    } else {
-        strBuilder.append(" http://" + context.config.feHttpAddress + "/rest/v1/config/fe")
-    }
-
-    String command = strBuilder.toString()
-    def process = command.toString().execute()
-    def code = process.waitFor()
-    def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-    def out = process.getText()
-    logger.info("Request FE Config: code=" + code + ", out=" + out + ", err=" + err)
-    assertEquals(code, 0)
-    def response = parseJson(out.trim())
-    assertEquals(response.code, 0)
-    assertEquals(response.msg, "success")
-    def configJson = response.data.rows
-    boolean enableOutfileToLocal = false
-    for (Object conf: configJson) {
-        assert conf instanceof Map
-        if (((Map<String, String>) conf).get("Name").toLowerCase() == "enable_outfile_to_local") {
-            enableOutfileToLocal = ((Map<String, String>) conf).get("Value").toLowerCase() == "true"
-        }
-    }
-    if (!enableOutfileToLocal) {
-        logger.warn("Please set enable_outfile_to_local to true to run test_outfile")
-        return
-    }
     def tableName = "outfile_test"
-    def uuid = UUID.randomUUID().toString()
-    def outFilePath = """/tmp/test_outfile_${uuid}"""
+    def helper = new ExportTestHelper(delegate)
+    def prefix = "regression/test_outfile/${UUID.randomUUID()}/"
+    def downloadDir = new File(System.getProperty("java.io.tmpdir"), "doris-outfile-${UUID.randomUUID()}")
     try {
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -102,24 +68,13 @@ suite("test_outfile") {
         qt_select_default """ SELECT * FROM ${tableName} t ORDER BY user_id; """
 
         // check outfile
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-        def result = sql """
-            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "file://${outFile}/";
+        sql """
+            SELECT * FROM ${tableName} t ORDER BY user_id INTO OUTFILE "${helper.uri(prefix)}"
+            PROPERTIES (${helper.storageProperties()});
         """
 
-        def url = result[0][3]
-        urlHost = url.substring(8, url.indexOf("${outFile}"))
-        def filePrifix = url.split("${outFile}")[1]
-        csvFiles = "${outFile}${filePrifix}*.csv"
-        scpFiles ("root", urlHost, csvFiles, outFilePath)
-        
-        File[] files = path.listFiles()
-        assert files.length == 1
+        def files = helper.downloadFiles(prefix, downloadDir)
+        assert files.size() == 1
         List<String> outLines = Files.readAllLines(Paths.get(files[0].getAbsolutePath()), StandardCharsets.UTF_8);
         List<String> baseLines = Files.readAllLines(Paths.get("""${context.config.dataPath}/export_p0/test_outfile.out"""), StandardCharsets.UTF_8)
         for (int j = 0; j < outLines.size(); j ++) {
@@ -141,16 +96,8 @@ suite("test_outfile") {
         }
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
-
-        def cmd = "rm -rf ${csvFiles}"
-        sshExec ("root", urlHost, cmd)
+        downloadDir.deleteDir()
+        helper.deleteFiles(prefix)
     }
 
     // test hll column outfile
@@ -175,26 +122,14 @@ suite("test_outfile") {
             (706432 , hll_hash(706432 ), 1), (706432 , hll_hash(706432 ), 1)
         """
 
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
-
         sql "set return_object_data_as_binary = false"
-        def result = sql """
-            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "file://${outFile}/"
+        sql """
+            SELECT * FROM ${tableName} t ORDER BY k1, v2 INTO OUTFILE "${helper.uri(prefix)}"
+            PROPERTIES (${helper.storageProperties()})
         """
 
-        def url = result[0][3]
-        urlHost = url.substring(8, url.indexOf("${outFile}"))
-        def filePrifix = url.split("${outFile}")[1]
-        csvFiles = "${outFile}${filePrifix}*.csv"
-        scpFiles ("root", urlHost, csvFiles, outFilePath)
-
-        File[] files = path.listFiles()
-        assert files.length == 1
+        def files = helper.downloadFiles(prefix, downloadDir)
+        assert files.size() == 1
         File dataFile = files[0]
         List<String> outLines = Files.readAllLines(Paths.get(dataFile.getAbsolutePath()), StandardCharsets.UTF_8)
         assertEquals(2, outLines.size())
@@ -204,26 +139,12 @@ suite("test_outfile") {
         assert outLines.get(1).split("\t")[1] == "\\N"
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
-
-        def cmd = "rm -rf ${csvFiles}"
-        sshExec ("root", urlHost, cmd)
+        downloadDir.deleteDir()
+        helper.deleteFiles(prefix)
     }
 
     // test parallel output
     try {
-        File path = new File(outFilePath)
-        if (!path.exists()) {
-            assert path.mkdirs()
-        } else {
-            throw new IllegalStateException("""${outFilePath} already exists! """)
-        }
         sql """drop table if exists select_into_file"""
         sql """CREATE TABLE `select_into_file` (
                     `id` int,
@@ -238,23 +159,15 @@ suite("test_outfile") {
                     (4, "c"), (5, "睿"), (6, "多"), (7, "丝"), (8, "test"),
                     (100, "aa"), (111, "bb"), (123, "cc"), (222, "dd");"""
         sql "set enable_parallel_outfile = true;"
-        sql """select * from select_into_file into outfile "file://${outFilePath}/";"""
+        sql """select * from select_into_file into outfile "${helper.uri(prefix)}"
+            PROPERTIES (${helper.storageProperties()});"""
 
         sql "set enable_parallel_outfile = true;"
-        sql """select * from select_into_file into outfile "file://${outFilePath}/" properties("success_file_name" = "SUCCESS");"""
-    } catch (Exception e) {
-        logger.info("export exception: ${e}")
+        sql """select * from select_into_file into outfile "${helper.uri(prefix)}"
+            PROPERTIES (${helper.storageProperties()}, "success_file_name" = "SUCCESS");"""
     } finally {
         try_sql("DROP TABLE IF EXISTS select_into_file")
-        File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f: path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
-
-        def cmd = "rm -rf ${csvFiles}"
-        sshExec ("root", urlHost, cmd)
+        downloadDir.deleteDir()
+        helper.deleteFiles(prefix)
     }
 }

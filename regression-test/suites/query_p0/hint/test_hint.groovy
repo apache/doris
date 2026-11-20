@@ -212,7 +212,8 @@ suite("test_hint") {
                     4 ASC
                 LIMIT
                     6666 OFFSET 500
-            ) as original_sql INTO OUTFILE "file:///tmp/tt.csv" FORMAT AS CSV_WITH_NAMES PROPERTIES(
+            ) as original_sql INTO OUTFILE "hdfs://nn/tmp/tt.csv" FORMAT AS CSV_WITH_NAMES PROPERTIES(
+                "hadoop.username" = "doris",
                 "column_separator" = ",",
                 "success_file_name" = "_SUCCESS"
             );
