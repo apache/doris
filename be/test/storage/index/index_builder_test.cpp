@@ -4568,15 +4568,19 @@ TEST_F(IndexBuilderTest, BuildArrayIndexAfterAllEmptyBlock) {
                                                                       {"b", {first + 1}}}));
 }
 
-// A NOT NULL array read batch whose rows are all [] reaches an ANN index too, and a 0-element
-// row is no vector of the index's dim, so the build fails rather than skipping the batch and
-// sliding the vectors after it onto its row ids.
+// With empty-array support disabled, an all-[] read batch must fail the ANN build rather than
+// being skipped and sliding the vectors from the next batch onto the empty rows' ids.
 TEST_F(IndexBuilderTest, BuildAnnIndexRejectsAllEmptyBlock) {
     // The [] rows must fill exactly the first read batch, which the adaptive predictor could cut
     // short of block_row_max.
     const bool saved_adaptive = config::enable_adaptive_batch_size;
-    Defer restore_config {[&] { config::enable_adaptive_batch_size = saved_adaptive; }};
+    const bool saved_empty_array = config::enable_ann_index_empty_array;
+    Defer restore_config {[&] {
+        config::enable_adaptive_batch_size = saved_adaptive;
+        config::enable_ann_index_empty_array = saved_empty_array;
+    }};
     config::enable_adaptive_batch_size = false;
+    config::enable_ann_index_empty_array = false;
 
     const auto tablet_path = _absolute_dir + "/15703";
     auto tablet_schema = create_ann_tablet_schema();
@@ -4634,7 +4638,10 @@ TEST_F(IndexBuilderTest, BuildAnnIndexRejectsAllEmptyBlock) {
     std::vector<RowsetSharedPtr> output_rowsets;
     const Status status = build_snii_index(tablet, {ann_index}, &output_rowsets);
     EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
-    EXPECT_EQ(status.msg(), "Ann index expect array with 4 dim, got 0.");
+    EXPECT_EQ(status.msg(),
+              "Empty arrays in ANN-indexed columns require enable_ann_index_empty_array=true. "
+              "Writing them prevents downgrade to versions without sparse ANN support. "
+              "Index: arr1_ann_index, row: 0");
 }
 
 } // namespace doris
