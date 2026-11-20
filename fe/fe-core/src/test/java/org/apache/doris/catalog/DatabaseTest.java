@@ -82,6 +82,15 @@ public class DatabaseTest {
     }
 
     @Test
+    public void testDroppedState() {
+        Assert.assertFalse(db.isDropped());
+        db.markDropped();
+        Assert.assertTrue(db.isDropped());
+        db.unmarkDropped();
+        Assert.assertFalse(db.isDropped());
+    }
+
+    @Test
     public void lockTest() {
         db.readLock();
         try {
