@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -26,6 +27,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.metacache.MetaCache;
+import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -44,6 +47,8 @@ import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -182,6 +187,60 @@ public class IcebergExternalTableTest {
             Assertions.assertSame(missing, failure.getCause());
             Assertions.assertEquals(1, repaired.get());
         }
+    }
+
+    @Test
+    public void testViewSnapshotDoesNotLoadTableMetadata() {
+        IcebergExternalTable table = createSpyTable();
+        Mockito.doReturn(true).when(table).isView();
+        MvccSnapshot fence = new EmptyMvccSnapshot();
+        List<MvccSnapshot> snapshots = Arrays.asList(
+                table.loadSnapshot(Optional.empty(), Optional.empty()),
+                table.loadSnapshot(Optional.empty(), Optional.empty(), Optional.empty()),
+                table.loadSnapshot(Optional.empty(), Optional.empty(), Optional.of(fence)),
+                table.loadLatestSnapshotFence());
+        for (MvccSnapshot snapshot : snapshots) {
+            Assertions.assertInstanceOf(EmptyMvccSnapshot.class, snapshot);
+        }
+        Mockito.verify(table, Mockito.never()).getIcebergTable();
+        Mockito.verify(table, Mockito.never()).getIcebergView();
+    }
+
+    @Test
+    public void testViewSnapshotRejectsScanParams() {
+        IcebergExternalTable table = createSpyTable();
+        Mockito.doReturn(true).when(table).isView();
+        MvccSnapshot fence = new EmptyMvccSnapshot();
+        Map<String, String> incrementalParams = Maps.newHashMap();
+        incrementalParams.put("startSnapshotId", "1");
+        incrementalParams.put("endSnapshotId", "5");
+        List<TableScanParams> selectors = Arrays.asList(
+                new TableScanParams(TableScanParams.BRANCH,
+                        Collections.emptyMap(), Collections.singletonList("b1")),
+                new TableScanParams(TableScanParams.BRANCH,
+                        Collections.singletonMap(TableScanParams.PARAMS_NAME, "b1"), Collections.emptyList()),
+                new TableScanParams(TableScanParams.TAG,
+                        Collections.emptyMap(), Collections.singletonList("t1")),
+                new TableScanParams(TableScanParams.TAG,
+                        Collections.singletonMap(TableScanParams.PARAMS_NAME, "t1"), Collections.emptyList()),
+                new TableScanParams(TableScanParams.INCREMENTAL_READ, incrementalParams, Collections.emptyList()),
+                new TableScanParams(TableScanParams.OPTIONS,
+                        Collections.singletonMap("scan.snapshot-id", "7"), Collections.emptyList()));
+        for (TableScanParams selector : selectors) {
+            List<UnsupportedOperationException> errors = Arrays.asList(
+                    Assertions.assertThrows(UnsupportedOperationException.class,
+                            () -> table.loadSnapshot(Optional.empty(), Optional.of(selector))),
+                    Assertions.assertThrows(UnsupportedOperationException.class,
+                            () -> table.loadSnapshot(Optional.empty(), Optional.of(selector), Optional.empty())),
+                    Assertions.assertThrows(UnsupportedOperationException.class,
+                            () -> table.loadSnapshot(Optional.empty(), Optional.of(selector), Optional.of(fence))));
+            for (UnsupportedOperationException error : errors) {
+                Assertions.assertEquals("view not supported with scan params: @" + selector.getParamType(),
+                        error.getMessage());
+            }
+        }
+        Mockito.verify(table, Mockito.never()).getIcebergTable();
+        Mockito.verify(table, Mockito.never()).getIcebergView();
     }
 
     @Test
