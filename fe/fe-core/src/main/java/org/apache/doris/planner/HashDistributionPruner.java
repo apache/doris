@@ -100,18 +100,19 @@ public class HashDistributionPruner implements DistributionPruner {
             // return all subPartition
             return Lists.newArrayList(bucketsList);
         }
+        // An equality bound is more selective than an IN predicate on the same column.
+        // Keep the remaining predicates for row filtering, including contradictory IN values.
+        if (filter.lowerBoundInclusive && filter.upperBoundInclusive
+                && filter.lowerBound != null && filter.upperBound != null
+                && 0 == filter.lowerBound.compareLiteral(filter.upperBound)) {
+            hashKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
+            Collection<Long> result = prune(columnId + 1, hashKey, complex);
+            hashKey.popColumn();
+            return result;
+        }
         InPredicate inPredicate = filter.getInPredicate();
         if (null == inPredicate
                 || inPredicate.getInElementNum() * complex > Config.max_distribution_pruner_recursion_depth) {
-            // equal one value
-            if (filter.lowerBoundInclusive && filter.upperBoundInclusive
-                    && filter.lowerBound != null && filter.upperBound != null
-                    && 0 == filter.lowerBound.compareLiteral(filter.upperBound)) {
-                hashKey.pushColumn(filter.lowerBound, keyColumn.getDataType());
-                Collection<Long> result = prune(columnId + 1, hashKey, complex);
-                hashKey.popColumn();
-                return result;
-            }
             // return all SubPartition
             return Lists.newArrayList(bucketsList);
         }
