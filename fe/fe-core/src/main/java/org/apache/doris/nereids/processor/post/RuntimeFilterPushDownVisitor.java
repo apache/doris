@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
@@ -46,7 +47,10 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
+import com.google.common.collect.ImmutableMap;
+
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -73,11 +77,13 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
         final long buildSideNdv;
         final int exprOrder;
         final boolean nonBlocking;
+        final Map<Integer, Expression> exchangeTargets;
 
         private PushDownContext(RuntimeFilterContext rfContext,
                 AbstractPhysicalPlan builderNode, Expression srcExpr, Expression probeExpr,
                 TRuntimeFilterType type, TMinMaxRuntimeFilterType singleSideMinMax,
-                boolean hasUnknownColStats, long buildSideNdv, int exprOrder, boolean nonBlocking) {
+                boolean hasUnknownColStats, long buildSideNdv, int exprOrder, boolean nonBlocking,
+                Map<Integer, Expression> exchangeTargets) {
             this.rfContext = rfContext;
             this.builderNode = builderNode;
             this.srcExpr = srcExpr;
@@ -88,6 +94,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             this.buildSideNdv = buildSideNdv;
             this.exprOrder = exprOrder;
             this.nonBlocking = nonBlocking;
+            this.exchangeTargets = exchangeTargets;
         }
 
         public static PushDownContext createPushDownContext(RuntimeFilterContext rfContext,
@@ -114,7 +121,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 TRuntimeFilterType type, TMinMaxRuntimeFilterType singleSideMinMax,
                 boolean hasUnknownColStats, long buildSideNdv, int exprOrder) {
             return new PushDownContext(rfContext, builderNode, srcExpr, probeExpr,
-                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder, false);
+                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder, false, ImmutableMap.of());
         }
 
         /**
@@ -131,7 +138,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
             return new PushDownContext(rfContext, builderNode, srcExpr, newProbe,
-                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder, nonBlocking);
+                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder, nonBlocking, exchangeTargets);
         }
 
         /**
@@ -141,7 +148,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
          */
         public PushDownContext withNonBlocking(boolean nonBlocking) {
             return new PushDownContext(rfContext, builderNode, srcExpr, probeExpr,
-                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder, nonBlocking);
+                    type, singleSideMinMax, hasUnknownColStats, buildSideNdv, exprOrder, nonBlocking, exchangeTargets);
         }
     }
 
@@ -154,6 +161,21 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         return pushed;
+    }
+
+    @Override
+    public Boolean visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute, PushDownContext ctx) {
+        if (!ctx.rfContext.getSessionVariable().enableRuntimeFilterOnExchange) {
+            return visit(distribute, ctx);
+        }
+        // Keep the expression at this boundary. Projects and set operations below it can rename
+        // or consume its slots, so the final scan expression cannot reconstruct this target.
+        Map<Integer, Expression> targets = new LinkedHashMap<>(ctx.exchangeTargets);
+        targets.put(distribute.getId(), ctx.probeExpr);
+        PushDownContext childContext = new PushDownContext(ctx.rfContext, ctx.builderNode,
+                ctx.srcExpr, ctx.probeExpr, ctx.type, ctx.singleSideMinMax, ctx.hasUnknownColStats,
+                ctx.buildSideNdv, ctx.exprOrder, ctx.nonBlocking, ImmutableMap.copyOf(targets));
+        return visit(distribute, childContext);
     }
 
     @Override
@@ -211,6 +233,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                         && rf.gettMinMaxType() == ctx.singleSideMinMax)
                 .findFirst().orElse(null);
         if (alreadyApplied != null) {
+            alreadyApplied.addExchangeTargets(ctx.exchangeTargets);
             // The filter which is already applied on this scan stands in for the one this context describes,
             // so it has to keep the non-blocking requirement of both.
             if (ctx.nonBlocking) {
@@ -224,6 +247,7 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
                 type, ctx.exprOrder, ctx.builderNode, ctx.buildSideNdv,
                 !ctx.hasUnknownColStats, ctx.singleSideMinMax, scan);
         filter.setNonBlocking(ctx.nonBlocking);
+        filter.addExchangeTargets(ctx.exchangeTargets);
         ctx.rfContext.generateRuntimeFilterPruneMetadata(filter);
         scan.addAppliedRuntimeFilter(filter);
         ctx.rfContext.addJoinToTargetMap(ctx.builderNode, scanSlot.getExprId());
