@@ -120,7 +120,13 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
         }
     }
 
-    RETURN_IF_ERROR(channel->open(params));
+    auto status = channel->open(params);
+    if (!status.ok()) {
+        // Cloud validation can reject an open before any receiver exists. Remove the
+        // exact failed instance so shutdown does not count it until the load timeout.
+        RETURN_IF_ERROR(_cancel_load_channel(channel, status));
+        return status;
+    }
 
     return Status::OK();
 }

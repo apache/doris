@@ -21,11 +21,14 @@
 
 #include <chrono>
 #include <future>
+#include <string>
 #include <thread>
 
+#include "cloud/config.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -89,6 +92,29 @@ TEST_F(LoadChannelMgrTest, GracefulShutdownCountsReceiverUntilFinish) {
     auto channel = create_channel();
     EXPECT_EQ(_mgr->num_active_channels(), 1);
     _mgr->_finish_load_channel(channel);
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+}
+
+TEST_F(LoadChannelMgrTest, GracefulShutdownDoesNotCountFailedOpen) {
+    const auto previous_cloud_unique_id = config::cloud_unique_id;
+    Defer restore_config {[&] { config::cloud_unique_id = previous_cloud_unique_id; }};
+    config::cloud_unique_id = "load-channel-open-failure-ut";
+
+    PTabletWriterOpenRequest request;
+    *request.mutable_id() = _load_id.to_proto();
+    request.set_txn_expiration(0);
+
+    // Exercise open() after manager registration but before any receiver is accepted.
+    auto status = _mgr->open(request);
+    ASSERT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.msg().find("txn expiration"), std::string::npos);
+    EXPECT_EQ(_mgr->num_active_channels(), 0);
+    expect_cached_failure(status);
+
+    // The failed load stays cancelled rather than retaining or reopening its receiver.
+    auto retry_status = _mgr->open(request);
+    EXPECT_TRUE(retry_status.is<ErrorCode::CANCELLED>()) << retry_status;
+    EXPECT_EQ(retry_status.msg(), status.msg());
     EXPECT_EQ(_mgr->num_active_channels(), 0);
 }
 
