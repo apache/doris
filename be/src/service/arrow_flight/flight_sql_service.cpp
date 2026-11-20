@@ -124,6 +124,24 @@ arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> FlightSqlServer:
     return _impl->DoGetStatement(context, command);
 }
 
+arrow::Result<arrow::flight::SetSessionOptionsResult> FlightSqlServer::SetSessionOptions(
+        const arrow::flight::ServerCallContext& context,
+        const arrow::flight::SetSessionOptionsRequest& request) {
+    arrow::flight::SetSessionOptionsResult result;
+    for (const auto& option : request.session_options) {
+        const std::string& name = option.first;
+        // {catalog: "internal"} gets an empty error map, which the JDBC driver needs before it
+        // reads the endpoint; {time_zone: "UTC"} gets {time_zone: INVALID_NAME}, because
+        // reporting success for an option that never takes effect would mislead the client.
+        if (name != "catalog" && name != "schema") {
+            result.errors.emplace(name,
+                                  arrow::flight::SetSessionOptionsResult::Error {
+                                          arrow::flight::SetSessionOptionErrorValue::kInvalidName});
+        }
+    }
+    return result;
+}
+
 Status FlightSqlServer::init(int port) {
     if (port == -1) {
         LOG(INFO) << "Arrow Flight Service not start";
