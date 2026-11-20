@@ -37,6 +37,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <ranges>
 #include <set>
@@ -96,6 +97,7 @@
 #include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
+#include "util/json/variant_binary_path.h"
 #include "util/jsonb_utils.h"
 
 namespace doris::variant_util {
@@ -111,6 +113,18 @@ PathInData make_full_subcolumn_path(const TabletColumnPtr& parent_column, std::s
     // an empty key is `parts.size() == 1 && parts[0].key.empty()` after popping root.
     PathInDataBuilder builder;
     return builder.append(parent_column->name_lower_case(), false).append("", false).build();
+}
+
+PathInData make_variant_binary_column_path(const TabletColumn& root, std::string_view marker,
+                                           std::optional<int> bucket = std::nullopt) {
+    // A quoted SQL root name can contain dots. Only the marker and bucket are further path parts.
+    PathInDataBuilder builder;
+    builder.append(root.name_lower_case(), false).append(marker, false);
+    if (bucket.has_value()) {
+        const auto bucket_name = "b" + std::to_string(*bucket);
+        return builder.append(bucket_name, false).build();
+    }
+    return builder.build();
 }
 
 void append_empty_key_subcolumn_from_stats(VariantCompactionPaths& paths_set_info,
@@ -147,7 +161,8 @@ bool is_regular_path_outside_nested_group(const PathInData& path) {
            !segment_v2::contains_nested_group_marker(relative_path) &&
            !segment_v2::is_root_nested_group_path(relative_path) &&
            relative_path != SPARSE_COLUMN_PATH &&
-           relative_path.find(DOC_VALUE_COLUMN_PATH) == std::string::npos;
+           !parse_variant_bucket(relative_path, SPARSE_COLUMN_PATH) &&
+           !parse_variant_bucket(relative_path, DOC_VALUE_COLUMN_PATH);
 }
 
 bool should_materialize_nested_group_regular_subcolumns(
@@ -675,10 +690,11 @@ MutableColumnPtr create_variant_binary_column() {
 
 TabletColumn create_sparse_column(const TabletColumn& variant) {
     TabletColumn res;
-    res.set_name(variant.name_lower_case() + "." + SPARSE_COLUMN_PATH);
+    const auto path = make_variant_binary_column_path(variant, SPARSE_COLUMN_PATH);
+    res.set_name(path.get_path());
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
-    res.set_path_info(PathInData {variant.name_lower_case() + "." + SPARSE_COLUMN_PATH});
+    res.set_path_info(path);
     res.set_parent_unique_id(variant.unique_id());
     res.set_default_value("{}");
     TabletColumn child_tcolumn;
@@ -690,14 +706,12 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
 
 TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_index) {
     TabletColumn res;
-    std::string name = variant.name_lower_case() + "." + SPARSE_COLUMN_PATH + ".b" +
-                       std::to_string(bucket_index);
-    res.set_name(name);
+    const auto path = make_variant_binary_column_path(variant, SPARSE_COLUMN_PATH, bucket_index);
+    res.set_name(path.get_path());
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
     res.set_parent_unique_id(variant.unique_id());
     res.set_default_value("{}");
-    PathInData path(name);
     res.set_path_info(path);
     TabletColumn child_tcolumn;
     child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
@@ -708,14 +722,13 @@ TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_
 
 TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_index) {
     TabletColumn res;
-    std::string name = variant.name_lower_case() + "." + DOC_VALUE_COLUMN_PATH + ".b" +
-                       std::to_string(bucket_index);
-    res.set_name(name);
+    const auto path = make_variant_binary_column_path(variant, DOC_VALUE_COLUMN_PATH, bucket_index);
+    res.set_name(path.get_path());
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
     res.set_parent_unique_id(variant.unique_id());
     res.set_default_value("{}");
-    res.set_path_info(PathInData {name});
+    res.set_path_info(path);
 
     TabletColumn child_tcolumn;
     child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
@@ -726,13 +739,12 @@ TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_ind
 
 TabletColumn create_doc_value_compaction_column(const TabletColumn& variant, int bucket_index) {
     TabletColumn res;
-    const std::string name = variant.name_lower_case() + "." + DOC_VALUE_COLUMN_PATH + ".b" +
-                             std::to_string(bucket_index);
-    res.set_name(name);
+    const auto path = make_variant_binary_column_path(variant, DOC_VALUE_COLUMN_PATH, bucket_index);
+    res.set_name(path.get_path());
     res.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     res.set_aggregation_method(variant.aggregation());
     res.set_parent_unique_id(variant.unique_id());
-    res.set_path_info(PathInData {name});
+    res.set_path_info(path);
     res.set_is_nullable(true);
     res.set_variant_enable_doc_mode(true);
     // A segment predating the root column supplies SQL NULL. The doc compact writer accepts
@@ -1505,10 +1517,43 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
     return false;
 }
 
-TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
+static Status append_variant_subcolumns(segment_v2::Segment& segment, const TabletColumn& column,
+                                        TabletSchema& schema) {
+    std::shared_ptr<segment_v2::VariantColumnReader> reader;
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
+    auto status = segment.get_variant_root_reader(column, read_options, &reader);
+    if (status.is<ErrorCode::NOT_FOUND>()) {
+        // A segment written before the Variant column was added contributes no physical paths.
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(status);
+    DORIS_CHECK(reader != nullptr);
+    // A failed segment may be the only one that contains a particular subcolumn.
+    RETURN_IF_ERROR(reader->load_external_meta_once());
+    for (const auto& entry : *reader->get_subcolumns_meta_info()) {
+        if (entry->path.empty()) {
+            continue;
+        }
+        const auto column_name = column.name_lower_case() + "." + entry->path.get_path();
+        PathInDataBuilder path;
+        auto full_path = path.append(column.name_lower_case(), false)
+                                 .append(entry->path.get_parts(), false)
+                                 .build();
+        TabletColumn subcolumn =
+                get_column_by_type(entry->data.file_column_type, column_name,
+                                   ExtraInfo {.unique_id = -1,
+                                              .parent_unique_id = column.unique_id(),
+                                              .path_info = full_path});
+        schema.append_column(subcolumn);
+    }
+    return Status::OK();
+}
+
+Result<TabletSchemaSPtr> VariantCompactionUtil::calculate_variant_extended_schema(
         const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema) {
     if (rowsets.empty()) {
-        return nullptr;
+        return TabletSchemaSPtr {};
     }
 
     std::vector<TabletSchemaSPtr> schemas;
@@ -1518,70 +1563,21 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
         }
         const auto& tablet_schema = rs->tablet_schema();
         SegmentCacheHandle segment_cache;
-        auto st = SegmentLoader::instance()->load_segments(std::static_pointer_cast<BetaRowset>(rs),
-                                                           &segment_cache);
-        if (!st.ok()) {
-            return base_schema;
-        }
+        RETURN_IF_ERROR_RESULT(SegmentLoader::instance()->load_segments(
+                std::static_pointer_cast<BetaRowset>(rs), &segment_cache));
         for (const auto& segment : segment_cache.get_segments()) {
             TabletSchemaSPtr schema = tablet_schema->copy_without_variant_extracted_columns();
             for (const auto& column : tablet_schema->columns()) {
-                if (!column->is_variant_type()) {
-                    continue;
-                }
-                std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
-                OlapReaderStatistics stats;
-                StorageReadOptions read_options(stats);
-                st = segment->get_variant_root_reader(*column, read_options,
-                                                      &variant_column_reader);
-                if (st.is<ErrorCode::NOT_FOUND>()) {
-                    // Old segments predating an ALTER-added VARIANT have no physical subcolumn
-                    // metadata, so only newer segments contribute to the calculated schema.
-                    continue;
-                }
-                if (!st.ok()) {
-                    LOG(WARNING) << "Failed to get VARIANT root reader for column: "
-                                 << column->name() << " error: " << st.to_string();
-                    // Extended-schema collection is best-effort per segment. Skip this column but
-                    // preserve metadata already collected from the remaining readable segments.
-                    continue;
-                }
-                DORIS_CHECK(variant_column_reader != nullptr);
-                // load external meta before getting subcolumn meta info
-                st = variant_column_reader->load_external_meta_once();
-                if (!st.ok()) {
-                    LOG(WARNING) << "Failed to load external meta for column: " << column->name()
-                                 << " error: " << st.to_string();
-                    continue;
-                }
-                const auto* subcolumn_meta_info = variant_column_reader->get_subcolumns_meta_info();
-                for (const auto& entry : *subcolumn_meta_info) {
-                    if (entry->path.empty()) {
-                        continue;
-                    }
-                    const std::string& column_name =
-                            column->name_lower_case() + "." + entry->path.get_path();
-                    const DataTypePtr& data_type = entry->data.file_column_type;
-                    PathInDataBuilder full_path_builder;
-                    auto full_path = full_path_builder.append(column->name_lower_case(), false)
-                                             .append(entry->path.get_parts(), false)
-                                             .build();
-                    TabletColumn subcolumn =
-                            get_column_by_type(data_type, column_name,
-                                               ExtraInfo {.unique_id = -1,
-                                                          .parent_unique_id = column->unique_id(),
-                                                          .path_info = full_path});
-                    schema->append_column(subcolumn);
+                if (column->is_variant_type()) {
+                    RETURN_IF_ERROR_RESULT(append_variant_subcolumns(*segment, *column, *schema));
                 }
             }
-            schemas.emplace_back(schema);
+            schemas.emplace_back(std::move(schema));
         }
     }
     TabletSchemaSPtr least_common_schema;
-    auto st = get_least_common_schema(schemas, base_schema, least_common_schema, false);
-    if (!st.ok()) {
-        return base_schema;
-    }
+    RETURN_IF_ERROR_RESULT(
+            get_least_common_schema(schemas, base_schema, least_common_schema, false));
     return least_common_schema;
 }
 

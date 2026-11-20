@@ -1293,9 +1293,11 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                             rpc_context.cntl.remote_side());
                     st = Status::InternalError("fetch_remote_tablet_schema rpc err: {}",
                                                rpc_context.cntl.ErrorText());
+                    continue;
                 }
                 if (rpc_context.response.status().status_code() != 0) {
                     st = Status::create(rpc_context.response.status());
+                    continue;
                 }
                 if (rpc_context.response.has_merged_schema()) {
                     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
@@ -1309,8 +1311,8 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                 st = variant_util::get_least_common_schema(schemas, nullptr, merged_schema);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
-                    st = Status::InternalError("Failed to get least common schema: {}",
-                                               st.to_string());
+                    st.to_protobuf(response->mutable_status());
+                    return;
                 }
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 merged_schema->reserve_extracted_columns();
@@ -1344,7 +1346,15 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     auto schema =
                             variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
                                     rowsets, tablet->tablet_schema());
-                    tablet_schemas.push_back(schema);
+                    // A metadata read failure must reach the coordinator before serialization.
+                    if (!schema.has_value()) {
+                        schema.error().to_protobuf(response->mutable_status());
+                        return;
+                    }
+                    // Empty tablets have no extracted schema to contribute.
+                    if (*schema != nullptr) {
+                        tablet_schemas.push_back(std::move(*schema));
+                    }
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
@@ -1353,8 +1363,8 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                                                                merged_schema);
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
-                        st = Status::InternalError("Failed to get least common schema: {}",
-                                                   st.to_string());
+                        st.to_protobuf(response->mutable_status());
+                        return;
                     }
                     merged_schema->to_schema_pb(response->mutable_merged_schema());
                     VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();

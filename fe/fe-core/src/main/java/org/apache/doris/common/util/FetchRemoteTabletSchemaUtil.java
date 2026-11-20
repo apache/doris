@@ -63,11 +63,9 @@ public class FetchRemoteTabletSchemaUtil {
     private static final Logger LOG = LogManager.getLogger(FetchRemoteTabletSchemaUtil.class);
 
     private final List<Tablet> remoteTablets;
-    private final List<Column> tableColumns;
 
     public FetchRemoteTabletSchemaUtil(List<Tablet> tablets) {
         this.remoteTablets = tablets;
-        this.tableColumns = Lists.newArrayList();
     }
 
     private static final Map<String, Type> typeMap = new HashMap<>();
@@ -121,9 +119,12 @@ public class FetchRemoteTabletSchemaUtil {
         return res;
     }
 
-    public List<Column> fetch() {
+    public List<Column> fetch() throws AnalysisException {
         // 1. Find which Backend (BE) servers the tablets are on
         Preconditions.checkNotNull(remoteTablets);
+        if (remoteTablets.isEmpty()) {
+            return Collections.emptyList();
+        }
         Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
         for (Tablet tablet : remoteTablets) {
             for (Replica replica : tablet.getReplicas()) {
@@ -145,12 +146,12 @@ public class FetchRemoteTabletSchemaUtil {
             Long backendId = entry.getKey();
             Set<Long> tabletIds = entry.getValue();
             Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(backendId);
-            LOG.debug("fetch schema from coord backend {}, sample tablets count {}",
-                            backend.getId(), tabletIds.size());
-            // only need alive be
-            if (!backend.isAlive()) {
+            // A sampled replica can be stale if its backend was removed concurrently.
+            if (backend == null || !backend.isAlive()) {
                 continue;
             }
+            LOG.debug("fetch schema from coord backend {}, sample tablets count {}",
+                    backend.getId(), tabletIds.size());
             coordinatorBackend.add(backend);
             PTabletsLocation.Builder locationBuilder = PTabletsLocation.newBuilder()
                                                         .setHost(backend.getHost())
@@ -158,75 +159,63 @@ public class FetchRemoteTabletSchemaUtil {
             PTabletsLocation location = locationBuilder.addAllTabletId(tabletIds).build();
             locations.add(location);
         }
-        // pick 2 random coordinator
+        if (coordinatorBackend.isEmpty()) {
+            throw new AnalysisException("No live backend can fetch the remote tablet schema");
+        }
+        // Pick up to two random coordinators for the two attempts.
         Collections.shuffle(coordinatorBackend);
-        if (!coordinatorBackend.isEmpty()) {
-            coordinatorBackend = coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()));
-            LOG.debug("pick coordinator backend {}", coordinatorBackend.get(0));
-        }
-        PFetchRemoteSchemaRequest.Builder requestBuilder = PFetchRemoteSchemaRequest.newBuilder()
-                                                                    .addAllTabletLocation(locations)
-                                                                    .setIsCoordinator(true);
-        // 3. Send rpc to coordinatorBackend util succeed or retry
-        for (Backend be : coordinatorBackend) {
-            try {
-                PFetchRemoteSchemaRequest request = requestBuilder.build();
-                Future<PFetchRemoteSchemaResponse> future = BackendServiceProxy.getInstance()
-                                            .fetchRemoteTabletSchemaAsync(be.getBrpcAddress(), request);
-                PFetchRemoteSchemaResponse response = null;
-                try {
-                    response = future.get(
-                        ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds, TimeUnit.SECONDS);
-                    TStatusCode code = TStatusCode.findByValue(response.getStatus().getStatusCode());
-                    String errMsg;
-                    if (code != TStatusCode.OK) {
-                        if (!response.getStatus().getErrorMsgsList().isEmpty()) {
-                            errMsg = response.getStatus().getErrorMsgsList().get(0);
-                        } else {
-                            errMsg = "fetchRemoteTabletSchemaAsync failed. backend address: "
-                                    + be.getHost() + " : " + be.getBrpcPort();
-                        }
-                        throw new RpcException(be.getHost(), errMsg);
-                    }
-                    fillColumns(response);
-                    return tableColumns;
-                } catch (AnalysisException e) {
-                    // continue to get result
-                    LOG.warn(e);
-                } catch (InterruptedException e) {
-                    // continue to get result
-                    LOG.warn("fetch remote schema future get interrupted Exception");
-                } catch (TimeoutException e) {
-                    future.cancel(true);
-                    // continue to get result
-                    LOG.warn("fetch remote schema result timeout, addr {}", be.getBrpcAddress());
-                }
-            }    catch (RpcException e) {
-                LOG.warn("fetch remote schema result rpc exception {}, e {}", be.getBrpcAddress(), e);
-            } catch (ExecutionException e) {
-                LOG.warn("fetch remote schema ExecutionException, addr {}, e {}", be.getBrpcAddress(), e);
-            }
-        }
-        return tableColumns;
+        List<Backend> coordinators = coordinatorBackend.subList(0, Math.min(2, coordinatorBackend.size()));
+        PFetchRemoteSchemaRequest request = PFetchRemoteSchemaRequest.newBuilder()
+                .addAllTabletLocation(locations)
+                .setIsCoordinator(true)
+                .build();
+        return fetchFromCoordinators(coordinators, request,
+                ConnectContext.get().getSessionVariable().fetchRemoteSchemaTimeoutSeconds);
     }
 
-    private void fillColumns(PFetchRemoteSchemaResponse response) throws AnalysisException {
-        TabletSchemaPB schemaPB = response.getMergedSchema();
-        for (ColumnPB columnPB : schemaPB.getColumnList()) {
+    List<Column> fetchFromCoordinators(List<Backend> coordinators, PFetchRemoteSchemaRequest request,
+            long timeoutSeconds) throws AnalysisException {
+        Preconditions.checkArgument(!coordinators.isEmpty());
+        Exception lastFailure = null;
+        for (Backend backend : coordinators) {
             try {
-                Column remoteColumn = initColumnFromPB(columnPB);
-                tableColumns.add(remoteColumn);
-            } catch (Exception e) {
-                throw new AnalysisException("column default value to string failed");
+                Future<PFetchRemoteSchemaResponse> future = BackendServiceProxy.getInstance()
+                        .fetchRemoteTabletSchemaAsync(backend.getBrpcAddress(), request);
+                PFetchRemoteSchemaResponse response;
+                try {
+                    response = future.get(timeoutSeconds, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
+                    future.cancel(true);
+                    throw e;
+                }
+                int code = response.getStatus().getStatusCode();
+                if (code != TStatusCode.OK.getValue()) {
+                    String message = response.getStatus().getErrorMsgsCount() > 0
+                            ? response.getStatus().getErrorMsgs(0)
+                            : "backend returned status code " + code;
+                    throw new AnalysisException(message);
+                }
+                return readColumns(response);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AnalysisException("Interrupted while fetching the remote tablet schema", e);
+            } catch (AnalysisException | RpcException | ExecutionException | TimeoutException e) {
+                lastFailure = e;
+                LOG.warn("Failed to fetch remote tablet schema from {}", backend.getBrpcAddress(), e);
             }
         }
-        // sort the columns
-        Collections.sort(tableColumns, new Comparator<Column>() {
-            @Override
-            public int compare(Column c1, Column c2) {
-                return c1.getName().compareTo(c2.getName());
-            }
-        });
+        throw new AnalysisException("Failed to fetch remote tablet schema: " + lastFailure.getMessage(),
+                lastFailure);
+    }
+
+    private List<Column> readColumns(PFetchRemoteSchemaResponse response) throws AnalysisException {
+        TabletSchemaPB schemaPB = response.getMergedSchema();
+        List<Column> columns = Lists.newArrayList();
+        for (ColumnPB columnPB : schemaPB.getColumnList()) {
+            columns.add(initColumnFromPB(columnPB));
+        }
+        columns.sort(Comparator.comparing(Column::getName));
+        return columns;
     }
 
     private Column initColumnFromPB(ColumnPB column) throws AnalysisException {

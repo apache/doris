@@ -288,10 +288,9 @@ TEST(ExternalColMetaUtilTest, VariantExtMetaWriterAndReaderInteropAndCompatibili
     // sparse subcolumn: v1.__DORIS_VARIANT_SPARSE__
     ColumnMetaPB* sparse = footer.add_columns();
     sparse->set_unique_id(3);
-    sparse->set_type(int(FieldType::OLAP_FIELD_TYPE_VARIANT));
+    sparse->set_type(int(FieldType::OLAP_FIELD_TYPE_MAP));
     {
-        // For sparse column, the relative path (after pop_front) should contain
-        // "__DORIS_VARIANT_SPARSE__" so that VariantExtMetaWriter treats it as sparse.
+        // The generated sparse column uses the reserved relative path and map statistics.
         PathInData full_path("v1.__DORIS_VARIANT_SPARSE__");
         full_path.to_protobuf(sparse->mutable_column_path_info(),
                               /*parent_col_unique_id=*/root_uid);

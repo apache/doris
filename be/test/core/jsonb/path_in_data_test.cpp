@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "util/json/variant_binary_path.h"
 
 namespace doris {
 
@@ -246,6 +247,17 @@ TEST_F(PathInDataTest, ComparisonWithIsTyped) {
     PathInData::Hash hasher;
     EXPECT_NE(hasher(path1), hasher(path2));
     EXPECT_EQ(hasher(path1), hasher(path3));
+}
+
+TEST_F(PathInDataTest, VariantDocBucketRequiresTheCompleteGeneratedPath) {
+    constexpr std::string_view marker = "__DORIS_VARIANT_DOC_VALUE__";
+    EXPECT_EQ(parse_variant_bucket("__DORIS_VARIANT_DOC_VALUE__.b0", marker), 0U);
+    EXPECT_EQ(parse_variant_bucket("__DORIS_VARIANT_DOC_VALUE__.b12", marker), 12U);
+    EXPECT_FALSE(parse_variant_bucket("ordinary.__DORIS_VARIANT_DOC_VALUE__.b0", marker));
+    EXPECT_FALSE(parse_variant_bucket("__DORIS_VARIANT_DOC_VALUE__.b12_extra", marker));
+    EXPECT_FALSE(parse_variant_bucket("__DORIS_VARIANT_DOC_VALUE__.b01", marker));
+    EXPECT_TRUE(PathInData("v.ordinary__DORIS_VARIANT_DOC_VALUE__field").need_record_stats());
+    EXPECT_FALSE(PathInData("v.__DORIS_VARIANT_DOC_VALUE__.b0").need_record_stats());
 }
 
 TEST_F(PathInDataTest, EscapedComponentsAreStrictAndReversible) {

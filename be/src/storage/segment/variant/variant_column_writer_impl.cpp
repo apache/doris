@@ -19,7 +19,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <algorithm>
-#include <charconv>
 #include <memory>
 #include <ranges>
 #include <span>
@@ -67,26 +66,11 @@
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "util/json/path_in_data.h"
+#include "util/json/variant_binary_path.h"
 
 namespace doris::segment_v2 {
 
 namespace {
-Status parse_doc_compact_bucket(std::string_view path, int* bucket) {
-    DORIS_CHECK(bucket != nullptr);
-    const std::string marker = "." + DOC_VALUE_COLUMN_PATH + ".b";
-    const size_t marker_pos = path.rfind(marker);
-    if (marker_pos == std::string_view::npos) {
-        return Status::Corruption("Invalid Variant doc compact path {}", path);
-    }
-    const std::string_view suffix = path.substr(marker_pos + marker.size());
-    const auto [end, error] =
-            std::from_chars(suffix.data(), suffix.data() + suffix.size(), *bucket);
-    if (error != std::errc() || end != suffix.data() + suffix.size() || *bucket < 0) {
-        return Status::Corruption("Invalid Variant doc compact bucket in path {}", path);
-    }
-    return Status::OK();
-}
-
 Status finish_and_write_column_writer(ColumnWriter* writer) {
     RETURN_IF_ERROR(writer->finish());
     RETURN_IF_ERROR(writer->write_data());
@@ -1022,13 +1006,12 @@ Status VariantDocCompactWriter::_finalize_v2(const TabletColumn& parent_column, 
     DORIS_CHECK_EQ(shredded.num_rows, num_rows);
     _v2_shredder.reset();
 
-    int bucket_value = -1;
-    RETURN_IF_ERROR(
-            parse_doc_compact_bucket(get_column()->path_info_ptr()->get_path(), &bucket_value));
-    if (cast_set<size_t>(bucket_value) >= shredded.binary_buckets.size()) {
-        return Status::Corruption("Invalid Variant doc compact bucket {} in path {}", bucket_value,
-                                  get_column()->path_info_ptr()->get_path());
+    const auto& path = *get_column()->path_info_ptr();
+    const auto bucket_id = parse_variant_bucket(path.get_relative_path(), DOC_VALUE_COLUMN_PATH);
+    if (!bucket_id || *bucket_id >= shredded.binary_buckets.size()) {
+        return Status::Corruption("Invalid Variant doc compact bucket in path {}", path.get_path());
     }
+    const int bucket_value = cast_set<int>(*bucket_id);
     for (size_t bucket = 0; bucket < shredded.binary_buckets.size(); ++bucket) {
         const auto& source = shredded.binary_buckets[bucket];
         const auto* map = check_and_get_column<ColumnMap>(source.column.get());

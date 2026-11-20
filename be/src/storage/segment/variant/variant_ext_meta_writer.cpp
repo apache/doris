@@ -25,6 +25,7 @@
 #include "storage/index/indexed_column_writer.h"
 #include "storage/types.h"
 #include "util/json/path_in_data.h"
+#include "util/json/variant_binary_path.h"
 
 namespace doris::segment_v2 {
 
@@ -105,9 +106,14 @@ static void classify_columns(const SegmentFooterPB& footer, ColumnClassification
                 std::string rel_path = rel.get_path();
                 int32_t root_uid = col.column_path_info().parrent_column_unique_id();
 
-                if (rel_path.find("__DORIS_VARIANT_SPARSE__") != std::string::npos) {
+                // Ordinary paths can contain either marker. Embedded binary columns also
+                // store a map with its own statistics and use the exact generated path.
+                const bool binary_column = col.type() == int(FieldType::OLAP_FIELD_TYPE_MAP) &&
+                                           col.has_variant_statistics();
+                if (binary_column && (rel_path == SPARSE_COLUMN_PATH ||
+                                      parse_variant_bucket(rel_path, SPARSE_COLUMN_PATH))) {
                     classification.pending_sparse[root_uid].emplace_back(col);
-                } else if (rel_path.find("__DORIS_VARIANT_DOC_VALUE__") != std::string::npos) {
+                } else if (binary_column && parse_variant_bucket(rel_path, DOC_VALUE_COLUMN_PATH)) {
                     classification.pending_doc_value[root_uid].emplace_back(col);
                 } else {
                     classification.pending_subcols[root_uid].emplace_back(rel_path, col);

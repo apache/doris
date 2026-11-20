@@ -1575,8 +1575,12 @@ Result<std::vector<RowsetSharedPtr>> IndexStorageTestFixture::rowsets_with_varia
         return ResultError(Status::InvalidArgument("rowset schema is not initialized"));
     }
 
-    auto schema = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
+    auto result = variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
             rowsets, rowsets.front()->tablet_schema());
+    if (!result.has_value()) {
+        return ResultError(result.error());
+    }
+    auto schema = std::move(result).value();
     if (schema == nullptr) {
         return ResultError(Status::InternalError("failed to calculate variant extended schema"));
     }

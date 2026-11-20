@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "exec/common/sip_hash.h"
 #include "exec/common/variant_util.h"
+#include "util/json/variant_binary_path.h"
 
 namespace doris {
 
@@ -225,7 +226,7 @@ size_t PathInData::Hash::operator()(const PathInData& value) const {
 
 bool PathInData::need_record_stats() const {
     return !empty() && !is_typed && !has_nested &&
-           path.find(DOC_VALUE_COLUMN_PATH) == std::string::npos;
+           !parse_variant_bucket(get_relative_path(), DOC_VALUE_COLUMN_PATH);
 }
 
 PathInData PathInData::copy_pop_front() const {

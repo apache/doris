@@ -55,6 +55,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 #include "util/json/path_in_data.h"
+#include "util/json/variant_binary_path.h"
 #include "util/string_util.h"
 
 namespace doris::segment_v2 {
@@ -466,9 +467,10 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     // compaction need to read flat leaves nodes data to prevent from amplification
     if (!node) {
         // Handle sparse column reads in flat-leaf compaction.
-        const std::string rel = relative_path.get_path();
+        const auto& rel = relative_path.get_path();
+        const bool sparse_output = target_col.type() == FieldType::OLAP_FIELD_TYPE_MAP;
         // Case 1: single sparse column path
-        if (rel == SPARSE_COLUMN_PATH &&
+        if (sparse_output && rel == SPARSE_COLUMN_PATH &&
             _binary_column_reader->get_type() == BinaryColumnType::SINGLE_SPARSE) {
             plan->kind = ReadKind::SPARSE_MERGE;
             plan->type = DataTypeFactory::instance().create_data_type(target_col);
@@ -479,11 +481,10 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
             return Status::OK();
         }
         // Case 2: bucketized sparse column path: __DORIS_VARIANT_SPARSE__.b{i}
-        if (rel.rfind(std::string(SPARSE_COLUMN_PATH) + ".b", 0) == 0) {
+        if (auto bucket = parse_variant_bucket(rel, SPARSE_COLUMN_PATH);
+            sparse_output && bucket.has_value()) {
             CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_SPARSE);
-            // parse bucket index
-            uint32_t bucket_index = static_cast<uint32_t>(
-                    atoi(rel.substr(std::string(SPARSE_COLUMN_PATH).size() + 2).c_str()));
+            const auto bucket_index = *bucket;
             const auto& reader = _binary_column_reader->select_reader(bucket_index);
             if (!reader) {
                 return Status::NotFound("bucket sparse column reader not found: {}", rel);
@@ -491,7 +492,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
             plan->kind = ReadKind::SPARSE_MERGE;
             plan->type = DataTypeFactory::instance().create_data_type(target_col);
             plan->relative_path = relative_path;
-            plan->binary_column_reader = _binary_column_reader->select_reader(bucket_index);
+            plan->binary_column_reader = reader;
             plan->binary_cache_key =
                     std::string(SPARSE_COLUMN_PATH) + ".b" + std::to_string(bucket_index);
             plan->bucket_index = bucket_index;
@@ -499,13 +500,12 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
         }
 
         // case 3: doc snapshot column
-        if (rel.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
-            CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE);
-            size_t bucket = rel.rfind('b');
-            uint32_t bucket_value = static_cast<uint32_t>(std::stoul(rel.substr(bucket + 1)));
+        if (auto bucket = parse_variant_bucket(rel, DOC_VALUE_COLUMN_PATH);
+            bucket.has_value() &&
+            _binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE) {
             plan->kind = ReadKind::DOC_COMPACT;
             plan->type = DataTypeFactory::instance().create_data_type(target_col);
-            plan->binary_column_reader = _binary_column_reader->select_reader(bucket_value);
+            plan->binary_column_reader = _binary_column_reader->select_reader(*bucket);
             return Status::OK();
         }
 
@@ -562,20 +562,19 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     return Status::OK();
 }
 
-bool VariantColumnReader::has_prefix_path(const PathInData& relative_path,
-                                          OlapReaderStatistics* stats,
-                                          const io::IOContext* io_ctx) const {
+Result<bool> VariantColumnReader::has_prefix_path(const PathInData& relative_path,
+                                                  OlapReaderStatistics* stats,
+                                                  const io::IOContext* io_ctx) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     return _has_prefix_path_unlocked(relative_path, stats, io_ctx);
 }
 
-bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_path,
-                                                    OlapReaderStatistics* stats,
-                                                    const io::IOContext* io_ctx) const {
+Result<bool> VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_path,
+                                                            OlapReaderStatistics* stats,
+                                                            const io::IOContext* io_ctx) const {
     if (relative_path.empty()) {
         return true;
     }
-    const std::string path = relative_path.get_path();
     const std::string dot_prefix = relative_path.get_path() + ".";
 
     // 1) exact node exists and has children.
@@ -595,10 +594,9 @@ bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_p
     // 3) Check external meta store (if available).
     if (_ext_meta_reader && _ext_meta_reader->available()) {
         bool has = false;
-        // Pass strict prefix `p.` to avoid false positives like `a.b` matching `a.bc`.
-        if (_ext_meta_reader->has_prefix(dot_prefix, &has, stats, io_ctx).ok() && has) {
-            return true;
-        }
+        // A failed probe cannot establish that a parent path has no children.
+        RETURN_IF_ERROR_RESULT(_ext_meta_reader->has_prefix(dot_prefix, &has, stats, io_ctx));
+        return has;
     }
 
     return false;
@@ -833,7 +831,6 @@ Status VariantColumnReader::_try_build_external_leaf_plan(ReadPlan* plan, int32_
     std::shared_ptr<ColumnReader> leaf_column_reader;
     Status st = column_reader_cache->get_path_column_reader(
             col_uid, relative_path, &leaf_column_reader, stats, nullptr, io_ctx);
-    DCHECK(!_has_prefix_path_unlocked(relative_path, stats, io_ctx));
     if (st.ok()) {
         plan->kind = ReadKind::LEAF;
         plan->type = leaf_column_reader->get_vec_data_type();
@@ -924,10 +921,12 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
     // Or access root path. If sparse stats reached the configured limit, an exact sparse path can
     // still have unrecorded sparse children such as a.b.c.
-    const bool has_prefix_path = _has_prefix_path_unlocked(relative_path, opt->stats, &opt->io_ctx);
-    const bool sparse_stats_may_have_unrecorded_children =
-            exceeded_sparse_column_limit && existed_in_sparse_column;
-    if (has_prefix_path || sparse_stats_may_have_unrecorded_children) {
+    bool has_child_path = exceeded_sparse_column_limit && existed_in_sparse_column;
+    if (!has_child_path) {
+        has_child_path =
+                DORIS_TRY(_has_prefix_path_unlocked(relative_path, opt->stats, &opt->io_ctx));
+    }
+    if (has_child_path) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
         // subcolumn
@@ -1224,24 +1223,25 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     // collect bucketized binary column readers for this variant column
     std::map<uint32_t, std::shared_ptr<ColumnReader>> tmp_sparse_readers;
     std::map<uint32_t, std::shared_ptr<ColumnReader>> tmp_doc_value_readers;
+    const auto binary_root_prefix =
+            _tablet_schema->column_by_uid(_root_unique_id).name_lower_case() + ".";
 
     // helper to handle sparse meta (single or bucket) from a ColumnMetaPB
     auto handle_sparse_meta = [&](const ColumnMetaPB& col, bool* handled) -> Status {
         *handled = false;
-        if (!col.has_column_path_info()) {
+        if (!col.has_column_path_info() || col.type() != int(FieldType::OLAP_FIELD_TYPE_MAP) ||
+            !col.has_variant_statistics()) {
             return Status::OK();
         }
-        PathInData path;
-        path.from_protobuf(col.column_path_info());
-        auto relative = path.copy_pop_front();
-        if (relative.empty()) {
+        // Older writers could split a dotted SQL root into several path parts.
+        std::string_view rel_str = col.column_path_info().path();
+        if (!rel_str.starts_with(binary_root_prefix)) {
             return Status::OK();
         }
+        rel_str.remove_prefix(binary_root_prefix.size());
 
         // case 1: single sparse column
-        std::string rel_str = relative.get_path();
         if (rel_str == SPARSE_COLUMN_PATH) {
-            DCHECK(col.has_variant_statistics()) << col.DebugString();
             if (should_record_path_stats) {
                 // Always load sparse stats from the sparse column's own meta.
                 // This is the authoritative source; root stats may duplicate these
@@ -1263,29 +1263,23 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         }
 
         // case 2: bucketized sparse column
-        std::string bucket_prefix = std::string(SPARSE_COLUMN_PATH) + ".b";
-        if (rel_str.starts_with(bucket_prefix)) {
-            uint32_t idx =
-                    static_cast<uint32_t>(atoi(rel_str.substr(bucket_prefix.size()).c_str()));
-            DCHECK(col.has_variant_statistics()) << col.DebugString();
+        if (auto bucket = parse_variant_bucket(rel_str, SPARSE_COLUMN_PATH)) {
             if (should_record_path_stats) {
                 // Additively merge per-bucket sparse stats into the unified statistics.
                 _statistics->merge_sparse_from_pb(col.variant_statistics());
             }
             std::shared_ptr<ColumnReader> reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &reader));
-            tmp_sparse_readers[idx] = std::move(reader);
+            tmp_sparse_readers[*bucket] = std::move(reader);
             *handled = true;
             return Status::OK();
         }
 
         // case 3: doc snapshot column
-        if (rel_str.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
-            size_t bucket = rel_str.rfind('b');
-            uint32_t bucket_value = static_cast<uint32_t>(std::stoi(rel_str.substr(bucket + 1)));
+        if (auto bucket = parse_variant_bucket(rel_str, DOC_VALUE_COLUMN_PATH)) {
             std::shared_ptr<ColumnReader> column_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &column_reader));
-            tmp_doc_value_readers[bucket_value] = std::move(column_reader);
+            tmp_doc_value_readers[*bucket] = std::move(column_reader);
             if (should_record_path_stats) {
                 // Additively merge per-bucket doc value stats into the unified statistics.
                 _statistics->merge_doc_value_from_pb(col.variant_statistics());
@@ -1330,8 +1324,6 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         path.from_protobuf(column_pb.column_path_info());
 
         // init sparse column readers
-        auto relative_sparse = path.copy_pop_front();
-        auto rel_str = relative_sparse.get_path();
         {
             bool handled = false;
             RETURN_IF_ERROR(handle_sparse_meta(column_pb, &handled));
@@ -1482,8 +1474,9 @@ Status VariantColumnReader::load_external_meta_once(OlapReaderStatistics* stats,
         return _ext_meta_reader->load_all(_subcolumns_meta_info.get(), variant_stats, stats,
                                           source_io_ctx);
     });
-    if (status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) {
-        // A retry skips paths already merged by load_all.
+    if (status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || status.is<ErrorCode::IO_ERROR>()) {
+        // A page or ColumnMetaPB read can fail transiently. Retrying skips the paths
+        // already merged by load_all.
         _external_meta_load_once.emplace();
     }
     return status;

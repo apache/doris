@@ -55,6 +55,8 @@
 #include "util/block_compression.h"
 #include "util/debug_points.h"
 #include "util/faststring.h"
+#include "util/json/path_in_data.h"
+#include "util/json/variant_binary_path.h"
 #include "util/rle_encoding.h"
 #include "util/simd/bits.h"
 
@@ -342,7 +344,8 @@ Status ColumnWriter::create_variant_writer(const ColumnWriterOptions& opts,
     // - Regular extracted subcolumns: use `VariantSubcolumnWriter`.
     // The root VARIANT column itself uses `VariantColumnWriter`.
     if (column->is_extracted_column()) {
-        if (column->name().find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
+        if (parse_variant_bucket(column->path_info_ptr()->get_relative_path(),
+                                 DOC_VALUE_COLUMN_PATH)) {
             *writer = std::make_unique<VariantDocCompactWriter>(
                     opts, std::make_shared<TabletColumn>(*column));
             return Status::OK();

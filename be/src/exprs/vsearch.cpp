@@ -106,10 +106,13 @@ Status verify_missing_variant_path(const TSearchFieldBinding& binding, int colum
         ancestor.resize(dot);
     }
     // Truncated sparse statistics cannot prove absence, nor can an existing unindexed path.
-    if (reader->get_subcolumn_meta_by_path(path) != nullptr ||
-        reader->has_prefix_path(path, opts.stats, &opts.io_ctx) ||
-        reader->exist_in_sparse_column(path) || reader->is_exceeded_sparse_column_limit() ||
-        in_doc || stats->has_nested_group) {
+    bool may_exist = reader->get_subcolumn_meta_by_path(path) != nullptr ||
+                     reader->exist_in_sparse_column(path) ||
+                     reader->is_exceeded_sparse_column_limit() || in_doc || stats->has_nested_group;
+    if (!may_exist) {
+        may_exist = DORIS_TRY(reader->has_prefix_path(path, opts.stats, &opts.io_ctx));
+    }
+    if (may_exist) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SEARCH index unavailable for Variant field '{}'", binding.field_name);
     }
