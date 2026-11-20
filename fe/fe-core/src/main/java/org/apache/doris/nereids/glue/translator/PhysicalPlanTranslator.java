@@ -3134,7 +3134,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return;
         }
         if (scanNode.getOlapTable() instanceof OlapTableWrapper
-                && !(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
+                && !(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)
+                && ((OlapTableWrapper) scanNode.getOlapTable()).hasPartitionOffsets()) {
             preserveSnapshotCommitTsoSlot(scanNode, requiredSlotIds);
         }
         preserveMergeSequenceSlots(scanNode, requiredSlotIds, requireSequenceForLazyMaterialization);

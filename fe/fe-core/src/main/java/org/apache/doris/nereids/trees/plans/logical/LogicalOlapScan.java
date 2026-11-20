@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
@@ -953,6 +954,11 @@ public class LogicalOlapScan extends LogicalCatalogRelation
         OlapTableStream olapStream = (OlapTableStream) stream;
         OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
                 olapStream, getTable(), selectedPartitionIds);
+        return withStreamSnapshot(streamWrapper);
+    }
+
+    /** Rebuild the table at the Stream's consumption point. */
+    public LogicalOlapTableStreamScan withStreamSnapshot(OlapTableStreamWrapper streamWrapper) {
         return new LogicalOlapTableStreamScan(
                 StatementScopeIdGenerator.newRelationId(),
                 streamWrapper,
@@ -963,6 +969,18 @@ public class LogicalOlapScan extends LogicalCatalogRelation
                 tableSample,
                 operativeSlots
         ).withReadMode(StreamReadMode.SNAPSHOT);
+    }
+
+    /** Scan the base table at the supplied partition versions. */
+    public LogicalOlapScan withFixedVisibleVersions(Map<Long, Long> visibleVersions) {
+        OlapTableWrapper snapshot = OlapTableWrapper.forFixedVisibleVersions(getTable(), visibleVersions);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOlapScan(relationId, snapshot, qualifier, Optional.empty(), Optional.empty(),
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
+                        selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions, hints,
+                        cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
+                        manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
+                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, scanParams));
     }
 
     protected List<SlotReference> createSlotsVectorized(List<Column> columns) {

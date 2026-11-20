@@ -73,6 +73,11 @@ public class OlapTableStreamWrapper extends OlapTable {
     }
 
     public OlapTableStreamWrapper(OlapTableStream stream, OlapTable baseTable, List<Long> selectedPartitionIds) {
+        this(stream, baseTable, selectedPartitionIds, Optional.empty());
+    }
+
+    public OlapTableStreamWrapper(OlapTableStream stream, OlapTable baseTable, List<Long> selectedPartitionIds,
+            Optional<Map<Long, Cloud.TableStreamPartitionReadStatePB>> readStates) {
         super(stream.getId(), stream.getName(), stream.getFullSchema(), baseTable.getKeysType(),
                 baseTable.getPartitionInfo(), baseTable.getDefaultDistributionInfo());
         // Inherit base table's qualifiedDbName so that wrapper.getDatabase() can resolve the
@@ -84,18 +89,22 @@ public class OlapTableStreamWrapper extends OlapTable {
         this.stream = stream;
         this.baseTable = baseTable;
         this.keysType = baseTable.getKeysType();
-        // Planning already holds the source lock. Snapshot only the selected stream state without
-        // taking the stream metadata lock, which status readers can hold while waiting for the source.
-        Map<Long, PartitionStreamState> consumption = stream.snapshotPartitionStates(selectedPartitionIds);
-        ImmutableMap.Builder<Long, PartitionReadState> states = ImmutableMap.builder();
-        for (long id : selectedPartitionIds) {
-            PartitionStreamState state = consumption.get(id);
-            Partition partition = baseTable.getPartition(id);
-            Pair<Long, Long> range = partition.hasData()
-                    ? Pair.of(state == null ? null : state.getBaselineOffset(), partition.getTso()) : null;
-            states.put(id, new PartitionReadState(range, state, null));
+        if (readStates.isPresent()) {
+            installCloudReadStates(readStates.get());
+        } else {
+            // Planning already holds the source lock. Snapshot only the selected stream state without
+            // taking the stream metadata lock, which status readers can hold while waiting for the source.
+            Map<Long, PartitionStreamState> consumption = stream.snapshotPartitionStates(selectedPartitionIds);
+            ImmutableMap.Builder<Long, PartitionReadState> states = ImmutableMap.builder();
+            for (long id : selectedPartitionIds) {
+                PartitionStreamState state = consumption.get(id);
+                Partition partition = baseTable.getPartition(id);
+                Pair<Long, Long> range = partition.hasData()
+                        ? Pair.of(state == null ? null : state.getBaselineOffset(), partition.getTso()) : null;
+                states.put(id, new PartitionReadState(range, state, null));
+            }
+            this.partitionReadStates = states.build();
         }
-        this.partitionReadStates = states.build();
         this.getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(baseTable.getEnableUniqueKeyMergeOnWrite());
     }
 
@@ -138,6 +147,12 @@ public class OlapTableStreamWrapper extends OlapTable {
 
     public boolean hasCloudReadStates() {
         return cloudReadStatesInstalled;
+    }
+
+    public boolean hasPendingCloudData() {
+        List<Long> nonEmptyPartitions = List.copyOf(getOutputUpdateMap().keySet());
+        return !filterHistoryPartitionIds(nonEmptyPartitions).isEmpty()
+                || !filterIncrementalPartitionIds(nonEmptyPartitions).isEmpty();
     }
 
     public Map<Long, Cloud.TableStreamPartitionReadStatePB> getCloudReadStates() {
@@ -264,12 +279,7 @@ public class OlapTableStreamWrapper extends OlapTable {
     }
 
     public Cloud.TableStreamIdentityPB getCloudIdentity() {
-        return Cloud.TableStreamIdentityPB.newBuilder()
-                .setBaseDbId(getBaseDbId())
-                .setBaseTableId(getBaseTableId())
-                .setStreamDbId(getStreamDbId())
-                .setStreamId(getStreamId())
-                .build();
+        return stream.getCloudIdentity();
     }
 
     @Override

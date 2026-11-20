@@ -428,6 +428,15 @@ public class OlapTableStream extends BaseTableStream {
         }
     }
 
+    public Cloud.TableStreamIdentityPB getCloudIdentity() {
+        return Cloud.TableStreamIdentityPB.newBuilder()
+                .setBaseDbId(getBaseTableInfo().getDbId())
+                .setBaseTableId(getBaseTableInfo().getTableId())
+                .setStreamDbId(getDatabase().getId())
+                .setStreamId(getId())
+                .build();
+    }
+
     public boolean hasData(Partition partition) {
         // if all available visible data has been consumed, return false
         PartitionStreamState state = getPartitionState(partition.getId());

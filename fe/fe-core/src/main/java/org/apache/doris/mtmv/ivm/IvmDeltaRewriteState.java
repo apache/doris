@@ -23,8 +23,13 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.rpc.CloudTableStreamReadStateHelper;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -34,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMap;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -63,6 +69,8 @@ class IvmDeltaRewriteState {
      * value means the table is unlimited (full table).
      */
     private final Map<OlapTable, List<Long>> windowPartitionIdsByTable;
+    // Null on the integrated path. The cloud path fixes all source boundaries before choosing delta branches.
+    private Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>> cloudReadStates;
     private int nextDeltaScanIndex;
 
     /**
@@ -116,8 +124,34 @@ class IvmDeltaRewriteState {
             }
         }
         applyScopePartitionIds(windowPartitionIdsByTable, planTables, scopePartitionIds);
-        return new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(), sequenceCalculator,
-                windowPartitionIdsByTable);
+        IvmDeltaRewriteState state = new IvmDeltaRewriteState(streams, ctx.isIncludeExhaustedStreams(),
+                sequenceCalculator, windowPartitionIdsByTable);
+        if (Config.isCloudMode()) {
+            state.cloudReadStates = state.fetchCloudReadStates(plan);
+        }
+        return state;
+    }
+
+    private Map<Cloud.TableStreamIdentityPB, Map<Long, Cloud.TableStreamPartitionReadStatePB>>
+            fetchCloudReadStates(Plan plan) {
+        Map<Cloud.TableStreamIdentityPB, Set<Long>> requestedPartitions = new HashMap<>();
+        for (LogicalOlapScan scan : plan.<LogicalOlapScan>collectToList(LogicalOlapScan.class::isInstance)) {
+            if (!isExcluded(scan)) {
+                List<Long> partitionIds = restrictWindow(scan).getSelectedPartitionIds();
+                if (!partitionIds.isEmpty()) {
+                    requestedPartitions.computeIfAbsent(getStream(scan).getCloudIdentity(), key -> new HashSet<>())
+                            .addAll(partitionIds);
+                }
+            }
+        }
+        if (requestedPartitions.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        try {
+            return CloudTableStreamReadStateHelper.getReadStates(requestedPartitions);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
     }
 
     private IvmDeltaRewriteState(Map<OlapTable, OlapTableStream> streams,
@@ -226,13 +260,9 @@ class IvmDeltaRewriteState {
             return Optional.empty();
         }
         OlapTable originTable = (OlapTable) scan.getTable();
-        OlapTableStream stream = streams.get(originTable);
-        if (stream == null) {
-            throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
-                    "IVM: missing delta scan context for " + scan.getTable().getName());
-        }
-        List<Long> partitionIds = restrictWindow(scan).getSelectedPartitionIds();
-        if (!includeExhaustedStreams && !hasPendingData(stream, partitionIds)) {
+        LogicalOlapScan restricted = restrictWindow(scan);
+        List<Long> partitionIds = restricted.getSelectedPartitionIds();
+        if (!includeExhaustedStreams && cloudReadStates == null && !hasPendingData(getStream(scan), partitionIds)) {
             return Optional.empty();
         }
         List<Long> tabletIds = scan.getSelectedTabletIds();
@@ -250,8 +280,10 @@ class IvmDeltaRewriteState {
                     .filter(windowTabletIds::contains)
                     .collect(Collectors.toList());
         }
-        OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
-                stream, originTable, partitionIds);
+        OlapTableStreamWrapper streamWrapper = createStreamWrapper(restricted);
+        if (!includeExhaustedStreams && streamWrapper.hasCloudReadStates() && !streamWrapper.hasPendingCloudData()) {
+            return Optional.empty();
+        }
         return Optional.of(new LogicalOlapTableStreamScan(
                 StatementScopeIdGenerator.newRelationId(),
                 streamWrapper,
@@ -261,6 +293,34 @@ class IvmDeltaRewriteState {
                 scan.getHints(),
                 scan.getTableSample(),
                 scan.getOperativeSlots()));
+    }
+
+    OlapTableStreamWrapper createStreamWrapper(LogicalOlapScan scan) {
+        OlapTableStream stream = getStream(scan);
+        List<Long> partitionIds = scan.getSelectedPartitionIds();
+        if (cloudReadStates == null) {
+            return new OlapTableStreamWrapper(stream, scan.getTable(), partitionIds);
+        }
+        ImmutableMap.Builder<Long, Cloud.TableStreamPartitionReadStatePB> states = ImmutableMap.builder();
+        if (!partitionIds.isEmpty()) {
+            Map<Long, Cloud.TableStreamPartitionReadStatePB> streamStates =
+                    cloudReadStates.get(stream.getCloudIdentity());
+            for (long partitionId : partitionIds) {
+                states.put(partitionId, streamStates.get(partitionId));
+            }
+        }
+        return new OlapTableStreamWrapper(stream, scan.getTable(), partitionIds, Optional.of(states.build()));
+    }
+
+    LogicalOlapScan pinPostSnapshot(LogicalOlapScan scan) {
+        if (cloudReadStates == null || scan.getSelectedPartitionIds().isEmpty()) {
+            return scan;
+        }
+        Map<Long, Cloud.TableStreamPartitionReadStatePB> streamStates =
+                cloudReadStates.get(getStream(scan).getCloudIdentity());
+        Map<Long, Long> versions = scan.getSelectedPartitionIds().stream()
+                .collect(Collectors.toMap(id -> id, id -> streamStates.get(id).getVisibleVersion()));
+        return scan.withFixedVisibleVersions(versions);
     }
 
     boolean isExcluded(LogicalOlapScan scan) {

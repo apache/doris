@@ -445,7 +445,11 @@ public class IvmDeltaRewriteHelper {
                 return rewriteState.restrictWindow(scan);
             }
             scan = rewriteState.restrictWindow(scan);
-            return remapOlapScanToPlan(scan, scan.withSnapshot(preSnapshot, rewriteState.getStream(scan)));
+            if (preSnapshot) {
+                return remapOlapScanToPlan(scan, scan.withStreamSnapshot(rewriteState.createStreamWrapper(scan)));
+            }
+            return remapOlapScanToPlan(scan,
+                    rewriteState.pinPostSnapshot(scan).withSnapshot(false, rewriteState.getStream(scan)));
         });
         return freshPlan(rewritten);
     }
