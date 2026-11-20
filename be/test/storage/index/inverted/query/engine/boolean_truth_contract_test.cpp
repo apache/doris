@@ -30,6 +30,7 @@
 #include "storage/index/inverted/query/engine/bit_set_query/bit_set_scorer.h"
 #include "storage/index/inverted/query/engine/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query/engine/boolean_query/operator.h"
+#include "storage/index/inverted/query/engine/collect/doc_set_collector.h"
 #include "storage/index/inverted/query/engine/null_bitmap_test_util.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -557,6 +558,99 @@ TEST(BooleanTruthContractTest, OptionalShouldBesideARequiredClauseIsTwoValued) {
             EXPECT_FALSE(scorer->has_null_bitmap());
         }
     }
+}
+
+// Lists its rows itself, like a phrase root, and records the candidates each listing gets.
+class ListingWeight final : public Weight {
+public:
+    ListingWeight(TruthRows rows, std::shared_ptr<std::vector<roaring::Roaring>> listed)
+            : _rows(std::move(rows)), _listed(std::move(listed)) {}
+    ScorerPtr scorer(const QueryExecutionContext& /*context*/) override {
+        ADD_FAILURE() << "a weight that lists its rows is not read through a scorer";
+        return nullptr;
+    }
+    bool lists_rows(const QueryExecutionContext& /*context*/,
+                    const std::string& /*binding_key*/) const override {
+        return true;
+    }
+    index_query::TruthSet listed_rows(const QueryExecutionContext& /*context*/,
+                                      const std::string& /*binding_key*/,
+                                      const roaring::Roaring* candidates) override {
+        EXPECT_NE(candidates, nullptr);
+        index_query::TruthSet result {*_rows.true_rows, *_rows.null_rows};
+        if (candidates != nullptr) {
+            _listed->push_back(*candidates);
+            result.true_rows &= *candidates;
+            result.null_rows &= *candidates;
+        }
+        return result;
+    }
+
+private:
+    TruthRows _rows;
+    std::shared_ptr<std::vector<roaring::Roaring>> _listed;
+};
+
+class ListingQuery final : public Query {
+public:
+    ListingQuery(TruthRows rows, std::shared_ptr<std::vector<roaring::Roaring>> listed)
+            : _rows(std::move(rows)), _listed(std::move(listed)) {}
+    WeightPtr weight(bool /*enable_scoring*/) override {
+        return std::make_shared<ListingWeight>(_rows, _listed);
+    }
+
+private:
+    TruthRows _rows;
+    std::shared_ptr<std::vector<roaring::Roaring>> _listed;
+};
+
+// An unscored collection given candidates keeps exactly the matches among them. A root that
+// lists its rows lists them within the candidates; any other root is read through its scorer,
+// seeking candidate by candidate when they are sparse and intersecting once when they are dense.
+TEST(BooleanTruthContractTest, CollectionWithinCandidatesKeepsTheirMatches) {
+    constexpr uint32_t row_count = 4096;
+    TruthRows rows;
+    for (uint32_t doc = 0; doc < row_count; doc += 3) {
+        rows.true_rows->add(doc);
+    }
+    roaring::Roaring sparse;
+    for (uint32_t doc = 0; doc < row_count; doc += 97) {
+        sparse.add(doc);
+    }
+    roaring::Roaring dense;
+    for (uint32_t doc = 0; doc < row_count; doc += 2) {
+        dense.add(doc);
+    }
+    auto collect = [&](const QueryPtr& query, const roaring::Roaring& candidates) {
+        QueryExecutionContext context;
+        context.segment_num_rows = row_count;
+        auto collected = std::make_shared<roaring::Roaring>();
+        collect_multi_segment_doc_set(query->weight(false), context, "", collected, nullptr,
+                                      /*enable_scoring=*/false, nullptr, &candidates);
+        return *collected;
+    };
+
+    for (const auto* candidates : {&sparse, &dense}) {
+        auto listed = std::make_shared<std::vector<roaring::Roaring>>();
+        EXPECT_EQ(collect(std::make_shared<ListingQuery>(rows, listed), *candidates),
+                  *rows.true_rows & *candidates);
+        ASSERT_EQ(listed->size(), 1U);
+        EXPECT_EQ(listed->front(), *candidates);
+    }
+
+    // Sparse candidates: the scorer only seeks to them, and never walks the rows between.
+    auto work = std::make_shared<ScorerWork>();
+    EXPECT_EQ(collect(std::make_shared<ForwardOnlyQuery>(rows, 1.0F, work), sparse),
+              *rows.true_rows & sparse);
+    EXPECT_GT(work->seeks, 0U);
+    EXPECT_LE(work->seeks, sparse.cardinality());
+    EXPECT_EQ(work->advances, 0U);
+
+    // Dense candidates: the scorer is read once and intersected with them.
+    work = std::make_shared<ScorerWork>();
+    EXPECT_EQ(collect(std::make_shared<ForwardOnlyQuery>(rows, 1.0F, work), dense),
+              *rows.true_rows & dense);
+    EXPECT_EQ(work->seeks, 0U);
 }
 
 } // namespace

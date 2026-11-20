@@ -19,6 +19,7 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -29,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.xnio.StreamConnection;
 import org.xnio.channels.Channels;
+import org.xnio.channels.StreamSinkChannel;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -36,6 +38,7 @@ import java.nio.ByteBuffer;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
@@ -49,6 +52,7 @@ import javax.net.ssl.SSLPeerUnverifiedException;
 public class MysqlChannel implements BytesChannel {
     // logger for this class
     private static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
+    private static final long WRITE_CANCEL_CHECK_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
     // max length which one MySQL physical can hold, if one logical packet is bigger than this,
     // one packet will split to many packets
     public static final int MAX_PHYSICAL_PACKET_LENGTH = 0xffffff;
@@ -94,6 +98,20 @@ public class MysqlChannel implements BytesChannel {
     private boolean clientMultiStatements;
 
     private ConnectContext context;
+
+    // Installed and cleared by the MySQL command thread; the supplier reads the executor's atomic state.
+    private Supplier<Status> queryCancelReason = () -> null;
+    // Command handlers can consume or wrap transport exceptions. An aborted stream must
+    // remain terminal even if the peer becomes writable before the error response is sent.
+    private ConnectionException writeFailure;
+
+    public void setQueryCancelReason(Supplier<Status> queryCancelReason) {
+        this.queryCancelReason = queryCancelReason;
+    }
+
+    public void clearQueryCancelReason() {
+        queryCancelReason = () -> null;
+    }
 
     protected MysqlChannel() {
         // For DummyMysqlChannel
@@ -429,18 +447,51 @@ public class MysqlChannel implements BytesChannel {
     }
 
     protected void realNetSend(ByteBuffer buffer) throws IOException {
+        if (writeFailure != null) {
+            throw writeFailure;
+        }
         buffer = encryptData(buffer);
         long bufLen = buffer.remaining();
         long start = System.currentTimeMillis();
-        long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer, context.getNetWriteTimeout(),
-                TimeUnit.SECONDS);
-        if (bufLen != writeLen) {
-            long duration = System.currentTimeMillis() - start;
-            throw new ConnectionException("Write mysql packet failed.[write=" + writeLen
-                    + ", needToWrite=" + bufLen + "], duration: " + duration + " ms");
+        StreamSinkChannel sink = conn.getSinkChannel();
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(context.getNetWriteTimeout());
+        long deadline = System.nanoTime() + timeoutNanos;
+        while (buffer.hasRemaining()) {
+            if (sink.write(buffer) == 0 && !awaitWritable(sink, deadline)) {
+                long duration = System.currentTimeMillis() - start;
+                throw abortWrite("Write mysql packet failed.[write=" + (bufLen - buffer.remaining())
+                        + ", needToWrite=" + bufLen + "], duration: " + duration + " ms");
+            }
         }
-        Channels.flushBlocking(conn.getSinkChannel(), context.getNetWriteTimeout(), TimeUnit.SECONDS);
+        deadline = System.nanoTime() + timeoutNanos;
+        while (!sink.flush()) {
+            if (!awaitWritable(sink, deadline)) {
+                throw abortWrite("Flush mysql packet timed out");
+            }
+        }
         isSend = true;
+    }
+
+    private boolean awaitWritable(StreamSinkChannel sink, long deadline) throws IOException {
+        Status cancelReason = queryCancelReason.get();
+        if (cancelReason != null) {
+            // A packet may already be partially written. An ERR cannot repair the stream,
+            // including when a prepared/Command handler consumes this exception.
+            throw abortWrite("Mysql result write cancelled: " + cancelReason.getErrorMsg());
+        }
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            return false;
+        }
+        sink.awaitWritable(Math.min(remaining, WRITE_CANCEL_CHECK_NANOS), TimeUnit.NANOSECONDS);
+        return true;
+    }
+
+    private ConnectionException abortWrite(String message) {
+        writeFailure = new ConnectionException(message);
+        context.setKilled();
+        close();
+        return writeFailure;
     }
 
     protected ByteBuffer encryptData(ByteBuffer dstBuf) throws SSLException {

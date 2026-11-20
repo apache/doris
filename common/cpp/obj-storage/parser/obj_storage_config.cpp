@@ -173,7 +173,20 @@ size_t auth_hash(const GcpDefaultHmacObjStorageAuth& auth) {
     return fields(auth.implementation);
 }
 size_t auth_hash(const AzureObjStorageAuthConfig& auth) {
-    return fields(auth.account_name, auth.account_key);
+    auto seed = fields(auth.account_name, auth.credential.index());
+    std::visit(
+            [&]<class C>(const C& credential) {
+                if constexpr (std::is_same_v<C, AzureSharedKeyConfig>) {
+                    combine(seed, credential.account_key);
+                } else if constexpr (std::is_same_v<C, AzureSasConfig>) {
+                    combine(seed, fields(credential.token, credential.expires_at_ms));
+                } else if constexpr (std::is_same_v<C, AzureClientSecretConfig>) {
+                    combine(seed, fields(credential.tenant_id, credential.client_id,
+                                         credential.client_secret, credential.authority_host));
+                }
+            },
+            auth.credential);
+    return seed;
 }
 size_t auth_hash(const GcpNativeObjStorageAuth& auth) {
     return fields(auth.source, auth.impersonation_service_account);
@@ -222,10 +235,22 @@ Error AzureObjStorageConfig::validate() const {
     if (connection.max_connections) {
         return "Azure does not expose a connection pool size";
     }
-    if (auth.account_name.empty() || auth.account_key.empty()) {
-        return "incomplete Azure shared-key credentials";
+    // A query here would mix credentials with the SAS appended by the SDK client.
+    if (!std::holds_alternative<AzureSharedKeyConfig>(auth.credential) &&
+        connection.endpoint.find_first_of("?#@\r\n") != std::string::npos) {
+        return "Azure endpoint must not contain credentials, query or fragment";
     }
-    return {};
+    if (std::holds_alternative<AzureClientSecretConfig>(auth.credential) &&
+        !connection.endpoint.starts_with("https://")) {
+        return "Azure OAuth endpoint must use HTTPS";
+    }
+    if (auto error = validate_azure_auth(auth.account_name, auth.credential)) {
+        return error;
+    }
+    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch())
+                                .count();
+    return validate_azure_auth_expiry(auth.credential, now_ms);
 }
 
 ObjStorageConnectionConfig& obj_storage_connection(ObjStorageClientConfig& config) {

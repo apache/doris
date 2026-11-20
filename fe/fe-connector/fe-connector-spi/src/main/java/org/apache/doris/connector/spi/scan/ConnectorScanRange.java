@@ -123,6 +123,15 @@ public interface ConnectorScanRange extends Serializable {
         return -1;
     }
 
+    /**
+     * Whether FE may use coarse byte ranges and supply a physical-child coalescing target for
+     * this range. Opt in only when native Parquet/ORC children preserve the range's table semantics.
+     * BE independently determines whether to refine; this declaration does not gate BE execution.
+     */
+    default boolean supportsBeSplitRefinement() {
+        return false;
+    }
+
     /** Returns preferred host locations for data locality. */
     default List<String> getHosts() {
         return Collections.emptyList();

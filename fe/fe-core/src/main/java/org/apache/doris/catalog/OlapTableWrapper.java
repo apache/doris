@@ -81,6 +81,14 @@ public class OlapTableWrapper extends OlapTable {
     }
 
     @Override
+    public boolean getEnableUniqueKeyMergeOnWrite() {
+        // Snapshot scans must retain the origin's MOW flag so value predicates are fully pushed down.
+        // Otherwise a residual predicate can read a default placeholder after storage skips its column.
+        // Changelog wrappers expose DUP_KEYS even when the origin is MOW.
+        return getKeysType() == KeysType.UNIQUE_KEYS && originTable.getEnableUniqueKeyMergeOnWrite();
+    }
+
+    @Override
     public boolean getVariantEscapeDotsInKeys() {
         return originTable.getVariantEscapeDotsInKeys();
     }

@@ -50,6 +50,7 @@ suite("test_parquet_join_runtime_filter", "p0,external") {
     sql "set enable_profile=true;"
     sql " set parallel_pipeline_task_num = 1;"
     sql " set file_split_size = 100000;"
+    sql "set file_split_size_on_fe = 0;"
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (!"true".equalsIgnoreCase(enabled)) {

@@ -20,6 +20,7 @@
 #include <brpc/uri.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/ObjectStorage_types.h>
 
 #include <algorithm>
 #include <cctype>
@@ -445,8 +446,10 @@ ObjStorageConfigParseResult<AzureObjStorageConfig> parse_azure_obj_storage_confi
         const ObjStorageProperties& props) {
     AzureObjStorageConfig client;
     client.connection.endpoint = value(props, "AWS_ENDPOINT");
-    client.auth = {value(props, "AWS_ACCESS_KEY"), value(props, "AWS_SECRET_KEY")};
-    if (client.auth.account_name.empty() != client.auth.account_key.empty()) {
+    client.auth = {value(props, "AWS_ACCESS_KEY"),
+                   AzureSharedKeyConfig {value(props, "AWS_SECRET_KEY")}};
+    if (client.auth.account_name.empty() !=
+        std::get<AzureSharedKeyConfig>(client.auth.credential).account_key.empty()) {
         return std::string("Incomplete Azure shared key credentials");
     }
     if (auto it = props.find("AWS_MAX_CONNECTIONS"); it != props.end()) {
@@ -539,6 +542,58 @@ Parsed<ObjStorageResourceConfig> parse_resource(ObjStorageProperties properties,
                                      .client = std::get<ObjStorageClientConfig>(std::move(parsed))};
 }
 } // namespace
+
+ObjStorageConfigParseResult<ObjStorageResourceConfig>
+ObjStorageConfigParser::from_azure_client_config(const TAzureClientConfig& config) {
+    // A query here would mix credentials with the SAS query added by the SDK.
+    // Keep malformed URLs and their possible credentials out of error messages.
+    brpc::URI endpoint;
+    if ((!config.endpoint.starts_with("http://") && !config.endpoint.starts_with("https://")) ||
+        config.endpoint.find('\0') != std::string::npos ||
+        config.endpoint.find_first_of("?#@\r\n\t ") != std::string::npos ||
+        endpoint.SetHttpURL(config.endpoint.c_str()) != 0 || endpoint.host().empty() ||
+        (endpoint.scheme() != "http" && endpoint.scheme() != "https")) {
+        return std::string(
+                "Azure endpoint must be an HTTP(S) service URL without "
+                "credentials, query or fragment");
+    }
+    if (config.container.empty()) {
+        return std::string("Azure container is not specified");
+    }
+    const auto& credential = config.credential;
+    const int credential_count = static_cast<int>(credential.__isset.shared_key) +
+                                 static_cast<int>(credential.__isset.sas) +
+                                 static_cast<int>(credential.__isset.client_secret);
+    if (!config.__isset.credential || credential_count != 1) {
+        return std::string("Azure client config must carry exactly one credential");
+    }
+    AzureObjStorageConfig client;
+    client.connection.endpoint = config.endpoint;
+    client.auth.account_name = config.account_name;
+    if (credential.__isset.shared_key) {
+        client.auth.credential = AzureSharedKeyConfig {credential.shared_key.account_key};
+    } else if (credential.__isset.sas) {
+        std::string_view token = credential.sas.token;
+        if (!token.empty() && token.front() == '?') {
+            token.remove_prefix(1);
+        }
+        client.auth.credential = AzureSasConfig {
+                .token = std::string(token),
+                .expires_at_ms = credential.sas.__isset.expires_at_ms
+                                         ? std::optional<int64_t>(credential.sas.expires_at_ms)
+                                         : std::nullopt};
+    } else {
+        const auto& secret = credential.client_secret;
+        client.auth.credential = AzureClientSecretConfig {.tenant_id = secret.tenant_id,
+                                                          .client_id = secret.client_id,
+                                                          .client_secret = secret.client_secret,
+                                                          .authority_host = secret.authority_host};
+    }
+    if (auto error = client.validate()) {
+        return std::move(*error);
+    }
+    return ObjStorageResourceConfig {.bucket = config.container, .client = std::move(client)};
+}
 
 ObjStorageConfigParseResult<ObjStorageResourceConfig> ObjStorageConfigParser::from_vault(
         const cloud::ObjectStoreInfoPB& info, AwsCredentialImplementation implementation,

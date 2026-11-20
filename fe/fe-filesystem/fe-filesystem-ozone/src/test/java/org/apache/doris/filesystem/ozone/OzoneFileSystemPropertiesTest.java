@@ -124,16 +124,21 @@ class OzoneFileSystemPropertiesTest {
     }
 
     @Test
-    void toString_masksSecretsButNotAccessKey() {
-        String rendered = OzoneFileSystemProperties.of(Map.of(
+    void toString_masksAllCredentialsWithoutChangingConnectionProperties() {
+        OzoneFileSystemProperties properties = OzoneFileSystemProperties.of(Map.of(
                 "ozone.endpoint", "http://ozone-s3g.local:9878",
                 "ozone.access_key", "ozone-ak-plain",
                 "ozone.secret_key", "ozone-sk-plain",
-                "ozone.session_token", "ozone-token-plain")).toString();
+                "ozone.session_token", "ozone-token-plain"));
+        String rendered = properties.toString();
 
         Assertions.assertFalse(rendered.contains("ozone-sk-plain"), rendered);
         Assertions.assertFalse(rendered.contains("ozone-token-plain"), rendered);
-        Assertions.assertTrue(rendered.contains("accessKey=ozone-ak-plain"), rendered);
+        Assertions.assertFalse(rendered.contains("ozone-ak-plain"), rendered);
+        Assertions.assertTrue(rendered.contains("accessKey=***"), rendered);
+        Assertions.assertEquals("ozone-ak-plain", properties.getAccessKey());
+        Assertions.assertEquals("ozone-sk-plain", properties.getSecretKey());
+        Assertions.assertEquals("ozone-token-plain", properties.getSessionToken());
     }
 
     // ------------------------------------------------------------------

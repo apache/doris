@@ -1530,6 +1530,10 @@ public class StmtExecutor {
         }
         masterOpExecutor.setMoreStmtExists(moreStmtExists);
         masterOpExecutor.execute();
+        // A successful RPC can still carry a failed statement. Do not apply its local changes.
+        if (MysqlStateType.ERR.name().equalsIgnoreCase(masterOpExecutor.getProxyStatus())) {
+            return;
+        }
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // for nereids command
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
@@ -1589,10 +1593,6 @@ public class StmtExecutor {
                 summaryInfo = getSummaryInfo(isFinished);
             }
             profile.updateSummary(summaryInfo, isFinished, this.planner);
-            if (planner instanceof NereidsPlanner) {
-                NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
-                profile.setPhysicalPlan(nereidsPlanner.getPhysicalPlan());
-            }
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
         }
@@ -1970,6 +1970,10 @@ public class StmtExecutor {
                         isSendFields = true;
                     }
                     for (ByteBuffer row : batch.getBatch().getRows()) {
+                        Status cancelReason = getPendingCancelReason();
+                        if (cancelReason != null) {
+                            throw new UserException(cancelReason.getErrorMsg());
+                        }
                         sender.sendRow(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();

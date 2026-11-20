@@ -474,10 +474,9 @@ TEST_F(RuntimeFilterProducerTest, publish_mixed_targets_disabled) {
     ASSERT_NE(local_consumer->_wrapper, merge_consumer->_wrapper);
 }
 
-// A runtime filter whose only targets are local-merge (global RF mgr) consumers never hands its
-// wrapper to a plain local consumer of either instance, so once it reaches the merger nothing
-// else reads it: the merger may adopt it directly instead of cloning it.
-TEST_F(RuntimeFilterProducerTest, publish_local_merge_only_takes_ownership_without_local_consumer) {
+// Even without a plain local consumer, the merger keeps its own copy of each input.
+TEST_F(RuntimeFilterProducerTest,
+       publish_local_merge_only_uses_private_copy_without_local_consumer) {
     auto desc = TRuntimeFilterDescBuilder()
                         .set_build_bf_by_runtime_size(false)
                         .set_is_broadcast_join(false)
@@ -505,30 +504,40 @@ TEST_F(RuntimeFilterProducerTest, publish_local_merge_only_takes_ownership_witho
     producer2->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
 
     auto wrapper = producer->wrapper();
+    auto wrapper2 = producer2->wrapper();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->publish(_runtime_states[0].get(), true));
     std::shared_ptr<LocalMergeContext> context;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             _query_ctx->runtime_filter_mgr()->get_local_merge_context(desc.filter_id, 0, &context));
-    // The merger adopted the first producer's wrapper directly instead of cloning it: no plain
-    // local consumer of this instance exists to be affected.
-    ASSERT_EQ(context->merger->_wrapper, wrapper);
+    ASSERT_NE(context->merger->_wrapper, wrapper);
+    ASSERT_NE(context->merger->_wrapper->hybrid_set(), wrapper->hybrid_set());
     ASSERT_EQ(context->merger->_wrapper->hybrid_set()->size(), 1);
+    ASSERT_FALSE(context->merger->ready());
+    auto merged_wrapper = context->merger->_wrapper;
 
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->publish(_runtime_states[1].get(), true));
     ASSERT_EQ(consumer->_rf_state, RuntimeFilterConsumer::State::READY);
-    ASSERT_EQ(consumer->_wrapper, context->merger->_wrapper);
+    ASSERT_EQ(consumer->_wrapper, merged_wrapper);
+    ASSERT_EQ(context->merger->_wrapper, merged_wrapper);
     ASSERT_EQ(consumer->_wrapper->hybrid_set()->size(), 2);
     int32_t five = 5;
     int32_t six = 6;
+    ASSERT_TRUE(merged_wrapper->hybrid_set()->find(&five));
+    ASSERT_TRUE(merged_wrapper->hybrid_set()->find(&six));
     ASSERT_TRUE(wrapper->hybrid_set()->find(&five));
-    ASSERT_TRUE(wrapper->hybrid_set()->find(&six));
+    ASSERT_FALSE(wrapper->hybrid_set()->find(&six));
+    ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
+    ASSERT_NE(merged_wrapper->hybrid_set(), wrapper2->hybrid_set());
+    ASSERT_TRUE(wrapper2->hybrid_set()->find(&six));
+    ASSERT_FALSE(wrapper2->hybrid_set()->find(&five));
+    ASSERT_EQ(wrapper2->hybrid_set()->size(), 1);
+    ASSERT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::READY);
+    ASSERT_EQ(wrapper2->get_state(), RuntimeFilterWrapper::State::READY);
 }
 
-// A non-broadcast, non-runtime-sized filter with exactly one expected producer becomes ready on
-// that producer's only `merge_from` call and is never merged into again, so the merger may adopt
-// the producer's wrapper directly even though a plain local consumer of the same instance also
-// reads it.
-TEST_F(RuntimeFilterProducerTest, publish_single_producer_with_local_consumer_takes_ownership) {
+// The local consumer retains the producer wrapper; the merger owns a distinct copy even with one
+// expected producer.
+TEST_F(RuntimeFilterProducerTest, publish_single_producer_with_local_consumer_uses_private_copy) {
     auto desc = TRuntimeFilterDescBuilder()
                         .set_build_bf_by_runtime_size(false)
                         .set_is_broadcast_join(false)
@@ -558,18 +567,18 @@ TEST_F(RuntimeFilterProducerTest, publish_single_producer_with_local_consumer_ta
     ASSERT_EQ(local_consumer->_rf_state, RuntimeFilterConsumer::State::READY);
     ASSERT_EQ(local_consumer->_wrapper, wrapper);
     ASSERT_EQ(merge_consumer->_rf_state, RuntimeFilterConsumer::State::READY);
-    // The merger adopted the single producer's wrapper directly: the same object the plain local
-    // consumer also received, because the merger never merges another producer into it.
-    ASSERT_EQ(merge_consumer->_wrapper, wrapper);
+    ASSERT_NE(merge_consumer->_wrapper, wrapper);
+    ASSERT_NE(merge_consumer->_wrapper->hybrid_set(), wrapper->hybrid_set());
     int32_t five = 5;
     ASSERT_TRUE(wrapper->hybrid_set()->find(&five));
+    ASSERT_TRUE(merge_consumer->_wrapper->hybrid_set()->find(&five));
+    ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
+    ASSERT_EQ(merge_consumer->_wrapper->hybrid_set()->size(), 1);
 }
 
-// A non-broadcast filter with only remote targets never hands its wrapper to a plain local
-// consumer: that only happens in the `!_has_remote_target` branch of `publish()`. Once such a
-// producer's wrapper reaches the local merger, no other reader remains, so the merger may take
-// it over directly instead of cloning it.
-TEST_F(RuntimeFilterProducerTest, publish_remote_target_merge_takes_ownership) {
+// A remote-target producer does not expose its wrapper to a local consumer, but the local merger
+// still makes a private copy before the producer releases its reference.
+TEST_F(RuntimeFilterProducerTest, publish_remote_target_merge_uses_private_copy) {
     auto desc = TRuntimeFilterDescBuilder().set_mode(false).set_is_broadcast_join(false).build();
 
     std::shared_ptr<RuntimeFilterProducer> producer;
@@ -593,11 +602,29 @@ TEST_F(RuntimeFilterProducerTest, publish_remote_target_merge_takes_ownership) {
     std::shared_ptr<LocalMergeContext> context;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             _query_ctx->runtime_filter_mgr()->get_local_merge_context(desc.filter_id, 0, &context));
-    // The merger adopted the producer's wrapper directly instead of cloning it.
-    ASSERT_EQ(context->merger->_wrapper, wrapper);
+    ASSERT_NE(context->merger->_wrapper, wrapper);
+    ASSERT_NE(context->merger->_wrapper->hybrid_set(), wrapper->hybrid_set());
     ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
     int32_t five = 5;
+    int32_t six = 6;
     ASSERT_TRUE(wrapper->hybrid_set()->find(&five));
+    auto merged_wrapper = context->merger->_wrapper;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->init(1));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            producer2->insert(ColumnHelper::create_column<DataTypeInt32>({6}), 0));
+    producer2->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    auto wrapper2 = producer2->wrapper();
+    bool ready = false;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(context->merger->merge_from(producer2.get(), &ready));
+    ASSERT_TRUE(ready);
+    ASSERT_EQ(context->merger->_wrapper, merged_wrapper);
+    ASSERT_TRUE(merged_wrapper->hybrid_set()->find(&five));
+    ASSERT_TRUE(merged_wrapper->hybrid_set()->find(&six));
+    ASSERT_EQ(merged_wrapper->hybrid_set()->size(), 2);
+    ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
+    ASSERT_FALSE(wrapper->hybrid_set()->find(&six));
+    ASSERT_EQ(wrapper2->hybrid_set()->size(), 1);
+    ASSERT_FALSE(wrapper2->hybrid_set()->find(&five));
 }
 
 // An IN_OR_BLOOM merger which is still an IN filter takes the bloom filter of a producer which
