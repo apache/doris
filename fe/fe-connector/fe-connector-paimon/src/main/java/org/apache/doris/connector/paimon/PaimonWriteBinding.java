@@ -291,6 +291,13 @@ final class PaimonWriteBinding {
         Map<String, String> options = new HashMap<>(backendTable.schema().options());
         if (rust) {
             options.put("write.parquet-buffer-size", "8 mb");
+            if (!backendTable.primaryKeys().isEmpty()) {
+                // The SDK's default 256 MiB key-value buffer cannot reach its flush
+                // threshold under the default 64 MiB writer budget. Retain smaller
+                // table settings and flush larger buffers before exhausting that budget.
+                long writeBufferSize = Math.min(CoreOptions.fromMap(options).writeBufferSize(), 8L * 1024 * 1024);
+                options.put(CoreOptions.WRITE_BUFFER_SIZE.key(), writeBufferSize + " b");
+            }
         }
         boolean restDataToken = PaimonTableDescriptor.usesRestDataToken(table);
         TPaimonTableDesc descriptor = PaimonTableDescriptor.describe(restDataToken ? table : backendTable,

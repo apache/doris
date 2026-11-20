@@ -17,6 +17,7 @@
 
 #include "exec/sink/writer/paimon/ffi_paimon_write_backend.h"
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -198,6 +199,113 @@ TEST_F(FfiPaimonWriteBackendTest, EmptyWriterReleasesBudgetWithoutReportMetadata
     EXPECT_EQ(counter("QueryReservedBytes"), 0);
     EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
 }
+
+class FfiPaimonPrimaryKeyWriteTest : public FfiPaimonWriteBackendTest,
+                                     public testing::WithParamInterface<std::string> {
+protected:
+    void SetUp() override {
+        FfiPaimonWriteBackendTest::SetUp();
+        // A one-byte write buffer flushes before prepare, so failures also exercise
+        // cleanup of files already produced by the primary-key writer.
+        _sink.table_desc.__set_schema_json(fmt::format(R"({{
+            "version":3,"id":0,
+            "fields":[{{"id":0,"name":"id","type":"INT NOT NULL"}}],
+            "highestFieldId":0,"partitionKeys":[],"primaryKeys":["id"],
+            "options":{{"bucket":"{}","file.format":"parquet",
+                       "write-buffer-size":"1 b","write.parquet-buffer-size":"8 mb"}},
+            "timeMillis":0
+        }})",
+                                                       GetParam()));
+    }
+};
+
+TEST_P(FfiPaimonPrimaryKeyWriteTest, RejectedReportAbortsFilesAndReleasesMemory) {
+    ASSERT_TRUE(open().ok());
+    auto block = input();
+    ASSERT_TRUE(write(block).ok());
+    std::vector<TPaimonCommitMessage> messages;
+    ASSERT_TRUE(_writer->prepare_commit(messages).ok());
+    ASSERT_FALSE(messages.empty());
+    EXPECT_GT(file_count(), 0);
+    EXPECT_GT(counter("PeakReservedMemoryBytes"), 0);
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(counter("QueryReservedBytes"), 0);
+    EXPECT_EQ(counter("ReservedMemoryBytes"), 0);
+    EXPECT_EQ(counter("ArrowBufferBytes"), 0);
+    _state->finalize_external_file_report_cleanup(ExternalFileReportOutcome::REJECTED);
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
+}
+
+TEST_P(FfiPaimonPrimaryKeyWriteTest, FailedPrepareAbortsFilesAndReleasesMemory) {
+    const bool previous = config::enable_debug_points;
+    Defer restore([&] {
+        DebugPoints::instance()->remove("FfiPaimonWriteBackend.prepare.fail");
+        config::enable_debug_points = previous;
+    });
+    config::enable_debug_points = true;
+    ASSERT_TRUE(open().ok());
+    auto block = input();
+    ASSERT_TRUE(write(block).ok());
+    DebugPoints::instance()->add("FfiPaimonWriteBackend.prepare.fail");
+    std::vector<TPaimonCommitMessage> messages;
+    EXPECT_FALSE(_writer->prepare_commit(messages).ok());
+    EXPECT_TRUE(messages.empty());
+    ASSERT_TRUE(_writer->abort().ok());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
+}
+
+TEST_P(FfiPaimonPrimaryKeyWriteTest, OverwritePreparesAbortableFiles) {
+    _sink.__set_write_mode(TPaimonWriteMode::OVERWRITE);
+    ASSERT_TRUE(open().ok());
+    auto block = input();
+    ASSERT_TRUE(write(block).ok());
+    std::vector<TPaimonCommitMessage> messages;
+    ASSERT_TRUE(_writer->prepare_commit(messages).ok());
+    ASSERT_FALSE(messages.empty());
+    EXPECT_GT(file_count(), 0);
+    ASSERT_TRUE(_writer->abort().ok());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
+}
+
+TEST_P(FfiPaimonPrimaryKeyWriteTest, ExhaustedKeyValueBufferReleasesMemory) {
+    const auto previous = config::paimon_rust_writer_memory_limit_bytes;
+    Defer restore([&] { config::paimon_rust_writer_memory_limit_bytes = previous; });
+    config::paimon_rust_writer_memory_limit_bytes = 32 * 1024;
+    auto schema = _sink.table_desc.schema_json;
+    schema.replace(schema.find("\"1 b\""), 5, "\"16 mb\"");
+    _sink.table_desc.__set_schema_json(schema);
+    ASSERT_TRUE(open().ok());
+    auto values = ColumnInt32::create();
+    for (int row = 0; row < 1024; ++row) {
+        values->insert_value(row);
+    }
+    Block block({{std::move(values), std::make_shared<DataTypeInt32>(), "id"}});
+    // Each row fits the budget. Retaining repeated batches must exhaust the SDK
+    // reservation before the larger write-buffer threshold can flush them.
+    Status status = Status::OK();
+    for (int batch = 0; batch < 32 && status.ok(); ++batch) {
+        status = write(block);
+    }
+    EXPECT_TRUE(status.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) << status;
+    ASSERT_TRUE(_writer->abort().ok());
+    _writer.reset();
+    ASSERT_TRUE(_backend.close().ok());
+    EXPECT_EQ(file_count(), 0);
+    EXPECT_EQ(counter("QueryReservedBytes"), 0);
+    EXPECT_EQ(counter("ReservedMemoryBytes"), 0);
+    EXPECT_EQ(counter("ArrowBufferBytes"), 0);
+    EXPECT_EQ(_state->query_mem_tracker()->consumption(), _initial_query_memory);
+}
+
+INSTANTIATE_TEST_SUITE_P(BucketModes, FfiPaimonPrimaryKeyWriteTest, testing::Values("2", "-1"));
 
 TEST_F(FfiPaimonWriteBackendTest, FailedPrepareAbortsRolledFilesAndReleasesBudget) {
     const bool previous = config::enable_debug_points;
@@ -458,8 +566,7 @@ TEST_F(FfiPaimonWriteBackendTest, LargeBlockIsSplitBeforeImportingIntoRust) {
 }
 
 TEST_F(FfiPaimonWriteBackendTest, CommitMessageRangesKeepJavaListFraming) {
-    // FE currently selects JNI for partitioned tables. Exercise the backend directly
-    // with distinct partitions to produce more than one range of commit messages.
+    // Distinct partitions produce more than one range of commit messages.
     _sink.table_desc.__set_schema_json(R"({
         "version":3,"id":0,
         "fields":[{"id":0,"name":"id","type":"INT"},

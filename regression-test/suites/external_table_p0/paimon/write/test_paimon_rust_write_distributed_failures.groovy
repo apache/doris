@@ -120,10 +120,14 @@ suite("test_paimon_rust_write_distributed_failures", "p0,external,paimon,nonConc
         failing = writers[1]
         spark_paimon_multi "CREATE DATABASE IF NOT EXISTS paimon.test_paimon_rust_distributed_db"
         ["t_multi", "t_be_failure", "t_fe_before", "t_fe_after", "t_fe_unknown"].each { table ->
+            // Keep multi-BE append failures, and also exercise FE rollback/reconciliation
+            // with primary-key files and restored per-bucket sequence state.
+            String tableOptions = table.startsWith("t_fe_")
+                    ? "'primary-key'='id', 'bucket'='1'" : "'bucket'='-1'"
             spark_paimon_multi """
                 DROP TABLE IF EXISTS paimon.test_paimon_rust_distributed_db.${table};
                 CREATE TABLE paimon.test_paimon_rust_distributed_db.${table} (id BIGINT, payload STRING)
-                USING paimon TBLPROPERTIES ('bucket'='-1', 'file.format'='parquet',
+                USING paimon TBLPROPERTIES (${tableOptions}, 'file.format'='parquet',
                     'target-file-size'='1 b');
             """
         }

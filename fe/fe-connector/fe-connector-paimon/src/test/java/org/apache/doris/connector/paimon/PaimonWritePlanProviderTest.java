@@ -26,6 +26,7 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
+import org.apache.doris.thrift.TPaimonWriteMode;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.fs.Path;
@@ -47,6 +48,26 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class PaimonWritePlanProviderTest {
+
+    @Test
+    public void rustSelectionSupportsInsertAndOverwriteButNotChangelog() {
+        FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
+                new Path("file:/tmp/rust-write-selection"), new TableSchema(0,
+                        Collections.singletonList(DataTypes.FIELD(0, "id", DataTypes.INT().notNull())),
+                        0, Collections.emptyList(), Collections.singletonList("id"),
+                        Collections.singletonMap("bucket", "2"), ""));
+        ConnectorSession enabled = new PropertySession(Collections.emptyMap());
+        List<String> columns = Collections.singletonList("id");
+        Assertions.assertEquals("supported_append", PaimonWritePlanProvider.writerSelectionReason(
+                enabled, table, columns, Collections.emptyMap(), TPaimonWriteMode.APPEND));
+        Assertions.assertEquals("supported_overwrite", PaimonWritePlanProvider.writerSelectionReason(
+                enabled, table, columns, Collections.emptyMap(), TPaimonWriteMode.OVERWRITE));
+        Assertions.assertEquals("changelog_write", PaimonWritePlanProvider.writerSelectionReason(
+                enabled, table, columns, Collections.emptyMap(), TPaimonWriteMode.CHANGELOG));
+        Assertions.assertEquals("rust_writer_disabled", PaimonWritePlanProvider.writerSelectionReason(
+                new PropertySession(Collections.singletonMap("enable_paimon_rust_writer", "false")),
+                table, columns, Collections.emptyMap(), TPaimonWriteMode.OVERWRITE));
+    }
 
     @Test
     public void charPaddingFollowsTheSessionVariableAndDefaultsToOn() {

@@ -18,7 +18,7 @@
 import org.apache.doris.regression.action.ProfileAction
 import org.apache.doris.regression.util.Http
 
-suite("test_paimon_rust_write_append", "p0,external,paimon") {
+suite("test_paimon_rust_write_append", "p0,external,paimon,nonConcurrent") {
     if (!context.config.otherConfigs.get("enablePaimonTest")?.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
         return
@@ -134,9 +134,9 @@ suite("test_paimon_rust_write_append", "p0,external,paimon") {
                 sql("""SELECT id, length(payload), md5(payload), amount, event_date
                     FROM t_append WHERE id IN (3, 5) ORDER BY id"""))
 
-        // Partitioned writes select JNI before input is consumed.
+        // Partitioned append writes use the same Rust writer and Java commit protocol.
         sql "INSERT INTO t_partitioned SELECT 1, 'east' UNION ALL SELECT 2, 'west'"
-        checkWriter("Java JNI", "partitioned_table", [])
+        checkWriter("Rust FFI", "supported_append", ["InputRows", "RustWriteTime"])
         assertSparkDorisResultEquals(
                 spark_paimon("""SELECT * FROM paimon.test_paimon_rust_write_db.t_partitioned
                     ORDER BY id"""),
