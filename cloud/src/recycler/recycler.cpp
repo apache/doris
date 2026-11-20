@@ -384,6 +384,7 @@ void Recycler::recycle_callback() {
             std::lock_guard lock(mtx_);
             // skip instance in recycling
             if (recycling_instance_map_.count(instance_id)) continue;
+            g_bvar_recycler_instance_recycle_task_status.put({instance_id}, 0);
         }
         if (!config::enable_recycler) {
             LOG(WARNING) << "Skip recycle instance_id=" << instance_id
@@ -414,7 +415,7 @@ void Recycler::recycle_callback() {
         LOG_WARNING("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         g_bvar_recycler_instance_recycle_start_ts.put({instance_id}, ctime_ms);
-        g_bvar_recycler_instance_recycle_task_status.put({"submitted"}, 1);
+        g_bvar_recycler_instance_recycle_task_status.put({instance_id}, 1);
         ret = instance_recycler->do_recycle();
         // If instance recycler has been aborted, don't finish this job
 
@@ -422,11 +423,9 @@ void Recycler::recycle_callback() {
             finish_instance_recycle_job(txn_kv_.get(), recycle_job_key, instance_id, ip_port_,
                                         ret == 0, ctime_ms);
         }
-        if (instance_recycler->stopped() || ret != 0) {
-            g_bvar_recycler_instance_recycle_task_status.put({"error"}, 1);
-        }
         {
             std::lock_guard lock(mtx_);
+            g_bvar_recycler_instance_recycle_task_status.put({instance_id}, 0);
             recycling_instance_map_.erase(instance_id);
         }
 
@@ -436,7 +435,6 @@ void Recycler::recycle_callback() {
         g_bvar_recycler_instance_last_round_recycle_duration.put({instance_id}, elpased_ms);
         g_bvar_recycler_instance_next_ts.put({instance_id},
                                              now + config::recycle_interval_seconds * 1000);
-        g_bvar_recycler_instance_recycle_task_status.put({"completed"}, 1);
         LOG(INFO) << "recycle instance done, "
                   << "instance_id=" << instance_id << " ret=" << ret << " ctime_ms: " << ctime_ms
                   << " now: " << now;

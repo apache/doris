@@ -149,9 +149,10 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_tmp_rowset_earlest_ts("recycl
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_expired_txn_label_earlest_ts("recycler", "recycle_expired_txn_label_earlest_ts");
 BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts("recycler", "recycle_restore_job_earlest_ts");
 bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency("recycler_task_max_concurrency_num",0);
-// current status of recycle task (submitted, completed, error)
-mBvarIntAdder g_bvar_recycler_instance_recycle_task_status("recycler_instance_recycle_task_status", { "status"});
 // recycler's mbvars
+// 1 while the local Recycler is running a task for the instance, 0 when idle.
+mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_task_status(
+        "recycler_instance_recycle_task_status", {"instance_id"});
 // cost time of the last whole recycle process
 mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration("recycler_instance_last_round_recycle_duration",{"instance_id"});
 mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts("recycler_instance_next_ts",{"instance_id"});
