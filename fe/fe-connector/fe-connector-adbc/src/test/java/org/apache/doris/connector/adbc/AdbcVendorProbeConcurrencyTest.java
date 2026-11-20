@@ -22,10 +22,12 @@ import org.apache.arrow.adbc.core.AdbcException;
 import org.apache.arrow.adbc.core.AdbcInfoCode;
 import org.apache.arrow.adbc.core.AdbcStatement;
 import org.apache.arrow.adbc.core.AdbcStatusCode;
+import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
@@ -137,12 +139,17 @@ class AdbcVendorProbeConcurrencyTest {
 
         @Override
         public <T> T withConnection(AdbcConnectionCall<T> body) {
-            try {
+            try (RootAllocator allocator = new RootAllocator()) {
                 return body.apply(new AdbcConnection() {
                     @Override
                     public ArrowReader getInfo(int[] infoCodes) throws AdbcException {
                         if (infoCodes[0] == AdbcInfoCode.DRIVER_NAME.getValue()) {
-                            throw AdbcException.notImplemented("Driver name unavailable in this fixture");
+                            try {
+                                return AdbcVendorInfoSafetyTest.response(allocator, infoCodes[0], "Test ADBC Driver");
+                            } catch (IOException e) {
+                                throw new AdbcException("Cannot create driver information", e,
+                                        AdbcStatusCode.IO, null, 0);
+                            }
                         }
                         return probe.read();
                     }

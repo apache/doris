@@ -24,6 +24,7 @@ import org.apache.arrow.adbc.core.AdbcException;
 import org.apache.arrow.adbc.core.AdbcInfoCode;
 import org.apache.arrow.adbc.core.AdbcStatement;
 import org.apache.arrow.adbc.core.AdbcStatusCode;
+import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BitVector;
 import org.apache.arrow.vector.UInt4Vector;
@@ -40,6 +41,10 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -52,7 +57,7 @@ import java.util.Map;
 import java.util.Optional;
 
 class AdbcVendorInfoSafetyTest {
-    private static final int CONNECTION_SCOPED_VENDOR_INFO = 0x444f0001;
+    static final int CONNECTION_SCOPED_VENDOR_INFO = 0x444f0001;
 
     @Test
     void refusesSharedFlightInfoBeforeRequestingAVendor() {
@@ -88,10 +93,61 @@ class AdbcVendorInfoSafetyTest {
         }
     }
 
-    @Test
-    void unavailableDriverNamesPreserveTheGenericVendorPath() {
+    @ParameterizedTest
+    @EnumSource(value = AdbcStatusCode.class, names = {"NOT_IMPLEMENTED", "NOT_FOUND"})
+    void refusesUnavailableDriverNamesWithoutIsolation(AdbcStatusCode status) {
         try (RecordingClient client = new RecordingClient(null, null)) {
+            client.driverNameFailure = status;
+            Assertions.assertThrows(DorisConnectorException.class, client::vendorName);
+            Assertions.assertEquals(1, client.isolationCalls);
+            Assertions.assertEquals(0, client.vendorCalls);
+        }
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {"   "})
+    void refusesMissingDriverNamesWithoutIsolation(String name) {
+        try (RecordingClient client = new RecordingClient(name, false)) {
+            Assertions.assertThrows(DorisConnectorException.class, client::vendorName);
+            Assertions.assertEquals(1, client.isolationCalls);
+            Assertions.assertEquals(0, client.vendorCalls);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AdbcStatusCode.class, names = {"NOT_IMPLEMENTED", "NOT_FOUND"})
+    void acceptsUnavailableDriverNamesWithIsolation(AdbcStatusCode status) {
+        try (RecordingClient client = new RecordingClient(null, true)) {
+            client.driverNameFailure = status;
             Assertions.assertEquals(Optional.of("DorisFE"), client.vendorName());
+            Assertions.assertEquals(1, client.isolationCalls);
+            Assertions.assertEquals(1, client.vendorCalls);
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = AdbcStatusCode.class, names = {"NOT_IMPLEMENTED", "NOT_FOUND"})
+    void refusesUnavailableIsolationBeforeRequestingAVendor(AdbcStatusCode status) {
+        try (RecordingClient client = new RecordingClient(null, null)) {
+            client.driverNameFailure = status;
+            client.isolationFailure = status;
+            Assertions.assertThrows(DorisConnectorException.class, client::vendorName);
+            Assertions.assertEquals(1, client.isolationCalls);
+            Assertions.assertEquals(0, client.vendorCalls);
+        }
+    }
+
+    @Test
+    void retriesIdentityFailuresWithoutRequestingAVendor() {
+        try (RecordingClient client = new RecordingClient(null, true)) {
+            client.driverNameFailure = AdbcStatusCode.IO;
+            Assertions.assertThrows(DorisConnectorException.class, client::vendorName);
+            Assertions.assertEquals(0, client.isolationCalls);
+            Assertions.assertEquals(0, client.vendorCalls);
+            client.driverNameFailure = null;
+            Assertions.assertEquals(Optional.of("DorisFE"), client.vendorName());
+            Assertions.assertEquals(1, client.isolationCalls);
             Assertions.assertEquals(1, client.vendorCalls);
         }
     }
@@ -101,6 +157,9 @@ class AdbcVendorInfoSafetyTest {
         private final String driverName;
         private final Boolean isolated;
         private int vendorCalls;
+        private int isolationCalls;
+        private AdbcStatusCode driverNameFailure;
+        private AdbcStatusCode isolationFailure;
 
         private RecordingClient(String driverName, Boolean isolated) {
             super(Path.of("driver.so"), "driver.so", null, "grpc://localhost:1", null, null, Map.of());
@@ -117,11 +176,17 @@ class AdbcVendorInfoSafetyTest {
                         int code = codes[0];
                         Object value;
                         if (code == AdbcInfoCode.DRIVER_NAME.getValue()) {
-                            if (driverName == null) {
-                                throw AdbcException.notImplemented("No driver name");
+                            if (driverNameFailure != null) {
+                                throw new AdbcException("Driver identity unavailable", null,
+                                        driverNameFailure, null, 0);
                             }
                             value = driverName;
                         } else if (code == CONNECTION_SCOPED_VENDOR_INFO) {
+                            isolationCalls++;
+                            if (isolationFailure != null) {
+                                throw new AdbcException("Isolation capability unavailable", null,
+                                        isolationFailure, null, 0);
+                            }
                             value = isolated;
                         } else {
                             Assertions.assertEquals(AdbcInfoCode.VENDOR_NAME.getValue(), code);
@@ -129,7 +194,7 @@ class AdbcVendorInfoSafetyTest {
                             value = "DorisFE";
                         }
                         try {
-                            return response(code, value);
+                            return response(allocator, code, value);
                         } catch (IOException e) {
                             throw new AdbcException("Cannot create info response", e,
                                     AdbcStatusCode.IO, null, 0);
@@ -154,40 +219,40 @@ class AdbcVendorInfoSafetyTest {
             }
         }
 
-        private ArrowReader response(int code, Object value) throws IOException {
-            Schema schema = new Schema(List.of(Field.nullable("info_name", new ArrowType.Int(32, false)),
-                    new Field("info_value", FieldType.nullable(new ArrowType.Union(UnionMode.Dense, new int[] {0, 1})),
-                            List.of(Field.nullable("string_value", ArrowType.Utf8.INSTANCE),
-                                    Field.nullable("bool_value", ArrowType.Bool.INSTANCE)))));
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator);
-                    ArrowStreamWriter writer = new ArrowStreamWriter(root, null, Channels.newChannel(bytes))) {
-                writer.start();
-                if (value != null) {
-                    root.allocateNew();
-                    ((UInt4Vector) root.getVector("info_name")).setSafe(0, code);
-                    DenseUnionVector union = (DenseUnionVector) root.getVector("info_value");
-                    byte type = (byte) (value instanceof Boolean ? 1 : 0);
-                    union.setTypeId(0, type);
-                    union.setOffset(0, 0);
-                    if (type == 1) {
-                        ((BitVector) union.getVectorByType(type)).setSafe(0, Boolean.TRUE.equals(value) ? 1 : 0);
-                    } else {
-                        ((VarCharVector) union.getVectorByType(type)).setSafe(0,
-                                value.toString().getBytes(StandardCharsets.UTF_8));
-                    }
-                    root.setRowCount(1);
-                    writer.writeBatch();
-                }
-                writer.end();
-            }
-            return new ArrowStreamReader(new ByteArrayInputStream(bytes.toByteArray()), allocator);
-        }
-
         @Override
         public void close() {
             super.close();
             allocator.close();
         }
+    }
+
+    static ArrowReader response(BufferAllocator allocator, int code, Object value) throws IOException {
+        Schema schema = new Schema(List.of(Field.nullable("info_name", new ArrowType.Int(32, false)),
+                new Field("info_value", FieldType.nullable(new ArrowType.Union(UnionMode.Dense, new int[] {0, 1})),
+                        List.of(Field.nullable("string_value", ArrowType.Utf8.INSTANCE),
+                                Field.nullable("bool_value", ArrowType.Bool.INSTANCE)))));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator);
+                ArrowStreamWriter writer = new ArrowStreamWriter(root, null, Channels.newChannel(bytes))) {
+            writer.start();
+            if (value != null) {
+                root.allocateNew();
+                ((UInt4Vector) root.getVector("info_name")).setSafe(0, code);
+                DenseUnionVector union = (DenseUnionVector) root.getVector("info_value");
+                byte type = (byte) (value instanceof Boolean ? 1 : 0);
+                union.setTypeId(0, type);
+                union.setOffset(0, 0);
+                if (type == 1) {
+                    ((BitVector) union.getVectorByType(type)).setSafe(0, Boolean.TRUE.equals(value) ? 1 : 0);
+                } else {
+                    ((VarCharVector) union.getVectorByType(type)).setSafe(0,
+                            value.toString().getBytes(StandardCharsets.UTF_8));
+                }
+                root.setRowCount(1);
+                writer.writeBatch();
+            }
+            writer.end();
+        }
+        return new ArrowStreamReader(new ByteArrayInputStream(bytes.toByteArray()), allocator);
     }
 }

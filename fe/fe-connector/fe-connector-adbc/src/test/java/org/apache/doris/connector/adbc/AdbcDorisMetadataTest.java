@@ -25,14 +25,11 @@ import org.apache.arrow.adbc.core.AdbcInfoCode;
 import org.apache.arrow.adbc.core.AdbcStatement;
 import org.apache.arrow.adbc.core.AdbcStatusCode;
 import org.apache.arrow.memory.RootAllocator;
-import org.apache.arrow.vector.UInt4Vector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.complex.DenseUnionVector;
 import org.apache.arrow.vector.ipc.ArrowReader;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
-import org.apache.arrow.vector.types.UnionMode;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
@@ -317,15 +314,20 @@ class AdbcDorisMetadataTest {
 
                     @Override
                     public ArrowReader getInfo(int[] infoCodes) throws AdbcException {
-                        if (infoCodes[0] == AdbcInfoCode.DRIVER_NAME.getValue()) {
-                            throw AdbcException.notImplemented("Driver name unavailable in this fixture");
-                        }
-                        vendorProbes++;
-                        if (vendorFailure != null) {
-                            throw vendorFailure;
-                        }
+                        int code = infoCodes[0];
                         try {
-                            return vendorResponse();
+                            if (code == AdbcInfoCode.DRIVER_NAME.getValue()) {
+                                return AdbcVendorInfoSafetyTest.response(allocator, code,
+                                        "ADBC Flight SQL Driver - Go");
+                            }
+                            if (code == AdbcVendorInfoSafetyTest.CONNECTION_SCOPED_VENDOR_INFO) {
+                                return AdbcVendorInfoSafetyTest.response(allocator, code, true);
+                            }
+                            vendorProbes++;
+                            if (vendorFailure != null) {
+                                throw vendorFailure;
+                            }
+                            return AdbcVendorInfoSafetyTest.response(allocator, code, vendorName);
                         } catch (IOException e) {
                             throw new UncheckedIOException(e);
                         }
@@ -376,28 +378,6 @@ class AdbcDorisMetadataTest {
             } catch (Exception e) {
                 throw new IllegalStateException(e);
             }
-        }
-
-        private ArrowReader vendorResponse() throws IOException {
-            Schema schema = new Schema(List.of(Field.nullable("info_name", new ArrowType.Int(32, false)),
-                    new Field("info_value", FieldType.nullable(new ArrowType.Union(UnionMode.Dense, new int[] {0})),
-                            List.of(Field.nullable("string_value", ArrowType.Utf8.INSTANCE)))));
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-            try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator);
-                    ArrowStreamWriter writer = new ArrowStreamWriter(root, null, Channels.newChannel(bytes))) {
-                root.allocateNew();
-                ((UInt4Vector) root.getVector("info_name")).setSafe(0, AdbcInfoCode.VENDOR_NAME.getValue());
-                DenseUnionVector values = (DenseUnionVector) root.getVector("info_value");
-                values.setTypeId(0, (byte) 0);
-                values.setOffset(0, 0);
-                ((VarCharVector) values.getVectorByType((byte) 0)).setSafe(0,
-                        vendorName.getBytes(StandardCharsets.UTF_8));
-                root.setRowCount(1);
-                writer.start();
-                writer.writeBatch();
-                writer.end();
-            }
-            return new ArrowStreamReader(new ByteArrayInputStream(bytes.toByteArray()), allocator);
         }
 
         private ArrowReader response() throws IOException {

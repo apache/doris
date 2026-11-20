@@ -37,25 +37,28 @@ final class AdbcDriverInfo {
     }
 
     static void requireIsolatedVendorInfo(AdbcConnection connection) throws Exception {
-        Object name;
+        Object name = null;
         try {
             name = readInfo(connection, AdbcInfoCode.DRIVER_NAME.getValue());
         } catch (AdbcException e) {
             if (e.getStatus() != AdbcStatusCode.NOT_IMPLEMENTED && e.getStatus() != AdbcStatusCode.NOT_FOUND) {
                 throw e;
             }
-            return;
         }
-        if (name == null || !name.toString().toLowerCase(Locale.ROOT).contains("flight sql")) {
+        // Missing identity cannot prove that an operator-supplied library is a non-Flight driver.
+        // Require isolation before any vendor request when DRIVER_NAME is unavailable or empty.
+        if (name != null && !name.toString().isBlank()
+                && !name.toString().toLowerCase(Locale.ROOT).contains("flight sql")) {
             return;
         }
         // An old Flight library writes its process-wide info map during GetInfo(VENDOR_NAME).
         // A Java probe lock cannot protect ordinary native readers or prevent cross-server fallback.
         Object isolated = readInfo(connection, CONNECTION_SCOPED_VENDOR_INFO);
         if (!Boolean.TRUE.equals(isolated)) {
-            throw new DorisConnectorException("The native Flight SQL driver must support connection-scoped vendor"
-                    + " information. Rebuild the driver with the Doris ADBC connection-info patch and deploy the"
-                    + " same library on FE and BE hosts before discovering metadata.");
+            throw new DorisConnectorException("Flight SQL and unidentified ADBC drivers must support connection-scoped"
+                    + " vendor information. Rebuild native Flight SQL drivers with the Doris ADBC connection-info patch"
+                    + " and deploy the same library on FE and BE hosts. Other ADBC drivers must report DRIVER_NAME"
+                    + " before discovering metadata.");
         }
     }
 
