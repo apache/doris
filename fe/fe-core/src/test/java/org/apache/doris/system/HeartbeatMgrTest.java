@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TBrokerPingBrokerRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendRequest;
 import org.apache.doris.thrift.TFrontendPingFrontendResult;
 import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
+import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
 
@@ -49,8 +50,10 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class HeartbeatMgrTest {
 
@@ -245,4 +248,35 @@ public class HeartbeatMgrTest {
         }
     }
 
+    @Test
+    public void testSetMasterHttpPort() throws Exception {
+        int originalHttpPort = Config.http_port;
+        int originalHttpsPort = Config.https_port;
+        boolean originalEnableHttps = Config.enable_https;
+
+        try {
+            HeartbeatMgr mgr = new HeartbeatMgr(null, false);
+            Field masterInfoField = HeartbeatMgr.class.getDeclaredField("masterInfo");
+            masterInfoField.setAccessible(true);
+
+            // enable_https=false: must send http_port to BEs
+            Config.enable_https = false;
+            Config.http_port = 8030;
+            Config.https_port = 8050;
+            mgr.setMaster(1, "token", 1L);
+            AtomicReference<TMasterInfo> masterInfo =
+                    (AtomicReference<TMasterInfo>) masterInfoField.get(null);
+            Assert.assertEquals(8030, masterInfo.get().getHttpPort());
+
+            // enable_https=true: must send https_port to BEs so small_file_mgr can connect
+            Config.enable_https = true;
+            mgr.setMaster(1, "token", 1L);
+            masterInfo = (AtomicReference<TMasterInfo>) masterInfoField.get(null);
+            Assert.assertEquals(8050, masterInfo.get().getHttpPort());
+        } finally {
+            Config.http_port = originalHttpPort;
+            Config.https_port = originalHttpsPort;
+            Config.enable_https = originalEnableHttps;
+        }
+    }
 }
