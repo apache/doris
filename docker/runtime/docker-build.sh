@@ -32,6 +32,8 @@ usage() {
 }
 
 version=
+DORIS_UID=${DORIS_UID:-10001}
+DORIS_GID=${DORIS_GID:-10001}
 
 OPTS="$(getopt -n "$0" -o 'v:' -- "$*")"
 eval set -- "${OPTS}"
@@ -103,13 +105,13 @@ cd base-image/ && docker build -t apache/doris:base-latest -f Dockerfile_base .
 cd -
 
 echo "docker build fe image,tag=doris.fe:${version}"
-cd fe/ && docker build -t doris.fe:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} .
+cd fe/ && docker build -t doris.fe:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} --build-arg DORIS_UID="${DORIS_UID}" --build-arg DORIS_GID="${DORIS_GID}" .
 cd -
 
 echo "docker build be image,tag=doris.be:${version}"
-cd be/ && docker build -t doris.be:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} .
+cd be/ && docker build -t doris.be:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} --build-arg DORIS_UID="${DORIS_UID}" --build-arg DORIS_GID="${DORIS_GID}" .
 cd -
 
 echo "docker build ms image,tag=doris.ms:${version}"
-cd ms/ && docker build -t doris.ms:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} .
+cd ms/ && docker build -t doris.ms:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} --build-arg DORIS_UID="${DORIS_UID}" --build-arg DORIS_GID="${DORIS_GID}" .
 cd -

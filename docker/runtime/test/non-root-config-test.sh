@@ -82,3 +82,40 @@ for variant in fe be be_disaggregated; do
 done
 
 echo 'Non-root Kerberos configuration tests passed'
+
+(
+    DORIS_HOME="${TEST_DIR}/ms"
+    CONFIGMAP_PATH="${TEST_DIR}/ms-configmap"
+    FDB_ENDPOINT='test:test@fdb:4500'
+    mkdir -p "${DORIS_HOME}/ms/conf" "${CONFIGMAP_PATH}/..data"
+    printf '# original config\n' > "${DORIS_HOME}/ms/conf/doris_cloud.conf"
+    printf '# projected config\nfdb_cluster=old:old@old:4500\n' > "${CONFIGMAP_PATH}/..data/doris_cloud.conf"
+    chmod 444 "${CONFIGMAP_PATH}/..data/doris_cloud.conf"
+    ln -s '..data/doris_cloud.conf' "${CONFIGMAP_PATH}/doris_cloud.conf"
+    printf '<configuration/>\n' > "${CONFIGMAP_PATH}/core-site.xml"
+    # shellcheck disable=SC1090
+    source <(sed -n '/^update_conf_from_configmap()/,/^}/p' \
+        "${RUNTIME_DIR}/ms/resource/ms_disaggregated_entrypoint.sh")
+    update_conf_from_configmap
+    grep -q '^# original config$' "${DORIS_HOME}/ms/conf/doris_cloud.conf.bak"
+    update_conf_from_configmap
+    test ! -L "${DORIS_HOME}/ms/conf/doris_cloud.conf"
+    test -L "${DORIS_HOME}/ms/conf/core-site.xml"
+    grep -qx "fdb_cluster=${FDB_ENDPOINT}" "${DORIS_HOME}/ms/conf/doris_cloud.conf"
+    test "$(grep -c '^fdb_cluster=' "${DORIS_HOME}/ms/conf/doris_cloud.conf")" -eq 1
+    grep -qx 'fdb_cluster=old:old@old:4500' "${CONFIGMAP_PATH}/doris_cloud.conf"
+    echo 'test_setting = true' >> "${DORIS_HOME}/ms/conf/doris_cloud.conf"
+
+    # Without a ConfigMap, repeated starts replace the endpoint in the image config.
+    CONFIGMAP_PATH="${TEST_DIR}/no-configmap"
+    FDB_ENDPOINT='new:new@new-fdb:4500'
+    update_conf_from_configmap
+    update_conf_from_configmap
+    grep -qx "fdb_cluster=${FDB_ENDPOINT}" "${DORIS_HOME}/ms/conf/doris_cloud.conf"
+    test "$(grep -c '^fdb_cluster=' "${DORIS_HOME}/ms/conf/doris_cloud.conf")" -eq 1
+    unset FDB_ENDPOINT
+    update_conf_from_configmap
+    grep -qx 'fdb_cluster=new:new@new-fdb:4500' "${DORIS_HOME}/ms/conf/doris_cloud.conf"
+)
+
+echo 'Non-root MS configuration tests passed'

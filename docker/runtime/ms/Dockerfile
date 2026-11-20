@@ -31,7 +31,13 @@ FROM apache/doris:base-6.0
 ARG TARGETARCH
 
 ARG DORIS_VERSION="x.x.x"
+ARG DORIS_UID=10001
+ARG DORIS_GID=10001
 
+RUN groupadd --gid "${DORIS_GID}" doris && \
+    useradd --uid "${DORIS_UID}" --gid "${DORIS_GID}" --create-home --shell /bin/bash doris
+
+ENV HOME=/home/doris
 
 RUN if echo $DORIS_VERSION | grep -E '^([3-9]|([1-9]([0-9])))|^branch\-([3-9]|([1-9]([0-9])))|master.*' >>/dev/null ; then \
         ln -s /usr/lib/jvm/jdk-17 /usr/lib/jvm/java && \
@@ -45,11 +51,17 @@ RUN if echo $DORIS_VERSION | grep -E '^([3-9]|([1-9]([0-9])))|^branch\-([3-9]|([
 ENV JAVA_HOME=/usr/lib/jvm/java
 ENV PATH=$PATH:$JAVA_HOME/bin:/opt/apache-doris/ms/bin
 
-COPY resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/ms /opt/apache-doris/ms
+COPY --chown=${DORIS_UID}:${DORIS_GID} resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/ms /opt/apache-doris/ms
 
 COPY resource/ms_*.sh /opt/apache-doris/
 
 #RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+RUN mkdir -p /opt/apache-doris/ms/log && \
+    chown "${DORIS_UID}:${DORIS_GID}" /opt/apache-doris /opt/apache-doris/ms/log && \
+    ln -sf /opt/apache-doris/ms/conf/krb5.conf /etc/krb5.conf
+
+USER ${DORIS_UID}:${DORIS_GID}
 
 WORKDIR /opt/apache-doris
 
