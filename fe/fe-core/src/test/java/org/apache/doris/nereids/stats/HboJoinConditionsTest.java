@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -91,6 +92,25 @@ public class HboJoinConditionsTest {
                 new EqualTo(t3.getOutput().get(0), t4.getOutput().get(0)), t3, t4);
         Assertions.assertNotEquals(first, second);
         Assertions.assertTrue(first.contains("operands:[null.null.t1"), first);
+    }
+
+    @Test
+    public void testVariantSubpathsArePartOfTheExpansionFingerprint() {
+        LogicalOlapScan left = PlanConstructor.newLogicalOlapScan(0, "l", 0);
+        LogicalOlapScan right = PlanConstructor.newLogicalOlapScan(1, "r", 0);
+        String a = fingerprintForSubPath(left, right, ImmutableList.of("a"));
+        String b = fingerprintForSubPath(left, right, ImmutableList.of("b"));
+        Assertions.assertNotEquals(a, b);
+        Assertions.assertNotEquals(fingerprintForSubPath(left, right, ImmutableList.of("a][b")),
+                fingerprintForSubPath(left, right, ImmutableList.of("a", "b")));
+    }
+
+    private static String fingerprintForSubPath(LogicalOlapScan left, LogicalOlapScan right,
+            ImmutableList<String> path) {
+        EqualTo equal = new EqualTo(((SlotReference) left.getOutput().get(0)).withSubPath(path),
+                ((SlotReference) right.getOutput().get(0)).withSubPath(path));
+        return HboJoinConditions.fingerprintOf(new LogicalJoin<>(JoinType.INNER_JOIN,
+                ImmutableList.<Expression>of(equal), ImmutableList.<Expression>of(), left, right, null)).get();
     }
 
     @Test

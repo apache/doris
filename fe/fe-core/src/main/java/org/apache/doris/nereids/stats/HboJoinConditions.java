@@ -194,37 +194,14 @@ public class HboJoinConditions {
         return null;
     }
 
-    /**
-     * The stable identity of the column an operand reads: the table it belongs to and the name of the
-     * column. The slot carries both, so the identity does not depend on the alias a query gave the
-     * relation, on the shape of its qualifier or on where the join is described.
-     */
-    // The characters which delimit an operand in the pair text: a quoted column name may contain them,
-    // and would otherwise forge the boundary between two operands (`EqualTo(col(a),col(b))`).
+    // Escape the separators used by the expansion text, including the subpath component boundaries.
     private static String escapeOperandComponent(String value) {
-        StringBuilder escaped = new StringBuilder(value.length());
-        for (int index = 0; index < value.length(); index++) {
-            char c = value.charAt(index);
-            switch (c) {
-                case '%':
-                    escaped.append("%25");
-                    break;
-                case ',':
-                    escaped.append("%2C");
-                    break;
-                case '(':
-                    escaped.append("%28");
-                    break;
-                case ')':
-                    escaped.append("%29");
-                    break;
-                default:
-                    escaped.append(c);
-            }
-        }
-        return escaped.toString();
+        return value.replace("%", "%25").replace(",", "%2C").replace("(", "%28").replace(")", "%29")
+                .replace("[", "%5B").replace("]", "%5D").replace(";", "%3B")
+                .replace("{", "%7B").replace("}", "%7D");
     }
 
+    /** The bound table and column, followed by the VARIANT subpath when present. */
     private static Optional<String> operandIdentity(Expression operand) {
         if (!(operand instanceof SlotReference)) {
             return Optional.empty();
@@ -233,8 +210,12 @@ public class HboJoinConditions {
         if (!slot.getOriginalTable().isPresent() || !slot.getOriginalColumn().isPresent()) {
             return Optional.empty();
         }
-        return Optional.of(escapeOperandComponent(
-                HboScanDescriptor.qualifiedNameOf(slot.getOriginalTable().get()))
-                + "." + escapeOperandComponent(slot.getOriginalColumn().get().getName()));
+        StringBuilder identity = new StringBuilder(escapeOperandComponent(
+                HboScanDescriptor.qualifiedNameOf(slot.getOriginalTable().get())))
+                .append('.').append(escapeOperandComponent(slot.getOriginalColumn().get().getName()));
+        for (String component : slot.getSubPath()) {
+            identity.append('[').append(escapeOperandComponent(component)).append(']');
+        }
+        return Optional.of(identity.toString());
     }
 }

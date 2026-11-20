@@ -17,12 +17,16 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -88,6 +92,41 @@ public class HboStructFreshnessTest {
         Assertions.assertEquals(HboScanDescriptor.RowsKind.ESTIMATED, scans.get(1).getRowsKind());
         Assertions.assertTrue(HboScanDescriptor.isRowCountComparable(scans.get(0), scans.get(0)));
         Assertions.assertFalse(HboScanDescriptor.isRowCountComparable(scans.get(0), scans.get(1)));
+    }
+
+    @Test
+    void testCommaInScanAliasKeepsTheWholeTableBaseline() throws Exception {
+        String alias = "x,p1/2";
+        HboScanDescriptor recorded = new HboScanDescriptor("db.t", 10,
+                HboScanDescriptor.relationIdentityOf(alias), 2, 1000, HboScanDescriptor.RowsKind.MEASURED,
+                1, 1, "", "", "");
+        String token = recorded.render();
+        HboScanDescriptor parsed = HboScanDescriptor.parse(token);
+        Assertions.assertEquals(alias, HboScanDescriptor.unescapeNamePart(parsed.getRelationIdentity()));
+        Assertions.assertTrue(parsed.isPartitionSelectionComplete());
+        Assertions.assertEquals(token, parsed.render());
+
+        Env env = Mockito.mock(Env.class);
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Database database = Mockito.mock(Database.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(env.getCurrentCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getDbNullable("db")).thenReturn(database);
+        Mockito.when(database.getTableNullable("t")).thenReturn(table);
+        Mockito.when(table.getId()).thenReturn(10L);
+        Mockito.when(table.getBaseIndexId()).thenReturn(20L);
+        Mockito.when(table.getPartitionIds()).thenReturn(ImmutableList.of(30L));
+        Mockito.when(table.getRowCountForPartitionIndex(30L, 20L, true)).thenReturn(1010L);
+        Mockito.when(table.getVisibleVersion()).thenReturn(3L);
+        double ratio = Config.hbo_row_count_change_ratio;
+        Config.hbo_row_count_change_ratio = 0.1;
+        try (MockedStatic<Env> envMock = Mockito.mockStatic(Env.class)) {
+            envMock.when(Env::getCurrentEnv).thenReturn(env);
+            HboStructFreshness freshness = HboStructFreshness.of(FILTER_WITH_LITERAL + "S{" + token + "})");
+            Assertions.assertEquals(HboStructFreshness.STATE_DRIFTED, freshness.getState());
+        } finally {
+            Config.hbo_row_count_change_ratio = ratio;
+        }
     }
 
     @Test

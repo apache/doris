@@ -150,19 +150,19 @@ public class HboScanDescriptor {
                 + escapeNamePart(table.getName());
     }
 
-    /** The dots of a table name (and the escape character itself) are escaped. */
+    /** Escape scan-token separators within a name component. */
     static String escapeNamePart(String name) {
         // '#' introduces the partition / tablet / index selector markers of a scan token, so a table name
         // which carries one would be truncated to the part before it while the planner summary keeps the
         // whole name - the relation key of the entry would then never match the query
         return name.replace("%", "%25").replace(".", "%2E").replace("#", "%23")
-                .replace("{", "%7B").replace("}", "%7D");
+                .replace("{", "%7B").replace("}", "%7D").replace(",", "%2C");
     }
 
     /** The inverse of {@link #escapeNamePart}, for a name read back from a scan token. */
     public static String unescapeNamePart(String name) {
         return name.replace("%23", "#").replace("%2E", ".").replace("%7B", "{").replace("%7D", "}")
-                .replace("%25", "%");
+                .replace("%2C", ",").replace("%25", "%");
     }
 
     /** The id of the index a scan reads, empty when it reads the base index of its table. */
@@ -187,10 +187,10 @@ public class HboScanDescriptor {
         // only is described through its physical scan, and its key must name the same relation as the
         // logical description of the same scan
         if (scan instanceof LogicalOlapScan) {
-            return escapeNamePart(((LogicalOlapScan) scan).getTableAlias());
+            return relationIdentityOf(((LogicalOlapScan) scan).getTableAlias());
         }
         if (scan instanceof PhysicalOlapScan) {
-            return escapeNamePart(((PhysicalOlapScan) scan).getTableAlias());
+            return relationIdentityOf(((PhysicalOlapScan) scan).getTableAlias());
         }
         return "";
     }
