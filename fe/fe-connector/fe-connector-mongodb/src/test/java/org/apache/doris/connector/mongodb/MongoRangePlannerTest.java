@@ -360,8 +360,8 @@ class MongoRangePlannerTest {
                     .planScan(session(scope, options("range")), request));
             Assertions.assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
             var policy = new java.util.HashMap<>(options("auto"));
-            // The optional probe budget is internal; waiting for a probe slot consumes it too.
-            var plan = new MongoScanPlanProvider(properties, Client::new).planScan(session(scope, policy), request);
+            // A short injected budget checks contention without waiting out the production two-second cap.
+            var plan = new MongoScanPlanProvider(properties, Client::new, 25).planScan(session(scope, policy), request);
             Assertions.assertEquals("probe_budget", descriptor(plan.get(0)).getSplit().getReason());
             release.countDown();
             Assertions.assertEquals(8, first.get(5, java.util.concurrent.TimeUnit.SECONDS).size());
@@ -423,7 +423,7 @@ class MongoRangePlannerTest {
     }
 
     @Test
-    void candidateGrowthAfterPublicationFailsInsteadOfBypassingAdmissionOrReplanning() {
+    void independentScanNodesAdmitTheirFinalCandidates() {
         var column = new Document("name", "text").append("path", List.of("text"))
                 .append("doris_type", "STRING").append("bson_types", List.of("string"));
         var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
@@ -444,10 +444,11 @@ class MongoRangePlannerTest {
                 org.apache.doris.connector.spi.pushdown.ConnectorLiteral.ofString("v".repeat(60000)));
         Assertions.assertEquals(MongoPredicateTranslator.Kind.SUPERSET,
                 new MongoPredicateTranslator(table.getSchema(), true).translate(filter).kind());
-        Assertions.assertThrows(org.apache.doris.connector.spi.DorisConnectorException.class,
-                () -> provider.planScan(session, ConnectorScanRequest.builder(table, List.of()).filter(Optional.of(filter)).build())
-                        .get(0));
-        Assertions.assertEquals(1, client.probes);
+        var independent = new MongoScanPlanProvider(properties, () -> client);
+        var range = descriptor(independent.planScan(session,
+                ConnectorScanRequest.builder(table, List.of()).filter(Optional.of(filter)).build()).get(0));
+        Assertions.assertTrue(range.getFilterBson().length > 60000);
+        Assertions.assertEquals(2, client.probes);
     }
 
     @Test
@@ -505,7 +506,7 @@ class MongoRangePlannerTest {
         var provider = new MongoScanPlanProvider(properties, () -> client);
         var session = session(new MongoSnapshotPlanTest.Scope(), options("range"));
         var table = table(properties, "collection");
-        provider.getScanNodeProperties(session, table, List.of(), Optional.empty());
+        var earlyProperties = provider.getScanNodeProperties(session, table, List.of(), Optional.empty());
         var filter = new org.apache.doris.connector.spi.pushdown.ConnectorComparison(
                 org.apache.doris.connector.spi.pushdown.ConnectorComparison.Operator.EQ,
                 new org.apache.doris.connector.spi.pushdown.ConnectorColumnRef("text",
@@ -516,7 +517,48 @@ class MongoRangePlannerTest {
         var ranges = provider.planScan(session,
                 ConnectorScanRequest.builder(table, List.of()).filter(Optional.of(filter)).build());
         Assertions.assertTrue(descriptor(ranges.get(0)).getFilterBson().length > 60000);
+        Assertions.assertEquals("SUPERSET", earlyProperties.get("predicate_pushdown"));
         Assertions.assertEquals(1, client.probes);
+    }
+
+    @Test
+    void cachedPropertiesUseTheFinalDocumentProjection() {
+        var properties = properties();
+        var provider = new MongoScanPlanProvider(properties, Client::new);
+        var session = session(new MongoSnapshotPlanTest.Scope(), options("range"));
+        var table = table(properties, "collection");
+        var early = provider.getScanNodeProperties(session, table, List.of(), Optional.empty());
+        Assertions.assertEquals("true", early.get("projection_pushdown"));
+        var column = new MongoColumnHandle(table.getSchema().getBindings().get(0), table.getSchema().getVersion());
+        var range = descriptor(provider.planScan(session, ConnectorScanRequest.builder(table, List.of(column)).build())
+                .get(0));
+        Assertions.assertFalse(range.isSetProjectionBson());
+        Assertions.assertEquals("false", early.get("projection_pushdown"));
+    }
+
+    @Test
+    void explainReadsOneConsistentPropertiesSnapshot() {
+        var properties = properties();
+        var provider = new MongoScanPlanProvider(properties, Client::new);
+        var session = session(new MongoSnapshotPlanTest.Scope(), options("range"));
+        var base = new java.util.LinkedHashMap<>(provider.getScanNodeProperties(session,
+                table(properties, "collection"), List.of(), Optional.empty()));
+        var reads = new AtomicInteger();
+        var changing = new java.util.AbstractMap<String, String>() {
+            @Override
+            public java.util.Set<Entry<String, String>> entrySet() {
+                var current = new java.util.LinkedHashMap<>(base);
+                String generation = Integer.toString(reads.incrementAndGet());
+                current.put("read_concern", generation);
+                current.put("split_reason", generation);
+                return current.entrySet();
+            }
+        };
+        var output = new StringBuilder();
+        provider.appendExplainInfo(output, "", changing);
+        Assertions.assertEquals(1, reads.get());
+        Assertions.assertTrue(output.toString().contains("read concern: 1;"));
+        Assertions.assertTrue(output.toString().contains("reason: 1"));
     }
 
     @Test
@@ -704,9 +746,9 @@ class MongoRangePlannerTest {
             Assertions.assertTrue(waiting.await(5, TimeUnit.SECONDS));
             release.countDown();
             Assertions.assertSame(fatal, Assertions.assertThrows(ExecutionException.class,
-                    () -> owner.get(1, TimeUnit.SECONDS)).getCause());
+                    () -> owner.get(10, TimeUnit.SECONDS)).getCause());
             Assertions.assertSame(fatal, Assertions.assertThrows(ExecutionException.class,
-                    () -> waiter.get(1, TimeUnit.SECONDS)).getCause());
+                    () -> waiter.get(10, TimeUnit.SECONDS)).getCause());
             Assertions.assertSame(fatal, Assertions.assertThrows(Error.class,
                     () -> provider.planScan(session, request)));
             Assertions.assertEquals(1, loads.get());

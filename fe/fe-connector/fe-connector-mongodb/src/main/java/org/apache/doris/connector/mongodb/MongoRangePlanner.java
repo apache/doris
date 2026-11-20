@@ -43,11 +43,14 @@ import java.util.function.Supplier;
 final class MongoRangePlanner {
     static final int SAMPLE_ROWS = 4096;
     static final int PROBE_TIMEOUT_MS = 2000;
+    private static final long MAX_PLAN_DESCRIPTOR_BYTES = 8L * 1024 * 1024;
     private final String memoKey = "mongodb.split.plan:" + UUID.randomUUID();
     private final Supplier<MongoCatalogClient> client;
+    private final long probeTimeoutMs;
 
-    MongoRangePlanner(Supplier<MongoCatalogClient> client) {
+    MongoRangePlanner(Supplier<MongoCatalogClient> client, long probeTimeoutMs) {
         this.client = client;
+        this.probeTimeoutMs = probeTimeoutMs;
     }
 
     MongoSplitPlan plan(ConnectorSession session, MongoTableHandle table, TMongoSnapshot snapshot,
@@ -86,6 +89,17 @@ final class MongoRangePlanner {
         return memo == null ? Optional.empty() : memo.completed();
     }
 
+    void freezeDiagnostics(ConnectorSession session, MongoTableHandle table, Map<String, String> properties) {
+        session.getStatementScope().computeIfAbsent(tableKey(session, table) + ":diagnostics",
+                () -> Map.copyOf(properties));
+    }
+
+    Map<String, String> diagnostics(ConnectorSession session, MongoTableHandle table) {
+        Map<String, String> properties = session.getStatementScope()
+                .getIfPresent(tableKey(session, table) + ":diagnostics");
+        return properties == null ? Map.of() : properties;
+    }
+
     private String tableKey(ConnectorSession session, MongoTableHandle table) {
         // One provider can see several namespaces; never reuse another collection's bounds/admission.
         return memoKey + ":" + session.getCatalogId() + ":" + table.getSchema().getVersion();
@@ -95,9 +109,11 @@ final class MongoRangePlanner {
             String preference, ConnectorScanContext context, String strategy, String field,
             long descriptorBytes, Budget budget) {
         int maximum = splitLimit(session);
-        targetBytes(session, -1);
+        validateSplitSizes(session);
         int requested = Math.min(8, maximum);
-        int descriptorMaximum = (int) Math.min(maximum, (8L * 1024 * 1024) / descriptorBytes);
+        // The default single strategy exits before this path; opted-in plans always reserve bytes.
+        assert descriptorBytes > 0 : "MongoDB range descriptor bytes must be positive";
+        int descriptorMaximum = (int) Math.min(maximum, MAX_PLAN_DESCRIPTOR_BYTES / descriptorBytes);
         if (descriptorMaximum == 0) {
             throw new DorisConnectorException("MongoDB split descriptor exceeds planning byte budget");
         }
@@ -114,7 +130,7 @@ final class MongoRangePlanner {
                     source, descriptorBytes, budget);
         }
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
-                Math.min(PROBE_TIMEOUT_MS, MongoSnapshot.remainingMillis(session)));
+                Math.min(probeTimeoutMs, MongoSnapshot.remainingMillis(session)));
         MongoSplitProbe probe;
         try {
             budget.acquireProbe(session, context, deadline);
@@ -158,8 +174,7 @@ final class MongoRangePlanner {
         int admitted = budget.admit(source, Math.min(requested, descriptorMaximum), descriptorBytes);
         try {
             var values = probe.samples().stream().filter(v -> family.equals(family(v))).toList();
-            MongoSplitPlan plan = MongoSplitPlan.ranges(field, family, values, requested, admitted)
-                    .withDescriptorBudget(descriptorBytes);
+            MongoSplitPlan plan = MongoSplitPlan.ranges(field, family, values, requested, admitted);
             budget.refund(source, admitted - plan.size(), descriptorBytes);
             return plan;
         } catch (RuntimeException failure) {
@@ -173,6 +188,10 @@ final class MongoRangePlanner {
         // Mongo freezes all boundaries even when transport is streaming; that retained plan must
         // honor the shared count cap too. Nonpositive means no user cap, as on other file scans.
         return limit <= 0 ? 256 : (int) Math.min(256, limit);
+    }
+
+    private static void validateSplitSizes(ConnectorSession session) {
+        targetBytes(session, -1);
     }
 
     static long targetBytes(ConnectorSession session, long logicalBytes) {
@@ -229,7 +248,7 @@ final class MongoRangePlanner {
         // A successful fallback still publishes a descriptor and a source scan. For example,
         // 257 empty collection scans must not bypass the same 256-partition pinned-source cap.
         budget.admit(source, 1, descriptorBytes);
-        return MongoSplitPlan.single(requested, 1, reason).withDescriptorBudget(descriptorBytes);
+        return MongoSplitPlan.single(requested, 1, reason);
     }
 
     static long remaining(ConnectorSession session, ConnectorScanContext context, long deadline) {

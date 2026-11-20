@@ -18,7 +18,6 @@
 package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.ConnectorSession;
-import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -50,9 +49,13 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
     private final MongoRangePlanner rangePlanner;
 
     MongoScanPlanProvider(MongoCatalogProperties properties, Supplier<MongoCatalogClient> client) {
+        this(properties, client, MongoRangePlanner.PROBE_TIMEOUT_MS);
+    }
+
+    MongoScanPlanProvider(MongoCatalogProperties properties, Supplier<MongoCatalogClient> client, long probeTimeoutMs) {
         this.properties = properties;
         this.client = client;
-        this.rangePlanner = new MongoRangePlanner(client);
+        this.rangePlanner = new MongoRangePlanner(client, probeTimeoutMs);
     }
 
     @Override
@@ -121,9 +124,15 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
             // Include complete source roots so pruning cannot turn malformed nested paths into missing values.
             d.setProjectionBson(encode(projection));
         }
+        // A scan node owns this provider and admits its final request once. Properties loading
+        // must not freeze a smaller pre-filter reservation that later rejects a legitimate query.
         long descriptorSize = descriptorBytes(session, handle, d);
         MongoSplitPlan plan = rangePlanner.plan(session, handle, snapshot, d.getReadPreference(),
                 request.getScanContext(), descriptorSize);
+        // Properties can be cached before WHERE and projection are attached. Publish diagnostics
+        // from the same final request as the descriptor, without probing again during EXPLAIN.
+        rangePlanner.freezeDiagnostics(session, handle, Map.of("predicate_pushdown", predicate.kind().name(),
+                "projection_pushdown", Boolean.toString(d.isSetProjectionBson())));
         // Retain the shared descriptor once; streaming creates owned RPC values under engine backpressure.
         // A wide schema must not be copied 256 times merely to keep a frozen boundary table in FE.
         return new AbstractList<>() {
@@ -148,19 +157,6 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
                 range.setSplit(split);
                 if (snapshot != null) {
                     range.setTimeoutMs(MongoSnapshot.remainingMillis(session));
-                }
-                if (plan.descriptorBudget() > 0 && descriptorSize > plan.descriptorBudget()) {
-                    try {
-                        // EXPLAIN may freeze a plan before a later caller supplies a larger candidate
-                        // or projection. Never let that RPC silently exceed the frozen reservation.
-                        int actual = new org.apache.thrift.TSerializer(
-                                new org.apache.thrift.protocol.TBinaryProtocol.Factory()).serialize(range).length;
-                        if (actual > plan.descriptorBudget()) {
-                            throw new DorisConnectorException("MongoDB descriptor grew after split plan freeze");
-                        }
-                    } catch (org.apache.thrift.TException failure) {
-                        throw new DorisConnectorException("Cannot size MongoDB split descriptor");
-                    }
                 }
                 return new MongoScanRange(range);
             }
@@ -271,6 +267,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
             @Override
             public Set<Entry<String, String>> entrySet() {
                 Map<String, String> current = new LinkedHashMap<>(result);
+                current.putAll(rangePlanner.diagnostics(session, table));
                 var plan = rangePlanner.planned(session, table);
                 if (plan.isEmpty() && "single".equals(policies.getOrDefault("mongodb_split_strategy", "single"))) {
                     plan = Optional.of(MongoSplitPlan.single(1, 1, "single_strategy"));
@@ -301,6 +298,13 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
 
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> nodeProperties) {
+        // The engine caches the lazy map during initialization. Read its final state once so
+        // one EXPLAIN cannot combine pending and completed planning generations.
+        Map<String, String> snapshot = new LinkedHashMap<>();
+        for (var entry : nodeProperties.entrySet()) {
+            snapshot.put(entry.getKey(), entry.getValue());
+        }
+        nodeProperties = snapshot;
         output.append(prefix).append("MongoDB object: ").append(nodeProperties.get("object_kind"))
                 .append("; schema: ").append(nodeProperties.get("schema_source"))
                 .append("; version: ").append(nodeProperties.get("schema_version")).append("\n");

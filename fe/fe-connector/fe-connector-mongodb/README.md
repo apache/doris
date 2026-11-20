@@ -324,6 +324,25 @@ execution and is shared across unequal remaining query deadlines. Splits are tas
 not additional clients opened inside every scanner. General D06 resource-policy and
 credential-lifecycle extensions remain outside this change.
 
+The two-second probe cap is deliberately fixed: range planning is optional tuning and
+must not spend an unbounded part of a query selecting boundaries on a large collection.
+It covers index discovery, collection statistics and sampling, including a wait for a probe
+slot; the remaining statement deadline or configured transport caps can shorten it.
+It is independent of collection size and is not raised by `query_timeout`. A large source
+whose random sampling requires a scan may exhaust it: `auto` then falls back before
+publishing any split, while explicit `range` reports `probe_budget`. Use `single` to avoid
+the probe altogether. This cap bounds optional FE work, not the subsequent data scan;
+no additional MongoDB-specific timeout knob is introduced.
+
+Custom fields retain a full-collection complement scan even when all sampled values are
+of one type. If indexed typed ranges collectively examine about N documents, that
+complement adds about N more (roughly 2N in total); mixed/multikey data or different source
+plans can cost more. The complement can dominate elapsed time. `auto` currently uses
+logical bytes and the shared split-size heuristic, not a source I/O cost model, so it does
+not avoid this amplification automatically. Prefer the default `_id` split field when
+possible: its complete BSON-order ranges require no independent complement. Custom
+fields without internal boundaries still fall back to one complete cursor.
+
 `auto` requires known logical collection size to estimate planning/scanning cost and
 retains single for a small collection, missing index, unknown cost, unsupported
 family or exhausted optional probe budget. It does not convert authorization, history,
@@ -360,8 +379,8 @@ in `be/test/format_v2/table/mongodb_reader_test.cpp`. The regression suites
 `external_table_p0/mongodb/test_mongodb_native.groovy` and
 `external_table_p0/mongodb/test_mongodb_read_policy.groovy` use the disposable MongoDB
 fixture under `docker/thirdparties/docker-compose/mongodb/`, with
-`enableMongoDBNativeTest` enabled by default in the common and External CI
-configurations. `externalEnvIp`, `mongodb_port`, `mongodb_user`, and
+`enableMongoDBNativeTest` enabled by default in External CI. Local/common
+configuration leaves optional MongoDB suites disabled until their fixture is started. `externalEnvIp`, `mongodb_port`, `mongodb_user`, and
 `mongodb_password` select the fixture. The separate `enableMongoDBTest` setting
 controls the optional Trino MongoDB suites and is not required for native reads.
 

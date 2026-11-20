@@ -68,19 +68,32 @@ Configure the fixture host, port, and credentials as above, then run:
 bash run-regression-test.sh --run -d external_table_p0/mongodb
 ```
 
-The common regression configuration and the External CI configuration default
-`enableMongoDBNativeTest` to `true`. This runs `test_mongodb_native`,
-`test_mongodb_native_acceptance`, `test_mongodb_m1`, and `test_mongodb_read_policy`,
-including ordinary collections, standard views, and logical time-series reads.
-They use the fixture host, port, and credentials above, but do not require
-`enableMongoDBTest` or the Trino plugin. A missing or unready fixture fails these
-enabled suites. Local runs without MongoDB can explicitly set
-`enableMongoDBNativeTest = false` in the custom configuration.
+The External CI configuration defaults `enableMongoDBNativeTest` to `true`. This runs
+`test_mongodb_native`, `test_mongodb_native_acceptance`, `test_mongodb_m1`, and
+`test_mongodb_read_policy`, including collections, standard views and logical time-series
+reads, independently of the optional Trino plugin. The shared/local configuration defaults
+this switch to `false`, so ordinary local and P0 runs need no MongoDB service. To run these
+suites locally, start the fixture and set `enableMongoDBNativeTest = true`.
 
-The separate `enableMongoDBTest` switch still opts into the five Trino MongoDB
-suites. The snapshot, split, and read-parameter matrices retain their separate
-switches and authenticated replica-set/mongos fixtures described below; the
-standalone CI fixture does not supply those topologies.
+External also enables `enableMongoSplitTest` and `enableMongoReadParameterTest` by default.
+The standard `run-thirdparties-docker.sh -c mongodb` startup now prepares both the standalone
+fixture and the authenticated snapshot topology used by these matrices. It needs Python 3
+with `venv` and installs the pinned `requirements-ci.txt` dependencies into the ignored
+`.ci-venv` directory. On Linux the advanced services publish their advertised ports through
+bridge networking, including under rootless Docker; `IP_HOST` must be reachable from
+containers and FE/BE. Startup fails if the topology or deterministic data cannot be prepared.
+
+The controller writes private, mode-0600 `regression.json` and `state.json` files under
+`.ci-state`. External reads the generated replica-set/mongos URIs from that file; credentials
+and addresses are not checked in. `MONGODB_CI_STATE_DIR` can select another private directory
+for both startup and the runner; `MONGODB_CI_BASE_PORT` changes the twelve-port range
+(default base 28100), and `MONGODB_CI_IMAGE` selects `mongo:7.0.28` or the default
+`mongo:8.0.20`. Split SQL uses mongos, and read-parameter SQL checks both sources and both
+planning modes. Enabled suites fail on missing fixture configuration instead of skipping.
+Stopping the MongoDB component removes its recorded advanced services too; startup failure
+cleanup also removes them. Local/shared runs leave these two switches disabled until opted in.
+
+The separate `enableMongoDBTest` switch still opts into the five Trino MongoDB suites.
 
 The suite covers auto/explicit/document schemas, exact ObjectId and int64 values,
 Decimal128 scales, UTC dates, binary subtypes, nested arrays/structs, canonical

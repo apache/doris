@@ -213,6 +213,18 @@ enableTrinoConnectorTest = true
 // The external pipeline starts the MongoDB fixture; native suites must execute by default.
 // Keep this independent of the optional, separately installed Trino MongoDB plugin.
 enableMongoDBNativeTest = true
+// These matrices must run in External, including the default streaming split-assignment path.
+enableMongoSplitTest = true
+enableMongoReadParameterTest = true
+def mongodbCiState = new File(System.getenv("MONGODB_CI_STATE_DIR") ?:
+        new File(System.getProperty("DORIS_HOME", "."),
+                "docker/thirdparties/docker-compose/mongodb/.ci-state").path, "regression.json")
+if (mongodbCiState.isFile()) {
+    def mongodbCiConnections = new groovy.json.JsonSlurper().parse(mongodbCiState)
+    mongodb_split_uri = mongodbCiConnections.mongodb_split_uri
+    mongodb_replica_uri = mongodbCiConnections.mongodb_replica_uri
+    mongodb_mongos_uri = mongodbCiConnections.mongodb_mongos_uri
+}
 mongodb_port = 27017
 mongodb_user = "mongodb_test"
 mongodb_password = "mongodb_test"

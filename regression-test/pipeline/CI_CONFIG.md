@@ -56,8 +56,11 @@ reads the component policy and records its hash with the selected components.
 External enables `enableMongoDBNativeTest` by default against the MongoDB component.
 The four basic native suites cover ordinary collections, views and time-series
 logical collections independently of the optional Trino MongoDB plugin. The
-authenticated snapshot, split and read-parameter matrices require separate
-replica-set/mongos fixtures; the standalone component does not provide them.
+split and read-parameter matrices also run by default. The MongoDB component prepares
+an authenticated replica set and two-shard mongos, deterministic data and private runner
+connections alongside standalone. External loads those generated connections; enabled
+suites fail if they are absent. The standalone-only snapshot contract retains its
+separate qualification fixture. Shared/local defaults keep optional MongoDB suites off.
 
 FEUT's temporary mocked-FE port-collision exclusion is documented in its exclusion
 file. BEUT restores `BlockFileCacheTest.test_factory_1`. P0, CloudP0 and

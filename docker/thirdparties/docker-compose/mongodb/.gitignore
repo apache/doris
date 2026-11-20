@@ -1,2 +1,4 @@
 /mongodb.yaml
 /mongodb.env
+/.ci-state/
+/.ci-venv/
