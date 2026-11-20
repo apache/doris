@@ -2705,6 +2705,7 @@ void MetaServiceImpl::prepare_rowset(::google::protobuf::RpcController* controll
     prepare_rowset.SerializeToString(&val);
     DCHECK_GT(prepare_rowset.expiration(), 0);
     txn->put(prepare_rs_key, val);
+    g_bvar_recycler_instance_recycle_kv_put_total.put({instance_id, "recycle_rowset_key"}, 1);
     std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
     LOG(INFO) << "put prepare_rs_key " << hex(prepare_rs_key) << " value_size " << val.size()
               << " txn_id " << request->txn_id() << " segment_key_bounds_bytes "
@@ -2967,6 +2968,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
     }
 
     txn->remove(recycle_rs_key);
+    g_bvar_recycler_instance_recycle_kv_remove_total.put({instance_id, "recycle_rowset_key"}, 1);
     DCHECK_GT(rowset_meta.txn_expiration(), 0);
     auto tmp_rs_val = rowset_meta.SerializeAsString();
     txn->put(tmp_rs_key, tmp_rs_val);

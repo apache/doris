@@ -1347,6 +1347,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
             compaction_log.add_recycle_rowsets()->Swap(&recycle_rowset);
         } else {
             auto recycle_val = recycle_rowset.SerializeAsString();
+            g_bvar_recycler_instance_recycle_kv_put_total.put({instance_id, "recycle_rowset_key"},
+                                                              1);
             txn->put(recycle_key, recycle_val);
             INSTANCE_LOG(INFO) << "put recycle rowset, tablet_id=" << tablet_id
                                << " key=" << hex(recycle_key);
