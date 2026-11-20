@@ -509,7 +509,7 @@ public class ConnectContext {
     }
 
     public ConnectContext() {
-        this(null);
+        this((StreamConnection) null);
     }
 
     public ConnectContext(StreamConnection connection) {
@@ -546,6 +546,39 @@ public class ConnectContext {
         context.setProcedureExec(exec);
         context.setConnectAttributes(connectAttributes);
         return context;
+    }
+
+    /**
+     * Isolate a read-only internal query from the client protocol and statement state while
+     * retaining the caller's session identity, name resolution and variable values.
+     * The caller still owns the session and its cleanup.
+     */
+    public ConnectContext createInternalQueryContext() {
+        return new ConnectContext(this);
+    }
+
+    private ConnectContext(ConnectContext parent) {
+        connectType = ConnectType.MYSQL;
+        mysqlChannel = new DummyMysqlChannel();
+        command = MysqlCommand.COM_QUERY;
+        state = new QueryState();
+        sessionVariable = VariableMgr.cloneSessionVariable(parent.sessionVariable);
+        userVars.putAll(parent.userVars);
+        env = parent.env;
+        currentUserIdentity = parent.currentUserIdentity;
+        authenticatedPrincipal = parent.authenticatedPrincipal;
+        authenticatedRoles = parent.authenticatedRoles;
+        sessionContext = parent.sessionContext;
+        isTempUser = parent.isTempUser;
+        remoteIP = parent.remoteIP;
+        connectionId = parent.connectionId;
+        startTime = parent.startTime;
+        startTimeInstant = parent.startTimeInstant;
+        lastQueryId = parent.lastQueryId;
+        computeGroup = parent.computeGroup;
+        cloudCluster = parent.cloudCluster;
+        // Borrow the caller's temporary-table namespace without registering a new session.
+        sessionId = parent.sessionId;
     }
 
     public Map<String, String> getConnectAttributes() {
