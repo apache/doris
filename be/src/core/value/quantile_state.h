@@ -80,6 +80,7 @@ private:
     // operations are supported; mutating the same state requires exclusive access.
     struct TDigestHolder;
     TDigest& _mutable_tdigest();
+    void _add_to_digest(TDigest& digest, double value) const;
     size_t _explicit_limit() const;
     void _convert_to_tdigest();
     void _normalize_low_digest();

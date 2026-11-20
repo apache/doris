@@ -256,6 +256,78 @@ TEST(QuantileStateTest, LowCompressionMixedMergeAndRoundTrip) {
     EXPECT_EQ(2048, high._compression);
 }
 
+TEST(QuantileStateTest, LowCompressionMergePreservesWeightedSourceExtrema) {
+    for (double sign : {1.0, -1.0}) {
+        QuantileState source(256);
+        source.add_value(0);
+        for (int i = 0; i <= 256; ++i) {
+            source.add_value(sign * 100);
+        }
+        auto& digest = source._mutable_tdigest();
+        digest.add(static_cast<float>(sign * 1), 1);
+        digest.add(static_cast<float>(sign * 100), 100000);
+        const double source_min = std::min(0.0, sign * 100);
+        const double source_max = std::max(0.0, sign * 100);
+        EXPECT_EQ(source_min, source.get_value_by_percentile(0));
+        EXPECT_EQ(source_max, source.get_value_by_percentile(1));
+        if (sign > 0) {
+            EXPECT_GT(digest.processed().front().mean(), source_min);
+        }
+
+        QuantileState lower(128);
+        lower.add_value(sign * 100);
+        source.merge(lower);
+        expect_digest_samples(source, 100260, source_min, source_max);
+        std::vector<uint8_t> bytes(source.get_serialized_size());
+        ASSERT_EQ(bytes.size(), source.serialize(bytes.data()));
+        QuantileState restored;
+        ASSERT_TRUE(
+                restored.deserialize(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size())));
+        expect_digest_samples(restored, 100260, source_min, source_max);
+    }
+}
+
+static void expect_low_mixed_capacity(QuantileState& result, const char* label) {
+    SCOPED_TRACE(label);
+    auto& digest = result._mutable_tdigest();
+    EXPECT_EQ(128, result._compression);
+    EXPECT_EQ(128, digest.compression());
+    EXPECT_LE(digest._unprocessed.capacity(), 256);
+    EXPECT_LE(digest._processed.capacity(), 512);
+    EXPECT_LE(digest._cumulative.capacity(), 513);
+    EXPECT_EQ(0, result.get_value_by_percentile(0));
+    EXPECT_EQ(60000, digest._max);
+    expect_digest_samples(result, 60001, 0, 60000);
+}
+
+TEST(QuantileStateTest, LowCompressionMixedMergeBoundsRetainedCapacity) {
+    QuantileState high(10000);
+    for (int i = 0; i < 60000; ++i) {
+        high.add_value(i);
+    }
+    ASSERT_EQ(TDIGEST, high._type);
+    EXPECT_EQ(60000, high._mutable_tdigest().unprocessed().size());
+    QuantileState low(128);
+    low.add_value(60000);
+
+    auto high_first = high;
+    high_first.merge(low);
+    expect_low_mixed_capacity(high_first, "pending high first");
+    auto low_first = low;
+    low_first.merge(high);
+    expect_low_mixed_capacity(low_first, "pending low first");
+    EXPECT_EQ(60000, high._mutable_tdigest().unprocessed().size());
+
+    EXPECT_EQ(0, high.get_value_by_percentile(0));
+    EXPECT_GT(high._mutable_tdigest().processed().size(), 1000);
+    auto processed_high_first = high;
+    processed_high_first.merge(low);
+    expect_low_mixed_capacity(processed_high_first, "processed high first");
+    auto processed_low_first = low;
+    processed_low_first.merge(high);
+    expect_low_mixed_capacity(processed_low_first, "processed low first");
+}
+
 TEST(QuantileStateTest, EmptyAndExplicitMergeUseNonemptyCompression) {
     QuantileState low(128);
     QuantileState high(2048);
