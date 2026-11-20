@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.collect.ImmutableList;
 
@@ -80,7 +81,7 @@ public class StateCombinator extends ScalarFunction
                 BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
     }
 
-    private StateCombinator(ScalarFunctionParams functionParams, AggregateFunction nested) {
+    private StateCombinator(ScalarFunctionParams functionParams, AggregateFunction nested, int beExecVersion) {
         super(functionParams);
         for (Expression arg : functionParams.arguments) {
             if (arg instanceof OrderExpression) {
@@ -95,7 +96,7 @@ public class StateCombinator extends ScalarFunction
                         .map(ExpressionTrait::getDataType).collect(ImmutableList.toImmutableList()),
                 functionParams.arguments.stream()
                         .map(ExpressionTrait::nullable).collect(ImmutableList.toImmutableList()),
-                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()));
+                BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(nested.getName()), beExecVersion);
     }
 
     public static StateCombinator create(AggregateFunction nested) {
@@ -104,7 +105,17 @@ public class StateCombinator extends ScalarFunction
 
     @Override
     public StateCombinator withChildren(List<Expression> children) {
-        return new StateCombinator(getFunctionParams(children), nested.withChildren(children));
+        return new StateCombinator(getFunctionParams(children), nested.withChildren(children),
+                returnType.getBeExecVersion());
+    }
+
+    /** Rebuild a STATE producer for an explicit cast to a stored state type. */
+    public StateCombinator withChildrenAndBeExecVersion(List<Expression> children, int beExecVersion) {
+        // The target controls both the input layout and the output codec. Recompute
+        // the signature so that a cached version 20 return type cannot override a
+        // version 19 sink. Ordinary withChildren calls must keep this chosen version.
+        return MoreFieldsThread.keepFunctionSignature(false,
+                () -> new StateCombinator(getFunctionParams(children), nested.withChildren(children), beExecVersion));
     }
 
     @Override

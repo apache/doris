@@ -154,6 +154,11 @@ public class AggStateType extends Type {
             return false;
         }
         AggStateType other = (AggStateType) o;
+        // Equal argument layouts do not imply equal state codecs. Keep version
+        // differences visible when the planner translates a cast to catalog types.
+        if (getBeExecVersion() != other.getBeExecVersion()) {
+            return false;
+        }
         int subTypeNumber = subTypeNullables.size();
         if (subTypeNumber != other.subTypeNullables.size()) {
             return false;
@@ -167,6 +172,14 @@ public class AggStateType extends Type {
             }
         }
         return true;
+    }
+
+    @Override
+    public int hashCode() {
+        // Old metadata has no version field. Its effective version can change with
+        // the FE config, so do not use it in a hash key. Equal types still have the
+        // same hash; types with different codec versions can share a hash.
+        return Objects.hash(subTypes, subTypeNullables);
     }
 
     public PrimitiveType getPrimitiveType() {
