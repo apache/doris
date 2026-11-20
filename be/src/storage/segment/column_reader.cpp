@@ -51,6 +51,7 @@
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h" //for VecDateTime
 #include "io/fs/file_reader.h"
+#include "storage/cache/page_cache.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
@@ -74,6 +75,7 @@
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h" // for PagePointer
+#include "storage/segment/read_ahead_file_column_iterator.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
@@ -676,7 +678,8 @@ Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& 
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                               BlockCompressionCodec* codec) const {
+                               BlockCompressionCodec* codec,
+                               io::ReadAheadRangeBuffer* read_ahead) const {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
@@ -689,6 +692,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.codec = codec;
     opts.stats = iter_opts.stats;
     opts.encoding_info = _encoding_info;
+    opts.read_ahead = read_ahead;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
@@ -1035,16 +1039,24 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
 }
 
 Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column,
-                                  const StorageReadOptions* opt) {
+                                  const StorageReadOptions* opt, bool enable_read_ahead) {
     if (is_empty()) {
         *iterator = std::make_unique<EmptyFileColumnIterator>();
         return Status::OK();
     }
     if (is_scalar_type(_meta_type)) {
         if (is_string_type(_meta_type)) {
-            *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+            if (enable_read_ahead) {
+                *iterator = std::make_unique<ReadAheadStringColumnIterator>(shared_from_this());
+            } else {
+                *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+            }
         } else {
-            *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+            if (enable_read_ahead) {
+                *iterator = std::make_unique<ReadAheadFileColumnIterator>(shared_from_this());
+            } else {
+                *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+            }
         }
         (*iterator)->set_column_name(tablet_column ? tablet_column->name() : "");
         return Status::OK();
@@ -2607,12 +2619,12 @@ Status ColumnIterator::_check_and_set_meta_read_mode(ReadRequirement requirement
 }
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    _opts = opts;
     if (_read_requirement == ReadRequirement::SKIP) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         return Status::OK();
     }
 
-    _opts = opts;
     if (!_opts.use_page_cache) {
         _reader->disable_index_meta_cache();
     }
@@ -3003,18 +3015,56 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter) {
+    const auto context = _before_page_read(iter.page_index());
+    Defer finish_page_read {[&] { _after_page_read(iter.page_index(), iter.page()); }};
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
     PageDecoderOptions decoder_opts;
     decoder_opts.only_read_offsets = _opts.only_read_offsets;
-    RETURN_IF_ERROR(
-            _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
-    // parse data page
-    auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
-                                 decoder_opts);
+    auto read_page = [&](const ColumnIteratorOptions& options, io::ReadAheadRangeBuffer* source) {
+        return _reader->read_page(options, iter.page(), &handle, &page_body, &footer,
+                                  _compress_codec, source);
+    };
+    auto retry_original = [&](const Status& status) {
+        if (!context.retry_on_error) {
+            return status;
+        }
+        LOG(WARNING) << "failed to decode page, retrying original reader, file="
+                     << _opts.file_reader->path().native() << ", page_offset=" << iter.page().offset
+                     << ", page_size=" << iter.page().size << ", page_index=" << iter.page_index()
+                     << ", error=" << status;
+        if (auto* cache = StoragePageCache::instance(); cache != nullptr) {
+            StoragePageCache::CacheKey key(_opts.file_reader->path().native(),
+                                           _opts.file_reader->size(), iter.page().offset);
+            cache->erase(key, DATA_PAGE);
+        }
+        handle = PageHandle {};
+        page_body = Slice {};
+        footer.Clear();
+        ColumnIteratorOptions fallback_options = _opts;
+        fallback_options.use_page_cache = false;
+        return read_page(fallback_options, nullptr);
+    };
+
+    auto st = read_page(_opts, context.buffer);
+    if (!st.ok()) {
+        st = retry_original(st);
+    }
+    RETURN_IF_ERROR(st);
+
+    st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                            _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
+                            decoder_opts);
+    if (!st.ok() && context.retry_on_error) {
+        st = retry_original(st);
+        if (st.ok()) {
+            st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
+                                    _reader->encoding_info(), iter.page(), iter.page_index(),
+                                    &_page, decoder_opts);
+        }
+    }
     if (!st.ok()) {
         LOG(WARNING) << "failed to create ParsedPage, file=" << _opts.file_reader->path().native()
                      << ", page_offset=" << iter.page().offset << ", page_size=" << iter.page().size

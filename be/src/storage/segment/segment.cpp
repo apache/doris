@@ -71,6 +71,7 @@
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/schema.h"
 #include "storage/segment/column_meta_accessor.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/empty_segment_iterator.h"
@@ -948,7 +949,13 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                                _column_reader_cache.get(),
                                                sparse_column_cache_ptr));
     } else {
-        RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
+        // Only this top-level scalar request can select the read-ahead subclass. Recursive child
+        // factories keep it disabled, including physical scalar leaves of extracted Variant paths.
+        const bool enable_read_ahead = ColumnReadAheadResources::enabled() &&
+                                       opt->io_ctx.reader_type == ReaderType::READER_QUERY &&
+                                       is_scalar_type(tablet_column.type()) &&
+                                       !tablet_column.is_extracted_column();
+        RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt, enable_read_ahead));
         if (opt->all_access_paths.contains(unique_id) ||
             opt->predicate_access_paths.contains(unique_id)) {
             const auto& all_access_paths = opt->all_access_paths.contains(unique_id)
@@ -1213,6 +1220,138 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
         *key = sought_key_without_rowid.to_string();
     }
     return Status::OK();
+}
+
+namespace {
+
+Status init_column_iterator(Segment& segment, const TabletColumn& column,
+                            StorageReadOptions& read_options,
+                            std::unique_ptr<ColumnIterator>& iterator,
+                            const std::shared_ptr<const ColumnReadAheadResources>& read_ahead) {
+    DORIS_CHECK(read_options.stats != nullptr);
+    DCHECK(iterator == nullptr);
+    RETURN_IF_ERROR(segment.new_column_iterator(column, &iterator, &read_options));
+    auto io_ctx = read_options.io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = &read_options.stats->file_cache_stats;
+    ColumnIteratorOptions options {
+            .use_page_cache = !config::disable_storage_page_cache,
+            .file_reader = segment.file_reader().get(),
+            .stats = read_options.stats,
+            .io_ctx = io_ctx,
+            .read_ahead = read_ahead,
+    };
+    RETURN_IF_ERROR(iterator->init(options));
+    return Status::OK();
+}
+
+} // namespace
+
+Status Segment::read_columns_by_rowids(
+        const TabletSchema& schema, const std::vector<uint32_t>& row_ids,
+        std::span<const RowIdColumnRead> columns, StorageReadOptions& read_options,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) {
+    if (row_ids.empty() || columns.empty()) {
+        return Status::OK();
+    }
+    DORIS_CHECK(std::is_sorted(row_ids.begin(), row_ids.end()));
+    DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
+    std::shared_ptr<const ColumnReadAheadResources> read_ahead;
+    if (read_ahead_context != nullptr) {
+        const auto status = ColumnReadAheadResources::create_for_query(
+                file_reader(), ExecEnv::GetInstance(), read_ahead_context, read_options,
+                &read_ahead);
+        if (!status.ok()) {
+            LOG_EVERY_N(WARNING, 100) << "failed to initialize point-read column read-ahead; use "
+                                         "the original read path: "
+                                      << status;
+        }
+    }
+    std::vector<std::unique_ptr<ColumnIterator>> iterators(columns.size());
+    if (read_ahead != nullptr) {
+        for (size_t index = 0; index < columns.size(); ++index) {
+            const auto& column = columns[index];
+            DORIS_CHECK(column.slot != nullptr);
+            // Extracted Variant paths keep the existing path resolution and casting logic.
+            if (!column.slot->column_paths().empty()) {
+                continue;
+            }
+            const int field_index = column.slot->col_unique_id() >= 0
+                                            ? schema.field_index(column.slot->col_unique_id())
+                                            : schema.field_index(column.slot->col_name());
+            TabletColumn column_from_slot;
+            if (field_index < 0) {
+                column_from_slot = Schema::tablet_column_from_slot(*column.slot);
+            }
+            const auto& tablet_column =
+                    field_index >= 0 ? schema.column(field_index) : column_from_slot;
+            // Nested columns keep their existing iterators and independent child positions.
+            if (!is_scalar_type(tablet_column.type())) {
+                continue;
+            }
+            RETURN_IF_ERROR(init_column_iterator(*this, tablet_column, read_options,
+                                                 iterators[index], read_ahead));
+        }
+        // Submit every eligible column before decoding any of them, even though each column
+        // owns its ranges. Starting only inside seek_and_read_by_rowid would serialize cold reads.
+        for (const auto& iterator : iterators) {
+            if (iterator != nullptr) {
+                const auto status = iterator->prepare_read_ahead(ExactRowReadAheadHint {row_ids});
+                if (!status.ok()) {
+                    LOG_EVERY_N(WARNING, 100)
+                            << "failed to prepare exact row-id read-ahead: " << status;
+                }
+            }
+        }
+    }
+    for (size_t read_index = 0; read_index < columns.size(); ++read_index) {
+        const auto& column = columns[read_index];
+        DORIS_CHECK(column.slot != nullptr);
+        DORIS_CHECK(column.result != nullptr);
+        const int index = column.slot->col_unique_id() >= 0
+                                  ? schema.field_index(column.slot->col_unique_id())
+                                  : schema.field_index(column.slot->col_name());
+        // A reader's tablet schema can lag behind a rowset written on another BE.
+        // Let the segment choose between the stored value and the slot-derived default.
+        std::unique_ptr<TabletSchema> schema_from_slot;
+        const TabletSchema* read_schema = &schema;
+        if (index < 0) {
+            schema_from_slot = std::make_unique<TabletSchema>();
+            schema_from_slot->append_column(Schema::tablet_column_from_slot(*column.slot));
+            read_schema = schema_from_slot.get();
+        }
+        RETURN_IF_ERROR(seek_and_read_by_rowid(*read_schema, column.slot, row_ids, *column.result,
+                                               read_options, iterators[read_index]));
+    }
+    return Status::OK();
+}
+
+Status Segment::read_column_by_rowids(
+        const TabletColumn& column, const std::vector<uint32_t>& row_ids, MutableColumnPtr& result,
+        StorageReadOptions& read_options,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) {
+    if (row_ids.empty()) {
+        return Status::OK();
+    }
+    DORIS_CHECK(std::is_sorted(row_ids.begin(), row_ids.end()));
+    DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
+    DORIS_CHECK(is_scalar_type(column.type()));
+    std::shared_ptr<const ColumnReadAheadResources> read_ahead;
+    if (read_ahead_context != nullptr) {
+        // Row-store resource creation errors were query errors before the unified entry point.
+        RETURN_IF_ERROR(ColumnReadAheadResources::create_for_query(
+                file_reader(), ExecEnv::GetInstance(), read_ahead_context, read_options,
+                &read_ahead));
+    }
+    std::unique_ptr<ColumnIterator> iterator;
+    RETURN_IF_ERROR(init_column_iterator(*this, column, read_options, iterator, read_ahead));
+    if (read_ahead != nullptr) {
+        const auto status = iterator->prepare_read_ahead(ExactRowReadAheadHint {row_ids});
+        if (!status.ok()) {
+            LOG_EVERY_N(WARNING, 100) << "failed to prepare exact row-id read-ahead: " << status;
+        }
+    }
+    return iterator->read_by_rowids(row_ids.data(), row_ids.size(), result);
 }
 
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,

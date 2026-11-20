@@ -530,6 +530,28 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
                                    RowsetSharedPtr input_rowset, OlapReaderStatistics& stats,
                                    std::string& values, bool write_to_cache,
                                    const io::IOContext* io_ctx) {
+    return _lookup_row_data(encoded_key, row_location, nullptr, std::move(input_rowset), stats,
+                            values, write_to_cache, io_ctx, {});
+}
+
+Status BaseTablet::lookup_row_data(
+        const Slice& encoded_key, const RowLocation& row_location,
+        const segment_v2::SegmentSharedPtr& segment, RowsetSharedPtr input_rowset,
+        OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+        const io::IOContext* io_ctx,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) {
+    DCHECK(segment != nullptr);
+    DCHECK_EQ(segment->id(), row_location.segment_id);
+    return _lookup_row_data(encoded_key, row_location, &segment, std::move(input_rowset), stats,
+                            values, write_to_cache, io_ctx, read_ahead_context);
+}
+
+Status BaseTablet::_lookup_row_data(
+        const Slice& encoded_key, const RowLocation& row_location,
+        const segment_v2::SegmentSharedPtr* segment, RowsetSharedPtr input_rowset,
+        OlapReaderStatistics& stats, std::string& values, bool write_to_cache,
+        const io::IOContext* io_ctx,
+        const std::shared_ptr<io::FileRangeReadContext>& read_ahead_context) const {
     MonotonicStopWatch watch;
     size_t row_size = 1;
     watch.start();
@@ -542,15 +564,34 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     CHECK(rowset);
     const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
     SegmentCacheHandle segment_cache_handle;
-    std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
+    auto resolved_segment = segment != nullptr ? *segment : segment_v2::SegmentSharedPtr {};
+    if (resolved_segment == nullptr) {
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache_handle,
+                                                                 true, false, &stats, io_ctx));
+        const auto& segments = segment_cache_handle.get_segments();
+        const auto it = std::find_if(segments.begin(), segments.end(), [&](const auto& candidate) {
+            return candidate->id() == row_location.segment_id;
+        });
+        if (it == segments.end()) {
+            return Status::NotFound("rowset {} segment not found: {}",
+                                    rowset->rowset_id().to_string(), row_location.segment_id);
+        }
+        resolved_segment = *it;
+    }
     const auto& column = *DORIS_TRY(tablet_schema->column(BeConsts::ROW_STORE_COL));
-    RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
-                                                 &segment_cache_handle, &column_iterator, &stats,
-                                                 io_ctx));
-    // get and parse tuple row
+    StorageReadOptions read_options;
+    read_options.stats = &stats;
+    read_options.version = rowset->version();
+    read_options.use_page_cache = !config::disable_storage_page_cache;
+    if (io_ctx != nullptr) {
+        read_options.io_ctx = *io_ctx;
+    }
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.io_ctx.file_cache_stats = &stats.file_cache_stats;
     MutableColumnPtr column_ptr = ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
-    RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column_ptr));
+    RETURN_IF_ERROR(resolved_segment->read_column_by_rowids(column, rowids, column_ptr,
+                                                            read_options, read_ahead_context));
     assert(column_ptr->size() == 1);
     auto* string_column = static_cast<ColumnString*>(column_ptr.get());
     StringRef value = string_column->get_data_at(0);
