@@ -190,12 +190,6 @@ under the License.
             <artifactId>log4j-api</artifactId>
         </dependency>
 
-        <!-- In production FE supplies this part of S3A's runtime; exercise the same client in UC tests. -->
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>s3-transfer-manager</artifactId>
-            <scope>test</scope>
-        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
