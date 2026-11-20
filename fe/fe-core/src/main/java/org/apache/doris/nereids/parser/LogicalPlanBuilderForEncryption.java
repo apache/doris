@@ -22,10 +22,6 @@ import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.DorisParser;
-import org.apache.doris.nereids.DorisParser.DmlStatementBodyContext;
-import org.apache.doris.nereids.DorisParser.DmlStatementContext;
-import org.apache.doris.nereids.DorisParser.ExplainableDmlStatementContext;
-import org.apache.doris.nereids.DorisParser.InsertTableContext;
 import org.apache.doris.nereids.DorisParser.JobFromToClauseContext;
 import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -236,12 +232,38 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
         return super.visitTableValuedFunction(ctx);
     }
 
+    @Override
+    public LogicalPlan visitInsertTable(DorisParser.InsertTableContext ctx) {
+        // Mask query properties without constructing an execution sink that requires a session.
+        // A CTE before INSERT is outside ctx.query(), so visit its queries explicitly.
+        if (ctx.cteContext != null) {
+            for (DorisParser.AliasQueryContext aliasQuery : ctx.cteContext.aliasQuery()) {
+                visit(aliasQuery.query());
+            }
+        }
+        // Static partition values can contain subqueries, even if sink analysis later rejects them.
+        if (ctx.partitionSpec() != null) {
+            for (DorisParser.PartitionKeyValueContext partitionKeyValue : ctx.partitionSpec().partitionKeyValue()) {
+                visit(partitionKeyValue.expression());
+            }
+        }
+        return visitQuery(ctx.query());
+    }
+
+    // INSERT INTO TVF has its own target properties, separate from source TVFs.
+    @Override
+    public LogicalPlan visitInsertIntoTVF(DorisParser.InsertIntoTVFContext ctx) {
+        DorisParser.PropertyItemListContext properties = ctx.tvfProperties;
+        encryptProperty(visitPropertyItemList(properties), properties.start.getStartIndex(),
+                properties.stop.getStopIndex());
+        return super.visitInsertIntoTVF(ctx);
+    }
+
     // create job select tvf
     @Override
     public LogicalPlan visitCreateScheduledJob(DorisParser.CreateScheduledJobContext ctx) {
-        InsertTableContext insertTableContext = getInsertTableContext(ctx.dmlStatement());
-        if (insertTableContext != null) {
-            visitInsertTable(insertTableContext);
+        if (ctx.dmlStatement() != null) {
+            visit(ctx.dmlStatement());
         } else if (ctx.jobFromToClause() != null) {
             JobFromToClauseContext jobFromToClauseContext = ctx.jobFromToClause();
             encryptProperty(visitPropertyItemList(jobFromToClauseContext.sourceProperties),
@@ -255,9 +277,8 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     // alter job select tvf
     @Override
     public LogicalPlan visitAlterJob(DorisParser.AlterJobContext ctx) {
-        InsertTableContext insertTableContext = getInsertTableContext(ctx.dmlStatement());
-        if (insertTableContext != null) {
-            visitInsertTable(insertTableContext);
+        if (ctx.dmlStatement() != null) {
+            visit(ctx.dmlStatement());
         } else if (ctx.jobFromToClause() != null) {
             JobFromToClauseContext jobFromToClauseContext = ctx.jobFromToClause();
             encryptProperty(visitPropertyItemList(jobFromToClauseContext.sourceProperties),
@@ -266,14 +287,6 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
 
         }
         return super.visitAlterJob(ctx);
-    }
-
-    private InsertTableContext getInsertTableContext(DmlStatementContext ctx) {
-        if (!(ctx instanceof ExplainableDmlStatementContext)) {
-            return null;
-        }
-        DmlStatementBodyContext body = ((ExplainableDmlStatementContext) ctx).dmlStatementBody();
-        return body instanceof InsertTableContext ? (InsertTableContext) body : null;
     }
 
     @Override
