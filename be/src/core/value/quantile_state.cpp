@@ -24,6 +24,7 @@
 #include <shared_mutex>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "util/coding.h"
 #include "util/slice.h"
@@ -92,7 +93,8 @@ TDigest& QuantileState::_mutable_tdigest() {
     return _tdigest_ptr->digest;
 }
 
-QuantileState::QuantileState() : _type(EMPTY), _compression(QUANTILE_STATE_COMPRESSION_MIN) {}
+QuantileState::QuantileState()
+    : _type(EMPTY), _compression(config::quantile_state_compression_min) {}
 
 QuantileState::QuantileState(float compression) : _type(EMPTY), _compression(compression) {}
 
@@ -125,7 +127,7 @@ size_t QuantileState::get_serialized_size() const {
 }
 
 void QuantileState::set_compression(float compression) {
-    DCHECK(compression >= QUANTILE_STATE_COMPRESSION_MIN &&
+    DCHECK(compression >= config::quantile_state_compression_min &&
            compression <= QUANTILE_STATE_COMPRESSION_MAX);
     this->_compression = compression;
 }
@@ -137,7 +139,7 @@ bool QuantileState::is_valid(const Slice& slice) {
     const uint8_t* ptr = (uint8_t*)slice.data;
     const uint8_t* end = (uint8_t*)slice.data + slice.size;
     float compress_value = unaligned_load<float>(ptr);
-    if (compress_value < QUANTILE_STATE_COMPRESSION_MIN ||
+    if (compress_value < config::quantile_state_compression_min ||
         compress_value > QUANTILE_STATE_COMPRESSION_MAX) {
         return false;
     }
@@ -246,7 +248,7 @@ bool QuantileState::deserialize(const Slice& slice) {
         // make sure that num_explicit is positive
         uint16_t num_explicits = decode_fixed16_le(ptr);
         ptr += sizeof(uint16_t);
-        _explicit_data.reserve(std::min(num_explicits * 2, QUANTILE_STATE_EXPLICIT_NUM));
+        _explicit_data.reserve(std::min(num_explicits * 2, config::quantile_state_explicit_num));
         _explicit_data.resize(num_explicits);
         memcpy(&_explicit_data[0], ptr, num_explicits * sizeof(double));
         ptr += num_explicits * sizeof(double);
@@ -328,7 +330,8 @@ void QuantileState::merge(const QuantileState& other) {
             add_value(_single_data);
             break;
         case EXPLICIT:
-            if (_explicit_data.size() + other._explicit_data.size() > QUANTILE_STATE_EXPLICIT_NUM) {
+            if (_explicit_data.size() + other._explicit_data.size() >
++                config::quantile_state_explicit_num) {
                 _type = TDIGEST;
                 _tdigest_ptr = std::make_shared<TDigestHolder>(_compression);
                 for (int i = 0; i < _explicit_data.size(); i++) {
@@ -405,7 +408,7 @@ void QuantileState::add_value(const double& value) {
         _type = EXPLICIT;
         break;
     case EXPLICIT:
-        if (_explicit_data.size() == QUANTILE_STATE_EXPLICIT_NUM) {
+        if (_explicit_data.size() >= config::quantile_state_explicit_num) {
             _tdigest_ptr = std::make_shared<TDigestHolder>(_compression);
             for (int i = 0; i < _explicit_data.size(); i++) {
                 _tdigest_ptr->digest.add((float)_explicit_data[i]);

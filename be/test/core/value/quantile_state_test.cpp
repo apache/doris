@@ -27,6 +27,7 @@
 #include <future>
 #include <thread>
 
+#include "common/config.h"
 #include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
 #include "util/tdigest.h"
@@ -157,56 +158,92 @@ static void expect_digest_samples(const QuantileState& state, int count, double 
     EXPECT_EQ(maximum, state.get_value_by_percentile(1));
 }
 
+TEST(QuantileStateTest, UsesConfiguredExplicitLimit) {
+    const int32_t original_explicit_num = config::quantile_state_explicit_num;
+    config::quantile_state_explicit_num = 128;
+
+    QuantileState state;
+    for (int i = 0; i < config::quantile_state_explicit_num; ++i) {
+        state.add_value(i);
+    }
+    const auto type_at_limit = state._type;
+    state.add_value(config::quantile_state_explicit_num);
+    const auto type_over_limit = state._type;
+
+    config::quantile_state_explicit_num = original_explicit_num;
+    EXPECT_EQ(EXPLICIT, type_at_limit);
+    EXPECT_EQ(TDIGEST, type_over_limit);
+}
+
+TEST(QuantileStateTest, UsesConfiguredMinimumCompression) {
+    const int32_t original_compression_min = config::quantile_state_compression_min;
+    config::quantile_state_compression_min = 3000;
+
+    QuantileState state;
+    const float default_compression = state._compression;
+    state.set_compression(3000);
+
+    std::vector<uint8_t> bytes(state.get_serialized_size());
+    const bool serialized = bytes.size() == state.serialize(bytes.data());
+    const bool valid = state.is_valid(Slice(reinterpret_cast<char*>(bytes.data()), bytes.size()));
+
+    config::quantile_state_compression_min = original_compression_min;
+    EXPECT_EQ(3000, default_compression);
+    EXPECT_TRUE(serialized);
+    EXPECT_TRUE(valid);
+}
+
 TEST(QuantileStateTest, AddValueRetainsSampleAtExplicitLimit) {
-    for (float compression : {QUANTILE_STATE_COMPRESSION_MIN, QUANTILE_STATE_COMPRESSION_MAX}) {
+    for (float compression : {static_cast<float>(config::quantile_state_compression_min),
+                              static_cast<float>(QUANTILE_STATE_COMPRESSION_MAX)}) {
         for (double value : {-100.0, 100.0}) {
             QuantileState state(compression);
             for (int i = 0; i < QUANTILE_STATE_EXPLICIT_NUM - 1; ++i) {
                 state.add_value(0);
             }
             ASSERT_EQ(EXPLICIT, state._type);
-            EXPECT_EQ(QUANTILE_STATE_EXPLICIT_NUM - 1, state._explicit_data.size());
+            EXPECT_EQ(config::quantile_state_explicit_num - 1, state._explicit_data.size());
             state.add_value(0);
             ASSERT_EQ(EXPLICIT, state._type);
-            EXPECT_EQ(QUANTILE_STATE_EXPLICIT_NUM, state._explicit_data.size());
+            EXPECT_EQ(config::quantile_state_explicit_num, state._explicit_data.size());
 
             state.add_value(value);
             EXPECT_TRUE(state._explicit_data.empty());
-            expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 1, std::min(0.0, value),
-                                  std::max(0.0, value));
+            expect_digest_samples(state, config::quantile_state_explicit_num + 1,
+                                  std::min(0.0, value), std::max(0.0, value));
 
             state.add_value(0);
-            expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 2, std::min(0.0, value),
-                                  std::max(0.0, value));
+            expect_digest_samples(state, config::quantile_state_explicit_num + 2,
+                                  std::min(0.0, value), std::max(0.0, value));
         }
     }
 }
 
 TEST(QuantileStateTest, MergeSingletonAndExplicitRetainsBoundarySample) {
     for (double value : {-100.0, 100.0}) {
-        auto explicit_state = constant_state(0, QUANTILE_STATE_EXPLICIT_NUM);
+        auto explicit_state = constant_state(0, config::quantile_state_explicit_num);
         auto singleton = constant_state(value, 1);
 
         auto explicit_first = explicit_state;
         explicit_first.merge(singleton);
         auto singleton_first = singleton;
         singleton_first.merge(explicit_state);
-        expect_digest_samples(explicit_first, QUANTILE_STATE_EXPLICIT_NUM + 1, std::min(0.0, value),
-                              std::max(0.0, value));
-        expect_digest_samples(singleton_first, QUANTILE_STATE_EXPLICIT_NUM + 1,
+        expect_digest_samples(explicit_first, config::quantile_state_explicit_num + 1,
+                             std::min(0.0, value), std::max(0.0, value));
+        expect_digest_samples(singleton_first, config::quantile_state_explicit_num + 1,
                               std::min(0.0, value), std::max(0.0, value));
-        EXPECT_EQ(QUANTILE_STATE_EXPLICIT_NUM, explicit_state._explicit_data.size());
+        EXPECT_EQ(config::quantile_state_explicit_num, explicit_state._explicit_data.size());
         EXPECT_EQ(0, explicit_state.get_value_by_percentile(1));
         EXPECT_EQ(value, singleton.get_value_by_percentile(1));
     }
 }
 
 TEST(QuantileStateTest, ExplicitMergeGroupingRetainsAllSamples) {
-    auto state = constant_state(0, QUANTILE_STATE_EXPLICIT_NUM - 1);
+    auto state = constant_state(0, config::quantile_state_explicit_num - 1);
     auto other = constant_state(0, 1);
     other.add_value(100);
     state.merge(other);
-    expect_digest_samples(state, QUANTILE_STATE_EXPLICIT_NUM + 1, 0, 100);
+    expect_digest_samples(state, config::quantile_state_explicit_num + 1, 0, 100);
 }
 
 TEST(QuantileStateTest, SelfMergeAndSharedSourceMerge) {
