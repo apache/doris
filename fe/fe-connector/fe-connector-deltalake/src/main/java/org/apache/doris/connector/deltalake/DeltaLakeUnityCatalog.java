@@ -31,6 +31,7 @@ import io.delta.kernel.unitycatalog.UCTableIdentifier;
 import io.delta.storage.commit.uccommitcoordinator.UCDeltaTokenBasedRestClient;
 import io.unitycatalog.client.auth.TokenProvider;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
 import java.net.URI;
@@ -145,7 +146,7 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
     }
 
     private boolean needsVendedStorage(DeltaLakeTableReference reference) {
-        String scheme = URI.create(reference.path).getScheme();
+        String scheme = new Path(reference.path).toUri().getScheme();
         if ("file".equalsIgnoreCase(scheme)) {
             String host = URI.create(properties.origin()).getHost();
             if (!Set.of("localhost", "127.0.0.1", "[::1]").contains(host)) {

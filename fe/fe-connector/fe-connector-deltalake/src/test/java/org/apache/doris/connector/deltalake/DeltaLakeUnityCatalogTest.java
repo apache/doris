@@ -101,7 +101,8 @@ class DeltaLakeUnityCatalogTest {
     @Test
     void sendsOnlyTheFreshTableReadGrantToTheBackend() throws Exception {
         AtomicInteger calls = new AtomicInteger();
-        route("tables/main.db.t", exchange -> reply(exchange, 200, EXTERNAL));
+        String location = "s3://warehouse/my folder/t";
+        route("tables/main.db.t", exchange -> reply(exchange, 200, EXTERNAL.replace("s3://warehouse/t", location)));
         route("temporary-table-credentials", exchange -> {
             String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             if (!body.contains("\"operation\":\"READ\"") || !body.contains("\"table_id\":\"table-1\"")) {
@@ -116,6 +117,7 @@ class DeltaLakeUnityCatalogTest {
         });
         try (DeltaLakeUnityCatalog uc = catalog("vended")) {
             DeltaLakeTableReference table = uc.tableLocation("db", "t").orElseThrow();
+            Assertions.assertEquals(location, table.path);
             Map<String, String> be = uc.backendProperties(table, Map.of("AWS_REGION", "us-east-1",
                     "AWS_MAX_CONNECTIONS", "97", "AWS_REQUEST_TIMEOUT_MS", "45000",
                     "AWS_CONNECTION_TIMEOUT_MS", "19000",
