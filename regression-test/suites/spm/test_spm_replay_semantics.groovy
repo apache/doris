@@ -50,6 +50,12 @@ suite("test_spm_replay_semantics", "spm") {
         PROPERTIES("replication_num" = "1")"""
     sql "INSERT INTO spm_replay_assert_generate VALUES (1, [10]), (2, [])"
 
+    sql "DROP TABLE IF EXISTS spm_replay_stored_mode"
+    sql """CREATE TABLE spm_replay_stored_mode (k INT, s STRING)
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")"""
+    sql "INSERT INTO spm_replay_stored_mode VALUES (1, CONCAT('_#TEMP#_', CHAR(92))), (2, 'other')"
+
     sql "SET enable_spm_rewrite = true"
     sql "SET enable_spm_fallback = false"
     sql "SET enable_sql_cache = false"
@@ -295,6 +301,53 @@ suite("test_spm_replay_semantics", "spm") {
         qt_typed_scalars_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
     }
 
+    String remainingScalars = "SELECT * REPLACE(" +
+            "to_uuid_or_zero('00000000-0000-0000-0000-000000000001') AS a, round(1.234) AS b)" +
+            " FROM spm_replay_sink_order"
+    def (_, nativeScalarMeta) = JdbcUtils.executeToList(context.getConnection(), remainingScalars)
+    withBaseline(remainingScalars) { long id ->
+        def (rows, meta) = JdbcUtils.executeToList(context.getConnection(), remainingScalars)
+        boolean typesMatch = (1..2).every { int column ->
+            meta.getColumnTypeName(column) == nativeScalarMeta.getColumnTypeName(column) &&
+                    meta.getPrecision(column) == nativeScalarMeta.getPrecision(column) &&
+                    meta.getScale(column) == nativeScalarMeta.getScale(column)
+        }
+        boolean hit = explainHit(remainingScalars, id)
+        qt_uuid_decimal_values_and_types "SELECT '${rows[0][0]}', ${rows[0][1]}, ${typesMatch}, ${hit}"
+        qt_uuid_decimal_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+    }
+
+    String previousZone = sql("SELECT @@time_zone")[0][0].toString()
+    String previousLocale = sql("SELECT @@lc_time_names")[0][0].toString()
+    try {
+        sql "SET time_zone = 'UTC'"
+        String epoch = "SELECT * REPLACE(from_second(0) AS k, from_millisecond(1) AS b," +
+                " from_microsecond(1) AS a, hour_from_unixtime(0) AS v," +
+                " uuid_v7_to_datetime(to_uuid_or_zero('00000000-0000-7000-8000-000000000000')) AS d)" +
+                " FROM spm_replay_semantics_t WHERE k = 1"
+        withBaseline(epoch) { long id ->
+            sql "SET time_zone = 'Asia/Shanghai'"
+            order_qt_builtin_zone_values epoch
+            boolean hit = explainHit(epoch, id)
+            qt_builtin_zone_hit "SELECT ${hit}"
+            qt_builtin_zone_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        }
+
+        sql "SET lc_time_names = 'en_US'"
+        String locale = "SELECT * REPLACE(monthname(DATE '2024-01-01') AS a," +
+                " dayname(DATE '2024-01-01') AS b) FROM spm_replay_sink_order"
+        withBaseline(locale) { long id ->
+            sql "SET lc_time_names = 'fr_FR'"
+            order_qt_builtin_locale_values locale
+            boolean hit = explainHit(locale, id)
+            qt_builtin_locale_hit "SELECT ${hit}"
+            qt_builtin_locale_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+        }
+    } finally {
+        sql "SET time_zone = '${previousZone}'"
+        sql "SET lc_time_names = '${previousLocale}'"
+    }
+
     String previousMode = sql("SELECT @@sql_mode")[0][0].toString()
     String permissiveGroup = "SELECT k, v, count(*) AS n FROM spm_replay_semantics_t WHERE k > 0 GROUP BY k"
     try {
@@ -324,6 +377,22 @@ suite("test_spm_replay_semantics", "spm") {
             qt_valid_group_with_permissive_plan "SELECT ${hit}"
         } finally {
             sql "DROP BASELINE PLAN IF EXISTS ${validId}"
+        }
+    } finally {
+        sql "SET sql_mode = '${previousMode}'"
+    }
+
+    try {
+        sql "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"
+        String storedMode = "SELECT k FROM spm_replay_stored_mode WHERE s = '_#TEMP#_" + "\\" + "'"
+        withBaseline(storedMode) { long id ->
+            sql "SET sql_mode = '${previousMode}'"
+            boolean visible = sql("SHOW BASELINE PLANS WHERE id = ${id}").any { (it[0] as Long) == id }
+            qt_stored_mode_visible "SELECT ${visible}"
+            sql "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"
+            order_qt_stored_mode_rows storedMode
+            boolean hit = explainHit(storedMode, id)
+            qt_stored_mode_hit "SELECT ${hit}"
         }
     } finally {
         sql "SET sql_mode = '${previousMode}'"

@@ -8351,7 +8351,8 @@ public class BaselineManager {
         // table name into planSql (sessionId_#TEMP._name). Replaying it from another
         // session would read the creator's (possibly still live) temporary table, so such
         // rows are never loaded (the log line names the row).
-        if (referencesTemporaryTable(p.getBindSql()) || referencesTemporaryTable(p.getPlanSql())) {
+        if (referencesTemporaryTable(p.getBindSql(), p.getCreatorSqlMode())
+                || referencesTemporaryTable(p.getPlanSql(), storedPlanSqlMode(p))) {
             throw new RuntimeException("SPM baseline " + p.getId()
                     + " references a temporary table (the frozen plan carries the creator"
                     + " session's internal name); skipping the row");
@@ -8394,10 +8395,8 @@ public class BaselineManager {
         // (placeholder-carrying) planSql is replayed as text - no plan tree. The
         // non-frozen planSql is either the SPM decompiled text (MODE_DEFAULT) or the
         // user's raw fallback text (creator mode) - plan_sql_mode carries which one.
-        long planSqlMode = p.getPlanSqlMode() == null
-                ? SqlModeHelper.MODE_DEFAULT : p.getPlanSqlMode();
         Pair<LogicalPlan, LogicalPlan> trees = SPMPlanner.rebuildParameterizedTrees(
-                p.getBindSql(), frozen ? null : planSql, p.getCreatorSqlMode(), planSqlMode);
+                p.getBindSql(), frozen ? null : planSql, p.getCreatorSqlMode(), storedPlanSqlMode(p));
         if (trees.first == null) {
             throw new RuntimeException("SPM baseline " + p.getId()
                     + " bindSql cannot be parsed");
@@ -8434,21 +8433,25 @@ public class BaselineManager {
         }
     }
 
+    private static long storedPlanSqlMode(BaselinePlan plan) {
+        return plan.getPlanSqlMode() == null ? SqlModeHelper.MODE_DEFAULT : plan.getPlanSqlMode();
+    }
+
     /**
      * Whether a stored text REFERENCES the creator session's temporary-table name. The
      * marker is looked up in the PARSED relations only - never as a raw substring: an
      * ordinary predicate / value literal (s = '_#TEMP._') or a comment carries the
      * same characters, and the old substring test rejected such a durable row on every
      * refresh - the baseline silently disappeared from every FE although CREATE had
-     * accepted it (the create-time guard inspects the RESOLVED relations).
+     * accepted it (the create-time guard inspects the RESOLVED relations). Use the
+     * stored SQL mode so quoted values are decoded as they were at capture.
      */
-    private static boolean referencesTemporaryTable(String text) {
+    private static boolean referencesTemporaryTable(String text, long sqlMode) {
         if (text == null || !text.contains(FeNameFormat.TEMPORARY_TABLE_SIGN)) {
             return false;
         }
         try {
-            Plan parsed = SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(text,
-                    SqlModeHelper.MODE_DEFAULT);
+            Plan parsed = SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(text, sqlMode);
             if (!(parsed instanceof LogicalPlan)) {
                 return false;
             }

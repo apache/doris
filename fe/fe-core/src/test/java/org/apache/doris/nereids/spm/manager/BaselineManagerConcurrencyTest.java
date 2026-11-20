@@ -2590,12 +2590,31 @@ public class BaselineManagerConcurrencyTest {
                         "SELECT k FROM `111_#TEMP#_t`")));
     }
 
+    @Test
+    public void testTemporaryTablePreflightUsesEachStoredSqlMode() throws Exception {
+        String ordinary = "SELECT k FROM t1 WHERE s = 'x'";
+        String markerAndBackslash = "SELECT k FROM t1 WHERE s = '_#TEMP#_\\'";
+        long mode = org.apache.doris.qe.SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES;
+        BaselinePlan bind = BaselineManagerTestAccess.parsePersistedRow(row(markerAndBackslash, ordinary, mode, 0));
+        Assertions.assertNotNull(bind.getParameterizedBindPlan());
+        BaselinePlan plan = BaselineManagerTestAccess.parsePersistedRow(row(ordinary, markerAndBackslash, 0, mode));
+        Assertions.assertNotNull(plan.getParameterizedPlanPlan());
+        Assertions.assertThrows(RuntimeException.class,
+                () -> BaselineManagerTestAccess.parsePersistedRow(row(markerAndBackslash, ordinary, 0, mode)));
+        Assertions.assertThrows(RuntimeException.class,
+                () -> BaselineManagerTestAccess.parsePersistedRow(row(ordinary, markerAndBackslash, mode, 0)));
+    }
+
     /** One internal-table row (column order mirrors fromRow). */
     private static ResultRow row(String bindSql, String planSql) {
+        return row(bindSql, planSql, 0, 0);
+    }
+
+    private static ResultRow row(String bindSql, String planSql, long bindMode, long planMode) {
         return new ResultRow(List.of(
                 "77", bindSql, "d-temp", "7", planSql, "NaN", "0", "0",
                 "USER", "ENABLED", "1767225600000000", "1767225600000000",
-                "0", "0", "false", ""));
+                String.valueOf(bindMode), String.valueOf(planMode), "false", ""));
     }
 
     // ==================== promotion-window reconciliation ====================

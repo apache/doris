@@ -391,11 +391,11 @@ public class SPMOptimizer {
         long functionRegistryVersionBefore = SPMPlanTreeSupport.functionRegistryVersion();
         CaptureStatementContext statementContext = createNestedStatementContext(ctx, originSql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        boolean[] concreteSessionCast = {false};
+        boolean[] concreteSessionSensitiveExpression = {false};
         statementContext.addPlannerHook(new PlannerHook() {
             @Override
             public void afterAnalyze(NereidsPlanner planner) {
-                concreteSessionCast[0] = SPMPlanTreeSupport.containsConcreteSessionCast(
+                concreteSessionSensitiveExpression[0] = SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(
                         planner.getCascadesContext().getRewritePlan());
             }
         });
@@ -485,7 +485,7 @@ public class SPMOptimizer {
                     statementContext.getTableFingerprints(),
                     bindFunctionSnapshot,
                     functionRegistryVersionBefore,
-                    statementContext.getPartitionNames(), concreteSessionCast[0]);
+                    statementContext.getPartitionNames(), concreteSessionSensitiveExpression[0]);
         } finally {
             sessionVar.setTopNLazyMaterializationThreshold(originalTopnLazyThreshold);
             sessionVar.enableCTEMaterialize = originalCteMaterialize;
@@ -659,7 +659,7 @@ public class SPMOptimizer {
     public static class OptimizeResult {
         private final PhysicalPlan physicalPlan;
         private final double cost;
-        private final boolean concreteSessionCast;
+        private final boolean concreteSessionSensitiveExpression;
         /**
          * Table fingerprint entries hashed WHILE the planning locks were held (see
          * CaptureStatementContext): lower-case bare / db-qualified /
@@ -710,17 +710,17 @@ public class SPMOptimizer {
          * Parameter bindFunctionDependencies: the pre-analysis function entries, or null
          * Parameter functionRegistryVersion: the pre-analysis UDF registry version, or null
          * Parameter partitionNames: table id to partition id to the ADMITTED name
-         * Parameter concreteSessionCast: whether analysis left a foldable, session-sensitive cast
+         * Parameter concreteSessionSensitiveExpression: whether a concrete expression can fold using session settings
          */
         public OptimizeResult(PhysicalPlan physicalPlan, double cost,
                 java.util.Map<String, String> tableFingerprints,
                 java.util.Set<String> bindFunctionDependencies,
                 Long functionRegistryVersion,
                 java.util.Map<Long, java.util.Map<Long, SPMPlanTreeSupport.PartitionPin>> partitionNames,
-                boolean concreteSessionCast) {
+                boolean concreteSessionSensitiveExpression) {
             this.physicalPlan = physicalPlan;
             this.cost = cost;
-            this.concreteSessionCast = concreteSessionCast;
+            this.concreteSessionSensitiveExpression = concreteSessionSensitiveExpression;
             this.tableFingerprints = tableFingerprints;
             this.bindFunctionDependencies = bindFunctionDependencies;
             this.functionRegistryVersion = functionRegistryVersion;
@@ -731,8 +731,8 @@ public class SPMOptimizer {
             return physicalPlan;
         }
 
-        public boolean hasConcreteSessionCast() {
-            return concreteSessionCast;
+        public boolean hasConcreteSessionSensitiveExpression() {
+            return concreteSessionSensitiveExpression;
         }
 
         /** The under-lock partition-name snapshot (see the field javadoc). */

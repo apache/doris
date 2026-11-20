@@ -212,9 +212,42 @@ true	1	1.25	BIGINT	BIGINT	FLOAT	true
 -- !typed_scalars_frozen --
 true
 
+-- !uuid_decimal_values_and_types --
+00000000-0000-0000-0000-000000000001	1	true	true
+
+-- !uuid_decimal_frozen --
+true
+
+-- !builtin_zone_values --
+1970-01-01T08:00	1970-01-01T08:00:00.001	1970-01-01T08:00:00.000001	a	8	1970-01-01T08:00
+
+-- !builtin_zone_hit --
+true
+
+-- !builtin_zone_frozen --
+false
+
+-- !builtin_locale_values --
+janvier	lundi
+
+-- !builtin_locale_hit --
+true
+
+-- !builtin_locale_frozen --
+false
+
 -- !permissive_group_hit --
 true
 
 -- !valid_group_with_permissive_plan --
+true
+
+-- !stored_mode_visible --
+true
+
+-- !stored_mode_rows --
+1
+
+-- !stored_mode_hit --
 true
 

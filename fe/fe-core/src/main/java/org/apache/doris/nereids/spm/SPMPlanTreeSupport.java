@@ -8819,14 +8819,8 @@ public final class SPMPlanTreeSupport {
                     found[0] = true;
                 }
             }
-            // A LATERAL VIEW / UNNEST generator argument lives outside getExpressions
-            // too: one whose value FOLDS to a constant under session state (e.g.
-            // explode(array(from_unixtime(0)))) is evaluated in the CREATOR's session
-            // time zone and stored as that literal in the frozen plan text, so a replay
-            // under another session's zone would return the creator's value although the
-            // caller's own query evaluates the function in its own zone. Matching keeps
-            // generator arguments concrete, so the value can only be frozen - such a
-            // baseline is refused instead (see rejectFoldedZoneSensitiveGenerators).
+            // Generator arguments keep their literals during parameterization.
+            // Refuse a generator argument that can fold using the creator's time zone.
             if (node instanceof LogicalGenerate) {
                 rejectFoldedZoneSensitiveGenerators((LogicalGenerate<? extends Plan>) node);
             }
@@ -8885,7 +8879,7 @@ public final class SPMPlanTreeSupport {
      */
     private static boolean isZoneSensitiveCall(Expression expression) {
         if (expression instanceof Function) {
-            return isZoneSensitiveFunctionName(((Function) expression).getName()) && isLiteralOnly(expression);
+            return isZoneSensitiveFunction((Function) expression) && isLiteralOnly(expression);
         }
         if (!(expression instanceof Cast) || !isLiteralOnly(expression)) {
             return false;
@@ -8904,6 +8898,15 @@ public final class SPMPlanTreeSupport {
         return castMayDependOnSession(cast, typeKnownBeforeAnalysis(cast.child()));
     }
 
+    private static boolean isLocaleSensitiveCall(Expression expression) {
+        if (!(expression instanceof Function)) {
+            return false;
+        }
+        String name = ((Function) expression).getName();
+        return ("dayname".equalsIgnoreCase(name) || "monthname".equalsIgnoreCase(name))
+                && isLiteralOnly(expression);
+    }
+
     private static boolean isFoldableSessionCast(Expression expression) {
         return expression instanceof Cast && !((Cast) expression).isStrict()
                 && isLiteralOnly(((Cast) expression).child());
@@ -8917,24 +8920,31 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * Checks the parameterized plan after binding and before folding. This catches implicit
-     * casts from analysis as well as constant generator arguments that kept their literals.
+     * Checks the parameterized plan after binding and before folding. This sees implicit
+     * casts and resolved builtins, including those exposed by alias expansion and generators.
      */
-    static boolean containsConcreteSessionCast(Plan analyzed) {
+    static boolean containsConcreteSessionSensitiveExpression(Plan analyzed) {
         boolean[] found = {false};
         SPMPlanTreeSupport.<RuntimeException>walkPlans(analyzed, node -> {
             if (found[0]) {
                 return;
             }
             for (Expression expr : node.getExpressions()) {
-                if (containsFoldableCall(expr, candidate -> isFoldableSessionCast(candidate)
-                        && castMayDependOnSession((Cast) candidate, candidate.child(0).getDataType()))) {
+                if (containsFoldableCall(expr, SPMPlanTreeSupport::isAnalyzedSessionSensitiveCall)) {
                     found[0] = true;
                     return;
                 }
             }
         });
         return found[0];
+    }
+
+    private static boolean isAnalyzedSessionSensitiveCall(Expression expression) {
+        if (expression instanceof Function) {
+            return isZoneSensitiveCall(expression) || isLocaleSensitiveCall(expression);
+        }
+        return isFoldableSessionCast(expression)
+                && castMayDependOnSession((Cast) expression, expression.child(0).getDataType());
     }
 
     private static DataType typeKnownBeforeAnalysis(Expression expression) {
@@ -8954,7 +8964,7 @@ public final class SPMPlanTreeSupport {
      * a * REPLACE payload (stored outside the star's expression children and compared
      *   concretely, see SPMAstCheckVisitor): SELECT * REPLACE(from_unixtime(0) AS a) FROM t
      *
-     * A constant call in either position can fold using the creator's time zone or cast mode.
+     * A constant call in either position can fold using the creator's time zone, locale or cast mode.
      * Keeping raw plan SQL allows replay through the parameterized tree to evaluate the
      * call under the caller's settings. A call over a column is evaluated per row.
      *
@@ -8962,8 +8972,8 @@ public final class SPMPlanTreeSupport {
      * Returns: true when the freeze must be declined for such a payload
      */
     public static boolean containsFoldedSessionSensitivePayload(LogicalPlan plan) {
-        return containsFoldablePayload(plan, expression ->
-                isZoneSensitiveCall(expression) || isStrictCastSensitiveCall(expression));
+        return containsFoldablePayload(plan, expression -> isZoneSensitiveCall(expression)
+                || isLocaleSensitiveCall(expression) || isStrictCastSensitiveCall(expression));
     }
 
     /** Detects casts that can already have been folded in older frozen baselines. */
@@ -9021,20 +9031,15 @@ public final class SPMPlanTreeSupport {
      * Recognizes the time-conversion and current-time function names treated conservatively by the frozen-payload
      * guard. The list includes UTC clock functions as well as functions that use the session time zone.
      */
-    private static boolean isZoneSensitiveFunctionName(String name) {
-        return "from_unixtime".equalsIgnoreCase(name)
-                || "unix_timestamp".equalsIgnoreCase(name)
-                || "now".equalsIgnoreCase(name)
-                || "utc_time".equalsIgnoreCase(name)
-                || "utc_date".equalsIgnoreCase(name)
-                || "curdate".equalsIgnoreCase(name)
-                || "curtime".equalsIgnoreCase(name)
-                || "current_timestamp".equalsIgnoreCase(name)
-                || "current_date".equalsIgnoreCase(name)
-                || "current_time".equalsIgnoreCase(name)
-                || "localtime".equalsIgnoreCase(name)
-                || "localtimestamp".equalsIgnoreCase(name)
-                || "sysdate".equalsIgnoreCase(name);
+    private static boolean isZoneSensitiveFunction(Function function) {
+        return switch (function.getName().toLowerCase(Locale.ROOT)) {
+            case "uuid_v7_to_datetime", "uuidv7todatetime" -> function.arity() == 1;
+            case "from_unixtime", "unix_timestamp", "from_second", "from_millisecond", "from_microsecond",
+                    "hour_from_unixtime", "now", "utc_time", "utc_date", "curdate", "curtime",
+                    "current_timestamp", "current_date", "current_time", "localtime", "localtimestamp",
+                    "sysdate" -> true;
+            default -> false;
+        };
     }
 
     /**
