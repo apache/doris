@@ -91,10 +91,12 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.math.BigInteger;
@@ -818,8 +820,8 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             return SPMPlan2SQLBuilder.quoteSqlString(((StringLikeLiteral) literal).getStringValue());
         }
         DataType type = literal.getDataType();
-        if (literal.isNullLiteral() && !type.isNullType()) {
-            return typedLiteralSql("NULL", type);
+        if (literal.isNullLiteral()) {
+            return type.isNullType() ? "NULL" : typedLiteralSql("NULL", type);
         }
         if (type.isFloatLikeType()) {
             if (!Double.isFinite(literal.getDouble())) {
@@ -829,26 +831,42 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // directly to the captured type also preserves negative zero.
             return typedLiteralSql(SPMPlan2SQLBuilder.quoteSqlString(literal.getStringValue()), type);
         }
-        if (literal instanceof IntegerLikeLiteral && type.width() > 1) {
-            Number number = ((IntegerLikeLiteral) literal).getNumber();
-            BigInteger value = number instanceof BigInteger ? (BigInteger) number
-                    : BigInteger.valueOf(number.longValue());
-            // The parser chooses the smallest signed integer type that fits. Cast only
-            // when the value also fits in the next smaller integer type.
-            if (value.bitLength() < type.width() * Byte.SIZE / 2) {
-                return typedLiteralSql(literal.toSql(), type);
+        if (literal instanceof IntegerLikeLiteral) {
+            if (type.width() > 1) {
+                Number number = ((IntegerLikeLiteral) literal).getNumber();
+                BigInteger value = number instanceof BigInteger ? (BigInteger) number
+                        : BigInteger.valueOf(number.longValue());
+                // Add a cast when the parser would pick a smaller signed integer type.
+                if (value.bitLength() < type.width() * Byte.SIZE / 2) {
+                    return typedLiteralSql(literal.toSql(), type);
+                }
             }
+            return literal.toSql();
         }
-        if (literal instanceof DateLiteral || literal instanceof TimeV2Literal) {
-            // Concrete temporal literals (for example in a star REPLACE) must retain
-            // their SQL type and precision when the frozen statement is parsed again.
+        if (literal instanceof DateLiteral || literal instanceof TimeV2Literal || type.isDecimalLikeType()
+                || type.isUuidType() || type.isIPv4Type() || type.isIPv6Type() || type.isJsonType()) {
+            // Scalar spelling alone can lose the type or even become a different expression,
+            // such as an integral decimal becoming an integer or a UUID becoming subtraction.
             return typedLiteralSql(SPMPlan2SQLBuilder.quoteSqlString(literal.getStringValue()), type);
         }
-        return literal.toSql();
+        if (type.isVarBinaryType()) {
+            // The hex literal retains the bytes and the default binary type.
+            String hex = literal.toSql();
+            return type.equals(VarBinaryType.INSTANCE) ? hex : typedLiteralSql(hex, type);
+        }
+        if (type.isBooleanType()) {
+            return literal.toSql();
+        }
+        throw new UnsupportedOperationException("SPM decompile: unsupported scalar literal type " + type.toSql());
     }
 
     private static String typedLiteralSql(String value, DataType type) {
-        return "CAST(" + value + " AS " + type.toSql() + ")";
+        String typeSql = type.toSql();
+        if (type instanceof DecimalV2Type) {
+            DecimalV2Type decimal = (DecimalV2Type) type;
+            typeSql = "DECIMALV2(" + decimal.getPrecision() + ", " + decimal.getScale() + ")";
+        }
+        return "CAST(" + value + " AS " + typeSql + ")";
     }
 
     @Override

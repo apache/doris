@@ -65,13 +65,21 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
+import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.JsonLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -121,6 +129,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -2779,6 +2788,23 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertEquals("2147483648", builder.print(new BigIntLiteral(2147483648L), relation));
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> builder.print(new DoubleLiteral(Double.NEGATIVE_INFINITY), relation));
+    }
+
+    @Test
+    public void testRemainingConcreteScalarsRenderTypedSql() {
+        SPMExprSqlBuilder builder = new SPMExprSqlBuilder();
+        SQLRelation relation = new SQLRelation();
+        NereidsParser parser = new NereidsParser();
+        for (Literal literal : List.of(new UuidLiteral("00000000-0000-0000-0000-000000000001"),
+                new DecimalV3Literal(BigDecimal.ONE), new DecimalLiteral(new BigDecimal("1.20")),
+                new IPv4Literal("192.0.2.1"), new IPv6Literal("2001:db8::1"), new JsonLiteral("{\"s\":\"a'b\"}"))) {
+            String sql = builder.print(literal, relation);
+            Cast parsed = (Cast) parser.parseExpression(sql);
+            Assertions.assertEquals(literal.getDataType(), parsed.getDataType(), sql);
+            Assertions.assertEquals(literal.getStringValue(), ((Literal) parsed.child()).getStringValue(), sql);
+        }
+        VarBinaryLiteral binary = new VarBinaryLiteral("0027");
+        Assertions.assertEquals(binary, parser.parseExpression(builder.print(binary, relation)));
     }
 
     @Test

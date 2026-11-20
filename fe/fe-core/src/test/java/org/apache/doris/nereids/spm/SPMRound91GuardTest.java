@@ -119,10 +119,26 @@ public class SPMRound91GuardTest {
     @Test
     public void testConcreteSessionCastCheckLeavesPlaceholderConversionsFreezable() {
         LogicalPlan query = parse("SELECT CAST('abc' AS DOUBLE)");
-        Assertions.assertTrue(SPMPlanTreeSupport.containsConcreteSessionCast(query));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(query));
         LogicalPlan parameterized = SPMPlanTreeSupport.transform(query, new TestSPMPlaceholderBuilder());
-        Assertions.assertFalse(SPMPlanTreeSupport.containsConcreteSessionCast(parameterized));
-        Assertions.assertFalse(SPMPlanTreeSupport.containsConcreteSessionCast(parse("SELECT CAST(1 AS BIGINT)")));
+        Assertions.assertFalse(SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(parameterized));
+        Assertions.assertFalse(SPMPlanTreeSupport.containsConcreteSessionSensitiveExpression(
+                parse("SELECT CAST(1 AS BIGINT)")));
+    }
+
+    @Test
+    public void testTemporalBuiltinPayloadsRespectCallerSettings() {
+        String uuid = "to_uuid_or_zero('00000000-0000-7000-8000-000000000000')";
+        for (String value : List.of("from_second(0)", "from_millisecond(1)", "from_microsecond(1)",
+                "hour_from_unixtime(0)", "uuid_v7_to_datetime(" + uuid + ")", "UUIDv7ToDateTime(" + uuid + ")",
+                "monthname(DATE '2024-01-01')", "dayname(DATE '2024-01-01')")) {
+            Assertions.assertTrue(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+                    parse("SELECT * REPLACE(" + value + " AS k) FROM t")), value);
+        }
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+                parse("SELECT * REPLACE(uuid_v7_to_datetime(" + uuid + ", 'UTC') AS k) FROM t")));
+        Assertions.assertFalse(SPMPlanTreeSupport.containsFoldedSessionSensitivePayload(
+                parse("SELECT * REPLACE(monthname(k) AS k) FROM t")));
     }
 
     /** Every {@code SpmConstVar} marker the parameterization produced for one query. */
