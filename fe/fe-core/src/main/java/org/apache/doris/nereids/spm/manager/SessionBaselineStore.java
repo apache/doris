@@ -86,7 +86,7 @@ public class SessionBaselineStore {
         if (duplicate > 0) {
             return duplicate;
         }
-        return registerLocked(plan, SESSION_ID_GENERATOR.getAndIncrement());
+        return registerLocked(plan, allocateId());
     }
 
     /**
@@ -109,9 +109,18 @@ public class SessionBaselineStore {
         if (id < BaselineScope.SESSION_ID_BASE) {
             // a payload without an id (older FE / hand-written): fall back to a fresh
             // session id instead of registering one the scope invariant rejects
-            id = SESSION_ID_GENERATOR.getAndIncrement();
+            id = allocateId();
         }
         return registerLocked(plan, id);
+    }
+
+    /** Allocates an ID outside this store's imported ID set while holding the store monitor. */
+    private long allocateId() {
+        long id;
+        do {
+            id = SESSION_ID_GENERATOR.getAndIncrement();
+        } while (baselines.containsKey(id));
+        return id;
     }
 
     /**
@@ -156,10 +165,7 @@ public class SessionBaselineStore {
         BaselinePlan replaced = baselines.get(id);
         long usedChars = forwardedPayloadChars
                 - (replaced == null ? 0 : SPMForwardedSession.payloadRowChars(replaced));
-        // The ENCLOSURE (the serialized payload's leading "[]") counts against the same
-        // budget: the store admitted a row at exactly the row budget while
-        // SPMForwardedSession.serialize needed two characters more and rejected the same
-        // store on every forwarded statement.
+        // Reserve the enclosure for the full management payload as well as the row charges.
         if (usedChars + rowChars + SPMForwardedSession.PAYLOAD_ENCLOSURE_CHARS
                 > SPMForwardedSession.MAX_PAYLOAD_CHARS) {
             // reject the CREATION instead of dropping rows while forwarding (see

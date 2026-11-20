@@ -29,6 +29,13 @@ import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.spm.SPMForwardedSession;
+import org.apache.doris.nereids.trees.plans.commands.spm.AlterBaselinePlanCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.CreateBaselinePlanCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.DropBaselinePlanCommand;
+import org.apache.doris.nereids.trees.plans.commands.spm.ShowBaselinePlansCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -209,25 +216,8 @@ public class FEOpExecutor {
             }
         }
 
-        // session variables
-        // SESSION-scope SPM baselines belong to THIS connection and live only in this
-        // FE's store: attach the enabled rows the forwarded statement could MATCH
-        // (rebuilt from the store HERE, so a client SET cannot inject rows, and filtered
-        // by the statement's own (hash, digest) match key) - the master otherwise plans
-        // the forwarded statement in a fresh context with an empty store and silently
-        // ignores the very baseline this connection created. Statements that are not
-        // plan-rewritable queries (DDL, batches) carry the full store: the management
-        // commands address rows by id on the master. With rewrite disabled the master can
-        // never consult a baseline, so nothing is shipped: serializing every enabled row
-        // would add unbounded (re)parse work to each forwarded statement of such a
-        // connection.
-        if (ctx.getSessionVariable().isEnableSpmRewrite()) {
-            ctx.getSessionVariable().setSpmForwardedSessionBaselines(
-                    org.apache.doris.nereids.spm.SPMForwardedSession.serializeForStatement(
-                            ctx.getSessionBaselineStore(), ctx, originStmt.originStmt));
-        } else {
-            ctx.getSessionVariable().setSpmForwardedSessionBaselines("");
-        }
+        // Overwrite the internal variable from the connection's actual store on every request.
+        ctx.getSessionVariable().setSpmForwardedSessionBaselines(forwardedSpmBaselines());
         Map<String, String> forwardVariables = ctx.getSessionVariable().getForwardVariables();
         // The master re-parses this text under the mode captured by the originating parser. SET_VAR in this
         // statement or an earlier statement of the same parsed batch may already have changed the live mode;
@@ -266,6 +256,21 @@ public class FEOpExecutor {
         ctx.getProtocolAdapter().fillForwardRequest(ctx, params);
 
         return params;
+    }
+
+    private String forwardedSpmBaselines() {
+        StmtExecutor executor = ctx.getExecutor();
+        if (executor != null && executor.getParsedStmt() instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter statement = (LogicalPlanAdapter) executor.getParsedStmt();
+            LogicalPlan plan = statement.getLogicalPlan();
+            if (plan instanceof CreateBaselinePlanCommand || plan instanceof AlterBaselinePlanCommand
+                    || plan instanceof DropBaselinePlanCommand || plan instanceof ShowBaselinePlansCommand) {
+                return SPMForwardedSession.serializeForManagement(ctx.getSessionBaselineStore());
+            }
+        }
+        return ctx.getSessionVariable().isEnableSpmRewrite()
+                ? SPMForwardedSession.serializeForStatement(ctx.getSessionBaselineStore(), ctx, originStmt.originStmt)
+                : "";
     }
 
     public int getStatusCode() {
