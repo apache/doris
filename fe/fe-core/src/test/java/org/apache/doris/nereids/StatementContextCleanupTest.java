@@ -35,21 +35,28 @@ import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 public class StatementContextCleanupTest {
-    @Test
-    void nestedPlanningFailureClosesItsResourcesAndRestoresTheCaller() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void nestedPlanningFailureClosesItsResourcesAndRestoresTheCaller(boolean localResult) throws Exception {
         ConnectContext session = Mockito.mock(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
-        Mockito.doReturn(true).when(session).isReturnResultFromLocal();
+        Mockito.doReturn(localResult).when(session).isReturnResultFromLocal();
         StatementContext outer = new StatementContext(session, null);
         session.setStatementContext(outer);
         AutoCloseable resource = Mockito.mock(AutoCloseable.class);
         IllegalStateException failure = new IllegalStateException("planning failed");
-        Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
-                () -> StatementContext.withNestedStatement(session, "select 1", child -> {
-                    Assertions.assertSame(child, session.getStatementContext());
-                    child.getOrCreateConnectorStatementScope().computeIfAbsent("nested", () -> resource);
-                    throw failure;
-                })));
-        Assertions.assertSame(outer, session.getStatementContext());
+        ConnectContext caller = Mockito.mock(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
+        caller.withThreadLocal(() -> {
+            Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
+                    () -> StatementContext.withNestedStatement(session, "select 1", child -> {
+                        Assertions.assertSame(session, ConnectContext.get());
+                        Assertions.assertSame(child, session.getStatementContext());
+                        child.getOrCreateConnectorStatementScope().computeIfAbsent("nested", () -> resource);
+                        throw failure;
+                    })));
+            Assertions.assertSame(caller, ConnectContext.get());
+            Assertions.assertSame(outer, session.getStatementContext());
+            return null;
+        });
         Mockito.verify(resource).close();
     }
 

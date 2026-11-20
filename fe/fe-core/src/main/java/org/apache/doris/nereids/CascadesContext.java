@@ -55,7 +55,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Statistics;
@@ -189,10 +188,8 @@ public class CascadesContext implements ScheduleContext {
             if (statementContext != null) {
                 return action.apply(initContext(statementContext, DUMMY_PLAN, PhysicalProperties.ANY));
             }
-            try (StatementContext temporaryStatement = new StatementContext(
-                    connectContext, new OriginStatement("", 0))) {
-                return action.apply(initContext(temporaryStatement, DUMMY_PLAN, PhysicalProperties.ANY));
-            }
+            return StatementContext.withNestedStatement(connectContext, "", temporaryStatement ->
+                    action.apply(initContext(temporaryStatement, DUMMY_PLAN, PhysicalProperties.ANY)));
         } finally {
             if (ownsContext) {
                 connectContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);

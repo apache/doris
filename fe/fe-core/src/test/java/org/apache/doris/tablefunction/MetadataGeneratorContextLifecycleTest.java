@@ -163,6 +163,9 @@ class MetadataGeneratorContextLifecycleTest {
             contexts.when(() -> CascadesContext.initContext(Mockito.any(), Mockito.any(), Mockito.any()))
                     .thenAnswer(call -> {
                         StatementContext statement = call.getArgument(0);
+                        Assertions.assertSame(caller, ConnectContext.get());
+                        Assertions.assertSame(statement, caller.getStatementContext());
+                        Assertions.assertNotSame(original, statement);
                         statementScope.set((ConnectorStatementScopeImpl)
                                 statement.getOrCreateConnectorStatementScope());
                         return call.callRealMethod();

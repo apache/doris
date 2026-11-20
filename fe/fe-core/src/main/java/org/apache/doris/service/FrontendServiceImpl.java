@@ -1215,12 +1215,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // The master replays every forwarded statement over a ProxyMysqlChannel and hands
             // packets back to the origin FE, whatever protocol the client is speaking there.
             ConnectProcessor processor = new MysqlConnectProcessor(context);
-            Runnable clearCallback = registerProxyQuery(params, context);
-            try {
-                return executeForward(params, context, processor);
-            } finally {
-                clearCallback.run();
-            }
+            return context.executeCommand(0, () -> {
+                Runnable clearCallback = registerProxyQuery(params, context);
+                try {
+                    return executeForward(params, context, processor);
+                } finally {
+                    clearCallback.run();
+                }
+            });
         }
     }
 
@@ -1300,7 +1302,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         ConnectContext context = proxyQueryIdToConnCtx.get(params.getQueryId());
         if (context != null) {
-            context.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
+            StmtExecutor executor = context.getExecutor();
+            if (executor == null) {
+                // This proxy owns exactly one request. Remember cancellation until its executor
+                // is published, leaving cleanup and response serialization to the request owner.
+                context.requestClose(ConnectContext.CloseMode.IMMEDIATE);
+            } else {
+                executor.cancel(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
+            }
         }
         TMasterOpResult result = createForwardResultWithJournalSync();
         result.setStatusCode(0);
@@ -1322,12 +1331,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private Runnable registerProxyQuery(TMasterOpRequest params, ConnectContext context) {
+    Runnable registerProxyQuery(TMasterOpRequest params, ConnectContext context) {
         if (!params.isSetQueryId()) {
             return () -> {};
         }
-        proxyQueryIdToConnCtx.put(params.getQueryId(), context);
-        return () -> proxyQueryIdToConnCtx.remove(params.getQueryId());
+        TUniqueId queryId = params.getQueryId();
+        proxyQueryIdToConnCtx.put(queryId, context);
+        return () -> proxyQueryIdToConnCtx.remove(queryId, context);
     }
 
     private TMasterOpResult executeForward(TMasterOpRequest params, ConnectContext context,

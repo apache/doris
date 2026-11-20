@@ -23,22 +23,27 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
+import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.executor.TaskProcessor;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -48,6 +53,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -134,6 +140,65 @@ public class InsertTaskTest {
                     () -> InsertTask.makeConnectContext(null, "db"));
             Assertions.assertEquals(1, contexts.constructed().size());
             Mockito.verify(contexts.constructed().get(0)).cleanup();
+            Assertions.assertSame(parent, ConnectContext.get());
+            Assertions.assertFalse(parent.isClosingOrClosed());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,true", "true,false", "false,true", "false,false"})
+    void executionOwnsItsContextThroughTheLastCallback(boolean scheduled, boolean failInPreparation) throws Exception {
+        AtomicReference<ConnectContext> child = new AtomicReference<>();
+        List<String> events = new ArrayList<>();
+        InsertIntoTableCommand plan = Mockito.mock(InsertIntoTableCommand.class);
+        Mockito.when(plan.getLabelName()).thenReturn(Optional.of("load"));
+        NameSpaceContext namespace = Mockito.mock(NameSpaceContext.class);
+        Mockito.when(namespace.getDefaultCatalog()).thenAnswer(call -> {
+            ConnectContext ctx = ConnectContext.get();
+            child.set(ctx);
+            ctx.getSessionVariable().setEnableSqlCache(false);
+            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(DebugUtil.printId(ctx.queryId()), () -> {
+                Assertions.assertSame(ctx, ConnectContext.get());
+                Assertions.assertFalse(ctx.isClosingOrClosed());
+                events.add("query finished");
+            });
+            if (failInPreparation) {
+                throw new IllegalStateException("injected namespace failure");
+            }
+            return InternalCatalog.INTERNAL_CATALOG_NAME;
+        });
+        Mockito.doAnswer(call -> {
+            ConnectContext ctx = call.getArgument(0);
+            ctx.getState().setOk();
+            return null;
+        }).when(plan).runWithUpdateInfo(Mockito.any(), Mockito.any(), Mockito.any());
+        InsertTask task = new InsertTask(plan, UserIdentity.ROOT, namespace, new LoadStatistic()) {
+            @Override
+            public boolean onSuccess() {
+                Assertions.assertSame(child.get(), ConnectContext.get());
+                return events.add("success");
+            }
+
+            @Override
+            public boolean onFail() {
+                Assertions.assertSame(child.get(), ConnectContext.get());
+                return events.add("failure");
+            }
+        };
+        ConnectContext parent = new ConnectContext();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(parent)) {
+            if (scheduled) {
+                task.runTask();
+                Assertions.assertEquals(List.of(failInPreparation ? "failure" : "success", "query finished"), events);
+            } else {
+                if (failInPreparation) {
+                    Assertions.assertThrows(JobException.class, task::run);
+                } else {
+                    task.run();
+                }
+                Assertions.assertEquals(List.of("query finished"), events);
+            }
+            Assertions.assertTrue(child.get().isClosingOrClosed());
             Assertions.assertSame(parent, ConnectContext.get());
             Assertions.assertFalse(parent.isClosingOrClosed());
         }

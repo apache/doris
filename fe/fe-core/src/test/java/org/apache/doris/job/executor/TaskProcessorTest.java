@@ -19,10 +19,9 @@ package org.apache.doris.job.executor;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.disruptor.ExecuteTaskEvent;
 import org.apache.doris.job.extensions.insert.InsertTask;
-import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -39,61 +38,28 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class TaskProcessorTest {
     @Test
-    public void testReleaseStatementScopeAfterInsertTask() throws Exception {
-        assertReleaseStatementScope(true);
-    }
+    public void testEventReleasesItsTaskAndPreservesTheBorrowedContext() {
+        ConnectContext parent = new ConnectContext();
+        try (AutoCloseConnectContext parentScope = new AutoCloseConnectContext(parent)) {
+            ExecuteTaskEvent<AbstractTask> event = new ExecuteTaskEvent<>();
+            DefaultTaskExecutorHandler<AbstractTask> handler = new DefaultTaskExecutorHandler<>();
+            handler.onEvent(event);
+            Assertions.assertSame(parent, ConnectContext.get());
+            Assertions.assertFalse(parent.isClosingOrClosed());
 
-    @Test
-    public void testReleaseStatementScopeAfterMTMVTask() throws Exception {
-        assertReleaseStatementScope(false);
-    }
-
-    @Test
-    public void testRemoveContextWhenStatementCloseFails() {
-        TaskProcessor taskProcessor = new TaskProcessor(1, 1, Thread::new);
-        ConnectContext connectContext = new ConnectContext();
-        connectContext.setStatementContext(new StatementContext() {
-            @Override
-            public void close() {
-                throw new RuntimeException("injected close failure");
-            }
-        });
-        connectContext.setThreadLocalInfo();
-        try {
-            TaskProcessor.closeTaskContext();
-            Assertions.assertTrue(connectContext.isClosingOrClosed());
-            Assertions.assertNull(connectContext.getStatementContext());
-        } finally {
-            Assertions.assertNull(ConnectContext.get());
-            taskProcessor.shutdown();
-        }
-    }
-
-    @Test
-    public void testRunQueryFinishCallbacksForTaskContext() {
-        TaskProcessor taskProcessor = new TaskProcessor(1, 1, Thread::new);
-        ConnectContext connectContext = new ConnectContext();
-        connectContext.setStatementContext(new StatementContext());
-        TUniqueId queryId = new TUniqueId(1L, 1L);
-        connectContext.setQueryId(queryId);
-        connectContext.setThreadLocalInfo();
-        AtomicInteger callbackCount = new AtomicInteger();
-        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(
-                DebugUtil.printId(queryId), callbackCount::incrementAndGet);
-        try {
-            TaskProcessor.closeTaskContext();
-            Assertions.assertEquals(1, callbackCount.get());
-            Assertions.assertNull(ConnectContext.get());
-        } finally {
-            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
-            ConnectContext.remove();
-            taskProcessor.shutdown();
+            event.setTask(countingRejections(2L, new AtomicInteger(), () -> {
+                Assertions.assertSame(parent, ConnectContext.get());
+                throw new IllegalStateException("injected task failure");
+            }));
+            handler.onEvent(event);
+            Assertions.assertNull(event.getTask());
+            Assertions.assertSame(parent, ConnectContext.get());
+            Assertions.assertFalse(parent.isClosingOrClosed());
         }
     }
 
     @Test
     public void testCleanEveryMTMVExecutionContext() {
-        MTMVTask task = new MTMVTask();
         AtomicInteger callbackCount = new AtomicInteger();
         AtomicInteger closeCount = new AtomicInteger();
         ConnectContext taskContext = new ConnectContext();
@@ -113,7 +79,7 @@ public class TaskProcessorTest {
                 });
 
                 try (AutoCloseConnectContext scope = Deencapsulation.invoke(
-                        task, "bindExecutionContext", executionContext)) {
+                        AbstractTask.class, "bindExecutionContext", executionContext)) {
                     Assertions.assertSame(executionContext, ConnectContext.get());
                 }
                 Assertions.assertTrue(executionContext.isClosingOrClosed());
@@ -125,51 +91,6 @@ public class TaskProcessorTest {
             Assertions.assertEquals(2, closeCount.get());
         }
         Assertions.assertTrue(taskContext.isClosingOrClosed());
-    }
-
-    private void assertReleaseStatementScope(boolean insertTask) throws Exception {
-        AtomicInteger closeCount = new AtomicInteger();
-        CountDownLatch scopeInstalled = new CountDownLatch(1);
-        CountDownLatch workerReused = new CountDownLatch(1);
-        TaskProcessor taskProcessor = new TaskProcessor(1, 1, Thread::new);
-        try {
-            AbstractTask externalTask;
-            if (insertTask) {
-                externalTask = new InsertTask("external-insert", null, null, null) {
-                    @Override
-                    public void runTask() {
-                        installStatementScope(closeCount, scopeInstalled);
-                    }
-                };
-            } else {
-                externalTask = new MTMVTask() {
-                    @Override
-                    public void runTask() {
-                        installStatementScope(closeCount, scopeInstalled);
-                    }
-                };
-            }
-            externalTask.setStatus(TaskStatus.PENDING);
-            externalTask.setTaskId(1L);
-            Assertions.assertTrue(taskProcessor.addTask(externalTask));
-            Assertions.assertTrue(scopeInstalled.await(10, TimeUnit.SECONDS));
-
-            AbstractTask nextTask = new InsertTask("next-task", null, null, null) {
-                @Override
-                public void runTask() {
-                    Assertions.assertNull(ConnectContext.get());
-                    workerReused.countDown();
-                }
-            };
-            nextTask.setStatus(TaskStatus.PENDING);
-            nextTask.setTaskId(2L);
-            Assertions.assertTrue(taskProcessor.addTask(nextTask));
-
-            Assertions.assertTrue(workerReused.await(10, TimeUnit.SECONDS));
-            Assertions.assertEquals(1, closeCount.get());
-        } finally {
-            taskProcessor.shutdown();
-        }
     }
 
     /** A task the full queue turns away is told so, and only that one: the others are accepted and run. */
@@ -218,13 +139,4 @@ public class TaskProcessorTest {
         return task;
     }
 
-    private static void installStatementScope(AtomicInteger closeCount, CountDownLatch scopeInstalled) {
-        ConnectContext connectContext = new ConnectContext();
-        connectContext.setThreadLocalInfo();
-        StatementContext statementContext = new StatementContext();
-        connectContext.setStatementContext(statementContext);
-        ConnectorStatementScope scope = statementContext.getOrCreateConnectorStatementScope();
-        scope.computeIfAbsent("closeable", () -> (AutoCloseable) closeCount::incrementAndGet);
-        scopeInstalled.countDown();
-    }
 }

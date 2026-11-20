@@ -85,7 +85,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.Refres
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 import org.apache.doris.rpc.RpcException;
@@ -1737,21 +1736,6 @@ public class MTMVTask extends AbstractTask {
                         .ifPresent(r -> signatureRef.set(r.getPlanSignature()));
             }
             registerExecutor(executor);
-        };
-    }
-
-    private static AutoCloseConnectContext bindExecutionContext(ConnectContext executionContext) {
-        return new AutoCloseConnectContext(executionContext) {
-            @Override
-            public void close() {
-                try {
-                    if (executionContext.queryId() != null) {
-                        QeProcessorImpl.INSTANCE.unregisterQuery(executionContext.queryId());
-                    }
-                } finally {
-                    super.close();
-                }
-            }
         };
     }
 

@@ -197,9 +197,7 @@ public class ConnectPoolMgr {
             if (connectionMap.remove(ctx.getConnectionId(), ctx)) {
                 // Registered identity changes transfer the quota under these same locks.
                 connByUser.get(ctx.getQualifiedUser()).decrementAndGet();
-                if (ctx.traceId() != null) {
-                    traceId2QueryId.remove(ctx.traceId());
-                }
+                ctx.removeTraceMapping(this);
                 if (isFlight(ctx)) {
                     peerIdentity2ConnectionId.remove(ctx.getPeerIdentity(), ctx.getConnectionId());
                     numberFlightConnection.decrementAndGet();
@@ -219,24 +217,32 @@ public class ConnectPoolMgr {
         return connectionId == null ? null : getContext(connectionId);
     }
 
-    public ConnectContext getContextWithQueryId(String queryId) {
+    public ConnectContext.QueryTarget findQueryByIdOrTraceId(String id) {
+        ConnectContext.QueryTarget target = findQuery(id);
+        if (target != null) {
+            return target;
+        }
+        TUniqueId queryId = traceId2QueryId.get(id);
+        return queryId == null ? null : findQuery(DebugUtil.printId(queryId));
+    }
+
+    private ConnectContext.QueryTarget findQuery(String queryId) {
         for (ConnectContext context : connectionMap.values()) {
-            if (queryId.equals(DebugUtil.printId(context.queryId)) || queryId.equals(context.traceId())) {
-                return context;
+            ConnectContext.QueryTarget target = context.findQuery(queryId);
+            if (target != null) {
+                return target;
             }
         }
         return null;
     }
 
     public boolean cancelQuery(String queryId, Status cancelReason) {
-        for (ConnectContext ctx : connectionMap.values()) {
-            TUniqueId qid = ctx.queryId();
-            if (qid != null && DebugUtil.printId(qid).equals(queryId)) {
-                ctx.cancelQuery(cancelReason);
-                return true;
-            }
+        ConnectContext.QueryTarget target = findQuery(queryId);
+        if (target == null) {
+            return false;
         }
-        return false;
+        target.executor().cancel(cancelReason);
+        return true;
     }
 
     public int getConnectionNum() {
@@ -287,10 +293,9 @@ public class ConnectPoolMgr {
         return queryId == null ? "" : DebugUtil.printId(queryId);
     }
 
-    public void removeTraceId(String traceId) {
-        if (traceId != null) {
-            traceId2QueryId.remove(traceId);
-        }
+    void removeTraceId(String traceId, TUniqueId expectedQueryId) {
+        // Another connection may already have reused this trace label.
+        traceId2QueryId.remove(traceId, expectedQueryId);
     }
 
     public Map<Integer, ConnectContext> getConnectionMap() {

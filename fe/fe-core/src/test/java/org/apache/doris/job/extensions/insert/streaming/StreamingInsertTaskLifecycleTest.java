@@ -30,6 +30,8 @@ import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -60,6 +62,40 @@ public class StreamingInsertTaskLifecycleTest {
                 Assertions.assertSame(parent, ConnectContext.get());
                 Assertions.assertFalse(parent.isClosingOrClosed());
             }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void terminalCallbackStillOwnsTheStreamingAttempt(boolean fail) throws Exception {
+        List<String> events = new ArrayList<>();
+        LifecycleTask task = new LifecycleTask() {
+            @Override
+            public boolean onSuccess() {
+                checkAttempt("success");
+                return true;
+            }
+
+            @Override
+            protected void onFail(String errMsg) {
+                checkAttempt("failure");
+            }
+
+            private void checkAttempt(String event) {
+                Assertions.assertSame(getCtx(), ConnectContext.get());
+                Assertions.assertFalse(getCtx().isClosingOrClosed());
+                events.add(event);
+            }
+        };
+        task.noRetry = true;
+        task.failures = fail ? 1 : 0;
+        ConnectContext parent = new ConnectContext();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(parent)) {
+            task.execute();
+            Assertions.assertEquals(List.of(fail ? "failure" : "success"), events);
+            Assertions.assertEquals(1, task.closed.get());
+            Assertions.assertTrue(task.contexts.get(0).isClosingOrClosed());
+            Assertions.assertSame(parent, ConnectContext.get());
         }
     }
 

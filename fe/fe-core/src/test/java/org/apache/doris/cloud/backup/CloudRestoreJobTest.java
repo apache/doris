@@ -24,6 +24,7 @@ import org.apache.doris.backup.BackupJobInfo.BackupOlapTableInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupPartitionInfo;
 import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.Repository;
+import org.apache.doris.backup.RestoreJob.RestoreJobState;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -55,6 +56,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -227,6 +230,34 @@ public class CloudRestoreJobTest {
         expectedRestoreTbl.setTableProperty(tableProperty);
         job.checkStorageVault(expectedRestoreTbl);
         Assertions.assertFalse(job.getStatus().ok());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void runRestoresCallerComputeGroup(boolean fail) {
+        String original = fail ? null : "caller_group";
+        ctx.getSessionVariable().setCloudCluster(original);
+        CloudRestoreJob running = Mockito.spy(job);
+        Deencapsulation.setField(running, "repo", repo);
+        RuntimeException failure = new IllegalStateException("restore failed");
+        Mockito.doAnswer(inv -> {
+            Assertions.assertSame(ctx, ConnectContext.get());
+            Assertions.assertEquals("test_compute_group", ctx.getCloudCluster());
+            if (fail) {
+                throw failure;
+            }
+            Deencapsulation.setField(running, "state", RestoreJobState.FINISHED);
+            return null;
+        }).when(running).checkIfNeedCancel();
+        if (fail) {
+            Assertions.assertSame(failure, Assertions.assertThrows(RuntimeException.class, running::run));
+        } else {
+            running.run();
+        }
+        Mockito.verify(running).checkIfNeedCancel();
+        Assertions.assertSame(ctx, ConnectContext.get());
+        Assertions.assertFalse(ctx.isClosingOrClosed());
+        Assertions.assertEquals(original, ctx.getSessionVariable().getCloudCluster());
     }
 
     @Test

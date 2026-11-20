@@ -90,8 +90,8 @@ public class ConnectScheduler {
         return connectPoolMgr.getContextWithPeerIdentity(peerIdentity);
     }
 
-    public ConnectContext getContextWithQueryId(String queryId) {
-        return connectPoolMgr.getContextWithQueryId(queryId);
+    public ConnectContext.QueryTarget findQueryByIdOrTraceId(String queryId) {
+        return connectPoolMgr.findQueryByIdOrTraceId(queryId);
     }
 
     public boolean cancelQuery(String queryId, Status cancelReason) {
@@ -114,10 +114,6 @@ public class ConnectScheduler {
 
     public String getQueryIdByTraceId(String traceId) {
         return connectPoolMgr.getQueryIdByTraceId(traceId);
-    }
-
-    public void removeOldTraceId(String traceId) {
-        connectPoolMgr.removeTraceId(traceId);
     }
 
     public Map<Integer, ConnectContext> getConnectionMap() {

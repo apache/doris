@@ -51,11 +51,11 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.trees.plans.commands.RestoreCommand;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.thrift.TStorageMedium;
@@ -134,29 +134,27 @@ public class CloudRestoreJob extends RestoreJob {
         }
     }
 
-    private AutoCloseConnectContext buildConnectContext() throws UserException {
-        if (Strings.isNullOrEmpty(cloudClusterName)) {
-            throw new UserException("compute group name is not set.");
-        }
-        if (ConnectContext.get() == null) {
-            ConnectContext ctx = new ConnectContext();
-            ctx.setCloudCluster(cloudClusterName);
-            return new AutoCloseConnectContext(ctx);
-        } else {
-            ConnectContext.get().setCloudCluster(cloudClusterName);
-            return null;
-        }
-    }
-
     @Override
     public synchronized void run() {
         if (state == RestoreJobState.FINISHED || state == RestoreJobState.CANCELLED) {
             return;
         }
-        try (AutoCloseConnectContext r = buildConnectContext()) {
-            super.run();
-        } catch (UserException e) {
-            LOG.error("failed to run cloud restore job", e);
+        if (Strings.isNullOrEmpty(cloudClusterName)) {
+            LOG.error("failed to run cloud restore job: compute group name is not set");
+            return;
+        }
+        try (AutoCloseConnectContext scope = ConnectContext.get() == null
+                ? new AutoCloseConnectContext(new ConnectContext()) : null) {
+            ConnectContext ctx = ConnectContext.get();
+            SessionVariable variables = ctx.getSessionVariable();
+            // Save the explicit setting. Resolving an unset group would pick and cache a default.
+            String previousCluster = variables.getCloudCluster();
+            try {
+                ctx.setCloudCluster(cloudClusterName);
+                super.run();
+            } finally {
+                variables.setCloudCluster(previousCluster);
+            }
         }
     }
 

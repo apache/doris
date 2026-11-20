@@ -500,13 +500,22 @@ public class StatementContext implements Closeable {
      */
     public static <T, E extends Exception> T withNestedStatement(ConnectContext session, String sql,
             FailableFunction<StatementContext, T, E> action) throws E {
-        StatementContext previous = session.getStatementContext();
-        try (StatementContext statement = new StatementContext(session, new OriginStatement(sql, 0))) {
-            session.setStatementContext(statement);
-            return action.apply(statement);
-        } finally {
-            session.setStatementContext(previous);
-        }
+        return session.withThreadLocal(() -> {
+            StatementContext previous = session.getStatementContext();
+            StatementContext child = new StatementContext(session, new OriginStatement(sql, 0));
+            try (StatementCleanup cleanup = () -> child.close(true)) {
+                session.setStatementContext(child);
+                return action.apply(child);
+            } finally {
+                session.setStatementContext(previous);
+            }
+        });
+    }
+
+    @FunctionalInterface
+    private interface StatementCleanup extends AutoCloseable {
+        @Override
+        void close();
     }
 
     /**
@@ -1713,6 +1722,10 @@ public class StatementContext implements Closeable {
 
     @Override
     public void close() {
+        close(false);
+    }
+
+    private void close(boolean synchronousPlanning) {
         Throwable failure = null;
         try {
             releasePlannerResources();
@@ -1721,7 +1734,7 @@ public class StatementContext implements Closeable {
             throw e;
         } finally {
             try {
-                closeExecutionResources();
+                closeExecutionResources(synchronousPlanning);
             } catch (RuntimeException | Error e) {
                 if (failure == null) {
                     throw e;
@@ -1733,21 +1746,15 @@ public class StatementContext implements Closeable {
         }
     }
 
-    private void closeExecutionResources() {
+    private void closeExecutionResources(boolean synchronousPlanning) {
         // After the table locks: stopping a remote Doris scan's node sends a CloseSession to the other
         // frontend, which must not be waited for under a lock. A failed unlock must not skip this cleanup.
         stopScanNodesLeftBehind();
-        // Fallback deterministic close of the per-statement connector scope, for statements that open it without
-        // planning a scan, so no query-finish callback closes it: external DDL / SHOW / DESCRIBE run via
-        // Command.run and only read metadata. (Every scan registers that callback when it starts planning splits,
-        // also under EXPLAIN or a plan that fails later; StmtExecutor runs it when the attempt ends.) close() runs
-        // in ConnectProcessor's per-statement finally (direct connection) and the forwarded-request finally (master
-        // side), so it covers them. Guarded by isReturnResultFromLocal so an arrow-flight statement (which returns
-        // results asynchronously and defers cleanup to its own query-finish close) is not closed early here.
-        // Idempotent (closeAll is close-once), so a statement whose scope the callback already closed is a no-op;
-        // a split producer still running after the close is refused by the closed scope.
-        if (connectorStatementScope != null && connectContext != null && connectContext.isReturnResultFromLocal()) {
-            connectorStatementScope.closeAll();
+        // A synchronous nested plan owns its connector resources even inside a remote Flight query.
+        // Only top-level Flight execution can hand a live scope to its query-finish callback.
+        if (connectorStatementScope != null
+                && (synchronousPlanning || connectContext == null || connectContext.isReturnResultFromLocal())) {
+            closeConnectorStatementScope();
         }
     }
 

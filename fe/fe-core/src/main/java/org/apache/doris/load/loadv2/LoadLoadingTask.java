@@ -35,12 +35,9 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.nereids.load.NereidsBrokerFileGroup;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
-import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.resource.BackendSelection;
-import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
@@ -95,18 +92,15 @@ public class LoadLoadingTask extends LoadTask {
     private List<TPipelineWorkloadGroup> tWorkloadGroups = null;
     private BackendSelection.SelectionHint loadBackendSelectionHint;
 
-    protected UserIdentity userInfo;
-
-    public LoadLoadingTask(UserIdentity userInfo, Database db, OlapTable table,
+    public LoadLoadingTask(Database db, OlapTable table,
             BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
             long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
             TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy,
-            long txnId, LoadTaskCallback callback, String timezone,
+            long txnId, BrokerLoadJob callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
             Priority priority, boolean enableMemTableOnSinkNode, int batchSize) {
         super(callback, TaskType.LOADING, priority);
-        this.userInfo = userInfo;
         this.db = db;
         this.table = table;
         this.brokerDesc = brokerDesc;
@@ -167,16 +161,7 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     protected void executeOnce() throws Exception {
-        try (AutoCloseConnectContext scope = ConnectContext.get() == null
-                ? new AutoCloseConnectContext(new ConnectContext()) : null) {
-            // The task may execute on a different worker after the submitting session has been
-            // cleared or reused. Restore the job-owned hint immediately before Coordinator resolves
-            // load backends, otherwise it can fall back to the current global/session variables.
-            ConnectContext executionContext = ConnectContext.get();
-            if (scope != null) {
-                executionContext.setEnv(Env.getCurrentEnv());
-            }
-            BackendSelectionManager.restoreLoadSelection(executionContext, loadBackendSelectionHint);
+        ((BrokerLoadJob) callback).withTaskContext(loadBackendSelectionHint, executionContext -> {
             final boolean enableProfile = this.jobProfile != null;
             // New one query id,
             Coordinator curCoordinator =  EnvFactory.getInstance().createCoordinator(executionContext,
@@ -215,7 +200,7 @@ public class LoadLoadingTask extends LoadTask {
             } finally {
                 QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
             }
-        }
+        });
     }
 
     private void actualExecute(Coordinator curCoordinator, int waitSecond) throws Exception {

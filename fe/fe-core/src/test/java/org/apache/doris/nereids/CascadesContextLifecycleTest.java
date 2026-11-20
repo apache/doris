@@ -59,6 +59,8 @@ class CascadesContextLifecycleTest {
                 }
             }
             Function<CascadesContext, String> action = context -> {
+                Assertions.assertSame(context.getConnectContext(), ConnectContext.get());
+                Assertions.assertSame(context.getStatementContext(), ConnectContext.get().getStatementContext());
                 usedContext.set(context.getConnectContext());
                 connectorScope.set((ConnectorStatementScopeImpl)
                         context.getStatementContext().getOrCreateConnectorStatementScope());

@@ -21,14 +21,18 @@ import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.master.MasterImpl;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TFetchLoadJobRequest;
 import org.apache.doris.thrift.TGetBinlogRequest;
@@ -226,6 +230,57 @@ class FrontendServiceContextLifecycleTest {
         } finally {
             caller.cleanup();
         }
+    }
+
+    @Test
+    void forwardedDdlCancelledBeforeExecutorPublicationReturnsInterrupted() throws Exception {
+        TMasterOpRequest request = forwardRequest().setQueryId(new TUniqueId(3, 4))
+                .setUser("user").setDb("db").setSql("CREATE DATABASE must_not_run");
+        Mockito.when(env.checkFeExist("follower", 9020)).thenReturn(Mockito.mock(Frontend.class));
+        CatalogMgr catalogs = Mockito.mock(CatalogMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogs);
+        Mockito.when(catalogs.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(catalog);
+        Auth auth = Mockito.mock(Auth.class);
+        Mockito.when(env.getAuth()).thenReturn(auth);
+        AtomicReference<ConnectContext> proxy = new AtomicReference<>();
+        Mockito.when(auth.getComputeGroup("user")).thenAnswer(call -> {
+            ConnectContext context = ConnectContext.get();
+            Assertions.assertNull(context.getExecutor());
+            context.getSessionVariable().setEnableSqlCache(false);
+            proxy.set(context);
+            TMasterOpResult cancelled = service.forward(request.deepCopy().setCancelQeury(true));
+            Assertions.assertEquals(0, cancelled.getStatusCode());
+            Assertions.assertTrue(context.isClosingOrClosed());
+            Assertions.assertSame(context, ConnectContext.get());
+            return null;
+        });
+
+        TMasterOpResult result = service.forward(request);
+        Assertions.assertEquals(ErrorCode.ERR_QUERY_INTERRUPTED.getCode(), result.getStatusCode());
+        Assertions.assertEquals("ERR", result.getStatus());
+        Assertions.assertNotNull(proxy.get());
+        Assertions.assertNull(proxy.get().getStatementContext());
+        Assertions.assertNull(ConnectContext.get());
+    }
+
+    @Test
+    void exitingProxyCannotUnregisterARetryWithTheSameQueryId() throws Exception {
+        TMasterOpRequest request = forwardRequest().setQueryId(new TUniqueId(1, 2));
+        ConnectContext first = Mockito.mock(ConnectContext.class);
+        ConnectContext retry = Mockito.mock(ConnectContext.class);
+        Mockito.when(env.checkFeExist("follower", 9020)).thenReturn(Mockito.mock(Frontend.class));
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(retry.getExecutor()).thenReturn(executor);
+        Runnable releaseFirst = service.registerProxyQuery(request, first);
+        Runnable releaseRetry = service.registerProxyQuery(request, retry);
+        TMasterOpRequest cancel = request.deepCopy().setCancelQeury(true);
+        releaseFirst.run();
+        service.forward(cancel);
+        Mockito.verify(executor).cancel(Mockito.any());
+        Mockito.verifyNoInteractions(first);
+        releaseRetry.run();
+        service.forward(cancel);
+        Mockito.verifyNoMoreInteractions(executor);
     }
 
     private static TMasterOpRequest forwardRequest() {

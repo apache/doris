@@ -47,6 +47,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -637,7 +638,11 @@ public abstract class ConnectProcessor {
                 UUID uuid = UUID.randomUUID();
                 queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
             }
-            if (request.isSetPrepareExecuteBuffer()) {
+            Status cancelled = executor.getPendingCancelReason();
+            if (cancelled != null) {
+                // DDL can run entirely on the FE and never publish a coordinator for cancellation.
+                ctx.getState().setError(ErrorCode.ERR_QUERY_INTERRUPTED, cancelled.getErrorMsg());
+            } else if (request.isSetPrepareExecuteBuffer()) {
                 ctx.setCommand(MysqlCommand.COM_STMT_PREPARE);
                 executor.execute();
                 ctx.setCommand(MysqlCommand.COM_STMT_EXECUTE);

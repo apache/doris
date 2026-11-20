@@ -192,21 +192,17 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         .toRuntimeException();
             }
             try {
-                final VectorSchemaRoot vectorSchemaRoot = result.getVectorSchemaRoot();
-                listener.start(vectorSchemaRoot);
+                listener.start(result.getVectorSchemaRoot());
                 listener.putNext();
+                listener.completed();
             } catch (Throwable e) {
                 String errMsg = "get stream statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                         + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                         + connectContext.getState().getErrorMessage();
-                handleStreamException(e, errMsg, listener);
+                throw streamFailure(errMsg, e);
             } finally {
-                try {
-                    listener.completed();
-                } finally {
-                    // A failed listener still relinquishes this result, never another ticket's buffers.
-                    connectContext.getFlightSqlChannel().invalidate(queryId);
-                }
+                // Even a failed send consumes this ticket and releases its buffers.
+                connectContext.getFlightSqlChannel().invalidate(queryId);
             }
         });
     }
@@ -712,7 +708,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     @Override
     public void getStreamCatalogs(final CallContext context, final ServerStreamListener listener) {
-        streamMetadata(context, listener, connectContext -> {
+        streamMetadata(context, connectContext -> {
             FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
             final Schema schema = Schemas.GET_CATALOGS_SCHEMA;
 
@@ -735,7 +731,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void getStreamSchemas(final CommandGetDbSchemas command, final CallContext context,
             final ServerStreamListener listener) {
-        streamMetadata(context, listener, connectContext -> {
+        streamMetadata(context, connectContext -> {
             FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
             flightSqlSchemaHelper.setParameterForGetDbSchemas(command);
             final Schema schema = Schemas.GET_SCHEMAS_SCHEMA;
@@ -763,7 +759,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void getStreamTables(final CommandGetTables command, final CallContext context,
             final ServerStreamListener listener) {
-        streamMetadata(context, listener, connectContext -> {
+        streamMetadata(context, connectContext -> {
             FlightSqlSchemaHelper flightSqlSchemaHelper = new FlightSqlSchemaHelper(connectContext);
             flightSqlSchemaHelper.setParameterForGetTables(command);
             final Schema schema = command.getIncludeSchema() ? Schemas.GET_TABLES_SCHEMA
@@ -787,7 +783,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     @Override
     public void getStreamTableTypes(final CallContext context, final ServerStreamListener listener) {
-        streamMetadata(context, listener, connectContext -> {
+        streamMetadata(context, connectContext -> {
             try (VectorSchemaRoot vectorSchemaRoot = VectorSchemaRoot.create(
                     Schemas.GET_TABLE_TYPES_SCHEMA, rootAllocator)) {
                 listener.start(vectorSchemaRoot);
@@ -941,18 +937,16 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     // Answers a metadata request (catalogs, schemas, tables, table types) from the session's context, as one
     // command of that session.
-    private void streamMetadata(final CallContext context, final ServerStreamListener listener,
-            MetadataStream stream) {
+    private void streamMetadata(final CallContext context, MetadataStream stream) {
         try {
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> stream.send(connectContext));
         } catch (FlightRuntimeException e) {
             // Same as in getFlightInfoStatement: keep the status returned by session admission.
             LOG.error("stream metadata failed", e);
-            listener.error(e);
             throw e;
         } catch (final Throwable e) {
-            handleStreamException(e, "", listener);
+            throw streamFailure("stream metadata failed", e);
         }
     }
 
@@ -980,9 +974,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         return new FlightInfo(schema, descriptor, endpoints, -1, -1);
     }
 
-    private static void handleStreamException(Throwable e, String errMsg, ServerStreamListener listener) {
-        LOG.error(errMsg, e);
-        listener.error(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
-        throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
+    // FlightService.doGetCustom delivers exceptions from a synchronous producer to the stream listener.
+    private static FlightRuntimeException streamFailure(String message, Throwable cause) {
+        LOG.error(message, cause);
+        return CallStatus.INTERNAL.withDescription(message).withCause(cause).toRuntimeException();
     }
 }

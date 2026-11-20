@@ -463,7 +463,7 @@ public class DorisFlightSqlProducerTest {
 
     @Test
     public void testDoGetDiscardsItsResultEvenWhenListenerCallbacksThrow() throws Exception {
-        for (String failingCallback : new String[] {"start", "putNext", "error", "completed"}) {
+        for (String failingCallback : new String[] {"start", "putNext", "completed"}) {
             ConnectContext ctx = ConnectContext.forFlight("result-token");
             FlightSqlChannel channel = ctx.getFlightSqlChannel();
             channel.addOKResult("first", "SELECT 1");
@@ -480,10 +480,6 @@ public class DorisFlightSqlProducerTest {
                     case "putNext":
                         Mockito.doThrow(failure).when(listener).putNext();
                         break;
-                    case "error":
-                        Mockito.doThrow(failure).when(listener).putNext();
-                        Mockito.doThrow(failure).when(listener).error(Mockito.any(Throwable.class));
-                        break;
                     case "completed":
                         Mockito.doThrow(failure).when(listener).completed();
                         break;
@@ -492,6 +488,9 @@ public class DorisFlightSqlProducerTest {
                 }
                 Assertions.assertThrows(RuntimeException.class, () -> producer.getStreamStatement(
                         ticket("result-token", "first"), callOf("reader"), listener));
+                // The Flight service reports the thrown exception to the listener.
+                Mockito.verify(listener, Mockito.never()).error(Mockito.any(Throwable.class));
+                Mockito.verify(listener, Mockito.times("completed".equals(failingCallback) ? 1 : 0)).completed();
                 Assertions.assertNull(channel.getResult("first"), failingCallback);
                 Assertions.assertNotNull(channel.getResult("second"), failingCallback);
                 Assertions.assertEquals(1, channel.resultNum(), failingCallback);

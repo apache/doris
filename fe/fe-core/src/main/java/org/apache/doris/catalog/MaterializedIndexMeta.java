@@ -24,9 +24,9 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContextUtil;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.thrift.TStorageType;
 
@@ -287,54 +287,52 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
         if (defineStmt == null) {
             return;
         }
-        try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(ConnectContext.get(), sessionVariables)) {
-            // analyze define stmt
-            try {
-                NereidsParser nereidsParser = new NereidsParser();
-                CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
-                        defineStmt.originStmt);
-                ConnectContext ctx = ConnectContext.get();
-                if (ctx == null) {
-                    ConnectContext privateContext = ConnectContextUtil.getDummyCtx(dbName);
-                    try {
-                        command.validate(privateContext);
-                    } finally {
-                        privateContext.cleanup();
-                    }
-                } else {
-                    // AlterJobV2 may supply a task context without planning state.
-                    if (ctx.getStatementContext() == null) {
-                        ctx.setStatementContext(new StatementContext(ctx, null));
-                    }
-                    if (StringUtils.isEmpty(ctx.getDatabase())) {
-                        ctx.setDatabase(dbName);
-                    }
-                    if (ctx.getEnv() == null) {
-                        ctx.setEnv(Env.getCurrentEnv());
-                    }
-                    if (ctx.getCurrentUserIdentity() == null) {
-                        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-                    }
-                    command.validate(ctx);
-                }
-
-                if (command.getWhereClauseItem() != null) {
-                    setWhereClause(command.getWhereClauseItem().getDefineExpr());
-                }
-                try {
-                    List<MVColumnItem> mvColumnItemList = command.getMVColumnItemList();
-                    List<Expr> columnDefineExprs = new ArrayList<>(mvColumnItemList.size());
-                    for (MVColumnItem item : mvColumnItemList) {
-                        Expr defineExpr = item.getDefineExpr();
-                        columnDefineExprs.add(defineExpr);
-                    }
-                    setColumnsDefineExpr(columnDefineExprs);
-                } catch (Exception e) {
-                    LOG.warn("CreateMaterializedViewCommand parseDefineExpr failed, reason=", e);
-                }
-            } catch (Exception e) {
-                throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
+        try {
+            CreateMaterializedViewCommand command = analyzeDefinition();
+            if (command.getWhereClauseItem() != null) {
+                setWhereClause(command.getWhereClauseItem().getDefineExpr());
             }
+            try {
+                List<MVColumnItem> mvColumnItemList = command.getMVColumnItemList();
+                List<Expr> columnDefineExprs = new ArrayList<>(mvColumnItemList.size());
+                for (MVColumnItem item : mvColumnItemList) {
+                    columnDefineExprs.add(item.getDefineExpr());
+                }
+                setColumnsDefineExpr(columnDefineExprs);
+            } catch (Exception e) {
+                LOG.warn("CreateMaterializedViewCommand parseDefineExpr failed, reason=", e);
+            }
+        } catch (Exception e) {
+            throw new IOException("error happens when parsing create materialized view stmt: " + defineStmt, e);
+        }
+    }
+
+    private CreateMaterializedViewCommand analyzeDefinition() throws Exception {
+        // Validation writes one-shot variables and reports errors through the current session.
+        // Keep those changes local even when an alter job or client is already bound to this thread.
+        ConnectContext caller = ConnectContext.get();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                caller == null ? new ConnectContext() : caller.createInternalQueryContext());
+                AutoCloseSessionVariable variables = new AutoCloseSessionVariable(scope.connectContext,
+                        sessionVariables)) {
+            ConnectContext replay = scope.connectContext;
+            if (replay.getEnv() == null) {
+                NameSpaceContext namespace = replay.getNameSpaceContext();
+                replay.setEnv(Env.getCurrentEnv());
+                replay.restoreNameSpaceContext(namespace);
+            }
+            if (replay.getCurrentUserIdentity() == null) {
+                replay.setCurrentUserIdentity(UserIdentity.ADMIN);
+            }
+            if (StringUtils.isEmpty(replay.getDatabase())) {
+                replay.setDatabase(dbName);
+            }
+            return StatementContext.withNestedStatement(replay, defineStmt.originStmt, statement -> {
+                CreateMaterializedViewCommand command =
+                        (CreateMaterializedViewCommand) new NereidsParser().parseSingle(defineStmt.originStmt);
+                command.validate(replay);
+                return command;
+            });
         }
     }
 

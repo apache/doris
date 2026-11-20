@@ -54,6 +54,7 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.service.ExecuteEnv;
@@ -67,9 +68,9 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.function.FailableConsumer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -277,15 +278,23 @@ public class BrokerLoadJob extends BulkLoadJob {
         loadStartTimestamp = System.currentTimeMillis();
     }
 
-    // make public for UT
-    public void setComputeGroup() {
-        ComputeGroup computeGroup = null;
-        ConnectContext context = Preconditions.checkNotNull(ConnectContext.get(), "load context is not bound");
-        try {
-            if (context.getEnv() == null) {
-                context.setEnv(Env.getCurrentEnv());
-            }
+    // Planning and each execution attempt may run on different workers. Bind the job's routing
+    // and identity for the duration of the operation and leave any worker session untouched.
+    <E extends Exception> void withTaskContext(BackendSelection.SelectionHint hint,
+            FailableConsumer<ConnectContext, E> action) throws E, UserException {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext context = scope.connectContext;
+            context.setEnv(Env.getCurrentEnv());
+            context.setCurrentUserIdentity(getUserInfo());
+            setComputeGroup(context);
+            BackendSelectionManager.restoreLoadSelection(context, hint);
+            action.accept(context);
+        }
+    }
 
+    public void setComputeGroup(ConnectContext context) throws UserException {
+        ComputeGroup computeGroup;
+        try {
             String currentUser = getUserInfo().getQualifiedUser();
             // user is null or get an invalid compute group should not be normal case,
             // broker load job can get all backends when meets it.
@@ -305,35 +314,29 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
 
         context.setComputeGroup(computeGroup);
-        BackendSelectionManager.restoreLoadSelection(context, getLoadBackendSelectionHint());
     }
 
     protected LoadLoadingTask createTask(Database db, OlapTable table, List<BrokerFileGroup> brokerFileGroups,
             boolean isEnableMemtableOnSinkNode, int batchSize, FileGroupAggKey aggKey,
             BrokerPendingTaskAttachment attachment) throws UserException {
-        try (AutoCloseConnectContext scope = ConnectContext.get() == null
-                ? new AutoCloseConnectContext(new ConnectContext()) : null) {
-            LoadLoadingTask task = new LoadLoadingTask(this.userInfo, db, table, brokerDesc,
-                    brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
-                    isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
-                    transactionId, this, getTimeZone(), getTimeout(),
-                    getLoadParallelism(), getSendBatchParallelism(),
-                    getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                    getPriority(), isEnableMemtableOnSinkNode, batchSize);
-            task.setLoadBackendSelectionHint(getLoadBackendSelectionHint());
-
-            UUID uuid = UUID.randomUUID();
-            TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-
-            setComputeGroup();
-
+        LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
+                brokerFileGroups, getDeadlineMs(), getExecMemLimit(),
+                isStrictMode(), isPartialUpdate(), getPartialUpdateNewKeyPolicy(),
+                transactionId, this, getTimeZone(), getTimeout(),
+                getLoadParallelism(), getSendBatchParallelism(),
+                getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
+                getPriority(), isEnableMemtableOnSinkNode, batchSize);
+        BackendSelection.SelectionHint hint = getLoadBackendSelectionHint();
+        task.setLoadBackendSelectionHint(hint);
+        UUID uuid = UUID.randomUUID();
+        TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+        withTaskContext(hint, context -> {
             task.init(loadId, attachment.getFileStatusByTable(aggKey),
                     attachment.getFileNumByTable(aggKey), getUserInfo());
-            ConnectContext context = ConnectContext.get();
             recordLoadBackendSelectionSummary(context.getBackendSelectionProfile().getLoadSummary());
-            task.settWorkloadGroups(tWorkloadGroups);
-            return task;
-        }
+        });
+        task.settWorkloadGroups(tWorkloadGroups);
+        return task;
     }
 
     private void createLoadingTask(Database db, BrokerPendingTaskAttachment attachment) throws UserException {

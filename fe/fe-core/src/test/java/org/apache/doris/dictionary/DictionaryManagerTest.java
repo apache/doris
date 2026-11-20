@@ -19,7 +19,10 @@ package org.apache.doris.dictionary;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Status;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -32,7 +35,10 @@ import org.apache.doris.persist.DictionaryDecreaseVersionInfo;
 import org.apache.doris.persist.DictionaryIncreaseVersionInfo;
 import org.apache.doris.persist.DropDictionaryPersistInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -123,6 +129,46 @@ public class DictionaryManagerTest {
 
         manager.replayIncreaseVersion(new DictionaryIncreaseVersionInfo(dict));
         Assertions.assertEquals(2, manager.getDictionary(1001).getVersion());
+    }
+
+    @Test
+    public void testCancelledManualRefreshKeepsItsOuterStatement() throws Exception {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext ctx = scope.connectContext;
+            ctx.getSessionVariable().setEnableSqlCache(false);
+            StmtExecutor refresh = new StmtExecutor(ctx, "REFRESH DICTIONARY d");
+            StatementContext parent = ctx.getStatementContext();
+            refresh.cancel(new Status(TStatusCode.CANCELLED, "refresh cancelled"), false);
+
+            InsertIntoDictionaryCommand insert = Mockito.mock(InsertIntoDictionaryCommand.class);
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class, () ->
+                    StatementContext.withNestedStatement(ctx, "INSERT INTO d SELECT * FROM t", statement -> {
+                        DictionaryManager.executeRefreshInsert(ctx, insert);
+                        return null;
+                    }));
+            Assertions.assertTrue(error.getMessage().contains("refresh cancelled"));
+            Mockito.verify(insert).cancel();
+            Assertions.assertSame(refresh, ctx.getExecutor());
+            Assertions.assertSame(parent, ctx.getStatementContext());
+            Assertions.assertFalse(ctx.isClosingOrClosed());
+        }
+    }
+
+    @Test
+    public void testRefreshDropsFinishedInsertCancellationCallback() throws Exception {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext ctx = scope.connectContext;
+            ctx.getSessionVariable().setEnableSqlCache(false);
+            StmtExecutor refresh = new StmtExecutor(ctx, "REFRESH DICTIONARY d");
+            InsertIntoDictionaryCommand insert = Mockito.mock(InsertIntoDictionaryCommand.class);
+            StatementContext.withNestedStatement(ctx, "INSERT INTO d SELECT * FROM t", statement -> {
+                DictionaryManager.executeRefreshInsert(ctx, insert);
+                return null;
+            });
+            refresh.cancel(new Status(TStatusCode.CANCELLED, "late cancellation"), false);
+            Mockito.verify(insert, Mockito.never()).cancel();
+            Assertions.assertSame(refresh, ctx.getExecutor());
+        }
     }
 
     @Test

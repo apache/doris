@@ -33,6 +33,8 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.dictionary.Dictionary.DictionaryStatus;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.manager.TaskDisruptorGroupManager;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateDictionaryInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoDictionaryCommand;
@@ -445,145 +447,180 @@ public class DictionaryManager extends MasterDaemon implements Writable {
         // Resolve first so every LOADING refresh carries one exact owner generation.
         Database database = getCurrentDatabase(dictionary);
 
-        // use atomic status as a lock.
-        if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.LOADING)) {
+        if (ctx != null) {
+            refreshInSession(ctx, database, dictionary, oldStatus, adaptiveLoad);
+        } else {
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                    InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName()))) {
+                refreshInSession(scope.connectContext, database, dictionary, oldStatus, adaptiveLoad);
+            }
+        }
+    }
+
+    private void refreshInSession(ConnectContext ctx, Database database, Dictionary dictionary,
+            DictionaryStatus oldStatus, boolean adaptiveLoad) throws Exception {
+        String insertSql = buildDataLoadSql(dictionary);
+        // Planning, commit and abort all consult this INSERT's statement resources.
+        StatementContext.withNestedStatement(ctx, insertSql, statement -> {
+            loadAndCommit(ctx, database, dictionary, oldStatus, adaptiveLoad, insertSql);
+            return null;
+        });
+    }
+
+    private void loadAndCommit(ConnectContext ctx, Database database, Dictionary dictionary, DictionaryStatus oldStatus,
+            boolean adaptiveLoad, String insertSql) throws Exception {
+        if (!dictionary.trySetStatus(DictionaryStatus.LOADING)) {
             throw new AnalysisException("Dictionary " + dictionary.getName() + " cannot load now, status is "
                     + dictionary.getStatus().name());
         }
+        try {
+            while (DebugPointUtil.isEnable("DictionaryManager.dataLoad.blockBeforePlan")) {
+                Thread.sleep(10);
+            }
+            NereidsParser parser = new NereidsParser();
+            InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
+            LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
+                    adaptiveLoad);
+            if (!baseCommand.getLabelName().isPresent()) {
+                baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
+            }
+            if (baseCommand.getJobId() == 0) {
+                baseCommand.setJobId(DICTIONARY_JOB_ID);
+            }
 
-        while (DebugPointUtil.isEnable("DictionaryManager.dataLoad.blockBeforePlan")) {
-            Thread.sleep(10);
+            InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
+                    baseCommand, database, dictionary, adaptiveLoad);
+
+            // avoid to generate EmptySetNode making us not able to get base table version.
+            ctx.getSessionVariable().setVarOnce(SessionVariable.DISABLE_NEREIDS_RULES,
+                    "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
+            executeRefreshInsert(ctx, command);
+        } catch (Exception e) {
+            // wait next shedule.
+            dictionary.trySetStatus(oldStatus);
+            dictionary.setLastUpdateResult(e.getMessage());
+            throw e;
+        }
+        // some insert failed won't throw but only set error status.
+        if (ctx.getState().getErrorCode() != null && ctx.getState().getErrorMessage() != null) {
+            dictionary.trySetStatus(oldStatus);
+            dictionary.setLastUpdateResult(ctx.getState().getErrorMessage());
+            // for must failed refresh, we can skip it at next time. this mark is tricky but we have to do now.
+            if (ctx.getState().getErrorMessage().contains("[INVALID_DICT_MARK]")) {
+                LOG.warn("Dictionary {} load failed with src version {}, mark it invalid", dictionary.getName(),
+                        ctx.getStatementContext().getDictionaryUsedSrcVersion());
+                dictionary.updateLatestInvalidVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
+            }
+            throw new RuntimeException(ctx.getState().getErrorMessage());
         }
 
-        // A manual refresh uses the command's session. Only a scheduled refresh owns a new one.
-        AutoCloseConnectContext scope = null;
+        // because of deleting does NOT conflict with loading, we should check dictionary's existance again!
+        lockRead();
+        boolean unlocked = false;
         try {
-            try {
-                if (ctx == null) {
-                    scope = new AutoCloseConnectContext(InsertTask.makeConnectContext(
-                            UserIdentity.ADMIN, dictionary.getDbName()));
-                    ctx = scope.connectContext;
-                }
+            if (!isCurrentDictionaryWithoutLock(database, dictionary)) {
+                unlockRead();
+                unlocked = true;
 
-                // not use rerfresh command's executor to avoid potential problems.
-                String insertSql = buildDataLoadSql(dictionary);
-                StmtExecutor executor = new StmtExecutor(ctx, insertSql);
-                NereidsParser parser = new NereidsParser();
-                InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
-                LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
-                        adaptiveLoad);
-                if (!baseCommand.getLabelName().isPresent()) {
-                    baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
-                }
-                if (baseCommand.getJobId() == 0) {
-                    baseCommand.setJobId(DICTIONARY_JOB_ID);
-                }
-
-                InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
-                        baseCommand, database, dictionary, adaptiveLoad);
-
-                // avoid to generate EmptySetNode making us not able to get base table version.
-                ctx.getSessionVariable().setVarOnce(SessionVariable.DISABLE_NEREIDS_RULES,
-                        "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
-                command.run(ctx, executor);
-            } catch (Exception e) {
-                // wait next shedule.
-                dictionary.trySetStatus(oldStatus);
-                dictionary.setLastUpdateResult(e.getMessage());
-                throw e;
-            }
-            // some insert failed won't throw but only set error status.
-            if (ctx.getState().getErrorCode() != null && ctx.getState().getErrorMessage() != null) {
-                dictionary.trySetStatus(oldStatus);
-                dictionary.setLastUpdateResult(ctx.getState().getErrorMessage());
-                // for must failed refresh, we can skip it at next time. this mark is tricky but we have to do now.
-                if (ctx.getState().getErrorMessage().contains("[INVALID_DICT_MARK]")) {
-                    LOG.warn("Dictionary {} load failed with src version {}, mark it invalid", dictionary.getName(),
-                            ctx.getStatementContext().getDictionaryUsedSrcVersion());
-                    dictionary.updateLatestInvalidVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
-                }
-                throw new RuntimeException(ctx.getState().getErrorMessage());
-            }
-
-            // because of deleting does NOT conflict with loading, we should check dictionary's existance again!
-            lockRead();
-            boolean unlocked = false;
-            try {
-                if (!isCurrentDictionaryWithoutLock(database, dictionary)) {
-                    unlockRead();
-                    unlocked = true;
-
-                    // WITHOUT LOCK HERE. MUST NOT THROW BEFORE HERE!!!
-                    dictionary.trySetStatus(oldStatus); // revert status.
-                    // already dropped. abort temporary version without lock.
-                    // haven't increase version so use getVersion() + 1
-                    if (ctx.getStatementContext().isPartialLoadDictionary()) {
-                        abortSpecificVersion(ctx, dictionary, dictionary.getVersion());
-                    } else {
-                        abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
-                    }
-                    throw new RuntimeException("Dictionary " + dictionary.getName()
-                            + " has been dropped during loading");
-                }
-                // need under read lock here.
-                // complete some(could be ALL) BE's data and no source data updated -> no need to increase version
-                if (!ctx.getStatementContext().isPartialLoadDictionary()) {
-                    dictionary.increaseVersion();
-                    Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
+                // WITHOUT LOCK HERE. MUST NOT THROW BEFORE HERE!!!
+                dictionary.trySetStatus(oldStatus); // revert status.
+                // already dropped. abort temporary version without lock.
+                // haven't increase version so use getVersion() + 1
+                if (ctx.getStatementContext().isPartialLoadDictionary()) {
+                    abortSpecificVersion(ctx, dictionary, dictionary.getVersion());
                 } else {
-                    LOG.info("Dictionary {} is partial load, not increase version, keep {}", dictionary.getName(),
-                            dictionary.getVersion());
+                    abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
                 }
-            } finally {
-                if (!unlocked) {
-                    unlockRead();
-                }
+                throw new RuntimeException("Dictionary " + dictionary.getName()
+                        + " has been dropped during loading");
             }
-
-            // block here in test to simulate the race: INC journal written, commit not done yet.
-            while (DebugPointUtil.isEnable("DictionaryManager.afterIncJournal")) {
-                Thread.sleep(100);
-            }
-
-            // commit and check the result. not modify metadata so dont need lock.
-            if (!commitNowVersion(ctx, dictionary)) {
-                if (!ctx.getStatementContext().isPartialLoadDictionary()) {
-                    dictionary.decreaseVersion();
-                    // DROP may have removed the dictionary between the INC journal and this failed
-                    // commit. A DEC journal for a dropped dictionary cannot be replayed by name, so
-                    // only persist the rollback while the dictionary is still the current one.
-                    if (isCurrentDictionary(database, dictionary)) {
-                        Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
-                    } else {
-                        LOG.warn("Dictionary {} has been dropped or replaced during commit, skip DEC journal",
-                                dictionary.getName());
-                    }
-                }
-                dictionary.trySetStatus(oldStatus);
-                abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
-                throw new RuntimeException("Dictionary " + dictionary.getName() + " commit version "
-                        + (dictionary.getVersion() + 1) + " failed");
-            }
-
-            // commit succeed. update metadata.
-            if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL)) {
-                LOG.warn("Dictionary {} status changed to {} after commit", dictionary.getName(),
-                        dictionary.getStatus().name());
-                return;
-            }
-            dictionary.updateLastUpdateTime();
-            dictionary.updateSrcVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
-            if (ctx.getStatementContext().isPartialLoadDictionary()) {
-                dictionary.setLastUpdateResult("succeed fix version " + dictionary.getVersion());
+            // need under read lock here.
+            // complete some(could be ALL) BE's data and no source data updated -> no need to increase version
+            if (!ctx.getStatementContext().isPartialLoadDictionary()) {
+                dictionary.increaseVersion();
+                Env.getCurrentEnv().getEditLog().logDictionaryIncVersion(dictionary);
             } else {
-                dictionary.setLastUpdateResult("succeed");
+                LOG.info("Dictionary {} is partial load, not increase version, keep {}", dictionary.getName(),
+                        dictionary.getVersion());
             }
-            LOG.info("Dictionary {} refresh succeed. now version is {}. used src version {}", dictionary.getName(),
-                    dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
         } finally {
-            if (scope != null) {
-                scope.close();
+            if (!unlocked) {
+                unlockRead();
             }
+        }
+
+        // block here in test to simulate the race: INC journal written, commit not done yet.
+        while (DebugPointUtil.isEnable("DictionaryManager.afterIncJournal")) {
+            Thread.sleep(100);
+        }
+
+        // commit and check the result. not modify metadata so dont need lock.
+        if (!commitNowVersion(ctx, dictionary)) {
+            if (!ctx.getStatementContext().isPartialLoadDictionary()) {
+                dictionary.decreaseVersion();
+                // DROP may have removed the dictionary between the INC journal and this failed
+                // commit. A DEC journal for a dropped dictionary cannot be replayed by name, so
+                // only persist the rollback while the dictionary is still the current one.
+                if (isCurrentDictionary(database, dictionary)) {
+                    Env.getCurrentEnv().getEditLog().logDictionaryDecVersion(dictionary);
+                } else {
+                    LOG.warn("Dictionary {} has been dropped or replaced during commit, skip DEC journal",
+                            dictionary.getName());
+                }
+            }
+            dictionary.trySetStatus(oldStatus);
+            abortSpecificVersion(ctx, dictionary, dictionary.getVersion() + 1);
+            throw new RuntimeException("Dictionary " + dictionary.getName() + " commit version "
+                    + (dictionary.getVersion() + 1) + " failed");
+        }
+
+        // commit succeed. update metadata.
+        if (!dictionary.trySetStatus(Dictionary.DictionaryStatus.NORMAL)) {
+            LOG.warn("Dictionary {} status changed to {} after commit", dictionary.getName(),
+                    dictionary.getStatus().name());
+            return;
+        }
+        dictionary.updateLastUpdateTime();
+        dictionary.updateSrcVersion(ctx.getStatementContext().getDictionaryUsedSrcVersion());
+        if (ctx.getStatementContext().isPartialLoadDictionary()) {
+            dictionary.setLastUpdateResult("succeed fix version " + dictionary.getVersion());
+        } else {
+            dictionary.setLastUpdateResult("succeed");
+        }
+        LOG.info("Dictionary {} refresh succeed. now version is {}. used src version {}", dictionary.getName(),
+                dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
+    }
+
+    static void executeRefreshInsert(ConnectContext ctx, InsertIntoDictionaryCommand command) throws Exception {
+        StatementContext statement = ctx.getStatementContext();
+        LogicalPlanAdapter adapter = new LogicalPlanAdapter(command, statement);
+        adapter.setOrigStmt(statement.getOriginStatement());
+        StmtExecutor insert = new StmtExecutor(ctx, adapter);
+        StmtExecutor refresh = ctx.getExecutor();
+        if (refresh == null) {
+            // A scheduled refresh owns this private session.
+            ctx.setExecutor(insert);
+            try {
+                command.run(ctx, insert);
+            } finally {
+                ctx.setExecutor(null);
+            }
+            return;
+        }
+
+        // Keep the user command addressable by KILL throughout the refresh, including before publication.
+        Runnable cancelInsert = () -> insert.cancel(refresh.getPendingCancelReason(), false);
+        refresh.registerQueryCancellationCallback(cancelInsert);
+        try {
+            command.run(ctx, insert);
+            // A pre-start cancellation returns without planning or setting an error. Once the INSERT has
+            // run, its execution result decides whether the dictionary version needs committing.
+            Status cancelled = insert.getPendingCancelReason();
+            if (cancelled != null && insert.planner() == null) {
+                throw new AnalysisException(cancelled.getErrorMsg());
+            }
+        } finally {
+            refresh.unregisterQueryCancellationCallback(cancelInsert);
         }
     }
 

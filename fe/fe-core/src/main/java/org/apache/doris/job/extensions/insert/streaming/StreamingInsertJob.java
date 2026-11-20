@@ -490,16 +490,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         return unboundTVFRelation;
     }
 
-    private ConnectContext makeConnectContext() {
-        ConnectContext ctx = InsertTask.makeConnectContext(getCreateUser(), getCurrentDbName());
-        ctx.setStatementContext(new StatementContext(ctx, null));
-        return ctx;
+    private AutoCloseConnectContext openParsingContext() {
+        return new AutoCloseConnectContext(InsertTask.makeConnectContext(getCreateUser(), getCurrentDbName()));
     }
 
     public void initLogicalPlan(boolean regen) {
         if (regen || baseCommand == null) {
             this.baseCommand = null;
-            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(makeConnectContext())) {
+            try (AutoCloseConnectContext scope = openParsingContext()) {
+                scope.connectContext.setStatementContext(new StatementContext());
                 LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
                 this.baseCommand = (InsertIntoTableCommand) logicalPlan;
             }
@@ -1424,7 +1423,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     }
 
     private String generateEncryptedSql() {
-        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(makeConnectContext())) {
+        try (AutoCloseConnectContext scope = openParsingContext()) {
+            scope.connectContext.setStatementContext(new StatementContext());
             TreeMap<Pair<Integer, Integer>, String> indexInSqlToString = new TreeMap<>(new Pair.PairComparator<>());
             new NereidsParser().parseForEncryption(getExecuteSql(), indexInSqlToString);
             BaseViewInfo.rewriteSql(indexInSqlToString, getExecuteSql());

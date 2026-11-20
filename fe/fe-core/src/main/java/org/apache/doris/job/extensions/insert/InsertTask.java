@@ -35,6 +35,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
@@ -179,40 +180,66 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public void run() throws JobException {
-        // cancel() can release the queued plan. Once execution starts, the worker owns this reference.
-        InsertIntoTableCommand insert = command;
-        if (isCanceled.get()) {
-            return;
+    public void runTask() throws JobException {
+        try (InsertExecution execution = new InsertExecution()) {
+            runWithStatusCallbacks(execution::run);
         }
-        try {
-            // The worker unregisters the query and closes its bound context after runTask returns.
-            ConnectContext ctx = makeConnectContext(userIdentity, currentDb);
-            if (planNamespace != null) {
-                ctx.restoreNameSpaceContext(planNamespace);
-            }
-            ctx.setThreadLocalInfo();
-            ctx.setStatementContext(new StatementContext(ctx, null));
-            if (StringUtils.isNotEmpty(sql)) {
-                insert = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
-                insert.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
-                insert.setJobId(getTaskId());
-            }
-            StmtExecutor executor = new StmtExecutor(ctx, new LogicalPlanAdapter(insert, ctx.getStatementContext()));
-            stmtExecutor = executor;
+    }
+
+    @Override
+    public void run() throws JobException {
+        try (InsertExecution execution = new InsertExecution()) {
+            execution.run();
+        }
+    }
+
+    // One invocation owns the context from preparation through its last callback. Cancellation only
+    // signals stmtExecutor and never closes this scope from another thread.
+    private class InsertExecution implements AutoCloseable {
+        private AutoCloseConnectContext scope;
+
+        void run() throws JobException {
+            // cancel() can release the queued plan. Once execution starts, the worker owns this reference.
+            InsertIntoTableCommand insert = command;
             if (isCanceled.get()) {
                 return;
             }
-            insert.runWithUpdateInfo(ctx, executor, loadStatistic);
-            if (ctx.getState().getStateType() != QueryState.MysqlStateType.OK) {
-                throw new JobException(ctx.getState().getErrorMessage());
+            try {
+                scope = bindExecutionContext(makeConnectContext(userIdentity, currentDb));
+                ConnectContext ctx = scope.connectContext;
+                if (planNamespace != null) {
+                    ctx.restoreNameSpaceContext(planNamespace);
+                }
+                ctx.setStatementContext(new StatementContext(ctx, null));
+                if (StringUtils.isNotEmpty(sql)) {
+                    insert = (InsertIntoTableCommand) new NereidsParser().parseSingle(sql);
+                    insert.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
+                    insert.setJobId(getTaskId());
+                }
+                LogicalPlanAdapter plan = new LogicalPlanAdapter(insert, ctx.getStatementContext());
+                StmtExecutor executor = new StmtExecutor(ctx, plan);
+                stmtExecutor = executor;
+                if (isCanceled.get()) {
+                    return;
+                }
+                insert.runWithUpdateInfo(ctx, executor, loadStatistic);
+                if (ctx.getState().getStateType() != QueryState.MysqlStateType.OK) {
+                    throw new JobException(ctx.getState().getErrorMessage());
+                }
+            } catch (Exception e) {
+                log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
+                        getTaskId(), sql, e);
+                throw new JobException(Util.getRootCauseMessage(e));
+            } finally {
+                stmtExecutor = null;
             }
-        } catch (Exception e) {
-            log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
-                    getTaskId(), sql, e);
-            throw new JobException(Util.getRootCauseMessage(e));
-        } finally {
-            stmtExecutor = null;
+        }
+
+        @Override
+        public void close() {
+            if (scope != null) {
+                scope.close();
+            }
         }
     }
 

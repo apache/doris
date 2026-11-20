@@ -115,125 +115,71 @@ import javax.annotation.Nullable;
 
 
 /**
- * Owns session state, serial execution and final cleanup. ProtocolAdapter owns protocol resources;
- * ConnectPoolMgr maintains local indexes and quotas. Neither GC nor removing a thread-local binding
- * closes a session. There is no activation step or reference-counted operation API.
+ * Owns a session's identity, variables, namespace, transactions, temporary tables and prepared statements.
+ * The session also exposes its current executor for cancellation and observation. A StatementContext owns
+ * one statement's analysis resources. The ProtocolAdapter owns the transport and retained protocol results.
  *
- * <h2>State ownership</h2>
- * Identity and delegated credentials, session variables, namespace, transactions, prepared statements,
- * temporary tables and last-query/last-insert history live across commands and belong to the session.
- * The current command, query identity and executor are also exposed here so timeout, cancellation,
- * processlist and protocol response handling can observe the active execution. They are not a place
- * to accumulate results from successive statements. StatementContext owns analysis resources;
- * StmtExecutor owns its result attachments; ProtocolAdapter owns transport and retained response
- * resources. A response can outlive its SQL analysis, particularly for Flight DoGet.
- * Env and scheduler references are borrowed services, not resources this context closes. Helpers
- * needing only an identity, namespace or configuration value should take that input explicitly.
+ * <h2>Using a context</h2>
+ * <ul>
+ *   <li><b>Initialize.</b> The creator owns an unpublished context. A client adapter runs initialization
+ *       through {@link #runCommand(ContextAction)} and calls {@link #registerClientSession(ConnectPoolMgr)}
+ *       after authentication. The pool returns -1 on admission or a connection count on quota refusal.
+ *       The creator closes abandoned work, including failed login responses and rejected initialization
+ *       tasks. A transport close listener must also cover a disconnect that preceded its installation.</li>
+ *   <li><b>Run a client command.</b> MySQL uses {@link #runCommand(ContextAction, Runnable)}. Its idle
+ *       action rearms reads after the response, command cleanup and thread-binding restoration. Flight
+ *       uses {@link #executeCommand(long, ContextCommand)} for bounded admission, and
+ *       {@link #executeResult(long, ContextCommand)} for DoGet. Each entry acquires execution when its
+ *       worker starts and releases it in a finally block. Only one worker can use session state at a time.</li>
+ *   <li><b>Run nested work.</b> Synchronous helpers borrow the caller's execution. Use
+ *       {@link StatementContext#withNestedStatement} for a separate planning statement and
+ *       {@link #withThreadLocal(ContextCommand)} when only the thread binding must change. Both restore
+ *       the caller on exit. Use {@link AutoCloseConnectContext} for a newly owned private session.
+ *       Async work must finish before its owner's scope exits or acquire its own independent resources.
+ *       Internal queries that borrow a temporary-table namespace leave the registration with its owner.</li>
+ *   <li><b>Change user.</b> MySQL calls {@link #resetConnection()}, authenticates, and calls
+ *       {@link #changeUser(UserIdentity, String)} inside the command, including same-account changes.
+ *       Admission commits the new identity and quota together. A failed change sends its error and
+ *       requests closure after the response.</li>
+ * </ul>
  *
- * <h2>Creation and use</h2>
- * A synchronous helper borrows its caller's context and executor when it runs as part of that command.
- * Helpers that only need values such as a compute group should accept those values directly. Use a
- * separate StatementContext when only statement-local analysis state needs isolation. Create a private
- * context when work needs its own SQL execution, identity or session settings. Borrowing must not
- * change the caller's ownership or close its context.
- *
- * <p>Configure a new context privately before publishing it. Client protocol entries wrap initialization
- * in {@link #runCommand(ContextAction)} and call {@link #registerClientSession(ConnectPoolMgr)} after
- * authentication. Registration returns -1 on success and a nonnegative connection count on quota
- * refusal. The creator must close abandoned initialization, including failed registration or login
- * responses. Install a transport close listener, then check whether the transport had already closed.
- * MySQL COM_CHANGE_USER first calls {@link #resetConnection()} and authenticates, even for the same
- * user, then calls {@link #changeUser(UserIdentity, String)} inside its command owner. This validates
- * fresh target-user settings and the namespace before atomically committing quota ownership and
- * identity. Failure sends an error before AFTER_RESPONSE closes the session; reset resources cannot
- * be restored. Direct identity assignment is limited to initialization and same-user refreshes, so
- * unregister always releases the quota belonging to the registered identity.
- *
- * <p>MySQL's initialization and read listeners use {@link #runCommand(ContextAction, Runnable)}.
- * Its idle action only rearms nonblocking reads, after the response, business finally blocks and
- * thread-local restoration. Flight's runCommand/callCommand entry uses
- * {@link #executeCommand(long, ContextCommand)} to wait a bounded time for the same execution slot.
- * Flight DoGet uses {@link #executeResult(long, ContextCommand)} to continue an existing response;
- * it validates and consumes its ticket under that ownership. Business code needs no lifecycle calls.
- * Helpers borrow the current context; they must not recursively enter a top-level command. An
- * unregistered internal context can be used privately and closed by its creating scope without
- * activation or per-statement bookkeeping. {@link AutoCloseConnectContext} binds and closes a
- * privately owned internal context and restores the caller's binding; it must not wrap a borrowed session.
- *
- * <p>Only one initialization, request, expiry maintenance or cleanup owns execution at a time.
- * Queued requests acquire ownership when they actually start, not when submitted. A stale pool
- * lookup grants no admission.
- * Rejected or discarded initialization/request tasks remain their submitter's responsibility.
- * Asynchronous work must finish borrowing session resources before the request exits, or take
- * ownership of independent query resources. Thread-local binding alone does not grant ownership.
- *
- * <h2>Closing and handoff</h2>
- * CloseMode specifies the caller's request; SessionState records the session's current state.
- * SessionState moves monotonically:
+ * <h2>Closing and result delivery</h2>
+ * Call {@link #requestClose(CloseMode)} to request either transition. {@link #cleanup()} requests IMMEDIATE.
  * <pre>
- * OPEN -- CloseMode.AFTER_RESPONSE -------&gt; DRAINING
- * OPEN / DRAINING -- CloseMode.IMMEDIATE --&gt; STOPPING
- * DRAINING -- response released ----------&gt; STOPPING
+ * OPEN -------- AFTER_RESPONSE ---------&gt; DRAINING
+ * OPEN or DRAINING ---- IMMEDIATE ------&gt; STOPPING
+ * DRAINING ---- last response released -&gt; STOPPING
  * </pre>
- * STOPPING is terminal; it does not promise that resource release has completed. There is no
- * separate CLOSED state, cleanup phase or completion-wait API. Both close modes immediately reject
- * new commands. IMMEDIATE revokes pool registration immediately; AFTER_RESPONSE enters DRAINING
- * and keeps registration until finalization so Flight can still authenticate the token, resolve tickets
- * and run timeout checks.
- * A draining session continues to occupy its pool quota and cannot be registered again.
+ * Both requests reject new commands. DRAINING keeps pool registration so existing Flight tickets can be
+ * resolved and expired. MySQL finishes a response when its command has written it. A Flight GetFlightInfo
+ * can return before delivery. Its local ticket is released on DoGet success or failure. A backend DoGet
+ * reports no completion to the FE, so deferred coordinators retain their existing expiry. The current
+ * owner, or an idle closer borrowing execution, checks for pending responses. Once drained it claims
+ * STOPPING, unregisters, closes the transport and releases the session. No owner waits between RPCs.
  *
- * <p>{@link #requestClose(CloseMode)} with AFTER_RESPONSE preserves the accepted response. MySQL
- * finishes flushing it before yielding. Flight returns its normal FlightInfo and retains local results
- * for a later DoGet; GetFlightInfo returning is not result delivery. Only result continuations may
- * enter a draining session. Their success or failure consumes the ticket, and requests that fail before
- * returning FlightInfo discard their results. Flight's backend DoGet has no completion callback to the
- * frontend: deferred query resources remain bounded by their existing query/session expiry, rather
- * than being treated as delivered when FlightInfo returns. None of these boundaries promises receipt.
+ * <p>IMMEDIATE claims STOPPING and revokes registration before interrupting the transport and executor.
+ * Closing the MySQL socket can unblock a partial packet. An executor published after this transition is
+ * cancelled on publication. STOPPING is terminal and covers both interruption and cleanup.
+ * Final cleanup requires the end of the active request <em>and</em> the end of synchronous interruption,
+ * including callbacks. If an owner remains when interruption returns, the closer sets cleanupPending and
+ * that owner cleans up on exit. Otherwise the closer cleans up inline. Reentrant or repeated close calls
+ * leave this handoff with its current owner.
  *
- * <p>Before yielding, the owner checks whether the protocol still holds response resources. With no
- * such resources and the session still DRAINING, it atomically claims STOPPING and unregisters,
- * retaining execution to close transport and release resources directly. An idle close borrows
- * execution to make the same decision. No thread retains execution between RPCs or waits for a client.
- * An immediate close that wins before this claim takes responsibility for interruption and cleanup.
+ * <p>Final cleanup binds the context for rollback and temporary-table helpers, releases protocol and
+ * statement resources, and restores the previous thread binding. Each cleanup step runs even if an earlier
+ * one fails. A forwarding proxy detaches its transaction and borrowed session id when its RPC finishes.
  *
- * <p>{@link #cleanup()} requests IMMEDIATE closure. Its unique winner closes transport and cancels
- * execution outside the handoff lock. MySQL socket closure unblocks incomplete packet reads. Flight
- * has no per-session gRPC transport to close. Cancellation can invoke synchronous callbacks, so the
- * winner hands off cleanup only in its finally, after interruption and thread-local restoration.
- * An exiting request must not clean up just because it sees STOPPING: cancellation may still be using
- * resources. A late executor published by the current owner observes STOPPING and is cancelled too.
+ * <h2>Concurrency</h2>
+ * lifecycleLock protects execution ownership, close handoff, pool registration and idle-expiry decisions.
+ * The lock order is lifecycleLock then the pool's admissionLock. User-property lookup, cancellation and
+ * resource release run outside both. MySQL's rearm callback runs at handoff and may only schedule reads.
+ * Query-id cancellation captures the matching executor and its user before checking privileges or invoking
+ * callbacks. A later command on the same session cannot redirect that cancellation.
  *
- * <p>Interruption completion and owner exit share lifecycleLock. If an owner remains, the closer sets
- * cleanupPending; that owner consumes the flag and keeps execution to clean up on exit. Otherwise,
- * the closer takes execution and cleans up inline. This handles either ordering without a task object,
- * waiting for the request, counting references or submitting work to another executor. Cleanup
- * releases protocol state, rolls back transactions, invokes the
- * existing temporary-table/session hooks, closes the remaining StatementContext and clears statement state.
- * A forwarded-request proxy owns only its local statement resources: its transaction and session id
- * belong to the originating connection and must survive the end of the forwarded request.
- * Each step is attempted once;
- * failures are logged and remaining steps continue. Reentrant close callbacks see STOPPING and return.
- * Cleanup binds this context for rollback helpers, then restores an unrelated caller's binding.
- * Its finally releases execution directly, without rechecking protocol resources or entering yield again.
- *
- * <h2>Concurrency boundaries</h2>
- * Session state, execution ownership, cleanupPending, registration and idle-expiry decisions
- * share lifecycleLock. Lock order is lifecycleLock then the pool's admissionLock; pool changes only
- * update local indexes and quotas. User-property lookups run outside lifecycleLock; timeout checks
- * revalidate the observed statement after the lookup. Cancellation and resource release run outside both locks. The
- * MySQL idle action is exclusively a short read-scheduling operation under the handoff lock; it must
- * neither block nor run request code inline. No old request accesses session resources after handoff.
- *
- * <p>The pool timeout checker requests closure on session idle expiry. Flight metadata may report
- * COM_SLEEP while owning execution and is not idle. A MySQL incomplete-packet reader still needs
- * wait_timeout to interrupt the socket. A draining Flight session also obeys wait_timeout while DoGet
- * owns execution; result continuations never renew that bound. The checker nonblockingly borrows
- * execution to expire local results and deferred queries, then its yield can finalize a drained session.
- * Expiry cannot close Arrow buffers concurrently with DoGet. KILL QUERY and query timeout target
- * one execution. A reusable transport stays open. MySQL closes a transport if it can no longer
- * establish the packet boundary. Query-owned cancellation handles must keep their original target
- * across concurrent termination and subsequent commands. Safe final release requires the request
- * and the close interruption to return; GC and forced release cannot replace either responsibility.
+ * <p>The pool's timeout checker requests an idle close or cancels a timed-out execution. An active Flight
+ * metadata RPC can report COM_SLEEP. A MySQL worker blocked on an incomplete packet must still observe
+ * wait_timeout. A draining Flight DoGet never renews that deadline. Result expiry borrows idle execution
+ * so it cannot free an Arrow buffer while DoGet uses it.
  */
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
@@ -382,8 +328,10 @@ public class ConnectContext {
 
     private Map<String, Set<String>> dbToTempTableNamesMap = new HashMap<>();
 
-    // unique session id in the doris cluster
+    // Temporary-table namespace; a forwarded or read-only child context can borrow its caller's id.
     private String sessionId;
+    // Only the context that registered this id releases it during cleanup.
+    private String registeredSessionId;
 
     // internal call like `insert overwrite` need skipAuth
     // For example, `insert overwrite` only requires load permission,
@@ -491,9 +439,9 @@ public class ConnectContext {
         resetSessionVariable();
         userVars = new HashMap<>();
         preparedStatementContextMap.clear();
+        setTraceId(null);
         queryId = null;
         lastQueryId = null;
-        setTraceId(null);
         insertResult = null;
         command = MysqlCommand.COM_SLEEP;
         returnRows = 0;
@@ -534,7 +482,8 @@ public class ConnectContext {
 
             sessionId = UUID.randomUUID().toString();
             if (!isProxy && !FeConstants.runningUnitTest) {
-                Env.getCurrentEnv().registerSessionInfo(sessionId);
+                registeredSessionId = sessionId;
+                Env.getCurrentEnv().registerSessionInfo(registeredSessionId);
             }
         } catch (Throwable failure) {
             cleanup();
@@ -1270,6 +1219,23 @@ public class ConnectContext {
         }
     }
 
+    /** A cancellation can outlive the lookup and its privilege check. Both refer to this one execution. */
+    public record QueryTarget(String qualifiedUser, StmtExecutor executor) {
+    }
+
+    public QueryTarget findQuery(String queryId) {
+        StmtExecutor running = executor;
+        TUniqueId executionId = running == null ? null : running.getExecutionQueryId();
+        if (executionId == null || !queryId.equals(DebugUtil.printId(executionId))) {
+            return null;
+        }
+        synchronized (lifecycleLock) {
+            // A pool scan only locks a matching session. Couple its identity to the same executor
+            // before COM_CHANGE_USER or a new statement can replace them.
+            return executor == running ? new QueryTarget(getQualifiedUser(), running) : null;
+        }
+    }
+
     public StmtExecutor getExecutor() {
         return executor;
     }
@@ -1429,16 +1395,21 @@ public class ConnectContext {
     }
 
     private <T, E extends Exception> T executeOwned(ContextCommand<T, E> command, Runnable onIdle) throws E {
+        try {
+            return withThreadLocal(command);
+        } finally {
+            yieldExecution(onIdle);
+        }
+    }
+
+    /** Bind an already-owned session for synchronous work and restore the caller's thread binding on exit. */
+    public <T, E extends Exception> T withThreadLocal(ContextCommand<T, E> command) throws E {
         ConnectContext previous = ConnectContext.get();
         try {
             setThreadLocalInfo();
             return command.call();
         } finally {
-            try {
-                restoreThreadContext(previous);
-            } finally {
-                yieldExecution(onIdle);
-            }
+            restoreThreadContext(previous);
         }
     }
 
@@ -1642,10 +1613,10 @@ public class ConnectContext {
             if (!isProxy) {
                 cleanupStep("close transaction", this::closeTxn);
                 cleanupStep("drop temporary tables", this::deleteTempTable);
-                // init can fail before it allocates a session id.
-                if (sessionId != null) {
-                    cleanupStep("unregister session info", () -> Env.getCurrentEnv().unregisterSessionInfo(sessionId));
-                }
+            }
+            if (registeredSessionId != null) {
+                cleanupStep("unregister session info", () -> Env.getCurrentEnv().unregisterSessionInfo(
+                        registeredSessionId));
             }
             // Proxy transaction state has already been copied to the RPC response. Detach the
             // local reference without rolling back the originating connection's transaction.
@@ -1769,25 +1740,17 @@ public class ConnectContext {
     }
 
     public void setQueryId(TUniqueId queryId) {
-        if (this.queryId != null) {
-            this.lastQueryId = this.queryId.deepCopy();
-        }
-        this.queryId = queryId;
         synchronized (lifecycleLock) {
-            // An admitted command may assign its query id after immediate closure unregistered
-            // the connection. Keep the id for auditing, but never republish its removed trace index.
-            if (sessionState != SessionState.STOPPING
-                    && connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-                connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
+            if (this.queryId != null) {
+                this.lastQueryId = this.queryId.deepCopy();
             }
+            this.queryId = queryId;
+            publishTraceMapping();
         }
     }
 
     public void resetQueryId() {
-        if (this.queryId != null) {
-            this.lastQueryId = this.queryId.deepCopy();
-        }
-        this.queryId = null;
+        setQueryId(null);
     }
 
     public void setNeedRegenerateInstanceId(TUniqueId needRegenerateInstanceId) {
@@ -1795,11 +1758,30 @@ public class ConnectContext {
     }
 
     public void setTraceId(String traceId) {
-        // When traceId is set, we need to remove the old traceId from connectScheduler.
-        if (connectScheduler != null) {
-            connectScheduler.removeOldTraceId(this.traceId);
+        synchronized (lifecycleLock) {
+            if (connectScheduler != null) {
+                removeTraceMapping(connectScheduler.getConnectPoolMgr());
+            }
+            this.traceId = traceId;
+            publishTraceMapping();
         }
-        this.traceId = traceId;
+    }
+
+    // A SET_VAR hint can supply the trace after the executor has already acquired its query id.
+    // Immediate closure removes the index even if an admitted command continues publishing either id.
+    private void publishTraceMapping() {
+        if (sessionState != SessionState.STOPPING && connectScheduler != null
+                && queryId != null && !Strings.isNullOrEmpty(traceId)) {
+            connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
+        }
+    }
+
+    // Called under lifecycleLock. A reset for parsing can already have moved our last published id.
+    void removeTraceMapping(ConnectPoolMgr pool) {
+        TUniqueId publishedId = queryId != null ? queryId : lastQueryId;
+        if (traceId != null && publishedId != null) {
+            pool.removeTraceId(traceId, publishedId);
+        }
     }
 
     public String traceId() {

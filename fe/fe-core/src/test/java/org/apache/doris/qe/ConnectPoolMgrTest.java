@@ -21,8 +21,12 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -57,6 +61,86 @@ public class ConnectPoolMgrTest {
         ctx.setConnectionId(connectionId);
         Assertions.assertEquals(-1, register(pool, ctx));
         return ctx;
+    }
+
+    @Test
+    public void delayedCancellationKeepsTheMatchedStatementAcrossHandoffAndRetry() {
+        ConnectPoolMgr pool = new ConnectPoolMgr(8);
+        ConnectScheduler scheduler = Mockito.mock(ConnectScheduler.class);
+        Mockito.when(scheduler.getConnectPoolMgr()).thenReturn(pool);
+        ConnectContext ctx = ConnectPoolTestSupport.mysqlConnection(ConnectPoolTestSupport.envAllowing(8), ALICE);
+        ctx.setConnectScheduler(scheduler);
+        ctx.setConnectionId(1);
+        Assertions.assertEquals(-1, ctx.registerClientSession(pool));
+        try {
+            ctx.getSessionVariable().setEnableSqlCache(false);
+            ctx.setTraceId("request");
+            TUniqueId q1 = new TUniqueId(1, 1);
+            StmtExecutor first = new StmtExecutor(ctx, "select 1");
+            first.publishQueryId(q1);
+            ConnectContext.QueryTarget matched = pool.findQueryByIdOrTraceId("request");
+            Assertions.assertSame(first, matched.executor());
+            Assertions.assertEquals(ALICE.getQualifiedUser(), matched.qualifiedUser());
+
+            // The executor is installed before its id in a multi-statement command.
+            StmtExecutor second = new StmtExecutor(ctx, "select 2");
+            Status reason = new Status(TStatusCode.CANCELLED, "test");
+            Assertions.assertFalse(pool.cancelQuery(DebugUtil.printId(q1), reason));
+            Assertions.assertNull(pool.findQueryByIdOrTraceId("request"));
+            TUniqueId q2 = new TUniqueId(1, 2);
+            second.publishQueryId(q2);
+
+            // Privilege checking or dispatch of Q1's cancel can take until Q2 is running.
+            matched.executor().cancel(reason);
+            Assertions.assertSame(reason, first.getPendingCancelReason());
+            Assertions.assertNull(second.getPendingCancelReason());
+            Assertions.assertSame(second, pool.findQueryByIdOrTraceId("request").executor());
+            // A statement hint may change the trace after this executor already has its id.
+            ctx.setTraceId("statement-hint");
+            Assertions.assertNull(pool.findQueryByIdOrTraceId("request"));
+            Assertions.assertSame(second, pool.findQueryByIdOrTraceId("statement-hint").executor());
+            TUniqueId retry = new TUniqueId(1, 3);
+            second.publishQueryId(retry);
+            Assertions.assertFalse(pool.cancelQuery(DebugUtil.printId(q2), reason));
+            Assertions.assertTrue(pool.cancelQuery(DebugUtil.printId(retry), reason));
+            Assertions.assertSame(reason, second.getPendingCancelReason());
+        } finally {
+            ctx.cleanup();
+        }
+    }
+
+    @Test
+    public void closingAnOlderSessionPreservesAReusedTraceLabel() throws Exception {
+        ConnectPoolMgr pool = new ConnectPoolMgr(8);
+        ConnectScheduler scheduler = Mockito.mock(ConnectScheduler.class);
+        Mockito.when(scheduler.getConnectPoolMgr()).thenReturn(pool);
+        Env env = ConnectPoolTestSupport.envAllowing(8);
+        ConnectContext earlier = ConnectPoolTestSupport.mysqlConnection(env, ALICE);
+        ConnectContext later = ConnectPoolTestSupport.mysqlConnection(env, BOB);
+        try {
+            earlier.setConnectionId(1);
+            later.setConnectionId(2);
+            for (ConnectContext ctx : new ConnectContext[] {earlier, later}) {
+                ctx.setConnectScheduler(scheduler);
+                Assertions.assertEquals(-1, ctx.registerClientSession(pool));
+                ctx.getSessionVariable().setEnableSqlCache(false);
+                ctx.setTraceId("shared");
+            }
+            TUniqueId q1 = new TUniqueId(2, 1);
+            TUniqueId q2 = new TUniqueId(2, 2);
+            new StmtExecutor(earlier, "select 1").publishQueryId(q1);
+            StmtExecutor second = new StmtExecutor(later, "select 2");
+            second.publishQueryId(q2);
+            earlier.resetQueryId();
+            earlier.cleanup();
+            Assertions.assertEquals(DebugUtil.printId(q2), pool.getQueryIdByTraceId("shared"));
+            Assertions.assertSame(second, pool.findQueryByIdOrTraceId("shared").executor());
+            later.resetConnection();
+            Assertions.assertEquals("", pool.getQueryIdByTraceId("shared"));
+        } finally {
+            earlier.cleanup();
+            later.cleanup();
+        }
     }
 
     @Test

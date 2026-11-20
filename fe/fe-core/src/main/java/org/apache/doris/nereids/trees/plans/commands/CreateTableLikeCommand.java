@@ -123,6 +123,7 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                 table.readUnlock();
             }
 
+            boolean previousSkipAuth = ctx.isSkipAuth();
             try {
                 // analyze CreateTableStmt will check create_priv of existedTable, create table like only need
                 // create_priv of newTable, and select_priv of existedTable, and priv check has done in
@@ -142,7 +143,7 @@ public class CreateTableLikeCommand extends Command implements ForwardWithSync {
                 }
                 createTableCommand.run(ctx, executor);
             } finally {
-                ctx.setSkipAuth(false);
+                ctx.setSkipAuth(previousSkipAuth);
             }
         } catch (UserException e) {
             throw new DdlException("Failed to execute CREATE TABLE LIKE "

@@ -130,7 +130,7 @@ public class FlightSqlTableTypesTest {
                     if (failSend) {
                         Assertions.assertThrows(RuntimeException.class,
                                 () -> producer.getStreamTableTypes(context, listener));
-                        Mockito.verify(listener).error(Mockito.any(Throwable.class));
+                        Mockito.verify(listener, Mockito.never()).error(Mockito.any(Throwable.class));
                         Mockito.verify(listener, Mockito.never()).completed();
                     } else {
                         producer.getStreamTableTypes(context, listener);

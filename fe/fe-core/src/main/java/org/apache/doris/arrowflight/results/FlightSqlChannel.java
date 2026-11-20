@@ -36,7 +36,7 @@ import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.ArrowType.Utf8;
 import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -60,57 +60,42 @@ public class FlightSqlChannel {
     }
 
     public void addResult(String queryId, String runningQuery, ResultSet resultSet) {
-        List<Field> schemaFields = new ArrayList<>();
-        List<FieldVector> dataFields = new ArrayList<>();
-        List<List<String>> resultData = resultSet.getResultRows();
+        List<Field> fields = new ArrayList<>();
         ResultSetMetaData metaData = resultSet.getMetaData();
-
-        // TODO: only support varchar type
         for (Column col : metaData.getColumns()) {
-            schemaFields.add(new Field(col.getName(), FieldType.nullable(new Utf8()), null));
-            VarCharVector varCharVector = new VarCharVector(col.getName(), allocator);
-            varCharVector.allocateNew();
-            varCharVector.setValueCount(resultData.size());
-            dataFields.add(varCharVector);
+            fields.add(Field.nullable(col.getName(), new Utf8()));
         }
-
-        for (int i = 0; i < resultData.size(); i++) {
-            List<String> row = resultData.get(i);
-            for (int j = 0; j < row.size(); j++) {
-                String item = row.get(j);
-                if (item == null || item.equals(FeConstants.null_string)) {
-                    dataFields.get(j).setNull(i);
-                } else {
-                    ((VarCharVector) dataFields.get(j)).setSafe(i, item.getBytes());
-                }
-            }
-        }
-        VectorSchemaRoot vectorSchemaRoot = new VectorSchemaRoot(schemaFields, dataFields);
-        final FlightSqlResultCacheEntry flightSqlResultCacheEntry = new FlightSqlResultCacheEntry(vectorSchemaRoot,
-                runningQuery);
-        resultCache.put(queryId, flightSqlResultCacheEntry);
-    }
-
-    /**
-     * Create a SchemaRoot with one row and one column.
-     */
-    public VectorSchemaRoot createOneOneSchemaRoot(String colName, String colValue) {
-        List<Field> schemaFields = new ArrayList<>();
-        List<FieldVector> dataFields = new ArrayList<>();
-        schemaFields.add(new Field(colName, FieldType.nullable(new Utf8()), null));
-        VarCharVector varCharVector = new VarCharVector(colName, allocator);
-        varCharVector.allocateNew();
-        varCharVector.setValueCount(1);
-        varCharVector.setSafe(0, colValue.getBytes());
-        dataFields.add(varCharVector);
-
-        return new VectorSchemaRoot(schemaFields, dataFields);
+        cacheRows(queryId, runningQuery, fields, resultSet.getResultRows());
     }
 
     public void addOKResult(String queryId, String query) {
-        final FlightSqlResultCacheEntry flightSqlResultCacheEntry = new FlightSqlResultCacheEntry(
-                createOneOneSchemaRoot("StatusResult", "0"), query);
-        resultCache.put(queryId, flightSqlResultCacheEntry);
+        cacheRows(queryId, query, List.of(Field.nullable("StatusResult", new Utf8())), List.of(List.of("0")));
+    }
+
+    private void cacheRows(String queryId, String query, List<Field> fields, List<List<String>> rows) {
+        VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(fields), allocator);
+        try {
+            root.allocateNew();
+            List<FieldVector> columns = root.getFieldVectors();
+            for (int i = 0; i < rows.size(); i++) {
+                List<String> row = rows.get(i);
+                for (int j = 0; j < row.size(); j++) {
+                    VarCharVector column = (VarCharVector) columns.get(j);
+                    String value = row.get(j);
+                    if (value == null || value.equals(FeConstants.null_string)) {
+                        column.setNull(i);
+                    } else {
+                        column.setSafe(i, value.getBytes());
+                    }
+                }
+            }
+            root.setRowCount(rows.size());
+            resultCache.put(queryId, new FlightSqlResultCacheEntry(root, query));
+        } catch (RuntimeException | Error e) {
+            // Until publication the cache's removal listener cannot release these buffers.
+            root.close();
+            throw e;
+        }
     }
 
     public FlightSqlResultCacheEntry getResult(String queryId) {

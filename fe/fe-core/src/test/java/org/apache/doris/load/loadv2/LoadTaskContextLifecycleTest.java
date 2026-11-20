@@ -18,97 +18,138 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.cloud.load.CloudBrokerLoadJob;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.load.NereidsLoadingTaskPlanner;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.resource.computegroup.ComputeGroup;
+import org.apache.doris.system.Backend;
 
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Field;
-import java.util.Collections;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class LoadTaskContextLifecycleTest {
-    private boolean savedUnitTest;
-    private MockedStatic<Env> environment;
-
-    @BeforeEach
-    public void setUp() {
-        savedUnitTest = FeConstants.runningUnitTest;
-        FeConstants.runningUnitTest = true;
-        Env env = Mockito.mock(Env.class);
-        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
-        Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
-        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
-        environment = Mockito.mockStatic(Env.class);
-        environment.when(Env::getCurrentEnv).thenReturn(env);
-        ConnectContext.remove();
-    }
-
-    @AfterEach
-    public void tearDown() {
-        ConnectContext.remove();
-        environment.close();
-        FeConstants.runningUnitTest = savedUnitTest;
-    }
-
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    public void coordinatorInitializationFailureClosesOnlyOwnedContext(boolean hasParent) throws Exception {
-        ConnectContext parent = hasParent ? new ConnectContext() : null;
-        if (parent != null) {
-            parent.setThreadLocalInfo();
-        }
-        LoadTaskCallback callback = Mockito.mock(LoadTaskCallback.class);
-        Mockito.when(callback.getCallbackId()).thenReturn(17L);
-        LoadLoadingTask task = new LoadLoadingTask(UserIdentity.ROOT, null, null, null, Collections.emptyList(),
-                Long.MAX_VALUE, 0, false, false, null, 1, callback, "UTC", 60, 1, 1,
-                false, null, false, LoadTask.Priority.NORMAL, false, 1024);
-        NereidsLoadingTaskPlanner planner = Mockito.mock(NereidsLoadingTaskPlanner.class);
-        Mockito.when(planner.getTimezone()).thenReturn("UTC");
-        Field plannerField = LoadLoadingTask.class.getDeclaredField("planner");
-        plannerField.setAccessible(true);
-        plannerField.set(task, planner);
-
+    @CsvSource({"false, true, false", "false, false, true", "true, true, true", "true, true, false"})
+    void scopesPlanningAndExecutionToTheJob(boolean cloud, boolean hasCaller, boolean failPlanning) throws Exception {
+        String previousCloudId = Config.cloud_unique_id;
+        String previousDeployMode = Config.deploy_mode;
+        Config.cloud_unique_id = cloud ? "load-test" : "";
+        Config.deploy_mode = cloud ? "cloud" : "local";
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext.remove();
+        CloudSystemInfoService cluster = Mockito.mock(CloudSystemInfoService.class);
+        Mockito.when(cluster.getClusterNameByClusterId("job-id")).thenReturn("job-group");
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        ComputeGroup group = new ComputeGroup("job-group", "job-id", null);
+        Mockito.when(env.getAuth().getComputeGroup(UserIdentity.ROOT.getQualifiedUser())).thenReturn(group);
+        BackendSelection.SelectionHint hint = BackendSelection.SelectionHint.noSelection();
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(backend.getId()).thenReturn(12L);
+        AtomicReference<ConnectContext> planning = new AtomicReference<>();
         AtomicReference<ConnectContext> execution = new AtomicReference<>();
-        StatementContext statement = Mockito.mock(StatementContext.class);
-        RuntimeException failure = new IllegalStateException("coordinator initialization failed");
-        EnvFactory factory = Mockito.mock(EnvFactory.class);
-        Mockito.when(factory.createCoordinator(Mockito.any(ConnectContext.class),
-                Mockito.eq(17L), Mockito.isNull(), Mockito.isNull(),
-                Mockito.anyList(), Mockito.anyList(), Mockito.eq("UTC"), Mockito.eq(false), Mockito.eq(false)))
-                .thenAnswer(invocation -> {
-                    execution.set(invocation.getArgument(0));
-                    Assertions.assertSame(ConnectContext.get(), execution.get());
-                    execution.get().setStatementContext(statement);
-                    throw failure;
-                });
-        try (MockedStatic<EnvFactory> factoryClass = Mockito.mockStatic(EnvFactory.class)) {
-            factoryClass.when(EnvFactory::getInstance).thenReturn(factory);
-            Assertions.assertSame(failure, Assertions.assertThrows(RuntimeException.class, task::executeOnce));
+        StatementContext plannedStatement = Mockito.mock(StatementContext.class);
+        StatementContext executingStatement = Mockito.mock(StatementContext.class);
+        RuntimeException failure = new IllegalStateException("task failed");
+        try (MockedStatic<Env> environment = Mockito.mockStatic(Env.class)) {
+            environment.when(Env::getCurrentEnv).thenReturn(env);
+            environment.when(Env::getCurrentSystemInfo).thenReturn(cluster);
+            ConnectContext caller = hasCaller ? new ConnectContext() : null;
+            try (AutoCloseConnectContext scope = hasCaller ? new AutoCloseConnectContext(caller) : null;
+                    MockedConstruction<NereidsLoadingTaskPlanner> planners = Mockito.mockConstruction(
+                            NereidsLoadingTaskPlanner.class, (planner, construction) -> Mockito.doAnswer(call -> {
+                                ConnectContext task = ConnectContext.get();
+                                planning.set(task);
+                                assertJobContext(caller, task, cloud, group, hint);
+                                task.setStatementContext(plannedStatement);
+                                task.getBackendSelectionProfile().recordLoadCoordinator(hint, backend);
+                                if (failPlanning) {
+                                    throw failure;
+                                }
+                                return null;
+                            }).when(planner).plan(Mockito.any(), Mockito.anyList(), Mockito.eq(0)))) {
+                if (hasCaller) {
+                    caller.setCurrentUserIdentity(UserIdentity.ADMIN);
+                    caller.setAuthenticatedRoles(Set.of("worker-role"));
+                    caller.getSessionVariable().setCloudCluster("worker-group");
+                }
+                BrokerLoadJob job = cloud ? new CloudBrokerLoadJob() : new BrokerLoadJob();
+                job.sessionVariables.put("clusterId", "job-id");
+                job.userInfo = UserIdentity.ROOT;
+                job.setLoadBackendSelectionHint(hint);
+                Database db = Mockito.mock(Database.class);
+                BrokerPendingTaskAttachment files = Mockito.mock(BrokerPendingTaskAttachment.class);
+                if (failPlanning) {
+                    Assertions.assertSame(failure, Assertions.assertThrows(RuntimeException.class,
+                            () -> job.createTask(db, null, List.of(), false, 1024, null, files)));
+                } else {
+                    LoadLoadingTask task = job.createTask(db, null, List.of(), false, 1024, null, files);
+                    Mockito.verify(planners.constructed().get(0)).setLoadBackendSelectionHint(hint);
+                    String summary = Deencapsulation.getField(job, "loadBackendSelectionSummary");
+                    Assertions.assertTrue(summary.contains("coordinator_backend=12"));
+                    job.setLoadBackendSelectionHint(null);
+                    try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class)) {
+                        factories.when(EnvFactory::getInstance).thenAnswer(call -> {
+                            ConnectContext active = ConnectContext.get();
+                            execution.set(active);
+                            assertJobContext(caller, active, cloud, group, hint);
+                            active.setStatementContext(executingStatement);
+                            throw failure;
+                        });
+                        Assertions.assertSame(failure,
+                                Assertions.assertThrows(RuntimeException.class, task::executeOnce));
+                    }
+                    Assertions.assertNotSame(planning.get(), execution.get());
+                    Assertions.assertTrue(execution.get().isClosingOrClosed());
+                    Mockito.verify(executingStatement).close();
+                }
+                Assertions.assertTrue(planning.get().isClosingOrClosed());
+                Mockito.verify(plannedStatement).close();
+                Assertions.assertSame(caller, ConnectContext.get());
+                if (hasCaller) {
+                    Assertions.assertFalse(caller.isClosingOrClosed());
+                    Assertions.assertSame(UserIdentity.ADMIN, caller.getCurrentUserIdentity());
+                    Assertions.assertEquals(Set.of("worker-role"), caller.getAuthenticatedRoles());
+                    Assertions.assertEquals("worker-group", caller.getSessionVariable().getCloudCluster());
+                    Assertions.assertNull(caller.getLoadBackendSelectionHint());
+                    Assertions.assertNull(caller.getStatementContext());
+                }
+            }
+        } finally {
+            Config.cloud_unique_id = previousCloudId;
+            Config.deploy_mode = previousDeployMode;
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
         }
-        Assertions.assertSame(parent, ConnectContext.get());
-        if (hasParent) {
-            Assertions.assertSame(parent, execution.get());
-            Assertions.assertFalse(parent.isClosingOrClosed());
-            Assertions.assertSame(statement, parent.getStatementContext());
-            Mockito.verify(statement, Mockito.never()).close();
-            parent.cleanup();
+    }
+
+    private static void assertJobContext(ConnectContext caller, ConnectContext task, boolean cloud,
+            ComputeGroup group, BackendSelection.SelectionHint hint) throws Exception {
+        Assertions.assertNotSame(caller, task);
+        Assertions.assertSame(UserIdentity.ROOT, task.getCurrentUserIdentity());
+        Assertions.assertTrue(task.getAuthenticatedRoles().isEmpty());
+        Assertions.assertSame(hint, task.getLoadBackendSelectionHint());
+        if (cloud) {
+            Assertions.assertEquals("job-group", task.getCloudCluster());
         } else {
-            Assertions.assertNotNull(execution.get());
-            Assertions.assertTrue(execution.get().isClosingOrClosed());
-            Assertions.assertNull(execution.get().getStatementContext());
-            Mockito.verify(statement).close();
+            Assertions.assertSame(group, task.getComputeGroupSafely());
         }
     }
 }

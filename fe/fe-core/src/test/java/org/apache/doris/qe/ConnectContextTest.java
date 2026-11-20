@@ -128,9 +128,12 @@ public class ConnectContextTest {
                 new PreparedStatementContext(null, ctx, null, "select 1"));
         long nextPreparedStmtId = ctx.getPreparedStmtId();
         TUniqueId queryId = new TUniqueId(100, 200);
-        ctx.setQueryId(queryId);
-        ctx.setTraceId("old_trace");
+        ConnectPoolMgr pool = new ConnectPoolMgr(10);
+        Mockito.when(connectScheduler.getConnectPoolMgr()).thenReturn(pool);
         ctx.setConnectScheduler(connectScheduler);
+        ctx.setTraceId("old_trace");
+        ctx.setQueryId(queryId);
+        Assertions.assertFalse(pool.getQueryIdByTraceId("old_trace").isEmpty());
         ctx.setCommand(MysqlCommand.COM_QUERY);
         ctx.updateReturnRows(10);
         ctx.setOrUpdateInsertResult(1, "label", "test_db", "test_table", TransactionStatus.VISIBLE, 1, 0);
@@ -153,7 +156,7 @@ public class ConnectContextTest {
         Assertions.assertNull(ctx.queryId());
         Assertions.assertNull(ctx.getLastQueryId());
         Assertions.assertNull(ctx.traceId());
-        Mockito.verify(connectScheduler).removeOldTraceId("old_trace");
+        Assertions.assertEquals("", pool.getQueryIdByTraceId("old_trace"));
         Assertions.assertEquals(nextPreparedStmtId, ctx.getPreparedStmtId());
         Assertions.assertTrue(initialPreparedStmtId != ctx.getPreparedStmtId());
         Assertions.assertNull(ctx.getInsertResult());

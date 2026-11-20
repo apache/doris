@@ -377,6 +377,7 @@ public class MaterializedViewUtils {
                 .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
         rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         List<PlannerHook> removedMaterializedViewHooks = new ArrayList<>();
+        boolean previousSkipAuth = rewrittenPlanContext.getConnectContext().isSkipAuth();
         try {
             if (!mvRewrite) {
                 removedMaterializedViewHooks = removeMaterializedViewHooks(rewrittenPlanContext.getStatementContext());
@@ -392,7 +393,7 @@ public class MaterializedViewUtils {
             cascadesContext.addPlanProcesses(rewrittenPlanContext.getPlanProcesses());
             rewrittenPlan = rewriteResult.get();
         } finally {
-            rewrittenPlanContext.getConnectContext().setSkipAuth(false);
+            rewrittenPlanContext.getConnectContext().setSkipAuth(previousSkipAuth);
             // Recover old disable rules variable
             rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
                     .setDisableNereidsRules(String.join(",", oldDisableRuleNames));

@@ -60,7 +60,6 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -518,11 +517,11 @@ public class PlanUtils {
      */
     public static Map<List<String>, TableIf> tableCollect(String sql, ConnectContext connectContext) {
         ImmutableList<RewriteJob> rewriteJobs = ImmutableList.of(Rewriter.topDown(new CollectOneLevelRelation()));
-        try (StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0))) {
+        return StatementContext.withNestedStatement(connectContext, sql, statementContext -> {
             CascadesContext cascadesContext = CascadesContext.initContext(
                     statementContext, new NereidsParser().parseSingle(sql), PhysicalProperties.GATHER);
             Rewriter.getCteChildrenRewriter(cascadesContext, rewriteJobs).execute();
             return statementContext.getTables();
-        }
+        });
     }
 }

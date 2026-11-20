@@ -404,10 +404,12 @@ public class MysqlConnectProcessorChangeUserTest {
         Assertions.assertTrue(prepared.isEmptyCursorOpen());
         context.setQueryId(new TUniqueId(11, 12));
         context.resetQueryId();
-        context.setQueryId(new TUniqueId(13, 14));
-        context.setTraceId("old_trace");
         ConnectScheduler scheduler = Mockito.mock(ConnectScheduler.class);
+        Mockito.when(scheduler.getConnectPoolMgr()).thenReturn(pool);
         context.setConnectScheduler(scheduler);
+        context.setTraceId("old_trace");
+        context.setQueryId(new TUniqueId(13, 14));
+        Assertions.assertFalse(pool.getQueryIdByTraceId("old_trace").isEmpty());
         context.updateReturnRows(10);
         context.setOrUpdateInsertResult(1, "label", "original_db", "old_table", TransactionStatus.VISIBLE, 1, 0);
 
@@ -425,7 +427,7 @@ public class MysqlConnectProcessorChangeUserTest {
         }).when(catalog).dropTableWithoutCheck(database, table, false, true);
         onAuthentication = () -> {
             assertResetState();
-            Mockito.verify(scheduler).removeOldTraceId("old_trace");
+            Assertions.assertEquals("", pool.getQueryIdByTraceId("old_trace"));
         };
         return txn;
     }

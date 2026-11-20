@@ -29,6 +29,7 @@ import org.apache.doris.transaction.TransactionEntry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -88,6 +89,23 @@ class PrivateContextLifecycleTest {
         Mockito.verify(env).unregisterSessionInfo(sessionId.getValue());
         Assertions.assertSame(parent, ConnectContext.get());
         Assertions.assertFalse(parent.isClosingOrClosed());
+    }
+
+    @Test
+    void internalQueryBorrowsTheParentSessionRegistration() {
+        FeConstants.runningUnitTest = false;
+        String sessionId;
+        try (AutoCloseConnectContext client = new AutoCloseConnectContext(new ConnectContext())) {
+            sessionId = client.connectContext.getSessionId();
+            try (AutoCloseConnectContext query = new AutoCloseConnectContext(
+                    client.connectContext.createInternalQueryContext())) {
+                Assertions.assertEquals(sessionId, query.connectContext.getSessionId());
+            }
+            Mockito.verify(env).registerSessionInfo(sessionId);
+            Mockito.verify(env, Mockito.never()).unregisterSessionInfo(Mockito.anyString());
+            Assertions.assertSame(client.connectContext, ConnectContext.get());
+        }
+        Mockito.verify(env).unregisterSessionInfo(sessionId);
     }
 
     @ParameterizedTest

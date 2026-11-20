@@ -200,6 +200,20 @@ public class CreateTableLikeTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void nestedCreateTableLikePreservesCallersSkipAuth() throws Exception {
+        createTable("CREATE TABLE test.skip_auth_source (k INT) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num' = '1')");
+        boolean previous = connectContext.isSkipAuth();
+        try {
+            connectContext.setSkipAuth(true);
+            createTableLike("CREATE TABLE test.skip_auth_copy LIKE test.skip_auth_source");
+            Assertions.assertTrue(connectContext.isSkipAuth());
+        } finally {
+            connectContext.setSkipAuth(previous);
+        }
+    }
+
     private void createTableLike(String sql) throws Exception {
         NereidsParser nereidsParser = new NereidsParser();
         CreateTableLikeCommand command = (CreateTableLikeCommand) nereidsParser.parseSingle(sql);
