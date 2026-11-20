@@ -288,7 +288,12 @@ Status Channel::close(RuntimeState* state) {
 }
 
 BlockSerializer::BlockSerializer(ExchangeSinkLocalState* parent, bool is_local)
-        : _parent(parent), _is_local(is_local), _batch_size(parent->state()->batch_size()) {}
+        : _parent(parent),
+          _is_local(is_local),
+          _batch_size(parent->state()->batch_size()),
+          // Adaptive scans can emit a few very wide rows per block. Accumulating them until the
+          // row limit or EOF can exceed LZ4's input limit (e.g. 360 strings of about 9 MB each).
+          _buffer_mem_limit(parent->state()->preferred_block_size_bytes()) {}
 
 Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t num_receivers,
                                               bool* serialized, bool eos, const uint32_t* data,

@@ -343,7 +343,10 @@ suite("test_hdfs_parquet_group5", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group5/string_int_list_inconsistent_offset_multiple_batches.parquet"
-            order_qt_test_46 """ select count(ints), count(strings) from HDFS(
+            // Dictionary expansion produces over 3 GB of strings; force serialization before COUNT
+            // to verify that Exchange flushes by bytes even when the row limit is not reached.
+            order_qt_test_46 """ select /*+ SET_VAR(enable_local_exchange=false,
+                        parallel_pipeline_task_num=1, batch_size=8160) */ count(ints), count(strings) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """
