@@ -1,0 +1,23 @@
+# Host execution integration. Base: xet-runtime-1.6.0.
+diff --git a/src/core/runtime/native.rs b/src/core/runtime/native.rs
+--- a/src/core/runtime/native.rs
++++ b/src/core/runtime/native.rs
+@@ -553,5 +553,5 @@
+     ///
+     /// Checks:
+-    /// 1. **Multi-threaded flavor**.
++    /// 1. **Multi-threaded flavor**, or an externally driven host reactor.
+     /// 2. **Time driver** -- required for timeouts, retry backoff, and progress intervals.
+     /// 3. **IO driver** -- required for all network I/O via `reqwest`/`hyper`.
+@@ -566,5 +566,10 @@
+     /// This is undocumented internal behavior validated against tokio 1.x.
+     pub fn handle_meets_requirements(handle: &TokioRuntimeHandle) -> bool {
+-        if matches!(handle.runtime_flavor(), tokio::runtime::RuntimeFlavor::CurrentThread) {
++        // A host-driven current-thread reactor has no SDK workers. Its blocking tasks
++        // already have an external executor, so replacing it with an owned runtime
++        // would silently escape the host's thread and shutdown accounting.
++        if matches!(handle.runtime_flavor(), tokio::runtime::RuntimeFlavor::CurrentThread)
++            && !handle.has_host_blocking_executor()
++        {
+             return false;
+         }

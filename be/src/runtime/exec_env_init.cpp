@@ -59,6 +59,8 @@
 #include "exprs/function/dictionary_factory.h"
 #include "format/orc/orc_memory_pool.h"
 #include "format/parquet/arrow_memory_pool.h"
+#include "format_v2/lance/lance_host_runtime.h"
+#include "format_v2/lance/lance_session_manager.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
@@ -314,6 +316,10 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(config::max_peer_race_s3_thread_num)
                               .build(&_peer_race_s3_thread_pool));
     RETURN_IF_ERROR(init_mem_env());
+    if (config::enable_lance_host_executor) {
+        // Install before any format can touch the SDK and initialize a legacy runtime.
+        RETURN_IF_ERROR(format::lance::LanceHostRuntime::instance()->ensure_started());
+    }
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
@@ -871,6 +877,9 @@ void ExecEnv::destroy() {
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
     SAFE_STOP(_runtime_filter_timer_queue);
+    // Queries have stopped; close shared SDK caches before their host reactor and pools.
+    format::lance::LanceSessionManager::instance().shutdown();
+    format::lance::LanceHostRuntime::instance()->shutdown();
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
     _load_stream_mgr.reset();
     _new_load_stream_mgr.reset();

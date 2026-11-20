@@ -1,0 +1,217 @@
+# Optional host dispatch for blocking tasks. Base: tokio 1.53.1.
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -993,3 +993,8 @@
+     "cfg(tokio_unstable)",
+     'cfg(target_os, values("cygwin"))',
+ ]
++
++[[test]]
++name = "rt_host_executor"
++path = "tests/rt_host_executor.rs"
++required-features = ["rt", "time", "net"]
+diff --git a/src/runtime/blocking/pool.rs b/src/runtime/blocking/pool.rs
+--- a/src/runtime/blocking/pool.rs
++++ b/src/runtime/blocking/pool.rs
+@@ -4,7 +4,7 @@
+ use crate::loom::thread;
+ use crate::runtime::blocking::schedule::BlockingSchedule;
+ use crate::runtime::blocking::{shutdown, BlockingTask};
+-use crate::runtime::builder::ThreadNameFn;
++use crate::runtime::builder::{BlockingTaskExecutor, ThreadNameFn};
+ use crate::runtime::task::{self, JoinHandle};
+ use crate::runtime::{Builder, Callback, Handle, BOX_FUTURE_THRESHOLD};
+ use crate::util::metric_atomics::MetricAtomicUsize;
+@@ -92,6 +92,8 @@
+     /// Call before a thread stops.
+     before_stop: Option<Callback>,
+
++    host_executor: Option<BlockingTaskExecutor>,
++
+     // Maximum number of threads.
+     thread_cap: usize,
+
+@@ -124,6 +126,18 @@
+ pub(crate) struct Task {
+     task: task::UnownedTask<BlockingSchedule>,
+     mandatory: Mandatory,
++}
++
++// A host can reject a task by dropping its callback. The join handle must still wake.
++struct ExternalTask {
++    task: Option<Task>,
++}
++impl Drop for ExternalTask {
++    fn drop(&mut self) {
++        if let Some(task) = self.task.take() {
++            task.task.shutdown();
++        }
++    }
+ }
+
+ #[derive(PartialEq, Eq)]
+@@ -228,6 +242,7 @@
+                     stack_size: builder.thread_stack_size,
+                     after_start: builder.after_start.clone(),
+                     before_stop: builder.before_stop.clone(),
++                    host_executor: builder.blocking_task_executor.clone(),
+                     thread_cap,
+                     keep_alive,
+                     metrics: SpawnerMetrics::default(),
+@@ -294,6 +309,10 @@
+ // ===== impl Spawner =====
+
+ impl Spawner {
++    pub(crate) fn has_host_executor(&self) -> bool {
++        self.inner.host_executor.is_some()
++    }
++
+     #[track_caller]
+     pub(crate) fn spawn_blocking<F, R>(&self, rt: &Handle, func: F) -> JoinHandle<R>
+     where
+@@ -401,6 +420,23 @@
+
+             // no need to even push this task; it would never get picked up
+             return Err(SpawnError::ShuttingDown);
++        }
++
++        if let Some(executor) = &self.inner.host_executor {
++            let shutdown = shared.shutdown_tx.clone();
++            let runtime = rt.clone();
++            let mut pending = ExternalTask { task: Some(task) };
++            // Host callbacks may acquire their own locks. Preserve shutdown ownership while
++            // submitting outside the pool lock, without creating a Tokio worker thread.
++            drop(shared);
++            executor(Box::new(move || {
++                let _runtime = runtime.enter();
++                if let Some(task) = pending.task.take() {
++                    task.task.run();
++                }
++                drop(shutdown);
++            }));
++            return Ok(());
+         }
+
+         shared.queue.push_back(task);
+diff --git a/src/runtime/builder.rs b/src/runtime/builder.rs
+--- a/src/runtime/builder.rs
++++ b/src/runtime/builder.rs
+@@ -85,6 +85,8 @@
+
+     /// Callback to run after each thread starts.
+     pub(super) after_start: Option<Callback>,
++
++    pub(super) blocking_task_executor: Option<BlockingTaskExecutor>,
+
+     /// To run before each worker thread stops
+     pub(super) before_stop: Option<Callback>,
+@@ -238,6 +240,9 @@
+     }
+ }
+
++pub(super) type BlockingTaskExecutor =
++    std::sync::Arc<dyn Fn(Box<dyn FnOnce() + Send + 'static>) + Send + Sync + 'static>;
++
+ pub(crate) type ThreadNameFn = std::sync::Arc<dyn Fn() -> String + Send + Sync + 'static>;
+
+ #[derive(Clone, Copy)]
+@@ -313,6 +318,7 @@
+
+             // No worker thread callbacks
+             after_start: None,
++            blocking_task_executor: None,
+             before_stop: None,
+             before_park: None,
+             after_unpark: None,
+@@ -570,6 +576,20 @@
+     pub fn max_blocking_threads(&mut self, val: usize) -> &mut Self {
+         assert!(val > 0, "Max blocking threads cannot be set to 0");
+         self.max_blocking_threads = val;
++        self
++    }
++
++    /// Delegate blocking tasks to a host executor instead of creating blocking worker threads.
++    ///
++    /// The callback takes ownership of each task. It must enqueue it without blocking or
++    /// executing it inline, then either execute it once or drop it to cancel it. Dropping
++    /// a pending task completes its join handle with cancellation. Submitted tasks remain
++    /// part of runtime shutdown until the host has executed or dropped them.
++    pub fn blocking_task_executor<F>(&mut self, executor: F) -> &mut Self
++    where
++        F: Fn(Box<dyn FnOnce() + Send + 'static>) + Send + Sync + 'static,
++    {
++        self.blocking_task_executor = Some(std::sync::Arc::new(executor));
+         self
+     }
+
+diff --git a/src/runtime/handle.rs b/src/runtime/handle.rs
+--- a/src/runtime/handle.rs
++++ b/src/runtime/handle.rs
+@@ -91,6 +91,14 @@
+             },
+             _handle_lifetime: PhantomData,
+         }
++    }
++
++    /// Returns whether blocking work is delegated to an explicitly installed host executor.
++    ///
++    /// This does not imply that a current-thread runtime is being driven. An embedding host
++    /// that exposes this handle to dependencies must keep its I/O and timer driver running.
++    pub fn has_host_blocking_executor(&self) -> bool {
++        self.inner.blocking_spawner().has_host_executor()
+     }
+
+     /// Returns a `Handle` view over the currently running `Runtime`.
+diff --git a/tests/rt_host_executor.rs b/tests/rt_host_executor.rs
+--- /dev/null
++++ b/tests/rt_host_executor.rs
+@@ -0,0 +1,48 @@
++#![cfg(feature = "rt")]
++mod tests {
++    use std::sync::{Arc, Mutex};
++    #[test]
++    fn ordinary_runtime_does_not_advertise_host_execution() {
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .build()
++            .unwrap();
++        assert!(!runtime.handle().has_host_blocking_executor());
++    }
++    #[test]
++    fn blocking_work_uses_host_without_creating_threads() {
++        let queue = Arc::new(Mutex::new(Vec::new()));
++        let queued = queue.clone();
++        let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let count = started.clone();
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .on_thread_start(move || {
++                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++            })
++            .enable_all()
++            .blocking_task_executor(move |task| queued.lock().unwrap().push(task))
++            .build()
++            .unwrap();
++        assert!(runtime.handle().has_host_blocking_executor());
++        let handle = runtime
++            .handle()
++            .spawn_blocking(|| std::thread::current().id());
++        assert_eq!(queue.lock().unwrap().len(), 1);
++        (queue.lock().unwrap().pop().unwrap())();
++        assert_eq!(
++            runtime.block_on(handle).unwrap(),
++            std::thread::current().id()
++        );
++        assert_eq!(started.load(std::sync::atomic::Ordering::SeqCst), 0);
++    }
++    #[test]
++    fn rejected_host_work_cancels_the_join_handle() {
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .blocking_task_executor(drop)
++            .build()
++            .unwrap();
++        assert!(runtime
++            .block_on(runtime.handle().spawn_blocking(|| 42))
++            .unwrap_err()
++            .is_cancelled());
++    }
++}

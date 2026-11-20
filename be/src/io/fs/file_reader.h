@@ -81,6 +81,8 @@ struct FileReaderOptions {
     // Storage resource id of the remote file system. Used by peer fill to reconstruct
     // the source file system without scanning tablet rowsets on the peer.
     std::string storage_resource_id;
+    // Optional stable storage identity when a path alone cannot distinguish remote origins.
+    std::string cache_key {};
 
     static const FileReaderOptions DEFAULT;
 };

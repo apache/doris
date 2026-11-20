@@ -1,0 +1,5251 @@
+# Host execution and read-only host storage C ABI.
+# Base: lance-format/lance-c a51ab47a9c814a746cb1714c99fad93dd3a188b8.
+diff --git a/Cargo.lock b/Cargo.lock
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2386,7 +2386,6 @@
+ [[package]]
+ name = "fsst"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "rand 0.9.2",
+@@ -2736,8 +2735,6 @@
+ [[package]]
+ name = "goosefs-sdk"
+ version = "0.2.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1e471f7bce40936cf2023855c7350e31e11b3f703eb7cb2ce73c9ffc451f87d2"
+ dependencies = [
+  "arc-swap",
+  "async-trait",
+@@ -3585,7 +3582,6 @@
+ [[package]]
+ name = "lance"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arc-swap",
+  "arrow",
+@@ -3658,7 +3654,6 @@
+ [[package]]
+ name = "lance-arrow"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-buffer",
+@@ -3680,7 +3675,6 @@
+ [[package]]
+ name = "lance-arrow-scalar"
+ version = "58.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-buffer",
+@@ -3694,7 +3688,6 @@
+ [[package]]
+ name = "lance-arrow-stats"
+ version = "58.0.0"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-schema",
+@@ -3704,7 +3697,6 @@
+ [[package]]
+ name = "lance-bitpacking"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrayref",
+  "crunchy",
+@@ -3720,10 +3712,13 @@
+  "arrow-array",
+  "arrow-schema",
+  "async-trait",
++ "bytes",
+  "chrono",
+  "datafusion",
+  "futures",
++ "goosefs-sdk",
+  "half",
++ "hf-xet",
+  "lance",
+  "lance-core",
+  "lance-datafusion",
+@@ -3735,24 +3730,27 @@
+  "lance-table",
+  "libc",
+  "log",
++ "object_store 0.14.2",
+  "opendal",
+  "pin-project",
+  "prost",
+  "snafu",
+  "tempfile",
+  "tokio",
++ "url",
+  "uuid",
+ ]
+
+ [[package]]
+ name = "lance-core"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
++ "parking_lot_core",
+  "arrow-array",
+  "arrow-buffer",
+  "arrow-data",
+  "arrow-schema",
++ "async-task",
+  "async-trait",
+  "blake3",
+  "bytes",
+@@ -3785,7 +3783,6 @@
+ [[package]]
+ name = "lance-datafusion"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "arrow-array",
+@@ -3818,7 +3815,6 @@
+ [[package]]
+ name = "lance-datagen"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "arrow-array",
+@@ -3836,7 +3832,6 @@
+ [[package]]
+ name = "lance-derive"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -3846,7 +3841,6 @@
+ [[package]]
+ name = "lance-encoding"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-arith",
+  "arrow-array",
+@@ -3880,7 +3874,6 @@
+ [[package]]
+ name = "lance-file"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-arith",
+  "arrow-array",
+@@ -3913,7 +3906,6 @@
+ [[package]]
+ name = "lance-geo"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "datafusion",
+  "geo-traits",
+@@ -3928,7 +3920,6 @@
+ [[package]]
+ name = "lance-index"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arc-swap",
+  "arrow",
+@@ -3998,7 +3989,6 @@
+ [[package]]
+ name = "lance-index-core"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-schema",
+@@ -4022,7 +4012,6 @@
+ [[package]]
+ name = "lance-io"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "arrow-array",
+@@ -4064,7 +4053,6 @@
+ [[package]]
+ name = "lance-linalg"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-schema",
+@@ -4079,7 +4067,6 @@
+ [[package]]
+ name = "lance-namespace"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "async-trait",
+@@ -4108,7 +4095,6 @@
+ [[package]]
+ name = "lance-select"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow-array",
+  "arrow-buffer",
+@@ -4123,7 +4109,6 @@
+ [[package]]
+ name = "lance-table"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "arrow",
+  "arrow-array",
+@@ -4162,7 +4147,6 @@
+ [[package]]
+ name = "lance-tokenizer"
+ version = "13.0.0-beta.18"
+-source = "git+https://github.com/lance-format/lance.git?rev=68c12dfd7efe02f90ad2d7f3a239a7eb64884e57#68c12dfd7efe02f90ad2d7f3a239a7eb64884e57"
+ dependencies = [
+  "frostem",
+  "icu_segmenter",
+@@ -7036,8 +7020,6 @@
+ [[package]]
+ name = "tokio"
+ version = "1.53.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+ dependencies = [
+  "bytes",
+  "libc",
+@@ -8294,8 +8276,6 @@
+ [[package]]
+ name = "xet-runtime"
+ version = "1.6.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "af5c60d5eed38ab4c576f4421bae835e7bd07631fb381705605529d2015c106b"
+ dependencies = [
+  "anyhow",
+  "async-trait",
+@@ -8481,3 +8461,11 @@
+  "cc",
+  "pkg-config",
+ ]
++[[package]]
++name = "async-task"
++version = "4.7.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8b75356056920673b02621b35afd0f7dda9306d03c79a30f5c56c44cf256e3de"
++
++
++
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -23,18 +23,19 @@
+ # transitively via lance-index.
+ async-trait = "0.1"
+ # Keep the dependency on the segment-prefilter fix and its float-consistent PQ prerequisite.
+-lance = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57", features = ["substrait"] }
+-lance-core = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-file = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-index = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-io = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-linalg = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-table = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-datafusion = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57", features = ["substrait"] }
++lance = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance", features = ["substrait"] }
++lance-core = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-core" }
++lance-file = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-file" }
++lance-index = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-index" }
++lance-io = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-io" }
++lance-linalg = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-linalg" }
++lance-table = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-table" }
++lance-datafusion = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-datafusion", features = ["substrait"] }
+ datafusion = { version = "54.0.0", default-features = false }
+ arrow = { version = "58.0.0", features = ["prettyprint", "ffi"] }
+ arrow-array = "58.0.0"
+ arrow-schema = "58.0.0"
++bytes = "1"
+ # Direct to name `chrono::TimeDelta` (the field type of lance's public
+ # `AutoCleanupParams`) and `chrono::DateTime`/`Utc` (index metadata
+ # timestamps); already in the graph transitively via lance.
+@@ -46,15 +47,19 @@
+ libc = "0.2"
+ # Explicitly install the HTTP transport when embedded in a static C/C++ executable.
+ opendal = { version = "=0.59.2", default-features = false, features = ["http-transport-reqwest"] }
++object_store = "0.14.2"
++url = "2"
+ pin-project = "1.0"
+ prost = "0.14"
+ snafu = "0.9"
+ uuid = { version = "1", features = ["v4"] }
+
+ [dev-dependencies]
+-lance = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57", features = ["substrait"] }
+-lance-datagen = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
+-lance-file = { git = "https://github.com/lance-format/lance.git", rev = "68c12dfd7efe02f90ad2d7f3a239a7eb64884e57" }
++xet = { package = "hf-xet", version = "=1.6.0" }
++goosefs-sdk = { version = "=0.2.2", default-features = false, features = ["page-cache", "page-cache-io-uring"] }
++lance = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance", features = ["substrait"] }
++lance-datagen = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-datagen" }
++lance-file = { path = "../lance-68c12dfd7efe02f90ad2d7f3a239a7eb64884e57/rust/lance-file" }
+ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+ arrow-array = "58.0.0"
+ arrow-schema = "58.0.0"
+@@ -75,3 +80,9 @@
+ [package.metadata.capi.library]
+ name = "lance_c"
+ versioning = false  # 0.x ABI is unstable; revisit at 1.0
++
++[patch.crates-io]
++tokio = { path = "../tokio-1.53.1" }
++
++xet-runtime = { path = "../xet-runtime-1.6.0" }
++goosefs-sdk = { path = "../goosefs-sdk-0.2.2" }
+diff --git a/include/lance/host_executor.hpp b/include/lance/host_executor.hpp
+--- /dev/null
++++ b/include/lance/host_executor.hpp
+@@ -0,0 +1,62 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++#pragma once
++
++#include <stdexcept>
++#include <utility>
++
++#include "lance.h"
++
++namespace lance {
++/// Install once before creating sessions; retained contexts may outlive every reader.
++inline void install_memory_services(const LanceHostMemoryServicesOptionsV1& options) {
++    if (lance_runtime_install_memory_services_v1(&options) != 0)
++        throw std::runtime_error(lance_last_error_message());
++}
++
++/// Thread-bound injection scope. Destroy before closing the executor; do not cross await points.
++class HostExecutorScope {
++public:
++    explicit HostExecutorScope(const LanceHostExecutor* executor)
++            : scope_(lance_host_executor_enter(executor)) {
++        if (!scope_) throw std::runtime_error(lance_last_error_message());
++    }
++    ~HostExecutorScope() { lance_host_executor_leave(scope_); }
++    HostExecutorScope(const HostExecutorScope&) = delete;
++    HostExecutorScope& operator=(const HostExecutorScope&) = delete;
++    HostExecutorScope(HostExecutorScope&&) = delete;
++    HostExecutorScope& operator=(HostExecutorScope&&) = delete;
++
++private:
++    LanceHostExecutorScope* scope_;
++};
++
++/// Queue owner for an operation. A null notifier enables cooperative execution on the caller.
++class HostExecutor {
++public:
++    explicit HostExecutor(const LanceHostExecutorOptionsV1& options)
++            : executor_(lance_host_executor_new_v1(&options)) {
++        if (!executor_) throw std::runtime_error(lance_last_error_message());
++    }
++    ~HostExecutor() {
++        if (executor_) lance_host_executor_free(executor_);
++    }
++    HostExecutor(const HostExecutor&) = delete;
++    HostExecutor& operator=(const HostExecutor&) = delete;
++    HostExecutor(HostExecutor&& other) noexcept
++            : executor_(std::exchange(other.executor_, nullptr)) {}
++    HostExecutor& operator=(HostExecutor&&) = delete;
++    [[nodiscard]] LanceHostExecutor* get() const { return executor_; }
++    /// Attach before entering the executor or opening a reader. The SDK retains the account.
++    void set_memory_account(const LanceHostMemoryAccountOptionsV1& options) const {
++        if (lance_host_executor_set_memory_v1(executor_, &options) != 0)
++            throw std::runtime_error(lance_last_error_message());
++    }
++    int64_t run(uint32_t queue, uint32_t max_tasks) const {
++        return lance_host_executor_run(executor_, queue, max_tasks);
++    }
++
++private:
++    LanceHostExecutor* executor_;
++};
++} // namespace lance
+diff --git a/include/lance/lance.h b/include/lance/lance.h
+--- a/include/lance/lance.h
++++ b/include/lance/lance.h
+@@ -85,6 +85,9 @@
+     LANCE_ERR_COMMIT_CONFLICT = 8,
+     /* An unexpected panic was caught at the FFI boundary. */
+     LANCE_ERR_PANIC = 9,
++    LANCE_ERR_MEMORY_LIMIT = 10,
++    LANCE_ERR_WORKLOAD_GROUP_MEMORY_LIMIT = 11,
++    LANCE_ERR_PROCESS_MEMORY_LIMIT = 12,
+ } LanceErrorCode;
+
+ /**
+@@ -187,8 +190,148 @@
+
+ typedef struct LanceDataset  LanceDataset;
+ typedef struct LanceScanner  LanceScanner;
++/** Host-driven task queues. These handles do not create worker threads.
++ * Tokio remains responsible for network readiness, timers, join notifications and shared I/O services.
++ * Operation-owned scan/decoder tasks and spawn_cpu use the injected executor.
++ */
++#define LANCE_DORIS_HOST_RUNTIME_ABI 6
++typedef struct LanceHostExecutor LanceHostExecutor;
++typedef struct LanceHostExecutorScope LanceHostExecutorScope;
++
++/* Retained memory ledger. Callbacks can run on any thread and must never unwind.
++ * record cannot reject ordinary allocations: Rust infallible containers abort on allocation failure.
++ * reserve precharges bytes and returns 0/1/2/3 for success/query/group/process limit.
++ * A rejected reserve must undo its own partial charges; finish_reserve pairs only successes.
++ * finish_reserve converts precharged bytes to live bytes, or rolls back on allocation failure.
++ * check reports cooperative memory pressure using the same limit categories.
++ */
++typedef struct LanceHostMemoryAccountOptionsV1 {
++    uint32_t abi_version;
++    uint32_t struct_size;
++    void* context;
++    void (*retain_context)(void* context);
++    void (*release_context)(void* context);
++    void (*record)(void* context, int64_t bytes);
++    int32_t (*reserve)(void* context, size_t bytes);
++    void (*finish_reserve)(void* context, size_t bytes, bool allocated);
++    int32_t (*check)(void* context);
++} LanceHostMemoryAccountOptionsV1;
++typedef struct LanceHostMemoryServicesOptionsV1 {
++    uint32_t abi_version;
++    uint32_t struct_size;
++    LanceHostMemoryAccountOptionsV1 background;
++    LanceHostMemoryAccountOptionsV1 index_cache;
++    LanceHostMemoryAccountOptionsV1 metadata_cache;
++} LanceHostMemoryServicesOptionsV1;
++/* Install before opening sessions/readers; descriptors are copied and contexts retained. */
++int32_t lance_runtime_install_memory_services_v1(const LanceHostMemoryServicesOptionsV1* options);
++/* Set once before entering or submitting work to this executor. Allocation headers retain the ledger. */
++int32_t lance_host_executor_set_memory_v1(const LanceHostExecutor* executor,
++                                          const LanceHostMemoryAccountOptionsV1* options);
++
++/* Host-owned process services. submit consumes task_context and must call run or discard once.
++ * Queue 0 is CPU, 1 is blocking I/O, and 2 is deferred destruction. Keep accepting queue 2
++ * through lance_runtime_stop, including when new CPU/I/O submissions are rejected.
++ * Install before any Doris SDK call; drive the reactor on a host service thread. It creates no
++ * Rust worker or blocking threads. Keep context alive until all objects and the driver are closed.
++ */
++typedef void (*LanceHostRunTask)(void* task_context);
++typedef void (*LanceHostSubmitTask)(void* context, uint32_t queue, LanceHostRunTask run,
++                                    LanceHostRunTask discard, void* task_context);
++typedef struct LanceHostServicesOptionsV1 {
++    uint32_t abi_version;
++    uint32_t struct_size;
++    void* context;
++    LanceHostSubmitTask submit;
++} LanceHostServicesOptionsV1;
++int32_t lance_runtime_install_host_services_v1(const LanceHostServicesOptionsV1* options);
++int32_t lance_runtime_drive(void);
++void lance_runtime_stop(void);
++
++typedef struct LanceHostExecutorOptionsV1 {
++    uint32_t abi_version; /* Must be 1. */
++    uint32_t struct_size; /* Must be at least sizeof(LanceHostExecutorOptionsV1). */
++    void* context;
++    void (*retain_context)(void* context);
++    void (*release_context)(void* context);
++    /* Called on any thread after enqueueing. Never block, reenter, or run tasks inline here.
++     * Schedule lance_host_executor_run on a host worker. NULL enables caller-only execution.
++     * queue: 0 = CPU, 1 = blocking I/O. Worker concurrency and scheduling are the host's responsibility.
++     */
++    void (*notify_ready)(void* context, uint32_t queue);
++    /* Optional host dispatch. The caller still helps queued children while synchronously waiting. */
++    LanceHostSubmitTask submit_task;
++    /* Maximum outstanding host drivers per queue. Zero is treated as one. */
++    uint32_t max_cpu_drivers;
++    uint32_t max_io_drivers;
++} LanceHostExecutorOptionsV1;
++
++/** Copies the descriptor and retains context once. Retain/release must both be set or both NULL.
++ * Callbacks must be thread-safe and must not unwind exceptions across the C boundary.
++ * NULL context callbacks require the caller to keep context alive until all executor work is gone.
++ */
++LanceHostExecutor* lance_host_executor_new_v1(const LanceHostExecutorOptionsV1* options);
++/** Enter before Dataset open, Scanner calls and Arrow stream consumption.
++ * Leave on the same thread in strict LIFO order. Never hold a scope across an async suspension.
++ * Objects/streams created under a scope must not outlive their executor.
++ * Keep the same executor when operating on a live scanner or exported stream.
++ */
++LanceHostExecutorScope* lance_host_executor_enter(const LanceHostExecutor* executor);
++int32_t lance_host_executor_leave(LanceHostExecutorScope* scope);
++/** Runs up to max_tasks tasks on the calling thread. max_tasks must be positive.
++ * Returns count or -1 on error. Concurrent workers may drive the same queue.
++ * A single task/poll cannot be preempted. Blocking I/O occupies its worker until it returns.
++ */
++int64_t lance_host_executor_run(const LanceHostExecutor* executor, uint32_t queue,
++                                uint32_t max_tasks);
++/** Close SDK objects first and wait for all active scopes/run calls before freeing.
++ * Retires pending work; callback context release can occur later on the control runtime.
++ */
++void lance_host_executor_free(LanceHostExecutor* executor);
++/** Cumulative task poll count, for host-side profiling. */
++uint64_t lance_host_executor_completed_tasks(const LanceHostExecutor* executor);
+ typedef struct LanceBatch    LanceBatch;
+ typedef struct LanceSession  LanceSession;
++
++/** Read-only host storage. Descriptors and cache_namespace are copied by open.
++ * Every callback must be thread-safe and must not throw across the C boundary.
++ * Return 0 on success, 1 for not-found, or 2 for other failures. Error strings
++ * must remain valid on the calling thread until the callback's caller copies them.
++ * The library retains context until all datasets, streams and files release it.
++ */
++typedef struct LanceHostFileMeta {
++    uint64_t size;
++    int64_t modified_seconds;
++} LanceHostFileMeta;
++typedef int32_t (*LanceHostListEntry)(void* context, const char* uri,
++                                    const LanceHostFileMeta* metadata);
++typedef struct LanceHostStorageOptionsV1 {
++    uint32_t abi_version;
++    uint32_t struct_size;
++    void* context;
++    void (*retain_context)(void* context);
++    void (*release_context)(void* context);
++    const char* cache_namespace;
++    /* A successful open returns one handle, eventually closed exactly once. */
++    int32_t (*open)(void* context, const char* uri, void** file,
++                    LanceHostFileMeta* metadata, const char** error);
++    int32_t (*read_at)(void* file, uint64_t offset, uint8_t* buffer,
++                       size_t length, size_t* bytes_read, const char** error);
++    void (*close)(void* file);
++    /* Emit all files recursively under uri, sequentially on this calling thread.
++     * Do not retain emit/emit_context; stop immediately if emit returns nonzero. */
++    int32_t (*list)(void* context, const char* uri, LanceHostListEntry emit,
++                    void* emit_context, const char** error);
++} LanceHostStorageOptionsV1;
++
++/** All reads, including manifest discovery, use the supplied host storage.
++ * Native storage is never used as a fallback. session may be NULL.
++ * cache_namespace must identify the storage origin and read policy, not an individual query.
++ * Dataset URI query/fragment/user-info parameters are unsupported; use storage_options.
++ */
++LanceDataset* lance_dataset_open_with_storage_v1(
++        const char* uri, const char* const* storage_options, uint64_t version,
++        const LanceSession* session, const LanceHostStorageOptionsV1* options);
+ typedef struct LanceVersions LanceVersions;
+ typedef struct LanceDataStatistics LanceDataStatistics;
+ typedef struct LanceIndexSegmentBuilder LanceIndexSegmentBuilder;
+diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+--- a/include/lance/lance.hpp
++++ b/include/lance/lance.hpp
+@@ -346,6 +346,21 @@
+
+         auto* ds = lance_dataset_open_with_session(
+             uri.c_str(), opts_ptr, version, session.c_handle());
++        if (!ds) check_error();
++        return Dataset(ds);
++    }
++
++    /// Read-only dataset using host file callbacks, including manifest discovery.
++    /// The host context is retained by every dataset/reader that uses it.
++    static Dataset open_with_storage(
++        const Session& session, const std::string& uri,
++        const LanceHostStorageOptionsV1& storage,
++        const std::vector<std::pair<std::string, std::string>>& storage_opts = {},
++        uint64_t version = 0) {
++        auto kv = to_c_storage_options(storage_opts);
++        auto* ds = lance_dataset_open_with_storage_v1(
++            uri.c_str(), storage_opts.empty() ? nullptr : kv.data(),
++            version, session.c_handle(), &storage);
+         if (!ds) check_error();
+         return Dataset(ds);
+     }
+diff --git a/src/async_dispatcher.rs b/src/async_dispatcher.rs
+--- a/src/async_dispatcher.rs
++++ b/src/async_dispatcher.rs
+@@ -7,9 +7,10 @@
+ //! receives completion messages from Tokio tasks and invokes C callbacks
+ //! sequentially, avoiding reentrancy and Tokio thread blocking.
+
++use std::collections::VecDeque;
+ use std::ffi::c_void;
+ use std::panic::{AssertUnwindSafe, catch_unwind};
+-use std::sync::{LazyLock, mpsc};
++use std::sync::{Condvar, LazyLock, Mutex, mpsc};
+
+ use crate::error::{LanceErrorCode, clear_last_error, panic_payload_message, set_last_error};
+
+@@ -107,6 +108,100 @@
+     }
+ });
+
++#[derive(Default)]
++struct HostDispatchState {
++    messages: VecDeque<DispatcherMessage>,
++    running: bool,
++}
++
++#[derive(Default)]
++struct HostDispatcher {
++    state: Mutex<HostDispatchState>,
++    idle: Condvar,
++}
++
++static HOST_DISPATCHER: LazyLock<HostDispatcher> = LazyLock::new(HostDispatcher::default);
++
++// Exactly one host drain owns the queue, preserving the C API's serial callback contract.
++// A rejected host job is destroyed on host cleanup workers, outside SDK wake locks; its
++// guard must still deliver accepted completions rather than leaking an exported stream.
++struct HostDrain(bool);
++impl HostDrain {
++    fn run(mut self) {
++        self.0 = true;
++        HOST_DISPATCHER.drain(true);
++    }
++}
++impl Drop for HostDrain {
++    fn drop(&mut self) {
++        if !self.0 {
++            HOST_DISPATCHER.drain(false);
++        }
++    }
++}
++impl HostDispatcher {
++    fn send(&self, message: DispatcherMessage) {
++        // Queue capacity survives every delivered query completion. Keep that
++        // process-owned storage off the first query that grows the dispatcher.
++        let _memory = lance_core::utils::memory::MemoryGuard::enter(
++            lance_core::utils::memory::background_account(),
++        );
++        let start = {
++            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
++            state.messages.push_back(message);
++            let start = !state.running;
++            state.running = true;
++            start
++        };
++        if start {
++            self.schedule();
++        }
++    }
++
++    fn schedule(&self) {
++        use lance_core::utils::task_executor::{Executor, TaskKind};
++        let drain = HostDrain(false);
++        crate::host_services::SERVICES
++            .get()
++            .expect("host services installed")
++            .schedule(TaskKind::Io, Box::new(move || drain.run()));
++    }
++
++    fn drain(&self, resubmit: bool) {
++        let mut delivered = 0;
++        loop {
++            let message = {
++                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
++                match state.messages.pop_front() {
++                    Some(message) => message,
++                    None => {
++                        state.running = false;
++                        self.idle.notify_all();
++                        return;
++                    }
++                }
++            };
++            deliver_message(message);
++            delivered += 1;
++            if resubmit && delivered == 16 {
++                self.schedule();
++                return;
++            }
++        }
++    }
++}
++
++pub(crate) fn drain_host_callbacks() {
++    let state = HOST_DISPATCHER
++        .state
++        .lock()
++        .unwrap_or_else(|e| e.into_inner());
++    let _state = HOST_DISPATCHER
++        .idle
++        .wait_while(state, |state| state.running)
++        .unwrap_or_else(|e| e.into_inner());
++}
++
+ /// Send a completion message to the dispatcher thread. Before invoking the
+ /// callback, the dispatcher installs `error` on its own thread-local error
+ /// slot — `Some((code, message))` for failures, `None` (clearing any stale
+@@ -119,16 +214,18 @@
+     result: *mut c_void,
+     error: Option<(LanceErrorCode, String)>,
+ ) {
+-    dispatch_message(
+-        DISPATCHER.as_ref(),
+-        DispatcherMessage {
+-            callback,
+-            callback_ctx,
+-            status,
+-            result,
+-            error,
+-        },
+-    );
++    let message = DispatcherMessage {
++        callback,
++        callback_ctx,
++        status,
++        result,
++        error,
++    };
++    if crate::host_services::SERVICES.get().is_some() {
++        HOST_DISPATCHER.send(message);
++    } else {
++        dispatch_message(DISPATCHER.as_ref(), message);
++    }
+ }
+
+ #[cfg(test)]
+diff --git a/src/dataset.rs b/src/dataset.rs
+--- a/src/dataset.rs
++++ b/src/dataset.rs
+@@ -165,6 +165,10 @@
+     version: u64,
+     session: Option<&LanceSession>,
+ ) -> Result<*mut LanceDataset> {
++    let owner = session.map_or_else(lance_core::utils::memory::current_account, |session| {
++        session.inner.storage_memory_account()
++    });
++    let memory_scope = lance_core::utils::memory::MemoryGuard::enter(owner);
+     let uri_str = unsafe { helpers::parse_c_string(uri)? }
+         .ok_or_else(|| lance_core::Error::invalid_input_source("uri must not be NULL".into()))?;
+
+@@ -181,7 +185,11 @@
+         builder = builder.with_session(session.inner.clone());
+     }
+
++    lance_core::utils::memory::check_current()?;
+     let dataset = block_on(builder.load())?;
++    lance_core::utils::memory::check_current()?;
++    drop(memory_scope);
++    lance_core::utils::memory::check_current()?;
+     let handle = LanceDataset {
+         inner: RwLock::new(Arc::new(dataset)),
+     };
+diff --git a/src/error.rs b/src/error.rs
+--- a/src/error.rs
++++ b/src/error.rs
+@@ -38,6 +38,12 @@
+     CommitConflict = 8,
+     /// An unexpected panic was caught at the FFI boundary.
+     Panic = 9,
++    /// The submitting query exceeded its memory budget.
++    MemoryLimit = 10,
++    /// The query workload group exceeded its memory budget.
++    WorkloadGroupMemoryLimit = 11,
++    /// The host process exceeded its memory budget.
++    ProcessMemoryLimit = 12,
+ }
+
+ struct LastError {
+@@ -56,6 +62,10 @@
+ }
+
+ pub fn set_last_error(code: LanceErrorCode, message: impl AsRef<str>) {
++    // Error TLS can outlive the failed query on a shared worker thread.
++    let _memory = lance_core::utils::memory::MemoryGuard::enter(
++        lance_core::utils::memory::background_account(),
++    );
+     let message = match CString::new(message.as_ref()) {
+         Ok(v) => v,
+         Err(_) => CString::new(message.as_ref().replace('\0', "\\0"))
+@@ -69,6 +79,13 @@
+ /// Map a `lance_core::Error` to an `LanceErrorCode`.
+ pub fn error_code_from_lance(err: &lance_core::Error) -> LanceErrorCode {
+     use lance_core::Error;
++    if let Some(code) = lance_core::utils::memory::limit_code(err) {
++        return match code {
++            2 => LanceErrorCode::WorkloadGroupMemoryLimit,
++            3 => LanceErrorCode::ProcessMemoryLimit,
++            _ => LanceErrorCode::MemoryLimit,
++        };
++    }
+     match err {
+         Error::InvalidInput { .. } => LanceErrorCode::InvalidArgument,
+         Error::DatasetAlreadyExists { .. } => LanceErrorCode::DatasetAlreadyExists,
+diff --git a/src/host_executor.rs b/src/host_executor.rs
+--- /dev/null
++++ b/src/host_executor.rs
+@@ -0,0 +1,928 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Host-driven operation queues; Tokio is retained for I/O readiness and join notifications.
++
++use lance_core::utils::memory::{self, MemoryAccount, MemoryGuard};
++use std::cell::RefCell;
++use std::collections::VecDeque;
++use std::ffi::c_void;
++use std::future::Future;
++use std::panic::{AssertUnwindSafe, catch_unwind};
++use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
++use std::sync::{Arc, Mutex, OnceLock, Weak};
++use std::task::{Context, Poll};
++use std::thread::{Thread, ThreadId};
++
++use futures::task::{ArcWake, waker};
++use lance_core::utils::task_executor::{self, Executor, ExecutorGuard, Task, TaskKind};
++
++use crate::error::{LanceErrorCode, clear_last_error, set_last_error};
++use crate::runtime::RT;
++
++/// Versioned callbacks. Context callbacks must be paired; notify only schedules asynchronous work.
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct LanceHostExecutorOptionsV1 {
++    pub abi_version: u32,
++    pub struct_size: u32,
++    pub context: *mut c_void,
++    pub retain_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub release_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub notify_ready: Option<unsafe extern "C" fn(*mut c_void, u32)>,
++    pub submit_task: Option<crate::host_services::SubmitTask>,
++    pub max_cpu_drivers: u32,
++    pub max_io_drivers: u32,
++}
++impl Default for LanceHostExecutorOptionsV1 {
++    fn default() -> Self {
++        Self {
++            abi_version: 1,
++            struct_size: std::mem::size_of::<Self>() as u32,
++            context: std::ptr::null_mut(),
++            retain_context: None,
++            release_context: None,
++            notify_ready: None,
++            submit_task: None,
++            max_cpu_drivers: 1,
++            max_io_drivers: 1,
++        }
++    }
++}
++
++/// Opaque executor. It owns queues, not worker threads.
++pub struct LanceHostExecutor {
++    pub(crate) inner: Arc<HostRuntime>,
++}
++
++pub(crate) struct HostRuntime {
++    pub(crate) memory: OnceLock<Arc<MemoryAccount>>,
++    weak_self: Weak<HostRuntime>,
++    submitted: [AtomicU32; 2],
++    driver_limits: [u32; 2],
++    submit_task: Option<crate::host_services::SubmitTask>,
++    queues: [Mutex<VecDeque<Task>>; 2],
++    context: usize,
++    release_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    notify_ready: Option<unsafe extern "C" fn(*mut c_void, u32)>,
++    parked: Mutex<Vec<(u64, Thread)>>,
++    next_id: AtomicU64,
++    closed: AtomicBool,
++    completed: AtomicU64,
++}
++impl HostRuntime {
++    fn new(options: LanceHostExecutorOptionsV1) -> Arc<Self> {
++        if let Some(retain) = options.retain_context {
++            unsafe { retain(options.context) };
++        }
++        Arc::new_cyclic(|weak| Self {
++            memory: OnceLock::new(),
++            weak_self: weak.clone(),
++            submitted: std::array::from_fn(|_| AtomicU32::new(0)),
++            driver_limits: [
++                options.max_cpu_drivers.max(1),
++                options.max_io_drivers.max(1),
++            ],
++            submit_task: options.submit_task,
++            queues: std::array::from_fn(|_| Mutex::new(VecDeque::new())),
++            context: options.context as usize,
++            release_context: options.release_context,
++            notify_ready: options.notify_ready,
++            parked: Mutex::new(Vec::new()),
++            next_id: AtomicU64::new(0),
++            closed: AtomicBool::new(false),
++            completed: AtomicU64::new(0),
++        })
++    }
++    fn run(&self, queue: usize, max_tasks: u32) -> u32 {
++        let mut count = 0;
++        while count < max_tasks {
++            let task = self.queues[queue]
++                .lock()
++                .unwrap_or_else(|e| e.into_inner())
++                .pop_front();
++            let Some(task) = task else {
++                break;
++            };
++            task();
++            self.completed.fetch_add(1, Ordering::Relaxed);
++            count += 1;
++        }
++        count
++    }
++    pub(crate) fn block_on<F: Future>(self: &Arc<Self>, future: F) -> F::Output {
++        let _reactor = RT.enter();
++        let executor: Arc<dyn Executor> = self.clone();
++        let future = task_executor::scope(executor, future);
++        let mut future = std::pin::pin!(future);
++        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
++        self.parked
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .push((id, std::thread::current()));
++        let _registration = ParkedRegistration { runtime: self, id };
++        let wake = waker(Arc::new(ThreadWake(std::thread::current())));
++        let mut cx = Context::from_waker(&wake);
++        loop {
++            if let Poll::Ready(value) = future.as_mut().poll(&mut cx) {
++                return value;
++            }
++            // The caller helps its own children while waiting. Saturating the host pool with
++            // synchronous readers must not leave all child tasks waiting for those same slots.
++            let cpu = self.run(0, 1);
++            let io = if self.submit_task.is_none() || self.submitted[1].load(Ordering::Acquire) == 0
++            {
++                self.run(1, 1)
++            } else {
++                0
++            };
++            if cpu == 0 && io == 0 {
++                std::thread::park();
++            }
++        }
++    }
++    fn submit_driver(&self, queue: usize) {
++        let Some(submit) = self.submit_task else {
++            return;
++        };
++        if self.closed.load(Ordering::Acquire)
++            || self.submitted[queue]
++                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
++                    if current < self.driver_limits[queue] {
++                        Some(current + 1)
++                    } else {
++                        None
++                    }
++                })
++                .is_err()
++        {
++            return;
++        }
++        let driver = QueueDriver {
++            runtime: self.weak_self.clone(),
++            queue,
++        };
++        crate::host_services::submit(
++            submit,
++            self.context,
++            if queue == 0 {
++                TaskKind::Cpu
++            } else {
++                TaskKind::Io
++            },
++            Box::new(move || driver.run()),
++        );
++    }
++    fn retire(&self) {
++        self.closed.store(true, Ordering::Release);
++        let tasks: Vec<_> = self
++            .queues
++            .iter()
++            .flat_map(|queue| {
++                queue
++                    .lock()
++                    .unwrap_or_else(|e| e.into_inner())
++                    .drain(..)
++                    .collect::<Vec<_>>()
++            })
++            .collect();
++        // Destructors may acquire SDK locks, so they run after queue locks are released.
++        drop(tasks);
++    }
++}
++impl Executor for HostRuntime {
++    fn memory_account(&self) -> Option<Arc<MemoryAccount>> {
++        self.memory.get().cloned()
++    }
++    fn cpu_parallelism(&self) -> usize {
++        self.driver_limits[0] as usize
++    }
++    fn run_cpu_task(&self) -> bool {
++        self.run(0, 1) != 0
++    }
++
++    fn schedule(&self, kind: TaskKind, task: Task) {
++        let account = memory::explicit_account().or_else(|| self.memory_account());
++        let task: Task = Box::new(move || {
++            let _memory = MemoryGuard::enter(account);
++            task();
++        });
++        let queue = match kind {
++            TaskKind::Cpu => 0,
++            TaskKind::Io => 1,
++            TaskKind::Cleanup => {
++                crate::host_services::SERVICES
++                    .get()
++                    .expect("host services installed")
++                    .schedule(TaskKind::Cleanup, task);
++                return;
++            }
++        };
++        {
++            let mut tasks = self.queues[queue].lock().unwrap_or_else(|e| e.into_inner());
++            if self.closed.load(Ordering::Acquire) {
++                // Cancellation can wake a task while holding a library lock.
++                task_executor::defer_drop(RT.handle().clone(), task);
++                return;
++            }
++            tasks.push_back(task);
++        }
++        for (_, thread) in self.parked.lock().unwrap_or_else(|e| e.into_inner()).iter() {
++            thread.unpark();
++        }
++        self.submit_driver(queue);
++        if let Some(notify) = self.notify_ready {
++            unsafe { notify(self.context as *mut c_void, queue as u32) };
++        }
++    }
++}
++impl Drop for HostRuntime {
++    fn drop(&mut self) {
++        // The last reference can disappear inside a wake callback. Defer both queued future
++        // destruction and the foreign context release until that callback has returned.
++        let tasks: Vec<_> = self
++            .queues
++            .iter_mut()
++            .flat_map(|queue| std::mem::take(queue.get_mut().unwrap_or_else(|e| e.into_inner())))
++            .collect();
++        let context = self.context;
++        let release = self.release_context;
++        task_executor::defer_drop(
++            RT.handle().clone(),
++            (tasks, ReleasedContext { context, release }),
++        );
++    }
++}
++// Tuple field order drops queued futures before releasing their foreign context, even on unwind.
++struct ReleasedContext {
++    context: usize,
++    release: Option<unsafe extern "C" fn(*mut c_void)>,
++}
++impl Drop for ReleasedContext {
++    fn drop(&mut self) {
++        if let Some(release) = self.release {
++            unsafe { release(self.context as *mut c_void) };
++        }
++    }
++}
++
++// The host can discard a queued driver during shutdown; no raw SDK pointer outlives its reader.
++struct QueueDriver {
++    runtime: Weak<HostRuntime>,
++    queue: usize,
++}
++impl QueueDriver {
++    fn run(self) {
++        if let Some(runtime) = self.runtime.upgrade() {
++            if !runtime.closed.load(Ordering::Acquire) {
++                runtime.run(self.queue, 16);
++            }
++            let queue = self.queue;
++            drop(self);
++            let pending = !runtime.queues[queue]
++                .lock()
++                .unwrap_or_else(|e| e.into_inner())
++                .is_empty();
++            if pending {
++                runtime.submit_driver(queue);
++            }
++        }
++    }
++}
++impl Drop for QueueDriver {
++    fn drop(&mut self) {
++        if let Some(runtime) = self.runtime.upgrade() {
++            runtime.submitted[self.queue].fetch_sub(1, Ordering::AcqRel);
++            for (_, thread) in runtime
++                .parked
++                .lock()
++                .unwrap_or_else(|e| e.into_inner())
++                .iter()
++            {
++                thread.unpark();
++            }
++        }
++    }
++}
++
++struct ParkedRegistration<'a> {
++    runtime: &'a HostRuntime,
++    id: u64,
++}
++impl Drop for ParkedRegistration<'_> {
++    fn drop(&mut self) {
++        self.runtime
++            .parked
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .retain(|(id, _)| *id != self.id);
++    }
++}
++struct ThreadWake(Thread);
++impl ArcWake for ThreadWake {
++    fn wake_by_ref(this: &Arc<Self>) {
++        this.0.unpark();
++    }
++}
++
++thread_local! {
++    static CURRENT: RefCell<Option<Arc<HostRuntime>>> = const { RefCell::new(None) };
++}
++pub(crate) fn current() -> Option<Arc<HostRuntime>> {
++    CURRENT.with(|current| current.borrow().clone())
++}
++
++/// Thread-bound, LIFO scope for synchronous C API calls. Never move it across threads.
++pub struct LanceHostExecutorScope {
++    previous: Option<Arc<HostRuntime>>,
++    thread: ThreadId,
++    _executor: ExecutorGuard,
++    _reactor: tokio::runtime::EnterGuard<'static>,
++}
++impl Drop for LanceHostExecutorScope {
++    fn drop(&mut self) {
++        CURRENT.with(|current| current.replace(self.previous.take()));
++    }
++}
++
++fn ffi<T>(fallback: T, operation: impl FnOnce() -> Result<T, String>) -> T {
++    match catch_unwind(AssertUnwindSafe(operation)) {
++        Ok(Ok(value)) => {
++            clear_last_error();
++            value
++        }
++        Ok(Err(error)) => {
++            set_last_error(LanceErrorCode::InvalidArgument, error);
++            fallback
++        }
++        Err(_) => {
++            set_last_error(LanceErrorCode::Panic, "panic in host executor API");
++            fallback
++        }
++    }
++}
++
++/// Create an executor, retaining the callback context once. Null options are invalid.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_new_v1(
++    options: *const LanceHostExecutorOptionsV1,
++) -> *mut LanceHostExecutor {
++    ffi(std::ptr::null_mut(), || {
++        if options.is_null() {
++            return Err("host executor options must not be NULL".into());
++        }
++        // Read the fixed prefix before accessing v1 fields: an older/smaller descriptor must
++        // be rejected without reading past the memory the caller supplied.
++        let prefix = options.cast::<u32>();
++        let version = unsafe { prefix.read() };
++        let size = unsafe { prefix.add(1).read() };
++        if version != 1 || size < std::mem::size_of::<LanceHostExecutorOptionsV1>() as u32 {
++            return Err(format!(
++                "unsupported host executor ABI version {version}, struct_size {size}"
++            ));
++        }
++        let options = unsafe { options.read() };
++        if options.retain_context.is_some() != options.release_context.is_some() {
++            return Err(
++                "retain_context and release_context must both be set or both be NULL".into(),
++            );
++        }
++        Ok(Box::into_raw(Box::new(LanceHostExecutor {
++            inner: HostRuntime::new(options),
++        })))
++    })
++}
++
++/// Enter on this thread before any Dataset/Scanner/Arrow-stream operation. Nest in LIFO order.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_enter(
++    executor: *const LanceHostExecutor,
++) -> *mut LanceHostExecutorScope {
++    ffi(std::ptr::null_mut(), || {
++        if executor.is_null() {
++            return Err("host executor must not be NULL".into());
++        }
++        let runtime = Arc::clone(&unsafe { &*executor }.inner);
++        let reactor = RT.enter();
++        let executor: Arc<dyn Executor> = runtime.clone();
++        let guard = ExecutorGuard::enter(executor);
++        let previous = CURRENT.with(|current| current.replace(Some(runtime)));
++        Ok(Box::into_raw(Box::new(LanceHostExecutorScope {
++            previous,
++            thread: std::thread::current().id(),
++            _executor: guard,
++            _reactor: reactor,
++        })))
++    })
++}
++
++/// Leave on the entering thread. All nested scopes must already have been left.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_leave(scope: *mut LanceHostExecutorScope) -> i32 {
++    ffi(-1, || {
++        if scope.is_null() {
++            return Err("host executor scope must not be NULL".into());
++        }
++        if unsafe { &*scope }.thread != std::thread::current().id() {
++            return Err("host executor scope must be left on its entering thread".into());
++        }
++        unsafe { drop(Box::from_raw(scope)) };
++        Ok(0)
++    })
++}
++
++/// Run at most max_tasks polls of queue 0 (CPU) or 1 (blocking I/O) on this calling thread.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_run(
++    executor: *const LanceHostExecutor,
++    queue: u32,
++    max_tasks: u32,
++) -> i64 {
++    ffi(-1, || {
++        if executor.is_null() || queue > 1 || max_tasks == 0 {
++            return Err("host executor, queue 0/1 and positive max_tasks are required".into());
++        }
++        Ok(unsafe { &*executor }.inner.run(queue as usize, max_tasks) as i64)
++    })
++}
++
++/// Number of task polls completed by this executor, including cooperative caller polls.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_completed_tasks(
++    executor: *const LanceHostExecutor,
++) -> u64 {
++    if executor.is_null() {
++        return 0;
++    }
++    unsafe { &*executor }
++        .inner
++        .completed
++        .load(Ordering::Relaxed)
++}
++
++/// Retire queues after all operation scopes/calls and their SDK handles have been closed.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_free(executor: *mut LanceHostExecutor) {
++    ffi((), || {
++        if !executor.is_null() {
++            let executor = unsafe { Box::from_raw(executor) };
++            executor.inner.retire();
++            drop(executor);
++        }
++        Ok(())
++    });
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::sync::atomic::{AtomicUsize, Ordering};
++
++    #[test]
++    fn retiring_queued_host_tasks_reports_cancellation_without_a_panic() {
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1::default());
++        let handle = {
++            let _reactor = RT.enter();
++            let executor: Arc<dyn Executor> = runtime.clone();
++            let _guard = ExecutorGuard::enter(executor);
++            task_executor::spawn(std::future::pending::<()>())
++        };
++        runtime.retire();
++        let error = RT.block_on(handle).unwrap_err();
++        assert!(
++            error.is_cancelled(),
++            "queued cancellation was misreported: {error}"
++        );
++    }
++
++    #[test]
++    fn user_future_panics_remain_panics_in_the_tokio_join_result() {
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1::default());
++        let handle = {
++            let _reactor = RT.enter();
++            let executor: Arc<dyn Executor> = runtime.clone();
++            let _guard = ExecutorGuard::enter(executor);
++            task_executor::spawn(async { panic!("user task failure") })
++        };
++        runtime.run(0, 1);
++        let error = RT.block_on(handle).unwrap_err();
++        assert!(error.is_panic());
++    }
++
++    #[test]
++    fn cooperative_host_executes_nested_tasks_without_worker_threads() {
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1::default());
++        let host_thread = std::thread::current().id();
++        let result = runtime.block_on(async move {
++            lance_core::utils::task_executor::spawn(async move {
++                lance_core::utils::task_executor::spawn_blocking(TaskKind::Cpu, move || {
++                    std::thread::current().id()
++                })
++                .await
++                .unwrap()
++            })
++            .await
++            .unwrap()
++        });
++        assert_eq!(result, host_thread);
++        assert_eq!(runtime.run(0, 16), 0);
++    }
++
++    #[test]
++    fn lance_cpu_helper_uses_host_instead_of_global_cpu_runtime() {
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1::default());
++        let host_thread = std::thread::current().id();
++        let actual = runtime.block_on(async {
++            lance_core::utils::tokio::spawn_cpu(|| {
++                Ok::<_, std::io::Error>(std::thread::current().id())
++            })
++            .await
++            .unwrap()
++        });
++        assert_eq!(actual, host_thread);
++    }
++
++    #[test]
++    fn ffi_scopes_restore_the_previous_executor() {
++        unsafe {
++            let options = LanceHostExecutorOptionsV1::default();
++            let first = lance_host_executor_new_v1(&options);
++            let second = lance_host_executor_new_v1(&options);
++            assert!(!first.is_null() && !second.is_null());
++            let outer = lance_host_executor_enter(first);
++            assert!(Arc::ptr_eq(&current().unwrap(), &(*first).inner));
++            let inner = lance_host_executor_enter(second);
++            assert!(Arc::ptr_eq(&current().unwrap(), &(*second).inner));
++            assert_eq!(lance_host_executor_leave(inner), 0);
++            assert!(Arc::ptr_eq(&current().unwrap(), &(*first).inner));
++            assert_eq!(lance_host_executor_leave(outer), 0);
++            assert!(current().is_none());
++            lance_host_executor_free(second);
++            lance_host_executor_free(first);
++        }
++    }
++
++    #[test]
++    fn ready_callback_and_host_run_drive_detached_work() {
++        unsafe extern "C" fn notify(context: *mut c_void, _queue: u32) {
++            unsafe { &*context.cast::<AtomicUsize>() }.fetch_add(1, Ordering::SeqCst);
++        }
++        let notifications = AtomicUsize::new(0);
++        let options = LanceHostExecutorOptionsV1 {
++            context: &notifications as *const _ as *mut _,
++            notify_ready: Some(notify),
++            ..Default::default()
++        };
++        unsafe {
++            let executor = lance_host_executor_new_v1(&options);
++            let scope = lance_host_executor_enter(executor);
++            let handle = task_executor::spawn(async { 42 });
++            assert_eq!(lance_host_executor_leave(scope), 0);
++            assert!(notifications.load(Ordering::SeqCst) > 0);
++            assert_eq!(lance_host_executor_run(executor, 0, 1), 1);
++            assert_eq!(RT.block_on(handle).unwrap(), 42);
++            lance_host_executor_free(executor);
++        }
++    }
++
++    #[test]
++    fn submitted_host_drivers_obey_per_queue_limits() {
++        struct Job {
++            run: crate::host_services::RunTask,
++            context: usize,
++        }
++        unsafe extern "C" fn submit(
++            context: *mut c_void,
++            _queue: u32,
++            run: crate::host_services::RunTask,
++            _discard: crate::host_services::RunTask,
++            task: *mut c_void,
++        ) {
++            unsafe { &*context.cast::<Mutex<Vec<Job>>>() }
++                .lock()
++                .unwrap()
++                .push(Job {
++                    run,
++                    context: task as usize,
++                });
++        }
++        let jobs = Mutex::new(Vec::<Job>::new());
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1 {
++            context: &jobs as *const _ as *mut c_void,
++            submit_task: Some(submit),
++            max_cpu_drivers: 3,
++            max_io_drivers: 2,
++            ..Default::default()
++        });
++        for _ in 0..10 {
++            runtime.schedule(TaskKind::Cpu, Box::new(|| {}));
++        }
++        for _ in 0..10 {
++            runtime.schedule(TaskKind::Io, Box::new(|| {}));
++        }
++        assert_eq!(jobs.lock().unwrap().len(), 5);
++        loop {
++            let job = jobs.lock().unwrap().pop();
++            let Some(job) = job else {
++                break;
++            };
++            unsafe { (job.run)(job.context as *mut c_void) };
++        }
++        assert_eq!(runtime.completed.load(Ordering::Relaxed), 20);
++    }
++
++    #[test]
++    fn invalid_abi_and_queue_are_rejected() {
++        unsafe {
++            assert!(lance_host_executor_new_v1(std::ptr::null()).is_null());
++            let mut options = LanceHostExecutorOptionsV1 {
++                abi_version: 2,
++                ..Default::default()
++            };
++            assert!(lance_host_executor_new_v1(&options).is_null());
++            options.abi_version = 1;
++            options.struct_size = 8;
++            assert!(lance_host_executor_new_v1(&options).is_null());
++            options.struct_size = std::mem::size_of::<LanceHostExecutorOptionsV1>() as u32;
++            let runtime = lance_host_executor_new_v1(&options);
++            assert!(!runtime.is_null());
++            assert_eq!(lance_host_executor_run(runtime, 2, 16), -1);
++            lance_host_executor_free(runtime);
++        }
++    }
++
++    #[test]
++    fn callback_context_has_one_balanced_reference() {
++        struct Counts {
++            retained: AtomicUsize,
++            released: AtomicUsize,
++        }
++        unsafe extern "C" fn retain(ctx: *mut std::ffi::c_void) {
++            unsafe { &*ctx.cast::<Counts>() }
++                .retained
++                .fetch_add(1, Ordering::SeqCst);
++        }
++        unsafe extern "C" fn release(ctx: *mut std::ffi::c_void) {
++            unsafe { &*ctx.cast::<Counts>() }
++                .released
++                .fetch_add(1, Ordering::SeqCst);
++        }
++        let counts = Arc::new(Counts {
++            retained: AtomicUsize::new(0),
++            released: AtomicUsize::new(0),
++        });
++        let options = LanceHostExecutorOptionsV1 {
++            context: Arc::as_ptr(&counts) as *mut _,
++            retain_context: Some(retain),
++            release_context: Some(release),
++            ..Default::default()
++        };
++        unsafe {
++            let runtime = lance_host_executor_new_v1(&options);
++            assert_eq!(counts.retained.load(Ordering::SeqCst), 1);
++            lance_host_executor_free(runtime);
++        }
++        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
++        while counts.released.load(Ordering::SeqCst) == 0 {
++            assert!(std::time::Instant::now() < deadline);
++            std::thread::yield_now();
++        }
++        assert_eq!(counts.released.load(Ordering::SeqCst), 1);
++    }
++    #[test]
++    fn shared_io_scheduler_preserves_each_request_executor() {
++        use bytes::Bytes;
++        use futures::future::BoxFuture;
++        use lance_core::deepsize::{Context as SizeContext, DeepSizeOf};
++        use lance_io::{
++            object_store::ObjectStore,
++            scheduler::{ScanScheduler, SchedulerConfig},
++            traits::Reader,
++        };
++        use object_store::path::Path;
++        use std::ops::Range;
++
++        struct ProbeReader {
++            path: Path,
++            expected: Mutex<Option<Weak<dyn Executor>>>,
++        }
++        impl std::fmt::Debug for ProbeReader {
++            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++                f.write_str("ProbeReader")
++            }
++        }
++        impl DeepSizeOf for ProbeReader {
++            fn deep_size_of_children(&self, _: &mut SizeContext) -> usize {
++                0
++            }
++        }
++        impl Reader for ProbeReader {
++            fn path(&self) -> &Path {
++                &self.path
++            }
++            fn block_size(&self) -> usize {
++                1
++            }
++            fn io_parallelism(&self) -> usize {
++                2
++            }
++            fn size(&self) -> BoxFuture<'_, object_store::Result<usize>> {
++                Box::pin(async { Ok(4) })
++            }
++            fn get_range(
++                &self,
++                range: Range<usize>,
++            ) -> BoxFuture<'static, object_store::Result<Bytes>> {
++                let expected = self
++                    .expected
++                    .lock()
++                    .unwrap()
++                    .as_ref()
++                    .unwrap()
++                    .upgrade()
++                    .unwrap();
++                Box::pin(async move {
++                    let actual =
++                        task_executor::current_executor().expect("I/O lost its query executor");
++                    assert!(
++                        Arc::ptr_eq(&expected, &actual),
++                        "I/O inherited the scheduler creator instead of this request"
++                    );
++                    Ok(Bytes::from(vec![1; range.len()]))
++                })
++            }
++            fn get_all(&self) -> BoxFuture<'_, object_store::Result<Bytes>> {
++                self.get_range(0..4)
++            }
++        }
++        let first = HostRuntime::new(Default::default());
++        let second = HostRuntime::new(Default::default());
++        let scheduler = first.block_on(async {
++            use lance_io::object_store::{
++                ObjectStoreParams, storage_options::StorageOptionsAccessor,
++            };
++            let params = ObjectStoreParams {
++                storage_options_accessor: Some(Arc::new(
++                    StorageOptionsAccessor::with_static_options(std::collections::HashMap::from([
++                        ("io_parallelism".into(), "2".into()),
++                    ])),
++                )),
++                ..Default::default()
++            };
++            let store = ObjectStore::with_host_store(
++                Arc::new(object_store::memory::InMemory::new()),
++                "probe".into(),
++                &params,
++            )
++            .unwrap();
++            ScanScheduler::new(Arc::new(store), SchedulerConfig::default_for_testing())
++        });
++        let reader = Arc::new(ProbeReader {
++            path: Path::from("probe"),
++            expected: Mutex::new(None),
++        });
++        let file = scheduler.open_reader(reader.clone());
++        for runtime in [&first, &second] {
++            let executor: Arc<dyn Executor> = (*runtime).clone();
++            *reader.expected.lock().unwrap() = Some(Arc::downgrade(&executor));
++            let bytes = runtime
++                .block_on(async {
++                    file.submit_request(std::iter::once(0..4).collect(), 0)
++                        .await
++                })
++                .unwrap();
++            assert_eq!(bytes[0].as_ref(), &[1; 4]);
++        }
++        // Retiring queued I/O must return the shared scheduler's slots to later queries.
++        let pending = first.block_on(async {
++            (0..2)
++                .map(|_| file.submit_request(std::iter::once(0..4).collect(), 0))
++                .collect::<Vec<_>>()
++        });
++        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
++        while first.queues[0].lock().unwrap().len() < 2 {
++            assert!(
++                std::time::Instant::now() < deadline,
++                "I/O loop did not dispatch queued requests"
++            );
++            std::thread::yield_now();
++        }
++        first.retire();
++        drop(pending);
++        let result = second.block_on(async {
++            tokio::time::timeout(
++                std::time::Duration::from_secs(2),
++                file.submit_request(std::iter::once(0..4).collect(), 0),
++            )
++            .await
++        });
++        assert!(result.is_ok(), "cancelled query leaked shared I/O capacity");
++        assert!(result.unwrap().is_ok());
++    }
++
++    #[test]
++    fn hamming_pairwise_uses_host_cpu_chunks_without_rayon_workers() {
++        use lance_linalg::distance::hamming::{
++            pairwise_hamming_distance, pairwise_hamming_distance_parallel,
++        };
++        let runtime = HostRuntime::new(LanceHostExecutorOptionsV1 {
++            max_cpu_drivers: 4,
++            ..Default::default()
++        });
++        let hashes: Vec<u64> = (0..300).map(|x| x * 0x10001).collect();
++        let expected = pairwise_hamming_distance(&hashes, None, Some(3));
++        let result =
++            runtime.block_on(async { pairwise_hamming_distance_parallel(&hashes, None, Some(3)) });
++        assert_eq!(result.row_id_a, expected.row_id_a);
++        assert_eq!(result.row_id_b, expected.row_id_b);
++        assert_eq!(result.distances, expected.distances);
++        assert!(
++            runtime.completed.load(Ordering::Relaxed) > 1,
++            "Hamming bypassed host CPU scheduling"
++        );
++    }
++
++    #[test]
++    fn legacy_fts_load_keeps_the_query_executor() {
++        use lance_core::{
++            Error, Result,
++            cache::LanceCache,
++            deepsize::{Context as SizeContext, DeepSizeOf},
++        };
++        use lance_index::scalar::{
++            IndexFile, IndexReader, IndexStore, IndexWriter, inverted::InvertedIndex,
++        };
++        use std::any::Any;
++        #[derive(Clone)]
++        struct ProbeStore {
++            expected: Weak<dyn Executor>,
++            wrong: Arc<AtomicBool>,
++        }
++        impl std::fmt::Debug for ProbeStore {
++            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++                f.write_str("ProbeStore")
++            }
++        }
++        impl DeepSizeOf for ProbeStore {
++            fn deep_size_of_children(&self, _: &mut SizeContext) -> usize {
++                0
++            }
++        }
++        #[async_trait::async_trait]
++        impl IndexStore for ProbeStore {
++            fn as_any(&self) -> &dyn Any {
++                self
++            }
++            fn clone_arc(&self) -> Arc<dyn IndexStore> {
++                Arc::new(self.clone())
++            }
++            fn io_parallelism(&self) -> usize {
++                2
++            }
++            async fn new_index_file(
++                &self,
++                _: &str,
++                _: arrow_schema::SchemaRef,
++            ) -> Result<Box<dyn IndexWriter>> {
++                unreachable!()
++            }
++            async fn open_index_file(&self, name: &str) -> Result<Arc<dyn IndexReader>> {
++                if name != "metadata.lance" {
++                    let expected = self.expected.upgrade().unwrap();
++                    let same = task_executor::current_executor()
++                        .is_some_and(|actual| Arc::ptr_eq(&expected, &actual));
++                    self.wrong.fetch_or(!same, Ordering::SeqCst);
++                }
++                Err(Error::io("probe stops after checking executor ownership"))
++            }
++            fn with_io_priority(&self, _: u64) -> Arc<dyn IndexStore> {
++                self.clone_arc()
++            }
++            async fn copy_index_file(&self, _: &str, _: &dyn IndexStore) -> Result<IndexFile> {
++                unreachable!()
++            }
++            async fn rename_index_file(&self, _: &str, _: &str) -> Result<IndexFile> {
++                unreachable!()
++            }
++            async fn delete_index_file(&self, _: &str) -> Result<()> {
++                unreachable!()
++            }
++            async fn list_files_with_sizes(&self) -> Result<Vec<IndexFile>> {
++                unreachable!()
++            }
++        }
++        let runtime = HostRuntime::new(Default::default());
++        let executor: Arc<dyn Executor> = runtime.clone();
++        let wrong = Arc::new(AtomicBool::new(false));
++        let store = Arc::new(ProbeStore {
++            expected: Arc::downgrade(&executor),
++            wrong: wrong.clone(),
++        });
++        let result = runtime.block_on(InvertedIndex::load(store, None, &LanceCache::no_cache()));
++        assert!(result.is_err());
++        assert!(
++            !wrong.load(Ordering::SeqCst),
++            "legacy FTS load escaped to the reactor"
++        );
++    }
++}
+diff --git a/src/host_memory.rs b/src/host_memory.rs
+--- /dev/null
++++ b/src/host_memory.rs
+@@ -0,0 +1,104 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Retained host memory-account registration. Allocation failures never unwind across C.
++use crate::error::ffi_try;
++use crate::host_executor::LanceHostExecutor;
++use lance_core::utils::memory::{self, MemoryAccount};
++
++pub type LanceHostMemoryAccountOptionsV1 = memory::MemoryAccountOptions;
++
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct LanceHostMemoryServicesOptionsV1 {
++    pub abi_version: u32,
++    pub struct_size: u32,
++    pub background: LanceHostMemoryAccountOptionsV1,
++    pub index_cache: LanceHostMemoryAccountOptionsV1,
++    pub metadata_cache: LanceHostMemoryAccountOptionsV1,
++}
++
++unsafe fn read_account(
++    options: *const LanceHostMemoryAccountOptionsV1,
++) -> lance_core::Result<LanceHostMemoryAccountOptionsV1> {
++    if options.is_null() {
++        return Err(lance_core::Error::invalid_input(
++            "host memory account must not be NULL",
++        ));
++    }
++    let prefix = options.cast::<u32>();
++    if unsafe { prefix.read() } != 1
++        || unsafe { prefix.add(1).read() }
++            < std::mem::size_of::<LanceHostMemoryAccountOptionsV1>() as u32
++    {
++        return Err(lance_core::Error::invalid_input(
++            "unsupported host memory account descriptor",
++        ));
++    }
++    let options = unsafe { options.read() };
++    if options.retain_context.is_some() != options.release_context.is_some() {
++        return Err(lance_core::Error::invalid_input(
++            "host memory context retain/release callbacks must be paired",
++        ));
++    }
++    Ok(options)
++}
++
++/// Install process-lifetime ledgers before opening SDK sessions and readers.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_runtime_install_memory_services_v1(
++    options: *const LanceHostMemoryServicesOptionsV1,
++) -> i32 {
++    ffi_try!(
++        (|| {
++            if options.is_null() {
++                return Err(lance_core::Error::invalid_input(
++                    "host memory services must not be NULL",
++                ));
++            }
++            let prefix = options.cast::<u32>();
++            if unsafe { prefix.read() } != 1
++                || unsafe { prefix.add(1).read() }
++                    < std::mem::size_of::<LanceHostMemoryServicesOptionsV1>() as u32
++            {
++                return Err(lance_core::Error::invalid_input(
++                    "unsupported host memory services descriptor",
++                ));
++            }
++            let options = unsafe { &*options };
++            let background = unsafe { MemoryAccount::new(read_account(&options.background)?) }?;
++            let index = unsafe { MemoryAccount::new(read_account(&options.index_cache)?) }?;
++            let metadata = unsafe { MemoryAccount::new(read_account(&options.metadata_cache)?) }?;
++            memory::install_accounts(background, index, metadata)?;
++            Ok(0)
++        })(),
++        neg
++    )
++}
++
++/// Attach one query ledger before the executor is entered or any work is submitted.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_host_executor_set_memory_v1(
++    executor: *const LanceHostExecutor,
++    options: *const LanceHostMemoryAccountOptionsV1,
++) -> i32 {
++    ffi_try!(
++        (|| {
++            if executor.is_null() {
++                return Err(lance_core::Error::invalid_input(
++                    "host executor must not be NULL",
++                ));
++            }
++            let account = unsafe { MemoryAccount::new(read_account(options)?) }?;
++            unsafe { &*executor }
++                .inner
++                .memory
++                .set(account)
++                .map_err(|_| {
++                    lance_core::Error::invalid_input("host executor memory account is already set")
++                })?;
++            Ok(0)
++        })(),
++        neg
++    )
++}
+diff --git a/src/host_services.rs b/src/host_services.rs
+--- /dev/null
++++ b/src/host_services.rs
+@@ -0,0 +1,166 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Process services whose threads and shutdown are owned by the embedding host.
++
++use crate::error::{LanceErrorCode, set_last_error};
++use lance_core::utils::task_executor::{self, Executor, Task, TaskKind};
++use std::ffi::c_void;
++use std::panic::{AssertUnwindSafe, catch_unwind};
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::{Arc, OnceLock};
++
++pub type RunTask = unsafe extern "C" fn(*mut c_void);
++pub type SubmitTask = unsafe extern "C" fn(*mut c_void, u32, RunTask, RunTask, *mut c_void);
++
++/// A submit callback consumes each task and must eventually run or discard it exactly once.
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct LanceHostServicesOptionsV1 {
++    pub abi_version: u32,
++    pub struct_size: u32,
++    pub context: *mut c_void,
++    pub submit: Option<SubmitTask>,
++}
++
++pub(crate) struct HostServices {
++    pub context: usize,
++    pub submit: SubmitTask,
++}
++pub(crate) static SERVICES: OnceLock<Arc<HostServices>> = OnceLock::new();
++static DRIVING: AtomicBool = AtomicBool::new(false);
++static STOPPING: std::sync::Mutex<()> = std::sync::Mutex::new(());
++static STOPPED: AtomicBool = AtomicBool::new(false);
++static STOP: tokio::sync::Notify = tokio::sync::Notify::const_new();
++
++struct NativeTask(Option<Task>);
++unsafe extern "C" fn run_task(context: *mut c_void) {
++    let _ = catch_unwind(AssertUnwindSafe(|| {
++        let mut task = unsafe { Box::from_raw(context.cast::<NativeTask>()) };
++        if let Some(task) = task.0.take() {
++            task();
++        }
++    }));
++}
++unsafe extern "C" fn discard_task(context: *mut c_void) {
++    let _ = catch_unwind(AssertUnwindSafe(|| {
++        let task = unsafe { Box::from_raw(context.cast::<NativeTask>()) };
++        // Rejection may occur inside a wake callback that holds an SDK lock. Future
++        // destruction is handed off to host cleanup workers, outside that callback stack.
++        task_executor::defer_drop(crate::runtime::RT.handle().clone(), task);
++    }));
++}
++
++pub(crate) fn submit(submit: SubmitTask, context: usize, kind: TaskKind, task: Task) {
++    let task = Box::into_raw(Box::new(NativeTask(Some(task))));
++    let queue = match kind {
++        TaskKind::Cpu => 0,
++        TaskKind::Io => 1,
++        TaskKind::Cleanup => 2,
++    };
++    unsafe {
++        submit(
++            context as *mut c_void,
++            queue,
++            run_task,
++            discard_task,
++            task.cast(),
++        )
++    };
++}
++impl Executor for HostServices {
++    fn schedule(&self, kind: TaskKind, task: Task) {
++        submit(self.submit, self.context, kind, task);
++    }
++}
++
++/// Install before the first Doris Lance call. Context must outlive all SDK calls and the driver.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_runtime_install_host_services_v1(
++    options: *const LanceHostServicesOptionsV1,
++) -> i32 {
++    if options.is_null() {
++        return -1;
++    }
++    let prefix = options.cast::<u32>();
++    if unsafe { prefix.read() } != 1
++        || unsafe { prefix.add(1).read() }
++            < std::mem::size_of::<LanceHostServicesOptionsV1>() as u32
++    {
++        return -1;
++    }
++    let options = unsafe { &*options };
++    if options.abi_version != 1
++        || options.struct_size < std::mem::size_of::<LanceHostServicesOptionsV1>() as u32
++        || options.submit.is_none()
++    {
++        set_last_error(
++            LanceErrorCode::InvalidArgument,
++            "invalid host runtime services descriptor",
++        );
++        return -1;
++    }
++    let service = Arc::new(HostServices {
++        context: options.context as usize,
++        submit: options.submit.unwrap(),
++    });
++    if SERVICES.set(service.clone()).is_err() {
++        set_last_error(
++            LanceErrorCode::InvalidArgument,
++            "host runtime services already installed",
++        );
++        return -1;
++    }
++    task_executor::set_default_executor(service);
++    0
++}
++
++/// Drive the threadless Tokio reactor on a host-owned service thread until stop is requested.
++#[unsafe(no_mangle)]
++pub extern "C" fn lance_runtime_drive() -> i32 {
++    catch_unwind(AssertUnwindSafe(|| {
++        if SERVICES.get().is_none() {
++            return -1;
++        }
++        if DRIVING
++            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
++            .is_err()
++        {
++            return -1;
++        }
++        struct Driving;
++        impl Drop for Driving {
++            fn drop(&mut self) {
++                DRIVING.store(false, Ordering::Release);
++            }
++        }
++        let _driving = Driving;
++        crate::runtime::HOST_RT.block_on(async {
++            while !STOPPED.load(Ordering::Acquire) {
++                STOP.notified().await;
++            }
++        });
++        0
++    }))
++    .unwrap_or(-1)
++}
++
++/// Call after all sessions and readers are closed; keep the reactor driver alive until return.
++#[unsafe(no_mangle)]
++pub extern "C" fn lance_runtime_stop() {
++    let _stop = STOPPING.lock().unwrap_or_else(|error| error.into_inner());
++    if STOPPED.load(Ordering::Acquire) {
++        return;
++    }
++    // Rejected I/O jobs may still own callback completions on the live reactor.
++    // Finish those before stopping the driver that performs deferred destruction.
++    crate::async_dispatcher::drain_host_callbacks();
++    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
++    crate::runtime::RT.spawn(async move {
++        task_executor::drain_deferred_drops().await;
++        let _ = sender.send(());
++    });
++    let _ = receiver.recv();
++    STOPPED.store(true, Ordering::Release);
++    STOP.notify_one();
++}
+diff --git a/src/host_storage.rs b/src/host_storage.rs
+--- /dev/null
++++ b/src/host_storage.rs
+@@ -0,0 +1,705 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++//! Read-only storage implemented by the embedding application's file readers.
++
++use std::ffi::{CStr, CString, c_char, c_void};
++use std::fmt::{Debug, Display, Formatter};
++use std::sync::Arc;
++
++use async_trait::async_trait;
++use bytes::Bytes;
++use chrono::{DateTime, Utc};
++use futures::stream::{self, BoxStream};
++use futures::{StreamExt, TryStreamExt};
++use lance::dataset::builder::DatasetBuilder;
++use lance::session::Session;
++use lance_core::utils::task_executor::{self, TaskKind};
++use lance_io::object_store::{
++    ObjectStore as LanceObjectStore, ObjectStoreParams, ObjectStoreProvider, ObjectStoreRegistry,
++    uri_to_url,
++};
++use object_store::path::Path;
++use object_store::{
++    CopyOptions, GetOptions, GetResult, GetResultPayload, ListResult, MultipartUpload, ObjectMeta,
++    ObjectStore, PutMultipartOptions, PutOptions, PutPayload, PutResult,
++};
++use url::Url;
++
++use crate::dataset::LanceDataset;
++use crate::error::ffi_try;
++use crate::helpers;
++use crate::runtime::block_on;
++use crate::session::LanceSession;
++
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct LanceHostFileMeta {
++    pub size: u64,
++    pub modified_seconds: i64,
++}
++
++pub type LanceHostListEntry =
++    unsafe extern "C" fn(*mut c_void, *const c_char, *const LanceHostFileMeta) -> i32;
++
++/// Callbacks must be thread-safe. A successful open transfers one handle to close.
++/// Errors are 1 for not-found and 2 for other failures. Error text is copied before return.
++#[repr(C)]
++#[derive(Clone, Copy)]
++pub struct LanceHostStorageOptionsV1 {
++    pub abi_version: u32,
++    pub struct_size: u32,
++    pub context: *mut c_void,
++    pub retain_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub release_context: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub cache_namespace: *const c_char,
++    pub open: Option<
++        unsafe extern "C" fn(
++            *mut c_void,
++            *const c_char,
++            *mut *mut c_void,
++            *mut LanceHostFileMeta,
++            *mut *const c_char,
++        ) -> i32,
++    >,
++    pub read_at: Option<
++        unsafe extern "C" fn(
++            *mut c_void,
++            u64,
++            *mut u8,
++            usize,
++            *mut usize,
++            *mut *const c_char,
++        ) -> i32,
++    >,
++    pub close: Option<unsafe extern "C" fn(*mut c_void)>,
++    pub list: Option<
++        unsafe extern "C" fn(
++            *mut c_void,
++            *const c_char,
++            Option<LanceHostListEntry>,
++            *mut c_void,
++            *mut *const c_char,
++        ) -> i32,
++    >,
++}
++
++struct HostStorage {
++    callbacks: LanceHostStorageOptionsV1,
++    namespace: String,
++}
++
++// The C contract requires all callbacks and retained context to support concurrent calls.
++unsafe impl Send for HostStorage {}
++unsafe impl Sync for HostStorage {}
++
++impl Debug for HostStorage {
++    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++        f.write_str("HostStorage")
++    }
++}
++
++impl Drop for HostStorage {
++    fn drop(&mut self) {
++        unsafe { self.callbacks.release_context.unwrap()(self.callbacks.context) };
++    }
++}
++
++fn io_error(code: i32, path: &str, error: *const c_char) -> object_store::Error {
++    let message = if error.is_null() {
++        "host storage operation failed".into()
++    } else {
++        unsafe { CStr::from_ptr(error) }
++            .to_string_lossy()
++            .into_owned()
++    };
++    let source = Box::new(std::io::Error::other(message));
++    if code == 1 {
++        object_store::Error::NotFound {
++            path: path.into(),
++            source,
++        }
++    } else {
++        object_store::Error::Generic {
++            store: "host",
++            source,
++        }
++    }
++}
++
++fn read_only() -> object_store::Error {
++    object_store::Error::NotSupported {
++        source: Box::new(std::io::Error::other("host storage is read-only")),
++    }
++}
++
++async fn on_io<F, T>(function: F) -> object_store::Result<T>
++where
++    F: FnOnce() -> object_store::Result<T> + Send + 'static,
++    T: Send + 'static,
++{
++    task_executor::spawn_blocking(TaskKind::Io, function)
++        .await
++        .map_err(|error| object_store::Error::Generic {
++            store: "host",
++            source: Box::new(error),
++        })?
++}
++
++struct HostFile {
++    storage: Arc<HostStorage>,
++    handle: usize,
++    meta: LanceHostFileMeta,
++}
++
++impl Drop for HostFile {
++    fn drop(&mut self) {
++        unsafe { self.storage.callbacks.close.unwrap()(self.handle as *mut c_void) };
++    }
++}
++
++impl HostFile {
++    async fn open(storage: Arc<HostStorage>, uri: String) -> object_store::Result<Arc<Self>> {
++        on_io(move || {
++            let path = CString::new(uri.clone()).map_err(|error| object_store::Error::Generic {
++                store: "host",
++                source: Box::new(error),
++            })?;
++            let mut handle = std::ptr::null_mut();
++            let mut meta = LanceHostFileMeta {
++                size: 0,
++                modified_seconds: 0,
++            };
++            let mut error = std::ptr::null();
++            let code = unsafe {
++                storage.callbacks.open.unwrap()(
++                    storage.callbacks.context,
++                    path.as_ptr(),
++                    &mut handle,
++                    &mut meta,
++                    &mut error,
++                )
++            };
++            if code != 0 {
++                return Err(io_error(code, &uri, error));
++            }
++            if handle.is_null() {
++                return Err(io_error(2, &uri, std::ptr::null()));
++            }
++            Ok(Arc::new(Self {
++                storage,
++                handle: handle as usize,
++                meta,
++            }))
++        })
++        .await
++    }
++
++    async fn read(self: Arc<Self>, offset: u64, length: usize) -> object_store::Result<Bytes> {
++        on_io(move || {
++            // Admission precedes both allocation and read_at; a query cap must return
++            // an error instead of making Rust's infallible Vec allocation abort the BE.
++            let mut bytes =
++                lance_core::utils::memory::OwnedBuffer::try_zeroed(length).map_err(|source| {
++                    object_store::Error::Generic {
++                        store: "host",
++                        source: Box::new(source),
++                    }
++                })?;
++            let mut count = 0;
++            let mut error = std::ptr::null();
++            let code = unsafe {
++                self.storage.callbacks.read_at.unwrap()(
++                    self.handle as *mut c_void,
++                    offset,
++                    bytes.as_mut_ptr(),
++                    length,
++                    &mut count,
++                    &mut error,
++                )
++            };
++            if code != 0 {
++                return Err(io_error(code, "read_at", error));
++            }
++            if count != length {
++                return Err(object_store::Error::Generic {
++                    store: "host",
++                    source: Box::new(std::io::Error::new(
++                        std::io::ErrorKind::UnexpectedEof,
++                        "host read returned fewer bytes than requested",
++                    )),
++                });
++            }
++            Ok(Bytes::from_owner(bytes))
++        })
++        .await
++    }
++}
++
++#[derive(Debug)]
++struct HostProvider {
++    storage: Arc<HostStorage>,
++}
++
++#[async_trait]
++impl ObjectStoreProvider for HostProvider {
++    async fn new_store(
++        &self,
++        base: Url,
++        params: &ObjectStoreParams,
++    ) -> lance_core::Result<LanceObjectStore> {
++        let prefix = self.calculate_object_store_prefix(&base, None)?;
++        LanceObjectStore::with_host_store(
++            Arc::new(HostObjectStore {
++                storage: self.storage.clone(),
++                base,
++            }),
++            prefix,
++            params,
++        )
++    }
++
++    fn calculate_object_store_prefix(
++        &self,
++        url: &Url,
++        _: Option<&std::collections::HashMap<String, String>>,
++    ) -> lance_core::Result<String> {
++        Ok(format!(
++            "host${}${}${}",
++            self.storage.namespace,
++            url.scheme(),
++            url.authority()
++        ))
++    }
++}
++
++#[derive(Debug, Clone)]
++struct HostObjectStore {
++    storage: Arc<HostStorage>,
++    base: Url,
++}
++
++impl Display for HostObjectStore {
++    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++        f.write_str("HostObjectStore")
++    }
++}
++
++impl HostObjectStore {
++    fn uri(&self, path: &Path) -> String {
++        let mut url = self.base.clone();
++        // Segment encoding also escapes literal percent signs and backslashes in object keys.
++        url.path_segments_mut()
++            .expect("host stores have hierarchical URLs")
++            .clear()
++            .extend(path.as_ref().split('/'));
++        url.set_query(None);
++        url.set_fragment(None);
++        url.to_string()
++    }
++
++    fn metadata(path: Path, meta: LanceHostFileMeta) -> ObjectMeta {
++        ObjectMeta {
++            location: path,
++            size: meta.size,
++            last_modified: DateTime::<Utc>::from_timestamp(meta.modified_seconds, 0)
++                .unwrap_or_default(),
++            e_tag: None,
++            version: None,
++        }
++    }
++
++    async fn list_files(&self, prefix: Option<&Path>) -> object_store::Result<Vec<ObjectMeta>> {
++        struct Entries {
++            files: Vec<ObjectMeta>,
++            error: Option<object_store::Error>,
++        }
++        unsafe extern "C" fn entry(
++            context: *mut c_void,
++            uri: *const c_char,
++            meta: *const LanceHostFileMeta,
++        ) -> i32 {
++            let entries = unsafe { &mut *context.cast::<Entries>() };
++            let result = (|| {
++                let uri = unsafe { CStr::from_ptr(uri) }.to_str().map_err(|error| {
++                    object_store::Error::Generic {
++                        store: "host",
++                        source: Box::new(error),
++                    }
++                })?;
++                let url = Url::parse(uri).map_err(|error| object_store::Error::Generic {
++                    store: "host",
++                    source: Box::new(error),
++                })?;
++                let path = Path::from_url_path(url.path())?;
++                Ok(HostObjectStore::metadata(path, unsafe { *meta }))
++            })();
++            match result {
++                Ok(meta) => {
++                    entries.files.push(meta);
++                    0
++                }
++                Err(error) => {
++                    entries.error = Some(error);
++                    2
++                }
++            }
++        }
++        let this = self.clone();
++        let uri = this.uri(prefix.unwrap_or(&Path::default()));
++        on_io(move || {
++            let path = CString::new(uri.clone()).map_err(|error| object_store::Error::Generic {
++                store: "host",
++                source: Box::new(error),
++            })?;
++            let mut entries = Entries {
++                files: Vec::new(),
++                error: None,
++            };
++            let mut error = std::ptr::null();
++            let code = unsafe {
++                this.storage.callbacks.list.unwrap()(
++                    this.storage.callbacks.context,
++                    path.as_ptr(),
++                    Some(entry),
++                    (&mut entries as *mut Entries).cast(),
++                    &mut error,
++                )
++            };
++            if let Some(error) = entries.error {
++                return Err(error);
++            }
++            if code != 0 {
++                return Err(io_error(code, &uri, error));
++            }
++            entries.files.sort_by(|a, b| a.location.cmp(&b.location));
++            Ok(entries.files)
++        })
++        .await
++    }
++}
++
++#[async_trait]
++impl ObjectStore for HostObjectStore {
++    async fn put_opts(
++        &self,
++        _: &Path,
++        _: PutPayload,
++        _: PutOptions,
++    ) -> object_store::Result<PutResult> {
++        Err(read_only())
++    }
++    async fn put_multipart_opts(
++        &self,
++        _: &Path,
++        _: PutMultipartOptions,
++    ) -> object_store::Result<Box<dyn MultipartUpload>> {
++        Err(read_only())
++    }
++
++    async fn get_opts(
++        &self,
++        location: &Path,
++        options: GetOptions,
++    ) -> object_store::Result<GetResult> {
++        if options.version.is_some() {
++            return Err(read_only());
++        }
++        let file = HostFile::open(self.storage.clone(), self.uri(location)).await?;
++        let meta = Self::metadata(location.clone(), file.meta);
++        options.check_preconditions(&meta)?;
++        let range = match options.range {
++            Some(range) => {
++                range
++                    .as_range(meta.size)
++                    .map_err(|error| object_store::Error::Generic {
++                        store: "host",
++                        source: Box::new(error),
++                    })?
++            }
++            None => 0..meta.size,
++        };
++        let payload = if options.head {
++            stream::empty().boxed()
++        } else {
++            // Whole-object metadata reads remain streaming; never allocate the whole file here.
++            stream::try_unfold((file, range.clone()), |(file, range)| async move {
++                if range.is_empty() {
++                    return Ok(None);
++                }
++                let length = (range.end - range.start).min(1024 * 1024) as usize;
++                let bytes = file.clone().read(range.start, length).await?;
++                let next = range.start + length as u64..range.end;
++                Ok(Some((bytes, (file, next))))
++            })
++            .boxed()
++        };
++        Ok(GetResult {
++            payload: GetResultPayload::Stream(payload),
++            meta,
++            range,
++            attributes: Default::default(),
++            extensions: Default::default(),
++        })
++    }
++
++    fn delete_stream(
++        &self,
++        locations: BoxStream<'static, object_store::Result<Path>>,
++    ) -> BoxStream<'static, object_store::Result<Path>> {
++        locations.map(|_| Err(read_only())).boxed()
++    }
++
++    fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
++        let this = self.clone();
++        let prefix = prefix.cloned();
++        stream::once(async move { this.list_files(prefix.as_ref()).await })
++            .map_ok(|files| stream::iter(files.into_iter().map(Ok)))
++            .try_flatten()
++            .boxed()
++    }
++
++    async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
++        let files = self.list_files(prefix).await?;
++        let prefix = prefix.map_or("", Path::as_ref).trim_end_matches('/');
++        let mut result = ListResult {
++            common_prefixes: Vec::new(),
++            objects: Vec::new(),
++            extensions: Default::default(),
++        };
++        let mut directories = std::collections::BTreeSet::new();
++        for meta in files {
++            let relative = meta
++                .location
++                .as_ref()
++                .strip_prefix(prefix)
++                .unwrap_or(meta.location.as_ref())
++                .trim_start_matches('/');
++            if let Some((directory, _)) = relative.split_once('/') {
++                directories.insert(Path::from(if prefix.is_empty() {
++                    directory.into()
++                } else {
++                    format!("{prefix}/{directory}")
++                }));
++            } else {
++                result.objects.push(meta);
++            }
++        }
++        result.common_prefixes.extend(directories);
++        Ok(result)
++    }
++
++    async fn copy_opts(&self, _: &Path, _: &Path, _: CopyOptions) -> object_store::Result<()> {
++        Err(read_only())
++    }
++}
++
++/// Open through host callbacks from the first manifest read; native storage is never a fallback.
++#[unsafe(no_mangle)]
++pub unsafe extern "C" fn lance_dataset_open_with_storage_v1(
++    uri: *const c_char,
++    storage_options: *const *const c_char,
++    version: u64,
++    session: *const LanceSession,
++    options: *const LanceHostStorageOptionsV1,
++) -> *mut LanceDataset {
++    ffi_try!(
++        unsafe { open_inner(uri, storage_options, version, session, options) },
++        null
++    )
++}
++
++unsafe fn open_inner(
++    uri: *const c_char,
++    storage_options: *const *const c_char,
++    version: u64,
++    session: *const LanceSession,
++    options: *const LanceHostStorageOptionsV1,
++) -> lance_core::Result<*mut LanceDataset> {
++    let invalid = || lance_core::Error::invalid_input("invalid host storage descriptor");
++    if options.is_null() {
++        return Err(invalid());
++    }
++    let header = options.cast::<u32>();
++    if unsafe { header.read() } != 1
++        || unsafe { header.add(1).read() } < std::mem::size_of::<LanceHostStorageOptionsV1>() as u32
++    {
++        return Err(invalid());
++    }
++    let mut callbacks = unsafe { *options };
++    if callbacks.context.is_null()
++        || callbacks.retain_context.is_none()
++        || callbacks.release_context.is_none()
++        || callbacks.open.is_none()
++        || callbacks.read_at.is_none()
++        || callbacks.close.is_none()
++        || callbacks.list.is_none()
++    {
++        return Err(invalid());
++    }
++    lance_core::utils::memory::check_current()?;
++    // Cached indices can retain the store after this dataset/query closes. Its
++    // callbacks, namespace and object-store wrappers must share that lifetime's owner.
++    let owner = if session.is_null() {
++        lance_core::utils::memory::current_account()
++    } else {
++        unsafe { &*session }.inner.storage_memory_account()
++    };
++    let memory_scope = lance_core::utils::memory::MemoryGuard::enter(owner);
++    let namespace = unsafe { helpers::parse_c_string(callbacks.cache_namespace)? }
++        .filter(|s| !s.is_empty())
++        .ok_or_else(invalid)?
++        .to_owned();
++    let uri = unsafe { helpers::parse_c_string(uri)? }.ok_or_else(invalid)?;
++    let uri = uri_to_url(uri)?;
++    if uri.query().is_some()
++        || uri.fragment().is_some()
++        || !uri.username().is_empty()
++        || uri.password().is_some()
++    {
++        return Err(lance_core::Error::invalid_input(
++            "host storage does not support credentials or parameters embedded in the dataset URI",
++        ));
++    }
++    let uri = uri.to_string();
++    let settings = unsafe { helpers::parse_storage_options(storage_options)? };
++    // The descriptor and its strings may disappear immediately after this call returns.
++    callbacks.cache_namespace = std::ptr::null();
++    unsafe { callbacks.retain_context.unwrap()(callbacks.context) };
++    let storage = Arc::new(HostStorage {
++        callbacks,
++        namespace,
++    });
++    let registry = Arc::new(ObjectStoreRegistry::empty());
++    let provider = Arc::new(HostProvider {
++        storage: storage.clone(),
++    });
++    for scheme in [
++        "file",
++        "file+uring",
++        "s3",
++        "s3a",
++        "oss",
++        "hdfs",
++        "http",
++        "https",
++        "az",
++        "gs",
++        "hf",
++        "goosefs",
++        "tos",
++        "cos",
++        "memory",
++    ] {
++        registry.insert(scheme, provider.clone());
++    }
++    let base = if session.is_null() {
++        Arc::new(Session::new(0, 0, registry.clone()))
++    } else {
++        unsafe { &*session }.inner.clone()
++    };
++    let scoped = Arc::new(base.with_host_storage(registry, &storage.namespace));
++    let mut builder = DatasetBuilder::from_uri(&uri).with_session(scoped);
++    if !settings.is_empty() {
++        builder = builder.with_storage_options(settings);
++    }
++    if version != 0 {
++        builder = builder.with_version(version);
++    }
++    let dataset = block_on(builder.load())?;
++    lance_core::utils::memory::check_current()?;
++    drop(memory_scope);
++    lance_core::utils::memory::check_current()?;
++    Ok(Box::into_raw(Box::new(LanceDataset {
++        inner: std::sync::RwLock::new(Arc::new(dataset)),
++    })))
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    unsafe extern "C" fn retain(_: *mut c_void) {}
++    unsafe extern "C" fn release(_: *mut c_void) {}
++    unsafe extern "C" fn read(
++        _: *mut c_void,
++        _: u64,
++        _: *mut u8,
++        _: usize,
++        count: *mut usize,
++        _: *mut *const c_char,
++    ) -> i32 {
++        unsafe { *count = 0 };
++        0
++    }
++    unsafe extern "C" fn close(_: *mut c_void) {}
++
++    fn storage() -> Arc<HostStorage> {
++        Arc::new(HostStorage {
++            namespace: "unit-storage".into(),
++            callbacks: LanceHostStorageOptionsV1 {
++                abi_version: 1,
++                struct_size: std::mem::size_of::<LanceHostStorageOptionsV1>() as u32,
++                context: std::ptr::null_mut(),
++                retain_context: Some(retain),
++                release_context: Some(release),
++                cache_namespace: std::ptr::null(),
++                open: None,
++                read_at: Some(read),
++                close: Some(close),
++                list: None,
++            },
++        })
++    }
++
++    #[test]
++    fn object_names_round_trip_reserved_characters() {
++        let store = HostObjectStore {
++            storage: storage(),
++            base: Url::parse("s3://example-bucket/dataset").unwrap(),
++        };
++        let path = Path::parse("dataset/data/a +%2F?#\\.lance").unwrap();
++        let uri = Url::parse(&store.uri(&path)).unwrap();
++        assert_eq!(Path::from_url_path(uri.path()).unwrap(), path);
++        assert!(uri.query().is_none() && uri.fragment().is_none());
++    }
++
++    #[test]
++    fn short_reads_are_errors_instead_of_zero_filled_data() {
++        let file = Arc::new(HostFile {
++            storage: storage(),
++            handle: 0,
++            meta: LanceHostFileMeta {
++                size: 10,
++                modified_seconds: 0,
++            },
++        });
++        let error = block_on(file.read(0, 5)).unwrap_err();
++        assert!(error.to_string().contains("fewer bytes"));
++    }
++    #[test]
++    fn host_storage_accepts_explicit_io_parallelism_and_rejects_invalid_limits() {
++        use lance_io::object_store::{ObjectStoreParams, storage_options::StorageOptionsAccessor};
++        use std::collections::HashMap;
++        let provider = HostProvider { storage: storage() };
++        for value in ["7", "0", "-1", "invalid", "4294967296"] {
++            let params = ObjectStoreParams {
++                storage_options_accessor: Some(Arc::new(
++                    StorageOptionsAccessor::with_static_options(HashMap::from([(
++                        "io_parallelism".into(),
++                        value.into(),
++                    )])),
++                )),
++                ..Default::default()
++            };
++            let result = block_on(
++                provider.new_store(Url::parse("s3://example-bucket/dataset").unwrap(), &params),
++            );
++            if value == "7" {
++                assert_eq!(result.unwrap().io_parallelism(), 7);
++            } else {
++                assert!(result.is_err(), "accepted invalid io_parallelism={value}");
++            }
++        }
++    }
++}
+diff --git a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -34,6 +34,10 @@
+ mod fragment_writer;
+ mod fts_query;
+ mod helpers;
++mod host_executor;
++mod host_memory;
++mod host_services;
++mod host_storage;
+ mod index;
+ mod index_model;
+ mod index_segment;
+@@ -41,6 +45,10 @@
+ mod multivector;
+ mod restore;
+ pub mod runtime;
++pub use host_executor::*;
++pub use host_memory::*;
++pub use host_services::*;
++pub use host_storage::*;
+ mod scalar_index_selection;
+ mod scalar_segment;
+ mod scanner;
+@@ -75,3 +83,7 @@
+ pub use update::*;
+ pub use versions::*;
+ pub use writer::*;
++
++#[global_allocator]
++static HOST_MEMORY_ALLOCATOR: lance_core::utils::memory::TrackedAllocator =
++    lance_core::utils::memory::TrackedAllocator;
+diff --git a/src/runtime.rs b/src/runtime.rs
+--- a/src/runtime.rs
++++ b/src/runtime.rs
+@@ -1,25 +1,69 @@
+ // SPDX-License-Identifier: Apache-2.0
+ // SPDX-FileCopyrightText: Copyright The Lance Authors
+
+-//! Global Tokio runtime for the C FFI layer.
+-
++//! The embedding host owns all service threads when host services have been installed.
++use lance_core::utils::task_executor::{self, TaskKind};
++use std::future::Future;
+ use std::sync::LazyLock;
+
+-/// Global multi-threaded Tokio runtime, shared across all FFI calls.
+-/// Initialized lazily on first access.
+-pub static RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+-    // A native linker can omit OpenDAL's automatic constructor from liblance_c.a.
+-    // Keep initialization reachable from the FFI entry points, before any HTTP I/O.
+-    // Installation is idempotent and preserves an already installed transport.
++static LEGACY_RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+     opendal::install_default();
+-
+     tokio::runtime::Builder::new_multi_thread()
+         .enable_all()
+         .build()
+-        .expect("Failed to create tokio runtime")
++        .unwrap()
++});
++pub(crate) static HOST_RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
++    opendal::install_default();
++    tokio::runtime::Builder::new_current_thread()
++        .enable_all()
++        .blocking_task_executor(|task| {
++            // This also covers blocking operations hidden inside Tokio fs, DNS and caches.
++            // Every task has cancellation ownership even when the host rejects it.
++            task_executor::current_executor()
++                .expect("host executor installed")
++                .schedule(TaskKind::Io, task);
++        })
++        .build()
++        .unwrap()
+ });
+
+-/// Block the current thread on an async future using the global runtime.
+-pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
+-    RT.block_on(f)
++pub struct RuntimeRouter;
++pub static RT: RuntimeRouter = RuntimeRouter;
++impl RuntimeRouter {
++    fn selected(&self) -> &'static tokio::runtime::Runtime {
++        if crate::host_services::SERVICES.get().is_some() {
++            &HOST_RT
++        } else {
++            &LEGACY_RT
++        }
++    }
++    pub fn handle(&self) -> &'static tokio::runtime::Handle {
++        self.selected().handle()
++    }
++    pub fn enter(&self) -> tokio::runtime::EnterGuard<'static> {
++        self.selected().enter()
++    }
++    pub fn spawn<F>(&self, future: F) -> tokio::task::JoinHandle<F::Output>
++    where
++        F: Future + Send + 'static,
++        F::Output: Send + 'static,
++    {
++        self.selected().spawn(future)
++    }
++    pub fn block_on<F: Future>(&self, future: F) -> F::Output {
++        if crate::host_services::SERVICES.get().is_some() {
++            let _runtime = self.enter();
++            futures::executor::block_on(future)
++        } else {
++            self.selected().block_on(future)
++        }
++    }
+ }
++
++pub fn block_on<F: Future>(future: F) -> F::Output {
++    match crate::host_executor::current() {
++        Some(executor) => executor.block_on(future),
++        None => RT.block_on(future),
++    }
++}
+diff --git a/src/scanner.rs b/src/scanner.rs
+--- a/src/scanner.rs
++++ b/src/scanner.rs
+@@ -425,8 +425,10 @@
+
+     /// Build the underlying Scanner and open a stream.
+     fn materialize_stream(&mut self) -> Result<()> {
++        lance_core::utils::memory::check_current()?;
+         let prepared_scanner = self.build_scanner()?;
+         let stream = block_on(prepared_scanner.try_into_stream())?;
++        lance_core::utils::memory::check_current()?;
+         self.schema = Some(stream.schema());
+         self.stream = Some(Box::pin(stream));
+         Ok(())
+@@ -434,6 +436,7 @@
+
+     /// Build a Scanner (without materializing) and return it.
+     fn build_scanner(&self) -> Result<PreparedScanner> {
++        lance_core::utils::memory::check_current()?;
+         self.scan_started.store(true, Ordering::Release);
+         let mut scanner = self.dataset.scan();
+         if let Some(cols) = &self.columns {
+@@ -2129,6 +2132,11 @@
+ /// # Safety
+ /// `out` must be a valid, writable pointer (checked by the caller).
+ unsafe fn scanner_next_inner(s: &mut LanceScanner, out: *mut *mut LanceBatch) -> i32 {
++    if let Err(err) = lance_core::utils::memory::check_current() {
++        set_lance_error(&err);
++        unsafe { *out = ptr::null_mut() };
++        return -1;
++    }
+     // Lazily materialize the stream on first call.
+     if s.stream.is_none()
+         && let Err(err) = s.materialize_stream()
+@@ -2139,7 +2147,13 @@
+     }
+
+     let stream = s.stream.as_mut().unwrap();
+-    match block_on(stream.next()) {
++    let item = block_on(stream.next());
++    if let Err(err) = lance_core::utils::memory::check_current() {
++        set_lance_error(&err);
++        unsafe { *out = ptr::null_mut() };
++        return -1;
++    }
++    match item {
+         Some(Ok(batch)) => {
+             clear_last_error();
+             let lance_batch = LanceBatch { inner: batch };
+@@ -2323,12 +2337,11 @@
+
+     // Wrap non-Send raw pointers for the async task.
+     // Safety: The C caller guarantees callback_ctx remains valid until callback fires.
+-    #[derive(Clone, Copy)]
+     struct SendCallback {
+         callback: LanceCallback,
+-        ctx: *mut c_void,
++        ctx: usize,
++        delivered: AtomicBool,
+     }
+-    unsafe impl Send for SendCallback {}
+
+     impl SendCallback {
+         fn dispatch(
+@@ -2337,24 +2350,49 @@
+             result: *mut c_void,
+             error: Option<(LanceErrorCode, String)>,
+         ) {
+-            async_dispatcher::dispatch_callback(self.callback, self.ctx, status, result, error);
++            if !self.delivered.swap(true, Ordering::AcqRel) {
++                async_dispatcher::dispatch_callback(
++                    self.callback,
++                    self.ctx as *mut c_void,
++                    status,
++                    result,
++                    error,
++                );
++            }
++        }
++    }
++    impl Drop for SendCallback {
++        fn drop(&mut self) {
++            // A rejected host task may never be polled. Its accepted C completion must
++            // still fire exactly once so the caller can release its callback context.
++            self.dispatch(
++                -1,
++                ptr::null_mut(),
++                Some((
++                    LanceErrorCode::Internal,
++                    "async scan was cancelled before completion".into(),
++                )),
++            );
+         }
+     }
+
+-    let send_cb = SendCallback {
++    let send_cb = Arc::new(SendCallback {
+         callback,
+-        ctx: callback_ctx,
+-    };
++        ctx: callback_ctx as usize,
++        delivered: AtomicBool::new(false),
++    });
+
+     // Shared poison flag moved into the task: the GuardedReader below flips
+     // it if a panic is caught during the consumer's later `get_next` calls.
+     let poisoned = s.poison_flag();
+
+-    RT.spawn(async move {
++    // Standalone callers need not enter a runtime before using this asynchronous C API.
++    let _runtime = RT.enter();
++    lance_core::utils::task_executor::spawn(async move {
+         // Copies kept outside the inner future (which consumes the originals)
+         // so the panic arm below can still poison the handle and report.
+         let poisoned_on_panic = Arc::clone(&poisoned);
+-        let send_cb_on_panic = send_cb;
++        let send_cb_on_panic = send_cb.clone();
+         // The whole task body runs under catch_unwind (issue #61): a panic
+         // here would otherwise die as an unobserved JoinError — the callback
+         // would never fire and the C caller would hang forever waiting for a
+@@ -2497,6 +2535,11 @@
+     waker_ctx: *mut c_void,
+     out: *mut *mut LanceBatch,
+ ) -> LancePollStatus {
++    if let Err(err) = lance_core::utils::memory::check_current() {
++        set_lance_error(&err);
++        unsafe { *out = ptr::null_mut() };
++        return LancePollStatus::Error;
++    }
+     // Lazily materialize the stream.
+     if s.stream.is_none()
+         && let Err(err) = s.materialize_stream()
+@@ -2517,7 +2560,13 @@
+     // the reactor. Without this, polling from a non-Tokio thread panics.
+     let _guard = RT.enter();
+
+-    match stream.as_mut().poll_next(&mut cx) {
++    let item = stream.as_mut().poll_next(&mut cx);
++    if let Err(err) = lance_core::utils::memory::check_current() {
++        set_lance_error(&err);
++        unsafe { *out = ptr::null_mut() };
++        return LancePollStatus::Error;
++    }
++    match item {
+         Poll::Ready(Some(Ok(batch))) => {
+             clear_last_error();
+             let lance_batch = LanceBatch { inner: batch };
+diff --git a/src/session.rs b/src/session.rs
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -48,6 +48,11 @@
+     index_cache_size_bytes: u64,
+     metadata_cache_size_bytes: u64,
+ ) -> Result<*mut LanceSession> {
++    // Session handles and configuration are explicitly shared across queries,
++    // including when the first caller creates the handle inside its own scope.
++    let _memory = lance_core::utils::memory::MemoryGuard::enter(
++        lance_core::utils::memory::background_account(),
++    );
+     let index_cache_size_bytes = u64_to_usize(index_cache_size_bytes, "index_cache_size_bytes")?;
+     let metadata_cache_size_bytes =
+         u64_to_usize(metadata_cache_size_bytes, "metadata_cache_size_bytes")?;
+diff --git a/src/stream_guard.rs b/src/stream_guard.rs
+--- a/src/stream_guard.rs
++++ b/src/stream_guard.rs
+@@ -101,6 +101,7 @@
+     /// the destructor.
+     inner: Option<S>,
+     schema: SchemaRef,
++    memory: Option<Arc<lance_core::utils::memory::MemoryAccount>>,
+     handle: tokio::runtime::Handle,
+     /// Fused state: set when a panic is caught, after which every `next`
+     /// yields `None` (end-of-stream) without touching the inner stream again.
+@@ -138,6 +139,7 @@
+             inner: Some(inner),
+             schema,
+             handle,
++            memory: lance_core::utils::memory::current_account(),
+             poisoned: false,
+             scanner_poison,
+         }
+@@ -154,6 +156,8 @@
+         if self.poisoned {
+             return None;
+         }
++        // Arrow consumers may call get_next on a different thread after export.
++        let _memory = lance_core::utils::memory::MemoryGuard::enter(self.memory.clone());
+         let Self {
+             inner,
+             handle,
+@@ -170,7 +174,21 @@
+         // `extern "C"` callback, so neither can unwind across the FFI
+         // boundary.
+         let polled = catch_unwind(AssertUnwindSafe(|| {
+-            match handle.block_on(inner.next()) {
++            // Exported Arrow callbacks must help the same host queues as scanner_next;
++            // a plain Tokio wait would strand their operation-owned decoder tasks.
++            if let Err(err) = lance_core::utils::memory::check_current() {
++                *poisoned = true;
++                return Some(Err(ffi_safe_stream_error(err.to_string())));
++            }
++            let item = match crate::host_executor::current() {
++                Some(executor) => executor.block_on(inner.next()),
++                None => handle.block_on(inner.next()),
++            };
++            if let Err(err) = lance_core::utils::memory::check_current() {
++                *poisoned = true;
++                return Some(Err(ffi_safe_stream_error(err.to_string())));
++            }
++            match item {
+                 Some(Ok(batch)) => Some(Ok(batch)),
+                 Some(Err(err)) => {
+                     // Format and detach the arbitrary Lance error while still
+diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+--- a/tests/c_api_test.rs
++++ b/tests/c_api_test.rs
+@@ -18502,3 +18502,175 @@
+         lance_dataset_close(reopened);
+     }
+ }
++
++#[test]
++fn test_host_executor_scan_take_search_and_early_close() {
++    struct HostScope(*mut LanceHostExecutor, *mut LanceHostExecutorScope);
++    impl Drop for HostScope {
++        fn drop(&mut self) {
++            unsafe {
++                assert_eq!(lance_host_executor_leave(self.1), 0);
++                lance_host_executor_free(self.0);
++            }
++        }
++    }
++    let executor = unsafe { lance_host_executor_new_v1(&LanceHostExecutorOptionsV1::default()) };
++    assert!(!executor.is_null());
++    let scope = unsafe { lance_host_executor_enter(executor) };
++    assert!(!scope.is_null());
++    let _host = HostScope(executor, scope);
++    // Exercise the same result and ownership contracts under an injected executor.
++    test_scanner_full_scan();
++    test_scanner_to_arrow_stream();
++    test_scanner_with_filter();
++    test_dataset_take();
++    test_scanner_nearest_brute_force();
++    test_scanner_full_text_search();
++    test_scanner_statistics_callback_not_called_on_early_scanner_close();
++    test_scanner_statistics_callback_not_called_on_early_arrow_stream_release();
++    test_dataset_take_rows_from_multi_fragment_ann_result();
++    test_dataset_take_rows_from_multi_fragment_ann_result_with_stable_row_ids();
++    assert!(unsafe { lance_host_executor_completed_tasks(executor) } > 0);
++}
++
++#[cfg(target_os = "linux")]
++#[test]
++fn test_host_services_never_create_sdk_threads() {
++    const CHILD: &str = "LANCE_HOST_SERVICES_TEST_CHILD";
++    if std::env::var_os(CHILD).is_none() {
++        let status = std::process::Command::new(std::env::current_exe().unwrap())
++            .args([
++                "--exact",
++                "test_host_services_never_create_sdk_threads",
++                "--nocapture",
++            ])
++            .env(CHILD, "1")
++            .status()
++            .unwrap();
++        assert!(status.success());
++        return;
++    }
++    struct Job {
++        run: RunTask,
++        discard: RunTask,
++        context: usize,
++    }
++    impl Job {
++        fn execute(mut self) {
++            let context = std::mem::replace(&mut self.context, 0);
++            unsafe { (self.run)(context as *mut c_void) };
++        }
++    }
++    impl Drop for Job {
++        fn drop(&mut self) {
++            if self.context != 0 {
++                unsafe { (self.discard)(self.context as *mut c_void) };
++            }
++        }
++    }
++    unsafe extern "C" fn submit(
++        context: *mut c_void,
++        _queue: u32,
++        run: RunTask,
++        discard: RunTask,
++        task: *mut c_void,
++    ) {
++        let sender = unsafe { &*context.cast::<std::sync::mpsc::Sender<Option<Job>>>() };
++        let _ = sender.send(Some(Job {
++            run,
++            discard,
++            context: task as usize,
++        }));
++    }
++    let (sender, receiver) = std::sync::mpsc::channel::<Option<Job>>();
++    let sender = Box::new(sender);
++    let receiver = Arc::new(Mutex::new(receiver));
++    let mut workers = Vec::new();
++    for _ in 0..4 {
++        let receiver = receiver.clone();
++        workers.push(std::thread::spawn(move || {
++            loop {
++                let job = receiver.lock().unwrap().recv();
++                match job {
++                    Ok(Some(job)) => job.execute(),
++                    Ok(None) | Err(_) => break,
++                }
++            }
++        }));
++    }
++    let options = LanceHostServicesOptionsV1 {
++        abi_version: 1,
++        struct_size: std::mem::size_of::<LanceHostServicesOptionsV1>() as u32,
++        context: &*sender as *const _ as *mut c_void,
++        submit: Some(submit),
++    };
++    assert_eq!(
++        unsafe { lance_runtime_install_host_services_v1(&options) },
++        0
++    );
++    let driver = std::thread::spawn(|| assert_eq!(lance_runtime_drive(), 0));
++    let http = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
++    let address = http.local_addr().unwrap();
++    let server_done = Arc::new(std::sync::Barrier::new(2));
++    let done = server_done.clone();
++    let server = std::thread::spawn(move || {
++        use std::io::{BufRead, Write};
++        let (mut socket, _) = http.accept().unwrap();
++        socket
++            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
++            .unwrap();
++        {
++            let mut input = std::io::BufReader::new(&mut socket);
++            loop {
++                let mut line = String::new();
++                input.read_line(&mut line).unwrap();
++                if line == "\r\n" || line.is_empty() {
++                    break;
++                }
++            }
++        }
++        socket.write_all(b"HTTP/1.1 206 Partial Content\r\nContent-Length: 3\r\nContent-Range: bytes 2-4/6\r\nETag: \"sample\"\r\nConnection: close\r\n\r\ncde").unwrap();
++        done.wait();
++    });
++    let count_threads = || std::fs::read_dir("/proc/self/task").unwrap().count();
++    let before = count_threads();
++    test_host_executor_scan_take_search_and_early_close();
++    // Exercise the SDK's real HTTP/DNS stack on the threadless host reactor as well.
++    lance_c::runtime::block_on(async {
++        use object_store::ObjectStoreExt;
++        let store = object_store::aws::AmazonS3Builder::new()
++            .with_bucket_name("example-bucket")
++            .with_region("us-east-1")
++            .with_endpoint(format!("http://localhost:{}", address.port()))
++            .with_allow_http(true)
++            .with_skip_signature(true)
++            .with_proxy_url("http://127.0.0.1:1")
++            .with_proxy_excludes("localhost")
++            .build()
++            .unwrap();
++        let bytes = store
++            .get_range(&object_store::path::Path::from("sample.lance"), 2..5)
++            .await
++            .unwrap();
++        assert_eq!(bytes.as_ref(), b"cde");
++    });
++    // The scope above closes all SDK objects before stopping host execution resources.
++    let after = count_threads();
++    server_done.wait();
++    server.join().unwrap();
++    lance_runtime_stop();
++    driver.join().unwrap();
++    for _ in &workers {
++        let _ = sender.send(None);
++    }
++    for worker in workers {
++        worker.join().unwrap();
++    }
++    drop(receiver);
++    drop(sender);
++    println!("host services: threads {before}->{after}");
++    assert_eq!(
++        before, after,
++        "the SDK created a worker thread instead of using the host"
++    );
++}
+diff --git a/tests/common/mod.rs b/tests/common/mod.rs
+--- /dev/null
++++ b/tests/common/mod.rs
+@@ -0,0 +1,18 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++pub fn run(mut command: std::process::Command) -> bool {
++    let mut child = command.spawn().unwrap();
++    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
++    loop {
++        if let Some(status) = child.try_wait().unwrap() {
++            return status.success();
++        }
++        if std::time::Instant::now() >= deadline {
++            let _ = child.kill();
++            let _ = child.wait();
++            return false;
++        }
++        std::thread::sleep(std::time::Duration::from_millis(10));
++    }
++}
+diff --git a/tests/host_callback_test.rs b/tests/host_callback_test.rs
+--- /dev/null
++++ b/tests/host_callback_test.rs
+@@ -0,0 +1,174 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++#![cfg(target_os = "linux")]
++mod common;
++use lance_c::*;
++use std::ffi::c_void;
++use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
++use std::sync::{Arc, Mutex, mpsc};
++
++type Job = Box<dyn FnOnce() + Send>;
++static REJECT: AtomicBool = AtomicBool::new(false);
++unsafe extern "C" fn submit(
++    context: *mut c_void,
++    queue: u32,
++    run: unsafe extern "C" fn(*mut c_void),
++    discard: unsafe extern "C" fn(*mut c_void),
++    task: *mut c_void,
++) {
++    if queue != 2 && REJECT.load(Ordering::Acquire) {
++        unsafe { discard(task) };
++    } else {
++        let sender = unsafe { &*context.cast::<mpsc::Sender<Option<Job>>>() };
++        let task = task as usize;
++        sender
++            .send(Some(Box::new(move || unsafe { run(task as *mut c_void) })))
++            .unwrap();
++    }
++}
++#[derive(Default)]
++struct Probe {
++    active: AtomicUsize,
++    concurrent: AtomicUsize,
++    done: AtomicUsize,
++    errors: AtomicUsize,
++    reactor: Option<std::thread::ThreadId>,
++}
++unsafe extern "C" fn observe(context: *mut c_void, status: i32, result: *mut c_void) {
++    let probe = unsafe { &*context.cast::<Probe>() };
++    if probe.reactor == Some(std::thread::current().id()) {
++        probe.errors.fetch_add(1, Ordering::SeqCst);
++    }
++    let active = probe.active.fetch_add(1, Ordering::SeqCst) + 1;
++    probe.concurrent.fetch_max(active, Ordering::SeqCst);
++    if status != -1 || !result.is_null() || lance_last_error_code() == LanceErrorCode::Ok {
++        probe.errors.fetch_add(1, Ordering::SeqCst);
++    }
++    std::thread::sleep(std::time::Duration::from_millis(1));
++    probe.active.fetch_sub(1, Ordering::SeqCst);
++    probe.done.fetch_add(1, Ordering::SeqCst);
++}
++#[test]
++fn callbacks_are_serial_and_drained_even_after_host_rejection() {
++    if std::env::var_os("LANCE_CALLBACK_CHILD").is_none() {
++        for reject in [false, true] {
++            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
++            command
++                .args([
++                    "--exact",
++                    "callbacks_are_serial_and_drained_even_after_host_rejection",
++                    "--nocapture",
++                ])
++                .env("LANCE_CALLBACK_CHILD", "1");
++            if reject {
++                command.env("LANCE_CALLBACK_REJECT", "1");
++            }
++            assert!(common::run(command));
++        }
++        return;
++    }
++    let (sender, receiver) = mpsc::channel::<Option<Job>>();
++    let sender = Box::new(sender);
++    let receiver = Arc::new(Mutex::new(receiver));
++    let workers: Vec<_> = (0..4)
++        .map(|_| {
++            let receiver = receiver.clone();
++            std::thread::spawn(move || {
++                loop {
++                    let job = receiver.lock().unwrap().recv();
++                    match job {
++                        Ok(Some(job)) => job(),
++                        Ok(None) | Err(_) => break,
++                    }
++                }
++            })
++        })
++        .collect();
++    let options = LanceHostServicesOptionsV1 {
++        abi_version: 1,
++        struct_size: std::mem::size_of::<LanceHostServicesOptionsV1>() as u32,
++        context: &*sender as *const _ as *mut c_void,
++        submit: Some(submit),
++    };
++    assert_eq!(
++        unsafe { lance_runtime_install_host_services_v1(&options) },
++        0
++    );
++    let reactor = std::thread::spawn(|| assert_eq!(lance_runtime_drive(), 0));
++    let reject = std::env::var_os("LANCE_CALLBACK_REJECT").is_some();
++    let temp = tempfile::tempdir().unwrap();
++    let scanner = if reject {
++        use arrow::array::Int64Array;
++        use arrow::datatypes::{DataType, Field, Schema};
++        use arrow::record_batch::{RecordBatch, RecordBatchIterator};
++        let schema = Arc::new(Schema::new(vec![Field::new(
++            "value",
++            DataType::Int64,
++            false,
++        )]));
++        let batch = RecordBatch::try_new(
++            schema.clone(),
++            vec![Arc::new(Int64Array::from_iter_values(0..8))],
++        )
++        .unwrap();
++        lance_c::runtime::block_on(async {
++            lance::Dataset::write(
++                Box::new(RecordBatchIterator::new(vec![Ok(batch)], schema)),
++                temp.path().to_str().unwrap(),
++                None,
++            )
++            .await
++            .unwrap();
++        });
++        let uri = std::ffi::CString::new(temp.path().to_str().unwrap()).unwrap();
++        let dataset = unsafe { lance_dataset_open(uri.as_ptr(), std::ptr::null(), 0) };
++        assert!(!dataset.is_null());
++        let scanner = unsafe { lance_scanner_new(dataset, std::ptr::null(), std::ptr::null()) };
++        assert!(!scanner.is_null());
++        unsafe { lance_dataset_close(dataset) };
++        scanner
++    } else {
++        std::ptr::null_mut()
++    };
++    REJECT.store(reject, Ordering::Release);
++    let before = std::fs::read_dir("/proc/self/task").unwrap().count();
++    let probe = Box::new(Probe {
++        reactor: Some(reactor.thread().id()),
++        ..Default::default()
++    });
++    for _ in 0..64 {
++        unsafe {
++            lance_scanner_scan_async(
++                std::ptr::null_mut(),
++                Some(observe),
++                &*probe as *const _ as *mut c_void,
++            )
++        };
++    }
++    if reject {
++        // A valid scan accepted by the C API must also complete when its first poll is rejected.
++        unsafe {
++            lance_scanner_scan_async(scanner, Some(observe), &*probe as *const _ as *mut c_void)
++        };
++        unsafe { lance_scanner_close(scanner) };
++    }
++    lance_runtime_stop();
++    assert_eq!(probe.done.load(Ordering::SeqCst), 64 + usize::from(reject));
++    assert_eq!(probe.concurrent.load(Ordering::SeqCst), 1);
++    assert_eq!(probe.errors.load(Ordering::SeqCst), 0);
++    reactor.join().unwrap();
++    let after = std::fs::read_dir("/proc/self/task").unwrap().count();
++    assert_eq!(
++        before - 1,
++        after,
++        "callbacks created an SDK dispatcher thread"
++    );
++    for _ in &workers {
++        let _ = sender.send(None);
++    }
++    for worker in workers {
++        worker.join().unwrap();
++    }
++    drop(sender);
++}
+diff --git a/tests/host_file_reader_test.rs b/tests/host_file_reader_test.rs
+--- /dev/null
++++ b/tests/host_file_reader_test.rs
+@@ -0,0 +1,287 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++#![cfg(unix)]
++
++use std::ffi::{CStr, CString, c_char, c_void};
++use std::fs::File;
++use std::os::unix::fs::FileExt;
++use std::path::PathBuf;
++use std::ptr;
++use std::sync::Arc;
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++use arrow_array::{Int64Array, RecordBatch, RecordBatchIterator};
++use arrow_schema::{DataType, Field, Schema};
++use lance_c::*;
++
++struct Storage {
++    root: PathBuf,
++    opens: AtomicUsize,
++    reads: AtomicUsize,
++    closes: AtomicUsize,
++}
++
++impl Storage {
++    unsafe fn path(&self, uri: *const c_char) -> PathBuf {
++        let uri = unsafe { CStr::from_ptr(uri) }.to_str().unwrap();
++        self.root
++            .join(uri.strip_prefix("s3://example-bucket/dataset/").unwrap())
++    }
++}
++
++unsafe extern "C" fn retain(context: *mut c_void) {
++    unsafe { Arc::increment_strong_count(context.cast::<Storage>()) };
++}
++
++unsafe extern "C" fn release(context: *mut c_void) {
++    unsafe { Arc::decrement_strong_count(context.cast::<Storage>()) };
++}
++
++struct OpenFile {
++    file: File,
++    storage: Arc<Storage>,
++}
++
++unsafe extern "C" fn open(
++    context: *mut c_void,
++    uri: *const c_char,
++    out: *mut *mut c_void,
++    meta: *mut LanceHostFileMeta,
++    error: *mut *const c_char,
++) -> i32 {
++    let storage = unsafe { &*context.cast::<Storage>() };
++    let path = unsafe { storage.path(uri) };
++    match File::open(&path) {
++        Ok(file) => {
++            let metadata = file.metadata().unwrap();
++            unsafe { retain(context) };
++            let storage = unsafe { Arc::from_raw(context.cast::<Storage>()) };
++            storage.opens.fetch_add(1, Ordering::SeqCst);
++            unsafe {
++                *meta = LanceHostFileMeta {
++                    size: metadata.len(),
++                    modified_seconds: 0,
++                };
++                *out = Box::into_raw(Box::new(OpenFile { file, storage })).cast();
++            }
++            0
++        }
++        Err(err) => {
++            unsafe { *error = c"host open failed".as_ptr() };
++            if err.kind() == std::io::ErrorKind::NotFound {
++                1
++            } else {
++                2
++            }
++        }
++    }
++}
++
++unsafe extern "C" fn read_at(
++    file: *mut c_void,
++    offset: u64,
++    out: *mut u8,
++    len: usize,
++    bytes_read: *mut usize,
++    error: *mut *const c_char,
++) -> i32 {
++    let file = unsafe { &*file.cast::<OpenFile>() };
++    let buffer = unsafe { std::slice::from_raw_parts_mut(out, len) };
++    match file.file.read_at(buffer, offset) {
++        Ok(n) => {
++            file.storage.reads.fetch_add(1, Ordering::SeqCst);
++            unsafe { *bytes_read = n };
++            0
++        }
++        Err(_) => {
++            unsafe { *error = c"host read failed".as_ptr() };
++            2
++        }
++    }
++}
++
++unsafe extern "C" fn close(file: *mut c_void) {
++    let file = unsafe { Box::from_raw(file.cast::<OpenFile>()) };
++    file.storage.closes.fetch_add(1, Ordering::SeqCst);
++}
++
++unsafe extern "C" fn list(
++    context: *mut c_void,
++    uri: *const c_char,
++    emit: Option<LanceHostListEntry>,
++    emit_context: *mut c_void,
++    _: *mut *const c_char,
++) -> i32 {
++    let storage = unsafe { &*context.cast::<Storage>() };
++    let root = unsafe { storage.path(uri) };
++    if !root.exists() {
++        return 0;
++    }
++    let mut pending = vec![root];
++    while let Some(directory) = pending.pop() {
++        for entry in std::fs::read_dir(directory).unwrap() {
++            let entry = entry.unwrap();
++            if entry.file_type().unwrap().is_dir() {
++                pending.push(entry.path());
++                continue;
++            }
++            let name = entry.path();
++            let relative = name.strip_prefix(&storage.root).unwrap();
++            let uri = CString::new(format!(
++                "s3://example-bucket/dataset/{}",
++                relative.display()
++            ))
++            .unwrap();
++            let meta = LanceHostFileMeta {
++                size: entry.metadata().unwrap().len(),
++                modified_seconds: 0,
++            };
++            if unsafe { emit.unwrap()(emit_context, uri.as_ptr(), &meta) } != 0 {
++                return 2;
++            }
++        }
++    }
++    0
++}
++
++#[test]
++fn all_dataset_bytes_come_from_the_host_and_handles_outlive_open_options() {
++    let temp = tempfile::tempdir().unwrap();
++    let schema = Arc::new(Schema::new(vec![Field::new(
++        "value",
++        DataType::Int64,
++        false,
++    )]));
++    let batch = RecordBatch::try_new(
++        schema.clone(),
++        vec![Arc::new(Int64Array::from_iter_values(0..128))],
++    )
++    .unwrap();
++    let batches = RecordBatchIterator::new(vec![Ok(batch)], schema);
++    lance_c::runtime::block_on(async {
++        lance::Dataset::write(Box::new(batches), temp.path().to_str().unwrap(), None)
++            .await
++            .unwrap();
++    });
++    for version in [0, 1] {
++        let storage = Arc::new(Storage {
++            root: temp.path().to_path_buf(),
++            opens: AtomicUsize::new(0),
++            reads: AtomicUsize::new(0),
++            closes: AtomicUsize::new(0),
++        });
++        let namespace = CString::new("host-fixture").unwrap();
++        let options = LanceHostStorageOptionsV1 {
++            abi_version: 1,
++            struct_size: std::mem::size_of::<LanceHostStorageOptionsV1>() as u32,
++            context: Arc::as_ptr(&storage) as *mut c_void,
++            retain_context: Some(retain),
++            release_context: Some(release),
++            cache_namespace: namespace.as_ptr(),
++            open: Some(open),
++            read_at: Some(read_at),
++            close: Some(close),
++            list: Some(list),
++        };
++        let uri = CString::new("s3://example-bucket/dataset").unwrap();
++        let session = lance_session_new(0, 0);
++        let dataset = unsafe {
++            lance_dataset_open_with_storage_v1(
++                uri.as_ptr(),
++                ptr::null(),
++                version,
++                session,
++                &options,
++            )
++        };
++        if dataset.is_null() {
++            let error = lance_last_error_message();
++            let message = unsafe { CStr::from_ptr(error) }
++                .to_string_lossy()
++                .into_owned();
++            unsafe { lance_free_string(error) };
++            panic!("{message}");
++        }
++        drop(namespace);
++        unsafe { lance_session_close(session) };
++        let scanner = unsafe { lance_scanner_new(dataset, ptr::null(), ptr::null()) };
++        assert!(!scanner.is_null());
++        let mut rows = 0;
++        loop {
++            let mut batch = ptr::null_mut();
++            let status = unsafe { lance_scanner_next(scanner, &mut batch) };
++            if status == 1 {
++                break;
++            }
++            assert_eq!(status, 0);
++            let mut array = arrow::ffi::FFI_ArrowArray::empty();
++            let mut schema = arrow::ffi::FFI_ArrowSchema::empty();
++            assert_eq!(
++                unsafe { lance_batch_to_arrow(batch, &mut array, &mut schema) },
++                0
++            );
++            rows += unsafe { arrow::ffi::from_ffi(array, &schema) }
++                .unwrap()
++                .len();
++            unsafe { lance_batch_free(batch) };
++        }
++        assert_eq!(rows, 128);
++        unsafe {
++            lance_scanner_close(scanner);
++            lance_dataset_close(dataset);
++        }
++        assert!(storage.reads.load(Ordering::SeqCst) > 0);
++        assert_eq!(
++            storage.opens.load(Ordering::SeqCst),
++            storage.closes.load(Ordering::SeqCst)
++        );
++        assert_eq!(Arc::strong_count(&storage), 1);
++    }
++}
++
++#[test]
++fn invalid_storage_descriptors_fail_without_retaining_context() {
++    let uri = c"s3://example-bucket/dataset";
++    assert!(
++        unsafe {
++            lance_dataset_open_with_storage_v1(
++                uri.as_ptr(),
++                ptr::null(),
++                0,
++                ptr::null(),
++                ptr::null(),
++            )
++        }
++        .is_null()
++    );
++    let options = LanceHostStorageOptionsV1 {
++        abi_version: 2,
++        struct_size: std::mem::size_of::<LanceHostStorageOptionsV1>() as u32,
++        context: ptr::null_mut(),
++        retain_context: Some(retain),
++        release_context: Some(release),
++        cache_namespace: c"invalid".as_ptr(),
++        open: Some(open),
++        read_at: Some(read_at),
++        close: Some(close),
++        list: Some(list),
++    };
++    assert!(
++        unsafe {
++            lance_dataset_open_with_storage_v1(uri.as_ptr(), ptr::null(), 0, ptr::null(), &options)
++        }
++        .is_null()
++    );
++    let options = LanceHostStorageOptionsV1 {
++        abi_version: 1,
++        struct_size: 8,
++        ..options
++    };
++    assert!(
++        unsafe {
++            lance_dataset_open_with_storage_v1(uri.as_ptr(), ptr::null(), 0, ptr::null(), &options)
++        }
++        .is_null()
++    );
++}
+diff --git a/tests/host_memory_test.rs b/tests/host_memory_test.rs
+--- /dev/null
++++ b/tests/host_memory_test.rs
+@@ -0,0 +1,1277 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++#![cfg(target_os = "linux")]
++
++mod common;
++
++use arrow::array::{BinaryArray, Int64Array, StringArray, StructArray};
++use arrow::datatypes::{DataType, Field, Schema};
++use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema, from_ffi};
++use arrow::ffi_stream::{ArrowArrayStreamReader, FFI_ArrowArrayStream};
++use arrow::record_batch::{RecordBatch, RecordBatchIterator};
++use lance_c::*;
++use std::ffi::{CStr, CString, c_char, c_void};
++use std::fs::File;
++use std::os::unix::fs::FileExt;
++use std::path::PathBuf;
++use std::ptr;
++use std::sync::atomic::{AtomicBool, AtomicI32, AtomicI64, AtomicUsize, Ordering};
++use std::sync::{Arc, Barrier, Mutex, mpsc};
++use std::time::{Duration, Instant};
++
++const ROWS: i64 = 768;
++const DELTA_BUCKETS: usize = 1024;
++type Job = Box<dyn FnOnce() + Send>;
++type Run = unsafe extern "C" fn(*mut c_void);
++
++struct Pending(usize, Run);
++impl Pending {
++    fn run(mut self, run: Run) {
++        let context = std::mem::replace(&mut self.0, 0);
++        unsafe { run(context as *mut c_void) };
++    }
++}
++impl Drop for Pending {
++    fn drop(&mut self) {
++        if self.0 != 0 {
++            unsafe { (self.1)(self.0 as *mut c_void) };
++        }
++    }
++}
++unsafe extern "C" fn submit(
++    context: *mut c_void,
++    _: u32,
++    run: Run,
++    discard: Run,
++    task: *mut c_void,
++) {
++    let pending = Pending(task as usize, discard);
++    let sender = unsafe { &*context.cast::<mpsc::SyncSender<Option<Job>>>() };
++    // Capture the guard itself so a rejected enqueue discards the native task exactly once.
++    let _ = sender.send(Some(Box::new(move || pending.run(run))));
++}
++
++struct Host {
++    sender: Box<mpsc::SyncSender<Option<Job>>>,
++    workers: Vec<std::thread::JoinHandle<()>>,
++    reactor: Option<std::thread::JoinHandle<()>>,
++}
++impl Host {
++    fn new() -> Self {
++        // Preallocate the queue before registration; its persistent slots are not query buffers.
++        let (sender, receiver) = mpsc::sync_channel::<Option<Job>>(1024);
++        let sender = Box::new(sender);
++        let receiver = Arc::new(Mutex::new(receiver));
++        let workers = (0..4)
++            .map(|_| {
++                let receiver = receiver.clone();
++                std::thread::spawn(move || {
++                    loop {
++                        // Release the receiver lock before running nested SDK work.
++                        let job = receiver.lock().unwrap().recv();
++                        match job {
++                            Ok(Some(job)) => job(),
++                            Ok(None) | Err(_) => break,
++                        }
++                    }
++                })
++            })
++            .collect();
++        let options = LanceHostServicesOptionsV1 {
++            abi_version: 1,
++            struct_size: std::mem::size_of::<LanceHostServicesOptionsV1>() as u32,
++            context: (&*sender as *const mpsc::SyncSender<Option<Job>>)
++                .cast_mut()
++                .cast(),
++            submit: Some(submit),
++        };
++        assert_eq!(
++            unsafe { lance_runtime_install_host_services_v1(&options) },
++            0
++        );
++        let reactor = Some(std::thread::spawn(|| assert_eq!(lance_runtime_drive(), 0)));
++        Self {
++            sender,
++            workers,
++            reactor,
++        }
++    }
++
++    fn context(&self) -> *mut c_void {
++        (&*self.sender as *const mpsc::SyncSender<Option<Job>>)
++            .cast_mut()
++            .cast()
++    }
++}
++impl Drop for Host {
++    fn drop(&mut self) {
++        lance_runtime_stop();
++        self.reactor.take().unwrap().join().unwrap();
++        for _ in &self.workers {
++            let _ = self.sender.send(None);
++        }
++        for worker in self.workers.drain(..) {
++            worker.join().unwrap();
++        }
++    }
++}
++
++struct DeltaBucket {
++    size: AtomicUsize,
++    balance: AtomicI64,
++}
++
++struct Account {
++    current: AtomicI64,
++    peak: AtomicI64,
++    charged: AtomicUsize,
++    released: AtomicUsize,
++    retains: AtomicUsize,
++    drops: AtomicUsize,
++    reservations: AtomicUsize,
++    rejected: AtomicUsize,
++    rolled_back: AtomicUsize,
++    reserve_limit: AtomicUsize,
++    limit_code: AtomicI32,
++    checks: AtomicUsize,
++    underflow: AtomicBool,
++    delta_buckets: [DeltaBucket; DELTA_BUCKETS],
++    delta_overflow: AtomicBool,
++}
++impl Account {
++    fn new() -> Arc<Self> {
++        Arc::new(Self {
++            current: AtomicI64::new(0),
++            peak: AtomicI64::new(0),
++            charged: AtomicUsize::new(0),
++            released: AtomicUsize::new(0),
++            retains: AtomicUsize::new(0),
++            drops: AtomicUsize::new(0),
++            reservations: AtomicUsize::new(0),
++            rejected: AtomicUsize::new(0),
++            rolled_back: AtomicUsize::new(0),
++            reserve_limit: AtomicUsize::new(usize::MAX),
++            limit_code: AtomicI32::new(0),
++            checks: AtomicUsize::new(0),
++            underflow: AtomicBool::new(false),
++            delta_buckets: std::array::from_fn(|_| DeltaBucket {
++                size: AtomicUsize::new(0),
++                balance: AtomicI64::new(0),
++            }),
++            delta_overflow: AtomicBool::new(false),
++        })
++    }
++
++    fn options(self: &Arc<Self>) -> LanceHostMemoryAccountOptionsV1 {
++        LanceHostMemoryAccountOptionsV1 {
++            abi_version: 1,
++            struct_size: std::mem::size_of::<LanceHostMemoryAccountOptionsV1>() as u32,
++            context: Arc::as_ptr(self).cast_mut().cast(),
++            retain_context: Some(retain_account),
++            release_context: Some(release_account),
++            record: Some(record),
++            reserve: Some(reserve),
++            finish_reserve: Some(finish_reserve),
++            check: Some(check),
++        }
++    }
++
++    fn bytes(&self) -> i64 {
++        self.current.load(Ordering::SeqCst)
++    }
++
++    fn settled_bytes(&self) -> i64 {
++        let deadline = Instant::now() + Duration::from_secs(5);
++        let mut previous = self.bytes();
++        let mut stable_since = Instant::now();
++        loop {
++            std::thread::sleep(Duration::from_millis(5));
++            let current = self.bytes();
++            if current != previous {
++                previous = current;
++                stable_since = Instant::now();
++            }
++            if stable_since.elapsed() >= Duration::from_millis(100) {
++                return current;
++            }
++            assert!(Instant::now() < deadline, "memory ownership did not settle");
++        }
++    }
++
++    fn assert_released(self: &Arc<Self>) {
++        let deadline = Instant::now() + Duration::from_secs(5);
++        while (self.bytes() != 0 || Arc::strong_count(self) != 1) && Instant::now() < deadline {
++            std::thread::sleep(Duration::from_millis(5));
++        }
++        if self.bytes() != 0
++            || Arc::strong_count(self) != 1
++            || self.underflow.load(Ordering::SeqCst)
++        {
++            self.report_record_deltas();
++        }
++        assert!(
++            !self.underflow.load(Ordering::SeqCst),
++            "memory account underflowed"
++        );
++        assert_eq!(self.bytes(), 0, "query still owns allocated bytes");
++        assert_eq!(
++            Arc::strong_count(self),
++            1,
++            "query context is retained after all output release"
++        );
++        assert_eq!(
++            self.retains.load(Ordering::SeqCst),
++            self.drops.load(Ordering::SeqCst)
++        );
++        assert!(self.charged.load(Ordering::SeqCst) > 0);
++        assert_eq!(
++            self.charged.load(Ordering::SeqCst),
++            self.released.load(Ordering::SeqCst)
++        );
++    }
++
++    fn observe_record_delta(&self, delta: i64) {
++        let size = delta.unsigned_abs() as usize;
++        if size == 0 {
++            return;
++        }
++        for offset in 0..DELTA_BUCKETS {
++            let bucket = &self.delta_buckets[(size.wrapping_add(offset)) % DELTA_BUCKETS];
++            let key = bucket.size.load(Ordering::SeqCst);
++            let matching = if key == 0 {
++                match bucket
++                    .size
++                    .compare_exchange(0, size, Ordering::SeqCst, Ordering::SeqCst)
++                {
++                    Ok(_) => true,
++                    Err(existing) => existing == size,
++                }
++            } else {
++                key == size
++            };
++            if matching {
++                bucket.balance.fetch_add(delta.signum(), Ordering::SeqCst);
++                return;
++            }
++        }
++        self.delta_overflow.store(true, Ordering::SeqCst);
++    }
++
++    fn report_record_deltas(self: &Arc<Self>) {
++        // Collection and formatting happen only after the query scope has exited.
++        // Allocator callbacks themselves use the preallocated atomic table only.
++        let mut balances = self
++            .delta_buckets
++            .iter()
++            .filter_map(|bucket| {
++                let size = bucket.size.load(Ordering::SeqCst);
++                let count = bucket.balance.load(Ordering::SeqCst);
++                (count != 0).then_some((size, count, size as i128 * count as i128))
++            })
++            .collect::<Vec<_>>();
++        balances.sort_unstable_by_key(|entry| std::cmp::Reverse(entry.2.abs()));
++        eprintln!(
++            "memory diagnostics: current={} peak={} charged={} released={} refs={} retain={} release={} histogram_overflow={}",
++            self.bytes(),
++            self.peak.load(Ordering::SeqCst),
++            self.charged.load(Ordering::SeqCst),
++            self.released.load(Ordering::SeqCst),
++            Arc::strong_count(self),
++            self.retains.load(Ordering::SeqCst),
++            self.drops.load(Ordering::SeqCst),
++            self.delta_overflow.load(Ordering::SeqCst),
++        );
++        // Realloc reports its size difference, so these are unmatched record
++        // deltas grouped by magnitude, not a definitive live-allocation census.
++        for (size, count, balance) in balances.into_iter().take(24) {
++            eprintln!("record_delta_size={size} balance_count={count} balance_bytes={balance}");
++        }
++    }
++}
++unsafe extern "C" fn retain_account(context: *mut c_void) {
++    let account = unsafe { &*context.cast::<Account>() };
++    account.retains.fetch_add(1, Ordering::SeqCst);
++    unsafe { Arc::increment_strong_count(context.cast::<Account>()) };
++}
++unsafe extern "C" fn release_account(context: *mut c_void) {
++    let account = unsafe { &*context.cast::<Account>() };
++    account.drops.fetch_add(1, Ordering::SeqCst);
++    unsafe { Arc::decrement_strong_count(context.cast::<Account>()) };
++}
++unsafe extern "C" fn record(context: *mut c_void, delta: i64) {
++    let account = unsafe { &*context.cast::<Account>() };
++    account.observe_record_delta(delta);
++    let now = account.current.fetch_add(delta, Ordering::SeqCst) + delta;
++    account.peak.fetch_max(now, Ordering::SeqCst);
++    if delta >= 0 {
++        account.charged.fetch_add(delta as usize, Ordering::SeqCst);
++    } else {
++        account
++            .released
++            .fetch_add((-delta) as usize, Ordering::SeqCst);
++    }
++    if now < 0 {
++        account.underflow.store(true, Ordering::SeqCst);
++    }
++}
++unsafe extern "C" fn reserve(context: *mut c_void, bytes: usize) -> i32 {
++    let account = unsafe { &*context.cast::<Account>() };
++    account.reservations.fetch_add(1, Ordering::SeqCst);
++    if bytes > account.reserve_limit.load(Ordering::SeqCst) {
++        account.rejected.fetch_add(1, Ordering::SeqCst);
++        account.limit_code.store(1, Ordering::SeqCst);
++        1
++    } else {
++        // A nonzero reserve result must leave the ledger unchanged; finish is
++        // only called after a successful admission and an allocation attempt.
++        unsafe { record(context, bytes as i64) };
++        0
++    }
++}
++unsafe extern "C" fn finish_reserve(context: *mut c_void, bytes: usize, allocated: bool) {
++    if !allocated {
++        let account = unsafe { &*context.cast::<Account>() };
++        account.rolled_back.fetch_add(1, Ordering::SeqCst);
++        unsafe { record(context, -(bytes as i64)) };
++    }
++}
++unsafe extern "C" fn check(context: *mut c_void) -> i32 {
++    let account = unsafe { &*context.cast::<Account>() };
++    account.checks.fetch_add(1, Ordering::SeqCst);
++    account.limit_code.load(Ordering::SeqCst)
++}
++
++struct Services {
++    background: Arc<Account>,
++    index: Arc<Account>,
++    metadata: Arc<Account>,
++}
++impl Services {
++    fn new() -> Self {
++        Self {
++            background: Account::new(),
++            index: Account::new(),
++            metadata: Account::new(),
++        }
++    }
++    fn options(&self) -> LanceHostMemoryServicesOptionsV1 {
++        LanceHostMemoryServicesOptionsV1 {
++            abi_version: 1,
++            struct_size: std::mem::size_of::<LanceHostMemoryServicesOptionsV1>() as u32,
++            background: self.background.options(),
++            index_cache: self.index.options(),
++            metadata_cache: self.metadata.options(),
++        }
++    }
++}
++
++struct Query {
++    executor: *mut LanceHostExecutor,
++    account: Arc<Account>,
++}
++impl Query {
++    fn new(host_context: *mut c_void) -> Self {
++        let account = Account::new();
++        let options = LanceHostExecutorOptionsV1 {
++            context: host_context,
++            submit_task: Some(submit),
++            max_cpu_drivers: 4,
++            max_io_drivers: 4,
++            ..Default::default()
++        };
++        let executor = unsafe { lance_host_executor_new_v1(&options) };
++        assert!(!executor.is_null());
++        assert_eq!(
++            unsafe { lance_host_executor_set_memory_v1(executor, &account.options()) },
++            0
++        );
++        Self { executor, account }
++    }
++    fn enter(&self) -> Scope {
++        let scope = unsafe { lance_host_executor_enter(self.executor) };
++        assert!(!scope.is_null());
++        Scope(scope)
++    }
++}
++impl Drop for Query {
++    fn drop(&mut self) {
++        unsafe { lance_host_executor_free(self.executor) };
++    }
++}
++struct Scope(*mut LanceHostExecutorScope);
++impl Drop for Scope {
++    fn drop(&mut self) {
++        assert_eq!(unsafe { lance_host_executor_leave(self.0) }, 0);
++    }
++}
++struct Session(*mut LanceSession);
++impl Session {
++    fn new(capacity: u64) -> Self {
++        let session = lance_session_new(capacity, capacity);
++        assert!(!session.is_null());
++        Self(session)
++    }
++    fn stats(&self) -> LanceSessionCacheStats {
++        let mut stats = LanceSessionCacheStats::default();
++        assert_eq!(
++            unsafe { lance_session_get_cache_stats(self.0, &mut stats) },
++            0
++        );
++        stats
++    }
++}
++impl Drop for Session {
++    fn drop(&mut self) {
++        unsafe { lance_session_close(self.0) };
++    }
++}
++
++struct Storage {
++    root: PathBuf,
++    version: u64,
++    opens: AtomicUsize,
++    reads: AtomicUsize,
++    forbidden_reads: AtomicUsize,
++    closes: AtomicUsize,
++}
++struct OpenFile {
++    file: File,
++    storage: Arc<Storage>,
++}
++unsafe extern "C" fn retain_storage(context: *mut c_void) {
++    unsafe { Arc::increment_strong_count(context.cast::<Storage>()) };
++}
++unsafe extern "C" fn release_storage(context: *mut c_void) {
++    unsafe { Arc::decrement_strong_count(context.cast::<Storage>()) };
++}
++unsafe extern "C" fn open_file(
++    context: *mut c_void,
++    uri: *const c_char,
++    out: *mut *mut c_void,
++    meta: *mut LanceHostFileMeta,
++    error: *mut *const c_char,
++) -> i32 {
++    let storage = unsafe { &*context.cast::<Storage>() };
++    let uri = unsafe { CStr::from_ptr(uri) }.to_str().unwrap();
++    let path = storage
++        .root
++        .join(uri.strip_prefix("s3://memory-fixture/dataset/").unwrap());
++    match File::open(path) {
++        Ok(file) => {
++            let size = file.metadata().unwrap().len();
++            unsafe { retain_storage(context) };
++            let storage = unsafe { Arc::from_raw(context.cast::<Storage>()) };
++            storage.opens.fetch_add(1, Ordering::SeqCst);
++            unsafe {
++                *meta = LanceHostFileMeta {
++                    size,
++                    modified_seconds: 0,
++                };
++                *out = Box::into_raw(Box::new(OpenFile { file, storage })).cast();
++            }
++            0
++        }
++        Err(err) => {
++            unsafe { *error = c"fixture file open failed".as_ptr() };
++            if err.kind() == std::io::ErrorKind::NotFound {
++                1
++            } else {
++                2
++            }
++        }
++    }
++}
++unsafe extern "C" fn read_file(
++    file: *mut c_void,
++    offset: u64,
++    out: *mut u8,
++    len: usize,
++    bytes_read: *mut usize,
++    error: *mut *const c_char,
++) -> i32 {
++    let file = unsafe { &*file.cast::<OpenFile>() };
++    // Shared metadata reads may continue, but a denied query buffer must never
++    // reach the actual file callback under that failed allocation account.
++    if lance_core::utils::memory::check_current().is_err() {
++        file.storage.forbidden_reads.fetch_add(1, Ordering::SeqCst);
++    }
++    file.storage.reads.fetch_add(1, Ordering::SeqCst);
++    match file
++        .file
++        .read_at(unsafe { std::slice::from_raw_parts_mut(out, len) }, offset)
++    {
++        Ok(n) => {
++            unsafe { *bytes_read = n };
++            0
++        }
++        Err(_) => {
++            unsafe { *error = c"fixture range read failed".as_ptr() };
++            2
++        }
++    }
++}
++unsafe extern "C" fn close_file(file: *mut c_void) {
++    let file = unsafe { Box::from_raw(file.cast::<OpenFile>()) };
++    file.storage.closes.fetch_add(1, Ordering::SeqCst);
++}
++unsafe extern "C" fn list_files(
++    _: *mut c_void,
++    _: *const c_char,
++    _: Option<LanceHostListEntry>,
++    _: *mut c_void,
++    error: *mut *const c_char,
++) -> i32 {
++    // Opening an explicit snapshot must not need a backend directory listing.
++    unsafe { *error = c"unexpected directory listing".as_ptr() };
++    2
++}
++impl Storage {
++    fn options(self: &Arc<Self>) -> LanceHostStorageOptionsV1 {
++        LanceHostStorageOptionsV1 {
++            abi_version: 1,
++            struct_size: std::mem::size_of::<LanceHostStorageOptionsV1>() as u32,
++            context: Arc::as_ptr(self).cast_mut().cast(),
++            retain_context: Some(retain_storage),
++            release_context: Some(release_storage),
++            cache_namespace: c"memory-fixture".as_ptr(),
++            open: Some(open_file),
++            read_at: Some(read_file),
++            close: Some(close_file),
++            list: Some(list_files),
++        }
++    }
++    fn open(self: &Arc<Self>, session: &Session) -> *mut LanceDataset {
++        let dataset = unsafe {
++            lance_dataset_open_with_storage_v1(
++                c"s3://memory-fixture/dataset".as_ptr(),
++                ptr::null(),
++                self.version,
++                session.0,
++                &self.options(),
++            )
++        };
++        assert!(!dataset.is_null(), "fixture dataset open failed");
++        assert_eq!(unsafe { lance_dataset_fragment_count(dataset) }, 3);
++        dataset
++    }
++}
++
++fn fixture(with_fts: bool) -> (tempfile::TempDir, Arc<Storage>) {
++    use lance::dataset::{WriteMode, WriteParams};
++    let directory = tempfile::tempdir().unwrap();
++    let schema = Arc::new(Schema::new(vec![
++        Field::new("id", DataType::Int64, false),
++        Field::new("payload", DataType::Binary, false),
++        Field::new("body", DataType::Utf8, false),
++    ]));
++    for fragment in 0..3 {
++        let start = fragment * 256;
++        let payloads = (start..start + 256).map(|id| {
++            let mut seed = id as u64 + 1;
++            (0..1024)
++                .map(|_| {
++                    seed ^= seed << 13;
++                    seed ^= seed >> 7;
++                    seed ^= seed << 17;
++                    seed as u8
++                })
++                .collect::<Vec<_>>()
++        });
++        let batch = RecordBatch::try_new(
++            schema.clone(),
++            vec![
++                Arc::new(Int64Array::from_iter_values(start..start + 256)),
++                Arc::new(BinaryArray::from_iter_values(payloads)),
++                Arc::new(StringArray::from_iter_values((start..start + 256).map(
++                    |id| {
++                        if id % 3 == 0 {
++                            "needle shared allocation"
++                        } else {
++                            "ordinary text"
++                        }
++                    },
++                ))),
++            ],
++        )
++        .unwrap();
++        let batches = RecordBatchIterator::new(vec![Ok(batch)], schema.clone());
++        lance_c::runtime::block_on(async {
++            let dataset = lance::Dataset::write(
++                Box::new(batches),
++                directory.path().to_str().unwrap(),
++                Some(WriteParams {
++                    mode: if fragment == 0 {
++                        WriteMode::Create
++                    } else {
++                        WriteMode::Append
++                    },
++                    max_rows_per_file: 256,
++                    ..Default::default()
++                }),
++            )
++            .await
++            .unwrap();
++            assert_eq!(dataset.get_fragments().len(), fragment as usize + 1);
++        });
++    }
++    let version = if with_fts {
++        // Index construction is fixture setup, outside the accounted BE read path.
++        let uri = CString::new(directory.path().to_str().unwrap()).unwrap();
++        let dataset = unsafe { lance_dataset_open(uri.as_ptr(), ptr::null(), 0) };
++        assert!(!dataset.is_null());
++        assert_eq!(
++            unsafe {
++                lance_dataset_create_scalar_index(
++                    dataset,
++                    c"body".as_ptr(),
++                    c"body_fts".as_ptr(),
++                    LanceScalarIndexType::Inverted as i32,
++                    c"{\"base_tokenizer\":\"simple\",\"language\":\"English\"}".as_ptr(),
++                    false,
++                )
++            },
++            0
++        );
++        let version = unsafe { lance_dataset_version(dataset) };
++        unsafe { lance_dataset_close(dataset) };
++        version
++    } else {
++        3
++    };
++    let storage = Arc::new(Storage {
++        root: directory.path().to_path_buf(),
++        version,
++        opens: AtomicUsize::new(0),
++        reads: AtomicUsize::new(0),
++        forbidden_reads: AtomicUsize::new(0),
++        closes: AtomicUsize::new(0),
++    });
++    (directory, storage)
++}
++
++fn export_batch(batch: *mut LanceBatch) -> RecordBatch {
++    let mut array = FFI_ArrowArray::empty();
++    let mut schema = FFI_ArrowSchema::empty();
++    assert_eq!(
++        unsafe { lance_batch_to_arrow(batch, &mut array, &mut schema) },
++        0
++    );
++    let data = unsafe { from_ffi(array, &schema) }.unwrap();
++    unsafe { lance_batch_free(batch) };
++    RecordBatch::from(StructArray::from(data))
++}
++fn scan(
++    query: &Query,
++    storage: &Arc<Storage>,
++    session: &Session,
++    filter: Option<&CStr>,
++) -> Vec<RecordBatch> {
++    let _scope = query.enter();
++    let dataset = storage.open(session);
++    let scanner = unsafe {
++        lance_scanner_new(
++            dataset,
++            ptr::null(),
++            filter.map_or(ptr::null(), CStr::as_ptr),
++        )
++    };
++    assert!(!scanner.is_null());
++    let mut batches = Vec::new();
++    loop {
++        let mut batch = ptr::null_mut();
++        match unsafe { lance_scanner_next(scanner, &mut batch) } {
++            0 => batches.push(export_batch(batch)),
++            1 => break,
++            status => panic!(
++                "scan failed with status {status} and code {:?}",
++                lance_last_error_code()
++            ),
++        }
++    }
++    unsafe {
++        lance_scanner_close(scanner);
++        lance_dataset_close(dataset);
++    }
++    batches
++}
++fn ids(batches: &[RecordBatch]) -> Vec<i64> {
++    let mut ids = batches
++        .iter()
++        .flat_map(|batch| {
++            batch
++                .column_by_name("id")
++                .unwrap()
++                .as_any()
++                .downcast_ref::<Int64Array>()
++                .unwrap()
++                .values()
++                .iter()
++                .copied()
++        })
++        .collect::<Vec<_>>();
++    ids.sort_unstable();
++    ids
++}
++fn clear_error() {
++    // A successful FFI call releases any query-owned thread-local error string.
++    drop(Session::new(0));
++}
++
++fn scan_fts(query: &Query, storage: &Arc<Storage>, session: &Session) -> Vec<RecordBatch> {
++    let _scope = query.enter();
++    let dataset = storage.open(session);
++    let scanner = unsafe { lance_scanner_new(dataset, ptr::null(), ptr::null()) };
++    assert!(!scanner.is_null());
++    let columns = [c"body".as_ptr(), ptr::null()];
++    assert_eq!(
++        unsafe { lance_scanner_full_text_search(scanner, c"needle".as_ptr(), columns.as_ptr(), 0) },
++        0
++    );
++    let mut batches = Vec::new();
++    loop {
++        let mut batch = ptr::null_mut();
++        match unsafe { lance_scanner_next(scanner, &mut batch) } {
++            0 => batches.push(export_batch(batch)),
++            1 => break,
++            status => panic!("FTS scan failed: {status}, {:?}", lance_last_error_code()),
++        }
++    }
++    unsafe {
++        lance_scanner_close(scanner);
++        lance_dataset_close(dataset);
++    }
++    batches
++}
++
++fn descriptors(host: &Host, services: &Services, old: Vec<u8>) {
++    assert_eq!(
++        unsafe { lance_runtime_install_memory_services_v1(ptr::null()) },
++        -1
++    );
++    let mut invalid = services.options();
++    invalid.abi_version = 2;
++    assert_eq!(
++        unsafe { lance_runtime_install_memory_services_v1(&invalid) },
++        -1
++    );
++    invalid = services.options();
++    invalid.struct_size = 8;
++    assert_eq!(
++        unsafe { lance_runtime_install_memory_services_v1(&invalid) },
++        -1
++    );
++    invalid = services.options();
++    invalid.metadata_cache.record = None;
++    assert_eq!(
++        unsafe { lance_runtime_install_memory_services_v1(&invalid) },
++        -1
++    );
++    assert_eq!(
++        services.background.retains.load(Ordering::SeqCst),
++        services.background.drops.load(Ordering::SeqCst)
++    );
++    assert_eq!(
++        services.metadata.retains.load(Ordering::SeqCst),
++        services.metadata.drops.load(Ordering::SeqCst)
++    );
++    assert_eq!(
++        unsafe { lance_runtime_install_memory_services_v1(&services.options()) },
++        0
++    );
++    assert!(!services.background.underflow.load(Ordering::SeqCst));
++    let query = Query::new(host.context());
++    let account = query.account.clone();
++    assert_eq!(
++        unsafe { lance_host_executor_set_memory_v1(ptr::null(), &account.options()) },
++        -1
++    );
++    assert_eq!(
++        unsafe { lance_host_executor_set_memory_v1(query.executor, ptr::null()) },
++        -1
++    );
++    for field in 0..4 {
++        let mut invalid = account.options();
++        match field {
++            0 => invalid.abi_version = 2,
++            1 => invalid.struct_size = 8,
++            2 => invalid.reserve = None,
++            _ => invalid.release_context = None,
++        }
++        assert_eq!(
++            unsafe { lance_host_executor_set_memory_v1(query.executor, &invalid) },
++            -1
++        );
++    }
++    let retained = account.retains.load(Ordering::SeqCst);
++    {
++        let _scope = query.enter();
++        // A dedicated scope excludes unrelated process-service bookkeeping.
++        let before = account.bytes();
++        drop(old);
++        assert_eq!(
++            account.bytes(),
++            before,
++            "pre-registration allocation acquired a retroactive owner"
++        );
++        assert!(Vec::<u8>::new().is_empty());
++        let buffer = vec![19_u8; 32 << 10];
++        assert!(account.bytes() >= buffer.len() as i64);
++        drop(buffer);
++    }
++    assert_eq!(account.retains.load(Ordering::SeqCst), retained);
++    drop(query);
++    clear_error();
++    account.assert_released();
++}
++
++fn read_release(host: &Host, storage: &Arc<Storage>) {
++    let session = Session::new(0);
++    let query = Query::new(host.context());
++    let account = query.account.clone();
++    let full = scan(&query, storage, &session, None);
++    assert_eq!(ids(&full), (0..ROWS).collect::<Vec<_>>());
++    let filtered = scan(&query, storage, &session, Some(c"id >= 700"));
++    assert_eq!(ids(&filtered), (700..ROWS).collect::<Vec<_>>());
++    drop(filtered);
++    {
++        let _scope = query.enter();
++        let dataset = storage.open(&session);
++        let indices = [0_u64, 257, 767];
++        let mut stream = FFI_ArrowArrayStream::empty();
++        assert_eq!(
++            unsafe {
++                lance_dataset_take(
++                    dataset,
++                    indices.as_ptr(),
++                    indices.len(),
++                    ptr::null(),
++                    &mut stream,
++                )
++            },
++            0
++        );
++        let reader = unsafe { ArrowArrayStreamReader::from_raw(&mut stream) }.unwrap();
++        let taken = reader.map(Result::unwrap).collect::<Vec<_>>();
++        assert_eq!(ids(&taken), vec![0, 257, 767]);
++        unsafe { lance_dataset_close(dataset) };
++    }
++    assert!(account.peak.load(Ordering::SeqCst) >= (256 << 10));
++    assert!(
++        account.reservations.load(Ordering::SeqCst) > 0,
++        "host reads did not reserve memory"
++    );
++    drop(query);
++    drop(session);
++    assert!(
++        account.bytes() >= (256 << 10),
++        "exported Arrow output lost its allocation owner"
++    );
++    assert!(
++        Arc::strong_count(&account) > 1,
++        "output did not retain the query ledger"
++    );
++    std::thread::spawn(move || {
++        assert_eq!(ids(&full), (0..ROWS).collect::<Vec<_>>());
++        drop(full);
++    })
++    .join()
++    .unwrap();
++    clear_error();
++    account.assert_released();
++}
++
++fn io_limit(host: &Host, storage: &Arc<Storage>) {
++    let session = Session::new(0);
++    let query = Query::new(host.context());
++    let account = query.account.clone();
++    {
++        let _scope = query.enter();
++        let dataset = storage.open(&session);
++        let scanner = unsafe { lance_scanner_new(dataset, ptr::null(), ptr::null()) };
++        assert!(!scanner.is_null());
++        // Deny after manifest setup, so the failure exercises fallible data-range allocation.
++        account.reserve_limit.store(0, Ordering::SeqCst);
++        let mut batch = ptr::null_mut();
++        assert_eq!(unsafe { lance_scanner_next(scanner, &mut batch) }, -1);
++        assert!(batch.is_null());
++        assert_eq!(lance_last_error_code() as i32, 10);
++        assert!(account.rejected.load(Ordering::SeqCst) > 0);
++        unsafe {
++            lance_scanner_close(scanner);
++            lance_dataset_close(dataset);
++        }
++    }
++    drop(query);
++    clear_error();
++    let healthy = Query::new(host.context());
++    let healthy_account = healthy.account.clone();
++    assert_eq!(
++        ids(&scan(&healthy, storage, &session, None)),
++        (0..ROWS).collect::<Vec<_>>()
++    );
++    drop(healthy);
++    drop(session);
++    clear_error();
++    account.assert_released();
++    healthy_account.assert_released();
++    assert_eq!(account.rolled_back.load(Ordering::SeqCst), 0);
++    assert_eq!(
++        storage.forbidden_reads.load(Ordering::SeqCst),
++        0,
++        "denied query range still reached the file callback"
++    );
++}
++
++fn nested(host: &Host) {
++    let first = Query::new(host.context());
++    let second = Query::new(host.context());
++    let first_account = first.account.clone();
++    let second_account = second.account.clone();
++    {
++        let _outer = first.enter();
++        let second_before = second_account.bytes();
++        let first_before = first_account.bytes();
++        let outer_buffer = std::hint::black_box(vec![17_u8; 64 << 10]);
++        assert!(first_account.bytes() >= first_before + outer_buffer.len() as i64);
++        assert_eq!(second_account.bytes(), second_before);
++        let (inner_buffer, inner_charge) = {
++            let _inner = second.enter();
++            let first_before = first_account.bytes();
++            let second_before = second_account.bytes();
++            let buffer = std::hint::black_box(vec![29_u8; 96 << 10]);
++            assert!(second_account.bytes() >= second_before + buffer.len() as i64);
++            assert_eq!(first_account.bytes(), first_before);
++            let charged = second_account.bytes() - second_before;
++            (buffer, charged)
++        };
++        let first_before = first_account.bytes();
++        let second_before = second_account.bytes();
++        // Leaving Q2 must restore Q1 even though Q2 still owns a live buffer.
++        let restored_buffer = std::hint::black_box(vec![43_u8; 128 << 10]);
++        assert!(first_account.bytes() >= first_before + restored_buffer.len() as i64);
++        assert_eq!(second_account.bytes(), second_before);
++        let first_before = first_account.bytes();
++        assert_eq!(inner_buffer[inner_buffer.len() - 1], 29);
++        drop(inner_buffer);
++        assert_eq!(first_account.bytes(), first_before);
++        assert_eq!(second_account.bytes(), second_before - inner_charge);
++        assert_eq!(outer_buffer[outer_buffer.len() - 1], 17);
++        assert_eq!(restored_buffer[restored_buffer.len() - 1], 43);
++    }
++    drop(second);
++    drop(first);
++    clear_error();
++    first_account.assert_released();
++    second_account.assert_released();
++}
++
++fn check_limits(host: &Host, storage: &Arc<Storage>) {
++    let session = Session::new(0);
++    let mut accounts = Vec::new();
++    for code in 1..=3 {
++        let query = Query::new(host.context());
++        accounts.push(query.account.clone());
++        {
++            let _scope = query.enter();
++            let dataset = storage.open(&session);
++            let scanner = unsafe { lance_scanner_new(dataset, ptr::null(), ptr::null()) };
++            assert!(!scanner.is_null());
++            query.account.limit_code.store(code, Ordering::SeqCst);
++            // Infallible Rust allocation still succeeds after a policy limit; the next
++            // fallible scanner boundary must report the original policy category.
++            let ordinary = vec![23_u8; 64 << 10];
++            assert_eq!(ordinary[ordinary.len() - 1], 23);
++            assert!(query.account.bytes() >= ordinary.len() as i64);
++            drop(ordinary);
++            let mut batch = ptr::null_mut();
++            assert_eq!(unsafe { lance_scanner_next(scanner, &mut batch) }, -1);
++            assert!(batch.is_null());
++            assert_eq!(
++                lance_last_error_code() as i32,
++                9 + code,
++                "limit category {code} escaped the memory error mapping"
++            );
++            assert!(query.account.checks.load(Ordering::SeqCst) > 0);
++            unsafe {
++                lance_scanner_close(scanner);
++                lance_dataset_close(dataset);
++            }
++        }
++        drop(query);
++        clear_error();
++    }
++    drop(session);
++    for account in accounts {
++        account.assert_released();
++    }
++}
++
++fn shared_cache(host: &Host, storage: &Arc<Storage>, services: &Services) {
++    let baseline = services.metadata.settled_bytes();
++    let first = Query::new(host.context());
++    let first_account = first.account.clone();
++    let session = {
++        // A BE session may first be constructed by a query, but must outlive it
++        // without retaining that query's allocation owner.
++        let _scope = first.enter();
++        Session::new(32 << 20)
++    };
++    drop(scan(&first, storage, &session, None));
++    drop(first);
++    clear_error();
++    let warmed = session.stats();
++    assert!(warmed.metadata_cache_entries > 0);
++    assert!(
++        services.metadata.bytes() > 0,
++        "metadata cache was not charged to its explicit account"
++    );
++    first_account.assert_released();
++    let cache_bytes = services.metadata.settled_bytes();
++    let second = Query::new(host.context());
++    let second_account = second.account.clone();
++    assert_eq!(
++        ids(&scan(&second, storage, &session, None)),
++        (0..ROWS).collect::<Vec<_>>()
++    );
++    drop(second);
++    clear_error();
++    let hit = session.stats();
++    assert!(hit.metadata_cache_hits > warmed.metadata_cache_hits);
++    assert_eq!(hit.metadata_cache_entries, warmed.metadata_cache_entries);
++    assert_eq!(
++        hit.metadata_cache_size_bytes,
++        warmed.metadata_cache_size_bytes
++    );
++    assert!(
++        services.metadata.settled_bytes() <= cache_bytes,
++        "warm cache objects were charged again to the second query"
++    );
++    second_account.assert_released();
++    drop(session);
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while services.metadata.bytes() > baseline && Instant::now() < deadline {
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    assert!(
++        services.metadata.bytes() <= baseline,
++        "session close retained shared metadata cache allocations: baseline={baseline}, current={}, refs={}",
++        services.metadata.bytes(),
++        Arc::strong_count(&services.metadata),
++    );
++    assert!(!services.metadata.underflow.load(Ordering::SeqCst));
++}
++
++fn concurrent(host: &Host, storage: &Arc<Storage>) {
++    let barrier = Arc::new(Barrier::new(2));
++    let context = host.context() as usize;
++    let handles = (0..2)
++        .map(|number| {
++            let storage = storage.clone();
++            let barrier = barrier.clone();
++            std::thread::spawn(move || {
++                let session = Session::new(0);
++                let query = Query::new(context as *mut c_void);
++                let account = query.account.clone();
++                barrier.wait();
++                let batches = scan(
++                    &query,
++                    &storage,
++                    &session,
++                    Some(if number == 0 {
++                        c"id < 384"
++                    } else {
++                        c"id >= 384"
++                    }),
++                );
++                drop(query);
++                drop(session);
++                (account, batches)
++            })
++        })
++        .collect::<Vec<_>>();
++    let mut results = handles
++        .into_iter()
++        .map(|handle| handle.join().unwrap())
++        .collect::<Vec<_>>();
++    let (second_account, second_output) = results.pop().unwrap();
++    let (first_account, first_output) = results.pop().unwrap();
++    assert_eq!(ids(&first_output), (0..384).collect::<Vec<_>>());
++    assert_eq!(ids(&second_output), (384..ROWS).collect::<Vec<_>>());
++    let second_bytes = second_account.settled_bytes();
++    assert!(second_bytes >= (256 << 10));
++    std::thread::spawn(move || drop(first_output))
++        .join()
++        .unwrap();
++    first_account.assert_released();
++    assert_eq!(
++        second_account.settled_bytes(),
++        second_bytes,
++        "freeing query A changed query B's ledger"
++    );
++    std::thread::spawn(move || drop(second_output))
++        .join()
++        .unwrap();
++    second_account.assert_released();
++}
++
++fn fts_cache(host: &Host, storage: &Arc<Storage>, services: &Services) {
++    let baseline = services.index.settled_bytes();
++    let expected = (0..ROWS).filter(|id| id % 3 == 0).collect::<Vec<_>>();
++    let first = Query::new(host.context());
++    let first_account = first.account.clone();
++    let session = {
++        let _scope = first.enter();
++        Session::new(32 << 20)
++    };
++    assert_eq!(ids(&scan_fts(&first, storage, &session)), expected);
++    drop(first);
++    clear_error();
++    let warmed = session.stats();
++    assert!(warmed.index_cache_entries > 0);
++    assert!(warmed.index_cache_size_bytes > 0);
++    assert!(
++        services.index.bytes() > baseline,
++        "FTS index bypassed its cache account"
++    );
++    first_account.assert_released();
++    let resident = services.index.settled_bytes();
++    let second = Query::new(host.context());
++    let second_account = second.account.clone();
++    assert_eq!(ids(&scan_fts(&second, storage, &session)), expected);
++    drop(second);
++    clear_error();
++    let hit = session.stats();
++    assert!(hit.index_cache_hits > warmed.index_cache_hits);
++    assert_eq!(hit.index_cache_entries, warmed.index_cache_entries);
++    assert_eq!(hit.index_cache_size_bytes, warmed.index_cache_size_bytes);
++    assert!(
++        services.index.settled_bytes() <= resident,
++        "warm FTS cache was charged twice"
++    );
++    second_account.assert_released();
++    drop(session);
++    let deadline = Instant::now() + Duration::from_secs(5);
++    while services.index.bytes() > baseline && Instant::now() < deadline {
++        std::thread::sleep(Duration::from_millis(5));
++    }
++    assert!(
++        services.index.bytes() <= baseline,
++        "session close retained FTS index cache allocations: baseline={baseline}, current={}, refs={}",
++        services.index.bytes(),
++        Arc::strong_count(&services.index),
++    );
++    assert!(!services.index.underflow.load(Ordering::SeqCst));
++}
++
++fn early_close(host: &Host, storage: &Arc<Storage>) {
++    let mut accounts = Vec::new();
++    for arrow_stream in [false, true] {
++        for _ in 0..8 {
++            let session = Session::new(0);
++            let query = Query::new(host.context());
++            accounts.push(query.account.clone());
++            {
++                let _scope = query.enter();
++                let dataset = storage.open(&session);
++                let scanner = unsafe { lance_scanner_new(dataset, ptr::null(), ptr::null()) };
++                assert!(!scanner.is_null());
++                assert_eq!(unsafe { lance_scanner_set_batch_size(scanner, 32) }, 0);
++                if arrow_stream {
++                    let mut stream = FFI_ArrowArrayStream::empty();
++                    assert_eq!(
++                        unsafe { lance_scanner_to_arrow_stream(scanner, &mut stream) },
++                        0
++                    );
++                    let mut reader =
++                        unsafe { ArrowArrayStreamReader::from_raw(&mut stream) }.unwrap();
++                    assert_eq!(reader.next().unwrap().unwrap().num_rows(), 32);
++                    drop(reader);
++                } else {
++                    let mut batch = ptr::null_mut();
++                    assert_eq!(unsafe { lance_scanner_next(scanner, &mut batch) }, 0);
++                    assert_eq!(export_batch(batch).num_rows(), 32);
++                }
++                unsafe {
++                    lance_scanner_close(scanner);
++                    lance_dataset_close(dataset);
++                }
++            }
++            drop(query);
++            drop(session);
++        }
++    }
++    clear_error();
++    for account in accounts {
++        account.assert_released();
++    }
++}
++
++#[test]
++fn host_memory_accounts_follow_real_reads() {
++    const CHILD: &str = "LANCE_HOST_MEMORY_CASE";
++    let Ok(case) = std::env::var(CHILD) else {
++        for case in [
++            "descriptor",
++            "read_release",
++            "io_limit",
++            "check_limits",
++            "shared_cache",
++            "fts_cache",
++            "concurrent",
++            "nested",
++            "early_close",
++        ] {
++            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
++            command
++                .args([
++                    "--exact",
++                    "host_memory_accounts_follow_real_reads",
++                    "--nocapture",
++                ])
++                .env(CHILD, case);
++            assert!(
++                common::run(command),
++                "host memory subprocess failed: {case}"
++            );
++        }
++        return;
++    };
++    let old = vec![7_u8; 8192];
++    let host = Host::new();
++    let (_directory, storage) = fixture(case == "fts_cache");
++    let services = Services::new();
++    if case == "descriptor" {
++        descriptors(&host, &services, old);
++    } else {
++        assert_eq!(
++            unsafe { lance_runtime_install_memory_services_v1(&services.options()) },
++            0
++        );
++        drop(old);
++        match case.as_str() {
++            "read_release" => read_release(&host, &storage),
++            "io_limit" => io_limit(&host, &storage),
++            "check_limits" => check_limits(&host, &storage),
++            "shared_cache" => shared_cache(&host, &storage, &services),
++            "fts_cache" => fts_cache(&host, &storage, &services),
++            "concurrent" => concurrent(&host, &storage),
++            "nested" => nested(&host),
++            "early_close" => early_close(&host, &storage),
++            _ => panic!("unknown memory test case"),
++        }
++    }
++    drop(host);
++    assert_eq!(
++        storage.opens.load(Ordering::SeqCst),
++        storage.closes.load(Ordering::SeqCst)
++    );
++    assert_eq!(
++        Arc::strong_count(&storage),
++        1,
++        "host file context survived all readers"
++    );
++    for account in [&services.background, &services.index, &services.metadata] {
++        assert!(!account.underflow.load(Ordering::SeqCst));
++    }
++}
+diff --git a/tests/host_storage_test.rs b/tests/host_storage_test.rs
+--- /dev/null
++++ b/tests/host_storage_test.rs
+@@ -0,0 +1,269 @@
++// SPDX-License-Identifier: Apache-2.0
++// SPDX-FileCopyrightText: Copyright The Lance Authors
++
++#![cfg(target_os = "linux")]
++mod common;
++use lance_c::*;
++use std::ffi::c_void;
++use std::sync::{Arc, Mutex, mpsc};
++
++type Job = Box<dyn FnOnce() + Send>;
++unsafe extern "C" fn submit(
++    context: *mut c_void,
++    _: u32,
++    run: unsafe extern "C" fn(*mut c_void),
++    discard: unsafe extern "C" fn(*mut c_void),
++    task: *mut c_void,
++) {
++    struct Pending(usize, unsafe extern "C" fn(*mut c_void));
++    impl Pending {
++        fn run(mut self, run: unsafe extern "C" fn(*mut c_void)) {
++            let context = std::mem::replace(&mut self.0, 0);
++            unsafe { run(context as *mut c_void) };
++        }
++    }
++    impl Drop for Pending {
++        fn drop(&mut self) {
++            if self.0 != 0 {
++                unsafe { (self.1)(self.0 as *mut c_void) };
++            }
++        }
++    }
++    let pending = Pending(task as usize, discard);
++    // Capture the entire guard: a Copy-field capture would discard the native task
++    // before the queued callback runs, leaving a dangling task pointer.
++    let job: Job = Box::new(move || pending.run(run));
++    let sender = unsafe { &*context.cast::<mpsc::Sender<Option<Job>>>() };
++    let _ = sender.send(Some(job));
++}
++
++#[test]
++fn storage_paths_use_host_threads() {
++    const CHILD: &str = "LANCE_HOST_STORAGE_CASE";
++    let Ok(case) = std::env::var(CHILD) else {
++        let mut failures = Vec::new();
++        for case in ["huggingface", "xet-stream", "uring", "goosefs", "rayon"] {
++            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
++            command
++                .args(["--exact", "storage_paths_use_host_threads", "--nocapture"])
++                .env(CHILD, case)
++                .env("RAYON_NUM_THREADS", "2");
++            if !common::run(command) {
++                failures.push(case);
++            }
++        }
++        assert!(
++            failures.is_empty(),
++            "SDK-created threads or failed reads: {failures:?}"
++        );
++        return;
++    };
++    let (sender, receiver) = mpsc::channel::<Option<Job>>();
++    let sender = Box::new(sender);
++    let receiver = Arc::new(Mutex::new(receiver));
++    let workers: Vec<_> = (0..4)
++        .map(|_| {
++            let receiver = receiver.clone();
++            std::thread::spawn(move || {
++                loop {
++                    let job = receiver.lock().unwrap().recv();
++                    match job {
++                        Ok(Some(job)) => job(),
++                        Ok(None) | Err(_) => break,
++                    }
++                }
++            })
++        })
++        .collect();
++    let options = LanceHostServicesOptionsV1 {
++        abi_version: 1,
++        struct_size: std::mem::size_of::<LanceHostServicesOptionsV1>() as u32,
++        context: &*sender as *const _ as *mut c_void,
++        submit: Some(submit),
++    };
++    assert_eq!(
++        unsafe { lance_runtime_install_host_services_v1(&options) },
++        0
++    );
++    let reactor = std::thread::spawn(|| assert_eq!(lance_runtime_drive(), 0));
++    let threads = || std::fs::read_dir("/proc/self/task").unwrap().count();
++    let before = threads();
++    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++        lance_c::runtime::block_on(async {
++            match case.as_str() {
++                "huggingface" => {
++                    // Construct the actual backend: OpenDAL creates XetSession even in HTTP mode.
++                    let (store, _) = lance_io::object_store::ObjectStore::from_uri(
++                        "hf://datasets/example/repository/table.lance",
++                    )
++                    .await
++                    .unwrap();
++                    assert_eq!(before, threads(), "HF backend started its own Xet runtime");
++                    drop(store);
++                }
++                "xet-stream" => {
++                    use xet::xet_session::{Sha256Policy, XetSessionBuilder};
++                    let directory = tempfile::tempdir().unwrap();
++                    let endpoint = format!("local://{}", directory.path().join("cas").display());
++                    let session = XetSessionBuilder::new().build().unwrap();
++                    let original: Vec<u8> = (0..=255).cycle().take(128 << 10).collect();
++                    // Build a local CAS fixture, then exercise the real Xet streaming reader.
++                    let upload = session
++                        .new_upload_commit()
++                        .unwrap()
++                        .with_endpoint(&endpoint)
++                        .build()
++                        .await
++                        .unwrap();
++                    upload
++                        .upload_bytes(
++                            original.clone(),
++                            Sha256Policy::Compute,
++                            Some("data.bin".into()),
++                        )
++                        .await
++                        .unwrap();
++                    let info = upload
++                        .commit()
++                        .await
++                        .unwrap()
++                        .uploads
++                        .into_values()
++                        .next()
++                        .unwrap()
++                        .xet_info;
++                    let group = session
++                        .new_download_stream_group()
++                        .unwrap()
++                        .with_endpoint(&endpoint)
++                        .build()
++                        .await
++                        .unwrap();
++                    let mut stream = group.download_stream(info, None).await.unwrap();
++                    let mut result = Vec::new();
++                    while let Some(chunk) = stream.next().await.unwrap() {
++                        result.extend_from_slice(&chunk);
++                    }
++                    assert_eq!(result, original);
++                    assert_eq!(before, threads(), "Xet streaming started SDK workers");
++                }
++                "uring" => {
++                    let dir = tempfile::tempdir().unwrap();
++                    let file = dir.path().join("data.bin");
++                    let bytes = vec![37_u8; 1 << 20];
++                    std::fs::write(&file, &bytes).unwrap();
++                    let (store, path) = lance_io::object_store::ObjectStore::from_uri(&format!(
++                        "file+uring://{}",
++                        file.display()
++                    ))
++                    .await
++                    .unwrap();
++                    let reader = store.open(&path).await.unwrap();
++                    assert_eq!(
++                        reader.get_range(0..bytes.len()).await.unwrap().as_ref(),
++                        &bytes
++                    );
++                    let reader = store.open_with_size(&path, bytes.len()).await.unwrap();
++                    assert_eq!(
++                        reader.get_range(0..bytes.len()).await.unwrap().as_ref(),
++                        &bytes
++                    );
++                    assert_eq!(
++                        before,
++                        threads(),
++                        "local read started a dedicated uring worker"
++                    );
++                }
++                "goosefs" => {
++                    use goosefs_sdk::cache::{
++                        CacheManager, CacheManagerOptions, LocalCacheManager, PageId,
++                    };
++                    let dir = tempfile::tempdir().unwrap();
++                    let mut options = CacheManagerOptions::from_config(
++                        &goosefs_sdk::config::GoosefsConfig::default(),
++                    );
++                    options.dirs = vec![dir.path().to_owned()];
++                    options.dir_capacity = 8 << 20;
++                    options.uring_enabled = true;
++                    options.uring_thread_count = 2;
++                    options.async_write_enabled = false;
++                    let cache = LocalCacheManager::create(options).await.unwrap();
++                    let id = PageId::new("example-file", 0);
++                    assert!(cache.put(&id, bytes::Bytes::from_static(b"example")).await);
++                    let mut output = [0_u8; 7];
++                    assert_eq!(cache.get(&id, 0, &mut output).await, 7);
++                    assert_eq!(&output, b"example");
++                    assert_eq!(
++                        before,
++                        threads(),
++                        "GooseFS page cache started a uring worker"
++                    );
++                    cache.close().await;
++                }
++                "rayon" => {
++                    let options = LanceHostExecutorOptionsV1 {
++                        max_cpu_drivers: 4,
++                        max_io_drivers: 4,
++                        context: &*sender as *const _ as *mut c_void,
++                        submit_task: Some(submit),
++                        ..Default::default()
++                    };
++                    let executor = unsafe { lance_host_executor_new_v1(&options) };
++                    let scope = unsafe { lance_host_executor_enter(executor) };
++                    assert!(!scope.is_null());
++                    let hashes: Vec<_> = (0..200_u64).collect();
++                    let actual = lance_linalg::distance::pairwise_hamming_distance_parallel(
++                        &hashes,
++                        None,
++                        Some(1),
++                    );
++                    let expected =
++                        lance_linalg::distance::pairwise_hamming_distance(&hashes, None, Some(1));
++                    assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
++                    let binary = lance_linalg::distance::BinaryHashValues::try_new(
++                        hashes
++                            .iter()
++                            .copied()
++                            .chain(hashes.iter().copied())
++                            .collect(),
++                        200,
++                        16,
++                    )
++                    .unwrap();
++                    let actual = lance_linalg::distance::pairwise_hamming_distance_binary_parallel(
++                        &binary,
++                        None,
++                        Some(1),
++                    );
++                    let expected = lance_linalg::distance::pairwise_hamming_distance_binary(
++                        &binary,
++                        None,
++                        Some(1),
++                    );
++                    assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
++                    assert_eq!(
++                        before,
++                        threads(),
++                        "distance computation started a Rayon pool"
++                    );
++                    assert_eq!(unsafe { lance_host_executor_leave(scope) }, 0);
++                    unsafe { lance_host_executor_free(executor) };
++                }
++                _ => unreachable!(),
++            }
++        })
++    }));
++    lance_runtime_stop();
++    reactor.join().unwrap();
++    for _ in &workers {
++        let _ = sender.send(None);
++    }
++    for worker in workers {
++        worker.join().unwrap();
++    }
++    drop(sender);
++    if let Err(panic) = outcome {
++        std::panic::resume_unwind(panic);
++    }
++    println!("{case}: SDK work stayed on the fixed host threads");
++}

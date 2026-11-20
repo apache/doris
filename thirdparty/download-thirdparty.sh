@@ -83,6 +83,15 @@ if [[ "${SPEC_LIB}" != "" ]]; then
         done
     fi
 
+    # The C bindings and their runtime dependencies use checkout-local patched sources.
+    if [[ " ${SPEC_ARCHIVES[*]} " == *' LANCE_C '* ]]; then
+        for lance_dependency in LANCE_RUST LANCE_TOKIO LANCE_XET_RUNTIME LANCE_GOOSEFS_SDK; do
+            if [[ " ${SPEC_ARCHIVES[*]} " != *" ${lance_dependency} "* ]]; then
+                SPEC_ARCHIVES+=("${lance_dependency}")
+            fi
+        done
+    fi
+
     TP_ARCHIVES=("${SPEC_ARCHIVES[@]}")
     echo "Download and build specified libs only: ${TP_ARCHIVES[*]}"
 fi
@@ -724,27 +733,92 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " AZURE " ]]; then
     echo "Finished patching ${AZURE_SOURCE}"
 fi
 
-# Foyer remains a local patch until its cache interface is accepted upstream.
-# Runtime selection and its memory guards come from the pinned upstream revision.
-if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
-    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
-    foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
-    # A new local patch must also replace previously patched cached sources.
-    # Empty markers from older builds cannot identify the applied patch version.
-    if [[ -f "${foyer_patch_marker}" ]] &&
-        [[ "$(cat "${foyer_patch_marker}")" != "${foyer_patch_checksum}" ]]; then
+# Rebuild cached sources when any part of a dependency's local patch set changes.
+# Mark only the complete set: a partial application must never be reused by a later build.
+if [[ " ${TP_ARCHIVES[*]} " == *' LANCE_C '* ]]; then
+    lance_c_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-host-executor.patch")"
+    lance_c_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_host_executor"
+    if { [[ -f "${lance_c_patch_marker}" ]] &&
+        [[ "$(cat "${lance_c_patch_marker}")" != "${lance_c_patch_checksum}" ]]; } ||
+        { [[ ! -f "${lance_c_patch_marker}" ]] &&
+            [[ -f "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer" ]]; }; then
         rm -rf "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
         "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_C_NAME}" -C "${TP_SOURCE_DIR}/"
     fi
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
-    if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
-        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
-            -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
-        printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
+    if [[ ! -f "${PATCHED_MARK}_host_executor" ]]; then
+        for lance_patch in lance-c-host-executor.patch; do
+            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+                -p1 <"${TP_PATCH_DIR}/${lance_patch}"
+        done
+        printf '%s\n' "${lance_c_patch_checksum}" > "${PATCHED_MARK}_host_executor"
     fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"
 fi
+
+if [[ " ${TP_ARCHIVES[*]} " == *' LANCE_RUST '* ]]; then
+    lance_rust_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-rust-host-executor.patch")"
+    lance_rust_patch_marker="${TP_SOURCE_DIR}/${LANCE_RUST_SOURCE}/${PATCHED_MARK}_host_executor"
+    if [[ -f "${lance_rust_patch_marker}" ]] &&
+        [[ "$(cat "${lance_rust_patch_marker}")" != "${lance_rust_patch_checksum}" ]]; then
+        rm -rf "${TP_SOURCE_DIR}/${LANCE_RUST_SOURCE}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_RUST_NAME}" -C "${TP_SOURCE_DIR}/"
+    fi
+    cd "${TP_SOURCE_DIR}/${LANCE_RUST_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_host_executor" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/lance-rust-host-executor.patch"
+        printf '%s\n' "${lance_rust_patch_checksum}" > "${PATCHED_MARK}_host_executor"
+    fi
+    cd -
+    echo "Finished patching ${LANCE_RUST_SOURCE}"
+fi
+
+if [[ " ${TP_ARCHIVES[*]} " == *' LANCE_TOKIO '* ]]; then
+    lance_tokio_checksum="$(cksum < "${TP_PATCH_DIR}/tokio-host-blocking-executor.patch")"
+    lance_tokio_marker="${TP_SOURCE_DIR}/${LANCE_TOKIO_SOURCE}/${PATCHED_MARK}_host_executor"
+    if [[ -f "${lance_tokio_marker}" ]] &&
+        [[ "$(cat "${lance_tokio_marker}")" != "${lance_tokio_checksum}" ]]; then
+        rm -rf "${TP_SOURCE_DIR}/${LANCE_TOKIO_SOURCE}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_TOKIO_NAME}" -C "${TP_SOURCE_DIR}/"
+    fi
+    cd "${TP_SOURCE_DIR}/${LANCE_TOKIO_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}_host_executor" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 <"${TP_PATCH_DIR}/tokio-host-blocking-executor.patch"
+        printf '%s\n' "${lance_tokio_checksum}" > "${PATCHED_MARK}_host_executor"
+    fi
+    cd -
+    echo "Finished patching ${LANCE_TOKIO_SOURCE}"
+fi
+
+# Standalone crate archives keep their upstream top-level names. Refresh each complete
+# patch set independently so a cached unpatched runtime cannot start SDK-owned workers.
+for lance_dependency in LANCE_XET_RUNTIME LANCE_GOOSEFS_SDK; do
+    if [[ " ${TP_ARCHIVES[*]} " != *" ${lance_dependency} "* ]]; then
+        continue
+    fi
+    lance_source_key="${lance_dependency}_SOURCE"
+    lance_archive_key="${lance_dependency}_NAME"
+    lance_source="${TP_SOURCE_DIR}/${!lance_source_key}"
+    case "${lance_dependency}" in
+        LANCE_XET_RUNTIME) lance_dependency_patch=xet-runtime-host-executor.patch ;;
+        LANCE_GOOSEFS_SDK) lance_dependency_patch=goosefs-host-executor.patch ;;
+    esac
+    lance_checksum="$(cksum < "${TP_PATCH_DIR}/${lance_dependency_patch}")"
+    lance_marker="${lance_source}/${PATCHED_MARK}_host_executor"
+    if [[ -f "${lance_marker}" ]] && [[ "$(cat "${lance_marker}")" != "${lance_checksum}" ]]; then
+        rm -rf "${lance_source}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${!lance_archive_key}" -C "${TP_SOURCE_DIR}/"
+    fi
+    if [[ ! -f "${lance_marker}" ]]; then
+        patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+            -p1 -d "${lance_source}" < "${TP_PATCH_DIR}/${lance_dependency_patch}"
+        printf '%s\n' "${lance_checksum}" > "${lance_marker}"
+    fi
+    echo "Finished patching ${!lance_source_key}"
+done
 
 if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     cd $TP_SOURCE_DIR/$CCTZ_SOURCE

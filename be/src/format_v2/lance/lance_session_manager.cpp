@@ -29,6 +29,8 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
+#include "format_v2/lance/lance_file_system.h"
+#include "format_v2/lance/lance_host_runtime.h"
 #include "format_v2/lance/lance_reader_helper.h"
 
 namespace doris::format::lance {
@@ -56,17 +58,8 @@ int64_t metric_value(uint64_t value) {
 }
 
 LanceSessionManager::Config load_lance_session_config() {
-    return {
-            .lance_index_cache_size_bytes = config::lance_index_cache_size_bytes,
-            .lance_metadata_cache_size_bytes = config::lance_metadata_cache_size_bytes,
-            .enable_lance_data_cache = config::enable_lance_data_cache,
-            .lance_data_cache_path = config::lance_data_cache_path,
-            .lance_data_cache_disk_capacity_bytes = config::lance_data_cache_disk_capacity_bytes,
-            .lance_data_cache_read_block_size_bytes =
-                    config::lance_data_cache_read_block_size_bytes,
-            .lance_data_cache_memory_capacity_bytes =
-                    config::lance_data_cache_memory_capacity_bytes,
-    };
+    return {.lance_index_cache_size_bytes = config::lance_index_cache_size_bytes,
+            .lance_metadata_cache_size_bytes = config::lance_metadata_cache_size_bytes};
 }
 
 } // namespace
@@ -148,99 +141,60 @@ private:
 LanceSessionManager& LanceSessionManager::instance() {
     // Function-local static initialization is thread safe. Cache configuration is process scoped,
     // so changing it requires a BE restart.
+    // Register the runtime owner before this session so its reactor outlives cache cleanup.
+    if (config::enable_lance_host_executor) static_cast<void>(LanceHostRuntime::instance());
     static LanceSessionManager manager(load_lance_session_config());
     return manager;
 }
 
-LanceSessionManager::LanceSessionManager(Config config) : _config(std::move(config)) {
-    LOG(INFO) << "Creating BE-wide Lance session manager: lance_index_cache_size_bytes="
-              << _config.lance_index_cache_size_bytes
-              << ", lance_metadata_cache_size_bytes=" << _config.lance_metadata_cache_size_bytes
-              << ", enable_lance_data_cache=" << _config.enable_lance_data_cache
-              << ", lance_data_cache_path=" << _config.lance_data_cache_path
-              << ", lance_data_cache_disk_capacity_bytes="
-              << _config.lance_data_cache_disk_capacity_bytes
-              << ", lance_data_cache_read_block_size_bytes="
-              << _config.lance_data_cache_read_block_size_bytes << ", foyer_memory_capacity_bytes="
-              << _config.resolved_data_cache_memory_capacity_bytes();
-}
+LanceSessionManager::LanceSessionManager(Config config) : _config(std::move(config)) {}
 
 LanceSessionManager::~LanceSessionManager() {
+    shutdown();
+}
+
+void LanceSessionManager::shutdown() {
     _metrics.reset();
-    lance_session_close(_session);
+    lance_session_close(std::exchange(_session, nullptr));
 }
 
 Status LanceSessionManager::_initialize() {
-    if (_config.enable_lance_data_cache) {
-        if (_config.lance_data_cache_memory_capacity_bytes < 0) {
-            return Status::InvalidArgument(
-                    "lance_data_cache_memory_capacity_bytes must be non-negative");
-        }
-        // Treat the configured cache mode as a process-level requirement. If an enabled
-        // data cache cannot initialize, report the failure instead of silently creating a
-        // session without it. This keeps directory/configuration/device failures visible
-        // to the operator. Disabling the cache is an explicit configuration change.
-        const LanceDataCacheOptions data_cache_options {
-                .directory = _config.lance_data_cache_path.c_str(),
-                // Keep the historical one-block tier when the memory capacity is unset.
-                // Its capacity is independent of the range-cache block granularity otherwise.
-                .memory_capacity_bytes =
-                        static_cast<uint64_t>(_config.resolved_data_cache_memory_capacity_bytes()),
-                .disk_capacity_bytes =
-                        static_cast<uint64_t>(_config.lance_data_cache_disk_capacity_bytes),
-                .read_block_size_bytes =
-                        static_cast<uint64_t>(_config.lance_data_cache_read_block_size_bytes),
-        };
-        _session = lance_session_new_with_data_cache(
-                static_cast<uint64_t>(_config.lance_index_cache_size_bytes),
-                static_cast<uint64_t>(_config.lance_metadata_cache_size_bytes),
-                &data_cache_options);
-    } else {
-        _session =
-                lance_session_new(static_cast<uint64_t>(_config.lance_index_cache_size_bytes),
-                                  static_cast<uint64_t>(_config.lance_metadata_cache_size_bytes));
+    if (config::enable_lance_host_executor) {
+        _host_runtime = LanceHostRuntime::instance();
+        RETURN_IF_ERROR(_host_runtime->ensure_started());
     }
-    if (_session == nullptr) {
-        // Capture the Lance-C error on the initializing thread before another FFI call can
-        // replace it. Keep the original cause (including Foyer's directory/I/O details) and
-        // explain how to recover from the initialization status retained by call_once below.
-        auto status = lance_error("create shared Lance session");
-        if (_config.enable_lance_data_cache) {
-            status.append(
-                    "; Check the Lance data cache configuration and storage. After fixing the "
-                    "issue, restart this BE. Alternatively, set enable_lance_data_cache=false "
-                    "in be.conf and restart this BE. Session initialization will not be retried "
-                    "in this BE process.");
-        }
-        return status;
+    if (_config.lance_index_cache_size_bytes < 0 || _config.lance_metadata_cache_size_bytes < 0) {
+        return Status::InvalidArgument("Lance session cache capacities must be non-negative");
     }
+    _session = lance_session_new(static_cast<uint64_t>(_config.lance_index_cache_size_bytes),
+                                 static_cast<uint64_t>(_config.lance_metadata_cache_size_bytes));
+    if (_session == nullptr) return lance_error("create shared Lance session");
     _metrics = std::make_unique<LanceSessionMetrics>(_session, _config);
     return Status::OK();
 }
 
 Status LanceSessionManager::open_dataset(const char* uri, const char* const* storage_options,
-                                         uint64_t version, LanceDataset** dataset) {
+                                         uint64_t version, LanceDataset** dataset,
+                                         RuntimeState* state,
+                                         std::shared_ptr<LanceFileSystem>* storage) {
     if (uri == nullptr || dataset == nullptr) {
         return Status::InvalidArgument("Lance dataset URI and output must not be null");
     }
     *dataset = nullptr;
-
     RETURN_IF_ERROR(_ensure_initialized());
-
-    *dataset = lance_dataset_open_with_session(uri, storage_options, version, _session);
-    if (*dataset == nullptr) {
-        return lance_error("open Lance dataset with shared session");
-    }
+    auto result = LanceFileSystem::create(uri, storage_options, state);
+    if (!result.has_value()) return std::move(result).error();
+    auto filesystem = std::move(result).value();
+    auto options = filesystem->options();
+    *dataset =
+            lance_dataset_open_with_storage_v1(uri, storage_options, version, _session, &options);
+    if (*dataset == nullptr) return lance_error("open Lance dataset through Doris storage");
+    if (storage) *storage = std::move(filesystem);
     return Status::OK();
 }
 
 Status LanceSessionManager::_ensure_initialized() {
-    // Initialize lazily on the first use, not at BE startup. A failed Status is a
-    // normal return from this lambda, so call_once completes and retains that failure just
-    // like a successful initialization. All subsequent readers receive the same copied
-    // error; fixing the cache directory alone does not trigger another attempt. This is
-    // intentional: repair the cache configuration/storage (or disable the data cache), then
-    // restart the BE to recreate the process-wide manager and session.
+    // Initialization and its result are process scoped; a failed session requires a BE restart.
     std::call_once(_initialize_once, [this] { _initialize_status = _initialize(); });
     return _initialize_status;
 }
