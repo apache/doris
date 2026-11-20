@@ -142,6 +142,30 @@ public class PaimonBackendBoundTableTest {
     }
 
     @Test
+    public void rustPrimaryKeyBufferFlushesWithinTheDefaultBudget(@TempDir Path warehouse) {
+        for (String buffer : Arrays.asList("1 mb", "256 mb")) {
+            Map<String, String> options = new HashMap<>();
+            options.put("bucket", "2");
+            options.put("write-buffer-size", buffer);
+            FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
+                    new org.apache.paimon.fs.Path(warehouse.toUri()), new TableSchema(0,
+                            Collections.singletonList(new DataField(0, "c1", DataTypes.INT().notNull())),
+                            0, Collections.emptyList(), Collections.singletonList("c1"), options, null));
+            PaimonWriteBinding binding = PaimonWriteBinding.create(dataHandle(), table, Collections.emptyMap(),
+                    writeHandle(false, Collections.emptyMap(), Collections.emptySet()), false);
+            TableSchema rust = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                    binding.getTableDescriptor(Collections.emptyMap(), true).getSchemaJson(), TableSchema.class);
+            TableSchema jni = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                    binding.getTableDescriptor(Collections.emptyMap(), false).getSchemaJson(), TableSchema.class);
+            long original = CoreOptions.fromMap(table.options()).writeBufferSize();
+            Assertions.assertEquals(Math.min(original, 8L * 1024 * 1024),
+                    CoreOptions.fromMap(rust.options()).writeBufferSize());
+            Assertions.assertEquals(original, CoreOptions.fromMap(jni.options()).writeBufferSize());
+            Assertions.assertEquals(buffer, table.options().get("write-buffer-size"));
+        }
+    }
+
+    @Test
     public void writeBindingTellsOnlyTheBackendWhetherToPadCharValues(@TempDir Path warehouse)
             throws Exception {
         // The BE writer reads doris.write.char-padding from the table it deserializes (PaimonWriteSchema); the FE

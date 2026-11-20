@@ -29,6 +29,8 @@ import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.JsonSerdeUtil;
@@ -76,20 +78,76 @@ public class PaimonRustWriteSupportTest {
     }
 
     @Test
-    public void testUnsupportedTableAndTypeUseJni() {
+    public void testPartitionedAndFixedBucketWritesUseRust() {
+        AppendOnlyFileStoreTable base = table("file:/tmp/rust-writer-test",
+                DataTypes.FIELD(0, "id", DataTypes.INT()),
+                DataTypes.FIELD(1, "region", DataTypes.STRING()));
+        Map<String, String> options = new HashMap<>(base.options());
+        options.put("bucket", "4");
+        options.put("bucket-key", "id");
+        FileStoreTable partitioned = FileStoreTableFactory.create(base.fileIO(), base.location(),
+                new TableSchema(7, base.schema().fields(), 1, Collections.singletonList("region"),
+                        Collections.emptyList(), options, null));
+        Assertions.assertTrue(PaimonRustWriteSupport.isSupported(partitioned,
+                Arrays.asList("id", "region"), Collections.emptyMap()));
+        options.put("bucket", "-1");
+        options.remove("bucket-key");
+        FileStoreTable unaware = FileStoreTableFactory.create(base.fileIO(), base.location(),
+                new TableSchema(7, base.schema().fields(), 1, Collections.singletonList("region"),
+                        Collections.emptyList(), options, null));
+        Assertions.assertTrue(PaimonRustWriteSupport.isSupported(unaware,
+                Arrays.asList("id", "region"), Collections.emptyMap()));
+    }
+
+    @Test
+    public void testPrimaryKeyWritesUseRustForFixedAndDynamicBuckets() {
+        List<DataField> fields = Arrays.asList(DataTypes.FIELD(0, "id", DataTypes.INT().notNull()),
+                DataTypes.FIELD(1, "region", DataTypes.STRING().notNull()));
+        // Dynamic tables use the existing GATHER distribution, including cross-partition upserts.
+        for (String bucket : Arrays.asList("1", "4", "-1")) {
+            for (String merge : Arrays.asList("deduplicate", "partial-update", "aggregation", "first-row")) {
+                Map<String, String> options = new HashMap<>();
+                options.put("bucket", bucket);
+                options.put("file.format", "parquet");
+                options.put("merge-engine", merge);
+                FileStoreTable table = FileStoreTableFactory.create(LocalFileIO.create(),
+                        new Path("file:/tmp/rust-primary-key-test"), new TableSchema(0, fields, 1,
+                                Collections.singletonList("region"), bucket.equals("-1")
+                                        ? Collections.singletonList("id") : Arrays.asList("id", "region"), options, null));
+                if (merge.equals("first-row")) {
+                    Assertions.assertEquals("first_row_requires_compaction", PaimonRustWriteSupport.unsupportedReason(
+                            table, Arrays.asList("id", "region"), Collections.emptyMap()).get());
+                } else {
+                    Assertions.assertTrue(PaimonRustWriteSupport.isSupported(table,
+                            Arrays.asList("id", "region"), Collections.emptyMap()), bucket + ":" + merge);
+                }
+                if (bucket.equals("-1")) {
+                    table.options().put("cross-partition-upsert.index-ttl", "1 h");
+                    Assertions.assertEquals("cross_partition_index_ttl", PaimonRustWriteSupport.unsupportedReason(
+                            table, Arrays.asList("id", "region"), Collections.emptyMap()).get());
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testUnsupportedFeaturesAndTypesUseJni() {
         AppendOnlyFileStoreTable table = table("file:/tmp/rust-writer-test",
                 DataTypes.FIELD(0, "id", DataTypes.INT()));
         List<String> columns = Collections.singletonList("id");
-        table.options().put("bucket", "1");
-        Assertions.assertFalse(PaimonRustWriteSupport.isSupported(table, columns, Collections.emptyMap()));
-        table.options().put("bucket", "-1");
         table.options().put("file-index.bloom-filter.columns", "id");
         Assertions.assertFalse(PaimonRustWriteSupport.isSupported(table, columns, Collections.emptyMap()));
         table.options().remove("file-index.bloom-filter.columns");
-        TableSchema partitionedSchema = new TableSchema(7, table.schema().fields(), 0,
-                columns, Collections.emptyList(), table.options(), null);
-        table = new AppendOnlyFileStoreTable(LocalFileIO.create(), table.location(), partitionedSchema,
-                CatalogEnvironment.empty());
+        table.options().put("fields.id.ignore-delete", "true");
+        Assertions.assertFalse(PaimonRustWriteSupport.isSupported(table, columns, Collections.emptyMap()));
+        table.options().remove("fields.id.ignore-delete");
+        table.options().put("bucket", "-2");
+        Assertions.assertFalse(PaimonRustWriteSupport.isSupported(table, columns, Collections.emptyMap()));
+        table.options().put("bucket", "-1");
+        table.options().put("branch", "dev");
+        Assertions.assertFalse(PaimonRustWriteSupport.isSupported(table, columns, Collections.emptyMap()));
+        table.options().remove("branch");
+        table.options().put("file.format", "orc");
         Assertions.assertFalse(PaimonRustWriteSupport.isSupported(table, columns, Collections.emptyMap()));
         AppendOnlyFileStoreTable nested = table("file:/tmp/rust-writer-test",
                 DataTypes.FIELD(0, "id", DataTypes.ARRAY(DataTypes.INT())));

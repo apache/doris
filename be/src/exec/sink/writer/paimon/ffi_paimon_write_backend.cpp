@@ -181,8 +181,9 @@ public:
                                       "Fixed estimated query credit; SDK reservations cover part "
                                       "of Rust memory, not RSS; report metadata keeps a separate "
                                       "estimated credit until handoff completes");
-        if (!sink.__isset.table_desc || sink.write_mode != TPaimonWriteMode::APPEND) {
-            return Status::InvalidArgument("Paimon Rust requires resolved append table metadata");
+        if (!sink.__isset.table_desc || (sink.write_mode != TPaimonWriteMode::APPEND &&
+                                         sink.write_mode != TPaimonWriteMode::OVERWRITE)) {
+            return Status::InvalidArgument("Paimon Rust requires resolved insert table metadata");
         }
         const auto& desc = sink.table_desc;
         RETURN_IF_ERROR(paimon::validate_table_descriptor(desc));
@@ -217,6 +218,10 @@ public:
                                                                        sink.commit_user.c_str());
         RETURN_IF_ERROR(rust_status(builder.error, "create write builder"));
         _builder.reset(builder.write_builder);
+        if (sink.write_mode == TPaimonWriteMode::OVERWRITE) {
+            RETURN_IF_ERROR(rust_status(paimon_write_builder_with_overwrite(_builder.get()),
+                                        "configure overwrite"));
+        }
         RETURN_IF_ERROR(
                 rust_status(paimon_write_builder_with_resources(_builder.get(), _resources.get()),
                             "bind budget"));

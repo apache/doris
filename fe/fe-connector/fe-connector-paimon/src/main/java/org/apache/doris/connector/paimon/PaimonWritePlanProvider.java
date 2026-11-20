@@ -173,7 +173,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         storageOptions.putAll(table.options());
         TPaimonWriteMode mode = writeMode(handle);
         String reason = writerSelectionReason(session, table, columns, storageOptions, mode);
-        boolean rust = reason.equals("supported_append");
+        boolean rust = reason.equals("supported_append") || reason.equals("supported_overwrite");
         sink.setSerializedTable(LEGACY_BE_REJECTION_MARKER);
         sink.setTableDesc(binding.getTableDescriptor(storageOptions, rust));
         sink.setCommitMessageVersion(rust ? RUST_COMMIT_VERSION : new CommitMessageSerializer().getVersion());
@@ -198,15 +198,12 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         if (mode == TPaimonWriteMode.CHANGELOG) {
             return "changelog_write";
         }
-        if (mode == TPaimonWriteMode.OVERWRITE) {
-            return "overwrite_write";
-        }
         if (charPaddingEnabled(session) && table.schema().fields().stream()
                 .anyMatch(field -> field.type().getTypeRoot() == DataTypeRoot.CHAR)) {
             return "char_padding";
         }
         return PaimonRustWriteSupport.unsupportedReason(table, columns, storageOptions)
-                .orElse("supported_append");
+                .orElse(mode == TPaimonWriteMode.OVERWRITE ? "supported_overwrite" : "supported_append");
     }
 
     /**

@@ -20,7 +20,9 @@ package org.apache.doris.connector.paimon;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
+import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.PrimaryKeyFileStoreTable;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.TimestampType;
 
@@ -29,7 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/** Selects the append subset whose write and commit semantics the Rust backend implements. */
+/** Selects the table features supported by the Rust writer and its Java commit protocol. */
 public final class PaimonRustWriteSupport {
     private PaimonRustWriteSupport() {
     }
@@ -43,24 +45,30 @@ public final class PaimonRustWriteSupport {
             Map<String, String> storageOptions) {
         Map<String, String> options = table.options();
         CoreOptions coreOptions = new CoreOptions(options);
-        if (!table.primaryKeys().isEmpty()) {
-            return Optional.of("primary_key_table");
-        }
-        if (!(table instanceof AppendOnlyFileStoreTable)) {
+        if (!(table instanceof AppendOnlyFileStoreTable) && !(table instanceof PrimaryKeyFileStoreTable)) {
             return Optional.of("table_implementation");
         }
         if (PaimonTableDescriptor.usesRestDataToken(table)) {
             // A captured STS token can expire during an INSERT; only JNI preserves REST refresh.
             return Optional.of("rest_vended_credentials");
         }
-        if (!table.partitionKeys().isEmpty()) {
-            return Optional.of("partitioned_table");
-        }
-        if (coreOptions.bucket() != -1) {
+        // Fixed and dynamic buckets reuse the existing Doris bucket routing or
+        // single-writer distribution. Keep postpone bucket layout on JNI.
+        if (coreOptions.bucket() != -1 && coreOptions.bucket() < 1) {
             return Optional.of("bucket_mode");
         }
         if (!"main".equals(CoreOptions.branch(options))) {
             return Optional.of("non_main_branch");
+        }
+        // Rust's cross-partition assigner rejects TTL-based index state.
+        if (table.bucketMode() == BucketMode.KEY_DYNAMIC
+                && options.containsKey("cross-partition-upsert.index-ttl")) {
+            return Optional.of("cross_partition_index_ttl");
+        }
+        // The C writer emits level-0 files without compaction. First-row batch
+        // scans skip those files, so a successful INSERT would remain invisible.
+        if (coreOptions.mergeEngine() == CoreOptions.MergeEngine.FIRST_ROW) {
+            return Optional.of("first_row_requires_compaction");
         }
         if (!"parquet".equalsIgnoreCase(coreOptions.formatType())) {
             return Optional.of("file_format");
@@ -71,6 +79,7 @@ public final class PaimonRustWriteSupport {
         for (Map.Entry<String, String> option : options.entrySet()) {
             String key = option.getKey();
             if (key.startsWith("file-index.") || key.startsWith("global-index.")
+                    || (key.startsWith("fields.") && key.endsWith(".ignore-delete"))
                     || key.startsWith("blob.") || key.startsWith("scan.snapshot")
                     || key.startsWith("scan.tag") || key.startsWith("scan.timestamp")
                     || key.startsWith("incremental-") || key.equals("rowkind.field")
