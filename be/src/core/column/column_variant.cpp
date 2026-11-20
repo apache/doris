@@ -1416,6 +1416,12 @@ const std::string_view EMPTY_JSON = "{}";
 
 size_t ColumnVariant::Subcolumn::serialize_text_json(size_t n, BufferWritable& output,
                                                      DataTypeSerDe::FormatOptions opt) const {
+    // A VARIANT path always reconstructs valid JSON text, so a boolean subcolumn (or an
+    // array<boolean>/sparse value nested under it) must print as a JSON literal true/false,
+    // never as the integer 0/1 that the shared numeric SerDe writes by default. `opt` is
+    // already a private copy for this call, so overriding it here does not affect other
+    // FormatOptions consumers (plain BOOLEAN columns, collections, MySQL/CSV/text output).
+    opt.is_bool_value_num = false;
     if (least_common_type.get_base_type_id() == PrimitiveType::INVALID_TYPE) {
         output.write(EMPTY_JSON.data(), EMPTY_JSON.size());
         return EMPTY_JSON.size();
