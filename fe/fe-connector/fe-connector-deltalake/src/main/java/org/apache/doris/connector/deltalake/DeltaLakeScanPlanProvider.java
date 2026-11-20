@@ -57,6 +57,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.LongConsumer;
 import java.util.stream.Collectors;
 
 final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
@@ -91,6 +92,24 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         return new FileSchema(DeltaLakeSchemaBuilder.hasColumnMapping(snapshot), varbinaryPartitions);
     }
 
+    private DeltaLakeStatementScope.FileCount knownFileCount(ConnectorSession session, DeltaLakeTableHandle handle,
+            Snapshot snapshot) {
+        DeltaLakeStatementScope.FileCount count = DeltaLakeStatementScope.fileCount(session, handle);
+        OptionalLong checksum = DeltaKernelCompat.fileCount(snapshot);
+        if (checksum.isPresent()) {
+            count.value = checksum.getAsLong();
+        } else if (count.value < 0) {
+            statistics.cachedFileCount(session, handle).ifPresent(files -> count.value = files);
+        }
+        return count;
+    }
+
+    private DeltaLakeScanMetrics newScanMetrics(ConnectorSession session, DeltaLakeTableHandle handle,
+            Snapshot snapshot) {
+        return new DeltaLakeScanMetrics(handle, knownFileCount(session, handle, snapshot),
+                statistics.fileCountObserver(session, handle, runtime));
+    }
+
     @Override
     public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter, boolean countPushdown) {
@@ -104,18 +123,14 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
         return runtime.execute(() -> {
             DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
             Snapshot snapshot = delta.snapshot(runtime);
-            OptionalLong files = DeltaKernelCompat.fileCount(snapshot);
-            if (files.isEmpty()) {
-                long observed = DeltaLakeStatementScope.fileCount(session, delta).value;
-                files = observed >= 0 ? OptionalLong.of(observed) : statistics.cachedFileCount(session, delta);
-            }
+            long files = knownFileCount(session, delta, snapshot).value;
             // Old writers may not produce a checksum. Unknown size streams conservatively instead
             // of enumerating AddFiles or waiting for statistics merely to choose a scheduling mode.
-            if (files.isPresent() && files.getAsLong() < threshold) {
+            if (files >= 0 && files < threshold) {
                 return -1L;
             }
             streamingCount = countPushdown && filter.isEmpty();
-            return files.orElse(threshold);
+            return files >= 0 ? files : threshold;
         });
     }
 
@@ -158,8 +173,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             partitionsPrunedToEmpty = request.isPartitionsPrunedToEmpty();
             countPushdown = streamingCount && request.getFilter().isEmpty()
                     && request.getRequiredPartitions().isEmpty();
-            metrics = new DeltaLakeScanMetrics(session, handle, snapshot,
-                    statistics.fileCountObserver(session, handle, runtime));
+            metrics = newScanMetrics(session, handle, snapshot);
             scanMetrics = null;
         }
 
@@ -293,8 +307,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
 
     private DeltaLakeScanPlanMemo.Plan planScanInternal(ConnectorSession session, ConnectorScanRequest request,
             DeltaLakeTableHandle handle, Snapshot snapshot) {
-        DeltaLakeScanMetrics metrics = new DeltaLakeScanMetrics(session, handle, snapshot,
-                statistics.fileCountObserver(session, handle, runtime));
+        DeltaLakeScanMetrics metrics = newScanMetrics(session, handle, snapshot);
         try {
             List<ConnectorScanRange> ranges = planRanges(session, request, handle, snapshot, metrics);
             DeltaLakeScanPlanMemo.checkCancelled(request.getScanContext());
@@ -404,6 +417,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                     long[] fileCount = {0};
                     Set<Map<String, String>> partitions = new HashSet<>();
                     DeltaLakeScanRange[] first = {null};
+                    LongConsumer fileCountObserver = statistics.fileCountObserver(session, handle, runtime);
                     DeltaLakeScanFiles.forEach(snapshot, runtime.engine(handle.reference()), true, row -> {
                         fileCount[0]++;
                         Map<String, String> values = partitioned ? DeltaLakePartitionValues.normalize(
@@ -417,6 +431,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
                         count.add(row);
                     });
                     observedCount.value = fileCount[0];
+                    fileCountObserver.accept(fileCount[0]);
                     return new CountSummary(count.value(), first[0],
                             fileCount[0], partitions.size());
                 }));
@@ -445,8 +460,7 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> properties = new HashMap<>();
             properties.put(ScanNodePropertyKeys.FILE_FORMAT_TYPE, "parquet");
             properties.put("deltalake.snapshot_version", String.valueOf(snapshot.getVersion()));
-            long files = DeltaKernelCompat.fileCount(snapshot).orElse(
-                    DeltaLakeStatementScope.fileCount(session, (DeltaLakeTableHandle) handle).value);
+            long files = knownFileCount(session, delta, snapshot).value;
             properties.put("deltalake.total_files", files < 0 ? "unknown" : Long.toString(files));
             TDeltaLakeColumnMappingMode mode = DeltaLakeSchemaBuilder.columnMappingMode(snapshot);
             if (mode != TDeltaLakeColumnMappingMode.NONE) {

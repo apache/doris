@@ -37,6 +37,8 @@ suite("test_deltalake_metrics", "p0,external") {
     sql "set enable_count_push_down_for_external_table=true"
     sql "set num_files_in_batch_mode=1"
     def profiles = new ProfileAction(context)
+    String checkpointTable = "delta_golden.dv_partitioned_with_checkpoint"
+    sql "show partitions from ${checkpointTable}"
     [false, true].each { boolean streaming ->
         sql "set enable_external_table_batch_mode=${streaming}"
         String token = UUID.randomUUID().toString()
@@ -65,6 +67,17 @@ suite("test_deltalake_metrics", "p0,external") {
             from mapping_name where partition_renamed='a/b' order by renamed""")
         profile = profiles.getProfileBySql(token, ["Delta Scan Metrics", "EnumerationComplete: true"])
         ["TotalFiles: 2", "SelectedFiles: 1", "SelectedPartitions: 1", "GeneratedSplits: 1"].each {
+            assertTrue(profile.contains(it), "Missing ${it}: ${profile}")
+        }
+        // This checkpoint has no CRC. SHOW PARTITIONS observed 15 files in an earlier statement.
+        explain {
+            sql "select part from ${checkpointTable} where part=1"
+            contains(streaming ? "/15, selected partitions:" : "Delta files: 2/15, selected partitions: 1")
+        }
+        token = UUID.randomUUID().toString()
+        sql "select /* ${token} */ part from ${checkpointTable} where part=1"
+        profile = profiles.getProfileBySql(token, ["Delta Scan Metrics", "EnumerationComplete: true"])
+        ["TotalFiles: 15", "SelectedFiles: 2"].each {
             assertTrue(profile.contains(it), "Missing ${it}: ${profile}")
         }
     }

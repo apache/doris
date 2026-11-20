@@ -781,7 +781,6 @@ class DeltaLakeScanPlanProviderTest {
                 Map.of("file_split_size", "10"));
         try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
             ConnectorTableHandle handle = metadata.getTableHandle(session, "db", "table").orElseThrow();
-            metadata.listPartitions(session, handle, Optional.empty());
             ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
             ConnectorComparison filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
                     new ConnectorColumnRef("p", ConnectorType.of("STRING")), ConnectorLiteral.ofString("a"));
@@ -790,7 +789,7 @@ class DeltaLakeScanPlanProviderTest {
                 Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
                 source.next();
             }
-            assertMetrics(provider, session, "2", "1", "1", "1", false);
+            assertMetrics(provider, session, "unknown", "1", "1", "1", false);
             Assertions.assertTrue(provider.streamingSplitEstimate(new TestingConnectorSession("after-partial"),
                     handle, Optional.empty(), false) >= 0);
             try (ConnectorSplitSource source = provider.streamSplits(session,
@@ -799,12 +798,12 @@ class DeltaLakeScanPlanProviderTest {
                     source.next();
                 }
             }
-            // The partition predicate's replay counter must not replace the complete table total.
-            assertMetrics(provider, session, "2", "1", "1", "3", true);
+            // Neither a partition-pruned scan nor an empty selection establishes a table total.
+            assertMetrics(provider, session, "unknown", "1", "1", "3", true);
             Assertions.assertTrue(provider.streamingSplitEstimate(new TestingConnectorSession("after-partition-pruning"),
                     handle, Optional.empty(), false) >= 0);
             provider.planScan(session, request(handle).partitionsPrunedToEmpty(true).build());
-            assertMetrics(provider, session, "2", "0", "0", "0", true);
+            assertMetrics(provider, session, "unknown", "0", "0", "0", true);
             Assertions.assertTrue(provider.streamingSplitEstimate(new TestingConnectorSession("after-empty-request"),
                     handle, Optional.empty(), false) >= 0);
             provider.planScan(session, request(handle).build());
@@ -815,26 +814,86 @@ class DeltaLakeScanPlanProviderTest {
     }
 
     @Test
-    void checkpointPartitionPruningDoesNotTurnTheReplayCounterIntoATableTotal() throws Exception {
+    void partitionListingSuppliesTheTotalToLaterPrunedScans() throws Exception {
         Path resources = Path.of(getClass().getResource("/deltalake").toURI()).getParent();
-        TestingConnectorSession session = new TestingConnectorSession("checkpoint-metrics");
+        TestingConnectorSession listing = new TestingConnectorSession("show-partitions");
         try (Connector connector = new DeltaLakeConnectorProvider().create(
                 Map.of("warehouse", resources.toString()), new RecordingConnectorContext());
-                ConnectorMetadata metadata = connector.getMetadata(session)) {
-            ConnectorTableHandle handle = metadata.getTableHandle(session,
-                    "deltalake", "dv-partitioned-with-checkpoint").orElseThrow();
-            metadata.listPartitions(session, handle, Optional.empty());
-            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+                ConnectorMetadata metadata = connector.getMetadata(listing)) {
+            String table = "dv-partitioned-with-checkpoint";
+            metadata.listPartitionNames(listing, metadata.getTableHandle(listing, "deltalake", table).orElseThrow());
             ConnectorComparison filter = new ConnectorComparison(ConnectorComparison.Operator.EQ,
                     new ConnectorColumnRef("part", ConnectorType.of("INT")), ConnectorLiteral.ofLong(1));
-            List<ConnectorScanRange> ranges = provider.planScan(session,
-                    request(handle).filter(Optional.of(filter)).build());
-            Assertions.assertFalse(ranges.isEmpty());
-            Assertions.assertTrue(ranges.size() < 15);
-            Map<String, String> metrics = provider.collectScanProfiles(session).get(0).getMetrics();
-            Assertions.assertEquals("15", metrics.get("TotalFiles"));
-            Assertions.assertEquals(Integer.toString(ranges.size()), metrics.get("SelectedFiles"));
-            Assertions.assertEquals("1", metrics.get("SelectedPartitions"));
+            TestingConnectorSession explainSession = new TestingConnectorSession("pending",
+                    Map.of("num_files_in_batch_mode", "1"));
+            ConnectorTableHandle explainHandle = metadata.getTableHandle(explainSession, "deltalake", table)
+                    .orElseThrow();
+            ConnectorScanPlanProvider pendingProvider = connector.getScanPlanProvider();
+            Map<String, String> properties = pendingProvider.getScanNodeProperties(explainSession, explainHandle,
+                    List.of(), Optional.of(filter));
+            StringBuilder pending = new StringBuilder();
+            pendingProvider.appendExplainInfo(pending, "", properties);
+            Assertions.assertTrue(pending.toString().contains("Delta files: pending/15"));
+            Assertions.assertEquals(15,
+                    pendingProvider.streamingSplitEstimate(explainSession, explainHandle, Optional.of(filter), false));
+            for (boolean streaming : List.of(false, true)) {
+                TestingConnectorSession session = new TestingConnectorSession("pruned-" + streaming);
+                ConnectorTableHandle handle = metadata.getTableHandle(session, "deltalake", table).orElseThrow();
+                ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+                ConnectorScanRequest request = request(handle).filter(Optional.of(filter)).build();
+                if (streaming) {
+                    try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+                        while (source.hasNext()) {
+                            source.next();
+                        }
+                    }
+                } else {
+                    provider.planScan(session, request);
+                }
+                StringBuilder explain = new StringBuilder();
+                provider.appendExplainInfo(explain, "", properties);
+                Assertions.assertTrue(explain.toString().contains("Delta files: 2/15"));
+                Map<String, String> metrics = provider.collectScanProfiles(session).get(0).getMetrics();
+                Assertions.assertEquals("15", metrics.get("TotalFiles"));
+                Assertions.assertEquals("2", metrics.get("SelectedFiles"));
+                Assertions.assertEquals("1", metrics.get("SelectedPartitions"));
+            }
+        }
+    }
+
+    @Test
+    void incompleteRowStatisticsStillPublishTheFileCount() throws Exception {
+        createTable();
+        appendStatsFile("a.parquet", "a", 1, 10);
+        appendFile(0, "b.parquet", "b", 25);
+        TestingConnectorSession first = new TestingConnectorSession("count");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(first)) {
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            ConnectorTableHandle handle = metadata.getTableHandle(first, "db", "table").orElseThrow();
+            Assertions.assertFalse(provider.canServeMetadataOnlyCount(first, handle, Optional.empty()));
+            TestingConnectorSession next = new TestingConnectorSession("after-count",
+                    Map.of("num_files_in_batch_mode", "1"));
+            ConnectorTableHandle nextHandle = metadata.getTableHandle(next, "db", "table").orElseThrow();
+            Assertions.assertEquals(2, provider.streamingSplitEstimate(next, nextHandle, Optional.empty(), false));
+        }
+    }
+
+    @Test
+    void replayingACountSummaryAfterRefreshDoesNotRepopulateTheSharedCache() throws Exception {
+        createTable();
+        appendStatsFile("a.parquet", "a", 1, 10);
+        TestingConnectorSession first = new TestingConnectorSession("before-refresh");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(first)) {
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            ConnectorTableHandle handle = metadata.getTableHandle(first, "db", "table").orElseThrow();
+            Assertions.assertTrue(provider.canServeMetadataOnlyCount(first, handle, Optional.empty()));
+            connector.invalidateTable("db", "table");
+            provider.planScan(first, request(handle).countPushdown(true).build());
+            assertMetrics(provider, first, "1", "1", "1", "1", true);
+            TestingConnectorSession next = new TestingConnectorSession("after-refresh");
+            ConnectorTableHandle nextHandle = metadata.getTableHandle(next, "db", "table").orElseThrow();
+            Assertions.assertEquals("unknown", provider.getScanNodeProperties(next, nextHandle, List.of(),
+                    Optional.empty()).get("deltalake.total_files"));
         }
     }
 

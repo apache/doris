@@ -49,6 +49,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 import java.util.stream.Collectors;
 
 final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
@@ -156,6 +157,7 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
             Consumer<String> requireNormalizedFilter = normalizedPartitionColumns::add;
             Map<String, ConnectorPartitionInfo> partitions = new LinkedHashMap<>();
             long[] files = {0};
+            LongConsumer fileCountObserver = statistics.fileCountObserver(session, delta, runtime);
             DeltaLakeScanFiles.forEach(snapshot, runtime.engine(delta.reference()), false, row -> {
                 files[0]++;
                 Map<String, String> values = DeltaLakePartitionValues.normalize(
@@ -167,7 +169,8 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
                         values.values().stream().map(value -> value == null).collect(Collectors.toList())));
             });
             runtime.recordNormalizedPartitionColumns(snapshot, normalizedPartitionColumns);
-            DeltaLakeStatementScope.fileCount(session, (DeltaLakeTableHandle) handle).value = files[0];
+            DeltaLakeStatementScope.fileCount(session, delta).value = files[0];
+            fileCountObserver.accept(files[0]);
             return List.copyOf(partitions.values());
         });
     }

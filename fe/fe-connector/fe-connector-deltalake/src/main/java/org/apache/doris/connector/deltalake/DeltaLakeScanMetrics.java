@@ -17,10 +17,8 @@
 
 package org.apache.doris.connector.deltalake;
 
-import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.scan.ConnectorScanProfile;
 
-import io.delta.kernel.Snapshot;
 import io.delta.kernel.engine.Engine;
 import io.delta.kernel.engine.ExpressionHandler;
 import io.delta.kernel.engine.FileSystemClient;
@@ -48,12 +46,11 @@ final class DeltaLakeScanMetrics {
     private long countPartitions;
     private boolean complete;
 
-    DeltaLakeScanMetrics(ConnectorSession session, DeltaLakeTableHandle handle, Snapshot snapshot,
+    DeltaLakeScanMetrics(DeltaLakeTableHandle handle, DeltaLakeStatementScope.FileCount totalFiles,
             LongConsumer fileCountObserver) {
         this.handle = handle;
+        this.totalFiles = totalFiles;
         this.fileCountObserver = fileCountObserver;
-        totalFiles = DeltaLakeStatementScope.fileCount(session, handle);
-        DeltaKernelCompat.fileCount(snapshot).ifPresent(value -> totalFiles.value = value);
     }
 
     Engine engine(Engine delegate) {
@@ -109,9 +106,9 @@ final class DeltaLakeScanMetrics {
     }
 
     void count(long files, long partitionCount) {
+        // countSummary already published the observation. A memoized summary can outlive a cache refresh.
         selectedFiles = files;
         totalFiles.value = files;
-        fileCountObserver.accept(files);
         countPartitions = partitionCount;
     }
 
