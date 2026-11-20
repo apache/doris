@@ -710,7 +710,7 @@ ColumnPtr normalize_projected_primitive_leaf(const ParquetColumnSchema& schema,
     }
     auto values = ColumnVariantV2::create();
     values->insert_encoded_batch(builder.finish_batch());
-    auto nulls = nullable.get_null_map_column().clone_resized(nullable.size());
+    auto nulls = nullable.get_null_map_column_ptr();
     return ColumnNullable::create(std::move(values), std::move(nulls));
 }
 
@@ -1750,7 +1750,7 @@ MutableColumnPtr build_variant_column(std::shared_ptr<const ParquetColumnSchema>
     if (outer_nullable == nullptr) {
         return variants;
     }
-    auto nulls = outer_nullable->get_null_map_column().clone_resized(physical->size());
+    auto nulls = outer_nullable->get_null_map_column_ptr();
     return ColumnNullable::create(std::move(variants), std::move(nulls));
 }
 

@@ -420,8 +420,7 @@ public:
         handled = false;
 
         if (cond_is_null) {
-            block.replace_by_position(result,
-                                      arg_else.column->clone_resized(arg_cond.column->size()));
+            block.replace_by_position(result, arg_else.column);
             handled = true;
             return Status::OK();
         }
@@ -476,16 +475,10 @@ public:
             bool result_nullable = block.get_by_position(result).type->is_nullable();
             if (true_count == item_count) {
                 block.replace_by_position(
-                        result,
-                        result_nullable
-                                ? make_nullable(arg_then.column->clone_resized(input_rows_count))
-                                : arg_then.column->clone_resized(input_rows_count));
+                        result, result_nullable ? make_nullable(arg_then.column) : arg_then.column);
             } else {
                 block.replace_by_position(
-                        result,
-                        result_nullable
-                                ? make_nullable(arg_else.column->clone_resized(input_rows_count))
-                                : arg_else.column->clone_resized(input_rows_count));
+                        result, result_nullable ? make_nullable(arg_else.column) : arg_else.column);
             }
             return Status::OK();
         }
