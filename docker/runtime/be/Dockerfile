@@ -27,7 +27,7 @@
 
 # choose a base image
 ARG JAVA_VERSION=17
-ARG BASE_IMAGE=apache/doris:base-7.0-jdk${JAVA_VERSION}
+ARG BASE_IMAGE=apache/doris:base-8.0-ubuntu26.04-jdk${JAVA_VERSION}
 FROM ${BASE_IMAGE}
 
 ARG TARGETARCH
