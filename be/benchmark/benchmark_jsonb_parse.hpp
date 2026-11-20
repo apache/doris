@@ -77,8 +77,9 @@ void run_jsonb_parse(benchmark::State& state, bool reuse_buffers) {
             Status status = reuse_buffers
                                     ? JsonbParser::parse(row.data(), row.size(), writer, buffers)
                                     : JsonbParser::parse(row.data(), row.size(), writer);
+            auto output_size = writer.getOutput()->getSize();
             benchmark::DoNotOptimize(status);
-            benchmark::DoNotOptimize(writer.getOutput()->getSize());
+            benchmark::DoNotOptimize(output_size);
         }
     }
     state.SetItemsProcessed(state.iterations() * static_cast<int64_t>(rows.size()));
