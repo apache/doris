@@ -52,6 +52,7 @@ import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.types.VarCharType;
+import org.apache.paimon.types.VectorType;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TSerializer;
 import org.junit.Assert;
@@ -665,5 +666,79 @@ public class PaimonUtilTest {
         char[] characters = new char[count];
         Arrays.fill(characters, character);
         return new String(characters);
+    }
+
+    // ------------------------------------------------------------------ VECTOR
+
+    /**
+     * A Paimon VECTOR column must map to ARRAY&lt;element&gt;, not UNSUPPORTED. This is what
+     * makes the column usable at all: the ANN distance functions are declared over
+     * ARRAY&lt;FLOAT&gt; (L2DistanceApproximate.SIGNATURES), so an UNSUPPORTED mapping means
+     * l2_distance_approximate(embedding, [...]) never type-checks and the ANN rewrite
+     * (PushDownVectorTopNIntoPaimonScan) is never reached -- the whole PK-vector search
+     * path is unreachable on a real table.
+     */
+    @Test
+    public void testVectorTypeMapsToArray() {
+        DataField vectorField = new DataField(1, "embedding",
+                new VectorType(2048, DataTypes.FLOAT()));
+        Type type = PaimonUtil.paimonTypeToDorisType(vectorField.type(), true, true);
+
+        Assert.assertTrue("VECTOR must not map to UNSUPPORTED: " + type, type.isArrayType());
+        Assert.assertEquals(Type.FLOAT, ((ArrayType) type).getItemType());
+    }
+
+    /**
+     * The element type is carried through rather than hardcoded to FLOAT. VectorType
+     * permits any of BOOLEAN/TINYINT/SMALLINT/INTEGER/BIGINT/FLOAT/DOUBLE
+     * (VectorType.isValidElementType), and only FLOAT is exercised by ANN today.
+     */
+    @Test
+    public void testVectorTypeCarriesElementType() {
+        Type doubleVec = PaimonUtil.paimonTypeToDorisType(
+                new VectorType(8, DataTypes.DOUBLE()), true, true);
+        Assert.assertEquals(Type.DOUBLE, ((ArrayType) doubleVec).getItemType());
+
+        Type intVec = PaimonUtil.paimonTypeToDorisType(
+                new VectorType(4, DataTypes.INT()), true, true);
+        Assert.assertEquals(Type.INT, ((ArrayType) intVec).getItemType());
+    }
+
+    /**
+     * The thrift schema handed to BE must describe the element too. VECTOR shares the
+     * ARRAY branch of getSchemaInfo for exactly this reason: the default branch only sets
+     * the primitive type, which would declare TPrimitiveType.ARRAY with no item field.
+     */
+    @Test
+    public void testVectorTypeSchemaInfoCarriesItemField() {
+        TField field = PaimonUtil.getSchemaInfo(new VectorType(2048, DataTypes.FLOAT()), true, true);
+
+        Assert.assertEquals(TPrimitiveType.ARRAY, field.getType().getType());
+        Assert.assertTrue("VECTOR schema must carry a nested item field, else BE sees an "
+                + "ARRAY with no element description", field.isSetNestedField());
+        Assert.assertEquals(TPrimitiveType.FLOAT, field.getNestedField().getArrayField()
+                .getItemField().getFieldPtr().getType().getType());
+    }
+
+    /**
+     * The array child column of a VECTOR must receive the Paimon element field id. Guards a
+     * real hazard rather than a hypothetical one: updatePaimonColumnUniqueId indexes
+     * children.get(0) directly and only null-checks the list, so recursing into a VECTOR is
+     * only safe because Column.createChildrenColumn builds a child for any isArrayType().
+     */
+    @Test
+    public void testVectorTypeChildColumnGetsElementFieldId() {
+        DataField elementField = new DataField(7, "element", DataTypes.FLOAT());
+        VectorType paimonVectorType = new VectorType(true, 2048, elementField.type());
+        DataField vectorField = new DataField(3, "embedding", paimonVectorType);
+
+        Column column = new Column("embedding",
+                PaimonUtil.paimonTypeToDorisType(vectorField.type(), true, true), true);
+        PaimonUtil.updatePaimonColumnUniqueId(column, vectorField);
+
+        Assert.assertEquals(3, column.getUniqueId());
+        Assert.assertNotNull("a VECTOR-mapped ARRAY must have its array child column, otherwise "
+                + "updatePaimonColumnUniqueId would throw on children.get(0)", column.getChildren());
+        Assert.assertEquals(1, column.getChildren().size());
     }
 }

@@ -44,6 +44,7 @@ import org.apache.paimon.types.TinyIntType;
 import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.types.VarCharType;
 import org.apache.paimon.types.VariantType;
+import org.apache.paimon.types.VectorType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -178,6 +179,22 @@ public class PaimonTypeUtils {
         public PaimonColumnType visit(ArrayType arrayType) {
             PaimonColumnType paimonColumnType = new PaimonColumnType(Type.ARRAY);
             ColumnType elementColumnType = fromPaimonType("dummy-element", arrayType.getElementType());
+            paimonColumnType.setChildTypes(Collections.singletonList(elementColumnType));
+            return paimonColumnType;
+        }
+
+        @Override
+        public PaimonColumnType visit(VectorType vectorType) {
+            // Same shape as visit(ArrayType): a Paimon VECTOR<element, length> is exposed to
+            // Doris as ARRAY<element>, matching PaimonUtil.paimonPrimitiveTypeToDorisType on
+            // the FE side. DataTypeVisitor declares visit(VectorType) separately from
+            // visit(ArrayType), so without this override a vector column would fall through
+            // to defaultMethod() -> Type.UNSUPPORTED, which only logs.
+            //
+            // The declared length is dropped because Doris ARRAY has no fixed-size variant;
+            // Paimon enforces the dimension on write.
+            PaimonColumnType paimonColumnType = new PaimonColumnType(Type.ARRAY);
+            ColumnType elementColumnType = fromPaimonType("dummy-element", vectorType.getElementType());
             paimonColumnType.setChildTypes(Collections.singletonList(elementColumnType));
             return paimonColumnType;
         }

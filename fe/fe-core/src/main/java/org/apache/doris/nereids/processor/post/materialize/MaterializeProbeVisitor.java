@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
+import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.collect.ImmutableSet;
@@ -205,8 +206,14 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
             return false;
         }
         String functionName = ((PhysicalTVFRelation) relation).getFunction().getName();
-        return VectorSearchTableValuedFunction.NAME.equals(functionName)
-                || FullTextSearchTableValuedFunction.NAME.equals(functionName);
+        if (!VectorSearchTableValuedFunction.NAME.equals(functionName)
+                && !FullTextSearchTableValuedFunction.NAME.equals(functionName)) {
+            return false;
+        }
+        // Row-ID fetching belongs to the provider; Paimon shares the SQL name but cannot take Lance rows.
+        TableValuedFunctionIf function = ((PhysicalTVFRelation) relation).getFunction().getCatalogFunction();
+        return function instanceof VectorSearchTableValuedFunction
+                || function instanceof FullTextSearchTableValuedFunction;
     }
 
     @Override

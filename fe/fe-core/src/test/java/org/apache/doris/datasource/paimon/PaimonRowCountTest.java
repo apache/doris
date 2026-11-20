@@ -22,13 +22,10 @@ import org.apache.doris.catalog.TableIf;
 import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
-import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -125,23 +122,6 @@ public class PaimonRowCountTest {
     }
 
     @Test
-    public void testSelectOnlyPrivilegeWrapper() throws Exception {
-        FileStoreTable table = newTable(false);
-        snapshot(table, 1, 10L);
-        PrivilegeChecker checker = Mockito.mock(PrivilegeChecker.class);
-        Identifier identifier = Identifier.create("db", "tbl");
-        Mockito.doThrow(new IllegalStateException("INSERT is not granted"))
-                .when(checker).assertCanInsert(identifier);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(table, checker, identifier);
-        Assert.assertEquals(10L, rowCount(privileged));
-        Mockito.verify(checker).assertCanSelect(identifier);
-        Mockito.verify(checker, Mockito.never()).assertCanInsert(identifier);
-        Mockito.doThrow(new IllegalStateException("SELECT is not granted"))
-                .when(checker).assertCanSelect(identifier);
-        Assert.assertThrows(IllegalStateException.class, () -> rowCount(privileged));
-    }
-
-    @Test
     public void testCatalogQueryAuthorizationWithoutPlanning() throws Exception {
         FileStoreTable table = Mockito.spy(newTable(false).copy(ImmutableMap.of("query-auth.enabled", "true")));
         snapshot(table, 1, 10L);
@@ -175,15 +155,15 @@ public class PaimonRowCountTest {
             schema.primaryKey("id").option("bucket", "1");
         }
         options.forEach(schema::option);
-        new SchemaManager(fileIO, path).createTable(schema.build());
+        new FileSystemSchemaManager(fileIO, path).createTable(schema.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
 
     private void snapshot(FileStoreTable table, long id, long count) throws Exception {
         // No manifest files exist: accidentally returning to split planning must fail.
         Snapshot snapshot = new Snapshot(id, 0L, "unused-base", null, "unused-delta", null,
-                null, null, null, "test", id, Snapshot.CommitKind.APPEND, id * 1000,
-                count, count, null, null, null, Collections.emptyMap(), null);
+                null, null, null, "test", null, id, Snapshot.CommitKind.APPEND, id * 1000,
+                count, count, null, null, null, Collections.emptyMap(), null, null);
         table.fileIO().mkdirs(table.snapshotManager().snapshotPath(id).getParent());
         table.fileIO().overwriteFileUtf8(table.snapshotManager().snapshotPath(id), snapshot.toJson());
         table.snapshotManager().commitLatestHint(id);

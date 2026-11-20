@@ -30,9 +30,9 @@ import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.reader.RecordReader;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -136,9 +136,11 @@ public class PaimonRustReaderCompatibilityTest {
 
     @Test
     public void testPersistedTimestampToDateBeforeEpoch() throws Exception {
-        // Java divides toward zero; Arrow takes the preceding calendar date before the epoch.
+        // Before the epoch the persisted timestamp-to-date conversion takes the
+        // preceding calendar date (floor, like Arrow); the internal 2.1 BETA build
+        // truncated toward zero (Java integer division) and returned day 0.
         assertPersistedEvolution(DataTypes.TIMESTAMP(3), DataTypes.DATE(), Timestamp.fromEpochMillis(-1),
-                false, row -> row.getInt(1), 0);
+                false, row -> row.getInt(1), -1);
     }
 
     @Test
@@ -461,7 +463,7 @@ public class PaimonRustReaderCompatibilityTest {
                 .option("file.format", "parquet").option("deletion-vectors.enabled", "false")
                 .option("read.batch-size", "16").option("scan.manifest.parallelism", "1");
         options.forEach(schema::option);
-        new SchemaManager(fileIO, path).createTable(schema.build());
+        new FileSystemSchemaManager(fileIO, path).createTable(schema.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
 

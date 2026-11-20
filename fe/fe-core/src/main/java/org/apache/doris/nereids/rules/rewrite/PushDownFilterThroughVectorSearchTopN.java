@@ -46,10 +46,17 @@ import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 public class PushDownFilterThroughVectorSearchTopN extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(logicalTopN(logicalTVFRelation()))
+        return logicalFilter(logicalTopN())
                 .then(filter -> {
-                    LogicalTopN<LogicalTVFRelation> topN = filter.child();
-                    String functionName = topN.child().getFunction().getName();
+                    LogicalTopN<?> topN = filter.child();
+                    Plan input = topN.child();
+                    if (input instanceof LogicalFilter) {
+                        input = input.child(0);
+                    }
+                    if (!(input instanceof LogicalTVFRelation)) {
+                        return null;
+                    }
+                    String functionName = ((LogicalTVFRelation) input).getFunction().getName();
                     if (!VectorSearchTableValuedFunction.NAME.equals(functionName)
                             && !FullTextSearchTableValuedFunction.NAME.equals(functionName)) {
                         return null;

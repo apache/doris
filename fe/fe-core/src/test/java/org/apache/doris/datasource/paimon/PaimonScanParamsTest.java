@@ -45,6 +45,19 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testRejectLatestDeltaBeforeSnapshotPinning() {
+        for (String mode : new String[] {"latest-delta", "LATEST-DELTA"}) {
+            Map<String, String> options = ImmutableMap.of("scan.mode", mode);
+            IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonScanParams.validateOptions(options));
+            Assert.assertTrue(exception.getMessage().contains("latest-delta"));
+            Assert.assertTrue(exception.getMessage().contains("@incr"));
+            Assert.assertThrows(IllegalArgumentException.class,
+                    () -> PaimonScanParams.pinOptionsToSnapshot(options, 3L));
+        }
+    }
+
+    @Test
     public void testValidateRelationScopedReaderOptions() {
         PaimonScanParams.validateOptions(ImmutableMap.of(
                 "read.batch-size", "4096",

@@ -251,6 +251,37 @@ public class AbstractPaimonPropertiesTest {
     }
 
     @Test
+    public void testHadoopS3MirrorDoesNotOverwriteExplicitProvider() {
+        // Static S3 keys plus an explicit assumed-role credentials provider: the
+        // Hadoop configuration carries the SimpleAWSCredentialsProvider the static
+        // keys produce, but the user's provider entry is already in the catalog
+        // options — the mirror must fill only absent options, or the warehouse
+        // re-opens under the base identity and fails AccessDenied.
+        Map<String, String> input = new HashMap<>();
+        input.put("warehouse", "s3://tmp/warehouse");
+        input.put("paimon.fs.s3a.aws.credentials.provider",
+                "org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider");
+        TestPaimonProperties testProps = new TestPaimonProperties(input);
+        testProps.buildCatalogOptions();
+
+        // The Hadoop side only knows the Simple provider generated from the static
+        // keys, plus defaults the catalog has not set yet. Mirror BEFORE the first
+        // getCatalogOptionsMap() call: the map is memoized once read.
+        org.apache.hadoop.conf.Configuration conf = new org.apache.hadoop.conf.Configuration(false);
+        conf.set("fs.s3a.aws.credentials.provider",
+                "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider");
+        conf.set("fs.s3a.connection.maximum", "100");
+        testProps.mirrorHadoopS3OptionsToCatalogOptions(conf);
+
+        Map<String, String> options = testProps.getCatalogOptionsMap();
+        Assertions.assertEquals("org.apache.hadoop.fs.s3a.auth.AssumedRoleCredentialProvider",
+                options.get("fs.s3a.aws.credentials.provider"),
+                "the explicit user provider must survive the Hadoop mirror");
+        Assertions.assertEquals("100", options.get("fs.s3a.connection.maximum"),
+                "absent defaults are still filled");
+    }
+
+    @Test
     public void testWeightGovernanceDisablesSdkMetadataCacheUnlessUserConfigured() {
         // Doris weight governance owns retention: Paimon's own CachingCatalog would retain
         // snapshot/statistics/manifest caches outside the budget, so it is disabled by default.

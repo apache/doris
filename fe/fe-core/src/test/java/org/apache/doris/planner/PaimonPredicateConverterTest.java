@@ -17,8 +17,12 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.paimon.source.PaimonPredicateConverter;
 import org.apache.doris.qe.StmtExecutor;
@@ -151,5 +155,41 @@ public class PaimonPredicateConverterTest extends TestWithFeService {
         Assertions.assertEquals(predicate.children().size(), 2);
         Assertions.assertTrue(predicate.children().get(0) instanceof LeafPredicate);
         Assertions.assertTrue(predicate.children().get(1) instanceof LeafPredicate);
+    }
+
+    /**
+     * A conjunct on a column the Paimon table does not have must be skipped, not fatal.
+     *
+     * <p>The PK-vector rewrite turns {@code dist_fn(vec, q) < x} into a comparison on the
+     * synthetic {@code __paimon_search_score_to_dis} slot, which exists only in the scan's
+     * output. Before the guard, the field lookup returned -1 and the following
+     * {@code paimonFieldTypes.get(-1)} threw IndexOutOfBounds, killing the query during
+     * planning. Both entry points are covered: binary comparison and IN.
+     */
+    @Test
+    public void unknownColumnIsSkippedInsteadOfThrowing() {
+        RowType rowType = new RowType(Lists.newArrayList(
+                new DataField(0, "k1", new IntType()),
+                new DataField(1, "k2", new IntType())));
+        PaimonPredicateConverter converter = new PaimonPredicateConverter(rowType);
+
+        SlotRef distanceSlot = new SlotRef(null, "__paimon_search_score_to_dis");
+        Expr lessThan = new BinaryPredicate(BinaryPredicate.Operator.LT, distanceSlot,
+                new IntLiteral(1));
+        Assertions.assertTrue(
+                converter.convertToPaimonExpr(Lists.<Expr>newArrayList(lessThan)).isEmpty());
+
+        Expr inPredicate = new InPredicate(distanceSlot,
+                Lists.<Expr>newArrayList(new IntLiteral(1), new IntLiteral(2)), false);
+        Assertions.assertTrue(
+                converter.convertToPaimonExpr(Lists.<Expr>newArrayList(inPredicate)).isEmpty());
+
+        // A known column still converts, so the guard did not disable push-down wholesale.
+        Expr knownColumn = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(null, "k1"), new IntLiteral(1));
+        List<Predicate> converted =
+                converter.convertToPaimonExpr(Lists.<Expr>newArrayList(knownColumn));
+        Assertions.assertEquals(1, converted.size());
+        Assertions.assertEquals("k1", ((LeafPredicate) converted.get(0)).fieldName());
     }
 }
