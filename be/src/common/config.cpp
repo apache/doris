@@ -788,6 +788,12 @@ DEFINE_mBool(enable_adaptive_write_buffer_size, "true");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "104857600");
 DEFINE_mInt64(min_write_buffer_size_for_partial_update, "1048576");
+// POC gate. A future FE table property should be added before production rollout.
+DEFINE_mBool(enable_sparse_memtable, "false");
+DEFINE_mInt64(sparse_memtable_materialize_limit_bytes, "4294967296");
+DEFINE_Validator(sparse_memtable_materialize_limit_bytes, [](int64_t value) { return value > 0; });
+DEFINE_mInt64(sparse_memtable_max_rows, "10000000");
+DEFINE_Validator(sparse_memtable_max_rows, [](int64_t value) { return value > 0; });
 // max parallel flush task per memtable writer
 DEFINE_mInt32(memtable_flush_running_count_limit, "2");
 

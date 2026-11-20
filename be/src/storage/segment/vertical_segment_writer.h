@@ -41,6 +41,7 @@
 #include "util/slice.h"
 
 namespace doris {
+class SparseFlushOutput;
 class Block;
 
 // TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
@@ -122,7 +123,8 @@ public:
 
     // Opens a whole-schema group and writes it in one call, one column at a time,
     // so only one column's pages are in memory.
-    Status write_block(const Block* block, size_t row_pos, size_t num_rows);
+    Status write_block(const Block* block, size_t row_pos, size_t num_rows,
+                       std::shared_ptr<const SparseFlushOutput> sparse_output = nullptr);
 
     // Sets the row-store column for the next write_block, which pumps it from its
     // generator in batches instead of reading it from the block. append_block
@@ -210,6 +212,8 @@ private:
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
+    Status _write_block_column(const Block& block, uint32_t cid, size_t row_pos, size_t num_rows,
+                               const SparseFlushOutput* sparse_output);
     Status _append_generated_column(const DerivedColumnGenerator& generator, const Block& block,
                                     size_t row_pos, size_t num_rows, uint32_t cid);
     // Remembers the column if it is a cluster key. _generate_key_index
