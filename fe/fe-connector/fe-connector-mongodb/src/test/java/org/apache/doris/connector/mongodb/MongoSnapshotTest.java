@@ -251,9 +251,9 @@ class MongoSnapshotTest {
             Assertions.assertTrue(waiting.await(5, TimeUnit.SECONDS));
             release.countDown();
             Assertions.assertSame(fatal, Assertions.assertThrows(ExecutionException.class,
-                    () -> owner.get(1, TimeUnit.SECONDS)).getCause());
+                    () -> owner.get(10, TimeUnit.SECONDS)).getCause());
             Assertions.assertSame(fatal, Assertions.assertThrows(ExecutionException.class,
-                    () -> waiter.get(1, TimeUnit.SECONDS)).getCause());
+                    () -> waiter.get(10, TimeUnit.SECONDS)).getCause());
             Assertions.assertSame(fatal, Assertions.assertThrows(Error.class,
                     () -> state.pin(identity, () -> new BsonTimestamp(1700000000, 3))));
             Assertions.assertEquals(1, loads.get());

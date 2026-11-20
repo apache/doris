@@ -299,42 +299,64 @@ def coverage_commands(source, catalog):
     print("PASS: source commands use one T and every source document matches exactly one frozen partition", flush=True)
 
 
-def id_coverage_commands(source, catalog):
-    database = source[DATABASE]
+def id_coverage_commands(source, catalog, profilers=None):
+    profilers = profilers or [source]
+    records = []
     for name in ["integer_records", "mixed_id_records", "date_id_records"]:
-        database.command("profile", 0)
-        database["system.profile"].drop()
-        database.command("profile", 2)
-        token = "mongodb_id_coverage_" + uuid.uuid4().hex
-        try:
-            statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,"
-                         "batch_size=16,enable_profile=true,profile_level=2) */ /* " + token + " */ seq FROM "
-                         + catalog + "." + DATABASE + "." + name + " ORDER BY seq")
-            assert snapshot_checks.sql(statement) == tuple((index,) for index in range(ROWS))
-            timestamp, text = profile(token)
-            actual = max(map(int, re.findall(r"MongoSplitActual:\s*(\d+)", text)))
-            entries = list(database["system.profile"].find({"appName": APPLICATION}))
-            samples = [entry for entry in entries if entry.get("command", {}).get("aggregate") == name]
-            assert len(samples) == 1 and samples[0]["command"]["readConcern"]["atClusterTime"] == timestamp
-            assert_sample_command(samples[0]["command"])
-            reads = []
-            filters = set()
-            for entry in entries:
-                command = entry.get("originatingCommand", entry.get("command", {}))
-                if command.get("find") != name or not command.get("filter"):
-                    continue
-                assert command["readConcern"]["atClusterTime"] == timestamp
-                predicate = command["filter"]
-                assert "$expr" in predicate and "$type" not in repr(predicate) and "$not" not in repr(predicate)
-                filters.add(repr(predicate))
-                reads.append(entry)
-            assert len(filters) == actual and 2 <= actual <= 8
-            assert sum(entry.get("nreturned", 0) for entry in reads) == ROWS
-            assert sum(entry.get("docsExamined", 0) for entry in reads) == ROWS, "An extra full complement scan remains"
-            assert not any(entry.get("originatingCommand", {}).get("aggregate") == name for entry in entries)
-        finally:
-            database.command("profile", 0)
-    print("PASS: _id ranges read each BSON family once with one data pass and no sample getMore", flush=True)
+        for streaming in [False, True]:
+            for member in profilers:
+                member[DATABASE].command("profile", 0)
+                member[DATABASE]["system.profile"].drop()
+                member[DATABASE].command("profile", 2)
+            token = "mongodb_id_coverage_" + uuid.uuid4().hex
+            try:
+                statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8,"
+                             "batch_size=16,enable_profile=true,profile_level=2,enable_external_table_batch_mode="
+                             + str(streaming).lower() + ") */ /* " + token + " */ seq FROM "
+                             + catalog + "." + DATABASE + "." + name + " ORDER BY seq")
+                assert snapshot_checks.sql(statement) == tuple((index,) for index in range(ROWS))
+                timestamp, text = profile(token)
+                actual = max(map(int, re.findall(r"MongoSplitActual:\s*(\d+)", text)))
+                samples = []
+                reads = []
+                filters = set()
+                for member in profilers:
+                    for entry in member[DATABASE]["system.profile"].find({"appName": APPLICATION}):
+                        origin = entry.get("originatingCommand", {})
+                        command = entry.get("command", {})
+                        if origin.get("aggregate") == name:
+                            # mongos dispatches zero-batch shard cursors and drains their raw hints
+                            # before its final group. These are internal router RPCs, not FE getMore.
+                            assert len(profilers) > 1 and origin.get("fromMongos") and origin.get("needsMerge")
+                            assert origin["cursor"]["batchSize"] == 0
+                            assert origin["readConcern"]["atClusterTime"] == timestamp
+                            assert 0 <= entry.get("nreturned", 0) <= 4096
+                        if command.get("aggregate") == name:
+                            samples.append(command)
+                        command = origin or command
+                        if command.get("find") != name or not command.get("filter"):
+                            continue
+                        assert command["readConcern"]["atClusterTime"] == timestamp
+                        predicate = command["filter"]
+                        assert "$expr" in predicate and "$type" not in repr(predicate) and "$not" not in repr(predicate)
+                        filters.add(repr(predicate))
+                        reads.append(entry)
+                assert samples and all(command["readConcern"]["atClusterTime"] == timestamp for command in samples)
+                if len(profilers) == 1:
+                    assert len(samples) == 1
+                    assert_sample_command(samples[0])
+                assert len(filters) == actual and 2 <= actual <= 8, "Require real multi-split native reads"
+                assert sum(entry.get("nreturned", 0) for entry in reads) == ROWS
+                examined = sum(entry.get("docsExamined", 0) for entry in reads)
+                # Each unindexed range would re-examine the whole collection. Counting native
+                # find/getMore on every shard detects that even when SQL results remain correct.
+                assert examined == ROWS, "An _id partition stopped using bounded index access"
+                records.append(dict(collection=name, streaming=streaming, actual=actual, examined=examined, rows=ROWS))
+            finally:
+                for member in profilers:
+                    member[DATABASE].command("profile", 0)
+    print("PASS: multi-split _id native reads examine each document once in both planning modes", flush=True)
+    return records
 
 
 def custom_no_boundaries_commands(source, catalog, profilers):
@@ -789,10 +811,10 @@ def main():
                 create_catalog(alternate_catalog, readers[2])
             if index == 0:
                 coverage_commands(source, catalog)
-                id_coverage_commands(source, catalog)
             with ExitStack() as cleanup:
                 profilers = [source] if index == 0 else [cleanup.enter_context(pymongo.MongoClient(
                     uri, datetime_conversion=DatetimeConversion.DATETIME_AUTO)) for uri in state["shard_uris"]]
+                id_coverage_commands(source, catalog, profilers)
                 custom_no_boundaries_commands(source, catalog, profilers)
             matrix(catalog)
             rejection_cases(catalog)

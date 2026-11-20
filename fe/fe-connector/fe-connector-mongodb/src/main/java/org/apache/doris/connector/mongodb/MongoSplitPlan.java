@@ -37,7 +37,6 @@ final class MongoSplitPlan {
     private final int admitted;
     private final String reason;
     private final List<byte[]> partitions;
-    private final long descriptorBudget;
 
     private MongoSplitPlan(String field, String family, int requested, int admitted, String reason,
             List<BsonDocument> partitions) {
@@ -47,25 +46,6 @@ final class MongoSplitPlan {
         this.admitted = admitted;
         this.reason = reason;
         this.partitions = partitions.stream().map(MongoSplitPlan::encode).toList();
-        this.descriptorBudget = 0;
-    }
-
-    private MongoSplitPlan(MongoSplitPlan plan, long descriptorBudget) {
-        this.field = plan.field;
-        this.family = plan.family;
-        this.requested = plan.requested;
-        this.admitted = plan.admitted;
-        this.reason = plan.reason;
-        this.partitions = plan.partitions;
-        this.descriptorBudget = descriptorBudget;
-    }
-
-    MongoSplitPlan withDescriptorBudget(long bytes) {
-        return new MongoSplitPlan(this, bytes);
-    }
-
-    long descriptorBudget() {
-        return descriptorBudget;
     }
 
     static MongoSplitPlan single(int requested, int admitted, String reason) {

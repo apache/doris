@@ -32,7 +32,8 @@ suite("test_mongodb_read_parameters", "p0,external") {
         for (String topology : ["replica", "mongos"]) {
             // Config keys are Java Strings; a GString has a different hash code.
             String uri = context.config.otherConfigs.get("mongodb_${topology}_uri".toString())
-            assertTrue(uri != null && !uri.isEmpty())
+            assertTrue(uri != null && !uri.isEmpty(),
+                    "Start the MongoDB CI fixture before running enabled read-parameter tests")
             String catalog = "mongodb_parameters_${topology}"
             def create = { Map overrides ->
                 sql "DROP CATALOG IF EXISTS ${catalog}"

@@ -20,6 +20,7 @@ suite("test_mongodb_splits", "p0,external") {
         return
     }
     String uri = context.config.otherConfigs.get("mongodb_split_uri")
+    assertTrue(uri != null && !uri.isEmpty(), "Start the MongoDB CI fixture before running enabled split tests")
     def original = sql("SELECT @@mongodb_read_concern,@@time_zone,@@mongodb_split_strategy,@@mongodb_split_field")[0]
     def columns = [[name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"]]
     for (int precision = 0; precision <= 6; precision++) {

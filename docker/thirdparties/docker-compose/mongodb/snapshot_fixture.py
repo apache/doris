@@ -41,6 +41,8 @@ def parse_args():
     parser.add_argument("--base-port", type=int, default=28010)
     parser.add_argument("--advertised-host", default="127.0.0.1")
     parser.add_argument("--docker-command", default="docker")
+    parser.add_argument("--network-mode", choices=["host", "bridge"], default="host")
+    parser.add_argument("--container-user", help="container UID:GID; rootless CI uses its namespace owner, 0:0")
     parser.add_argument("--remove", action="store_true")
     return parser.parse_args()
 
@@ -52,6 +54,7 @@ class Fixture:
         self.state_path = self.directory / "state.json"
         self.docker_command = shlex.split(args.docker_command)
         self.state = {}
+        self.port_containers = {}
         if self.state_path.exists():
             self.state = json.loads(self.state_path.read_text())
 
@@ -66,8 +69,15 @@ class Fixture:
             json.dump(self.state, output, indent=2)
 
     def remove(self):
-        for container in self.state.get("containers", []):
-            self.docker("rm", "-f", container)
+        containers = self.state.get("containers", [])
+        if containers:
+            # A cancelled/failed run can reserve a name before Docker creates the container.
+            # Attempt every owned name, then verify none remain instead of stopping at the first miss.
+            subprocess.run(self.docker_command + ["rm", "-f", "-v"] + containers,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+            remaining = set(self.docker("ps", "-a", "--format", "{{.Names}}").splitlines()) & set(containers)
+            if remaining:
+                raise RuntimeError("MongoDB fixture cleanup left owned containers")
         self.state["containers"] = []
         self.save()
         print("Removed the fixture's recorded containers", flush=True)
@@ -94,37 +104,61 @@ class Fixture:
 
     def start(self, suffix, port, arguments, binary="mongod"):
         name = self.state["prefix"] + "-" + suffix
-        bind = ",".join(dict.fromkeys(["127.0.0.1", self.args.advertised_host]))
-        command = ["run", "-d", "--name", name, "--network", "host", "--user",
-                   f"{os.getuid()}:{os.getgid()}", "--tmpfs", "/data/db:rw,size=1g,mode=1777",
+        network = getattr(self.args, "network_mode", "host")
+        bind = "0.0.0.0" if network == "bridge" else ",".join(dict.fromkeys([
+            "127.0.0.1", self.args.advertised_host]))
+        user = getattr(self.args, "container_user", None) or f"{os.getuid()}:{os.getgid()}"
+        command = ["run", "-d", "--name", name, "--network", network, "--user", user]
+        if network == "bridge":
+            # Publish host listeners without relying on the daemon's network namespace.
+            # Replica discovery and mongos must reach these same advertised ports.
+            command += ["--publish", f"{port}:{port}"]
+        # Override both image VOLUMEs: per-build topology restarts must not accumulate anonymous volumes.
+        command += ["--tmpfs", "/data/db:rw,size=1g,mode=1777", "--tmpfs", "/data/configdb:rw,size=64m,mode=1777",
                    "-v", str(self.directory / "keyfile") + ":/run/mongodb-key:ro", "--entrypoint", binary,
                    self.args.image, "--bind_ip", bind, "--port", str(port), "--keyFile", "/run/mongodb-key",
                    "--setParameter", "enableTestCommands=1"]
         if binary == "mongod":
             command += ["--dbpath", "/data/db", "--wiredTigerCacheSizeGB", "0.25",
                         "--oplogSize", "64"]
-        self.docker(*(command + arguments))
+        # Persist ownership before starting Docker so cancellation cannot orphan an unrecorded member.
         self.state["containers"].append(name)
+        self.port_containers[port] = name
         self.save()
+        self.docker(*(command + arguments))
+
+    def bootstrap_command(self, port, command):
+        if getattr(self.args, "network_mode", "host") == "host" and not getattr(self.args, "local_bootstrap", False):
+            with self.connect(port, False) as member:
+                return member.admin.command(command)
+        # A published bridge connection is not localhost inside mongod. Bootstrap through
+        # docker exec so the localhost exception can initiate the set and create its first user.
+        expression = "JSON.stringify(db.getSiblingDB('admin').runCommand(" + json.dumps(command) + "))"
+        try:
+            result = json.loads(self.docker("exec", self.port_containers[port], "mongosh", "--quiet",
+                                           "--host", "127.0.0.1", "--port", str(port), "--eval", expression))
+        except subprocess.CalledProcessError:
+            raise RuntimeError("MongoDB fixture bootstrap command failed") from None
+        if not result.get("ok"):
+            raise RuntimeError("MongoDB fixture bootstrap rejected command: " + str(result.get("code")))
+        return result
 
     def initialize_replica_set(self, ports, name, config_server=False):
         # Starting a process does not mean its socket is ready for the initiation quorum check.
         for port in ports:
             with self.connect(port, False) as member:
                 self.wait(member, lambda client: client.admin.command("ping"))
-        with self.connect(ports[0], False) as primary:
-            configuration = {"_id": name, "members": [
-                {"_id": index, "host": f"{self.args.advertised_host}:{port}",
-                 "tags": {"fixture_member": str(index)}}
-                for index, port in enumerate(ports)]}
-            if config_server:
-                configuration["configsvr"] = True
-            primary.admin.command("replSetInitiate", configuration)
+        configuration = {"_id": name, "members": [
+            {"_id": index, "host": f"{self.args.advertised_host}:{port}",
+             "tags": {"fixture_member": str(index)}}
+            for index, port in enumerate(ports)]}
+        if config_server:
+            configuration["configsvr"] = True
+        self.bootstrap_command(ports[0], {"replSetInitiate": configuration})
         # An election can choose any member. Waiting only on the seed stalls when it is secondary.
         elected = self.wait(None, lambda ignored: self.primary_port(ports))
-        with self.connect(elected, False) as primary:
-            primary.admin.command("createUser", self.state["username"], pwd=self.state["password"], roles=["root"],
-                                  writeConcern={"w": "majority"})
+        self.bootstrap_command(elected, {"createUser": self.state["username"], "pwd": self.state["password"],
+                                        "roles": ["root"], "writeConcern": {"w": "majority"}})
 
     def primary_port(self, ports):
         for port in ports:
