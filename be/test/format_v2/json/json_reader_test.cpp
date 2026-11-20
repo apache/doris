@@ -46,6 +46,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/value/jsonb_value.h"
+#include "cpp/obj-storage/client/obj_storage_client_factory.h"
 #include "exec/scan/scanner.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -59,7 +60,6 @@
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 #include "util/threadpool.h"
 
 namespace doris::format::json {
@@ -611,7 +611,7 @@ TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
         env->_buffered_reader_prefetch_thread_pool.reset();
         env->_buffered_reader_prefetch_thread_pool = std::move(saved_pool);
         config::in_memory_file_size = saved_in_memory_size;
-        S3ClientFactory::instance().clear_client_creator_for_test();
+        ObjStorageClientFactory::instance().clear_client_creator_for_test();
     });
     ASSERT_TRUE(ThreadPoolBuilder("JsonPrefetchTest")
                         .set_min_threads(1)
@@ -621,8 +621,8 @@ TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
     // A small fixture must still use prefetch rather than the in-memory S3 optimization.
     config::in_memory_file_size = 0;
     auto client = std::make_shared<JsonPrefetchS3Client>();
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [client](const S3ClientConf&) { return client; });
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [client](const ObjStorageClientConfig&) { return client; });
     auto properties = std::make_shared<io::FileSystemProperties>();
     properties->system_type = TFileType::FILE_S3;
     properties->properties = {{"AWS_ENDPOINT", "http://json-prefetch.invalid"},

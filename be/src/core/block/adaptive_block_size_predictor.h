@@ -58,6 +58,9 @@ public:
 
     bool has_history() const { return _has_history; }
 
+    // Restore the measured row width shared by physical children of one source split.
+    void seed_history(double bytes_per_row);
+
 private:
     // EWMA weight for historical estimate (0.9) and current sample (0.1).
     static constexpr double kAlpha = 0.9;

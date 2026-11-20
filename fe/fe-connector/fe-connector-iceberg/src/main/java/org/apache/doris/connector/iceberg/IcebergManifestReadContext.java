@@ -50,7 +50,7 @@ final class IcebergManifestReadContext {
     <T> T read(String description, Supplier<T> action) throws InterruptedException {
         checkOpen();
         // A second scan may be waiting while another scan owns all read permits. Check cancellation
-        // periodically, without interrupting an elected cache load that other queries still need.
+        // periodically, without interrupting an elected cache load that other scans still need.
         while (!permits.tryAcquire(100, TimeUnit.MILLISECONDS)) {
             checkOpen();
         }

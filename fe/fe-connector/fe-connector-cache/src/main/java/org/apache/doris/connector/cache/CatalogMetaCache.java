@@ -123,7 +123,8 @@ public final class CatalogMetaCache implements AutoCloseable {
                             nonNullDefinition.cacheSpec(), nonNullDefinition.removalListener(),
                             nonNullDefinition.discardListener(),
                             nonNullDefinition.refreshAfterWrite(), nonNullDefinition.refreshExecutor(),
-                            entryBudget == null ? null : nonNullDefinition.sizeEstimator(), entryBudget));
+                            entryBudget == null ? null : nonNullDefinition.sizeEstimator(), entryBudget,
+                            nonNullDefinition.retentionPredicate()));
             entries.put(nonNullDefinition.name(), created);
             return created;
         } catch (RuntimeException | Error throwable) {

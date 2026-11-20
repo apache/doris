@@ -42,12 +42,21 @@ import com.google.common.collect.ImmutableSet;
 public class MergeFilters extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter(logicalFilter()).then(filter -> {
-            LogicalFilter<? extends Plan> childFilter = filter.child();
-            return new LogicalFilter<>(ImmutableSet.<Expression>builder()
-                    .addAll(filter.getConjuncts())
-                    .addAll(childFilter.getConjuncts()).build(), childFilter.child());
-        }).toRule(RuleType.MERGE_FILTERS);
+        return logicalFilter(logicalFilter()).then(MergeFilters::mergeFilters).toRule(RuleType.MERGE_FILTERS);
     }
 
+    /** Merge all consecutive filters, preserving the original node when there is nothing to merge. */
+    public static LogicalFilter<?> mergeFilters(LogicalFilter<?> filter) {
+        if (!(filter.child() instanceof LogicalFilter)) {
+            return filter;
+        }
+        ImmutableSet.Builder<Expression> conjuncts = ImmutableSet.<Expression>builder().addAll(filter.getConjuncts());
+        Plan child = filter.child();
+        while (child instanceof LogicalFilter) {
+            LogicalFilter<?> childFilter = (LogicalFilter<?>) child;
+            conjuncts.addAll(childFilter.getConjuncts());
+            child = childFilter.child();
+        }
+        return new LogicalFilter<>(conjuncts.build(), child);
+    }
 }

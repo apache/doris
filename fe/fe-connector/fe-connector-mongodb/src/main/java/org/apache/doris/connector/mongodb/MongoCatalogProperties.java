@@ -26,6 +26,7 @@ import com.mongodb.MongoCredential;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadConcernLevel;
 import com.mongodb.ReadPreference;
+import com.mongodb.TaggableReadPreference;
 import org.bson.BsonDocument;
 import org.bson.Document;
 
@@ -65,6 +66,10 @@ public final class MongoCatalogProperties {
     private String datetimeTimezone = "UTC";
     @ConnectorProperty(names = {"mongodb.read_preference"}, required = false, description = "Default read routing")
     private String readPreference = "primary";
+    // MongoDB enforces data visibility: local can include rollbackable writes; majority reads the
+    // majority-committed view; available relaxes shard ownership checks and can include orphaned rows.
+    // snapshot reads one point in time; MongoSnapshot additionally pins the same T across SQL scans.
+    // Session inherit resolves to this effective catalog policy, including a URI readConcernLevel override.
     @ConnectorProperty(names = {"mongodb.read_concern"}, required = false, description = "Default read concern")
     private String readConcern = "majority";
     @ConnectorProperty(names = {"mongodb.connect_timeout_ms"}, required = false, description = "Connection timeout")
@@ -114,7 +119,10 @@ public final class MongoCatalogProperties {
         require(Set.of("auto", "validator", "explicit", "document").contains(p.schemaMode), "mongodb.schema.mode");
         require(Set.of("error", "null").contains(p.typeMismatch), "mongodb.type_mismatch");
         require("UTC".equals(p.datetimeTimezone), "mongodb.datetime_timezone");
-        require(Set.of("local", "majority", "available").contains(p.readConcern), "mongodb.read_concern");
+        // Qualified scan policies only. The driver can express linearizable, but its guarantees require
+        // primary-only, uniquely identified single-document reads, which this general scan contract
+        // does not validate. Merely forwarding that level would not make an entire SQL linearizable.
+        require(Set.of("local", "majority", "available", "snapshot").contains(p.readConcern), "mongodb.read_concern");
         require(p.connectTimeoutMs > 0 && p.connectTimeoutMs <= 300000, "mongodb.connect_timeout_ms");
         require(p.serverSelectionTimeoutMs > 0 && p.serverSelectionTimeoutMs <= 300000,
                 "mongodb.server_selection_timeout_ms");
@@ -130,7 +138,7 @@ public final class MongoCatalogProperties {
         }
         if (p.connectionString.getReadConcern() != null) {
             String level = p.connectionString.getReadConcern().getLevel().getValue();
-            require(Set.of("local", "majority", "available").contains(level), "URI readConcernLevel");
+            require(Set.of("local", "majority", "available", "snapshot").contains(level), "URI readConcernLevel");
             p.readConcern = level;
         }
         if (p.connectionString.getReadPreference() != null) {
@@ -173,8 +181,20 @@ public final class MongoCatalogProperties {
             return readConcern;
         }
         String level = policy.toLowerCase(Locale.ROOT);
-        require(Set.of("local", "majority", "available").contains(level), "mongodb_read_concern");
+        require(Set.of("local", "majority", "available", "snapshot").contains(level), "mongodb_read_concern");
         return level;
+    }
+
+    ReadPreference readPreferenceForSnapshot(String policy) {
+        ReadPreference result = ReadPreference.valueOf(resolveReadPreference(policy));
+        ReadPreference inherited = connectionString.getReadPreference();
+        // A statement can replace the routing mode, while URI tags/staleness/hedge still constrain it.
+        if (inherited instanceof TaggableReadPreference tagged && result instanceof TaggableReadPreference) {
+            return result.withTagSetList(tagged.getTagSetList())
+                    .withMaxStalenessMS(tagged.getMaxStaleness(TimeUnit.MILLISECONDS), TimeUnit.MILLISECONDS)
+                    .withHedgeOptions(tagged.getHedgeOptions());
+        }
+        return result;
     }
 
     MongoClientSettings clientSettings() {

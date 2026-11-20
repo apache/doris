@@ -106,6 +106,11 @@ public class HiveScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public boolean supportsBeSplitRefinement() {
+        return "parquet".equals(fileFormat) || "orc".equals(fileFormat);
+    }
+
+    @Override
     public String getTableFormatType() {
         return tableFormatType;
     }

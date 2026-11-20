@@ -116,6 +116,12 @@ public class Config extends ConfigBase {
     @ConfField(description = "Whether to enable compression for FE audit log files")
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = true, callback = RegexConfHandler.class, description = "Case-insensitive regex searched in "
+            + "data source property names when masking output. Combined with built-in and provider secret rules. "
+            + "Use (?!) to disable only this additional rule. Applies on each FE without changing connection values.")
+    public static volatile String datasource_sensitive_property_pattern =
+            "password|passwd|secret|token|credential|access[._-]?key|api[._-]?key";
+
     @ConfField(description = "Active lineage plugins. Specify the name returned by LineagePlugin.name()")
     public static String[] activate_lineage_plugin = {};
 
