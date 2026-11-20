@@ -323,6 +323,9 @@ public class MysqlSerializer {
                 }
                 return precision;
             }
+            case FILE:
+                // Preserve the uint32 bit pattern for writeInt4, including lengths above INT_MAX.
+                return (int) org.apache.doris.catalog.FileType.JSON_DISPLAY_LENGTH;
             case VARBINARY: {
                 return type.getLength();
             }

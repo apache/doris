@@ -105,7 +105,6 @@ public:
         return {.max_delete_batch = 256, .max_list_page = 5000};
     }
 
-protected:
     ObjStorageListPageResult list_objects_page(const ObjStoragePath& path,
                                                std::string_view continuation_token) override;
 

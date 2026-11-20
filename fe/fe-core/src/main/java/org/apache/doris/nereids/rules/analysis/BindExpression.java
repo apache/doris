@@ -65,6 +65,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeFile;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
@@ -469,8 +470,11 @@ public class BindExpression implements AnalysisRuleFactory {
             // 2. the expandColumnsAlias is empty, we should use origin boundSlot
             if (generate.getExpandColumnAlias() != null && i < generate.getExpandColumnAlias().size()
                     && !CollectionUtils.isEmpty(generate.getExpandColumnAlias().get(i))) {
-                if (boundSlot.getDataType() instanceof StructType
-                        && generate.getExpandColumnAlias().get(i).size() > 1) {
+                int aliasCount = generate.getExpandColumnAlias().get(i).size();
+                if (boundGenerator instanceof ExplodeFile && aliasCount != 6) {
+                    throw new AnalysisException("EXPLODE_FILE requires exactly six column aliases");
+                }
+                if (boundSlot.getDataType() instanceof StructType && aliasCount > 1) {
                     // if the alias is not empty, we should bind it with struct_element as child expr with alias
                     // element_at(#expand_col#k, #k) as #k
                     // element_at(#expand_col#v, #v) as #v
@@ -1163,6 +1167,10 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         }
         project = project.withProjects(boundProjectionsBuilder.build());
+        if (project.isDistinct()) {
+            project.getProjects().forEach(value -> ExpressionUtils.checkFileKey(
+                    value, "SELECT DISTINCT"));
+        }
         return rewriteProjectForDisabledFullGroupBy(project).orElse(project);
     }
 

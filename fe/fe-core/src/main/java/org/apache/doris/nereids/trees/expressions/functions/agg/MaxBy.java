@@ -66,7 +66,8 @@ public class MaxBy extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (getArgumentType(1).isOnlyMetricType() && !getArgumentType(1).isArrayType()) {
+        if (getArgumentType(1).typeContainsFile()
+                || (getArgumentType(1).isOnlyMetricType() && !getArgumentType(1).isArrayType())) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }
     }

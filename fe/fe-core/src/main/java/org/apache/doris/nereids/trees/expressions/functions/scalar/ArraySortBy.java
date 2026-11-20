@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -68,6 +69,7 @@ public class ArraySortBy extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        ExpressionUtils.checkFileKey(getArgument(1), "array_sortby key");
         DataType argType = getArgument(0).getDataType();
         if (argType instanceof ArrayType) {
             // Find the innermost element type for nested arrays

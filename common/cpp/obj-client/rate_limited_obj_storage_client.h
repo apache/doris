@@ -72,7 +72,6 @@ public:
     ObjStorageResponse abort_multipart_upload(const ObjStoragePath& opts,
                                               const std::string& upload_id) override;
 
-protected:
     ObjStorageListPageResult list_objects_page(const ObjStoragePath& opts,
                                                std::string_view continuation_token) override;
 

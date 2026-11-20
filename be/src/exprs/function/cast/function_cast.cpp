@@ -20,6 +20,7 @@
 #include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_timestamp_ns.h" // IWYU pragma: keep
@@ -256,6 +257,10 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     auto from_type = get_serialized_type(origin_from_type);
     if (from_type->equals(*to_type)) {
         return create_identity_wrapper(from_type);
+    }
+
+    if (contains_file_type(from_type) || contains_file_type(to_type)) {
+        return create_unsupport_wrapper(from_type->get_name(), to_type->get_name());
     }
 
     const auto* from_variant_v1 =
