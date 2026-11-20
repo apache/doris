@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 35 adds coarse-split targets and BE refinement after API 34 path partition keys.
-        Assertions.assertEquals("35.0", version.getProperty("api.version"));
+        // Major 36 adds ConnectorCapability#SUPPORTS_VARBINARY_COLUMN after API 35 coarse-split targets.
+        Assertions.assertEquals("36.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
