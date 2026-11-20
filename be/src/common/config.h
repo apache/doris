@@ -563,6 +563,9 @@ DECLARE_Bool(enable_low_cardinality_cache_code);
 // so that each output block stays close to preferred_block_size_bytes.
 // When false, the fixed batch_size row behaviour is preserved.
 DECLARE_mBool(enable_adaptive_batch_size);
+// Read with the new block iterators instead of VCollectIterator, on the read paths that have
+// them: AGG_KEYS for now.
+DECLARE_mBool(enable_new_block_iterator);
 
 // be policy
 // whether check compaction checksum
