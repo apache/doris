@@ -144,6 +144,30 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
+    void testMixedUnionKeepsRuntimeFilter(boolean knownStats) {
+        RuntimeFilterContext context = getRuntimeFilterContext(
+                "SELECT f.id FROM rf_prune_fact f JOIN [broadcast] ("
+                        + "SELECT agent_code FROM rf_prune_agent "
+                        + "UNION ALL SELECT agent_code FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA') "
+                        + "WHERE id > 0) s ON f.agent_code = s.agent_code", knownStats);
+
+        Assertions.assertEquals(1, context.getNereidsRuntimeFilter().size());
+        Assertions.assertTrue(context.prunedRF.isEmpty());
+    }
+
+    @Test
+    void testOrdinaryUnionDoesNotKeepIneffectiveRuntimeFilter() {
+        RuntimeFilterContext context = getRuntimeFilterContext(
+                "SELECT f.id FROM rf_prune_fact f JOIN [broadcast] ("
+                        + "SELECT agent_code FROM rf_prune_agent WHERE bloc_id = 1 "
+                        + "UNION ALL SELECT agent_code FROM rf_prune_fact) s ON f.agent_code = s.agent_code", true);
+
+        Assertions.assertTrue(context.getNereidsRuntimeFilter().isEmpty());
+        Assertions.assertEquals(1, context.prunedRF.size());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
     void testStreamProbeDoesNotKeepIneffectiveRuntimeFilter(boolean knownStats) {
         RuntimeFilterContext context = getRuntimeFilterContext(
                 "SELECT s.id FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA') s "

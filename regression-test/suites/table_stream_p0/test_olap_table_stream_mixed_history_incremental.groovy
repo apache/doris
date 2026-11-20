@@ -67,4 +67,19 @@ suite("test_olap_table_stream_mixed_history_incremental") {
         GROUP BY sid
         ORDER BY sid
     """
+
+    sql "SET enable_runtime_filter_prune = true"
+    sql "SET runtime_filter_type = 'BLOOM_FILTER'"
+    sql "DROP STATS tbl_mixed_history_incremental(sname)"
+    explain {
+        // sname is neither the partition key nor the bucket key of the probe scan.
+        sql """
+            SELECT p.sid
+            FROM tbl_mixed_history_incremental p
+            JOIN [broadcast] s_mixed_history_incremental s ON p.sname = s.sname
+        """
+        contains "VUNION"
+        contains "join op: INNER JOIN(BROADCAST)"
+        contains "[bloom] -> sname"
+    }
 }
