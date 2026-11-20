@@ -43,6 +43,7 @@ import org.mockito.Mockito;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ExportMgrTest {
     private final ExportMgr exportMgr = new ExportMgr();
@@ -101,8 +102,10 @@ public class ExportMgrTest {
         for (int i = 1; i <= 10; i++) {
             ExportJob job = makeExportJob(i, "label" + i);
             // Jobs created 1, 2...10 days ago
-            Deencapsulation.setField(job, "createTimeMs", currentTime - (i * 24 * 3600 * 1000));
+            long terminalTime = currentTime - (i * 24 * 3600 * 1000L) + 60_000L;
+            Deencapsulation.setField(job, "createTimeMs", terminalTime);
             Deencapsulation.setField(job, "state", ExportJobState.FINISHED);
+            Deencapsulation.setField(job, "finishTimeMs", terminalTime);
             exportMgr.unprotectAddJob(job);
         }
 
@@ -111,8 +114,8 @@ public class ExportMgrTest {
 
         // Assertions: Check the number of jobs remaining
         List<ExportJob> remainingJobs = exportMgr.getJobs();
-        Assertions.assertTrue(remainingJobs.size() <= Config.history_job_keep_max_second);
-        Assertions.assertEquals(7, remainingJobs.size()); // Expecting 8 jobs to remain
+        Assertions.assertTrue(remainingJobs.size() <= Config.max_export_history_job_num);
+        Assertions.assertEquals(7, remainingJobs.size()); // Expecting 7 jobs to remain
 
 
         for (int i = 11; i <= 1010; i++) {
@@ -120,6 +123,7 @@ public class ExportMgrTest {
             // Jobs created 0, 1, 2, 3, 4...1000 seconds ago
             Deencapsulation.setField(job, "createTimeMs", currentTime - (i * 1000));
             Deencapsulation.setField(job, "state", ExportJobState.FINISHED);
+            Deencapsulation.setField(job, "finishTimeMs", currentTime - (i * 1000));
             exportMgr.unprotectAddJob(job);
         }
 
@@ -127,7 +131,7 @@ public class ExportMgrTest {
         exportMgr.removeOldExportJobs();
         // Assertions: Check the number of jobs remaining
         remainingJobs = exportMgr.getJobs();
-        Assertions.assertTrue(remainingJobs.size() <= Config.history_job_keep_max_second);
+        Assertions.assertTrue(remainingJobs.size() <= Config.max_export_history_job_num);
         Assertions.assertEquals(1000, remainingJobs.size()); // Expecting 1000 jobs to remain
 
         // check the created time
@@ -157,11 +161,13 @@ public class ExportMgrTest {
             ExportJob finishedJob = makeExportJob(1003, "finished");
             Deencapsulation.setField(finishedJob, "createTimeMs", currentTime - 2000);
             Deencapsulation.setField(finishedJob, "state", ExportJobState.FINISHED);
+            Deencapsulation.setField(finishedJob, "finishTimeMs", currentTime - 300_001);
             isolatedExportMgr.unprotectAddJob(finishedJob);
 
             ExportJob cancelledJob = makeExportJob(1004, "cancelled");
             Deencapsulation.setField(cancelledJob, "createTimeMs", currentTime - 1000);
             Deencapsulation.setField(cancelledJob, "state", ExportJobState.CANCELLED);
+            Deencapsulation.setField(cancelledJob, "finishTimeMs", currentTime - 300_001);
             isolatedExportMgr.unprotectAddJob(cancelledJob);
 
             isolatedExportMgr.removeOldExportJobs();
@@ -224,6 +230,8 @@ public class ExportMgrTest {
             Deencapsulation.setField(expiredCancelledJob, "createTimeMs",
                     currentTime - (Config.history_job_keep_max_second + 1) * 1000L);
             Deencapsulation.setField(expiredCancelledJob, "state", ExportJobState.CANCELLED);
+            Deencapsulation.setField(expiredCancelledJob, "finishTimeMs",
+                    currentTime - (Config.history_job_keep_max_second + 1) * 1000L);
             expiredJobMgr.unprotectAddJob(expiredCancelledJob);
 
             ExportJob runningJob = makeExportJob(3002, "same-label");
@@ -238,6 +246,7 @@ public class ExportMgrTest {
             ExportJob overLimitCancelledJob = makeExportJob(4001, "same-label");
             Deencapsulation.setField(overLimitCancelledJob, "createTimeMs", currentTime - 2000);
             Deencapsulation.setField(overLimitCancelledJob, "state", ExportJobState.CANCELLED);
+            Deencapsulation.setField(overLimitCancelledJob, "finishTimeMs", currentTime - 300_001);
             overLimitJobMgr.unprotectAddJob(overLimitCancelledJob);
 
             ExportJob overLimitRunningJob = makeExportJob(4002, "same-label");
@@ -261,6 +270,10 @@ public class ExportMgrTest {
             Assertions.assertDoesNotThrow(() -> isolatedExportMgr.replayUpdateJobState(
                     new ExportJobStateTransfer(missingJob, state)));
         }
+        Assertions.assertTrue(isolatedExportMgr.getJobs().isEmpty());
+        Map<Long, Map<String, Long>> labels =
+                Deencapsulation.getField(isolatedExportMgr, "dbTolabelToExportJobId");
+        Assertions.assertTrue(labels.isEmpty());
     }
 
     private void assertSameLabelIsStillUsed(ExportMgr isolatedExportMgr) throws Exception {
