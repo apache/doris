@@ -72,6 +72,16 @@ ENV REPOSITORY_URL="https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/" \
 # disable auto enable ccache
 RUN rm -f /etc/profile.d/ccache.*
 
+# The patched ADBC Flight SQL driver is built from Go source.
+ARG GO_VERSION=1.26.5
+ARG GO_SHA256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
+RUN wget -q https://go.dev/dl/go${GO_VERSION}.linux-arm64.tar.gz -O /tmp/go.tar.gz \
+    && echo "${GO_SHA256}  /tmp/go.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/go.tar.gz -C /usr/local \
+    && rm -f /tmp/go.tar.gz \
+    && /usr/local/go/bin/go version
+ENV PATH="/usr/local/go/bin:${PATH}"
+
 # clone lastest source code, download and build third party
 COPY doris ${DEFAULT_DIR}/doris
 RUN cd ${DEFAULT_DIR}/doris && /bin/bash thirdparty/build-thirdparty.sh \
@@ -93,7 +103,7 @@ ENV JAVA_HOME="/usr/lib/jvm/java-11" \
     REPOSITORY_URL="" \
     DEFAULT_DIR="/var/local" \
     CUSTOM_CMAKE="/usr/bin/cmake" \
-    PATH="/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:$PATH" \
+    PATH="/usr/local/go/bin:/var/local/ldb-toolchain/bin/:/var/local/thirdparty/installed/bin/:$PATH" \
     DORIS_THIRDPARTY="/var/local/thirdparty"
 WORKDIR /root
 

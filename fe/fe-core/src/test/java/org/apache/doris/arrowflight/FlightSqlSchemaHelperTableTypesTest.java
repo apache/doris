@@ -143,7 +143,7 @@ public class FlightSqlSchemaHelperTableTypesTest {
                                         return new TGetDbsResult().setDbs(Arrays.asList("db"))
                                                 .setCatalogs(Arrays.asList(catalog));
                                     });
-                            Mockito.when(service.listTableStatus(Mockito.any(TGetTablesParams.class)))
+                            Mockito.when(service.listTableStatus(Mockito.any(TGetTablesParams.class), Mockito.eq(false)))
                                     .thenAnswer(invocation -> {
                                         TGetTablesParams params = invocation.getArgument(0);
                                         Assertions.assertEquals(catalog, params.getCatalog());
@@ -161,7 +161,7 @@ public class FlightSqlSchemaHelperTableTypesTest {
                                                         || "VIEW".equals(table.getType()))
                                                 .collect(Collectors.toList()));
                                     });
-                            Mockito.when(service.describeTables(Mockito.any(TDescribeTablesParams.class)))
+                            Mockito.when(service.describeTables(Mockito.any(TDescribeTablesParams.class), Mockito.eq(false)))
                                     .thenAnswer(invocation -> {
                                         TDescribeTablesParams params = invocation.getArgument(0);
                                         describedNames.addAll(params.getTablesName());
@@ -199,7 +199,7 @@ public class FlightSqlSchemaHelperTableTypesTest {
             }
             Assertions.assertEquals(expectedNames, actualNames);
             Assertions.assertEquals(includeSchema ? expectedNames : Collections.emptyList(), describedNames);
-            Mockito.verify(services.constructed().get(0)).listTableStatus(Mockito.any(TGetTablesParams.class));
+            Mockito.verify(services.constructed().get(0)).listTableStatus(Mockito.any(TGetTablesParams.class), Mockito.eq(false));
         }
     }
 }

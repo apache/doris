@@ -1394,6 +1394,9 @@ build_arrow_adbc() {
             go_arch='arm64'
         fi
         cd "${adbc_src}/go/adbc"
+        # Let Go validate the module's minimum version and select its pinned toolchain before compiling.
+        GOWORK=off "${go_cmd}" list -mod=readonly -m
+        GOWORK=off "${go_cmd}" version
         CGO_ENABLED=1 GOOS=linux GOARCH="${go_arch}" GOWORK=off "${go_cmd}" build -mod=readonly -trimpath -buildvcs=false \
             -tags driverlib -buildmode=c-shared \
             -o "${TP_INSTALL_DIR}/lib64/libadbc_driver_flightsql.so" ./pkg/flightsql

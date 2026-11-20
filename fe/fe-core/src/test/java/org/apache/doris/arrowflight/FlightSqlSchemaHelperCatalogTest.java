@@ -67,7 +67,7 @@ public class FlightSqlSchemaHelperCatalogTest {
     private static Stream<Arguments> catalogFilters() {
         return Stream.of(false, true).flatMap(showFullName -> Stream.of(null, "test_db", "test%", "missing%")
                 .flatMap(pattern -> Stream.of(null, "internal", "external", "").map(catalog -> {
-                    List<String> expected = Stream.of("internal", "external")
+                    List<String> expected = Stream.of("external", "internal")
                             .filter(name -> catalog == null || name.equals(catalog))
                             .filter(name -> !"missing%".equals(pattern))
                             .collect(Collectors.toList());
@@ -100,6 +100,7 @@ public class FlightSqlSchemaHelperCatalogTest {
             boolean showFullName, String pattern) throws Exception {
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
         Mockito.when(ctx.getCurrentUserIdentity()).thenReturn(UserIdentity.ROOT);
+        Mockito.when(ctx.getCurrentUserIdentityForRpc()).thenReturn(UserIdentity.ROOT.toThrift());
         Env env = Mockito.mock(Env.class);
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
@@ -133,7 +134,7 @@ public class FlightSqlSchemaHelperCatalogTest {
                                         params.getCurrentUserIdent());
                                 return new TListTableStatusResult().setTables(Collections.singletonList(
                                         new TTableStatus().setName("visible_table").setType("BASE TABLE")));
-                            }).when(service).listTableStatus(Mockito.any(TGetTablesParams.class));
+                            }).when(service).listTableStatus(Mockito.any(TGetTablesParams.class), Mockito.eq(false));
                             Mockito.doAnswer(invocation -> {
                                 TDescribeTablesParams params = invocation.getArgument(0);
                                 Assertions.assertTrue(expectedCatalogs.contains(params.getCatalog()));
@@ -149,7 +150,7 @@ public class FlightSqlSchemaHelperCatalogTest {
                                 return new TDescribeTablesResult()
                                         .setColumns(Collections.singletonList(new TColumnDef(array)))
                                         .setTablesOffset(Collections.singletonList(1));
-                            }).when(service).describeTables(Mockito.any(TDescribeTablesParams.class));
+                            }).when(service).describeTables(Mockito.any(TDescribeTablesParams.class), Mockito.eq(false));
                         });
                 RootAllocator allocator = new RootAllocator();
                 VectorSchemaRoot root = VectorSchemaRoot.create(tables
@@ -207,9 +208,9 @@ public class FlightSqlSchemaHelperCatalogTest {
                     .getDbNames(Mockito.argThat(params -> !params.isIncludeDbIds()
                             && UserIdentity.ROOT.toThrift().equals(params.getCurrentUserIdent())), Mockito.eq(false));
             Mockito.verify(service, Mockito.times(tables ? expectedCatalogs.size() : 0))
-                    .listTableStatus(Mockito.any(TGetTablesParams.class));
+                    .listTableStatus(Mockito.any(TGetTablesParams.class), Mockito.eq(false));
             Mockito.verify(service, Mockito.times(includeSchema ? expectedCatalogs.size() : 0))
-                    .describeTables(Mockito.any(TDescribeTablesParams.class));
+                    .describeTables(Mockito.any(TDescribeTablesParams.class), Mockito.eq(false));
         } finally {
             GlobalVariable.showFullDbNameInInfoSchemaDb = original;
         }

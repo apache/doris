@@ -243,7 +243,7 @@ public class FlightSqlSchemaHelper {
         // Flight SQL only consumes names and types, not the potentially expensive table statistics.
         getTablesParams.setRequiredColumns(Set.of("TABLE_NAME", "TABLE_TYPE"));
         getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
-        return impl.listTableStatus(getTablesParams);
+        return impl.listTableStatus(getTablesParams, false);
     }
 
     /**
@@ -258,7 +258,7 @@ public class FlightSqlSchemaHelper {
         }
         describeTablesParams.setTablesName(tablesName);
         describeTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
-        return impl.describeTables(describeTablesParams);
+        return impl.describeTables(describeTablesParams, false);
     }
 
     /**
