@@ -17,19 +17,13 @@
 
 #include "exprs/vmatch_predicate.h"
 
-#include <cstdint>
-
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-
 #include <fmt/format.h>
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/Exprs_types.h>
 #include <glog/logging.h>
 
 #include <boost/algorithm/string.hpp>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>

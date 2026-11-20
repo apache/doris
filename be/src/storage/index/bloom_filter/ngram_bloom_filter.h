@@ -41,22 +41,14 @@ public:
     bool contains(const BloomFilter& bf_) const override;
     Status init(const char* buf, size_t size, HashStrategyPB strategy) override;
     const char* data() const override { return reinterpret_cast<const char*>(filter.data()); }
-    size_t size() const override { return _size; }
+    size_t size() const override { return _filter_size; }
     void add_hash(uint64_t) override {}
     bool test_hash(uint64_t hash) const override { return true; }
     bool has_null() const override { return true; }
     bool is_ngram_bf() const override { return true; }
 
 private:
-// FIXME: non-static data member '_size' of 'NGramBloomFilter' shadows member inherited from type 'BloomFilter'
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#endif
-    size_t _size = 0;
-#ifdef __clang__
-#pragma clang diagnostic pop
-#endif
+    size_t _filter_size = 0;
     size_t words = 0;
     std::vector<uint64_t> filter;
 };
