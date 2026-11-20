@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <initializer_list>
 #include <memory>
@@ -28,13 +30,15 @@
 #include <vector>
 
 #include "core/block/block.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_nullable.h"
 #include "format_v2/blob/blob_test_util.h"
-#include "format_v2/blob/paimon_blob_column_reader.h"
+#include "format_v2/blob/paimon_blob_read_context.h"
+#include "format_v2/column_data.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "io/file_factory.h"
 #include "io/io_common.h"
-#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format::blob_test {
 
@@ -42,6 +46,20 @@ namespace doris::format::blob_test {
 class PaimonBlobTest : public ::testing::Test {
 protected:
     PaimonBlobTest() { _system_properties.system_type = TFileType::FILE_LOCAL; }
+
+    void SetUp() override {
+        auto pattern =
+                (std::filesystem::temp_directory_path() / "doris_paimon_blob_XXXXXX").string();
+        const auto* directory = mkdtemp(pattern.data());
+        ASSERT_NE(directory, nullptr);
+        _temp_directory = directory;
+    }
+
+    void TearDown() override {
+        std::error_code error;
+        std::filesystem::remove_all(_temp_directory, error);
+        EXPECT_FALSE(error) << error.message();
+    }
 
     TPaimonBlobFileDesc write_blob(const std::string& name, int32_t field_id, int64_t first_row_id,
                                    const std::vector<std::optional<std::string>>& payloads) {
@@ -52,7 +70,7 @@ protected:
     TPaimonBlobFileDesc write_blob_bytes(const std::string& name, int32_t field_id,
                                          int64_t first_row_id, int64_t row_count,
                                          const std::string& bytes) {
-        const auto path = (_temp_directory.path() / name).string();
+        const auto path = (_temp_directory / name).string();
         std::ofstream out(path, std::ios::binary);
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
         out.close();
@@ -85,7 +103,7 @@ protected:
         return column;
     }
 
-    paimon::PaimonBlobColumnReader::ReadContext read_context(int64_t max_size = 10485760) {
+    paimon::PaimonBlobReadContext read_context(int64_t max_size = 10485760) {
         return {.system_properties = _system_properties,
                 .runtime_state = nullptr,
                 .io_ctx = &_io_context,
@@ -149,7 +167,7 @@ protected:
         EXPECT_TRUE(fields[DataTypeFile::CHECKSUM_FIELD_INDEX].is_null());
     }
 
-    doris::test::ScopedTempDirectory _temp_directory {"paimon_blob"};
+    std::filesystem::path _temp_directory;
     io::FileSystemProperties _system_properties;
     io::IOContext _io_context;
     std::string _fs_name;

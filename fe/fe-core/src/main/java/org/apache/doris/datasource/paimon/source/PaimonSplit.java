@@ -44,6 +44,15 @@ public class PaimonSplit extends FileSplit {
     private Optional<Long> schemaId = Optional.empty();
     private Map<String, String> paimonPartitionValues = null;
     private List<TPaimonBlobFileDesc> blobFiles;
+    private List<Integer> blobDescriptorFieldIds;
+
+    public void setBlobDescriptorFieldIds(List<Integer> fieldIds) {
+        this.blobDescriptorFieldIds = fieldIds;
+    }
+
+    public List<Integer> getBlobDescriptorFieldIds() {
+        return blobDescriptorFieldIds;
+    }
     // Row origin and count of the complete Parquet anchor, shared by all its byte splits.
     private long anchorFirstRowId;
     private long anchorRowCount;

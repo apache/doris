@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format_v2/blob/blob_file_reader.h"
+#include "format_v2/blob/paimon_blob_file_reader.h"
 
 #include <gtest/gtest.h>
 
@@ -80,7 +80,7 @@ private:
     bool _closed = false;
 };
 
-TEST(BlobFileReaderTest, ReadsPaimon142WriterBytes) {
+TEST(PaimonBlobFileReaderTest, ReadsPaimon142WriterBytes) {
     // Generated with Paimon 1.4.2 BlobFormatWriter for ["hello", NULL, empty, 00FF].
     // Fixed bytes independently pin little-endian framing, CRC32 and NULL/empty index deltas.
     const std::string bytes = std::string(
@@ -92,14 +92,14 @@ TEST(BlobFileReaderTest, ReadsPaimon142WriterBytes) {
             64);
     EXPECT_EQ(bytes, make_blob_file({"hello", std::nullopt, "", std::string("\0\xff", 2)}));
     auto file = std::make_shared<MemoryBlobFile>(bytes);
-    BlobFileReader reader;
+    PaimonBlobFileReader reader;
     ASSERT_TRUE(reader.open(file, 4, nullptr).ok());
 
     // Descriptor access reads only the footer and index, never record bytes.
     ASSERT_EQ(file->read_requests.size(), 2);
     EXPECT_EQ(file->read_requests[0], std::make_pair(size_t {59}, size_t {5}));
     EXPECT_EQ(file->read_requests[1], std::make_pair(size_t {55}, size_t {4}));
-    std::optional<BlobFileReader::ByteRange> range;
+    std::optional<PaimonBlobFileReader::ByteRange> range;
     ASSERT_TRUE(reader.get_range(0, &range).ok());
     ASSERT_TRUE(range.has_value());
     EXPECT_EQ(range->offset, 4);
@@ -124,7 +124,7 @@ TEST(BlobFileReaderTest, ReadsPaimon142WriterBytes) {
     EXPECT_EQ(std::string(payload.data(), payload.size()), std::string("\0\xff", 2));
 }
 
-TEST(BlobFileReaderTest, BinaryPayloadsAndVarintLengthTransitions) {
+TEST(PaimonBlobFileReaderTest, BinaryPayloadsAndVarintLengthTransitions) {
     std::vector<std::optional<std::string>> values {std::nullopt, ""};
     for (const size_t size : {47, 48, 49, 111, 112, 113, 127, 128, 129, 8175, 8176, 8177}) {
         values.emplace_back(std::string(size, 'x'));
@@ -138,7 +138,7 @@ TEST(BlobFileReaderTest, BinaryPayloadsAndVarintLengthTransitions) {
     }
     values.emplace_back(all_bytes);
     values.emplace_back("你好Doris🌍");
-    BlobFileReader reader;
+    PaimonBlobFileReader reader;
     ASSERT_TRUE(reader.open(std::make_shared<MemoryBlobFile>(make_blob_file(values)),
                             static_cast<int64_t>(values.size()), nullptr)
                         .ok());
@@ -146,7 +146,7 @@ TEST(BlobFileReaderTest, BinaryPayloadsAndVarintLengthTransitions) {
     int64_t record_offset = 0;
     for (size_t row = 0; row < values.size(); ++row) {
         SCOPED_TRACE(row);
-        std::optional<BlobFileReader::ByteRange> range;
+        std::optional<PaimonBlobFileReader::ByteRange> range;
         ASSERT_TRUE(reader.get_range(static_cast<int64_t>(row), &range).ok());
         if (!values[row]) {
             EXPECT_FALSE(range.has_value());
@@ -161,15 +161,15 @@ TEST(BlobFileReaderTest, BinaryPayloadsAndVarintLengthTransitions) {
     }
 }
 
-TEST(BlobFileReaderTest, EmptyAndAllNullFiles) {
+TEST(PaimonBlobFileReaderTest, EmptyAndAllNullFiles) {
     for (const size_t row_count : {0, 4}) {
         SCOPED_TRACE(row_count);
         auto file = std::make_shared<MemoryBlobFile>(
                 make_blob_file(std::vector<std::optional<std::string>>(row_count)));
-        BlobFileReader reader;
+        PaimonBlobFileReader reader;
         ASSERT_TRUE(reader.open(file, static_cast<int64_t>(row_count), nullptr).ok());
         for (size_t row = 0; row < row_count; ++row) {
-            std::optional<BlobFileReader::ByteRange> range;
+            std::optional<PaimonBlobFileReader::ByteRange> range;
             ASSERT_TRUE(reader.get_range(static_cast<int64_t>(row), &range).ok());
             EXPECT_FALSE(range.has_value());
         }
@@ -177,14 +177,14 @@ TEST(BlobFileReaderTest, EmptyAndAllNullFiles) {
     }
 }
 
-TEST(BlobFileReaderTest, ReopeningClearsPreviousIndex) {
-    BlobFileReader reader;
+TEST(PaimonBlobFileReaderTest, ReopeningClearsPreviousIndex) {
+    PaimonBlobFileReader reader;
     ASSERT_TRUE(reader.open(std::make_shared<MemoryBlobFile>(make_blob_file({"old", "", "end"})), 3,
                             nullptr)
                         .ok());
     ASSERT_TRUE(reader.open(std::make_shared<MemoryBlobFile>(make_blob_file({"new"})), 1, nullptr)
                         .ok());
-    std::optional<BlobFileReader::ByteRange> range;
+    std::optional<PaimonBlobFileReader::ByteRange> range;
     EXPECT_TRUE(reader.get_range(1, &range).is<ErrorCode::CORRUPTION>());
     ASSERT_TRUE(reader.get_range(0, &range).ok());
     ASSERT_TRUE(range.has_value());
@@ -193,18 +193,18 @@ TEST(BlobFileReaderTest, ReopeningClearsPreviousIndex) {
     EXPECT_EQ(std::string(payload.data(), payload.size()), "new");
 }
 
-TEST(BlobFileReaderTest, RejectsOutOfBoundsRows) {
-    BlobFileReader reader;
+TEST(PaimonBlobFileReaderTest, RejectsOutOfBoundsRows) {
+    PaimonBlobFileReader reader;
     ASSERT_TRUE(
             reader.open(std::make_shared<MemoryBlobFile>(make_blob_file({"a"})), 1, nullptr).ok());
     for (const int64_t row : {int64_t {-1}, int64_t {1}, std::numeric_limits<int64_t>::max()}) {
-        std::optional<BlobFileReader::ByteRange> range;
+        std::optional<PaimonBlobFileReader::ByteRange> range;
         EXPECT_TRUE(reader.get_range(row, &range).is<ErrorCode::CORRUPTION>());
     }
 }
 
-TEST(BlobFileReaderTest, RejectsInvalidFileSizeAndRowCount) {
-    BlobFileReader reader;
+TEST(PaimonBlobFileReaderTest, RejectsInvalidFileSizeAndRowCount) {
+    PaimonBlobFileReader reader;
     EXPECT_TRUE(reader.open(nullptr, 1, nullptr).is<ErrorCode::CORRUPTION>());
     EXPECT_TRUE(reader.open(std::make_shared<MemoryBlobFile>("1234"), 0, nullptr)
                         .is<ErrorCode::CORRUPTION>());
@@ -212,42 +212,42 @@ TEST(BlobFileReaderTest, RejectsInvalidFileSizeAndRowCount) {
                         .is<ErrorCode::CORRUPTION>());
 }
 
-TEST(BlobFileReaderTest, RejectsUnknownVersion) {
+TEST(PaimonBlobFileReaderTest, RejectsUnknownVersion) {
     std::string bytes = make_blob_file({"a"});
     bytes.back() = '\2';
-    BlobFileReader reader;
+    PaimonBlobFileReader reader;
     const auto status = reader.open(std::make_shared<MemoryBlobFile>(bytes), 1, nullptr);
     EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
 }
 
-TEST(BlobFileReaderTest, RejectsInvalidIndexLength) {
+TEST(PaimonBlobFileReaderTest, RejectsInvalidIndexLength) {
     for (const uint32_t index_size : {0U, 100U, std::numeric_limits<uint32_t>::max()}) {
         SCOPED_TRACE(index_size);
         std::string bytes = make_blob_file({"a"});
         bytes.resize(bytes.size() - 5);
         blob_test::append_little_endian(&bytes, index_size, 4);
         bytes.push_back('\1');
-        BlobFileReader reader;
+        PaimonBlobFileReader reader;
         EXPECT_TRUE(reader.open(std::make_shared<MemoryBlobFile>(bytes), 1, nullptr)
                             .is<ErrorCode::CORRUPTION>());
     }
 }
 
-TEST(BlobFileReaderTest, RejectsTruncatedAndOverflowingVarints) {
+TEST(PaimonBlobFileReaderTest, RejectsTruncatedAndOverflowingVarints) {
     const std::vector<std::string> indexes {std::string(1, '\x80'), std::string(9, '\x80') + '\x02',
                                             std::string(10, '\x80')};
     for (const auto& index : indexes) {
-        BlobFileReader reader;
+        PaimonBlobFileReader reader;
         const auto status = reader.open(
                 std::make_shared<MemoryBlobFile>(finish_blob_file("", index)), 1, nullptr);
         EXPECT_TRUE(status.is<ErrorCode::CORRUPTION>()) << status;
     }
 }
 
-TEST(BlobFileReaderTest, RejectsInvalidRecordLengths) {
+TEST(PaimonBlobFileReaderTest, RejectsInvalidRecordLengths) {
     for (const int64_t length : {-2, 0, 15, 17}) {
         SCOPED_TRACE(length);
-        BlobFileReader reader;
+        PaimonBlobFileReader reader;
         const auto status =
                 reader.open(std::make_shared<MemoryBlobFile>(finish_blob_file(
                                     std::string(16, '\0'), encode_record_lengths({length}))),
@@ -257,37 +257,37 @@ TEST(BlobFileReaderTest, RejectsInvalidRecordLengths) {
     // The second delta would overflow the signed record length when added to the first.
     const std::string index = encode_record_lengths({16}) +
                               encode_record_lengths({std::numeric_limits<int64_t>::max()});
-    BlobFileReader reader;
+    PaimonBlobFileReader reader;
     EXPECT_TRUE(reader.open(std::make_shared<MemoryBlobFile>(
                                     finish_blob_file(std::string(16, '\0'), index)),
                             2, nullptr)
                         .is<ErrorCode::CORRUPTION>());
 }
 
-TEST(BlobFileReaderTest, RejectsManifestRowCountAndUnindexedData) {
+TEST(PaimonBlobFileReaderTest, RejectsManifestRowCountAndUnindexedData) {
     const auto bytes = make_blob_file({"a", std::nullopt, ""});
     for (const int64_t rows : {0, 2, 4}) {
-        BlobFileReader reader;
+        PaimonBlobFileReader reader;
         EXPECT_TRUE(reader.open(std::make_shared<MemoryBlobFile>(bytes), rows, nullptr)
                             .is<ErrorCode::CORRUPTION>());
     }
-    BlobFileReader reader;
+    PaimonBlobFileReader reader;
     EXPECT_TRUE(reader.open(std::make_shared<MemoryBlobFile>(finish_blob_file(
                                     std::string(17, '\0'), encode_record_lengths({16}))),
                             1, nullptr)
                         .is<ErrorCode::CORRUPTION>());
 }
 
-TEST(BlobFileReaderTest, ValidatesMagicStoredLengthPayloadAndChecksum) {
+TEST(PaimonBlobFileReaderTest, ValidatesMagicStoredLengthPayloadAndChecksum) {
     // Corrupt one field at a time. Opening and descriptor access still succeed: records
     // are deliberately read and validated only when inline output is requested.
     for (const size_t corrupt_offset : {0, 9, 4, 20}) {
         SCOPED_TRACE(corrupt_offset);
         auto bytes = make_blob_file({"hello"});
         bytes[corrupt_offset] ^= 1;
-        BlobFileReader reader;
+        PaimonBlobFileReader reader;
         ASSERT_TRUE(reader.open(std::make_shared<MemoryBlobFile>(bytes), 1, nullptr).ok());
-        std::optional<BlobFileReader::ByteRange> range;
+        std::optional<PaimonBlobFileReader::ByteRange> range;
         ASSERT_TRUE(reader.get_range(0, &range).ok());
         ASSERT_TRUE(range.has_value());
         PODArray<char> payload;
@@ -299,17 +299,17 @@ TEST(BlobFileReaderTest, ValidatesMagicStoredLengthPayloadAndChecksum) {
     }
 }
 
-TEST(BlobFileReaderTest, DetectsShortFooterIndexAndRecordReads) {
+TEST(PaimonBlobFileReaderTest, DetectsShortFooterIndexAndRecordReads) {
     const auto bytes = make_blob_file({"hello"});
     for (const size_t offset : {bytes.size() - 5, bytes.size() - 6, size_t {0}}) {
         SCOPED_TRACE(offset);
         auto file = std::make_shared<MemoryBlobFile>(bytes);
         file->short_read_offset = offset;
-        BlobFileReader reader;
+        PaimonBlobFileReader reader;
         auto status = reader.open(file, 1, nullptr);
         if (offset == 0) {
             ASSERT_TRUE(status.ok());
-            std::optional<BlobFileReader::ByteRange> range;
+            std::optional<PaimonBlobFileReader::ByteRange> range;
             ASSERT_TRUE(reader.get_range(0, &range).ok());
             ASSERT_TRUE(range.has_value());
             PODArray<char> payload;
@@ -320,11 +320,11 @@ TEST(BlobFileReaderTest, DetectsShortFooterIndexAndRecordReads) {
     }
 }
 
-TEST(BlobFileReaderTest, PropagatesReadErrorsAndCancellation) {
+TEST(PaimonBlobFileReaderTest, PropagatesReadErrorsAndCancellation) {
     const auto bytes = make_blob_file({"hello"});
     auto file = std::make_shared<MemoryBlobFile>(bytes);
     file->error_offset = bytes.size() - 5;
-    BlobFileReader reader;
+    PaimonBlobFileReader reader;
     EXPECT_TRUE(reader.open(file, 1, nullptr).is<ErrorCode::IO_ERROR>());
     io::IOContext context;
     context.should_stop = true;
@@ -332,15 +332,15 @@ TEST(BlobFileReaderTest, PropagatesReadErrorsAndCancellation) {
                         .is<ErrorCode::CANCELLED>());
 }
 
-TEST(BlobFileReaderTest, DescribesOversizedPayloadWithoutAllocatingIt) {
+TEST(PaimonBlobFileReaderTest, DescribesOversizedPayloadWithoutAllocatingIt) {
     const int64_t payload_size = int64_t {std::numeric_limits<int32_t>::max()} + 1;
     const auto record_size = static_cast<size_t>(payload_size + 16);
     // Only the tiny tail exists in memory. Any attempted payload read fails the fake reader.
     auto file = std::make_shared<MemoryBlobFile>(
             finish_blob_file("", encode_record_lengths({payload_size + 16})), record_size);
-    BlobFileReader reader;
+    PaimonBlobFileReader reader;
     ASSERT_TRUE(reader.open(file, 1, nullptr).ok());
-    std::optional<BlobFileReader::ByteRange> range;
+    std::optional<PaimonBlobFileReader::ByteRange> range;
     ASSERT_TRUE(reader.get_range(0, &range).ok());
     ASSERT_TRUE(range.has_value());
     EXPECT_EQ(range->offset, 4);

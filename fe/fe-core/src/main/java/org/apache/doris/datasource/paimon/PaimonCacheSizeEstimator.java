@@ -69,7 +69,7 @@ final class PaimonCacheSizeEstimator {
     // One schema/table-level entry: option map node, key list slot and boxes.
     private static final long OPTION_WEIGHT = 192L;
     private static final long KEY_WEIGHT = 192L;
-    // Wrapper tables (privileged, fallback-read) around the concrete FileStoreTable.
+    // Delegated tables (including fallback-read) around the concrete FileStoreTable.
     private static final long WRAPPER_WEIGHT = 512L;
     // Each concrete FileStoreTable strongly owns its FileIO graph (configuration, and for REST
     // catalogs the lazily fetched, periodically rotated vended token). Paimon's FileIO exposes
@@ -139,7 +139,7 @@ final class PaimonCacheSizeEstimator {
         return null;
     }
 
-    // Realistic wrapper chains (privileged, fallback-read) are one or two levels deep; the cap
+    // Realistic delegated table chains are one or two levels deep; the cap
     // only guards pathological chains from unbounded work or stack overflow before fail-closed.
     private static final int MAX_WRAPPER_DEPTH = 16;
 
