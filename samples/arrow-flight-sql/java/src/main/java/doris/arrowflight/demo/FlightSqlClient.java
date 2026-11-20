@@ -39,7 +39,7 @@ import java.util.List;
  * Manually execute Arrow Flight SQL Rpc process, usually used for debug.
  */
 public class FlightSqlClient {
-    public record FlightInfoResult<T, T2, T3>(T first, T2 second, T3 third) {
+    public record FlightInfoResult<T, T2, T3, T4>(T first, T2 second, T3 third, T4 fourth) {
     }
 
     public record DummyFlightInfoResult<T, T2>(T first, T2 second) {
@@ -47,11 +47,17 @@ public class FlightSqlClient {
 
     /**
      * Connect to FE Arrow Flight Server to obtain Bearertoken and execute Query to get Ticket.
+     * Also returns the FE client, on which a result the FE holds itself is read.
      */
-    public static FlightInfoResult<FlightInfo, CredentialCallOption, org.apache.arrow.flight.sql.FlightSqlClient.PreparedStatement> getFlightInfoFromDorisFe(
+    public static FlightInfoResult<FlightInfo, CredentialCallOption,
+            org.apache.arrow.flight.sql.FlightSqlClient.PreparedStatement,
+            org.apache.arrow.flight.sql.FlightSqlClient> getFlightInfoFromDorisFe(
             Configuration configuration) throws URISyntaxException {
         BufferAllocator allocatorFE = new RootAllocator(Integer.MAX_VALUE);
-        FlightClient clientFE = FlightClient.builder(allocatorFE, feLocation(configuration)).build();
+        final Location clientLocationFE = new Location(
+                new URI("grpc", null, configuration.ip, Integer.parseInt(configuration.arrowFlightPort),
+                        null, null, null));
+        FlightClient clientFE = FlightClient.builder(allocatorFE, clientLocationFE).build();
         org.apache.arrow.flight.sql.FlightSqlClient sqlClinetFE = new org.apache.arrow.flight.sql.FlightSqlClient(
                 clientFE);
 
@@ -62,30 +68,30 @@ public class FlightSqlClient {
                 configuration.sql,
                 credentialCallOption);
         final FlightInfo info = preparedStatement.execute(credentialCallOption);
-        return new FlightInfoResult<>(info, credentialCallOption, preparedStatement);
-    }
-
-    public static Location feLocation(Configuration configuration) throws URISyntaxException {
-        return new Location(new URI("grpc", null, configuration.ip, Integer.parseInt(configuration.arrowFlightPort),
-                null, null, null));
+        return new FlightInfoResult<>(info, credentialCallOption, preparedStatement, sqlClinetFE);
     }
 
     /**
      * Use the correct Bearertoken and the correct Ticket, and the expected return result is normal.
      * An endpoint with no location is a result the FE holds itself (a SHOW, a SET, ... under the FE config
-     * arrow_flight_fe_result_empty_location): it is redeemed on the FE that issued the ticket.
+     * arrow_flight_fe_result_empty_location): it is read on the FE client that issued the ticket, because a new
+     * connection to the same address can reach another FE (behind a load balancer, say), where the session and
+     * its bearer token do not exist.
      */
     public static void getResultFromDorisBe(FlightInfo info, Ticket ticket, CredentialCallOption credentialCallOption,
-            Location feLocation) throws Exception {
+            org.apache.arrow.flight.sql.FlightSqlClient sqlClientFE) throws Exception {
         final List<Location> locations = info.getEndpoints().get(0).getLocations();
-        final Location locationBE = locations.isEmpty() ? feLocation : locations.get(0);
-        // 连接 BE Arrow Flight Server
-        BufferAllocator allocatorBE = new RootAllocator(Integer.MAX_VALUE);
-        FlightClient clientBE = FlightClient.builder(allocatorBE, locationBE).build();
-        org.apache.arrow.flight.sql.FlightSqlClient sqlClinetBE = new org.apache.arrow.flight.sql.FlightSqlClient(
-                clientBE);
+        final org.apache.arrow.flight.sql.FlightSqlClient sqlClient;
+        if (locations.isEmpty()) {
+            sqlClient = sqlClientFE;
+        } else {
+            // 连接 BE Arrow Flight Server
+            BufferAllocator allocatorBE = new RootAllocator(Integer.MAX_VALUE);
+            FlightClient clientBE = FlightClient.builder(allocatorBE, locations.get(0)).build();
+            sqlClient = new org.apache.arrow.flight.sql.FlightSqlClient(clientBE);
+        }
 
-        FlightStream stream = sqlClinetBE.getStream(ticket, credentialCallOption);
+        FlightStream stream = sqlClient.getStream(ticket, credentialCallOption);
         int rowCount = 0;
         int batchCount = 0;
         while (stream.next()) {
@@ -128,14 +134,14 @@ public class FlightSqlClient {
             System.out.println("FlightSqlClient > getFlightInfoFromDorisFe");
             var flightInfo = getFlightInfoFromDorisFe(configuration);
             getResultFromDorisBe(flightInfo.first(), flightInfo.first().getEndpoints().get(0).getTicket(),
-                    flightInfo.second(), feLocation(configuration));
+                    flightInfo.second(), flightInfo.fourth());
             System.out.println();
 
             System.out.println(
                     "FlightSqlClient > constructDummyFlightInfo, don't be afraid! expected to get error `INVALID_ARGUMENT: Malformed ticket`");
             var dummyFlightInfo = constructDummyFlightInfo();
             getResultFromDorisBe(flightInfo.first(), dummyFlightInfo.first(), dummyFlightInfo.second(),
-                    feLocation(configuration));
+                    flightInfo.fourth());
             System.out.println();
 
             flightInfo.third().close(flightInfo.second());
