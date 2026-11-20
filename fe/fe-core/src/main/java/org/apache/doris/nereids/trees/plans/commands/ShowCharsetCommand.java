@@ -97,10 +97,9 @@ public class ShowCharsetCommand extends ShowCommand {
     }
 
     private List<List<String>> filterRows(ConnectContext ctx, StmtExecutor executor) throws UserException {
-        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(ctx.createInternalQueryContext());
-                StatementContext statementContext = ctx.getStatementContext()
-                        .createShowQueryContext(scope.connectContext)) {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(ctx.createInternalQueryContext())) {
             ConnectContext internalContext = scope.connectContext;
+            StatementContext statementContext = ctx.getStatementContext().createShowQueryContext(internalContext);
             internalContext.setStatementContext(statementContext);
 
             List<NamedExpression> projects = ImmutableList.of(
@@ -118,16 +117,18 @@ public class ShowCharsetCommand extends ShowCommand {
             StmtExecutor internalExecutor = new StmtExecutor(internalContext, adapter);
             internalContext.setExecutor(internalExecutor);
             executor.setCancelDelegate(internalExecutor::cancel);
-            // Publish the delegate before checking for cancellation that arrived before publication.
-            Status cancelReason = executor.getPendingCancelReason();
-            if (cancelReason != null) {
-                throw new UserException(cancelReason.getErrorMsg());
+            try {
+                // Publish the delegate before checking for cancellation that arrived before publication.
+                Status cancelReason = executor.getPendingCancelReason();
+                if (cancelReason != null) {
+                    throw new UserException(cancelReason.getErrorMsg());
+                }
+                return internalExecutor.executeInternalQuery().stream()
+                        .map(ResultRow::getValues)
+                        .collect(Collectors.toList());
+            } finally {
+                executor.clearCancelDelegate();
             }
-            return internalExecutor.executeInternalQuery().stream()
-                    .map(ResultRow::getValues)
-                    .collect(Collectors.toList());
-        } finally {
-            executor.clearCancelDelegate();
         }
     }
 

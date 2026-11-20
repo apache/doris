@@ -80,6 +80,14 @@ class MasterOpExecutorMetadataTest {
         ConnectContext.remove();
     }
 
+    @Test
+    void testGroupCommitUpdateLoadDataDoesNotWaitJournalReplay() throws Exception {
+        Mockito.when(client.forward(Mockito.any())).thenReturn(new TMasterOpResult().setMaxJournalId(456L));
+        MasterOpExecutor.updateLoadData(env, 1L, 2L);
+        Mockito.verify(client).forward(Mockito.any());
+        Mockito.verifyNoInteractions(journal);
+    }
+
     @ParameterizedTest
     @CsvSource({"false,0", "false,7", "true,0", "true,7"})
     void metadataRequestsKeepFieldsTimeoutAndCallerBinding(boolean sync, int userTimeoutS) throws Exception {

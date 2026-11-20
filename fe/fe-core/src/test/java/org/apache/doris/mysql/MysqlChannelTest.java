@@ -194,7 +194,7 @@ public class MysqlChannelTest {
             Assertions.assertThrows(IOException.class, channel::fetchOnePacket);
             Assertions.assertEquals(4, input.position());
             Mockito.verify(streamConnection.getSourceChannel()).read(ArgumentMatchers.any(ByteBuffer.class));
-            Assertions.assertTrue(receivingContext.isKilled());
+            Assertions.assertTrue(receivingContext.isClosingOrClosed());
             Mockito.verify(streamConnection).close();
             Assertions.assertNull(channel.fetchOnePacket());
             if (writeFails) {
@@ -223,7 +223,7 @@ public class MysqlChannelTest {
                 Assertions.assertEquals(fullLength + tailLength, packet.remaining());
                 Assertions.assertTrue(packet.capacity() <= maxLength);
                 Assertions.assertEquals(input.limit(), input.position());
-                Assertions.assertFalse(receivingContext.isKilled());
+                Assertions.assertFalse(receivingContext.isClosingOrClosed());
                 Mockito.verify(streamConnection, Mockito.never()).close();
                 continue;
             }
@@ -231,7 +231,7 @@ public class MysqlChannelTest {
             Assertions.assertEquals(fullLength + 8, input.position());
             Mockito.verify(streamConnection.getSourceChannel(), Mockito.times(3))
                     .read(ArgumentMatchers.any(ByteBuffer.class));
-            Assertions.assertTrue(receivingContext.isKilled());
+            Assertions.assertTrue(receivingContext.isClosingOrClosed());
             Mockito.verify(streamConnection).close();
             assertPacketTooLarge(3);
         }
@@ -246,7 +246,7 @@ public class MysqlChannelTest {
         handshake.setSequenceId(1);
         Assertions.assertEquals(ByteBuffer.wrap(handshakeRecord), handshake.fetchOnePacket());
         Assertions.assertEquals(1, handshake.sequenceId);
-        Assertions.assertFalse(receivingContext.isKilled());
+        Assertions.assertFalse(receivingContext.isClosingOrClosed());
         Assertions.assertEquals(0, response.size());
         Mockito.verify(streamConnection, Mockito.never()).close();
 

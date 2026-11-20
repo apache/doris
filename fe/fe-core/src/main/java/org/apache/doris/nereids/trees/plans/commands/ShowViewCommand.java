@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
@@ -111,18 +110,14 @@ public class ShowViewCommand extends ShowCommand {
     }
 
     private List<TableNameInfo> getTableNames(ConnectContext ctx, String sql) {
-        LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(sql);
-        StatementContext statementContext = new StatementContext(ctx,
-                new OriginStatement(sql, 0));
-        NereidsPlanner planner = new NereidsPlanner(statementContext);
-        if (ctx.getStatementContext() == null) {
-            ctx.setStatementContext(statementContext);
-        }
-        planner.planWithLock(unboundMvPlan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ANALYZED_PLAN);
-        LogicalPlan logicalPlan = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
-
-        return PlanUtils.getLogicalScanFromRootPlan(logicalPlan).stream()
-                .map(plan -> new TableNameInfo(plan.getTable().getFullQualifiers())).collect(Collectors.toList());
+        return StatementContext.withNestedStatement(ctx, sql, statement -> {
+            LogicalPlan plan = new NereidsParser().parseSingle(sql);
+            NereidsPlanner planner = new NereidsPlanner(statement);
+            planner.planWithLock(plan, PhysicalProperties.ANY, ExplainCommand.ExplainLevel.ANALYZED_PLAN);
+            LogicalPlan analyzed = (LogicalPlan) planner.getCascadesContext().getRewritePlan();
+            return PlanUtils.getLogicalScanFromRootPlan(analyzed).stream()
+                    .map(scan -> new TableNameInfo(scan.getTable().getFullQualifiers())).collect(Collectors.toList());
+        });
     }
 
     @Override

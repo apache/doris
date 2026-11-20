@@ -139,7 +139,7 @@ public class FlightSqlQueryCancellationTest {
             mocked.when(BackendServiceProxy::getInstance).thenReturn(proxy);
             ctx.addFlightSqlEndpointsLocation(endpoint(readAfterNextRequest));
             FlightSqlQueryCancellation.INSTANCE.register(ctx, coord);
-            adapter.beginRequest();
+            adapter.resetRequestState();
             Assertions.assertEquals(TStatusCode.OK,
                     FlightSqlQueryCancellation.INSTANCE.cancel(readAfterNextRequest).getStatusCode());
             ctx.addFlightSqlEndpointsLocation(endpoint(readAfterTeardown));

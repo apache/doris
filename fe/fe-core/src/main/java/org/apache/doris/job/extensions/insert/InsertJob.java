@@ -22,6 +22,7 @@ import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -50,7 +51,6 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
-import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TUniqueId;
@@ -142,6 +142,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     ConcurrentLinkedQueue<Long> historyTaskIdList = new ConcurrentLinkedQueue<>();
     @SerializedName("did")
     private final long dbId;
+    @SerializedName("catalog")
+    private String planCatalog;
     @SerializedName("ln")
     private String labelName;
     @SerializedName("lt")
@@ -165,8 +167,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     private Set<String> tableNames;
     private AuthorizationInfo authorizationInfo;
 
-    private ConnectContext ctx;
-    private StmtExecutor stmtExecutor;
     private List<ErrorTabletInfo> errorTabletInfos = new ArrayList<>();
     private List<TabletCommitInfo> commitInfos = new ArrayList<>();
 
@@ -248,18 +248,16 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     public InsertJob(ConnectContext ctx,
-                     StmtExecutor executor,
                      String labelName,
                      List<InsertIntoTableCommand> plans,
                      Set<String> sinkTableNames,
                      Map<String, String> properties,
                      String comment,
                      JobExecutionConfiguration jobConfig) {
-        super(getNextJobId(), labelName, JobStatus.RUNNING, null,
+        super(getNextJobId(), labelName, JobStatus.RUNNING, ctx.getDatabase(),
                 comment, ctx.getCurrentUserIdentity(), jobConfig);
-        this.ctx = ctx;
+        this.planCatalog = ctx.getDefaultCatalog();
         this.plans = plans;
-        this.stmtExecutor = executor;
         this.dbId = ctx.getCurrentDbId();
         this.labelName = labelName;
         this.tableNames = sinkTableNames;
@@ -275,12 +273,18 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
             newTasks.add(task);
         } else {
-            // use for load stmt
+            // Older LOAD jobs persisted the internal database id without its name or catalog.
+            String dbName = getCurrentDbName();
+            if (dbName == null) {
+                dbName = Env.getCurrentInternalCatalog().getDb(dbId).map(Database::getFullName).orElse("");
+            }
+            NameSpaceContext namespace = new NameSpaceContext(
+                    planCatalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : planCatalog, dbName, dbId);
             for (InsertIntoTableCommand logicalPlan : plans) {
                 if (!logicalPlan.getLabelName().isPresent()) {
                     throw new IllegalArgumentException("Load plan need label name.");
                 }
-                InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
+                InsertTask task = new InsertTask(logicalPlan, getCreateUser(), namespace, loadStatistic);
                 newTasks.add(task);
             }
         }

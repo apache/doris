@@ -112,6 +112,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.function.FailableFunction;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -490,6 +491,21 @@ public class StatementContext implements Closeable {
             }
         } else {
             this.sqlCacheContext = null;
+        }
+    }
+
+    /**
+     * Parse and plan one nested SQL definition on the caller's session. The parser and the planner must see the
+     * same statement while allocating expression IDs and acquiring resources. Only detached results may escape.
+     */
+    public static <T, E extends Exception> T withNestedStatement(ConnectContext session, String sql,
+            FailableFunction<StatementContext, T, E> action) throws E {
+        StatementContext previous = session.getStatementContext();
+        try (StatementContext statement = new StatementContext(session, new OriginStatement(sql, 0))) {
+            session.setStatementContext(statement);
+            return action.apply(statement);
+        } finally {
+            session.setStatementContext(previous);
         }
     }
 

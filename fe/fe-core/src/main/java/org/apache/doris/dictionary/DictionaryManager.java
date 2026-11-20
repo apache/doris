@@ -455,32 +455,33 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             Thread.sleep(10);
         }
 
-        // Scheduled loads own their session; a manual refresh borrows the command's session.
-        try (AutoCloseConnectContext scope = ctx == null ? new AutoCloseConnectContext(
-                InsertTask.makeConnectContext(UserIdentity.ADMIN, dictionary.getDbName())) : null) {
-            if (scope != null) {
-                ctx = scope.connectContext;
-            }
-
-            // not use rerfresh command's executor to avoid potential problems.
-            String insertSql = buildDataLoadSql(dictionary);
-            StmtExecutor executor = new StmtExecutor(ctx, insertSql);
-            NereidsParser parser = new NereidsParser();
-            InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
-            LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
-                    adaptiveLoad);
-            if (!baseCommand.getLabelName().isPresent()) {
-                baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
-            }
-            if (baseCommand.getJobId() == 0) {
-                baseCommand.setJobId(DICTIONARY_JOB_ID);
-            }
-
-            InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
-                    baseCommand, database, dictionary, adaptiveLoad);
-
-            // run with sync by status.
+        // A manual refresh uses the command's session. Only a scheduled refresh owns a new one.
+        AutoCloseConnectContext scope = null;
+        try {
             try {
+                if (ctx == null) {
+                    scope = new AutoCloseConnectContext(InsertTask.makeConnectContext(
+                            UserIdentity.ADMIN, dictionary.getDbName()));
+                    ctx = scope.connectContext;
+                }
+
+                // not use rerfresh command's executor to avoid potential problems.
+                String insertSql = buildDataLoadSql(dictionary);
+                StmtExecutor executor = new StmtExecutor(ctx, insertSql);
+                NereidsParser parser = new NereidsParser();
+                InsertIntoTableCommand baseCommand = (InsertIntoTableCommand) parser.parseSingle(insertSql);
+                LOG.info("Loading to dictionary {} with query {}. adaptive: {}", dictionary.getName(), ctx.queryId(),
+                        adaptiveLoad);
+                if (!baseCommand.getLabelName().isPresent()) {
+                    baseCommand.setLabelName(Optional.of(DICTIONARY_JOB_ID + "_" + ctx.queryId().toString()));
+                }
+                if (baseCommand.getJobId() == 0) {
+                    baseCommand.setJobId(DICTIONARY_JOB_ID);
+                }
+
+                InsertIntoDictionaryCommand command = new InsertIntoDictionaryCommand(
+                        baseCommand, database, dictionary, adaptiveLoad);
+
                 // avoid to generate EmptySetNode making us not able to get base table version.
                 ctx.getSessionVariable().setVarOnce(SessionVariable.DISABLE_NEREIDS_RULES,
                         "OLAP_SCAN_PARTITION_PRUNE,PRUNE_EMPTY_PARTITION");
@@ -579,6 +580,10 @@ public class DictionaryManager extends MasterDaemon implements Writable {
             }
             LOG.info("Dictionary {} refresh succeed. now version is {}. used src version {}", dictionary.getName(),
                     dictionary.getVersion(), ctx.getStatementContext().getDictionaryUsedSrcVersion());
+        } finally {
+            if (scope != null) {
+                scope.close();
+            }
         }
     }
 

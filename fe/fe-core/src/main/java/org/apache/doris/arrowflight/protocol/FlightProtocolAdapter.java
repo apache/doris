@@ -99,7 +99,7 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
 
     private final String peerIdentity;
     private final FlightSqlChannel channel;
-    // Only used by the session's execution owner; teardown does not touch it.
+    // Commands and session teardown access these handles under session execution ownership.
     private final Map<String, PreparedQuery> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> endpointsLocations = Lists.newArrayList();
@@ -281,6 +281,9 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      */
     @Override
     public void releaseSession(ConnectContext ctx) {
+        preparedQuerys.clear();
+        endpointsLocations.clear();
+        runningQuery = null;
         try {
             channel.close();
         } catch (Throwable t) {

@@ -293,34 +293,29 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
                 NereidsParser nereidsParser = new NereidsParser();
                 CreateMaterializedViewCommand command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
                         defineStmt.originStmt);
-                boolean tmpCreate = false;
                 ConnectContext ctx = ConnectContext.get();
-                try {
-                    if (ctx == null) {
-                        tmpCreate = true;
-                        ctx = ConnectContextUtil.getDummyCtx(dbName);
-                    } else {
-                        // may cause by org.apache.doris.alter.AlterJobV2.run
-                        if (ctx.getStatementContext() == null) {
-                            StatementContext statementContext = new StatementContext();
-                            statementContext.setConnectContext(ctx);
-                            ctx.setStatementContext(statementContext);
-                        }
-                        if (StringUtils.isEmpty(ctx.getDatabase())) {
-                            ctx.setDatabase(dbName);
-                        }
-                        if (ctx.getEnv() == null) {
-                            ctx.setEnv(Env.getCurrentEnv());
-                        }
-                        if (ctx.getCurrentUserIdentity() == null) {
-                            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-                        }
+                if (ctx == null) {
+                    ConnectContext privateContext = ConnectContextUtil.getDummyCtx(dbName);
+                    try {
+                        command.validate(privateContext);
+                    } finally {
+                        privateContext.cleanup();
+                    }
+                } else {
+                    // AlterJobV2 may supply a task context without planning state.
+                    if (ctx.getStatementContext() == null) {
+                        ctx.setStatementContext(new StatementContext(ctx, null));
+                    }
+                    if (StringUtils.isEmpty(ctx.getDatabase())) {
+                        ctx.setDatabase(dbName);
+                    }
+                    if (ctx.getEnv() == null) {
+                        ctx.setEnv(Env.getCurrentEnv());
+                    }
+                    if (ctx.getCurrentUserIdentity() == null) {
+                        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
                     }
                     command.validate(ctx);
-                } finally {
-                    if (tmpCreate) {
-                        ctx.cleanup();
-                    }
                 }
 
                 if (command.getWhereClauseItem() != null) {

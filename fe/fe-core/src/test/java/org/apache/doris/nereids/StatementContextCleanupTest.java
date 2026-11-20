@@ -35,6 +35,24 @@ import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
 public class StatementContextCleanupTest {
+    @Test
+    void nestedPlanningFailureClosesItsResourcesAndRestoresTheCaller() throws Exception {
+        ConnectContext session = Mockito.mock(ConnectContext.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doReturn(true).when(session).isReturnResultFromLocal();
+        StatementContext outer = new StatementContext(session, null);
+        session.setStatementContext(outer);
+        AutoCloseable resource = Mockito.mock(AutoCloseable.class);
+        IllegalStateException failure = new IllegalStateException("planning failed");
+        Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
+                () -> StatementContext.withNestedStatement(session, "select 1", child -> {
+                    Assertions.assertSame(child, session.getStatementContext());
+                    child.getOrCreateConnectorStatementScope().computeIfAbsent("nested", () -> resource);
+                    throw failure;
+                })));
+        Assertions.assertSame(outer, session.getStatementContext());
+        Mockito.verify(resource).close();
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     public void failedPlannerReleaseStillClosesOwnedExecutionResources(boolean deferred) throws Exception {

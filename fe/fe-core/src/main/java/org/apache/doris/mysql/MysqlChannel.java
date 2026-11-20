@@ -338,7 +338,7 @@ public class MysqlChannel implements BytesChannel {
     // NOTE: all of the following code is assumed that the channel is in block mode.
     // if in handshaking mode we return a packet with header otherwise without header.
     public ByteBuffer fetchOnePacket() throws IOException {
-        if (context.isKilled()) {
+        if (context.isClosingOrClosed()) {
             return null;
         }
         if (isSslHandshaking) {
@@ -431,8 +431,7 @@ public class MysqlChannel implements BytesChannel {
             try {
                 MysqlProto.sendResponsePacket(context);
             } finally {
-                context.setKilled();
-                close();
+                context.requestClose(ConnectContext.CloseMode.IMMEDIATE);
             }
             throw new IOException(message);
         }
@@ -489,8 +488,7 @@ public class MysqlChannel implements BytesChannel {
 
     private ConnectionException abortWrite(String message) {
         writeFailure = new ConnectionException(message);
-        context.setKilled();
-        close();
+        context.requestClose(ConnectContext.CloseMode.IMMEDIATE);
         return writeFailure;
     }
 

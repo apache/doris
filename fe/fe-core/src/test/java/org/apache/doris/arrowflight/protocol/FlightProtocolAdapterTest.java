@@ -695,6 +695,8 @@ public class FlightProtocolAdapterTest {
         FlightProtocolAdapter adapter = FlightProtocolAdapter.of(ctx);
         StmtExecutor before = Mockito.mock(StmtExecutor.class);
         StmtExecutor late = Mockito.mock(StmtExecutor.class);
+        FlightProtocolAdapter.PreparedQuery prepared =
+                new FlightProtocolAdapter.PreparedQuery("SELECT 1", null, "internal", "db");
         CountDownLatch commandStarted = new CountDownLatch(1);
         CountDownLatch closeRequested = new CountDownLatch(1);
         CountDownLatch published = new CountDownLatch(1);
@@ -708,8 +710,12 @@ public class FlightProtocolAdapterTest {
         try {
             Future<?> command = worker.submit(() -> {
                 adapter.runCommand(ctx, () -> {
+                    adapter.addPreparedQuery("handle", prepared);
+                    adapter.setRunningQuery("SELECT 1");
                     commandStarted.countDown();
                     Assertions.assertTrue(closeRequested.await(10, TimeUnit.SECONDS));
+                    Assertions.assertSame(prepared, adapter.getPreparedQuery("handle"));
+                    Assertions.assertEquals("SELECT 1", adapter.getRunningQuery());
                     ctx.addFlightSqlDeferredExecutor(late);
                     published.countDown();
                     Assertions.assertTrue(releaseCommand.await(10, TimeUnit.SECONDS));
@@ -735,6 +741,8 @@ public class FlightProtocolAdapterTest {
             Mockito.verify(before, Mockito.times(1)).finalizeArrowFlightQuery();
             Mockito.verify(late, Mockito.times(1)).finalizeArrowFlightQuery();
             Assertions.assertTrue(ctx.getFlightSqlDeferredExecutors().isEmpty());
+            Assertions.assertNull(adapter.getPreparedQuery("handle"));
+            Assertions.assertNull(adapter.getRunningQuery());
             Assertions.assertEquals(0, adapter.getChannel().getAllocatedMemory());
         } finally {
             closeRequested.countDown();

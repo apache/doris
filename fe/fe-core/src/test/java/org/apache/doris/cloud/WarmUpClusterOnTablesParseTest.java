@@ -67,10 +67,8 @@ public class WarmUpClusterOnTablesParseTest {
         originalSystemInfo = getField(env, Env.class, "systemInfo");
         connectContext = new ConnectContext();
         connectContext.setEnv(env);
-        // this test covers ON TABLES parsing and validation, not authorization, so give the
-        // context an identity and let it bypass the privilege checks in validate()
+        // Use the root identity for compute-group checks while testing ON TABLES validation.
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
-        connectContext.setNoAuth(true);
         connectContext.setSkipAuth(true);
         connectContext.setThreadLocalInfo();
     }
@@ -78,7 +76,7 @@ public class WarmUpClusterOnTablesParseTest {
     @AfterAll
     public static void tearDown() throws Exception {
         setField(env, Env.class, "systemInfo", originalSystemInfo);
-        ConnectContext.remove();
+        connectContext.cleanup();
     }
 
     private WarmUpClusterCommand parse(String sql) {

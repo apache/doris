@@ -174,7 +174,7 @@ public class AuthenticatedRolesMetadataTest extends TestWithFeService {
         ConnectContext forwarded = new ConnectContext();
         forwarded.setEnv(Env.getCurrentEnv());
         forwarded.setCurrentUserIdentityFromRpc(request);
-        InsertJob job = new InsertJob(forwarded, null, "metadata_role_job", Collections.emptyList(),
+        InsertJob job = new InsertJob(forwarded, "metadata_role_job", Collections.emptyList(),
                 Collections.emptySet(), Collections.emptyMap(), "", new JobExecutionConfiguration());
         ConnectContext.remove();
         try {

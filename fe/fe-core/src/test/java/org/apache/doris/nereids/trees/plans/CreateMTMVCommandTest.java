@@ -568,12 +568,16 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         CreateMTMVInfo info = Mockito.spy(((CreateMTMVCommand) plan).getCreateMTMVInfo());
         List<LogicalPlan> analyzeQueries = new ArrayList<>();
         List<StatementContext> statementContexts = new ArrayList<>();
+        AutoCloseable probeResource = Mockito.mock(AutoCloseable.class);
         Mockito.doAnswer(invocation -> {
             analyzeQueries.add(getLogicalQuery(info));
             statementContexts.add(connectContext.getStatementContext());
             if (info.isEnableIvm()) {
+                connectContext.getStatementContext().getOrCreateConnectorStatementScope()
+                        .computeIfAbsent("ivm probe", () -> probeResource);
                 throw new AnalysisException("mock plain analysis failure during IVM probe");
             }
+            Mockito.verify(probeResource).close();
             return invocation.callRealMethod();
         }).when(info).analyzeQuery(Mockito.any());
 

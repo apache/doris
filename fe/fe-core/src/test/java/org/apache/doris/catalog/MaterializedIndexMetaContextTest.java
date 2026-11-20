@@ -18,18 +18,41 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContextUtil;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TStorageType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
 class MaterializedIndexMetaContextTest {
+    @Test
+    void preservesFailureFromContextInitialization() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext.remove();
+        RuntimeException failure = new IllegalStateException("namespace lookup failed");
+        MaterializedIndexMeta index = new MaterializedIndexMeta(1, List.of(new Column("k", Type.INT)),
+                1, 0, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS,
+                new OriginStatement("create materialized view mv as select k from t", 0), List.of(), "db", Map.of());
+        try (MockedStatic<ConnectContextUtil> factory = Mockito.mockStatic(ConnectContextUtil.class)) {
+            factory.when(() -> ConnectContextUtil.getDummyCtx("db")).thenThrow(failure);
+            Assertions.assertSame(failure, Assertions.assertThrows(IOException.class, index::parseStmt).getCause());
+            Assertions.assertNull(ConnectContext.get());
+        } finally {
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
     @Test
     void indexWithoutDefinitionDoesNotCreateSessionForStoredVariables() throws Exception {
         ConnectContext previous = ConnectContext.get();

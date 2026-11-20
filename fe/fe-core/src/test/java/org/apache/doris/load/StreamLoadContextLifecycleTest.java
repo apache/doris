@@ -103,6 +103,24 @@ public class StreamLoadContextLifecycleTest {
     }
 
     @Test
+    public void requestInitializationFailureClosesTheOwnedContext() {
+        TStreamLoadPutRequest request = Mockito.spy(request());
+        RuntimeException failure = new IllegalStateException("request initialization failed");
+        AtomicReference<ConnectContext> initializing = new AtomicReference<>();
+        Mockito.doAnswer(invocation -> {
+            initializing.set(ConnectContext.get());
+            throw failure;
+        }).when(request).getBackendId();
+
+        try (StreamLoadHandler handler = new StreamLoadHandler(request, null, new TStreamLoadPutResult(), "local")) {
+            Assertions.assertSame(failure, Assertions.assertThrows(RuntimeException.class, handler::setCloudCluster));
+        }
+        Assertions.assertNotNull(initializing.get());
+        Assertions.assertTrue(initializing.get().isClosingOrClosed());
+        Assertions.assertNull(ConnectContext.get());
+    }
+
+    @Test
     public void borrowedMysqlLoadContextRemainsOpen() throws Exception {
         ConnectContext parent = new ConnectContext();
         parent.setThreadLocalInfo();

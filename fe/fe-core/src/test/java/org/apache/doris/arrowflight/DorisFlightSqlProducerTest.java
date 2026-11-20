@@ -723,6 +723,8 @@ public class DorisFlightSqlProducerTest {
         TUniqueId queryId = new TUniqueId(71L, 1L);
         TUniqueId resultId = new TUniqueId(71L, 2L);
         ConnectContext ctx = ConnectContext.forFlight("token");
+        StmtExecutor previous = Mockito.mock(StmtExecutor.class);
+        ctx.addFlightSqlDeferredExecutor(previous);
         ctx.addFlightSqlEndpointsLocation(FlightSqlQueryCancellationTest.endpoint(resultId));
         FlightSqlQueryCancellation.INSTANCE.register(queryId, ImmutableList.of(resultId),
                 ImmutableList.of(new TNetworkAddress("127.0.0.1", 8001)), 120);
@@ -735,11 +737,14 @@ public class DorisFlightSqlProducerTest {
             Assertions.assertThrows(FlightRuntimeException.class,
                     () -> producer.getFlightInfoStatement(request, callOf("token"),
                             FlightDescriptor.command(new byte[0])));
+            Assertions.assertEquals(ImmutableList.of(previous), ctx.getFlightSqlDeferredExecutors());
+            Mockito.verify(previous, Mockito.never()).cancel(Mockito.any(Status.class));
             Mockito.verify(cancelling, Mockito.never())
                     .cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.any(), Mockito.any());
             Assertions.assertEquals(TStatusCode.OK,
                     FlightSqlQueryCancellation.INSTANCE.cancel(resultId).getStatusCode());
         } finally {
+            ctx.cleanup();
             producer.close();
         }
     }

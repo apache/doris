@@ -49,7 +49,6 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.qe.AutoCloseConnectContext;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -67,6 +66,23 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     protected void runBeforeAll() throws Exception {
         super.runBeforeAll();
         Config.enable_table_stream = true;
+    }
+
+    @Test
+    void nestedDefinitionRestoresOuterStatementOnSuccessAndFailure() {
+        StatementContext original = connectContext.getStatementContext();
+        try (StatementContext outer = new StatementContext(connectContext, null)) {
+            connectContext.setStatementContext(outer);
+            Assertions.assertTrue(MTMVPlanUtil.getBaseTableFromQuery("select 1", connectContext)
+                    .containsOneRowRelation());
+            Assertions.assertSame(outer, connectContext.getStatementContext());
+
+            Assertions.assertThrows(AnalysisException.class, () -> MTMVPlanUtil.getBaseTableFromQuery(
+                    "select * from test.missing_nested_definition_table", connectContext));
+            Assertions.assertSame(outer, connectContext.getStatementContext());
+        } finally {
+            connectContext.setStatementContext(original);
+        }
     }
 
     @Test
@@ -523,20 +539,13 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         MTMV autoMtmv = (MTMV) db.getTableOrAnalysisException("mv_auto_refresh");
         MTMV incrementalMtmv = (MTMV) db.getTableOrAnalysisException("mv_incremental_refresh");
 
-        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
-                MTMVPlanUtil.createMTMVContext(autoMtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE))) {
-            ConnectContext autoCtx = scope.connectContext;
-            Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(autoMtmv, autoCtx));
-            Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
-                    autoCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
-        }
-
-        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
-                MTMVPlanUtil.createMTMVContext(incrementalMtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE))) {
-            ConnectContext incrementalCtx = scope.connectContext;
-            Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(incrementalMtmv, incrementalCtx));
-            Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
-                    incrementalCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        for (MTMV mtmv : Lists.newArrayList(autoMtmv, incrementalMtmv)) {
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                    MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE))) {
+                MTMVAnalyzeQueryInfo info = MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, scope.connectContext);
+                Assertions.assertNotNull(info.getIvmNormalizedPlan());
+                Assertions.assertNull(scope.connectContext.getStatementContext());
+            }
         }
     }
 

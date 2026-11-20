@@ -238,25 +238,25 @@ public class IndexChangeJob implements Writable {
      *      db lock
      */
     public synchronized void run() {
-        try (AutoCloseConnectContext scope = setCloudCluster()) {
-            if (isTimeout()) {
-                cancelImpl("Timeout");
-                return;
-            }
-            try {
-                switch (jobState) {
-                    case WAITING_TXN:
+        if (isTimeout()) {
+            cancelImpl("Timeout");
+            return;
+        }
+        try {
+            switch (jobState) {
+                case WAITING_TXN:
+                    try (AutoCloseConnectContext scope = setCloudCluster()) {
                         runWaitingTxnJob();
-                        break;
-                    case RUNNING:
-                        runRunningJob();
-                        break;
-                    default:
-                        break;
-                }
-            } catch (AlterCancelException e) {
-                cancelImpl(e.getMessage());
+                    }
+                    break;
+                case RUNNING:
+                    runRunningJob();
+                    break;
+                default:
+                    break;
             }
+        } catch (AlterCancelException e) {
+            cancelImpl(e.getMessage());
         }
     }
 

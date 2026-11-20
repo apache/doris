@@ -229,9 +229,10 @@ import javax.annotation.Nullable;
  * wait_timeout to interrupt the socket. A draining Flight session also obeys wait_timeout while DoGet
  * owns execution; result continuations never renew that bound. The checker nonblockingly borrows
  * execution to expire local results and deferred queries, then its yield can finalize a drained session.
- * Expiry cannot close Arrow buffers concurrently with DoGet. KILL QUERY and query timeout retain
- * the session: their query-owned cancellation handles must keep a stable target and support concurrent termination,
- * rather than rereading the session's current query identity. Safe final release requires the request
+ * Expiry cannot close Arrow buffers concurrently with DoGet. KILL QUERY and query timeout target
+ * one execution. A reusable transport stays open. MySQL closes a transport if it can no longer
+ * establish the packet boundary. Query-owned cancellation handles must keep their original target
+ * across concurrent termination and subsequent commands. Safe final release requires the request
  * and the close interruption to return; GC and forced release cannot replace either responsibility.
  */
 public class ConnectContext {
@@ -305,8 +306,6 @@ public class ConnectContext {
     protected volatile long currentDbId = -1;
     // Transaction
     protected volatile TransactionEntry txnEntry = null;
-    // used for ShowSqlAction which don't allow a user account
-    protected volatile boolean noAuth = false;
     // LDAP authenticated but the Doris account does not exist,
     // set the flag, and the user login Doris as Temporary user.
     protected volatile boolean isTempUser = false;
@@ -531,7 +530,6 @@ public class ConnectContext {
             state = new QueryState();
             returnRows = 0;
             resetSessionVariable();
-            userVars = new HashMap<>();
             command = MysqlCommand.COM_SLEEP;
 
             sessionId = UUID.randomUUID().toString();
@@ -832,14 +830,6 @@ public class ConnectContext {
 
     public Env getEnv() {
         return env;
-    }
-
-    public boolean getNoAuth() {
-        return noAuth;
-    }
-
-    public void setNoAuth(boolean noAuth) {
-        this.noAuth = noAuth;
     }
 
     public String getQualifiedUser() {

@@ -641,12 +641,6 @@ public class Auth implements Writable {
             PrivPredicate wanted, ResourceTypeEnum type) {
         readLock();
         try {
-            ConnectContext ctx = ConnectContext.get();
-            if (ctx != null) {
-                if (ctx.getNoAuth()) {
-                    return true;
-                }
-            }
             Set<Role> roles = getRolesByUserWithLdap(currentUser);
             PrivBitSet savedPrivs = PrivBitSet.of();
             for (Role role : roles) {

@@ -127,13 +127,12 @@ public class StreamLoadHandler implements AutoCloseable {
         if (LOG.isDebugEnabled()) {
             LOG.debug("stream load put request: {}", ThriftLogHelper.requestForLog(request));
         }
-        // create connect context
-        ConnectContext ctx = new ConnectContext();
+        contextScope = new AutoCloseConnectContext(new ConnectContext());
+        ConnectContext ctx = contextScope.connectContext;
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQueryId(request.getLoadId());
         ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
         ctx.setBackendId(request.getBackendId());
-        contextScope = new AutoCloseConnectContext(ctx);
 
         if (!Config.isCloudMode()) {
             return;

@@ -18,7 +18,6 @@
 package org.apache.doris.load;
 
 import org.apache.doris.analysis.OutFileClause;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -27,11 +26,13 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Status;
 import org.apache.doris.load.ExportFailMsg.CancelType;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
@@ -55,21 +56,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ExportTaskExecutor implements TransientTaskExecutor {
     private static final Logger LOG = LogManager.getLogger(ExportTaskExecutor.class);
 
-    Optional<StatementBase> selectStmt;
+    private final Optional<LogicalPlan> outfilePlan;
 
     ExportJob exportJob;
 
     Long taskId;
 
-    private StmtExecutor stmtExecutor;
+    private volatile StmtExecutor stmtExecutor;
 
     private AtomicBoolean isCanceled;
 
     private AtomicBoolean isFinished;
 
-    ExportTaskExecutor(Optional<StatementBase> selectStmt, ExportJob exportJob) {
+    ExportTaskExecutor(Optional<LogicalPlan> outfilePlan, ExportJob exportJob) {
         this.taskId = UUID.randomUUID().getMostSignificantBits();
-        this.selectStmt = selectStmt;
+        this.outfilePlan = outfilePlan;
         this.exportJob = exportJob;
         this.isCanceled = new AtomicBoolean(false);
         this.isFinished = new AtomicBoolean(false);
@@ -90,7 +91,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         LOG.debug("[Export Task] taskId: {} updating state to EXPORTING", taskId);
         exportJob.updateExportJobState(ExportJobState.EXPORTING, taskId, null, null, null);
         List<OutfileInfo> outfileInfoList = Lists.newArrayList();
-        if (selectStmt.isPresent()) {
+        if (outfilePlan.isPresent()) {
             if (isCanceled.get()) {
                 LOG.debug("[Export Task] taskId: {} canceled during execution", taskId);
                 throw new JobException("Export executor has been canceled, task id: {}", taskId);
@@ -108,9 +109,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                     LOG.debug("[Export Lock] taskId: {}, table: {} acquired readLock", taskId, table.getName());
                     try {
                         List<Long> tabletIds;
-                        LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) selectStmt.get();
-                        Optional<UnboundRelation> unboundRelation = findUnboundRelation(
-                                logicalPlanAdapter.getLogicalPlan());
+                        Optional<UnboundRelation> unboundRelation = findUnboundRelation(outfilePlan.get());
                         tabletIds = unboundRelation.get().getTabletIds();
 
                         for (Long tabletId : tabletIds) {
@@ -150,8 +149,20 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
 
             try (AutoCloseConnectContext r = buildConnectContext()) {
                 LOG.debug("[Export Task] taskId: {} executing", taskId);
-                stmtExecutor = new StmtExecutor(r.connectContext, selectStmt.get());
-                stmtExecutor.execute();
+                OriginStatement origin = new OriginStatement("", 0);
+                LogicalPlanAdapter statement = new LogicalPlanAdapter(outfilePlan.get(),
+                        new StatementContext(r.connectContext, origin));
+                statement.setOrigStmt(origin);
+                StmtExecutor executor = new StmtExecutor(r.connectContext, statement);
+                stmtExecutor = executor;
+                try {
+                    // cancel() may have arrived before the worker published its executor.
+                    if (!isCanceled.get()) {
+                        executor.execute();
+                    }
+                } finally {
+                    stmtExecutor = null;
+                }
                 if (r.connectContext.getState().getStateType() == MysqlStateType.ERR) {
                     LOG.debug("[Export Task] taskId: {} failed with MySQL error: {}", taskId,
                             r.connectContext.getState().getErrorMessage());
@@ -160,7 +171,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                     return;
                 }
                 LOG.debug("[Export Task] taskId: {} executed successfully", taskId);
-                outfileInfoList = getOutFileInfo(stmtExecutor.getResultAttachedInfo());
+                outfileInfoList = getOutFileInfo(executor.getResultAttachedInfo());
             } catch (Exception e) {
                 LOG.debug("[Export Task] taskId: {} failed with exception: {}",
                         taskId, e.getMessage(), e);
@@ -184,17 +195,18 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         if (isFinished.get()) {
             throw new JobException("Export executor has finished, task id: {}", taskId);
         }
-        isCanceled.getAndSet(true);
-        if (stmtExecutor != null) {
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "export task cancelled"));
+        isCanceled.set(true);
+        StmtExecutor executor = stmtExecutor;
+        if (executor != null) {
+            executor.cancel(new Status(TStatusCode.CANCELLED, "export task cancelled"));
         }
     }
 
     private AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
         try {
-            exportJob.getSessionVariables().setQueryTimeoutS(exportJob.getTimeoutSecond());
             connectContext.setSessionVariable(VariableMgr.cloneSessionVariable(exportJob.getSessionVariables()));
+            connectContext.getSessionVariable().setQueryTimeoutS(exportJob.getTimeoutSecond());
             // The rollback to the old optimizer is prohibited
             // Since originStmt is empty, reverting to the old optimizer is meaningless.
             connectContext.setEnv(Env.getCurrentEnv());

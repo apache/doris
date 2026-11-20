@@ -28,8 +28,10 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -92,20 +94,41 @@ public class BackgroundJobContextLifecycleTest {
         job.setCloudClusterName("cluster");
         AtomicReference<ConnectContext> execution = new AtomicReference<>();
         StatementContext statement = Mockito.mock(StatementContext.class);
+        Mockito.doReturn(exit == Exit.EARLY_RETURN).when(job).isTimeout();
+        Mockito.doReturn(true).when(job).cancelImpl(Mockito.anyString());
         Mockito.doAnswer(invocation -> {
             execution.set(ConnectContext.get());
             execution.get().setStatementContext(statement);
-            return exit == Exit.EARLY_RETURN;
-        }).when(job).isTimeout();
-        Mockito.doReturn(true).when(job).cancelImpl(Mockito.anyString());
-        if (exit == Exit.FAILURE) {
-            Mockito.doThrow(new AlterCancelException("job failed")).when(job).runWaitingTxnJob();
-        } else {
-            Mockito.doNothing().when(job).runWaitingTxnJob();
-        }
+            if (exit == Exit.FAILURE) {
+                throw new AlterCancelException("job failed");
+            }
+            return null;
+        }).when(job).runWaitingTxnJob();
         job.run();
         Mockito.verify(job, Mockito.times(exit == Exit.SUCCESS ? 0 : 1)).cancelImpl(Mockito.anyString());
-        assertContextReleased(execution.get(), statement);
+        if (exit == Exit.EARLY_RETURN) {
+            Assertions.assertNull(execution.get());
+            Assertions.assertSame(parent, ConnectContext.get());
+        } else {
+            assertContextReleased(execution.get(), statement);
+        }
+    }
+
+    @Test
+    public void runningIndexJobPollsExistingTasksWithoutCreatingAContext() throws Exception {
+        IndexChangeJob job = Mockito.spy(new IndexChangeJob(1, 2, 3, "table", Long.MAX_VALUE, 0,
+                Collections.emptyList(), Collections.emptyList()));
+        job.setJobState(IndexChangeJob.JobState.RUNNING);
+        job.setCloudClusterName("cluster");
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertSame(parent, ConnectContext.get());
+            return null;
+        }).when(job).runRunningJob();
+        try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class)) {
+            job.run();
+            Mockito.verify(job).runRunningJob();
+            Assertions.assertTrue(contexts.constructed().isEmpty());
+        }
     }
 
     private void assertContextReleased(ConnectContext execution, StatementContext statement) {
