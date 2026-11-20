@@ -263,6 +263,23 @@ TEST_F(CdcClientMgrTest, StartCdcClientMultipleTimes) {
     EXPECT_EQ(mgr.get_child_pid(), pid_after_first); // PID should not change!
 }
 
+TEST_F(CdcClientMgrTest, MockStartPreservesSigchldHandler) {
+    struct sigaction original_action {};
+    ASSERT_EQ(sigaction(SIGCHLD, nullptr, &original_action), 0);
+
+    CdcClientMgr mgr;
+    PRequestCdcClientResult result;
+    ASSERT_TRUE(mgr.start_cdc_client(&result).ok());
+    EXPECT_GT(mgr.get_child_pid(), 0);
+
+    struct sigaction current_action {};
+    ASSERT_EQ(sigaction(SIGCHLD, nullptr, &current_action), 0);
+    // Restore the original action even if this check detects a regression.
+    ASSERT_EQ(sigaction(SIGCHLD, &original_action, nullptr), 0);
+    EXPECT_EQ(current_action.sa_handler, original_action.sa_handler);
+    EXPECT_EQ(current_action.sa_flags, original_action.sa_flags);
+}
+
 // Test destructor calls stop
 TEST_F(CdcClientMgrTest, DestructorCallsStop) {
     {
