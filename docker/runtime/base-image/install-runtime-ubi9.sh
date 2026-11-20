@@ -24,7 +24,7 @@ microdnf "${repositories[@]}" update -y
 microdnf "${repositories[@]}" install -y --setopt=install_weak_deps=0 \
     bash ca-certificates curl-minimal findutils fontconfig gawk glibc-langpack-en \
     grep gzip hostname iproute iputils jq libstdc++ mysql net-tools numactl \
-    openssl openssl-libs procps-ng sed tar tzdata util-linux wget which
+    openssl openssl-libs procps-ng sed shadow-utils tar tzdata util-linux wget which
 
 # UBI Minimal keeps tzdata in the RPM database but removes its zoneinfo files.
 # Installing an already-current RPM does not restore them; BE needs the files.

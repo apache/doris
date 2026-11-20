@@ -33,17 +33,29 @@ FROM ${BASE_IMAGE}
 ARG TARGETARCH
 
 ARG DORIS_VERSION="x.x.x"
+ARG DORIS_UID=10001
+ARG DORIS_GID=10001
 
+RUN groupadd --gid "${DORIS_GID}" doris && \
+    useradd --uid "${DORIS_UID}" --gid "${DORIS_GID}" --create-home --shell /bin/bash doris
+
+ENV HOME=/home/doris
 
 # set environment variables
 ENV JAVA_HOME=/usr/lib/jvm/java
 ENV PATH=$PATH:$JAVA_HOME/bin:/opt/apache-doris/ms/bin
 
-COPY resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/ms /opt/apache-doris/ms
+COPY --chown=${DORIS_UID}:${DORIS_GID} resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/ms /opt/apache-doris/ms
 
 COPY resource/ms_*.sh /opt/apache-doris/
 
 #RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+RUN mkdir -p /opt/apache-doris/ms/log && \
+    chown "${DORIS_UID}:${DORIS_GID}" /opt/apache-doris /opt/apache-doris/ms/log && \
+    ln -sf /opt/apache-doris/ms/conf/krb5.conf /etc/krb5.conf
+
+USER ${DORIS_UID}:${DORIS_GID}
 
 WORKDIR /opt/apache-doris
 
