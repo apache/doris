@@ -283,10 +283,13 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
                 || Boolean.TRUE.equals(index.getBoolean("hidden")) || index.containsKey("buildUUID")) {
             return false;
         }
-        // A wildcard suffix can make a compound index sparse without an explicit sparse flag.
-        // It cannot establish complete range-index coverage, even with an ordinary leading key.
-        if (keys.keySet().stream().anyMatch(key -> "$**".equals(key) || key.endsWith(".$**"))) {
-            return false;
+        // A TEXT suffix makes prefix inequalities unusable; wildcard suffixes can also make
+        // coverage incomplete without sparse:true. Only ordinary B-tree components qualify.
+        for (var entry : keys.entrySet()) {
+            if ("$**".equals(entry.getKey()) || entry.getKey().endsWith(".$**")
+                    || !(entry.getValue() instanceof Number value) || Math.abs(value.doubleValue()) != 1) {
+                return false;
+            }
         }
         Document collation = index.get("collation", Document.class);
         return collation == null || "simple".equals(collation.getString("locale"));

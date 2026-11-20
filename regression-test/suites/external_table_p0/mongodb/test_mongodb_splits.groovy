@@ -40,15 +40,19 @@ suite("test_mongodb_splits", "p0,external") {
     manifest["doris_mongodb_splits.predicate_records"] = [columns: [
         [name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"],
         [name: "text", path: ["text"], bson_types: ["string"], doris_type: "STRING"]]]
-    for (String name : ["compound_wildcard_records", "wildcard_only_records"]) {
+    for (String name : ["compound_wildcard_records", "wildcard_only_records", "compound_text_records",
+            "text_only_records", "pool_records"]) {
         manifest["doris_mongodb_splits.${name}"] = [columns: [
             [name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"]]]
     }
-    def create = { String catalog, String policy ->
+    manifest["doris_mongodb_splits.pool_records"] = [columns: [
+        [name: "seq", path: ["seq"], bson_types: ["long"], doris_type: "BIGINT"],
+        [name: "payload", path: ["payload"], bson_types: ["string"], doris_type: "STRING"]]]
+    def create = { String catalog, String policy, int pool = 8 ->
         sql "DROP CATALOG IF EXISTS ${catalog}"
         def properties = ["type": "mongodb", "mongodb.uri": uri, "mongodb.databases": "doris_mongodb_splits",
             "mongodb.schema.mode": "explicit", "mongodb.schema": groovy.json.JsonOutput.toJson(manifest),
-            "mongodb.type_mismatch": policy, "mongodb.read_concern": "snapshot"]
+            "mongodb.type_mismatch": policy, "mongodb.read_concern": "snapshot", "mongodb.pool_max_clients": pool]
         String values = properties.collect { key, value ->
             "'${key}'='${value.toString().replace("\\", "\\\\").replace("'", "\\'")}'"
         }.join(",")
@@ -146,6 +150,25 @@ suite("test_mongodb_splits", "p0,external") {
             file_split_size=1,max_file_split_num=8) */ count(*),sum(seq)
             FROM ${namespace}.predicate_records WHERE text='${literal}'"""
         for (boolean streaming : [false, true]) {
+            for (String name : ["compound_text_records", "text_only_records"]) {
+                def baseline = sql "SELECT seq FROM ${namespace}.${name} ORDER BY seq"
+                String strategy = name == "text_only_records" ? "auto" : "range"
+                def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='${strategy}',
+                    mongodb_split_field='split_key',file_split_size=1,max_file_split_num=8,
+                    enable_external_table_batch_mode=${streaming}) */ seq
+                    FROM ${namespace}.${name} ORDER BY seq"""
+                assertEquals(baseline, parallel)
+                String plan = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='${strategy}'," +
+                    "mongodb_split_field='split_key',file_split_size=1,max_file_split_num=8," +
+                    "enable_external_table_batch_mode=${streaming}) */ seq FROM ${namespace}.${name}").toString()
+                assertTrue(plan.contains(name == "text_only_records" ? "reason: missing_index" : "MongoDB splits: range;"))
+            }
+            test {
+                sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',mongodb_split_field='split_key',
+                    file_split_size=1,max_file_split_num=8,enable_external_table_batch_mode=${streaming}) */
+                    count(*) FROM ${namespace}.text_only_records"""
+                exception "missing_index"
+            }
             "qt_wildcard_regular_${streaming}" """SELECT /*+ SET_VAR(mongodb_split_strategy='range',
                 mongodb_split_field='split_key',file_split_size=1,max_file_split_num=8,
                 enable_external_table_batch_mode=${streaming}) */ count(*),sum(seq)
@@ -160,6 +183,20 @@ suite("test_mongodb_splits", "p0,external") {
                     count(*) FROM ${namespace}.wildcard_only_records"""
                 exception "missing_index"
             }
+        }
+        create("mongodb_splits_join_pool", "null", 2)
+        String joinTable = "mongodb_splits_join_pool.doris_mongodb_splits.pool_records"
+        for (boolean streaming : [false, true]) {
+            def baseline = sql """SELECT count(*),sum(l.seq),sum(length(l.payload)),sum(length(r.payload))
+                FROM ${joinTable} l JOIN [broadcast] ${joinTable} r ON l.seq=r.seq"""
+            def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,
+                max_file_split_num=2,max_file_scanners_concurrency=2,min_file_scanners_concurrency=2,
+                enable_adaptive_scan=false,parallel_pipeline_task_num=1,runtime_filter_mode='OFF',
+                enable_external_scan_task_reuse=false,scan_queue_mem_limit=10485760,query_timeout=30,
+                enable_external_table_batch_mode=${streaming}) */
+                count(*),sum(l.seq),sum(length(l.payload)),sum(length(r.payload))
+                FROM ${joinTable} l JOIN [broadcast] ${joinTable} r ON l.seq=r.seq"""
+            assertEquals(baseline, parallel)
         }
         qt_statement_restored "SELECT @@mongodb_split_strategy,length(@@mongodb_split_field)"
     } finally {

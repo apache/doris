@@ -65,9 +65,10 @@ def schema():
                              f"DECIMAL({precision},{scale})", ["decimal"], ["amount"]))
     manifest = {DATABASE + "." + name: {"columns": columns}
                 for name in COLLECTIONS + ["record_view", "measurements"]}
-    for name in ["compound_wildcard_records", "wildcard_only_records"]:
+    for name in ["compound_wildcard_records", "wildcard_only_records", "compound_text_records", "text_only_records"]:
         manifest[DATABASE + "." + name] = {"columns": [field("seq", "BIGINT", ["long"])]}
-    manifest[DATABASE + ".pool_records"] = {"columns": [field("seq", "BIGINT", ["long"])]}
+    manifest[DATABASE + ".pool_records"] = {"columns": [field("seq", "BIGINT", ["long"]),
+                                                       field("payload", "STRING", ["string"])]}
     manifest[DATABASE + ".predicate_records"] = {"columns": [
         field("seq", "BIGINT", ["long"]), field("text", "STRING", ["string"])]}
     return json.dumps(manifest)
@@ -164,7 +165,15 @@ def initialize(source, shards=None):
         database[name].create_index([("split_key", 1), ("payload.$**", 1)], name="compound_wildcard")
         if name == "compound_wildcard_records":
             database[name].create_index([("split_key", 1), ("suffix", 1)], name="regular_split")
-    database.pool_records.insert_many([{"_id": Int64(index), "seq": Int64(index)}
+    for name in ["compound_text_records", "text_only_records"]:
+        database[name].with_options(write_concern=WriteConcern("majority")).insert_many([
+            {"_id": Int64(index), "seq": Int64(index), "split_key": Int64(index), "body": "searchable text"}
+            for index in range(ROWS)])
+        # MongoDB reports _fts:"text" after the numeric prefix, without sparse:true.
+        database[name].create_index([("split_key", 1), ("body", "text")], name="compound_text")
+        if name == "compound_text_records":
+            database[name].create_index([("split_key", 1), ("suffix", -1)], name="regular_split")
+    database.pool_records.insert_many([{"_id": Int64(index), "seq": Int64(index), "payload": "x" * 2048}
                                        for index in range(POOL_ROWS)])
     database.predicate_records.insert_many([
         {"_id": Int64(1), "seq": Int64(1), "text": "v" * 60000},
@@ -744,6 +753,31 @@ def worker_pool_case(uri, catalog):
     print("PASS: a one-worker group and one-client pool finish multi-batch range scans in both planning modes", flush=True)
 
 
+def join_pool_case(uri, catalog):
+    create_catalog(catalog, uri, pool=2)
+    namespace = catalog + "." + DATABASE + ".pool_records"
+    expected = ((POOL_ROWS, POOL_ROWS * (POOL_ROWS - 1) // 2, POOL_ROWS * 2048, POOL_ROWS * 2048),)
+    for streaming in [False, True]:
+        for strategy in ["single", "range"]:
+            token = "join-pool-" + uuid.uuid4().hex
+            # Wide source rows fill the probe queue before EOF. Otherwise the probe can return
+            # both pool leases before its consumer blocks on the build, hiding the cycle.
+            statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='" + strategy + "',file_split_size=1,"
+                         "max_file_split_num=2,max_file_scanners_concurrency=2,min_file_scanners_concurrency=2,"
+                         "enable_adaptive_scan=false,parallel_pipeline_task_num=1,runtime_filter_mode='OFF',"
+                         "enable_external_scan_task_reuse=false,scan_queue_mem_limit=10485760,query_timeout=30,"
+                         "enable_external_table_batch_mode=" + str(streaming).lower() + ") */ /* " + token + " */ "
+                         "count(*),sum(l.seq),sum(length(l.payload)),sum(length(r.payload)) FROM "
+                         + namespace + " l JOIN [broadcast] " + namespace + " r ON l.seq=r.seq")
+            assert snapshot_checks.sql(statement) == expected
+            _, text = profile(token)
+            counts = re.findall(r"MongoSplitActual:\s*(\d+)", text)
+            assert counts and set(map(int, counts)) == ({2} if strategy == "range" else {1})
+            scanners = re.findall(r"NumScanners:\s*(\d+)", text)
+            assert scanners and set(map(int, scanners)) == ({2} if strategy == "range" else {1})
+    print("PASS: dependency-blocked probe scans cannot exhaust a two-client pool before the build", flush=True)
+
+
 def pool_case(source, uri, catalog):
     create_catalog(catalog, uri, pool=1)
     statement = "SELECT /*+ SET_VAR(batch_size=16) */ sum(seq) FROM " + catalog + "." + DATABASE + ".integer_records"
@@ -832,6 +866,7 @@ def main():
         if not args.oracle_only:
             planning_regressions(sources[0], args.catalog_prefix + "_rs")
             worker_pool_case(readers[0], args.catalog_prefix + "_worker")
+            join_pool_case(readers[0], args.catalog_prefix + "_join")
             range_fault_cases(sources[0], args.catalog_prefix + "_rs")
             pool_case(sources[0], readers[0], args.catalog_prefix + "_pool")
         cursors_closed(sources)
