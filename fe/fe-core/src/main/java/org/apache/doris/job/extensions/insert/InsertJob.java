@@ -379,9 +379,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             task.setJobId(getJobId());
             task.setTaskId(loadJob.getId());
             task.setJobInfo(loadJob);
-            task.setJobId(getJobId());
-            task.setTaskId(loadJob.getId());
-            task.setJobInfo(loadJob);
             tasksRsp.add(task);
         });
         return tasksRsp;
