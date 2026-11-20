@@ -42,8 +42,7 @@ namespace doris {
 Status validate_iceberg_deletion_vector_read_range(int64_t offset, int64_t size,
                                                    size_t& bytes_read);
 
-Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t length,
-                                                  size_t& bytes_read);
+Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t size);
 
 Status validate_delta_deletion_vector_read_range(int64_t offset, int32_t size_in_bytes,
                                                  size_t& bytes_read);
@@ -59,6 +58,7 @@ struct DeleteFileDesc {
     std::string path = "";
     std::string fs_name = "";
     int64_t start_offset = 0;
+    // Paimon bitmap32 descriptor length excludes the length prefix and checksum.
     int64_t size = 0;
     int64_t file_size = -1;
     int64_t modification_time = 0;
@@ -96,6 +96,8 @@ public:
     DeletionVectorReader(const DeletionVectorReader&) = delete;
     DeletionVectorReader& operator=(const DeletionVectorReader&) = delete;
     Status open();
+    size_t file_size() const { return _file_reader->size(); }
+    Status validate_file_range(size_t offset, size_t size) const;
     Status read_at(size_t offset, Slice result);
 
     // These are deliberately exposed separately from the decoded-DV cache counters. Local I/O is

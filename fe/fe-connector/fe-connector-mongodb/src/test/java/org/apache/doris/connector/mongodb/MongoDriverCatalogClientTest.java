@@ -19,13 +19,19 @@ package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
 
+import com.mongodb.ClientSessionOptions;
 import com.mongodb.MongoCommandException;
 import com.mongodb.ServerAddress;
+import com.mongodb.client.ClientSession;
+import com.mongodb.client.FindIterable;
 import com.mongodb.client.ListCollectionsIterable;
 import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.internal.operation.BatchCursor;
 import com.mongodb.internal.operation.ListCollectionsOperation;
+import org.bson.BsonTimestamp;
 import org.bson.Document;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -193,4 +199,150 @@ class MongoDriverCatalogClientTest {
         }
     }
 
+    private static final class SnapshotDriver {
+        final RecordingDriver proxies = new RecordingDriver();
+        BsonTimestamp time = new BsonTimestamp(123, 456);
+        Document projection;
+        long timeout;
+        int limit;
+        int batchSize;
+        int sessionsClosed;
+        int cursorsClosed;
+        boolean fail;
+        boolean empty;
+
+        MongoClient client() {
+            ClientSession session = proxies.proxy(ClientSession.class, (p, method, args) -> {
+                switch (method.getName()) {
+                    case "close":
+                        Assertions.assertEquals(1, cursorsClosed);
+                        sessionsClosed++;
+                        return null;
+                    case "getSnapshotTimestamp":
+                        return time;
+                    default:
+                        throw new UnsupportedOperationException(method.getName());
+                }
+            });
+            MongoCursor<?> cursor = proxies.proxy(MongoCursor.class, (p, method, args) -> {
+                if (method.getName().equals("close")) {
+                    cursorsClosed++;
+                    return null;
+                }
+                if (method.getName().equals("hasNext")) {
+                    if (fail) {
+                        throw new MongoCommandException(new Document("ok", 0).append("code", 239)
+                                .append("errmsg", "fixture-secret").toBsonDocument(), new ServerAddress());
+                    }
+                    return !empty;
+                }
+                throw new UnsupportedOperationException(method.getName());
+            });
+            FindIterable<?> find = proxies.proxy(FindIterable.class, (p, method, args) -> {
+                switch (method.getName()) {
+                    case "projection":
+                        projection = (Document) args[0];
+                        return p;
+                    case "limit":
+                        limit = (int) args[0];
+                        return p;
+                    case "batchSize":
+                        batchSize = (int) args[0];
+                        return p;
+                    case "iterator":
+                        return cursor;
+                    default:
+                        throw new UnsupportedOperationException(method.getName());
+                }
+            });
+            MongoCollection<?> collection = proxies.proxy(MongoCollection.class, (p, method, args) -> {
+                if (method.getName().equals("find")) {
+                    Assertions.assertSame(session, args[0]);
+                    return find;
+                }
+                if (method.getName().equals("withReadPreference")) {
+                    return p;
+                }
+                throw new UnsupportedOperationException(method.getName());
+            });
+            MongoDatabase database = proxies.proxy(MongoDatabase.class, (p, method, args) -> {
+                if (method.getName().startsWith("withRead")) {
+                    return p;
+                }
+                if (method.getName().equals("withTimeout")) {
+                    timeout = (long) args[0];
+                    return p;
+                }
+                if (method.getName().equals("getCollection")) {
+                    return collection;
+                }
+                throw new UnsupportedOperationException(method.getName());
+            });
+            return proxies.proxy(MongoClient.class, (p, method, args) -> {
+                if (method.getName().equals("startSession")) {
+                    var options = (ClientSessionOptions) args[0];
+                    Assertions.assertFalse(options.isCausallyConsistent());
+                    Assertions.assertTrue(options.isSnapshot());
+                    return session;
+                }
+                if (method.getName().equals("getDatabase")) {
+                    return database;
+                }
+                if (method.getName().equals("close")) {
+                    return null;
+                }
+                throw new UnsupportedOperationException(method.getName());
+            });
+        }
+
+        MongoDriverCatalogClient catalog() {
+            return new MongoDriverCatalogClient(client(), MongoCatalogProperties.of(
+                    Map.of("mongodb.uri", "mongodb://localhost:27017")), proxies::execute);
+        }
+    }
+
+    @Test
+    void snapshotProbeClosesServerBoundCursorBeforeItsSessionEvenForEmptyCollections() {
+        for (boolean empty : List.of(false, true)) {
+            SnapshotDriver driver = new SnapshotDriver();
+            driver.empty = empty;
+            try (var catalog = driver.catalog()) {
+                Assertions.assertEquals(driver.time, catalog.selectSnapshot("sample", "records", "primary", 1000));
+                Assertions.assertEquals(1, driver.limit);
+                Assertions.assertEquals(1, driver.batchSize);
+                Assertions.assertEquals(new Document("_id", 0).append("__doris_snapshot_probe__",
+                        new Document("$literal", 1)), driver.projection);
+                Assertions.assertTrue(driver.timeout > 0 && driver.timeout <= 1000);
+                Assertions.assertEquals(1, driver.cursorsClosed);
+                Assertions.assertEquals(1, driver.sessionsClosed);
+            }
+        }
+    }
+
+    @Test
+    void snapshotSelectionFailureClosesCursorAndSessionAndKeepsOnlyStableErrorCode() {
+        SnapshotDriver driver = new SnapshotDriver();
+        driver.fail = true;
+        try (var catalog = driver.catalog()) {
+            var error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> catalog.selectSnapshot("sample", "records", "primary", 1000));
+            Assertions.assertTrue(error.getMessage().contains("239"));
+            Assertions.assertFalse(error.getMessage().contains("fixture-secret"));
+            Assertions.assertNull(error.getCause());
+            Assertions.assertEquals(1, driver.cursorsClosed);
+            Assertions.assertEquals(1, driver.sessionsClosed);
+        }
+    }
+
+    @Test
+    void snapshotProbeRequiresTheDriverSnapshotTimeWithoutSubstitutingOtherClockFields() {
+        SnapshotDriver driver = new SnapshotDriver();
+        driver.time = null;
+        try (var catalog = driver.catalog()) {
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> catalog.selectSnapshot("sample", "records", "primary", 1000));
+            Assertions.assertEquals(1, driver.cursorsClosed);
+            Assertions.assertEquals(1, driver.sessionsClosed);
+        }
+    }
 }

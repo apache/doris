@@ -19,7 +19,9 @@
 
 #include <sstream>
 
+#include "exprs/vexpr_context.h"
 #include "format_v2/column_mapper.h"
+#include "format_v2/predicate_snapshot.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/tracing_file_reader.h"
 #include "runtime/runtime_state.h"
@@ -42,6 +44,22 @@ std::string join_debug_strings(const std::vector<T>& values, Formatter formatter
 }
 
 } // namespace
+
+std::optional<uint64_t> PredicateSnapshot::digest() const {
+    std::call_once(_digest_once, [this] {
+        // Independent of the optional Condition Cache seed; zero disables adaptive sharing for
+        // predicates whose full semantics cannot be represented. Cache that outcome as well.
+        uint64_t digest = 0xcbf29ce484222325ULL;
+        for (const auto& conjunct : _conjuncts) {
+            digest = conjunct->get_digest(digest);
+            if (digest == 0) {
+                return;
+            }
+        }
+        _digest = digest;
+    });
+    return _digest;
+}
 
 std::string FileScanRequest::debug_string() const {
     std::ostringstream out;
@@ -79,7 +97,10 @@ std::string FileScanRequest::debug_string() const {
     } else {
         out << "nullopt";
     }
-    out << ", conjunct_count=" << conjuncts.size()
+    out << ", conjunct_count=" << conjuncts.size() << ", residual_predicate_columns="
+        << join_debug_strings(
+                   residual_predicate_columns,
+                   [](LocalColumnId column_id) { return std::to_string(column_id.value()); })
         << ", metadata_pruning_safe_conjunct_count=" << metadata_pruning_safe_conjunct_count
         << ", constant_pruning_safe_table_filter_count=" << constant_pruning_safe_table_filter_count
         << ", delete_conjunct_count=" << delete_conjuncts.size() << ", variant_schema_overrides="

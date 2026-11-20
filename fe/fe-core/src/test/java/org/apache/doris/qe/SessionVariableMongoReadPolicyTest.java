@@ -59,7 +59,7 @@ class SessionVariableMongoReadPolicyTest {
             set(variables, "mongodb_read_preference", value);
             Assertions.assertEquals(value, VariableMgr.toMap(variables).get("mongodb_read_preference"));
         }
-        for (String value : List.of("inherit", "local", "majority", "available", "LOCAL", "INHERIT")) {
+        for (String value : List.of("inherit", "local", "majority", "available", "snapshot", "SNAPSHOT", "LOCAL", "INHERIT")) {
             set(variables, "mongodb_read_concern", value);
             Assertions.assertEquals(value, VariableMgr.toMap(variables).get("mongodb_read_concern"));
         }
@@ -74,7 +74,7 @@ class SessionVariableMongoReadPolicyTest {
         for (String value : List.of("", "invalid", "secondary_preferred", " primary")) {
             Assertions.assertThrows(DdlException.class, () -> set(variables, "mongodb_read_preference", value));
         }
-        for (String value : List.of("", "snapshot", "linearizable", "unknown", " local")) {
+        for (String value : List.of("", "linearizable", "unknown", " local")) {
             Assertions.assertThrows(DdlException.class, () -> set(variables, "mongodb_read_concern", value));
         }
         Assertions.assertEquals("inherit", VariableMgr.toMap(variables).get("mongodb_read_preference"));

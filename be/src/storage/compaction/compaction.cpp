@@ -451,17 +451,51 @@ Status Compaction::prepare_merge_input_rowsets_execution(MergeInputRowsetsContex
     ctx.input_rs_readers = context->input_rs_readers;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
-    // write merged rows to output rowset
-    // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
-    // A non-empty index compaction set (per-column for V2/V3, per-index for
-    // SNII) means inverted index compaction runs and needs the row ID
-    // conversion matrix.
-    if (!ctx.columns_to_do_index_compaction.empty() || !ctx.snii_indexes_to_do_compaction.empty() ||
-        (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-         _tablet->enable_unique_key_merge_on_write())) {
-        _stats.rowid_conversion = _rowid_conversion.get();
-    }
+    prepare_rowid_conversion(ctx);
     return Status::OK();
+}
+
+void Compaction::prepare_rowid_conversion(const RowsetWriterContext& ctx) {
+    // Both MoW delete bitmaps and postings compaction (including Duplicate Key SNII)
+    // need the mapping. Other compactions do not allocate it at all.
+    const bool needs_mapping = !ctx.columns_to_do_index_compaction.empty() ||
+                               !ctx.snii_indexes_to_do_compaction.empty() ||
+                               (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                                _tablet->enable_unique_key_merge_on_write());
+    if (!needs_mapping) return;
+
+    auto mode = should_compress_rowid_conversion(ctx) ? RowIdConversion::Mode::COMPRESSED
+                                                      : RowIdConversion::Mode::DENSE;
+    _rowid_conversion->set_mode(mode);
+    _stats.rowid_conversion = _rowid_conversion.get();
+    _profile->add_info_string("RowIdConversion",
+                              mode == RowIdConversion::Mode::COMPRESSED ? "COMPRESSED" : "DENSE");
+}
+
+bool Compaction::should_compress_rowid_conversion(const RowsetWriterContext& ctx) const {
+    // CLucene and the legacy debug dump consume a dense matrix.
+    if (!config::enable_compressed_rowid_conversion ||
+        !ctx.columns_to_do_index_compaction.empty() || config::debug_inverted_index_compaction) {
+        return false;
+    }
+    // Cluster-key and sequence-map readers can revisit source rows, whereas this
+    // codec seals blocks during forward scans.
+    if (!_cur_tablet_schema->cluster_key_uids().empty() || _cur_tablet_schema->has_seq_map()) {
+        return false;
+    }
+    // The reader registers every physical row of each data input rowset, including
+    // deleted rows. Whole rowsets removed by changelog TTL have no mapping.
+    // Compare in rows to avoid overflowing rows * 8: at threshold 16, two rows
+    // stay dense and a third selects compression, even if all three are deleted.
+    uint64_t remaining_rows =
+            cast_set<uint64_t>(config::compressed_rowid_conversion_threshold_bytes) /
+            sizeof(RowIdConversion::RowIdPair);
+    for (const auto& rowset : _data_input_rowsets) {
+        uint64_t rows = cast_set<uint64_t>(rowset->num_rows());
+        if (rows > remaining_rows) return true;
+        remaining_rows -= rows;
+    }
+    return false;
 }
 
 Status Compaction::execute_merge_input_rowsets(MergeInputRowsetsContext* context) {
@@ -470,6 +504,21 @@ Status Compaction::execute_merge_input_rowsets(MergeInputRowsetsContext* context
         // 1. Merge segment files and write bkd inverted index
         if (!context->input_rs_readers.empty()) {
             RETURN_IF_ERROR(do_merge_input_rowsets(context->input_rs_readers, &context->result));
+            if (_stats.rowid_conversion != nullptr &&
+                _stats.rowid_conversion->mode() == RowIdConversion::Mode::COMPRESSED) {
+                std::vector<uint32_t> destination_rows;
+                RETURN_IF_ERROR(_output_rs_writer->get_segment_num_rows(&destination_rows));
+                RETURN_IF_ERROR(_stats.rowid_conversion->finalize(destination_rows));
+            }
+            if (_stats.rowid_conversion != nullptr) {
+                // Finalized storage excludes compression builders/workspaces, source identity
+                // indexes, visibility sets, consumer cursors and allocator overhead.
+                size_t storage_bytes = _stats.rowid_conversion->memory_usage();
+                _profile->add_info_string(
+                        "RowIdConversionStorage",
+                        fmt::format("{} ({} bytes)", PrettyPrinter::print_bytes(storage_bytes),
+                                    storage_bytes));
+            }
             // 2. Merge the remaining inverted index files of the string type
             RETURN_IF_ERROR(do_inverted_index_compaction());
         }
@@ -1105,14 +1154,6 @@ Status Compaction::do_inverted_index_compaction() {
     OlapStopWatch inverted_watch;
     ThreadCpuStopWatch inverted_cpu_watch(true);
 
-    // translation vec
-    // <<dest_idx_num, dest_docId>>
-    // the first level vector: index indicates src segment.
-    // the second level vector: index indicates row id of source segment,
-    // value indicates row id of destination segment.
-    // <UINT32_MAX, UINT32_MAX> indicates current row not exist.
-    const auto& trans_vec = _stats.rowid_conversion->get_rowid_conversion_map();
-
     // source rowset,segment -> index_id
     const auto& src_seg_to_id_map = _stats.rowid_conversion->get_src_segment_to_id_map();
 
@@ -1162,7 +1203,9 @@ Status Compaction::do_inverted_index_compaction() {
 
     // Only write info files when debug index compaction is enabled.
     // The files are used to debug index compaction and works with index_tool.
-    if (config::debug_inverted_index_compaction) {
+    if (config::debug_inverted_index_compaction &&
+        _stats.rowid_conversion->mode() == RowIdConversion::Mode::DENSE) {
+        const auto& trans_vec = _stats.rowid_conversion->get_rowid_conversion_map();
         // src index files
         // format: rowsetId_segmentId
         std::vector<std::string> src_index_files(src_segment_num);
@@ -1400,8 +1443,8 @@ Status Compaction::do_inverted_index_compaction() {
                     }
                     if (merge_status.ok()) {
                         merge_status = snii::compaction::ValidatedRowIdConversion::create(
-                                &trans_vec, source_segment_doc_counts, dest_segment_num_rows,
-                                &validated_snii_rowid_conversion);
+                                _stats.rowid_conversion, source_segment_doc_counts,
+                                dest_segment_num_rows, &validated_snii_rowid_conversion);
                         if (merge_status.ok()) {
                             DBUG_EXECUTE_IF("Compaction::snii_validated_rowid_conversion_created",
                                             DBUG_RUN_CALLBACK());
@@ -1517,7 +1560,9 @@ Status Compaction::do_inverted_index_compaction() {
                     dest_index_dirs[dest_segment_pos] = res.value().get();
                 }
                 auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
-                                         index_tmp_path.native(), trans_vec, dest_segment_num_rows);
+                                         index_tmp_path.native(),
+                                         _stats.rowid_conversion->get_rowid_conversion_map(),
+                                         dest_segment_num_rows);
                 if (!st.ok()) {
                     error_handler(index_meta->index_id(), column_uniq_id);
                     status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
@@ -2032,10 +2077,10 @@ Status CompactionMixin::modify_rowsets() {
         // of incremental data later.
         // TODO(LiaoXin): check if there are duplicate keys
         std::size_t missed_rows_size = 0;
-        tablet()->calc_compaction_output_rowset_delete_bitmap(
+        RETURN_IF_ERROR(tablet()->calc_compaction_output_rowset_delete_bitmap(
                 _input_rowsets, _output_rowset, *_rowid_conversion, 0, version.second + 1,
                 missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
-                &output_rowset_delete_bitmap);
+                &output_rowset_delete_bitmap));
         if (missed_rows) {
             missed_rows_size = missed_rows->size();
             // Bitmap conversion excludes the exact source rows removed by visibility filtering,
@@ -2136,10 +2181,10 @@ Status CompactionMixin::modify_rowsets() {
                     continue;
                 }
                 DeleteBitmap txn_output_delete_bitmap(_tablet->tablet_id());
-                tablet()->calc_compaction_output_rowset_delete_bitmap(
+                RETURN_IF_ERROR(tablet()->calc_compaction_output_rowset_delete_bitmap(
                         _input_rowsets, _output_rowset, *_rowid_conversion, 0, UINT64_MAX,
                         missed_rows.get(), location_map.get(), *it.delete_bitmap.get(),
-                        &txn_output_delete_bitmap);
+                        &txn_output_delete_bitmap));
                 if (config::enable_merge_on_write_correctness_check) {
                     RowsetIdUnorderedSet rowsetids;
                     rowsetids.insert(_output_rowset->rowset_id());
@@ -2157,10 +2202,10 @@ Status CompactionMixin::modify_rowsets() {
 
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
-            tablet()->calc_compaction_output_rowset_delete_bitmap(
+            RETURN_IF_ERROR(tablet()->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _output_rowset, *_rowid_conversion, version.second, UINT64_MAX,
                     missed_rows.get(), location_map.get(), _tablet->tablet_meta()->delete_bitmap(),
-                    &output_rowset_delete_bitmap);
+                    &output_rowset_delete_bitmap));
 
             if (location_map) {
                 RETURN_IF_ERROR(tablet()->check_rowid_conversion(_output_rowset, *location_map));

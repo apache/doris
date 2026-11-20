@@ -72,6 +72,8 @@ suite("test_iceberg_missing_data_file",
         client.shutdown()
     }
 
+    // The refinement planner must honor the same Iceberg missing-file policy as ordinary reads.
+    sql "set max_file_scanners_concurrency = 16"
     sql "set enable_file_cache = false"
     sql "set enable_sql_cache = false"
     sql "set enable_query_cache = false"

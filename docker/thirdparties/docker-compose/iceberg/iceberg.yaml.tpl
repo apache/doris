@@ -288,6 +288,10 @@ services:
     volumes:
       - ./data:/mnt/data
       - ./scripts/preinstalled_data/:/mnt/preinstalled_data
+    # The lance fixture is mirrored, not copied: this bucket is not recreated between runs, and a
+    # Lance dataset or Directory catalog names its version files u64::MAX - version so that a listing
+    # returns the newest first, so a leftover file from an earlier fixture would win over the one just
+    # published. --remove makes the prefix match the committed fixture exactly.
     entrypoint: >
       /bin/sh -c "
       until (/usr/bin/mc config host add minio http://minio:9000 admin password) do echo '...waiting...' && sleep 1; done;
@@ -299,6 +303,7 @@ services:
         /usr/bin/mc policy set public minio/warehouse;
         /usr/bin/mc cp -r /mnt/data/input/minio/warehouse/* minio/warehouse/;
       fi;
+      /usr/bin/mc mirror --overwrite --remove /mnt/preinstalled_data/lance/ minio/warehouse/lance/;
       /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/;
       /usr/bin/mc cp -r /mnt/preinstalled_data/paimon/ minio/warehouse/wh/;
       "

@@ -43,6 +43,21 @@ import java.util.Optional;
 public class IcebergScanRangeTest {
 
     @Test
+    public void onlyOrdinaryDeleteFreeRangesSupportBeRefinement() {
+        IcebergScanRange normal = new IcebergScanRange.Builder().path("s3://b/data.parquet").build();
+        Assertions.assertTrue(normal.supportsBeSplitRefinement());
+        Assertions.assertFalse(new IcebergScanRange.Builder().path("s3://b/data.parquet")
+                .deleteFiles(Collections.singletonList(IcebergScanRange.DeleteFile.positionDelete("s3://b/delete.parquet",
+                        TFileFormatType.FORMAT_PARQUET, 0L, 1L, 10L)))
+                .build().supportsBeSplitRefinement());
+        Assertions.assertFalse(new IcebergScanRange.Builder().path("/dummyPath")
+                .serializedSplit("system-task").build().supportsBeSplitRefinement());
+        Assertions.assertFalse(new IcebergScanRange.Builder().path("s3://b/delete.parquet")
+                .positionDeleteSysTableSplit(1, TFileFormatType.FORMAT_PARQUET, "s3://b/delete.parquet")
+                .build().supportsBeSplitRefinement());
+    }
+
+    @Test
     public void metadataTasksUseTaskIdentityAndNativeRangesKeepFileIdentity() {
         IcebergScanRange first = new IcebergScanRange.Builder().path("/dummyPath")
                 .serializedSplit("task-a").build();

@@ -152,6 +152,86 @@ public class IcebergScanPlanProviderTest {
     Path tempDir;
 
     @Test
+    public void selectFeSplitSizeRetainsLegacySizeForDeleteFilesAndUnsupportedFormats() throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        DataFile file = dataFile(table.spec(), "s3://b/db/t1/data.parquet", 96L << 20, null, null);
+        table.newAppend().appendFile(file).commit();
+        DeleteFile deletion = FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                .withPath("s3://b/db/t1/delete.parquet").withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(100).withRecordCount(1).build();
+        table.newRowDelta().addDeletes(deletion).commit();
+        try (org.apache.iceberg.io.CloseableIterable<org.apache.iceberg.FileScanTask> tasks =
+                table.newScan().planFiles()) {
+            org.apache.iceberg.FileScanTask task = tasks.iterator().next();
+            Assertions.assertFalse(task.deletes().isEmpty());
+            Assertions.assertEquals(16L << 20,
+                    IcebergScanPlanProvider.selectFeSplitSize(task, 16L << 20, 64L << 20));
+        }
+        Table avro = createTable("avro_table", SCHEMA, PartitionSpec.unpartitioned());
+        avro.newAppend().appendFile(DataFiles.builder(avro.spec()).withPath("s3://b/db/a.avro")
+                .withFormat(FileFormat.AVRO).withFileSizeInBytes(100).withRecordCount(1).build()).commit();
+        try (org.apache.iceberg.io.CloseableIterable<org.apache.iceberg.FileScanTask> tasks =
+                avro.newScan().planFiles()) {
+            Assertions.assertEquals(16L << 20,
+                    IcebergScanPlanProvider.selectFeSplitSize(tasks.iterator().next(), 16L << 20, 64L << 20));
+        }
+    }
+
+    @Test
+    public void coarseSizesOverrideLegacySplitSizeInSynchronousAndStreamingPlans() throws Exception {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        long mb = 1024L * 1024L;
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/big.parquet", 96 * mb,
+                null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC", Map.of(
+                "file_split_size", Long.toString(16 * mb), "enable_external_scan_task_reuse", "true"))
+                .withScope(new TestStatementScope());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList()).coarseSplitSize(64 * mb).build();
+        List<ConnectorScanRange> synchronous = provider.planScan(session, request);
+        List<ConnectorScanRange> streaming = new ArrayList<>();
+        try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+            while (source.hasNext()) {
+                streaming.add(source.next());
+            }
+        }
+        List<ConnectorScanRange> smaller = provider.planScan(session, ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList()).coarseSplitSize(32 * mb).build());
+        Assertions.assertEquals(3, smaller.size());
+        Assertions.assertSame(synchronous, provider.planScan(session, request));
+        for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, streaming)) {
+            Assertions.assertEquals(2, ranges.size());
+            Assertions.assertEquals(64 * mb, ranges.get(0).getLength());
+            Assertions.assertEquals(64 * mb, ranges.get(0).getTargetSplitSize());
+            Assertions.assertEquals(64 * mb, ranges.get(1).getStart());
+            Assertions.assertEquals(32 * mb, ranges.get(1).getLength());
+            Assertions.assertTrue(ranges.get(0).supportsBeSplitRefinement());
+        }
+    }
+
+    @Test
+    public void coarseSizeRetainsMaxFileSplitNumInSdkAndManifestPlans() {
+        long mb = 1024L * 1024L;
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/big.parquet",
+                2048 * mb, null, null)).commit();
+        ConnectorSession session = new FakeScanSession("UTC", Map.of("max_file_split_num", "1"));
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList()).coarseSplitSize(512 * mb).build();
+        for (IcebergScanPlanProvider provider : Arrays.asList(
+                new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table)),
+                manifestProvider(manifestCacheProps(), table, new IcebergManifestCache()))) {
+            List<ConnectorScanRange> ranges = provider.planScan(session, request);
+            Assertions.assertEquals(1, ranges.size());
+            Assertions.assertEquals(0, ranges.get(0).getStart());
+            Assertions.assertEquals(2048 * mb, ranges.get(0).getLength());
+            Assertions.assertEquals(2048 * mb, ranges.get(0).getTargetSplitSize());
+        }
+    }
+
+    @Test
     public void scanReuseNamespaceUsesConnectorType() {
         String prefix = new IcebergConnectorProvider().getType() + ".";
         Assertions.assertTrue(IcebergScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
@@ -373,8 +453,14 @@ public class IcebergScanPlanProviderTest {
         if (cached) {
             Assertions.assertTrue(cache.size() > 0, "must exercise the manifest-cache planner");
             if (manifestConcurrency == 1) {
-                // Parallel loads may finish speculatively; serial loading makes the stop position exact.
-                Assertions.assertEquals(2, cache.size(), "must stop before reading the tail manifest");
+                // The encrypted descriptor is statement-owned and cannot count as a retained entry.
+                // Probe the plaintext tail directly to prove serial planning stops before loading it.
+                List<ManifestFile> manifests = table.currentSnapshot().dataManifests(table.io());
+                Assertions.assertNotNull(cache.getCachedManifestValue(manifests.get(0), null));
+                Assertions.assertNull(cache.getCachedManifestValue(manifests.get(1), null));
+                Assertions.assertNull(cache.getCachedManifestValue(manifests.get(2), null),
+                        "must stop before reading the tail manifest");
+                Assertions.assertEquals(1, cache.size());
             }
         } else {
             Assertions.assertTrue(encryptedConsumed.get());
@@ -5657,11 +5743,13 @@ public class IcebergScanPlanProviderTest {
         Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
         CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch bothReading = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
         AtomicInteger reads = new AtomicInteger();
         FileIO fileIO = manifestReadObserver(table.io(), Collections.singleton(manifest.path()), path -> {
             reads.incrementAndGet();
             reading.countDown();
+            bothReading.countDown();
             try {
                 Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
             } catch (InterruptedException e) {
@@ -5687,13 +5775,19 @@ public class IcebergScanPlanProviderTest {
                             ConnectorScanRequest.builder(handle, Collections.emptyList()).build()));
                 });
                 Assertions.assertTrue(consumerStarted.await(10, TimeUnit.SECONDS));
+                Assertions.assertTrue(bothReading.await(10, TimeUnit.SECONDS),
+                        "unclassified manifest loads must not share possible file-key metadata");
                 scanContext.cancel();
                 release.countDown();
                 ExecutionException stopped = Assertions.assertThrows(ExecutionException.class,
                         () -> cancelled.get(10, TimeUnit.SECONDS));
                 Assertions.assertInstanceOf(CancellationException.class, stopped.getCause());
                 Assertions.assertEquals(3, healthy.get(10, TimeUnit.SECONDS).size());
-                Assertions.assertEquals(1, reads.get(), "shared loading must remain single-flight and valid");
+                Assertions.assertEquals(2, reads.get(), "each unclassified read owns its IO");
+                Assertions.assertNotNull(cache.getCachedManifestValue(manifest, "completed"));
+                Assertions.assertEquals(3, drain(provider.streamSplits(emptySession(),
+                        ConnectorScanRequest.builder(handle, Collections.emptyList()).build())).size());
+                Assertions.assertEquals(2, reads.get(), "completed plaintext entries remain reusable");
             } finally {
                 release.countDown();
                 workers.shutdownNow();
@@ -5759,6 +5853,9 @@ public class IcebergScanPlanProviderTest {
         int manifestCount = 2 * workersInSdk + 3;
         Table table = createTable("sdk_cancel", SCHEMA, PartitionSpec.unpartitioned(),
                 ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        // On large hosts the worker count exceeds automatic manifest merging's threshold. Keep one
+        // manifest per append so this fixture can saturate every SDK worker before cancellation.
+        table.updateProperties().set(TableProperties.MANIFEST_MERGE_ENABLED, "false").commit();
         Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1,
                 Conversions.toByteBuffer(Types.IntegerType.get(), 1));
         for (int i = 0; i < manifestCount; i++) {
@@ -5838,6 +5935,8 @@ public class IcebergScanPlanProviderTest {
         int workersInSdk = ThreadPools.WORKER_THREAD_POOL_SIZE;
         int manifestCount = 2 * workersInSdk + 3;
         Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        // Automatic merging would collapse the queued reads when the SDK discovers many host CPUs.
+        table.updateProperties().set(TableProperties.MANIFEST_MERGE_ENABLED, "false").commit();
         for (int i = 0; i < manifestCount; i++) {
             table.newRowDelta().addDeletes(positionDeleteFile("/d/sdk-delete" + i + ".parquet",
                     FileFormat.PARQUET, null, null)).commit();
@@ -6283,14 +6382,19 @@ public class IcebergScanPlanProviderTest {
 
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---
 
-    @Test
-    public void extractVendedTokenMergesIoPropsAndStorageCredentials() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void extractVendedTokenMergesIoPropsAndStorageCredentials(boolean encryptedRest) {
         FakeIcebergTable table = fakeTable("t1");
         Map<String, String> ioProps = new HashMap<>();
         ioProps.put("s3.endpoint", "ep");
         StorageCredential cred =
                 StorageCredential.create("s3://b", Collections.singletonMap("s3.access-key-id", "ak"));
-        table.setIo(new VendedFileIO(ioProps, Collections.singletonList(cred)));
+        FileIO io = new VendedFileIO(ioProps, Collections.singletonList(cred));
+        if (encryptedRest) {
+            io = new IcebergRestEncryptionFileIO(io, new java.util.concurrent.atomic.AtomicReference<>(), false);
+        }
+        table.setIo(io);
 
         Map<String, String> token = IcebergScanPlanProvider.extractVendedToken(table, true);
 

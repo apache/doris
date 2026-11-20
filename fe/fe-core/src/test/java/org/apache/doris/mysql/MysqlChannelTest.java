@@ -18,8 +18,11 @@
 package org.apache.doris.mysql;
 
 
+import org.apache.doris.common.ConnectionException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TStatusCode;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -33,16 +36,146 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLSession;
 
 public class MysqlChannelTest {
 
+    private static final Status CANCELLED = new Status(TStatusCode.CANCELLED, "cancelled by test");
+
     StreamConnection streamConnection = Mockito.mock(StreamConnection.class);
     private ConnectContext receivingContext;
     private ByteArrayOutputStream response;
+
+    private MysqlChannel channel(ConduitStreamSinkChannel sink, int timeoutSeconds) {
+        Mockito.when(streamConnection.getPeerAddress())
+                .thenReturn(new java.net.InetSocketAddress("127.0.0.1", 12345));
+        Mockito.when(streamConnection.getSinkChannel()).thenReturn(sink);
+        ConnectContext context = Mockito.mock(ConnectContext.class);
+        Mockito.when(context.getNetWriteTimeout()).thenReturn(timeoutSeconds);
+        return new MysqlChannel(streamConnection, context);
+    }
+
+    @Test
+    public void testCancelWhileWaitingToWrite() throws Exception {
+        ConduitStreamSinkChannel sink = Mockito.mock(ConduitStreamSinkChannel.class);
+        MysqlChannel channel = channel(sink, 600);
+        AtomicReference<Status> reason = new AtomicReference<>();
+        channel.setQueryCancelReason(reason::get);
+        Mockito.doAnswer(inv -> {
+            Assertions.assertEquals(TimeUnit.NANOSECONDS, inv.getArgument(1));
+            Assertions.assertTrue((long) inv.getArgument(0) <= TimeUnit.MILLISECONDS.toNanos(100));
+            reason.set(CANCELLED);
+            return null;
+        }).when(sink).awaitWritable(Mockito.anyLong(), Mockito.any(TimeUnit.class));
+
+        ConnectionException error = Assertions.assertThrows(ConnectionException.class,
+                () -> channel.realNetSend(ByteBuffer.allocate(8)));
+        Assertions.assertTrue(error.getMessage().contains("cancelled by test"));
+        Mockito.verify(sink).awaitWritable(Mockito.anyLong(), Mockito.any(TimeUnit.class));
+    }
+
+    @Test
+    public void testCancelAfterPartialWrite() throws Exception {
+        ConduitStreamSinkChannel sink = Mockito.mock(ConduitStreamSinkChannel.class);
+        MysqlChannel channel = channel(sink, 600);
+        AtomicReference<Status> reason = new AtomicReference<>();
+        channel.setQueryCancelReason(reason::get);
+        Mockito.when(sink.write(Mockito.any(ByteBuffer.class))).thenAnswer(inv -> {
+            ByteBuffer buffer = inv.getArgument(0);
+            buffer.put((byte) 1);
+            reason.set(CANCELLED);
+            return 1;
+        }).thenReturn(0);
+        Mockito.doThrow(new AssertionError("cancelled partial write must not wait"))
+                .when(sink).awaitWritable(Mockito.anyLong(), Mockito.any(TimeUnit.class));
+        ByteBuffer buffer = ByteBuffer.allocate(8);
+        Assertions.assertThrows(ConnectionException.class, () -> channel.realNetSend(buffer));
+        Assertions.assertEquals(1, buffer.position());
+        Mockito.verify(sink, Mockito.never()).awaitWritable(Mockito.anyLong(), Mockito.any(TimeUnit.class));
+        Mockito.verify(sink, Mockito.never()).flush();
+    }
+
+    @Test
+    public void testCancelWhileFlushing() throws Exception {
+        ConduitStreamSinkChannel sink = Mockito.mock(ConduitStreamSinkChannel.class);
+        MysqlChannel channel = channel(sink, 600);
+        AtomicReference<Status> reason = new AtomicReference<>();
+        channel.setQueryCancelReason(reason::get);
+        Mockito.when(sink.write(Mockito.any(ByteBuffer.class))).thenAnswer(inv -> {
+            ByteBuffer buffer = inv.getArgument(0);
+            int count = buffer.remaining();
+            buffer.position(buffer.limit());
+            return count;
+        });
+        Mockito.doAnswer(inv -> {
+            Assertions.assertNull(reason.get(), "flush must stop after cancellation");
+            reason.set(CANCELLED);
+            return null;
+        }).when(sink).awaitWritable(Mockito.anyLong(), Mockito.any(TimeUnit.class));
+        Assertions.assertThrows(ConnectionException.class, () -> channel.realNetSend(ByteBuffer.allocate(8)));
+    }
+
+    @Test
+    public void testCancellationErrorCanBeSentAndConnectionReused() throws Exception {
+        ConduitStreamSinkChannel sink = Mockito.mock(ConduitStreamSinkChannel.class);
+        MysqlChannel channel = channel(sink, 600);
+        Mockito.when(sink.write(Mockito.any(ByteBuffer.class))).thenAnswer(inv -> {
+            ByteBuffer buffer = inv.getArgument(0);
+            int count = buffer.remaining();
+            buffer.position(buffer.limit());
+            return count;
+        });
+        Mockito.when(sink.flush()).thenReturn(true);
+        channel.setQueryCancelReason(() -> CANCELLED);
+        // A writable cancellation response must not disconnect an ordinary KILL QUERY.
+        channel.realNetSend(ByteBuffer.allocate(8));
+        channel.clearQueryCancelReason();
+        // A new command may wait for writable without inheriting the old cancellation.
+        Mockito.when(sink.flush()).thenReturn(false, true);
+        channel.realNetSend(ByteBuffer.allocate(8));
+        Mockito.verify(sink).awaitWritable(Mockito.anyLong(), Mockito.any(TimeUnit.class));
+        Mockito.verify(streamConnection, Mockito.never()).close();
+    }
+
+    @Test
+    public void testWriteTimeoutIsStillEnforced() throws Exception {
+        ConduitStreamSinkChannel sink = Mockito.mock(ConduitStreamSinkChannel.class);
+        MysqlChannel channel = channel(sink, 0);
+        ConnectionException error = Assertions.assertThrows(ConnectionException.class,
+                () -> channel.realNetSend(ByteBuffer.allocate(8)));
+        Assertions.assertTrue(error.getMessage().contains("write=0, needToWrite=8"));
+        Mockito.verify(sink, Mockito.never()).awaitWritable(Mockito.anyLong(), Mockito.any(TimeUnit.class));
+    }
+
+    @Test
+    public void testWriteDeadlineIsNotRenewedByPolling() throws Exception {
+        ConduitStreamSinkChannel sink = Mockito.mock(ConduitStreamSinkChannel.class);
+        MysqlChannel channel = channel(sink, 1);
+        AtomicInteger waits = new AtomicInteger();
+        Mockito.doAnswer(inv -> {
+            Assertions.assertTrue(waits.incrementAndGet() <= 12, "write deadline was renewed");
+            TimeUnit.NANOSECONDS.sleep(inv.getArgument(0));
+            return null;
+        }).when(sink).awaitWritable(Mockito.anyLong(), Mockito.any(TimeUnit.class));
+        ConnectionException error = Assertions.assertThrows(ConnectionException.class,
+                () -> channel.realNetSend(ByteBuffer.allocate(8)));
+        Assertions.assertTrue(error.getMessage().contains("Write mysql packet failed"));
+        Assertions.assertTrue(waits.get() > 0);
+    }
+
+    @Test
+    public void testFlushTimeoutIsConnectionError() throws Exception {
+        ConduitStreamSinkChannel sink = Mockito.mock(ConduitStreamSinkChannel.class);
+        MysqlChannel channel = channel(sink, 0);
+        Assertions.assertThrows(ConnectionException.class, () -> channel.realNetSend(ByteBuffer.allocate(0)));
+    }
+
 
     @Test
     public void testOversizedPacketRejectedBeforeBody() throws IOException {

@@ -119,8 +119,8 @@ for every arm. LIKE sends an escaped required literal substring as a conservativ
 wildcard-only, ambiguous escapes, NUL and REGEXP stay local. Doris always evaluates the full
 LIKE pattern, including anchors, wildcards, Unicode and newline rules.
 
-Join, aggregation, sort and LIMIT remain Doris operations. Range splitting, LIMIT pushdown
-and shared snapshots are separate work. Use matching FE/BE versions; the new optional BSON
+Join, aggregation, sort and LIMIT remain Doris operations. Range splitting and LIMIT pushdown
+remain separate work. Common snapshots are described below. Use matching FE/BE versions; the new optional BSON
 filter/projection fields preserve the single-cursor descriptor layout.
 
 `batch_size` and `query_timeout` are session variables. The following session variables
@@ -129,7 +129,7 @@ also support statement-level `SET_VAR` hints; values are case-insensitive:
 | Session variable | Default | Supported values |
 |---|---|---|
 | `mongodb_read_preference` | `inherit` | `inherit`, `primary`, `primaryPreferred`, `secondary`, `secondaryPreferred`, `nearest` |
-| `mongodb_read_concern` | `inherit` | `inherit`, `local`, `majority`, `available` |
+| `mongodb_read_concern` | `inherit` | `inherit`, `local`, `majority`, `available`, `snapshot` |
 
 `inherit` uses the catalog's effective policy: URI `readPreference` / `readConcernLevel`
 first, then `mongodb.read_preference` / `mongodb.read_concern`. An explicit session or
@@ -150,27 +150,75 @@ SET mongodb_read_concern = 'inherit';
 
 Selecting a secondary can return stale data. `primaryPreferred` and
 `secondaryPreferred` permit fallback to the other role; `secondary` requires a
-secondary in a replica set. A read concern controls read visibility independently
-of node selection and does not establish a snapshot across Doris scans.
+secondary in a replica set. Ordinary read concerns control visibility independently of node selection.
+Only the explicit `snapshot` policy establishes a common point across MongoDB scans.
 
 Catalog connection defaults:
 
 | Property | Default |
 |---|---|
 | `mongodb.read_preference` | `primary` |
-| `mongodb.read_concern` | `majority` (`local` and `available` also supported) |
+| `mongodb.read_concern` | `majority` (`local`, `available`, and `snapshot` also supported) |
 | `mongodb.connect_timeout_ms` | `10000` |
 | `mongodb.server_selection_timeout_ms` | `10000` |
 | `mongodb.socket_timeout_ms` | `1000` |
 | `mongodb.pool_max_clients` | `16` |
 | `mongodb.datetime_timezone` | `UTC` |
 
-A majority read does not imply a point-in-time snapshot. Explicit snapshot/time-travel
-requests are unsupported. EOF, early termination, cancellation and errors close the
+A majority read does not imply a point-in-time snapshot. User-supplied time-travel
+timestamps and range scans remain unsupported. EOF, early termination, cancellation and errors close the
 cursor and return its exclusive client lease. Pool identities include catalog
 configuration and credentials. Driver errors expose stable error codes without
 source values or connection strings. Keep network timeouts small enough for the
 required cancellation responsiveness.
+
+## Common snapshots
+
+Set `mongodb_read_concern='snapshot'` for a session or a `SET_VAR` statement, or
+`mongodb.read_concern='snapshot'` for a catalog. Matching FE/BE versions are required.
+The qualified server versions are MongoDB 7.0 and 8.0 (wire versions 21 and 25),
+on replica sets and mongos. Standalone deployments and standard views are rejected
+at planning time. Ordinary majority/local/available reads keep their existing behavior.
+
+```sql
+SELECT /*+ SET_VAR(mongodb_read_concern='snapshot') */ l.total + r.total
+FROM (SELECT sum(amount) total FROM mongo_native.sample.left_records) l
+CROSS JOIN (SELECT sum(amount) total FROM mongo_native.sample.right_records) r;
+```
+
+The FE runs a bounded one-row snapshot probe, explicitly closes its server-bound
+cursor, and takes **only** the server's `cursor.atClusterTime`. One statement owns one timestamp T, shared across
+its qualified MongoDB scans, including catalogs that refer to the same cluster.
+Mixing snapshot and ordinary MongoDB reads, or independent source clusters, fails.
+The native reader sends a typed BSON Timestamp in `readConcern.atClusterTime`,
+using a separate non-causal session and a server-bound cursor for each stream.
+It retains that server/session for getMore and killCursors; sessions and cursors
+are never shared across BE threads. The native command path sends the explicit
+find command because the pinned C driver's ordinary find helper drops the timestamp.
+EXPLAIN reports the policy/T, and Profile reports `MongoReadConcern` and
+`MongoSnapshotTimestamp` for each scanner.
+
+Snapshot readers need full collection metadata in addition to data `find` privileges.
+A replica-set reader also needs the cluster action `replSetGetConfig`; a mongos reader
+needs `find` on `config.version` to identify the deployment consistently across routers.
+These metadata privileges are specific to snapshot qualification; normal reads do not
+require the new identity probes. Source identity and replica-set configuration version
+are pinned and checked before reading and at cursor EOF. Collection UUIDs are checked
+as well. An observed replacement, configuration change, permission error, history
+expiration (`SnapshotTooOld`), command error, or deadline fails the statement. There
+is no automatic timestamp reselection, retry at a newer T, or downgrade to majority.
+A new statement may select a new T after refreshing changed namespace metadata.
+History retention must cover planning and all source reads; source socket and query
+timeouts still bound cancellation responsiveness.
+
+Time-series reads use the public logical namespace and pin its public options;
+MongoDB 7.0/8.0 do not expose a UUID for that namespace. The qualified combination is
+snapshot reads with concurrent inserts and **without concurrent drop/rename** of the
+time-series collection. An observed options change fails the read. Options equality
+cannot detect dropping and recreating an identical time-series definition, so that
+DDL combination is outside this contract. No internal bucket reads are introduced.
+Snapshot consistency does not imply parallel range partitioning; each namespace
+continues to use one native cursor.
 
 ## Dependencies and tests
 
@@ -200,3 +248,13 @@ First-release typed mappings support
 DECIMAL precision up to 38 and DATETIME scale 0..6 with no rounding; MAP, VARIANT,
 implicit numeric/string conversions and other unlisted target types are unsupported.
 Use JSON canonical Extended JSON or raw BSON to retain unsupported BSON tags.
+
+The snapshot unit tests cover statement isolation, shared timestamp selection,
+concurrent planners, sticky failures, source identity/configuration, BSON timestamp
+bounds, UUID byte order, unsupported objects and deadline/cancellation admission.
+`test_mongodb_snapshot` adds SQL differential, exact decimal/date/timezone, routing,
+policy-restoration and completed-Profile checks. The separate authenticated fixture
+and `verify_native_snapshot.py` exercise real MongoDB 7/8 replica sets and two routers,
+transactional writes with a source-at-T oracle, getMore failures, cancellation,
+namespace/configuration changes, time-series inserts/options, and client-pool bounds.
+See the fixture README for reproducible commands and the explicit source restrictions.

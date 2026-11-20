@@ -413,6 +413,16 @@ struct TPaimonVectorPayload {
     2: optional binary bytes;
 }
 
+// A managed BLOB column file, aligned with a Parquet anchor by absolute Paimon row id.
+struct TPaimonBlobFileDesc {
+    1: optional string path;
+    2: optional i64 file_size;
+    // This .blob file's own logical row range: [first_row_id, first_row_id + row_count).
+    3: optional i64 first_row_id;
+    4: optional i64 row_count;
+    5: optional i32 field_id;
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -439,10 +449,13 @@ struct TPaimonFileDesc {
     // to materialize the public file-location metadata column. This master-only field is appended after
     // the branch-4.1 fields instead of reusing field 18.
     20: optional string original_file_path;
-    // Reserved for branch-4.1 fields:
-    // 21: optional list<TPaimonBlobFileDesc> blob_files
-    // 22: optional i64 anchor_first_row_id
-    // 23: optional i64 anchor_row_count
+    // Keep BLOB scan metadata aligned with branch-4.1.
+    21: optional list<TPaimonBlobFileDesc> blob_files
+    // Logical row ID of row position 0 in the complete Parquet anchor. Byte splits of
+    // the same anchor share this origin; this is not the first row returned by a split.
+    22: optional i64 anchor_first_row_id
+    // Complete anchor range: [anchor_first_row_id, anchor_first_row_id + anchor_row_count).
+    23: optional i64 anchor_row_count
     // Reserved for the per-split Paimon primary-key vector search payload in #69493.
     24: optional TPaimonVectorPayload vector_payload;
 }
@@ -683,6 +696,30 @@ struct TLanceFileDesc {
     6: optional bool use_scalar_index
 }
 
+// A statement-wide source snapshot. Sessions and cursors remain local to each driver owner.
+struct TMongoSnapshot {
+    // Seconds component of the server-selected BSON Timestamp T, not a BSON Date or a client clock.
+    // Both Timestamp components are unsigned 32-bit values carried in i64 to preserve their full range.
+    1: optional i64 timestamp_seconds
+    // Ordering counter within the same second; this is not a fractional-second duration.
+    2: optional i64 timestamp_increment
+    // "replica_set" or "mongos", qualified independently of the collection's object kind.
+    3: optional string source_kind
+    // Replica-set settings.replicaSetId or sharded-cluster config.version.clusterId, as 24-digit hex.
+    // Identifies the source deployment; the namespace UUID is carried separately in TMongoScanDesc.
+    4: optional string source_id
+    // replSetGetConfig.config.version, not hello.topologyVersion or an election term.
+    // Zero for mongos, whose shared clusterId allows scans through different routers.
+    5: optional i64 topology_version
+    // hello.maxWireVersion: 21 for MongoDB 7.0, 25 for 8.0. BE rechecks this qualification pin.
+    6: optional i32 max_wire_version
+    // Public listCollections.options as canonical Extended JSON, preserving BSON value types.
+    // BE compares the definition before reading and at EOF. Without a public time-series UUID,
+    // this cannot detect drop/recreate with identical options; concurrent drop/rename is excluded.
+    // Absent for ordinary collections. Does not contain credentials.
+    7: optional string timeseries_options_json
+}
+
 // Stable single-cursor read contract. Driver objects and active sessions remain local to FE/BE.
 // The reader validates the required version-1 fields before opening the logical namespace.
 struct TMongoScanDesc {
@@ -719,7 +756,7 @@ struct TMongoScanDesc {
     // URI tag sets and max staleness remain in uri and are preserved by the native driver.
     // Metadata/UUID checks use primary independently of this data-read preference.
     14: optional string read_preference
-    // Data-read concern: local, majority, or available. Majority alone is not a shared snapshot.
+    // Data-read concern: local, majority, available, or snapshot. Snapshot requires the shared pin below.
     15: optional string read_concern
     // Replace top-level conversion mismatches with SQL NULL after rollback. Transport, cancellation,
     // allocation and document-limit errors still fail the scan.
@@ -729,6 +766,7 @@ struct TMongoScanDesc {
     17: optional i32 batch_size
     // Native scan lifetime in milliseconds, derived from session query_timeout; bounds pool waits
     // and driver operations and is also checked before/after advancing the cursor.
+    // Snapshot planning subtracts elapsed FE snapshot-selection/planning time before publishing it.
     18: optional i64 timeout_ms
     // Connection establishment timeout in milliseconds; bounded by timeout_ms when creating a pool.
     19: optional i32 connect_timeout_ms
@@ -736,13 +774,15 @@ struct TMongoScanDesc {
     20: optional i32 server_selection_timeout_ms
     // Socket I/O timeout in milliseconds; the leased client is bounded by the remaining scan time.
     21: optional i32 socket_timeout_ms
-    // Maximum simultaneously leased clients in this pool, keyed by catalog/configuration and
+    // Maximum simultaneously leased clients in this BE-local pool, keyed by catalog/configuration and
     // connection policy. This is not a query-wide or source-wide scanner-concurrency budget.
     22: optional i32 pool_max_clients
     // Typed BSON candidate filter; the Doris residual is retained. Absent means scan all documents.
     23: optional binary filter_bson
     // BSON inclusion projection of complete source roots. Absent means return the complete document.
     24: optional binary projection_bson
+    // Present exactly for read_concern=snapshot; every participating scan uses the same timestamp.
+    25: optional TMongoSnapshot snapshot
 }
 
 struct TTableFormatFileDesc {
@@ -964,6 +1004,8 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // Target size for coalescing physical children; absent/nonpositive does not disable refinement.
+    17: optional i64 target_split_size;
 }
 
 struct TSplitSource {

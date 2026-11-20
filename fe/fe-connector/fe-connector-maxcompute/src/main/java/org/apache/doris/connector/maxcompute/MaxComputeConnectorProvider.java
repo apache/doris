@@ -91,10 +91,12 @@ public class MaxComputeConnectorProvider implements ConnectorProvider {
         CacheSpec.checkWeightProperties(candidate, updatedProperties, "max_compute", "partition");
     }
 
-    /** The engine masks the sensitive properties (the access key pair) wherever it shows catalog properties. */
+    /** The engine masks credentials wherever it shows catalog properties. */
     @Override
     public ConnectorSecuritySurface securitySurface() {
-        return ConnectorSecuritySurface.EMPTY
-                .withSensitiveKeys(ConnectorPropertiesUtils.getSensitiveKeys(MCCatalogProperties.class));
+        Set<String> sensitiveKeys = ConnectorPropertiesUtils.getSensitiveKeys(MCCatalogProperties.class);
+        // Retained token properties must stay masked even though the current authentication binder ignores them.
+        sensitiveKeys.add("mc.session_token");
+        return ConnectorSecuritySurface.EMPTY.withSensitiveKeys(sensitiveKeys);
     }
 }

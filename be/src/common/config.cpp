@@ -1637,6 +1637,11 @@ DEFINE_mBool(enable_mow_compaction_correctness_check_core, "false");
 DEFINE_mBool(enable_mow_compaction_correctness_check_fail, "false");
 // rowid conversion correctness check when compaction for mow table
 DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+DEFINE_mBool(enable_compressed_rowid_conversion, "true");
+// Compress only when physical input rows * 8 exceeds this many bytes (500 MiB).
+DEFINE_mInt64(compressed_rowid_conversion_threshold_bytes, "524288000");
+DEFINE_Validator(compressed_rowid_conversion_threshold_bytes,
+                 [](int64_t value) { return value >= 0; });
 // missing rows correctness check when compaction for mow table
 DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
@@ -1825,7 +1830,7 @@ DEFINE_mInt64(s3_put_requests_per_second_max, "0");
 // Note: the derived per-BE bytes/s should not be set below the single IO upper bound
 // per second (s3_write_buffer_size, 5MB by default). A single IO larger than 1 second
 // of quota only reserves 1 second worth of tokens; the excess bytes are not accounted
-// (reservation clamp in S3RateLimitGuard).
+// (reservation clamp in ObjStorageRateLimitGuard).
 DEFINE_mInt64(s3_get_bytes_per_second_per_core, "-1");
 DEFINE_mInt64(s3_put_bytes_per_second_per_core, "-1");
 // Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.

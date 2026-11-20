@@ -206,12 +206,12 @@ class MinioFileSystemProviderTest {
     }
 
     @Test
-    void sensitivePropertyKeys_coverSecretAliasesButNotAccessKey() {
+    void sensitivePropertyKeys_coverAllCredentialAliases() {
         Set<String> keys = provider.sensitivePropertyKeys();
 
         Assertions.assertTrue(keys.contains("minio.secret_key"), keys.toString());
         Assertions.assertTrue(keys.contains("minio.session_token"), keys.toString());
-        Assertions.assertFalse(keys.contains("minio.access_key"), keys.toString());
+        Assertions.assertTrue(keys.contains("minio.access_key"), keys.toString());
     }
 
     @Test

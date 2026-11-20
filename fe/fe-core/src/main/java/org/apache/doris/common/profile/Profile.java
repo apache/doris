@@ -29,14 +29,18 @@ import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
 import org.apache.doris.nereids.stats.HboUtils;
 import org.apache.doris.nereids.stats.MemoryHboPlanStatisticsProvider;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlanShallowCopier;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.statistics.hbo.InputTableStatisticsInfo;
 import org.apache.doris.statistics.hbo.PlanStatistics;
@@ -44,6 +48,7 @@ import org.apache.doris.statistics.hbo.PlanStatisticsMatchStrategy;
 import org.apache.doris.statistics.hbo.PlanStatisticsWithInputInfo;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatistics;
 import org.apache.doris.statistics.hbo.RecentRunsPlanStatisticsEntry;
+import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 
@@ -68,7 +73,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -143,7 +148,7 @@ public class Profile {
 
     private PhysicalPlan physicalPlan;
     public Map<String, Long> rowsProducedMap = new HashMap<>();
-    private Set<PhysicalRelation> physicalRelations = new LinkedHashSet<>();
+    private String columnStats = "";
 
     private String changedSessionVarCache = "";
 
@@ -311,7 +316,7 @@ public class Profile {
     public synchronized void clearPlan() {
         summaryProfile.clearPlanDetails();
         physicalPlan = null;
-        physicalRelations.clear();
+        columnStats = "";
         planNodeMap = Maps.newHashMap();
         rowsProducedMap.clear();
     }
@@ -327,8 +332,8 @@ public class Profile {
 
             if (planner != null && planner instanceof NereidsPlanner) {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
-                physicalPlan = nereidsPlanner.getPhysicalPlan();
-                physicalRelations.addAll(nereidsPlanner.getPhysicalRelations());
+                setPhysicalPlan(nereidsPlanner.getPhysicalPlan());
+                columnStats = collectColumnStats(nereidsPlanner.getPhysicalRelations());
                 if (profileLevel >= 3) {
                     FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
                     if (distributedPlans != null) {
@@ -568,12 +573,7 @@ public class Profile {
             StringBuilder physcialPlanBuilder = new StringBuilder();
             physcialPlanBuilder.append(physicalPlan.treeString());
             physcialPlanBuilder.append("\n");
-            for (PhysicalRelation relation : physicalRelations) {
-                if (relation.getStats() != null) {
-                    physcialPlanBuilder.append(relation).append("\n")
-                            .append(relation.getStats().printColumnStats());
-                }
-            }
+            physcialPlanBuilder.append(columnStats);
             builder.append(
                     physcialPlanBuilder.toString().replace("\n", "\n     "));
         }
@@ -596,7 +596,7 @@ public class Profile {
         this.changedSessionVarCache = "";
         this.physicalPlan = null;
         this.rowsProducedMap = null;
-        this.physicalRelations = null;
+        this.columnStats = "";
     }
 
     public boolean shouldStoreToStorage() {
@@ -840,7 +840,47 @@ public class Profile {
     }
 
     public void setPhysicalPlan(PhysicalPlan physicalPlan) {
-        this.physicalPlan = physicalPlan;
+        this.physicalPlan = physicalPlan == null ? null : PhysicalPlanShallowCopier.copy(physicalPlan);
+    }
+
+    /** Capture only known operative column statistics, once per qualified table and column. */
+    static String collectColumnStats(List<PhysicalRelation> relations) {
+        Map<List<String>, Map<String, String>> tables = new LinkedHashMap<>();
+        for (PhysicalRelation relation : relations) {
+            if (relation.getStats() == null) {
+                continue;
+            }
+            List<String> tableName;
+            List<Slot> operativeSlots;
+            if (relation instanceof CatalogRelation) {
+                CatalogRelation catalogRelation = (CatalogRelation) relation;
+                tableName = new ArrayList<>(catalogRelation.getQualifier());
+                tableName.add(catalogRelation.getTable().getName());
+                operativeSlots = catalogRelation.getOperativeSlots();
+            } else if (relation instanceof PhysicalTVFRelation) {
+                PhysicalTVFRelation tvf = (PhysicalTVFRelation) relation;
+                tableName = List.of(tvf.getFunction().toSql());
+                operativeSlots = tvf.getOperativeSlots();
+            } else {
+                continue;
+            }
+            for (Slot slot : operativeSlots) {
+                ColumnStatistic statistic = relation.getStats().findColumnStatistics(slot);
+                // Virtual/unsupported slots may have no column statistics.
+                if (statistic == null || statistic.isUnKnown) {
+                    continue;
+                }
+                tables.computeIfAbsent(tableName, key -> new LinkedHashMap<>())
+                        .computeIfAbsent(slot.getName(), key -> statistic.toString());
+            }
+        }
+        StringBuilder builder = new StringBuilder();
+        tables.forEach((table, columns) -> {
+            builder.append(String.join(".", table)).append("\n");
+            columns.forEach((column, statistic) -> builder.append("  ").append(column)
+                    .append(" -> ").append(statistic).append("\n"));
+        });
+        return builder.toString();
     }
 
     private void updateActualRowCountOnPhysicalPlan(Plan plan) {

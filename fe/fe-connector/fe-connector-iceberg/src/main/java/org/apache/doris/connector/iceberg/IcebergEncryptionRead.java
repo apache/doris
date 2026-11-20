@@ -33,6 +33,26 @@ final class IcebergEncryptionRead {
     private IcebergEncryptionRead() {
     }
 
+    static boolean isEncrypted(Table table) {
+        if (hasEncryptionMetadata(table)) {
+            return true;
+        }
+        EncryptionManager manager = table.encryption();
+        return manager != null && !(manager instanceof PlaintextEncryptionManager);
+    }
+
+    private static boolean hasEncryptionMetadata(Table table) {
+        TableMetadata metadata = table instanceof HasTableOperations
+                ? ((HasTableOperations) table).operations().current() : null;
+        return table.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
+                || hasEncryptionMetadata(metadata);
+    }
+
+    static boolean hasEncryptionMetadata(TableMetadata metadata) {
+        return metadata != null && (metadata.properties().containsKey(TableProperties.ENCRYPTION_TABLE_KEY)
+                || !metadata.encryptionKeys().isEmpty());
+    }
+
     static void check(Table table, IcebergCatalogProperties catalog, ConnectorContext context) {
         TableMetadata metadata = table instanceof HasTableOperations
                 ? ((HasTableOperations) table).operations().current() : null;
@@ -48,8 +68,9 @@ final class IcebergEncryptionRead {
             throw failure("READ_DISABLED", "Encrypted Iceberg reads are disabled; enable_encryption_read in "
                     + "iceberg.conf defaults to false");
         }
-        if (!IcebergCatalogProperties.TYPE_HMS.equals(catalog.getFlavor())) {
-            throw failure("UNSUPPORTED_CATALOG", "Encrypted Iceberg reads require an HMS catalog");
+        if (!IcebergCatalogProperties.TYPE_HMS.equals(catalog.getFlavor())
+                && !IcebergCatalogProperties.TYPE_REST.equals(catalog.getFlavor())) {
+            throw failure("UNSUPPORTED_CATALOG", "Encrypted Iceberg reads require an HMS or REST catalog");
         }
         if (metadata == null || metadata.formatVersion() != 3) {
             throw failure("UNSUPPORTED_TABLE_FORMAT", "Encrypted Iceberg reads require table format v3");

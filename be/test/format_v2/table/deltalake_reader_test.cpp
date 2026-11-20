@@ -308,7 +308,7 @@ TEST_F(DeltaReaderTest, InlineBypassesIOAndChecksCardinalityOnCacheHits) {
     ASSERT_TRUE(reader._parse_delete_predicates(options).ok());
     EXPECT_EQ(io_stats.read_calls, 0);
     EXPECT_EQ(reader._deletion_vector->cardinality(), 3);
-    auto* decoded = reader._deletion_vector;
+    const auto decoded = reader._deletion_vector;
     ASSERT_TRUE(reader._parse_delete_predicates(options).ok());
     EXPECT_EQ(decoded, reader._deletion_vector);
     EXPECT_EQ(profile.get_counter("DeletionVectorDecodedCacheMissCount")->value(), 1);
