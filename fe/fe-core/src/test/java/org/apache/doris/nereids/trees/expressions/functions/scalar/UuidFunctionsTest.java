@@ -149,10 +149,10 @@ class UuidFunctionsTest {
 
     @Test
     void arrayFunctionsAcceptUuidElements() {
-        for (boolean nullable : List.of(false, true)) {
+        for (boolean nullable : ImmutableList.of(false, true)) {
             SlotReference array = new SlotReference("items", ArrayType.of(UuidType.INSTANCE), nullable);
             SlotReference value = new SlotReference("value", UuidType.INSTANCE, nullable);
-            List<ScalarFunction> functions = List.of(
+            List<ScalarFunction> functions = ImmutableList.of(
                     new ArrayDistinct(array), new ArrayUnion(array, array), new ArrayIntersect(array, array),
                     new ArrayExcept(array, array),
                     new ArraysOverlap(array, array), new ArrayContainsAll(array, array),
@@ -177,7 +177,7 @@ class UuidFunctionsTest {
             GlobalVariable.enableNewTypeCoercionBehavior = true;
             SlotReference uuids = new SlotReference("uuids", ArrayType.of(UuidType.INSTANCE));
             SlotReference integers = new SlotReference("integers", ArrayType.of(IntegerType.INSTANCE));
-            for (ArraysOverlap function : List.of(new ArraysOverlap(uuids, integers),
+            for (ArraysOverlap function : ImmutableList.of(new ArraysOverlap(uuids, integers),
                     new ArraysOverlap(integers, uuids))) {
                 AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
                         () -> ExpressionRewriteTestHelper.typeCoercion(function));
@@ -192,10 +192,11 @@ class UuidFunctionsTest {
     @Test
     void arraysOverlapCoercesCompatibleUuidArrays() {
         SlotReference uuids = new SlotReference("uuids", ArrayType.of(UuidType.INSTANCE));
-        for (DataType itemType : List.of(UuidType.INSTANCE, NullType.INSTANCE, StringType.INSTANCE)) {
+        for (DataType itemType : ImmutableList.of(UuidType.INSTANCE, NullType.INSTANCE, StringType.INSTANCE)) {
             SlotReference other = new SlotReference("other", ArrayType.of(itemType));
             DataType commonType = itemType.isStringLikeType() ? other.getDataType() : uuids.getDataType();
-            for (ArraysOverlap function : List.of(new ArraysOverlap(uuids, other), new ArraysOverlap(other, uuids))) {
+            for (ArraysOverlap function : ImmutableList.of(new ArraysOverlap(uuids, other),
+                    new ArraysOverlap(other, uuids))) {
                 Expression coerced = ExpressionRewriteTestHelper.typeCoercion(function);
                 Assertions.assertEquals(commonType, coerced.child(0).getDataType());
                 Assertions.assertEquals(commonType, coerced.child(1).getDataType());
