@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -76,9 +77,9 @@ public class AdminCompactTableCommand extends Command implements ForwardWithSync
         tableRefInfo.analyze(ctx.getNameSpaceContext());
         Util.prohibitExternalCatalog(tableRefInfo.getTableNameInfo().getCtl(), this.getClass().getSimpleName());
 
-        List<String> partitionNames = tableRefInfo.getPartitionNamesInfo().getPartitionNames();
-        if (partitionNames != null) {
-            if (partitionNames.size() != 1) {
+        PartitionNamesInfo partitionNamesInfo = tableRefInfo.getPartitionNamesInfo();
+        if (partitionNamesInfo != null) {
+            if (partitionNamesInfo.getPartitionNames().size() != 1) {
                 throw new AnalysisException("Only support single partition for compaction");
             }
         } else {
