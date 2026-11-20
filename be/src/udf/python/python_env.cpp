@@ -174,18 +174,12 @@ Status PythonEnvironment::scan_from_venv_root_path(
         std::string python_path =
                 fmt::format("{}/bin/python", env_base_path); // e.g. "/{venv_base_path}/bin/python"
 
-        if (!fs::exists(env_base_path) || !fs::exists(python_path)) {
-            fs::create_directories(env_base_path);
-            // Use --system-site-packages to inherit packages from system Python
-            // This ensures pandas and pyarrow are available if installed in system
-            std::string create_venv_cmd = fmt::format("{} -m venv --system-site-packages {}",
-                                                      AgentUtils::shell_quote(interpreter_path),
-                                                      AgentUtils::shell_quote(env_base_path));
-
-            if (system(create_venv_cmd.c_str()) != 0 || !fs::exists(python_path)) {
-                return Status::RuntimeError("Failed to create python virtual environment, cmd: {}",
-                                            create_venv_cmd);
-            }
+        // A missing interpreter at the versioned path means the configured venv is not ready.
+        if (!fs::is_regular_file(python_path)) {
+            return Status::NotFound(
+                    "Python virtual environment executable not found: {}. "
+                    "Create the environment at {} before starting BE.",
+                    python_path, env_base_path);
         }
 
         // Use major.minor version for site-packages path (e.g., "python3.12")
@@ -342,10 +336,10 @@ Status list_installed_packages(const PythonVersion& version,
         return Status::InvalidArgument("Invalid python version: {}", version.to_string());
     }
 
-    // Run pip list --format=json to get installed packages
-    // Use the same path quoting as version discovery and environment creation.
-    std::string cmd = fmt::format("{} -m pip list --format=json 2>/dev/null",
-                                  AgentUtils::shell_quote(version.executable_path));
+    // Disable the pip upgrade check to keep the package listing independent of the index.
+    std::string cmd =
+            fmt::format("{} -m pip list --format=json --disable-pip-version-check 2>/dev/null",
+                        AgentUtils::shell_quote(version.executable_path));
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
         return Status::InternalError("Failed to run pip list for python version: {}",
