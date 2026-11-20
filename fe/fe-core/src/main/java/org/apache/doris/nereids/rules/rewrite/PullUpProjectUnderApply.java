@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
@@ -47,13 +46,27 @@ import java.util.List;
  *               /     \
  * Input(output:b)      child
  * </pre>
+ * SQL examples (the same shape as the tests of this rule):
+ * select * from t1 where t1.c1 = (select max(t2.c1) from t2 where t1.c2 = t2.c2) and
+ * select * from t1 where t1.c1 = (select max(t2.c1) + 1 from t2 where t1.c2 = t2.c2);
+ * after the rule the Project of the subquery (with its outputs max(t2.c1), or max(t2.c1) + 1) is
+ * above the apply, so the correlation filter below the aggregate can be pulled up afterwards.
+ * The guard of this rule keeps an IN subquery untouched: the first column of the projection of its
+ * select list is the value which the IN compares, and the rule which unnests the IN reads it from
+ * the output of the subquery (and the columns it adds are exposed through that projection), so
+ * pulling the projection above the apply would move the compared value and leave the conditions of
+ * the join unresolvable. For example
+ * select t1.c1, t1.c1 in (select t3.c1 from (select t2.c1 from t2 where t2.c1 = t1.c1) t3
+ * where t3.c1 > t1.c1) as v from t1;
+ * is consumed by the IN specific rule UN_CORRELATED_APPLY_PROJECT_FILTER, which pulls the correlated
+ * predicate into the apply while keeping the Project in place.
  */
 public class PullUpProjectUnderApply extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalApply(any(), logicalProject(any()))
                 .when(LogicalApply::isCorrelated)
-                .whenNot(apply -> apply.right().child() instanceof LogicalFilter && apply.isIn())
+                .whenNot(LogicalApply::isIn)
                 .whenNot(LogicalApply::alreadyExecutedEliminateFilter)
                 .then(apply -> {
                     LogicalProject<Plan> project = apply.right();
