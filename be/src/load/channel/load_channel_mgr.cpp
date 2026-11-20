@@ -64,6 +64,13 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     });
 }
 
+size_t LoadChannelMgr::num_active_channels() {
+    // Construction can release the last QueryContext and block on spill cleanup.
+    // A busy manager counts as pending work so shutdown can still check its deadline.
+    std::unique_lock<std::mutex> lock(_lock, std::try_to_lock);
+    return lock.owns_lock() ? _load_channels.size() : 1;
+}
+
 void LoadChannelMgr::stop() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
     DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
@@ -113,7 +120,13 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
         }
     }
 
-    RETURN_IF_ERROR(channel->open(params));
+    auto status = channel->open(params);
+    if (!status.ok()) {
+        // Cloud validation can reject an open before any receiver exists. Remove the
+        // exact failed instance so shutdown does not count it until the load timeout.
+        RETURN_IF_ERROR(_cancel_load_channel(channel, status));
+        return status;
+    }
 
     return Status::OK();
 }
