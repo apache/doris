@@ -25,7 +25,7 @@ networks:
 
 services:
   ${CONTAINER_UID}hudi-minio:
-    image: doristhirdpartydocker/minio:RELEASE.2025-01-20T14-49-07Z
+    image: ${THIRDPARTY_DATALAKE_MINIO_IMAGE}
     container_name: ${CONTAINER_UID}hudi-minio
     command: server /data --console-address ":9001"
     environment:
@@ -43,7 +43,7 @@ services:
       - ${HUDI_NETWORK}
 
   ${CONTAINER_UID}hudi-minio-mc:
-    image: doristhirdpartydocker/mc:RELEASE.2025-01-17T23-25-50Z
+    image: ${THIRDPARTY_MINIO_CLIENT_IMAGE}
     container_name: ${CONTAINER_UID}hudi-minio-mc
     entrypoint: |
       /bin/bash -c "
@@ -59,7 +59,7 @@ services:
       - ${HUDI_NETWORK}
 
   ${CONTAINER_UID}hudi-metastore-db:
-    image: postgres:14
+    image: ${THIRDPARTY_HUDI_POSTGRES_IMAGE}
     container_name: ${CONTAINER_UID}hudi-metastore-db
     environment:
       POSTGRES_USER: hive
@@ -69,7 +69,7 @@ services:
       - ${HUDI_NETWORK}
 
   ${CONTAINER_UID}hudi-metastore:
-    image: starburstdata/hive:3.1.2-e.18
+    image: ${THIRDPARTY_HUDI_HIVE_IMAGE}
     container_name: ${CONTAINER_UID}hudi-metastore
     hostname: ${CONTAINER_UID}hudi-metastore
     environment:
@@ -106,7 +106,7 @@ services:
       - ${HUDI_NETWORK}
 
   ${CONTAINER_UID}hudi-spark:
-    image: spark:3.5.7-scala2.12-java17-ubuntu
+    image: ${THIRDPARTY_HUDI_SPARK_IMAGE}
     container_name: ${CONTAINER_UID}hudi-spark
     hostname: ${CONTAINER_UID}hudi-spark
     user: root

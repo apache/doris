@@ -19,7 +19,7 @@ version: '3'
 
 services:
   doris--oracle_11:
-    image: oracleinanutshell/oracle-xe-11g:latest
+    image: ${THIRDPARTY_ORACLE_IMAGE}
     restart: always
     ports:
       - ${DOCKER_ORACLE_EXTERNAL_PORT}:1521

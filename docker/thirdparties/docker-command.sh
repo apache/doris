@@ -16,6 +16,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# shellcheck source=image-registry.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/image-registry.sh"
+
 configure_docker_access() {
     local rootless_runtime_dir
     local rootless_socket
@@ -66,12 +69,15 @@ rootless_fixture_cmd() {
     local fixture_dir="$1"
     shift
 
+    local image
+    image="$(thirdparty_resolve_image "${THIRDPARTY_FILESYSTEM_IMAGE:-alpine:3.20}")" || return
+
     # Stay in the daemon's user namespace when images have chowned bind mounts
     # to subordinate UIDs. Mount only the fixture directory being operated on.
     docker_cli run --rm --network none --user 0:0 \
         --security-opt no-new-privileges \
         --mount "type=bind,source=${fixture_dir},target=/fixture" \
-        "${THIRDPARTY_FILESYSTEM_IMAGE:-alpine:3.20}" "$@"
+        "${image}" "$@"
 }
 
 reset_rootless_data_dir() {

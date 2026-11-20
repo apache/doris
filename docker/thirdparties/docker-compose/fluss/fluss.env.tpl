@@ -35,9 +35,9 @@ DOCKER_FLUSS_MINIO_EXTERNAL_PORT=19125
 # every flink container through that script. The version is the one fe/pom.xml
 # pins fluss.version to, so the cluster the suites run against is the release
 # the connector and the BE scanner were compiled against; moving it means
-# editing both tags (and fe/pom.xml with them).
-FLUSS_SERVER_IMAGE=apache/fluss:1.0.0
-FLUSS_FLINK_IMAGE=apache/fluss-quickstart-flink:1.20-1.0.0
+# editing both defaults in ../../image-catalog.env (and fe/pom.xml with them).
+FLUSS_SERVER_IMAGE=${FLUSS_SERVER_IMAGE}
+FLUSS_FLINK_IMAGE=${FLUSS_FLINK_IMAGE}
 
 # Address the fluss servers advertise to clients. Doris FE/BE run on the host,
 # so the servers must hand out the host address plus the published ports, not

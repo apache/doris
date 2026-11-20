@@ -19,7 +19,7 @@ version: "3.9"
 
 services:
   doris--es_5:
-    image: elasticsearch:5.6.16
+    image: ${THIRDPARTY_ES5_IMAGE}
     ports:
       - ${DOCKER_ES_5_EXTERNAL_PORT}:9200
     environment:
@@ -46,7 +46,7 @@ services:
   doris--es_6:
     # es official not provide 6.x image for arm/v8, use compatible image.
     # https://github.com/dockhippie/elasticsearch/tree/master/v6.8
-    image: webhippie/elasticsearch:6.8
+    image: ${THIRDPARTY_ES6_IMAGE}
     ports:
       - ${DOCKER_ES_6_EXTERNAL_PORT}:9200
     environment:
@@ -67,7 +67,7 @@ services:
       timeout: 10s
       retries: 100
   doris--es_7:
-    image: elasticsearch:7.17.5
+    image: ${THIRDPARTY_ES7_IMAGE}
     ports:
       - ${DOCKER_ES_7_EXTERNAL_PORT}:9200
     environment:
@@ -92,7 +92,7 @@ services:
       timeout: 10s
       retries: 100
   doris--es_8:
-    image: elasticsearch:8.3.3
+    image: ${THIRDPARTY_ES8_IMAGE}
     ports:
       - ${DOCKER_ES_8_EXTERNAL_PORT}:9200
     environment:
@@ -117,7 +117,7 @@ services:
       timeout: 10s
       retries: 100
   doris--_init_data:
-    image: webdevops/toolbox
+    image: ${THIRDPARTY_ES_TOOLBOX_IMAGE}
     volumes:
       - ./scripts/:/mnt/scripts
     environment:

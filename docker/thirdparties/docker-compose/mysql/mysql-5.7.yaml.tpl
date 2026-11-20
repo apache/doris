@@ -19,7 +19,7 @@ version: "2.1"
 
 services:
   doris--mysql_57:
-    image: mysql:5.7.36
+    image: ${THIRDPARTY_MYSQL_IMAGE}
     # mysql 5.7 was never published for arm64, so an Apple Silicon host resolves
     # no manifest at all and the pull fails. Pin the platform and let the host
     # emulate it.

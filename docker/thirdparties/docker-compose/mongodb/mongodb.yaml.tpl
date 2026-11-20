@@ -19,7 +19,7 @@ name: doris--mongodb
 
 services:
   mongodb:
-    image: mongo:8.0.20
+    image: ${THIRDPARTY_MONGODB_IMAGE}
     container_name: doris--mongodb
     ports:
       - "${MONGODB_PORT:-27017}:27017"

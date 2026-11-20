@@ -51,6 +51,9 @@ Usage: $0 <options>
      -c mysql           start MySQL
      -c mysql,hive3     start MySQL and Hive3
      --stop             stop the specified components
+     --list-images      print selected image references without contacting Docker
+     --pull-images      fetch missing remote images without starting components
+     --image-config-version  print the image configuration interface version
      --reserve-ports    unsupported; configure host port reservations separately
      --no-load-data     do not load data into the components
      --load-parallel <num>  set the parallel number to load data, default is the 50% of CPU cores
@@ -64,9 +67,11 @@ Usage: $0 <options>
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
 ALL_COMPONENTS="${DEFAULT_COMPONENTS},iceberg-rest,kafka,ranger,polaris,fluss,mongodb"
-COMPONENTS=$2
+COMPONENTS=""
 HELP=0
 STOP=0
+LIST_IMAGES=0
+PULL_IMAGES=0
 NEED_RESERVE_PORTS=0
 export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
@@ -104,6 +109,18 @@ else
         case "$1" in
         -h|--help)
             HELP=1
+            shift
+            ;;
+        --image-config-version)
+            echo 1
+            exit 0
+            ;;
+        --list-images)
+            LIST_IMAGES=1
+            shift
+            ;;
+        --pull-images)
+            PULL_IMAGES=1
             shift
             ;;
         --stop)
@@ -152,7 +169,7 @@ else
         if [[ "${STOP}" -eq 1 ]]; then
             COMPONENTS="${ALL_COMPONENTS}"
         fi
-        if [[ "${NEED_RESERVE_PORTS}" -eq 1 ]]; then
+        if [[ "${NEED_RESERVE_PORTS}" -eq 1 || "${LIST_IMAGES}" -eq 1 || "${PULL_IMAGES}" -eq 1 ]]; then
             COMPONENTS="${DEFAULT_COMPONENTS}"
         fi
     fi
@@ -166,6 +183,30 @@ if [[ "${COMPONENTS}"x == ""x ]]; then
     echo "Invalid arguments"
     echo ${COMPONENTS}
     usage
+fi
+
+if ((STOP + LIST_IMAGES + PULL_IMAGES > 1)); then
+    echo "--stop, --list-images and --pull-images are mutually exclusive" >&2
+    exit 1
+fi
+IFS=',' read -r -a requested_components <<<"${COMPONENTS}"
+for component in "${requested_components[@]}"; do
+    if [[ ",${ALL_COMPONENTS}," != *",${component},"* ]]; then
+        echo "Invalid component: ${component}" >&2
+        exit 1
+    fi
+done
+
+# Resolve only selected components before any Docker or fixture mutation.
+thirdparty_images_init "${COMPONENTS}"
+if [[ "${LIST_IMAGES}" -eq 1 ]]; then
+    thirdparty_images_list
+    exit 0
+fi
+if [[ "${PULL_IMAGES}" -eq 1 ]]; then
+    configure_docker_access
+    thirdparty_images_pull
+    exit 0
 fi
 
 if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
@@ -296,6 +337,11 @@ for element in "${COMPONENTS_ARR[@]}"; do
         usage
     fi
 done
+
+if [[ "${STOP}" -ne 1 && "${THIRDPARTY_IMAGE_MODE}" == mapped ]]; then
+    thirdparty_images_list
+    thirdparty_images_pull
+fi
 
 hive_bootstrap_groups_for() {
     local hive_version="$1"
@@ -1106,7 +1152,7 @@ hive_volume_is_populated() {
     local prefix="$1"
     docker_cli run --rm \
         -v "${prefix}-namenode:/vol:ro" \
-        alpine test -f /vol/current/VERSION 2>/dev/null
+        "${THIRDPARTY_HIVE_FILESYSTEM_IMAGE}" test -f /vol/current/VERSION 2>/dev/null
 }
 
 maybe_restore_baseline_to_volumes() {
@@ -1210,7 +1256,7 @@ maybe_restore_baseline_to_volumes() {
         -v "${prefix}-datanode:/restore/datanode" \
         -v "${prefix}-pgdata:/restore/pgdata" \
         -v "${prefix}-state:/restore/state" \
-        alpine sh -c 'cd /baseline && tar cf - namenode datanode pgdata state | tar xf - -C /restore'
+        "${THIRDPARTY_HIVE_FILESYSTEM_IMAGE}" sh -c 'cd /baseline && tar cf - namenode datanode pgdata state | tar xf - -C /restore'
     HIVE_BASELINE_RESTORE_RESULT="restored"
     echo "[baseline] restore done took=$(( $(date +%s) - _t0 ))s"
 }
@@ -1397,9 +1443,6 @@ start_hive_stack() {
 start_iceberg() {
     # iceberg
     ICEBERG_DIR=${ROOT}/docker-compose/iceberg
-    if [[ "${HOST_OS}" == "Darwin" ]]; then
-        export ICEBERG_POSTGRES_IMAGE="${ICEBERG_POSTGRES_IMAGE:-postgres:14}"
-    fi
     render_uid_template "${ROOT}/docker-compose/iceberg/iceberg.yaml.tpl" "${ROOT}/docker-compose/iceberg/iceberg.yaml"
     render_uid_template "${ROOT}/docker-compose/iceberg/entrypoint.sh.tpl" "${ROOT}/docker-compose/iceberg/entrypoint.sh"
     cp "${ROOT}/docker-compose/iceberg/entrypoint.sh" "${ROOT}/docker-compose/iceberg/scripts/entrypoint.sh"
