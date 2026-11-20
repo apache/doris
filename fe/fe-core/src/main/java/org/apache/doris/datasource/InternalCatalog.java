@@ -4239,11 +4239,15 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(getId());
     }
 
-    public void createTableStream(CreateStreamCommand command) throws DdlException {
+    public static void checkTableStreamEnabled() throws DdlException {
         if (!Config.enable_table_stream) {
             throw new DdlException("Table Stream is experimental."
                     + " Please set enable_table_stream=true to enable it.");
         }
+    }
+
+    public void createTableStream(CreateStreamCommand command) throws DdlException {
+        checkTableStreamEnabled();
         CreateStreamInfo createStreamInfo = command.getCreateStreamInfo();
         String dbName = createStreamInfo.getStreamName().getDb();
         String streamName = createStreamInfo.getStreamName().getTbl();
