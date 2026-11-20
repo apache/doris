@@ -20,6 +20,7 @@
 #include <butil/macros.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -186,6 +187,22 @@ public:
 
     // Add a committed rowset.
     Status add_inc_rowset(const RowsetSharedPtr& rowset);
+
+    // Schema-change publish coordination. Caller holds the header lock; mutations
+    // require the exclusive lock. The required version is a scheduling watermark.
+    int64_t schema_change_max_missing_version_unlocked() const {
+        return _schema_change_max_missing_version;
+    }
+    void update_schema_change_max_missing_version_unlocked(int64_t version) {
+        _schema_change_max_missing_version = std::max(_schema_change_max_missing_version, version);
+    }
+    bool schema_change_conversion_started_unlocked() const {
+        return _schema_change_conversion_started;
+    }
+    void set_schema_change_conversion_started_unlocked() {
+        _schema_change_conversion_started = true;
+    }
+
     /// Delete stale rowset by timing. This delete policy uses now() minutes
     /// config::tablet_rowset_expired_stale_sweep_time_sec to compute the deadline of expired rowset
     /// to delete.  When rowset is deleted, it will be added to StorageEngine unused map and record
@@ -588,6 +605,10 @@ private:
     // We use a separate lock rather than _meta_lock, to avoid blocking read queries
     // during publish_txn, which might take hundreds of milliseconds
     mutable std::mutex _rowset_update_lock;
+
+    // Protected by _meta_lock. Used only by MoW schema-change shadow tablets.
+    int64_t _schema_change_max_missing_version = -1;
+    bool _schema_change_conversion_started = false;
 
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
