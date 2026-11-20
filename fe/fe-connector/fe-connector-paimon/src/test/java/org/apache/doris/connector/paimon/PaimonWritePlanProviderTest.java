@@ -45,6 +45,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class PaimonWritePlanProviderTest {
@@ -58,15 +59,19 @@ public class PaimonWritePlanProviderTest {
                         Collections.singletonMap("bucket", "2"), ""));
         ConnectorSession enabled = new PropertySession(Collections.emptyMap());
         List<String> columns = Collections.singletonList("id");
-        Assertions.assertEquals("supported_append", PaimonWritePlanProvider.writerSelectionReason(
-                enabled, table, columns, Collections.emptyMap(), TPaimonWriteMode.APPEND));
-        Assertions.assertEquals("supported_overwrite", PaimonWritePlanProvider.writerSelectionReason(
-                enabled, table, columns, Collections.emptyMap(), TPaimonWriteMode.OVERWRITE));
-        Assertions.assertEquals("changelog_write", PaimonWritePlanProvider.writerSelectionReason(
+        for (TPaimonWriteMode mode : Arrays.asList(TPaimonWriteMode.APPEND, TPaimonWriteMode.OVERWRITE)) {
+            Assertions.assertTrue(PaimonWritePlanProvider.rustWriterFallbackReason(
+                    enabled, table, columns, Collections.emptyMap(), mode).isEmpty());
+        }
+        Assertions.assertEquals(Optional.of("changelog_write"), PaimonWritePlanProvider.rustWriterFallbackReason(
                 enabled, table, columns, Collections.emptyMap(), TPaimonWriteMode.CHANGELOG));
-        Assertions.assertEquals("rust_writer_disabled", PaimonWritePlanProvider.writerSelectionReason(
+        Assertions.assertEquals(Optional.of("rust_writer_disabled"), PaimonWritePlanProvider.rustWriterFallbackReason(
                 new PropertySession(Collections.singletonMap("enable_paimon_rust_writer", "false")),
                 table, columns, Collections.emptyMap(), TPaimonWriteMode.OVERWRITE));
+        table.options().put("merge-engine", "first-row");
+        Assertions.assertEquals(Optional.of("first_row_requires_compaction"),
+                PaimonWritePlanProvider.rustWriterFallbackReason(
+                        enabled, table, columns, Collections.emptyMap(), TPaimonWriteMode.APPEND));
     }
 
     @Test

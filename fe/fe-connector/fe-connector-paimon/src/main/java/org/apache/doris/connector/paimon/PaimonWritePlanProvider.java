@@ -172,12 +172,13 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         }
         storageOptions.putAll(table.options());
         TPaimonWriteMode mode = writeMode(handle);
-        String reason = writerSelectionReason(session, table, columns, storageOptions, mode);
-        boolean rust = reason.equals("supported_append") || reason.equals("supported_overwrite");
+        Optional<String> fallbackReason = rustWriterFallbackReason(session, table, columns, storageOptions, mode);
+        boolean rust = fallbackReason.isEmpty();
         sink.setSerializedTable(LEGACY_BE_REJECTION_MARKER);
         sink.setTableDesc(binding.getTableDescriptor(storageOptions, rust));
         sink.setCommitMessageVersion(rust ? RUST_COMMIT_VERSION : new CommitMessageSerializer().getVersion());
-        sink.setBackendSelectionReason(reason);
+        sink.setBackendSelectionReason(fallbackReason.orElse(
+                mode == TPaimonWriteMode.OVERWRITE ? "supported_overwrite" : "supported_append"));
         sink.setHadoopConfig(binding.getHadoopConfig());
         sink.setColumnNames(columns);
         sink.setBackendType(rust ? TPaimonWriteBackendType.FFI : TPaimonWriteBackendType.JNI);
@@ -190,20 +191,19 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         return new ConnectorSinkPlan(dataSink);
     }
 
-    static String writerSelectionReason(ConnectorSession session, FileStoreTable table,
+    static Optional<String> rustWriterFallbackReason(ConnectorSession session, FileStoreTable table,
             List<String> columns, Map<String, String> storageOptions, TPaimonWriteMode mode) {
         if (Boolean.FALSE.equals(session.getProperty(ENABLE_RUST_WRITER, Boolean.class))) {
-            return "rust_writer_disabled";
+            return Optional.of("rust_writer_disabled");
         }
         if (mode == TPaimonWriteMode.CHANGELOG) {
-            return "changelog_write";
+            return Optional.of("changelog_write");
         }
         if (charPaddingEnabled(session) && table.schema().fields().stream()
                 .anyMatch(field -> field.type().getTypeRoot() == DataTypeRoot.CHAR)) {
-            return "char_padding";
+            return Optional.of("char_padding");
         }
-        return PaimonRustWriteSupport.unsupportedReason(table, columns, storageOptions)
-                .orElse(mode == TPaimonWriteMode.OVERWRITE ? "supported_overwrite" : "supported_append");
+        return PaimonRustWriteSupport.unsupportedReason(table, columns, storageOptions);
     }
 
     /**
