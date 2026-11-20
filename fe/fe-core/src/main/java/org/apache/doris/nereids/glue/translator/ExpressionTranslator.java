@@ -246,7 +246,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitMatch(Match match, PlanTranslatorContext context) {
         // Get the first slot from match's left expr
-        SlotReference slot = match.getInputSlots().stream()
+        SlotReference slot = match.left().getInputSlots().stream()
                         .findFirst()
                         .filter(SlotReference.class::isInstance)
                         .map(SlotReference.class::cast)

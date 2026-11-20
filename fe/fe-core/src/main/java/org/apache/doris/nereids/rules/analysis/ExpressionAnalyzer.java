@@ -1037,6 +1037,10 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
                     throw new AnalysisException("VARIANT root column supports only MATCH, MATCH_ANY, and MATCH_ALL. "
                             + "Please query a subcolumn for " + match);
                 }
+                if (!right.isConstant()) {
+                    throw new AnalysisException("VARIANT root MATCH requires a constant query expression: "
+                            + right.toSql());
+                }
             } else {
                 left = new Cast(left, right.getDataType());
             }

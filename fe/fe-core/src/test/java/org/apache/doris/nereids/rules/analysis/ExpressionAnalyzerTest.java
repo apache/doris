@@ -81,10 +81,17 @@ public class ExpressionAnalyzerTest {
         SlotReference noValues = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(), new OlapTable(),
                 column, ImmutableList.of());
         SlotReference alias = (SlotReference) new Alias(root, "renamed").toSlot();
+        SlotReference queryColumn = new SlotReference("query_text", StringType.INSTANCE);
         StringLiteral query = new StringLiteral("hello");
+        Expression constantQuery = new Cast(new TinyIntLiteral((byte) 42), StringType.INSTANCE, true);
         for (SlotReference slot : ImmutableList.of(root, alias)) {
             Assertions.assertSame(slot, analyzer.visitMatch(new MatchAny(slot, query), null).child(0));
             Assertions.assertSame(slot, analyzer.visitMatch(new MatchAll(slot, query), null).child(0));
+            Assertions.assertEquals(constantQuery,
+                    analyzer.visitMatch(new MatchAny(slot, constantQuery), null).child(1));
+            AnalysisException nonConstant = Assertions.assertThrows(AnalysisException.class,
+                    () -> analyzer.visitMatch(new MatchAny(slot, queryColumn), null));
+            Assertions.assertTrue(nonConstant.getMessage().contains("constant query expression"));
             AnalysisException error = Assertions.assertThrows(AnalysisException.class,
                     () -> analyzer.visitMatch(new MatchPhrase(slot, query), null));
             Assertions.assertTrue(error.getMessage().contains("supports only MATCH, MATCH_ANY, and MATCH_ALL"));

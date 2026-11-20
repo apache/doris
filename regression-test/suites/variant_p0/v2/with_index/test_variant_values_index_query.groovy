@@ -233,4 +233,12 @@ suite("test_variant_values_index_query", "p0,nonConcurrent") {
     }
     assertEquals([[1]], columnCase.column_case_any)
     assertEquals([[2]], columnCase.column_case_not)
+
+    sql "SET enable_inverted_index_query=false"
+    test {
+        sql "SELECT v MATCH_ANY CAST(id AS STRING) FROM vvi_query_column_case"
+        exception "VARIANT root MATCH requires a constant query expression"
+    }
+    assertEquals(sql("SELECT id,v MATCH_ANY 'hello' FROM vvi_query_column_case ORDER BY id"),
+            sql("SELECT id,v MATCH_ANY concat('hel','lo') FROM vvi_query_column_case ORDER BY id"))
 }
