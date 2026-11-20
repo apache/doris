@@ -298,6 +298,18 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         return cascadesContext;
     }
 
+    /**
+     * Skip operators that do not change whether a plan returns any row, so a LIMIT wrapped
+     * in a derived table is checked the same way as a top-level LIMIT.
+     */
+    private static LogicalPlan unwrapRowCountPreserving(LogicalPlan plan) {
+        while (plan instanceof LogicalProject || plan instanceof LogicalSort
+                || plan instanceof LogicalSubQueryAlias) {
+            plan = (LogicalPlan) plan.child(0);
+        }
+        return plan;
+    }
+
     private static class AnalyzedResult {
         private final LogicalPlan logicalPlan;
         private final List<Slot> correlatedSlots;
@@ -351,15 +363,17 @@ class SubExprAnalyzer<T> extends DefaultExpressionRewriter<T> {
         }
 
         public boolean rootIsLimit() {
-            return logicalPlan instanceof LogicalLimit;
+            return unwrapRowCountPreserving(logicalPlan) instanceof LogicalLimit;
         }
 
         public boolean rootIsLimitWithOffset() {
-            return logicalPlan instanceof LogicalLimit && ((LogicalLimit<?>) logicalPlan).getOffset() != 0;
+            LogicalPlan root = unwrapRowCountPreserving(logicalPlan);
+            return root instanceof LogicalLimit && ((LogicalLimit<?>) root).getOffset() != 0;
         }
 
         public boolean rootIsLimitZero() {
-            return logicalPlan instanceof LogicalLimit && ((LogicalLimit<?>) logicalPlan).getLimit() == 0;
+            LogicalPlan root = unwrapRowCountPreserving(logicalPlan);
+            return root instanceof LogicalLimit && ((LogicalLimit<?>) root).getLimit() == 0;
         }
     }
 
