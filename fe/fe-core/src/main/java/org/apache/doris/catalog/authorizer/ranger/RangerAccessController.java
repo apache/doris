@@ -95,9 +95,8 @@ public abstract class RangerAccessController implements CatalogAccessController 
         RangerAccessRequestImpl request = createRequest(currentUser);
         // If the access type is not set here, it defaults to ANY1 ACCESS.
         // The internal logic of the ranger is to traverse all permission items.
-        // Since the ranger UI will set the access type to 'SELECT',
-        // we will keep it consistent with the UI here to avoid performance issues
-        request.setAccessType(DorisAccessType.SELECT.name());
+        // Keep the access type consistent with the service definition to avoid traversing all policy items.
+        request.setAccessType(getSelectAccessType());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -125,7 +124,7 @@ public abstract class RangerAccessController implements CatalogAccessController 
             String col) {
         RangerAccessResourceImpl resource = createResource(ctl, db, tbl, col);
         RangerAccessRequestImpl request = createRequest(currentUser);
-        request.setAccessType(DorisAccessType.SELECT.name());
+        request.setAccessType(getSelectAccessType());
         request.setResource(resource);
 
         if (LOG.isDebugEnabled()) {
@@ -166,6 +165,10 @@ public abstract class RangerAccessController implements CatalogAccessController 
     }
 
     protected abstract RangerAccessRequestImpl createRequest(UserIdentity currentUser);
+
+    protected String getSelectAccessType() {
+        return DorisAccessType.SELECT.name();
+    }
 
     protected abstract RangerAccessResourceImpl createResource(String ctl, String db, String tbl);
 
