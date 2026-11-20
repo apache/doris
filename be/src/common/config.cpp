@@ -831,6 +831,9 @@ DEFINE_mInt32(thrift_rpc_timeout_ms, "60000");
 // txn commit rpc timeout
 DEFINE_mInt32(txn_commit_rpc_timeout_ms, "180000");
 
+// Covers FE's default 300s transaction drain plus master election and heartbeat convergence.
+DEFINE_mInt32(stream_load_fe_rpc_retry_timeout_ms, "360000");
+
 // If set to true, metric calculator will run
 DEFINE_Bool(enable_metric_calculator, "true");
 

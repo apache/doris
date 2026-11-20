@@ -912,6 +912,9 @@ DECLARE_mInt32(thrift_rpc_timeout_ms);
 // txn commit rpc timeout
 DECLARE_mInt32(txn_commit_rpc_timeout_ms);
 
+// Total time for Stream Load FE RPC retries during graceful restart / master election.
+DECLARE_mInt32(stream_load_fe_rpc_retry_timeout_ms);
+
 // If set to true, metric calculator will run
 DECLARE_Bool(enable_metric_calculator);
 

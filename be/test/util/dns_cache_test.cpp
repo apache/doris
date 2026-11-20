@@ -816,4 +816,48 @@ TEST_F(DNSCacheTest, refresh_stops_early_when_stopping) {
     EXPECT_EQ(1u, cache.size_for_test()) << "bailing out must leave the cache untouched";
 }
 
+TEST(DNSCacheGracefulTest, RestartInvalidationPreservesFallback) {
+    std::string answer = "10.0.0.1";
+    int lookups = 0;
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int*) {
+        ++lookups;
+        ip = answer;
+        return ip.empty() ? Status::InternalError("temporary resolver failure") : Status::OK();
+    });
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, answer);
+    answer = "10.0.0.2";
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.1");
+    EXPECT_EQ(lookups, 1);
+    cache.invalidate("be.test");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    answer.clear();
+    cache.invalidate("be.test");
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(ip, "10.0.0.2");
+    EXPECT_EQ(lookups, 3);
+}
+
+TEST(DNSCacheGracefulTest, InvalidationDuringLookupRequiresAnotherLookup) {
+    int lookups = 0;
+    DNSCache* instance = nullptr;
+    DNSCache cache([&](const std::string&, std::string& ip, bool, int*) {
+        ++lookups;
+        if (lookups == 1) {
+            instance->invalidate("be.test");
+        }
+        ip = lookups == 1 ? "10.0.0.1" : "10.0.0.2";
+        return Status::OK();
+    });
+    instance = &cache;
+    std::string ip;
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    ASSERT_TRUE(cache.get("be.test", &ip).ok());
+    EXPECT_EQ(lookups, 2);
+    EXPECT_EQ(ip, "10.0.0.2");
+}
+
 } // end of namespace doris
