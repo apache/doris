@@ -49,6 +49,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -415,6 +416,11 @@ public class AuditLogHelper {
         }
         AuditEvent event = auditEventBuilder.build();
         Set<Long> auditBackendIds = getAuditStatisticsBackendIds(ctx.getExecutor());
+        TUniqueId statisticsQueryId = ctx.getExecutor() == null
+                ? null : ctx.getExecutor().getEmbeddedQueryIdForAuditStatistics();
+        if (statisticsQueryId != null) {
+            event.setStatisticsQueryId(DebugUtil.printId(statisticsQueryId));
+        }
         if (auditBackendIds.isEmpty()) {
             Env.getCurrentEnv().getWorkloadRuntimeStatusMgr().submitFinishQueryToAudit(event);
         } else {
