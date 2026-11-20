@@ -47,9 +47,13 @@ import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.load.DeleteInfo;
+import org.apache.doris.load.DeleteJob;
+import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mtmv.ivm.IvmInfo;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.PublishVersionTask;
@@ -514,6 +518,140 @@ public class DatabaseTransactionMgrTest {
         });
         Assertions.assertTrue(e.getMessage().contains("transaction not found"),
                 "unexpected message: " + e.getMessage());
+    }
+
+    private KafkaRoutineLoadJob attachRoutineLoadAbortCallback(TransactionState state) throws UserException {
+        KafkaRoutineLoadJob job = Mockito.spy(new KafkaRoutineLoadJob(state.getTransactionId(), "abort_callback",
+                state.getDbId(), CatalogTestUtil.testTableId1, "localhost:9092", "topic", null));
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertFalse(Thread.holdsLock(state));
+            return invocation.callRealMethod();
+        }).when(job).afterAborted(Mockito.same(state), Mockito.anyBoolean(), Mockito.anyString());
+        state.setCallbackId(job.getId());
+        masterTransMgr.getCallbackFactory().addCallback(job);
+        return job;
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testLateAbortReleasesRoutineLoadJobLock(boolean twoPhase) throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        DatabaseTransactionMgr manager = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        long transactionId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel2);
+        TransactionState state = manager.getTransactionState(transactionId);
+        Table table = masterEnv.getInternalCatalog().getDbOrMetaException(state.getDbId())
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        manager.commitTransaction(Collections.singletonList(table), transactionId,
+                GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends),
+                null, false);
+        Assertions.assertEquals(TransactionStatus.COMMITTED, state.getTransactionStatus());
+        KafkaRoutineLoadJob job = attachRoutineLoadAbortCallback(state);
+        ReentrantReadWriteLock jobLock = Deencapsulation.getField(job, "lock");
+        String reason = twoPhase ? "User Abort" : "late abort";
+        try {
+            UserException failure = Assertions.assertThrows(UserException.class, () -> {
+                if (twoPhase) {
+                    manager.abortTransaction2PC(transactionId);
+                } else {
+                    manager.abortTransaction(transactionId, reason, null);
+                }
+            });
+            Assertions.assertTrue(failure.getMessage().contains("already COMMITTED"));
+            Assertions.assertEquals(TransactionStatus.COMMITTED, state.getTransactionStatus());
+            Assertions.assertFalse(jobLock.isWriteLocked());
+            Mockito.verify(job).beforeAborted(state);
+            Mockito.verify(job).afterAborted(state, false, reason);
+        } finally {
+            if (jobLock.isWriteLockedByCurrentThread()) {
+                jobLock.writeLock().unlock();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    public void testAbortJournalFailureReleasesRoutineLoadJobLock(boolean twoPhase, boolean logOutsideLock)
+            throws Exception {
+        boolean originalLogOutsideLock = Config.enable_txn_log_outside_lock;
+        FakeEnv.setEnv(masterEnv);
+        DatabaseTransactionMgr manager = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        long transactionId = LabelToTxnId.get(CatalogTestUtil.testTxnLabel2);
+        TransactionState state = manager.getTransactionState(transactionId);
+        KafkaRoutineLoadJob job = attachRoutineLoadAbortCallback(state);
+        ReentrantReadWriteLock jobLock = Deencapsulation.getField(job, "lock");
+        String reason = twoPhase ? "User Abort" : "abort journal failure";
+        IllegalStateException journalFailure = new IllegalStateException("journal submission failed");
+        try {
+            Config.enable_txn_log_outside_lock = logOutsideLock;
+            if (logOutsideLock) {
+                Mockito.doThrow(journalFailure).when(masterEnv.getEditLog())
+                        .submitEdit(Mockito.eq(OperationType.OP_UPSERT_TRANSACTION_STATE), Mockito.same(state));
+            } else {
+                Mockito.doThrow(journalFailure).when(masterEnv.getEditLog()).logInsertTransactionState(state);
+            }
+            Assertions.assertSame(journalFailure, Assertions.assertThrows(IllegalStateException.class, () -> {
+                if (twoPhase) {
+                    manager.abortTransaction2PC(transactionId);
+                } else {
+                    manager.abortTransaction(transactionId, reason, null);
+                }
+            }));
+            Assertions.assertEquals(TransactionStatus.ABORTED, state.getTransactionStatus());
+            Assertions.assertFalse(jobLock.isWriteLocked());
+            Mockito.verify(job).beforeAborted(state);
+            Mockito.verify(job).afterAborted(state, true, reason);
+        } finally {
+            Config.enable_txn_log_outside_lock = originalLogOutsideLock;
+            if (jobLock.isWriteLockedByCurrentThread()) {
+                jobLock.writeLock().unlock();
+            }
+        }
+    }
+
+    private DeleteJob attachDeleteAbortCallback(TransactionState state, Table table) {
+        DeleteInfo deleteInfo = new DeleteInfo(state.getDbId(), table.getId(), table.getName(),
+                Collections.emptyList(), false, Collections.emptyList(), Collections.emptyList());
+        DeleteJob job = new DeleteJob(state.getTransactionId(), state.getTransactionId(), state.getLabel(),
+                Collections.emptyMap(), deleteInfo);
+        state.setCallbackId(job.getId());
+        masterTransMgr.getCallbackFactory().addCallback(job);
+        return job;
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testRejectedAbortRetainsDeleteJobCallback(boolean twoPhase) throws Exception {
+        FakeEnv.setEnv(masterEnv);
+        DatabaseTransactionMgr manager = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
+        TransactionState committed = manager.getTransactionState(LabelToTxnId.get(CatalogTestUtil.testTxnLabel2));
+        Table table = masterEnv.getInternalCatalog().getDbOrMetaException(committed.getDbId())
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        DeleteJob committedJob = attachDeleteAbortCallback(committed, table);
+        manager.commitTransaction(Collections.singletonList(table), committed.getTransactionId(),
+                GlobalTransactionMgrTest.generateTabletCommitInfos(CatalogTestUtil.testTabletId1, allBackends),
+                null, false);
+        for (int attempt = 0; attempt < 2; attempt++) {
+            UserException failure = Assertions.assertThrows(UserException.class, () -> {
+                if (twoPhase) {
+                    manager.abortTransaction2PC(committed.getTransactionId());
+                } else {
+                    manager.abortTransaction(committed.getTransactionId(), "late delete abort", null);
+                }
+            });
+            Assertions.assertTrue(failure.getMessage().contains("already COMMITTED"));
+            Assertions.assertEquals(TransactionStatus.COMMITTED, committed.getTransactionStatus());
+            Assertions.assertSame(committedJob, masterTransMgr.getCallbackFactory().getCallback(committedJob.getId()));
+        }
+
+        TransactionState aborted = manager.getTransactionState(LabelToTxnId.get(CatalogTestUtil.testTxnLabel3));
+        DeleteJob abortedJob = attachDeleteAbortCallback(aborted, table);
+        if (twoPhase) {
+            manager.abortTransaction2PC(aborted.getTransactionId());
+        } else {
+            manager.abortTransaction(aborted.getTransactionId(), "delete abort", null);
+        }
+        Assertions.assertEquals(TransactionStatus.ABORTED, aborted.getTransactionStatus());
+        Assertions.assertNull(masterTransMgr.getCallbackFactory().getCallback(abortedJob.getId()));
     }
 
     @Test
