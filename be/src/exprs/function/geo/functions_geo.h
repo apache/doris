@@ -47,6 +47,8 @@ struct StConstructState {
     std::string encoded_buf;
 };
 
+class GeographyPointPolygonIndex;
+
 // Thread-local state of st_contains, st_within and the other relation functions: the decoded
 // shape of each constant argument, keyed by its encoded value. Decoding a polygon validates it,
 // which builds an index over all its edges, so a constant shape is decoded once per thread
@@ -57,6 +59,7 @@ struct StRelationState {
         std::string encoded;
         // nullptr if `encoded` is not a valid shape
         std::shared_ptr<GeoShape> shape;
+        std::shared_ptr<const GeographyPointPolygonIndex> polygon_index;
     };
     ConstShape args[2];
 };

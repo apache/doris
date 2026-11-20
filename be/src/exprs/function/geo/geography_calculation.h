@@ -29,11 +29,15 @@ class S2Shape;
 
 namespace doris {
 class GeoShape;
+class GeographyPointPolygonIndex;
 struct GeoCoordinate;
 // The calculation domain is default spherical Geography XY Point/LineString/Polygon.
 std::unique_ptr<GeoShape> decode_geography_calculation_shape(StringRef value);
-Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoShape& rhs,
-                          StringRef left_wkb, StringRef right_wkb, bool* result);
+// The caller supplies a cache only for a constant polygon and invalidates it when its WKB changes.
+Status geography_relation(
+        std::string_view name, const GeoShape& lhs, const GeoShape& rhs, StringRef left_wkb,
+        StringRef right_wkb, bool* result,
+        std::shared_ptr<const GeographyPointPolygonIndex>* constant_polygon = nullptr);
 bool geography_bearing(StringRef from, StringRef to, double* bearing);
 bool geography_bearing(const GeoCoordinate& from, const GeoCoordinate& to, double* bearing);
 Status geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate& vertex,
@@ -54,6 +58,7 @@ size_t geography_calculation_edges_for_test(const std::string& left, const std::
 Status geography_polygon_line_admission_for_test(std::string_view name, const std::string& left,
                                                  const std::string& right, bool* result,
                                                  size_t* checks);
+std::array<size_t, 2> geography_point_polygon_work_for_test();
 size_t geography_polygon_crossing_checks_for_test(const std::string& left,
                                                   const std::string& right);
 #endif

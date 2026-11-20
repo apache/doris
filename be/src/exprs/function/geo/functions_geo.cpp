@@ -651,7 +651,24 @@ struct StRelationFunction {
         while (first_row < size && any_geo_argument_is_null(block, arguments, first_row)) {
             null_map_data[first_row++] = 1;
         }
-        RETURN_IF_ERROR(decode_constants(context, block, arguments, first_row, &const_shapes));
+        auto* state = context == nullptr
+                              ? nullptr
+                              : reinterpret_cast<StRelationState*>(context->get_function_state(
+                                        FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        RETURN_IF_ERROR(decode_constants(state, block, arguments, first_row, &const_shapes));
+
+        std::shared_ptr<const GeographyPointPolygonIndex> block_polygon_index;
+        std::shared_ptr<const GeographyPointPolygonIndex>* constant_polygon = nullptr;
+        if (is_spatial_type(left_type)) {
+            for (size_t arg = 0; arg < const_shapes.size(); ++arg) {
+                if (const_shapes[arg] &&
+                    const_shapes[arg]->type() == GeoShapeType::GEO_SHAPE_POLYGON) {
+                    constant_polygon = state == nullptr ? &block_polygon_index
+                                                        : &state->args[arg].polygon_index;
+                    break;
+                }
+            }
+        }
 
         for (size_t row = first_row; row < size; ++row) {
             if (any_geo_argument_is_null(block, arguments, row)) {
@@ -678,9 +695,9 @@ struct StRelationFunction {
             // The legacy relation helpers use planar segments and may close open lines.
             // Dispatch typed Geography separately so date-line edges remain geodesic.
             if (is_spatial_type(left_type)) {
-                RETURN_IF_ERROR(geography_relation(NAME, *shape1, *shape2,
-                                                   left_col->get_data_at(row),
-                                                   right_col->get_data_at(row), &relation_value));
+                RETURN_IF_ERROR(geography_relation(
+                        NAME, *shape1, *shape2, left_col->get_data_at(row),
+                        right_col->get_data_at(row), &relation_value, constant_polygon));
             } else {
                 relation_value = Func::evaluate(shape1, shape2);
             }
@@ -692,18 +709,13 @@ struct StRelationFunction {
     }
 
 private:
-    static Status decode_constants(FunctionContext* context, const Block& block,
+    static Status decode_constants(StRelationState* state, const Block& block,
                                    const ColumnNumbers& arguments, size_t first_row,
                                    std::array<std::shared_ptr<GeoShape>, NUM_ARGS>* shapes) {
         // Empty batches and all-NULL argument pairs never reach typed shape admission.
         if (first_row == block.rows()) {
             return Status::OK();
         }
-        // Direct scalar evaluation can run without a thread-local FunctionContext.
-        auto* state = context == nullptr
-                              ? nullptr
-                              : reinterpret_cast<StRelationState*>(context->get_function_state(
-                                        FunctionContext::FunctionStateScope::THREAD_LOCAL));
         for (size_t arg = 0; arg < NUM_ARGS; ++arg) {
             const auto& column = block.get_by_position(arguments[arg]).column;
             if (is_column_const(*column)) {
@@ -730,6 +742,7 @@ private:
             RETURN_IF_ERROR(decode_calculation_shape(value, type, &decoded, NAME));
             cached.encoded.assign(value.data, value.size);
             cached.shape = std::move(decoded);
+            cached.polygon_index.reset();
             cached.decoded = true;
         }
         *shape = cached.shape;

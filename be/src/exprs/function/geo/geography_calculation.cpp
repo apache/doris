@@ -317,6 +317,7 @@ static thread_local size_t geography_exact_proofs = 0;
 static thread_local size_t geography_candidate_visits = 0;
 static thread_local size_t geography_polygon_crossing_checks = 0;
 static thread_local size_t geography_polygon_admission_checks = 0;
+static thread_local size_t geography_point_polygon_preparations = 0;
 #endif
 
 // Test coplanarity of the original degree ordinates, not independently rounded S2 vectors.
@@ -1334,6 +1335,68 @@ static std::pair<bool, bool> geography_rounded_polygon_contains(const S2ShapeInd
     return {closed, S2BooleanOperation::Contains(index, point_index, options)};
 }
 
+class GeographyPointPolygonIndex {
+public:
+    GeographyPointPolygonIndex(const GeoShape& polygon, StringRef wkb) {
+        const GeographyEdgeNodes nodes(wkb, wkb);
+        for (const auto& ring : nodes.left.sequences) {
+            for (size_t i = 0; i + 1 < ring.size(); ++i) {
+                // Long raw arcs need the existing midpoint stabilization.
+                if (ring[i].point.DotProd(ring[i + 1].point) < 0) {
+                    return;
+                }
+            }
+        }
+        geography_shape_index(polygon, nodes.left, nodes, &_index);
+        _short_edges = true;
+#ifdef BE_TEST
+        ++geography_point_polygon_preparations;
+#endif
+    }
+
+    bool try_relation(std::string_view name, const GeoShape& polygon, StringRef point_wkb,
+                      bool* result) const {
+        if (!_short_edges) {
+            return false;
+        }
+        const GeographyCoordinates raw(point_wkb);
+        DCHECK_EQ(raw.status, GeoParseStatus::GEO_PARSE_OK);
+        const auto& point = raw.sequences.front().front();
+        // Decoding preserves the rounded short edges, even when it drops duplicate vertices
+        // or reverses a ring. A short minor arc is a normalized combination of its endpoints,
+        // with norm at least 1/sqrt(2). Eight times the existing conversion error covers
+        // endpoint and point rounding as well as the raw side-check radius.
+        const auto& boundary = assert_cast<const GeoPolygon&>(polygon).polygon()->index();
+        const auto radius =
+                S1ChordAngle(S1Angle::Radians(64 * std::numeric_limits<double>::epsilon()));
+        S2ClosestEdgeQuery query(&boundary);
+        query.mutable_options()->set_include_interiors(false);
+        S2ClosestEdgeQuery::PointTarget target(point.point);
+#ifdef BE_TEST
+        ++geography_polygon_admission_checks;
+#endif
+        if (query.IsConservativeDistanceLessOrEqual(&target, radius)) {
+            return false;
+        }
+        // A distant point cannot make a raw boundary cut. The cached polygon therefore
+        // has the same noding as the per-pair index. Keep the original OPEN/CLOSED check.
+        if (name == "st_touches") {
+            *result = false;
+            return true;
+        }
+        const auto [closed, interior] = geography_rounded_polygon_contains(_index, point);
+        if (closed && !interior) {
+            return false;
+        }
+        *result = name == "st_disjoint" ? !interior : interior;
+        return true;
+    }
+
+private:
+    MutableS2ShapeIndex _index;
+    bool _short_edges = false;
+};
+
 // The caller has already excluded exact raw boundary contact. Reuse this admission for both
 // point relations and independent interior witnesses in a pair with a rounded vertex collision.
 static GeographyPolygonInterior geography_polygon_point_interior(
@@ -1505,7 +1568,8 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
                                       bool* result);
 
 Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoShape& rhs,
-                          StringRef left_wkb, StringRef right_wkb, bool* result) {
+                          StringRef left_wkb, StringRef right_wkb, bool* result,
+                          std::shared_ptr<const GeographyPointPolygonIndex>* constant_polygon) {
     const auto& container = name == "st_within" ? rhs : lhs;
     const auto& value = name == "st_within" ? lhs : rhs;
     const bool containment = name == "st_contains" || name == "st_within";
@@ -1524,11 +1588,29 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
         *result = false;
         return Status::OK();
     }
+    const bool left_point = lhs.type() == GeoShapeType::GEO_SHAPE_POINT;
+    if (constant_polygon != nullptr &&
+        (left_point || rhs.type() == GeoShapeType::GEO_SHAPE_POINT)) {
+        const auto& polygon = left_point ? rhs : lhs;
+        DCHECK(polygon.type() == GeoShapeType::GEO_SHAPE_POLYGON);
+        if (!*constant_polygon) {
+            *constant_polygon = std::make_shared<GeographyPointPolygonIndex>(
+                    polygon, left_point ? right_wkb : left_wkb);
+        }
+        if ((*constant_polygon)
+                    ->try_relation(name, polygon, left_point ? left_wkb : right_wkb, result)) {
+            return Status::OK();
+        }
+    }
     const GeographyEdgeNodes nodes(left_wkb, right_wkb);
     return geography_relation_impl(name, lhs, rhs, nodes, result);
 }
 
 #ifdef BE_TEST
+std::array<size_t, 2> geography_point_polygon_work_for_test() {
+    return {geography_polygon_admission_checks, geography_point_polygon_preparations};
+}
+
 Status geography_polygon_line_admission_for_test(std::string_view name, const std::string& left,
                                                  const std::string& right, bool* result,
                                                  size_t* checks) {

@@ -3884,8 +3884,13 @@ public:
     // Runs one block whose other argument holds `values`, std::nullopt for NULL. Returns the
     // result of each row, std::nullopt for NULL.
     RowResults run(const std::string& const_value,
-                   const std::vector<std::optional<std::string>>& values) {
+                   const std::vector<std::optional<std::string>>& values,
+                   bool materialize_constant = false) {
         Block block = make_block(const_value, values);
+        if (materialize_constant) {
+            auto& argument = block.get_by_position(_const_arg).column;
+            argument = argument->convert_to_full_column_if_const();
+        }
         block.insert({nullptr, _return_type, "result"});
         Status status = _func->execute(fn_ctx(), block, {0, 1}, 2, values.size());
         EXPECT_TRUE(status.ok()) << status;
@@ -3976,6 +3981,49 @@ TEST(VGeoFunctionsTest, function_geo_st_contains_const_polygon_across_blocks) {
     EXPECT_EQ((RowResults {1, 0}), runner.run(small_polygon, points));
     EXPECT_EQ((RowResults {1, 1}), runner.run(large_polygon, points));
     EXPECT_EQ((RowResults {1, 0}), runner.run(small_polygon, points));
+}
+
+TEST(VGeoFunctionsTest, ConstantGeographyPolygonReusesIndexForPointPredicates) {
+    constexpr size_t count = 128;
+    std::ostringstream polygon_wkt;
+    polygon_wkt << std::setprecision(17) << "POLYGON ((";
+    std::vector<std::optional<std::string>> points;
+    for (size_t i = 0; i < count; ++i) {
+        polygon_wkt << -10.0 + 20.0 * i / count << " -10,";
+        points.emplace_back(spatial_test_wkb(
+                geography_test_hex("POINT (0 " + std::to_string(-21.0 + 1.0 * i / count) + ")")));
+    }
+    polygon_wkt << "10 -10,0 10,-10 -10))";
+    const auto polygon = spatial_test_wkb(geography_test_hex(polygon_wkt.str()));
+    const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
+    const RowResults exterior(count, 0);
+    for (size_t constant_arg : {0, 1}) {
+        SCOPED_TRACE(constant_arg);
+        ConstShapeRunner runner("st_intersects", constant_arg, type);
+        const auto [initial_checks, initial_builds] = geography_point_polygon_work_for_test();
+        EXPECT_EQ(exterior, runner.run(polygon, points, true));
+        const auto [reference_checks, reference_builds] = geography_point_polygon_work_for_test();
+        EXPECT_GE(reference_checks - initial_checks, count * count);
+        EXPECT_EQ(reference_builds, initial_builds);
+        EXPECT_EQ(exterior, runner.run(polygon, points));
+        EXPECT_EQ(exterior, runner.run(polygon, points));
+        const auto [cached_checks, cached_builds] = geography_point_polygon_work_for_test();
+        EXPECT_LE(cached_checks - reference_checks, 2 * count);
+        EXPECT_EQ(cached_builds - reference_builds, 1);
+        const auto suffix = constant_arg == 0 ? "_polygon_first" : "_point_first";
+        RecordProperty(std::string("uncached_checks") + suffix, reference_checks - initial_checks);
+        RecordProperty(std::string("cached_checks_two_blocks") + suffix,
+                       cached_checks - reference_checks);
+
+        const auto boundary = spatial_test_wkb(geography_test_hex("POINT (0 10)"));
+        const auto inside = spatial_test_wkb(geography_test_hex("POINT (0 5)"));
+        const std::vector<std::optional<std::string>> mixed = {std::nullopt, boundary, inside,
+                                                               points.front()};
+        const auto small = spatial_test_wkb(geography_test_hex("POLYGON ((-2 -2,2 -2,0 2,-2 -2))"));
+        EXPECT_EQ((RowResults {std::nullopt, 1, 1, 0}), runner.run(polygon, mixed));
+        EXPECT_EQ((RowResults {std::nullopt, 0, 0, 0}), runner.run(small, mixed));
+        EXPECT_EQ(geography_point_polygon_work_for_test()[1] - cached_builds, 1);
+    }
 }
 
 TEST(VGeoFunctionsTest, ConstantGeographyRelationsPreserveNullableEvaluation) {
