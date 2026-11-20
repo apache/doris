@@ -75,6 +75,8 @@ Uax29Tokenizer::Uax29Tokenizer(bool lowercase, bool stop_words)
 
 void Uax29Tokenizer::reset(std::string_view text) {
     _pos = 0;
+    // Before the early returns: an invalid value after a 1 MB one must not keep its 1 MB copy.
+    release_oversized_scratch(_lowered);
     // Strict UTF-8 passing decides alone; the lenient rule decides the rest, the overlong forms.
     if (!doris::validate_utf8(text.data(), text.size()) && !lenient_utf8_valid(text)) {
         _text = {};
@@ -84,7 +86,6 @@ void Uax29Tokenizer::reset(std::string_view text) {
         _text = text;
         return;
     }
-    release_oversized_scratch(_lowered);
     // The copy only grows, so a shorter value writes over the head of it without a resize.
     if (_lowered.size() < text.size()) {
         _lowered.resize(text.size());

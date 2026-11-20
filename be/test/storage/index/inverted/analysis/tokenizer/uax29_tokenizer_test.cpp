@@ -33,6 +33,7 @@
 #include "CLucene/analysis/standard95/StandardAnalyzer.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/golden/golden_driver.h"
+#include "storage/index/inverted/analysis/scratch.h"
 #include "storage/index/inverted/analysis/text_stream_contract.h"
 #include "storage/index/inverted/analysis/token_batch.h"
 #include "storage/index/inverted/analysis/tokenizer/standard/standard_tokenizer.h"
@@ -340,6 +341,22 @@ TEST(Uax29TokenizerTest, KeepsTheStreamContract) {
     for (int32_t length : {1, 4, 255}) {
         expect_text_stream_contract([length] { return custom_standard(length); }, texts);
     }
+}
+
+// reset() releases the lowercase copy of a long value also when the next value is invalid UTF-8
+// and makes no token: e.g. a 256 KiB row and then "abc\xFF" leave at most the high water mark.
+TEST(Uax29TokenizerTest, AnInvalidValueReleasesTheCopyOfALongOne) {
+    const std::string long_value(4 * ANALYZER_SCRATCH_HIGH_WATER_BYTES, 'A');
+    const std::string invalid_value = "abc" + bytes({0xFF});
+    auto stream = standard_analyzer(true, false)->create_stream();
+    TokenBatch batch;
+    stream->reset(long_value);
+    while (stream->next_batch(batch)) {
+    }
+    ASSERT_GT(stream->reserved_bytes(), ANALYZER_SCRATCH_HIGH_WATER_BYTES);
+    stream->reset(invalid_value);
+    EXPECT_FALSE(stream->next_batch(batch));
+    EXPECT_LE(stream->reserved_bytes(), ANALYZER_SCRATCH_HIGH_WATER_BYTES);
 }
 
 TEST(CustomStandardTokenizerTest, MatchesTheScannerOnRandomValues) {
