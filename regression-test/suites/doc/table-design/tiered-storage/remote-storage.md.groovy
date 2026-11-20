@@ -43,12 +43,11 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
             PROPERTIES
             (
                 "type" = "s3",
-                "s3.endpoint" = "${getS3Endpoint()}",
-                "s3.region" = "${getS3Region()}",
-                "s3.bucket" = "${getS3BucketName()}",
-                "s3.root.path" = "path/to/root",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}",
+                "s3.endpoint" = "${getS3WriteEndpoint()}",
+                "s3.region" = "${getS3WriteRegion()}",
+                "s3.bucket" = "${getS3WriteBucketName()}",
+                "s3.root.path" = "${getS3WriteKey("path/to/root")}",
+                ${getS3CredentialProperties()},
                 "s3.connection.maximum" = "50",
                 "s3.connection.request.timeout" = "3000",
                 "s3.connection.timeout" = "1000"

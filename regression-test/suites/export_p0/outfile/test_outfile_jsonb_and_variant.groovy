@@ -19,12 +19,12 @@ suite("test_outfile_jsonb_and_variant", "p0") {
     def variantV2Function = "parse_to_variant"
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def export_table_name = "test_outfile_jsonb_and_variant_table"
-    def outFilePath = "${bucket}/outfile/jsonb_and_variant/exp_"
+    def outFilePath = "${bucket}/${getS3WriteKey("outfile/jsonb_and_variant/exp_")}"
 
     def outfile_to_S3 = { format ->
         // select ... into outfile ...
@@ -35,8 +35,7 @@ suite("test_outfile_jsonb_and_variant", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -72,8 +71,7 @@ suite("test_outfile_jsonb_and_variant", "p0") {
     def outfile_url = outfile_to_S3("${format}")
     qt_select_load_parquet """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "${format}",
                 "region" = "${region}"
             );
@@ -84,8 +82,7 @@ suite("test_outfile_jsonb_and_variant", "p0") {
     outfile_url = outfile_to_S3("${format}")
     qt_select_load_orc """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "${format}",
                 "region" = "${region}"
             );
@@ -96,8 +93,7 @@ suite("test_outfile_jsonb_and_variant", "p0") {
     outfile_url = outfile_to_S3("${format}")
     qt_select_load_orc """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "${format}",
                 "region" = "${region}"
             );

@@ -22,6 +22,7 @@ import ch.qos.logback.classic.encoder.PatternLayoutEncoder
 import ch.qos.logback.classic.spi.ILoggingEvent
 import org.apache.doris.regression.suite.SuiteContext
 import org.apache.doris.regression.util.TeamcityUtils
+import org.apache.doris.regression.util.SecretRedactor
 
 class TeamcityServiceMessageEncoder extends PatternLayoutEncoder {
     static final ThreadLocal<SuiteContext> CURRENT_SUITE_CONTEXT = new ThreadLocal<>()
@@ -35,7 +36,7 @@ class TeamcityServiceMessageEncoder extends PatternLayoutEncoder {
 
     @Override
     byte[] encode(ILoggingEvent event) {
-        String originLog = layout.doLayout(event)
+        String originLog = SecretRedactor.redact(layout.doLayout(event))
 
         SuiteContext suiteContext = CURRENT_SUITE_CONTEXT.get()
         if (suiteContext == null) {

@@ -153,8 +153,7 @@ PROPERTIES (
             $loadAttribute.dataDesc.whereExpr
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "$ak",
-            "AWS_SECRET_KEY" = "$sk",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "use_path_style" = "$loadAttribute.usePathStyle",

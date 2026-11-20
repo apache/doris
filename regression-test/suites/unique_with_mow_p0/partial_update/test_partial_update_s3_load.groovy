@@ -49,8 +49,7 @@ suite("test_partial_update_s3_load", "p0") {
         COLUMNS TERMINATED BY ","
         (k1,c4)
     ) WITH S3 (
-        "AWS_ACCESS_KEY" = "${getS3AK()}",
-        "AWS_SECRET_KEY" = "${getS3SK()}",
+        ${getS3CredentialProperties("AWS")},
         "AWS_ENDPOINT" = "${getS3Endpoint()}",
         "AWS_REGION" = "${getS3Region()}",
         "provider" = "${getS3Provider()}"
@@ -71,8 +70,7 @@ suite("test_partial_update_s3_load", "p0") {
         COLUMNS TERMINATED BY ","
         (k1,c1)
     ) WITH S3 (
-        "AWS_ACCESS_KEY" = "${getS3AK()}",
-        "AWS_SECRET_KEY" = "${getS3SK()}",
+        ${getS3CredentialProperties("AWS")},
         "AWS_ENDPOINT" = "${getS3Endpoint()}",
         "AWS_REGION" = "${getS3Region()}",
         "provider" = "${getS3Provider()}"
@@ -96,8 +94,7 @@ suite("test_partial_update_s3_load", "p0") {
         (k1,c2,c3)
     )
     WITH S3 (
-        "AWS_ACCESS_KEY" = "${getS3AK()}",
-        "AWS_SECRET_KEY" = "${getS3SK()}",
+        ${getS3CredentialProperties("AWS")},
         "AWS_ENDPOINT" = "${getS3Endpoint()}",
         "AWS_REGION" = "${getS3Region()}",
         "provider" = "${getS3Provider()}"

@@ -20,9 +20,9 @@ import org.junit.Assert;
 suite("show_repositories_command") {
     String ak = getS3AK()
     String sk = getS3SK()
-    String endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
     String repoName = "test_show_repositories"
 
     //cloud-mode
@@ -35,13 +35,12 @@ suite("show_repositories_command") {
     // create S3 repo
     sql """CREATE REPOSITORY `${repoName}`
             WITH S3
-            ON LOCATION "s3://${bucket}/${repoName}"
+            ON LOCATION "s3://${bucket}/${getS3WriteKey(repoName)}"
             PROPERTIES
             (
                 "s3.endpoint" = "http://${endpoint}",
                 "s3.region" = "${region}",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}"
+                ${getS3CredentialProperties()}
             )"""
 
     def show_repo = checkNereidsExecuteWithResult("""SHOW REPOSITORIES;""").toString();

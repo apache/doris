@@ -74,6 +74,7 @@ class TeamcityUtils {
     }
 
     static String escape(String str) {
+        str = SecretRedactor.redact(str)
         int maxCharLength = 3_000_000
         if (str.size() > maxCharLength) {
             str = str.substring(0, maxCharLength) + "...<skip long msg>"

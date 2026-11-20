@@ -41,8 +41,7 @@ suite("test_tvf_empty_field_as_null", "p0") {
 
     qt_select """ select * from S3 (
                         "uri" = "http://${bucket}.${s3_endpoint}/regression/load/data/empty_field_as_null.csv",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
+                        ${getS3CredentialProperties("tvf")},
                         "format" = "csv",
                         "empty_field_as_null" = "true",
                         "column_separator" = ",",

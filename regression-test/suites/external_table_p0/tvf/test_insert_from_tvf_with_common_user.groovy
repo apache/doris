@@ -24,13 +24,13 @@ import java.nio.file.Paths
 suite("test_insert_from_tvf_with_common_user", "p0,external") {
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def export_table_name = "insert_from_tvf_common_user_export_test"
     def load_table_name = "insert_from_tvf_common_user_load_test"
-    def outfile_path = "${bucket}/outfile/insert_from_tvf/common_user/exp_"
+    def outfile_path = "${bucket}/${getS3WriteKey("outfile/insert_from_tvf/common_user/exp_")}"
     def common_user = "insert_from_tvf_common_user"
 
     def create_table = {table_name ->
@@ -61,8 +61,7 @@ suite("test_insert_from_tvf_with_common_user", "p0,external") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -102,8 +101,7 @@ suite("test_insert_from_tvf_with_common_user", "p0,external") {
         sql """ INSERT INTO ${load_table_name}
                 SELECT * FROM S3 (
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
+                    ${getS3CredentialProperties("tvf")},
                     "format" = "csv",
                     "region" = "${region}"
                 );

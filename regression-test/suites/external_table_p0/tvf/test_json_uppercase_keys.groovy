@@ -26,8 +26,7 @@ suite("test_json_uppercase_keys", "p0,external") {
         select id, city, metric from
         s3(
             "URI" = "${uri}",
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "FORMAT" = "json",
             "read_json_by_line" = "true",
             "fuzzy_parse" = "true",
@@ -38,8 +37,7 @@ suite("test_json_uppercase_keys", "p0,external") {
         select id, city, metric from
         s3(
             "URI" = "${uri}",
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "FORMAT" = "json",
             "read_json_by_line" = "true",
             "fuzzy_parse" = "true",

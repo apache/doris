@@ -17,8 +17,8 @@
 
 package org.apache.doris.regression.suite
 
-import com.amazonaws.auth.AWSStaticCredentialsProvider
-import com.amazonaws.auth.BasicAWSCredentials
+import org.apache.doris.regression.util.S3TestCredentials
+import org.apache.doris.regression.util.S3TestStorage
 import com.amazonaws.client.builder.AwsClientBuilder
 import com.amazonaws.services.s3.AmazonS3
 import com.amazonaws.services.s3.AmazonS3ClientBuilder
@@ -115,6 +115,7 @@ class Suite implements GroovyInterceptable {
     static final String NOT_IN_RBO = "NOT_IN_RBO";
 
     private AmazonS3 s3Client = null
+    private AmazonS3 s3WriteClient = null
     private FileSystem fs = null
 
     // MTMV task ids that a wait in this suite already returned as terminal. A task that just
@@ -1426,6 +1427,41 @@ class Suite implements GroovyInterceptable {
         return sk
     }
 
+    String getS3SessionToken() {
+        return context.config.otherConfigs.get("sessionToken")?.toString() ?: ""
+    }
+
+    // Callers opt in explicitly when building SQL; negative-credential tests keep their own properties.
+    String getS3CredentialProperties(String namespace = "s3") {
+        return new S3TestCredentials(context.config.otherConfigs).sqlProperties(namespace)
+    }
+
+    String getS3WriteBucketName() {
+        return context.config.otherConfigs.get("s3WriteBucketName")?.toString() ?: getS3BucketName()
+    }
+
+    String getS3WriteEndpoint() {
+        return context.config.otherConfigs.get("s3WriteEndpoint")?.toString() ?: getS3Endpoint()
+    }
+
+    String getS3WriteRegion() {
+        return context.config.otherConfigs.get("s3WriteRegion")?.toString() ?: getS3Region()
+    }
+
+    synchronized AmazonS3 getS3WriteClient() {
+        if (s3WriteClient == null) {
+            def credentials = new S3TestCredentials(context.config.otherConfigs)
+            def endpoint = new AwsClientBuilder.EndpointConfiguration(getS3WriteEndpoint(), getS3WriteRegion())
+            s3WriteClient = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpoint)
+                    .withCredentials(credentials).build()
+        }
+        return s3WriteClient
+    }
+
+    String getS3WriteKey(String key) {
+        return S3TestStorage.writeKey(context.config.otherConfigs, key)
+    }
+
     String getS3Url() {
         String s3BucketName = context.config.otherConfigs.get("s3BucketName");
         if (context.config.otherConfigs.get("s3Provider").toUpperCase() == "AZURE") {
@@ -1440,10 +1476,10 @@ class Suite implements GroovyInterceptable {
 
     synchronized AmazonS3 getS3Client() {
         if (s3Client == null) {
-            def credentials = new BasicAWSCredentials(getS3AK(), getS3SK())
+            def credentials = new S3TestCredentials(context.config.otherConfigs)
             def endpointConfiguration = new AwsClientBuilder.EndpointConfiguration(getS3Endpoint(), getS3Region())
             s3Client = AmazonS3ClientBuilder.standard().withEndpointConfiguration(endpointConfiguration)
-                    .withCredentials(new AWSStaticCredentialsProvider(credentials)).build()
+                    .withCredentials(credentials).build()
         }
         return s3Client
     }

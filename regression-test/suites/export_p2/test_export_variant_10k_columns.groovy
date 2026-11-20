@@ -130,8 +130,7 @@ suite("test_export_variant_10k_columns", "p0") {
             WITH S3(
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}"
             );
         """
@@ -144,8 +143,7 @@ suite("test_export_variant_10k_columns", "p0") {
         // 5. Validate by S3 TVF
         def s3_tvf_sql = """ s3(
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "format" = "${format}",
                 "provider" = "${getS3Provider()}",
                 "region" = "${region}"
@@ -191,8 +189,7 @@ suite("test_export_variant_10k_columns", "p0") {
                 WITH S3 (
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.secret_key"="${sk}",
-                    "s3.access_key" = "${ak}",
+                    ${getS3CredentialProperties()},
                     "provider" = "${getS3Provider()}"
                 );
             """

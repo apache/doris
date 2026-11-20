@@ -32,8 +32,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select * from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "column_separator" = ",",
@@ -46,8 +45,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select c1,c4 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "column_separator" = ",",
@@ -61,8 +59,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     qt_gz_count_star """
     select count(*) from s3(
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",
-        "s3.access_key" = "${ak}",
-        "s3.secret_key" = "${sk}",
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",
         "FORMAT" = "csv",
         "column_separator" = ",",
@@ -73,8 +70,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     qt_gz_count_one """
     select count(1) from s3(
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",
-        "s3.access_key" = "${ak}",
-        "s3.secret_key" = "${sk}",
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",
         "FORMAT" = "csv",
         "column_separator" = ",",
@@ -89,8 +85,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select * from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "column_separator" = ",",
@@ -103,8 +98,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select c1,c4 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "column_separator" = ",",
@@ -119,8 +113,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select * from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "column_separator" = ",",
@@ -133,8 +126,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select c1,c3 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/test_tvf.csv.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "column_separator" = ",",
@@ -151,8 +143,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select ${select_field} from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/000000_0.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "use_path_style" = "false", -- aliyun does not support path_style
@@ -164,8 +155,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select c1,c2 from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/000000_0.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "column_separator" = '\001',
@@ -181,8 +171,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select ${select_field} from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/000000_0.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "use_path_style" = "false", -- aliyun does not support path_style
@@ -195,8 +184,7 @@ suite("test_s3_tvf_compression", "p0,external") {
     select count(*) from 
     s3(     
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/compression/000000_0.${compress_type}",    
-        "s3.access_key" = "${ak}",     
-        "s3.secret_key" = "${sk}",     
+        ${getS3CredentialProperties()},
         "REGION" = "${region}",    
         "FORMAT" = "csv",
         "use_path_style" = "false", -- aliyun does not support path_style

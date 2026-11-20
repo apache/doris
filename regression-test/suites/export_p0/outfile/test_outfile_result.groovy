@@ -64,20 +64,19 @@ suite("test_outfile_result", "p0") {
     try {
         String ak = getS3AK()
         String sk = getS3SK()
-        String s3_endpoint = getS3Endpoint()
-        String region = getS3Region()
-        String bucket = context.config.otherConfigs.get("s3BucketName");
+        String s3_endpoint = getS3WriteEndpoint()
+        String region = getS3WriteRegion()
+        String bucket = getS3WriteBucketName();
 
         // http schema
-        def outFilePath = "${bucket}/outfile_different_s3/exp_"
+        def outFilePath = "${bucket}/${getS3WriteKey("outfile_different_s3/exp_")}"
         List<List<Object>> outfile_res = sql """ SELECT * FROM ${export_table_name} t ORDER BY user_id
                                                 INTO OUTFILE "s3://${outFilePath}"
                                                 FORMAT AS parquet
                                                 PROPERTIES (
                                                     "s3.endpoint" = "${s3_endpoint}",
                                                     "s3.region" = "${region}",
-                                                    "s3.secret_key"="${sk}",
-                                                    "s3.access_key" = "${ak}"
+                                                    ${getS3CredentialProperties()}
                                                 );
                                             """
 

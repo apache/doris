@@ -98,8 +98,7 @@ suite("test_seq_load", "load_p0") {
                 ORDER BY $seq_column
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "$ak",
-                "AWS_SECRET_KEY" = "$sk",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_REGION" = "${getS3Region()}",
                 "PROVIDER" = "${getS3Provider()}"

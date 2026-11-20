@@ -25,11 +25,14 @@ suite("test_s3_tvf_with_resource", "p0,external") {
     String s3_endpoint = getS3Endpoint()
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
+    String writeBucket = getS3WriteBucketName()
+    String writeEndpoint = getS3WriteEndpoint()
+    String writeRegion = getS3WriteRegion()
 
 
     def db = "test_s3_tvf_with_resource";
     def export_table_name = "test_s3_tvf_with_resource_export_test"
-    def outFilePath = "${bucket}/est_s3_tvf/export_test/exp_"
+    def outFilePath = "${writeBucket}/${getS3WriteKey("est_s3_tvf/export_test/exp_")}"
     def resource_name = "test_s3_tvf_resource"
 
 
@@ -52,11 +55,11 @@ suite("test_s3_tvf_with_resource", "p0,external") {
             PROPERTIES
             (
                 "type" = "s3",
-                "s3.endpoint" = "${s3_endpoint}",
-                "s3.region" = "${region}",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
-                "s3.bucket" = "${bucket}"
+                "s3.endpoint" = "${writeEndpoint}",
+                "s3.region" = "${writeRegion}",
+                ${getS3CredentialProperties()},
+                "s3.bucket" = "${writeBucket}",
+                "s3.root.path" = "${getS3WriteKey("est_s3_tvf/resource")}"
             );
             """
     }
@@ -68,10 +71,9 @@ suite("test_s3_tvf_with_resource", "p0,external") {
             INTO OUTFILE "s3://${outFilePath}"
             FORMAT AS ORC
             PROPERTIES (
-                "s3.endpoint" = "${s3_endpoint}",
-                "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                "s3.endpoint" = "${writeEndpoint}",
+                "s3.region" = "${writeRegion}",
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -103,7 +105,7 @@ suite("test_s3_tvf_with_resource", "p0,external") {
     // 1. normal
     try {
         order_qt_select_1 """ SELECT * FROM S3 (
-                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
+                            "uri" = "http://${writeBucket}.${writeEndpoint}${outfile_url.substring(5 + writeBucket.length(), outfile_url.length() - 1)}0.orc",
                             "format" = "orc",
                             "use_path_style" = "false", -- aliyun does not support path_style
                             "resource" = "${resource_name}"
@@ -127,7 +129,7 @@ suite("test_s3_tvf_with_resource", "p0,external") {
     // 3.test use_path_style
     try {
         order_qt_select_3 """ SELECT * FROM S3 (
-                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.orc",
+                            "uri" = "http://${writeBucket}.${writeEndpoint}${outfile_url.substring(5 + writeBucket.length(), outfile_url.length() - 1)}0.orc",
                             "format" = "orc",
                             "use_path_style" = "false", -- aliyun does not support path_style
                             "resource" = "${resource_name}"

@@ -28,8 +28,7 @@ suite("test_s3_tvf_globlist", "p0,external") {
                                 "column_separator" = ",",
                                 "s3.endpoint" = "${getS3Endpoint()}",
                                 "s3.region" = "${getS3Region()}",
-                                "s3.access_key" = "${ak}",
-                                "s3.secret_key" = "${sk}"
+                                ${getS3CredentialProperties()}
                             )
                             order by c1;
                         """
@@ -44,8 +43,7 @@ suite("test_s3_tvf_globlist", "p0,external") {
                                 "column_separator" = ",",
                                 "s3.endpoint" = "${getS3Endpoint()}",
                                 "s3.region" = "${getS3Region()}",
-                                "s3.access_key" = "${ak}",
-                                "s3.secret_key" = "${sk}"
+                                ${getS3CredentialProperties()}
                             )
                             order by c1;
                         """
