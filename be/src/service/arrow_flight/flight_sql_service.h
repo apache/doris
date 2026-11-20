@@ -36,6 +36,20 @@ public:
             const arrow::flight::ServerCallContext& context,
             const arrow::flight::sql::StatementQueryTicket& command) override;
 
+    // A BE keeps no client session: it serves a result by its ticket, and the FE session that
+    // issued the ticket already decided the catalog and database the query ran in. So `catalog`
+    // and `schema`, the session options naming that context, are accepted here and change
+    // nothing; any other option is refused with INVALID_NAME, since a BE has nothing it could
+    // apply it to.
+    //
+    // A client still sends them: the Flight SQL JDBC driver, given `?catalog=internal` in its
+    // URL, opens a connection to each endpoint location it reads a result from and sets
+    // `catalog` there first. Answered with the default UNIMPLEMENTED, it failed every query
+    // whose result a BE holds, while the FE's own results and metadata still read fine.
+    arrow::Result<arrow::flight::SetSessionOptionsResult> SetSessionOptions(
+            const arrow::flight::ServerCallContext& context,
+            const arrow::flight::SetSessionOptionsRequest& request) override;
+
     Status init(int port);
     Status join();
 

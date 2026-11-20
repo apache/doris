@@ -49,6 +49,7 @@ suite("test_session_options") {
 
     sql "DROP TABLE IF EXISTS session_options_tbl"
     sql "CREATE TABLE session_options_tbl (k INT) DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num' = '1')"
+    sql "INSERT INTO session_options_tbl VALUES (1), (2), (3)"
 
     def allocator = new RootAllocator()
     def client = FlightClient.builder(allocator, Location.forGrpcInsecure(host, port)).build()
@@ -202,6 +203,13 @@ suite("test_session_options") {
         assertTrue(rs.next())
     } finally {
         conn.close()
+    }
+    //    The driver also sets `catalog` on the connection it opens to each endpoint location it
+    //    reads a result from, and fails the read when that is refused. The FE answers SHOW itself,
+    //    but a query's result is read from the BE that holds it, so the BE has to accept the option
+    //    as well; it used to answer UNIMPLEMENTED, which failed every such query.
+    connect(user, password, jdbcUrl("internal")) {
+        order_qt_be_held_result "SELECT k FROM ${context.dbName}.session_options_tbl"
     }
     try {
         DriverManager.getConnection(jdbcUrl("no_such_catalog_for_session_options"), user, password).close()
