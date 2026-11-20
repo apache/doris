@@ -89,7 +89,8 @@ final class DeltaLakeVendedFileIO extends DeltaLakeFileIO {
             base.setClassLoader(storage.getClassLoader());
             base.addResource("core-default.xml");
             for (String key : List.of("fs.s3a.endpoint", "fs.s3a.endpoint.region",
-                    "fs.s3a.path.style.access", "fs.s3a.connection.ssl.enabled")) {
+                    "fs.s3a.path.style.access", "fs.s3a.connection.ssl.enabled", "fs.s3a.connection.maximum",
+                    "fs.s3a.connection.request.timeout", "fs.s3a.connection.timeout")) {
                 String value = storage.get(key);
                 if (value != null) {
                     base.set(key, value);

@@ -194,7 +194,8 @@ final class DeltaLakeUnityCatalog implements DeltaLakeTableResolver {
         }
         Map<String, String> result = new HashMap<>(awsCredentials(grant));
         // Only retain transport properties. A catalog role, secret or profile must not override a table grant.
-        for (String key : List.of("AWS_REGION", "AWS_ENDPOINT", "use_path_style")) {
+        for (String key : List.of("AWS_REGION", "AWS_ENDPOINT", "use_path_style",
+                "AWS_MAX_CONNECTIONS", "AWS_REQUEST_TIMEOUT_MS", "AWS_CONNECTION_TIMEOUT_MS")) {
             if (configured.containsKey(key)) {
                 result.put(key, configured.get(key));
             }

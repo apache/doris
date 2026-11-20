@@ -44,6 +44,31 @@ class DeltaLakeVendedFileIOTest {
     Path directory;
 
     @Test
+    void borrowedClientUsesCatalogTransportSettingsAndTheTableGrant() throws Exception {
+        Configuration storage = new Configuration(false);
+        storage.set("fs.s3a.connection.maximum", "97");
+        storage.set("fs.s3a.connection.request.timeout", "45000");
+        storage.set("fs.s3a.connection.timeout", "19000");
+        storage.set("fs.s3a.access.key", "catalog-id");
+        storage.set("fs.s3a.bucket.warehouse.access.key", "bucket-id");
+        try (DeltaLakeVendedFileIO.Clients clients =
+                new DeltaLakeVendedFileIO.Clients(storage, new RecordingConnectorContext())) {
+            DeltaLakeVendedFileIO.Grant grant = grant("table-token");
+            DeltaLakeFileIO client = clients.borrow(grant);
+            try {
+                Assertions.assertEquals("97", client.getConf("fs.s3a.connection.maximum").orElseThrow());
+                Assertions.assertEquals("45000", client.getConf("fs.s3a.connection.request.timeout").orElseThrow());
+                Assertions.assertEquals("19000", client.getConf("fs.s3a.connection.timeout").orElseThrow());
+                Assertions.assertEquals("id", client.getConf("fs.s3a.access.key").orElseThrow());
+                Assertions.assertEquals("table-token", client.getConf("fs.s3a.session.token").orElseThrow());
+                Assertions.assertTrue(client.getConf("fs.s3a.bucket.warehouse.access.key").isEmpty());
+            } finally {
+                pool(clients).returnObject(grant, client);
+            }
+        }
+    }
+
+    @Test
     void borrowingTimesOutAtBothLimitsAndRecoversWhenAStreamCloses() throws Exception {
         String path = Files.write(directory.resolve("data"), new byte[] {13}).toUri().toString();
         try (DeltaLakeVendedFileIO.Clients clients = clients()) {

@@ -117,6 +117,9 @@ class DeltaLakeUnityCatalogTest {
         try (DeltaLakeUnityCatalog uc = catalog("vended")) {
             DeltaLakeTableReference table = uc.tableLocation("db", "t").orElseThrow();
             Map<String, String> be = uc.backendProperties(table, Map.of("AWS_REGION", "us-east-1",
+                    "AWS_MAX_CONNECTIONS", "97", "AWS_REQUEST_TIMEOUT_MS", "45000",
+                    "AWS_CONNECTION_TIMEOUT_MS", "19000",
+                    "AWS_ACCESS_KEY", "catalog-id", "AWS_SECRET_KEY", "catalog-secret", "AWS_TOKEN", "catalog-token",
                     "AWS_ROLE_ARN", "unrelated-role"));
             Assertions.assertEquals("grant-2", be.get("AWS_TOKEN"));
             Assertions.assertEquals("id", be.get("AWS_ACCESS_KEY"));
@@ -124,6 +127,9 @@ class DeltaLakeUnityCatalogTest {
             Assertions.assertFalse(be.containsKey(UnityCatalogProperties.TOKEN));
             Assertions.assertFalse(be.containsKey("AWS_ROLE_ARN"));
             Assertions.assertEquals("us-east-1", be.get("AWS_REGION"));
+            Assertions.assertEquals("97", be.get("AWS_MAX_CONNECTIONS"));
+            Assertions.assertEquals("45000", be.get("AWS_REQUEST_TIMEOUT_MS"));
+            Assertions.assertEquals("19000", be.get("AWS_CONNECTION_TIMEOUT_MS"));
         }
     }
 
