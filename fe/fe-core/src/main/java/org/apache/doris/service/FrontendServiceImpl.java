@@ -5039,7 +5039,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         for (Long id : systemInfoService.getAllBackendByCurrentCluster(false)) {
             Backend backend = systemInfoService.getBackend(id);
-            nodeInfos.add(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            nodeInfos.add(OlapTableSink.createLoadNodeInfo(backend));
         }
         result.setNodes(nodeInfos);
         result.setStatus(new TStatus(TStatusCode.OK));
@@ -5376,7 +5376,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         for (Long id : systemInfoService.getAllBackendByCurrentCluster(false)) {
             Backend backend = systemInfoService.getBackend(id);
-            nodeInfos.add(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            nodeInfos.add(OlapTableSink.createLoadNodeInfo(backend));
         }
         result.setNodes(nodeInfos);
 
