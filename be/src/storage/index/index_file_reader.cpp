@@ -75,7 +75,9 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
                 return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                         "inverted index file {} is not found.", index_file_full_path);
             } else if (err.number() == CL_ERR_EmptyIndexSegment) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                // Small ANN segments and all-NULL VARIANT columns can legitimately leave an
+                // empty container. It has no index data, so use the missing-index fallback policy.
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                         "inverted index file {} is empty.", index_file_full_path);
             }
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
