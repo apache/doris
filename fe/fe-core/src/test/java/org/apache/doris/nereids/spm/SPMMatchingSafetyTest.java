@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -66,6 +67,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -1751,6 +1753,19 @@ public class SPMMatchingSafetyTest {
         Assertions.assertTrue(new SPMAstCheckVisitor().checkExpression(bind,
                 new EqualTo(new IntegerLiteral(1), dotted), values));
         Assertions.assertEquals(1, values.size());
+    }
+
+    @Test
+    public void testConcreteTimestampRequiresSameFractionAndType() {
+        NereidsParser parser = new NereidsParser();
+        Expression captured = parser.parseExpression("TIMESTAMP '2020-01-01 00:00:00.1'");
+        SPMAstCheckVisitor matcher = new SPMAstCheckVisitor();
+        Assertions.assertTrue(matcher.checkExpression(captured,
+                parser.parseExpression("TIMESTAMP '2020-01-01 00:00:00.1'"), new HashMap<>()));
+        Assertions.assertFalse(matcher.checkExpression(captured,
+                parser.parseExpression("TIMESTAMP '2020-01-01 00:00:00.2'"), new HashMap<>()));
+        Assertions.assertFalse(matcher.checkExpression(captured,
+                new DateTimeV2Literal(DateTimeV2Type.of(2), "2020-01-01 00:00:00.10"), new HashMap<>()));
     }
 
     // ==================== function identity fields outside children() ====================

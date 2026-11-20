@@ -299,11 +299,17 @@ public class NereidsParser {
      * The caller supplies the stored SQL's parser mode and suppresses parse-time SET_VAR side effects.
      */
     public LogicalPlan parseSingleCached(String sql) {
+        return parseSingleCached(sql, false);
+    }
+
+    /** Parses stored syntax with the logical builder for the given SQL source. */
+    public LogicalPlan parseSingleCached(String sql, boolean preserveTypedCharacterLiterals) {
         StoredSyntaxKey key = new StoredSyntaxKey(sql, SqlModeHelper.currentMode(),
                 GlobalVariable.enable_ansi_query_organization_behavior);
         return SqlModeHelper.withSqlMode(key.sqlMode(), () -> {
             StoredSyntax syntax = STORED_SYNTAX.get(key, NereidsParser::storedSyntax);
-            return (LogicalPlan) new LogicalPlanBuilder(syntax.hints()).visit(syntax.tree());
+            return (LogicalPlan) new LogicalPlanBuilder(syntax.hints(), preserveTypedCharacterLiterals)
+                    .visit(syntax.tree());
         });
     }
 

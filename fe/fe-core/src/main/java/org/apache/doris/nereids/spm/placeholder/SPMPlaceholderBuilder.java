@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Parameterizes supported literal positions with scalar or IN-list markers. One builder retains marker records and
@@ -424,33 +425,8 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return true;
         }
         List<Expression> children = expr.children();
-        if (expr instanceof CaseWhen) {
-            CaseWhen caseWhen = (CaseWhen) expr;
-            for (WhenClause clause : caseWhen.getWhenClauses()) {
-                if (!producesNullType(clause.getResult())) {
-                    return false;
-                }
-            }
-            return !caseWhen.getDefaultValue().isPresent()
-                    || producesNullType(caseWhen.getDefaultValue().get());
-        }
-        if (isIfConditional(expr)) {
-            return children.size() == 3 && producesNullType(children.get(1))
-                    && producesNullType(children.get(2));
-        }
-        if (isIfNullConditional(expr) || isNullIfConditional(expr)
-                || isGreatestLeastConditional(expr) || isCoalesceConditional(expr)) {
-            // every argument contributes a value the result may equal: all-NULL arguments make
-            // the whole call NullType (IFNULL / NVL / NULLIF / GREATEST / LEAST / COALESCE)
-            if (children.isEmpty()) {
-                return false;
-            }
-            for (Expression child : children) {
-                if (!producesNullType(child)) {
-                    return false;
-                }
-            }
-            return true;
+        if (hasConditionalResultInputs(expr)) {
+            return allConditionalResultsMatch(expr, SPMPlaceholderBuilder::producesNullType);
         }
         if (expr instanceof WindowExpression) {
             return producesNullType(((WindowExpression) expr).getFunction());
@@ -489,7 +465,40 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         String name = ((Function) expression).getName();
         return "min".equalsIgnoreCase(name) || "max".equalsIgnoreCase(name)
-                || "first_value".equalsIgnoreCase(name) || "last_value".equalsIgnoreCase(name);
+                || "first_value".equalsIgnoreCase(name) || "last_value".equalsIgnoreCase(name)
+                || "nth_value".equalsIgnoreCase(name);
+    }
+
+    private static boolean hasConditionalResultInputs(Expression expression) {
+        return expression instanceof CaseWhen || isIfConditional(expression) || isIfNullConditional(expression)
+                || isNullIfConditional(expression) || isGreatestLeastConditional(expression)
+                || isCoalesceConditional(expression);
+    }
+
+    /** Tests only the inputs that determine a conditional expression's result type. */
+    private static boolean allConditionalResultsMatch(Expression expression, Predicate<Expression> predicate) {
+        if (expression instanceof CaseWhen) {
+            CaseWhen caseWhen = (CaseWhen) expression;
+            return caseWhen.getWhenClauses().stream().allMatch(clause -> predicate.test(clause.getResult()))
+                    && caseWhen.getDefaultValue().map(predicate::test).orElse(true);
+        }
+        if (isIfConditional(expression)) {
+            return expression.arity() == 3
+                    && predicate.test(expression.child(1)) && predicate.test(expression.child(2));
+        }
+        return expression.arity() > 0 && expression.children().stream().allMatch(predicate);
+    }
+
+    private static boolean allConditionalContainersMatch(Expression expression, Predicate<Expression> predicate) {
+        boolean[] hasContainer = {false};
+        // A bare NULL can take the type of a sibling arm, but it cannot establish a container on its own.
+        return allConditionalResultsMatch(expression, input -> {
+            if (input.isNullLiteral() && input.getDataType().isNullType()) {
+                return true;
+            }
+            hasContainer[0] = true;
+            return predicate.test(input);
+        }) && hasContainer[0];
     }
 
     /**
@@ -541,6 +550,12 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
 
     /** Tests the requested map component, optionally through further array elements. */
     private static boolean isAllNullMapComponent(Expression expr, int arrayDepth, boolean key) {
+        if (expr.isNullLiteral()) {
+            return true;
+        }
+        if (hasConditionalResultInputs(expr)) {
+            return allConditionalContainersMatch(expr, input -> isAllNullMapComponent(input, arrayDepth, key));
+        }
         if (expr instanceof MapLiteral) {
             Map<Literal, Literal> entries = ((MapLiteral) expr).getValue();
             return allNullAtArrayDepth(key ? entries.keySet() : entries.values(), arrayDepth);
@@ -575,6 +590,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         if (expr.isNullLiteral()) {
             return true;
+        }
+        if (hasConditionalResultInputs(expr)) {
+            return allConditionalContainersMatch(expr, input -> isAllNullArray(input, depth));
         }
         if (isElementAtCall(expr)) {
             return expr.arity() > 0 && (isAllNullArray(expr.child(0), depth + 1)
@@ -947,11 +965,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             return existing;
         }
         long id = nextId++;
+        boolean containerPosition = isNullTypeContainerPosition(parent);
+        boolean conditionalContainer = containerElementDepth > 0
+                && (literal instanceof ArrayLiteral || literal instanceof MapLiteral)
+                && isConditionalResultPosition(parent);
         SpmConstVar placeholder = SpmConstVar.of(id,
                 markerPayload(literal, parent, currentProjectItem() >= 0,
                         booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
-                        booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent),
-                        isContainerElementPosition(parent) && !isNullTypeContainerPosition(parent)));
+                        booleanConditionalDepth > 0 && (containerPosition || conditionalContainer),
+                        isContainerElementPosition(parent) && !containerPosition));
         placeholderIndex.put(key, placeholder);
         return placeholder;
     }
@@ -1080,7 +1102,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (isMapConstructor(parent)) {
             return (currentChildIndex() % 2 == 0) == mapKeyDependency;
         }
-        if ((parent instanceof WhenClause || isIfConditional(parent))
+        if ((parent instanceof WhenClause || isIfConditional(parent) || isFirstArgumentTypedResult(parent))
                 && !isConditionalResultPosition(parent)) {
             return false;
         }

@@ -252,9 +252,9 @@ public class SPMRound45SafetyTest {
         String sql = BaselineManagerTestAccess.pendingSeqLookupSql();
         String orderBy = sql.substring(sql.lastIndexOf("ORDER BY"));
         Assertions.assertTrue(orderBy.startsWith(
-                        "ORDER BY `baseline_id` DESC, `reserve_time` DESC,"),
+                        "ORDER BY `baseline_id` DESC, `dropped` DESC,"),
                 "the NEWEST identity must win first: " + orderBy);
-        Assertions.assertTrue(orderBy.contains("`dropped` DESC, `unconfirmed` ASC"),
+        Assertions.assertTrue(orderBy.contains("`reserve_time` DESC, `unconfirmed` ASC"),
                 "tombstones and resolved records must precede unconfirmed markers: " + orderBy);
     }
 }

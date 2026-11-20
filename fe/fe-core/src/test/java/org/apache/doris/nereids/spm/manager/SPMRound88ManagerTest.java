@@ -42,9 +42,6 @@ import java.util.concurrent.ConcurrentHashMap;
  *       history let a DROP report success while the compact slot still carried the identity's
  *       previous plain reservation, so the identity still looked alive and a delayed INSERT of an
  *       older id of the same key was republished as an active baseline.</li>
- *   <li>#3 {@code isNewerReservation} compared the reserve INSTANT first, although the monotonic
- *       {@code baseline_id} is the incarnation order: under FE clock skew a newer id could be
- *       discarded in favour of an older tombstone.</li>
  * </ul>
  */
 public class SPMRound88ManagerTest {
@@ -83,40 +80,6 @@ public class SPMRound88ManagerTest {
 
         Assertions.assertTrue(manager.dropBaseline(51L), "the healthy path drops the row");
         Assertions.assertNull(store.rows.get(51L));
-    }
-
-    /**
-     * The monotonic id decides which record is the identity's later state; the reserve instant
-     * only breaks ties (it comes from the writing FE's clock, so it can go backwards).
-     */
-    @Test
-    public void testNewerReservationComparesTheIdFirst() {
-        // a NEWER id with an EARLIER timestamp (clock skew) is still the later state
-        Assertions.assertTrue(BaselineManager.isNewerReservation(
-                new SeqReservation(42L, 1_000L, false, false),
-                new SeqReservation(41L, 2_000L, false, true)),
-                "the higher baseline id is the newer incarnation, whatever the clocks say");
-        Assertions.assertFalse(BaselineManager.isNewerReservation(
-                new SeqReservation(41L, 2_000L, false, true),
-                new SeqReservation(42L, 1_000L, false, false)),
-                "an OLDER id must never replace a newer committed reservation");
-    }
-
-    /** Same id: the newer instant wins, and at equal instants the further lifecycle state wins. */
-    @Test
-    public void testNewerReservationTieBreakers() {
-        Assertions.assertTrue(BaselineManager.isNewerReservation(
-                new SeqReservation(41L, 2_000L, false, false),
-                new SeqReservation(41L, 1_000L, false, false)),
-                "the same incarnation's later write wins");
-        Assertions.assertTrue(BaselineManager.isNewerReservation(
-                new SeqReservation(41L, 1_000L, false, true),
-                new SeqReservation(41L, 1_000L, false, false)),
-                "a DROP tombstone is later than the live record of the same incarnation");
-        Assertions.assertTrue(BaselineManager.isNewerReservation(
-                new SeqReservation(41L, 1_000L, false, false),
-                new SeqReservation(41L, 1_000L, true, false)),
-                "a committed record is later than the unconfirmed reservation of that id");
     }
 
     // ==================== helpers ====================

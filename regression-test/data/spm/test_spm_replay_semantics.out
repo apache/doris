@@ -251,3 +251,96 @@ true
 -- !stored_mode_hit --
 true
 
+-- !fresh_replay_ids_session_hit --
+true
+
+-- !fresh_replay_ids_session_rows --
+1	1970-01-01T00:00	7
+
+-- !fresh_replay_ids_session_variant --
+1	1970-01-01T00:00	8
+
+-- !fresh_replay_ids_global_hit --
+true
+
+-- !fresh_replay_ids_global_rows --
+1	1970-01-01T00:00	7
+
+-- !fresh_replay_ids_global_variant --
+1	1970-01-01T00:00	8
+
+-- !concrete_fraction_frozen_hits --
+true	false
+
+-- !concrete_fraction_frozen_original --
+2020-01-01T00:00:00.100	2
+
+-- !concrete_fraction_frozen_variant --
+2020-01-01T00:00:00.200	2
+
+-- !concrete_fraction_frozen_frozen --
+true
+
+-- !concrete_fraction_raw_hits --
+true	false
+
+-- !concrete_fraction_raw_original --
+2020-01-01T00:00:00.100	1970-01-01T00:00
+
+-- !concrete_fraction_raw_variant --
+2020-01-01T00:00:00.200	1970-01-01T00:00
+
+-- !concrete_fraction_raw_frozen --
+false
+
+-- !if_array_hits --
+true	true
+
+-- !if_array_original_rows --
+1	\N
+
+-- !if_array_variant_rows --
+1	true
+
+-- !case_array_hits --
+true	true
+
+-- !case_array_original_rows --
+1	\N
+
+-- !case_array_variant_rows --
+1	true
+
+-- !coalesce_map_hits --
+true	true
+
+-- !coalesce_map_original_rows --
+1	\N
+
+-- !coalesce_map_variant_rows --
+1	true
+
+-- !nth_value_hits --
+true	true
+
+-- !nth_value_original_rows --
+1	\N
+
+-- !nth_value_variant_rows --
+1	true
+
+-- !character_values_and_types --
+a	a	true	true
+
+-- !character_frozen --
+true
+
+-- !drop_state_visible_at_both_keys --
+true	true
+
+-- !recreated_identity_uses_new_id --
+true	true
+
+-- !recreated_identity_rows --
+1
+

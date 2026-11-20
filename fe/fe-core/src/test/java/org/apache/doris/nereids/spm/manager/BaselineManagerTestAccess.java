@@ -578,7 +578,7 @@ public final class BaselineManagerTestAccess {
     }
 
     public static String droppedMarkerInsertSql() {
-        return (String) staticValue("INSERT_SEQ_DROPPED_SQL");
+        return (String) staticValue("INSERT_SEQ_STATE_SQL");
     }
 
     public static String droppedMarkerReadSql() {

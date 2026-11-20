@@ -23,6 +23,7 @@ import org.apache.doris.nereids.spm.BaselineStatus;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -638,8 +639,8 @@ public class BaselineManagerMutationClockTest {
                 BaselineManagerTestAccess.tombstoneSeqId(3L), "the mapping is injective");
 
         String insert = BaselineManagerTestAccess.droppedMarkerInsertSql();
-        Assertions.assertTrue(insert.contains("(${tombstoneId}"),
-                "the tombstone append must bind the KEYED id: " + insert);
+        Assertions.assertTrue(insert.contains("(${seqId}") && insert.contains("(${compactId}"),
+                "the same INSERT must publish the id-keyed and identity-keyed rows: " + insert);
         Assertions.assertFalse(insert.contains("VALUES (1,"),
                 "appending under the constant id = 1 made the read unscannable: " + insert);
         String select = BaselineManagerTestAccess.droppedMarkerReadSql();
@@ -648,6 +649,26 @@ public class BaselineManagerMutationClockTest {
         Assertions.assertTrue(select.contains("`baseline_id` IN (${ids})")
                         && select.contains("`dropped` = 1"),
                 "and still pin the requested identities / the tombstone flag: " + select);
+    }
+
+    @Test
+    public void testExpiredWindowsRequireAReadableClockBeforePruning() {
+        BaselinePersistence store = Mockito.mock(BaselinePersistence.class);
+        BaselineManager sweeper = new BaselineManager(store, gateway, windowClock::get);
+        Mockito.when(store.expiredMutationWindowState()).thenReturn(new long[] {70L, 500L});
+        Mockito.when(store.coveringCompletedTick(70L)).thenReturn(499L, 499L, 501L);
+
+        sweeper.pruneExpiredMutationWindows();
+        Mockito.verify(store).appendHwmRecord(Mockito.eq(70L), Mockito.longThat(tick -> tick > 500L),
+                Mockito.eq(0L));
+        Mockito.verify(store, Mockito.never()).pruneExpiredMutationWindows(70L, 500L);
+
+        sweeper.pruneExpiredMutationWindows();
+        Mockito.verify(store).pruneExpiredMutationWindows(70L, 500L);
+
+        Mockito.when(store.expiredMutationWindowState()).thenReturn(new long[] {0L, 0L});
+        sweeper.pruneExpiredMutationWindows();
+        Mockito.verify(store).pruneExpiredMutationWindows(Mockito.anyLong(), Mockito.anyLong());
     }
 
     /**

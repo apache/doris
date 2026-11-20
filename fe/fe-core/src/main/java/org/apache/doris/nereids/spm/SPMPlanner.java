@@ -308,7 +308,7 @@ public class SPMPlanner {
             }
             LOG.info("SPM tryRewritePlan: baseline {} frozen planSql replay unavailable, "
                     + "falling back to parameterized plan tree", candidate.getId());
-            LogicalPlan planTree = SPMPlanTreeSupport.stripSetVarHints(candidate.getParameterizedPlanPlan());
+            LogicalPlan planTree = SPMPlanTreeSupport.stripSetVarHints(rawReplayTree(candidate));
             if (planTree == null) {
                 continue;
             }
@@ -369,6 +369,18 @@ public class SPMPlanner {
             return SPMPlanTreeSupport.attachCallerSetVarHints(replay, matchPlan);
         }
         return null;
+    }
+
+    private static LogicalPlan rawReplayTree(BaselinePlan candidate) {
+        if (!Boolean.FALSE.equals(candidate.getPlanFrozen())) {
+            return candidate.getParameterizedPlanPlan();
+        }
+        // The stored tree's alias and relation IDs belong to the CREATE or reload context.
+        // Rebuild both texts in the executing statement to allocate fresh IDs and reproduce the
+        // same bind-to-plan marker mapping. The parser can reuse the stored syntax templates.
+        Long planMode = candidate.getPlanSqlMode();
+        return rebuildParameterizedTrees(candidate.getBindSql(), candidate.getPlanSql(), candidate.getCreatorSqlMode(),
+                planMode == null ? candidate.getCreatorSqlMode() : planMode).second;
     }
 
     /**
@@ -503,8 +515,7 @@ public class SPMPlanner {
             // mode for this re-parse: inheriting a NO_BACKSLASH_ESCAPES session would
             // decode the doubled backslashes to a different value and could select
             // another external ref.
-            Plan parsed = SPMPlanTreeSupport.parseStoredSqlWithoutSetVarSideEffects(planSql,
-                    SqlModeHelper.MODE_DEFAULT);
+            Plan parsed = SPMPlanTreeSupport.parseFrozenSqlWithoutSetVarSideEffects(planSql);
             if (!(parsed instanceof LogicalPlan) || parsed instanceof Command) {
                 return null;
             }
@@ -947,7 +958,7 @@ public class SPMPlanner {
     private static DecompiledPlan validateFrozenTextReplannable(ConnectContext ctx,
             DecompiledPlan frozen, String planSql, Plan writePlan) {
         try {
-            LogicalPlan parsed = parseStoredSelect(frozen.sql);
+            LogicalPlan parsed = SPMPlanTreeSupport.parseFrozenSqlWithoutSetVarSideEffects(frozen.sql);
             // Substitute the placeholders with the WRITER plan's own literal payloads
             // before re-planning: the replay substitutes the caller's values by id, so
             // re-planning the raw marker calls can only fail ("Can not found function

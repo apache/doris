@@ -29,6 +29,7 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.spm.builder.SPMExprSqlBuilder;
 import org.apache.doris.nereids.spm.builder.SPMPlan2SQLBuilder;
 import org.apache.doris.nereids.spm.builder.SQLRelation;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
@@ -80,6 +82,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -2808,6 +2811,28 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     @Test
+    public void testCharacterLiteralTypesSurviveFrozenParsingAndFolding() {
+        SPMExprSqlBuilder builder = new SPMExprSqlBuilder();
+        for (Literal literal : List.of(new CharLiteral("a'b", 10), new VarcharLiteral("a'b", 24),
+                new StringLiteral("a'b"))) {
+            String text = builder.print(literal, new SQLRelation());
+            Plan parsed = SPMPlanTreeSupport.parseFrozenSqlWithoutSetVarSideEffects("SELECT " + text);
+            List<Cast> casts = new ArrayList<>();
+            SPMPlanTreeSupport.<RuntimeException>walkPlans(parsed, node -> {
+                for (Expression expression : node.getExpressions()) {
+                    if (expression.arity() == 1 && expression.child(0) instanceof Cast) {
+                        casts.add((Cast) expression.child(0));
+                    }
+                }
+            });
+            Assertions.assertFalse(casts.isEmpty(), text);
+            Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(casts.get(0));
+            Assertions.assertEquals(literal.getDataType(), folded.getDataType(), text);
+            Assertions.assertEquals(literal.getStringValue(), ((Literal) folded).getStringValue(), text);
+        }
+    }
+
+    @Test
     public void testContainerLiteralsRenderTypedAndEscapedElements() {
         ArrayLiteral dates = new ArrayLiteral(List.of(new DateV2Literal(2020, 1, 1)));
         MapLiteral map = new MapLiteral(Map.of(new StringLiteral("a'b\\c"), dates));
@@ -2815,7 +2840,8 @@ public class SPMPlan2SQLBuilderTest {
         StructLiteral value = new StructLiteral(List.of(map), type);
         SPMExprSqlBuilder builder = new SPMExprSqlBuilder();
         String sql = builder.print(value, new SQLRelation());
-        Assertions.assertTrue(sql.contains("map('a''b\\\\c', CAST(array(CAST('2020-01-01' AS DATEV2)"), sql);
+        Assertions.assertTrue(sql.contains("map(CAST('a''b\\\\c' AS TEXT),"
+                + " CAST(array(CAST('2020-01-01' AS DATEV2)"), sql);
         Cast parsed = (Cast) new NereidsParser().parseExpression(sql);
         Assertions.assertEquals(value.getDataType().toSql(), parsed.getDataType().toSql());
 

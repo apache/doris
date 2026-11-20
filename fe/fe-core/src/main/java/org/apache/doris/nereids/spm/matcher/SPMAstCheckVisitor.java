@@ -244,7 +244,7 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
         // equal the user literal. Otherwise replay would retain a captured value from a position the builder
         // intentionally leaves concrete.
         if (bindExpr instanceof Literal && userExpr instanceof Literal) {
-            return Objects.equals(((Literal) bindExpr).getValue(), ((Literal) userExpr).getValue());
+            return bindExpr.getDataType().equals(userExpr.getDataType()) && bindExpr.equals(userExpr);
         }
 
         // Child count mismatch -> no match
