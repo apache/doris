@@ -23,6 +23,9 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/storage")
 
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 
+# Keep the Zstd static workspace feature macro local to the codec.
+set_source_files_properties(compressed_rowid_map.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+
 # Files in the ann_index directory use faiss header files
 # Some of Doris's compilation check options fail on these header files, so exclude
 # files in the ann_index directory. They are compiled separately as a .a library
