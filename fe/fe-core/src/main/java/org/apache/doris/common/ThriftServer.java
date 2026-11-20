@@ -42,6 +42,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Set;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class ThriftServer {
     private static final Logger LOG = LogManager.getLogger(ThriftServer.class);
@@ -138,7 +139,9 @@ public class ThriftServer {
     private void createThreadPoolServer(ServerSocket listener) throws TTransportException {
         TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(createBlockingSocket(listener))
                 .protocolFactory(new TBinaryProtocol.Factory())
-                .processor(processor);
+                .processor(processor)
+                .stopTimeoutVal(Math.max(0, Config.thrift_server_stop_timeout_seconds))
+                .stopTimeoutUnit(TimeUnit.SECONDS);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
                 Config.thrift_server_max_worker_threads, "thrift-server-pool", true);
         serverArgs.executorService(threadPoolExecutor);

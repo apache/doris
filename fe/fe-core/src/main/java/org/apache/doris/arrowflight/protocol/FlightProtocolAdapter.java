@@ -27,6 +27,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TokenMasker;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -635,8 +636,35 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
         });
     }
 
+    /** An issued result may still be fetched after new statements have been refused. */
+    public <E extends Exception> void runContinuation(ConnectContext ctx, SessionAction<E> action) throws E {
+        QueryAdmissionController.INSTANCE.acquireContinuation();
+        try {
+            callCommandWithLock(ctx, () -> {
+                action.run();
+                return null;
+            });
+        } finally {
+            QueryAdmissionController.INSTANCE.release();
+        }
+    }
+
     /** {@link #runCommand} for a command that returns a value. */
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
+        // Count accepted work before waiting for a running command's session lock.
+        if (!QueryAdmissionController.INSTANCE.tryAcquire()) {
+            throw CallStatus.UNAVAILABLE.withDescription("FE is shutting down; retry on another FE")
+                    .toRuntimeException();
+        }
+        try {
+            return callCommandWithLock(ctx, command);
+        } finally {
+            QueryAdmissionController.INSTANCE.release();
+        }
+    }
+
+    private <T, E extends Exception> T callCommandWithLock(ConnectContext ctx,
+            SessionCommand<T, E> command) throws E {
         acquireCommandLock(ctx);
         ConnectContext previous = ConnectContext.get();
         try {

@@ -116,6 +116,8 @@ enum TStatusCode {
     // used for cloud
     DELETE_BITMAP_LOCK_ERROR = 100,
     SC_COMPACTION_CONFLICT = 101,
+    // The FE rejected the RPC before execution because it is shutting down.
+    FE_SHUTTING_DOWN = 102,
     // Not be larger than 200, see status.h
     // And all error code defined here, should also be defined in status.h
 }

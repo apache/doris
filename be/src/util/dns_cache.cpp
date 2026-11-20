@@ -25,6 +25,7 @@
 
 #include "common/config.h"
 #include "service/backend_options.h"
+#include "util/defer_op.h"
 #include "util/network_util.h"
 
 namespace doris {
@@ -51,7 +52,8 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
     {
         std::shared_lock<std::shared_mutex> lock(mutex);
         auto it = cache.find(hostname);
-        if (it != cache.end()) {
+        if (it != cache.end() && !_refresh_pending.count(hostname) &&
+            !_refresh_inflight.count(hostname)) {
             *ip = it->second;
             return Status::OK();
         }
@@ -249,8 +251,47 @@ bool DNSCache::_erase_if_still_failing(const std::string& hostname, uint32_t thr
     return true;
 }
 
+void DNSCache::invalidate(const std::string& hostname) {
+    std::unique_lock<std::shared_mutex> lock(mutex);
+    if (cache.count(hostname) || _refresh_locks.count(hostname)) {
+        _refresh_pending.insert(hostname);
+    }
+}
+
 Status DNSCache::_update(const std::string& hostname, FailureState* out_state,
                          std::string* out_ip) {
+    std::shared_ptr<std::mutex> refresh_mutex;
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        auto [it, inserted] = _refresh_locks.try_emplace(hostname);
+        if (inserted) {
+            it->second = std::make_shared<std::mutex>();
+        }
+        refresh_mutex = it->second;
+    }
+    Defer remove_refresh_lock {[&] {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        if (refresh_mutex.use_count() == 2) {
+            _refresh_locks.erase(hostname);
+        }
+    }};
+    // A delayed background lookup must not overwrite the IP found after a pod restart.
+    std::lock_guard<std::mutex> refresh_lock(*refresh_mutex);
+    Defer finish_refresh {[&] {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        _refresh_inflight.erase(hostname);
+    }};
+    {
+        std::unique_lock<std::shared_mutex> lock(mutex);
+        auto it = cache.find(hostname);
+        if (out_ip != nullptr && it != cache.end() && !_refresh_pending.count(hostname)) {
+            *out_ip = it->second;
+            return Status::OK();
+        }
+        if (_refresh_pending.erase(hostname)) {
+            _refresh_inflight.insert(hostname);
+        }
+    }
     bool is_fresh = false;
     std::string real_ip = _resolve_hostname(hostname, &is_fresh);
     if (real_ip.empty()) {
