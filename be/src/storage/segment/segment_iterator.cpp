@@ -1178,7 +1178,7 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     std::shared_ptr<std::vector<uint64_t>> result_row_ids;
     segment_v2::AnnIndexStats ann_index_stats;
 
-    // Try to load ANN index before search
+    // Load ANN index before search
     auto ann_index_iterator_casted =
             dynamic_cast<segment_v2::AnnIndexIterator*>(ann_index_iterator);
     if (ann_index_iterator_casted == nullptr) {
@@ -1191,12 +1191,16 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     // Track load index timing
     {
         SCOPED_TIMER(&(ann_index_stats.load_index_costs_ns));
-        if (!ann_index_iterator_casted->try_load_index()) {
-            VLOG_DEBUG << "Failed to load ANN index, fallback to brute force search";
+        Status load_status = ann_index_iterator_casted->load_index();
+        // Old segments may not have a newly added ANN index yet. Only absence permits a scan;
+        // IO, memory and invalid-index failures must reach the caller.
+        if (load_status.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
+            VLOG_DEBUG << "ANN index is missing, fallback to brute force search: " << load_status;
             _column_states[src_cid].need_read_data = true;
             _opts.stats->ann_fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
+        RETURN_IF_ERROR(load_status);
         double load_costs_ms =
                 static_cast<double>(ann_index_stats.load_index_costs_ns.value()) / 1000000.0;
         DorisMetrics::instance()->ann_index_load_costs_ms->increment(
