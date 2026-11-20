@@ -73,7 +73,8 @@ suite("test_grant_priv") {
         }
     }
 
-    // test have global grant_priv, can grant role to other user
+    // the default connection (an administrator) grants the role: a role grant needs the role itself or
+    // admin_priv, so global grant_priv alone does not make this grant
     sql """grant grant_priv on *.* to ${user1}"""
     try {
         sql """grant '${role1}' to ${user2}"""

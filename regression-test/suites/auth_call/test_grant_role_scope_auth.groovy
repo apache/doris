@@ -18,10 +18,11 @@
 import org.junit.Assert
 
 // End-to-end check, over real MySQL connections, of the two rules PR #70371 adds:
-//   1. GRANT <role> and CREATE USER ... DEFAULT ROLE are held to the rule a direct GRANT already
-//      enforces: the grantor needs grant_priv plus every privilege the role carries. admin_priv is
-//      exempt. A grant that is refused must leave the target without the role, which is proved here
-//      by the target being unable to USE the database until the grant actually goes through.
+//   1. GRANT <role> and CREATE USER ... DEFAULT ROLE need grant_priv and the role itself: the grantor
+//      must already hold the role it hands out. Holding every privilege the role carries is not
+//      holding the role. admin_priv grants any role. A grant that is refused must leave the target
+//      without the role, which is proved here by the target being unable to USE the database until
+//      the grant actually goes through.
 //   2. Changing another account's credentials (ALTER USER ... IDENTIFIED BY, SET PASSWORD FOR) needs
 //      admin_priv; one's own credentials and the account-lock operations stay under grant_priv.
 suite("test_grant_role_scope_auth", "p0,auth_call") {
@@ -77,23 +78,23 @@ suite("test_grant_role_scope_auth", "p0,auth_call") {
         }
     }
 
-    // grant_priv alone cannot hand out a role carrying SELECT, nor the built-in admin role.
+    // grant_priv alone cannot hand out a role it does not hold, nor the built-in admin role.
     connect(grantor, "${pwd}", context.config.jdbcUrl) {
         test {
             sql "GRANT '${role}' TO '${grantor}'@'%'"
-            exception "denied"
+            exception "membership of role"
         }
         test {
             sql "GRANT '${role}' TO '${target}'@'%'"
-            exception "denied"
+            exception "membership of role"
         }
         test {
             sql "CREATE USER '${newUser}'@'%' IDENTIFIED BY '${pwd}' DEFAULT ROLE '${role}'"
-            exception "denied"
+            exception "membership of role"
         }
         test {
             sql "GRANT 'admin' TO '${target}'@'%'"
-            exception "denied"
+            exception "membership of role"
         }
 
         // Another account's credentials need admin_priv.
@@ -121,8 +122,28 @@ suite("test_grant_role_scope_auth", "p0,auth_call") {
         }
     }
 
-    // Once the grantor holds what the role carries, the grant is its to make.
+    // Holding every privilege the role carries is not holding the role: the grants stay refused.
     sql "GRANT SELECT_PRIV ON internal.${dbName}.* TO '${grantor}'@'%'"
+    connect(grantor, "${pwd}", context.config.jdbcUrl) {
+        test {
+            sql "GRANT '${role}' TO '${target}'@'%'"
+            exception "membership of role"
+        }
+        test {
+            sql "CREATE USER '${newUser}'@'%' IDENTIFIED BY '${pwd}' DEFAULT ROLE '${role}'"
+            exception "membership of role"
+        }
+    }
+    connect(target, "${pwd}", context.config.jdbcUrl) {
+        test {
+            sql "USE internal.${dbName}"
+            exception "denied"
+        }
+    }
+    sql "REVOKE SELECT_PRIV ON internal.${dbName}.* FROM '${grantor}'@'%'"
+
+    // Once the grantor holds the role itself, the grant is its to make.
+    sql "GRANT '${role}' TO '${grantor}'@'%'"
     connect(grantor, "${pwd}", context.config.jdbcUrl) {
         sql "GRANT '${role}' TO '${target}'@'%'"
         sql "CREATE USER '${newUser}'@'%' IDENTIFIED BY '${pwd}' DEFAULT ROLE '${role}'"

@@ -116,6 +116,12 @@ public class DualPasswordTest {
                 Mockito.eq(PrivPredicate.GRANT))).thenReturn(hasGrantPriv);
     }
 
+    /** Another account's credentials (its password, binding or certificate requirement) need admin_priv. */
+    private void adminPriv(boolean hasAdminPriv) {
+        Mockito.when(accessManager.checkGlobalPriv(Mockito.any(ConnectContext.class),
+                Mockito.eq(PrivPredicate.ADMIN))).thenReturn(hasAdminPriv);
+    }
+
     private UserIdentity createUser(String name) throws DdlException {
         UserIdentity userIdentity = new UserIdentity(name, "%");
         userIdentity.setIsAnalyzed();
@@ -396,7 +402,13 @@ public class DualPasswordTest {
         Assertions.assertTrue(canLogin("target", "p1"));
         Assertions.assertFalse(canLogin("target", "p2"));
 
+        // grant_priv alone does not change ANOTHER account's password, retained or not
         grantPriv(true);
+        Assertions.assertThrows(AnalysisException.class, () -> cmd.doRun(ctx, null));
+        Assertions.assertTrue(canLogin("target", "p1"));
+        Assertions.assertFalse(canLogin("target", "p2"));
+
+        adminPriv(true);
         cmd.doRun(ctx, null);
         Assertions.assertTrue(canLogin("target", "p2"));
         Assertions.assertTrue(canLogin("target", "p1"));
@@ -635,6 +647,7 @@ public class DualPasswordTest {
         auth.setPassword(user, MysqlPassword.makeScrambledPassword("p2"), true /* retain */);
         ConnectContext ctx = ctxFor(admin);
         grantPriv(true);
+        adminPriv(true);
         Assertions.assertTrue(canLogin("rebound", "p1"));
         Assertions.assertEquals("Yes (dual)", passwordColumnOf(user));
 
@@ -665,6 +678,7 @@ public class DualPasswordTest {
         auth.setPassword(user, MysqlPassword.makeScrambledPassword("p1"));
         ConnectContext ctx = ctxFor(admin);
         grantPriv(true);
+        adminPriv(true);
 
         // into a binding: RETAIN needs a password change (rejected at validation)
         Assertions.assertThrows(AnalysisException.class, () -> alterUser(ctx,
@@ -733,6 +747,7 @@ public class DualPasswordTest {
         // the same immediate refresh runs on ACCOUNT_UNLOCK and REQUIRE changes
         ConnectContext ctx = ctxFor(admin);
         grantPriv(true);
+        adminPriv(true);
         alterUser(ctx, "ALTER USER 'domuser2'@('mydomain.example') ACCOUNT_UNLOCK");
         Assertions.assertTrue(canLogin("domuser2", "p1"));
         alterUser(ctx, "ALTER USER 'domuser2'@('mydomain.example') REQUIRE NONE");
@@ -754,6 +769,7 @@ public class DualPasswordTest {
 
         ConnectContext ctx = ctxFor(admin);
         grantPriv(true);
+        adminPriv(true);
         alterUser(ctx, "ALTER USER 'domain_discard'@('mydomain.example')"
                 + " IDENTIFIED BY 'p2' RETAIN CURRENT PASSWORD");
         Assertions.assertTrue(canLogin("domain_discard", "p2"));

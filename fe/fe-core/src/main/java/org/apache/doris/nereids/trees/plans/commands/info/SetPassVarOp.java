@@ -91,7 +91,15 @@ public class SetPassVarOp extends SetVarOp {
             throw new AnalysisException("Can not set password for root user, except root itself");
         }
 
-        // 3. Setting another account's password is taking that account over, so it needs admin_priv:
+        // 3. RETAIN CURRENT PASSWORD on one's own account stays under grant_priv (see check 1).
+        if (isSelf) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.GRANT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+            }
+            return;
+        }
+
+        // 4. Setting another account's password is taking that account over, so it needs admin_priv:
         //    grant_priv alone lets an account manage privileges, not become other accounts.
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
