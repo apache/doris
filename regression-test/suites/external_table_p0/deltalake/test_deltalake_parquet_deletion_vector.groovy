@@ -59,6 +59,12 @@ suite("test_deltalake_parquet_deletion_vector", "p0,external") {
         's3.access_key'='admin', 's3.secret_key'='password', 'use_path_style'='true'
     )"""
 
+    explain {
+        sql("select /*+ SET_VAR(enable_external_table_batch_mode=false) */ id from ${table} where id=101")
+        verbose(true)
+        contains("dataFileNum=1, deleteFileNum=1, deleteSplitNum=1")
+    }
+
     def checkPrunedRows = { String name, String predicate, List<String> counters ->
         String token = UUID.randomUUID().toString()
         "order_qt_filesystem_${name}"("""

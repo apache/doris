@@ -31,8 +31,10 @@ import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TDeltaLakeColumnMappingMode;
+import org.apache.doris.thrift.TDeltaLakeDeletionVectorDesc;
 import org.apache.doris.thrift.TDeltaLakeFileDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import io.delta.kernel.Snapshot;
 import io.delta.kernel.data.Row;
@@ -467,6 +469,15 @@ final class DeltaLakeScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public boolean supportsFileCache() {
         return true;
+    }
+
+    @Override
+    public List<String> getDeleteFiles(TTableFormatFileDesc tableFormatParams) {
+        if (tableFormatParams == null || !tableFormatParams.isSetDeltalakeParams()) {
+            return List.of();
+        }
+        TDeltaLakeDeletionVectorDesc dv = tableFormatParams.getDeltalakeParams().getDeletionVector();
+        return dv != null && dv.isSetPath() ? List.of(dv.getPath()) : List.of();
     }
 
     @Override

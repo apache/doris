@@ -549,6 +549,26 @@ class DeltaLakeScanPlanProviderTest {
     }
 
     @Test
+    void reportsOnlyExternalDeletionVectorPathsForExplain() throws Exception {
+        try (Connector connector = connector()) {
+            ConnectorScanPlanProvider provider = connector.getScanPlanProvider();
+            TTableFormatFileDesc format = new TTableFormatFileDesc();
+            Assertions.assertTrue(provider.getDeleteFiles(null).isEmpty());
+            Assertions.assertTrue(provider.getDeleteFiles(format).isEmpty());
+
+            TDeltaLakeFileDesc delta = new TDeltaLakeFileDesc();
+            format.setDeltalakeParams(delta);
+            Assertions.assertTrue(provider.getDeleteFiles(format).isEmpty());
+            delta.setDeletionVector(new TDeltaLakeDeletionVectorDesc().setInlineData(new byte[] {1, 2, 3}));
+            Assertions.assertTrue(provider.getDeleteFiles(format).isEmpty());
+
+            String path = "s3://warehouse/table/deletion_vector.bin";
+            delta.setDeletionVector(new TDeltaLakeDeletionVectorDesc().setPath(path).setOffset(128));
+            Assertions.assertEquals(List.of(path), provider.getDeleteFiles(format));
+        }
+    }
+
+    @Test
     void rangeThriftKeepsNullEmptyAndSentinelValuesDistinctAndOwnsItsDescriptor() {
         TDeltaLakeFileDesc descriptor = new TDeltaLakeFileDesc();
         descriptor.setDeletionVector(new TDeltaLakeDeletionVectorDesc().setSizeInBytes(12).setCardinality(1)
