@@ -33,7 +33,7 @@ namespace doris {
 //     insert_data(jsonb_value.value(), jsonb_value.size());
 // insert_data should use copy semantics.
 //
-// from_json_string can be called multiple times.
+// from_json_string can be called multiple times, reusing the parser and writer buffers.
 // Example:
 //     JsonBinaryValue jsonb_value;
 //     for (;;) {
@@ -60,7 +60,7 @@ struct JsonBinaryValue final {
         ptr = nullptr;
         len = 0;
         writer.reset();
-        RETURN_IF_ERROR(JsonbParser::parse(s, length, writer));
+        RETURN_IF_ERROR(JsonbParser::parse(s, length, writer, parser));
         ptr = writer.getOutput()->getBuffer();
         len = writer.getOutput()->getSize();
         if (len > MAX_LENGTH) {
@@ -78,6 +78,7 @@ private:
     const char* ptr = nullptr;
     size_t len = 0;
     JsonbWriter writer;
+    simdjson::ondemand::parser parser;
 };
 
 } // namespace doris
