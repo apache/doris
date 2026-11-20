@@ -24,12 +24,16 @@ import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 /** Parse JSON text into a Variant value. */
 public class ParseToVariant extends ScalarFunction
@@ -39,23 +43,79 @@ public class ParseToVariant extends ScalarFunction
             FunctionSignature.ret(VariantType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
     );
 
+    private final VariantType returnType;
+
     public ParseToVariant(Expression argument) {
-        super("parse_to_variant", argument);
+        this(argument, VariantType.INSTANCE);
     }
 
-    private ParseToVariant(ScalarFunctionParams functionParams) {
+    /**
+     * A parse typed with a specific VARIANT type. When that type carries a Schema Template, the BE parses
+     * the text with the template's DECIMAL and LARGEINT paths in hand (see VariantType#toThrift).
+     */
+    public ParseToVariant(Expression argument, VariantType returnType) {
+        super("parse_to_variant", argument);
+        this.returnType = returnType;
+    }
+
+    private ParseToVariant(ScalarFunctionParams functionParams, VariantType returnType) {
         super(functionParams);
+        this.returnType = returnType;
+    }
+
+    /**
+     * The same call typed with {@code type}. The signature changes with the type, so the origin's cached
+     * signature must not be reused: the Rewriter and the fast VALUES analyzer run under
+     * keepFunctionSignature(true), where getFunctionParams hands the origin's signature on.
+     */
+    public ParseToVariant withReturnType(VariantType type) {
+        return MoreFieldsThread.keepFunctionSignature(false,
+                () -> new ParseToVariant(getFunctionParams(children()), type));
+    }
+
+    public VariantType getReturnType() {
+        return returnType;
+    }
+
+    /** A call typed with a template prints it, so a plan shows whether the sink typed the call. */
+    @Override
+    public String toString() {
+        return super.toString() + templateSuffix();
+    }
+
+    @Override
+    public String shapeInfo() {
+        return super.shapeInfo() + templateSuffix();
+    }
+
+    private String templateSuffix() {
+        if (returnType.getPredefinedFields().isEmpty()) {
+            return "";
+        }
+        return " template<" + returnType.getPredefinedFields().stream()
+                .map(VariantField::toSql).collect(Collectors.joining(",")) + ">";
     }
 
     @Override
     public ParseToVariant withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new ParseToVariant(getFunctionParams(children));
+        return new ParseToVariant(getFunctionParams(children), returnType);
     }
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return SIGNATURES;
+        return ImmutableList.of(FunctionSignature.ret(returnType).args(VarcharType.SYSTEM_DEFAULT));
+    }
+
+    /** Two calls typed with templates that match a pattern differently are not the same call. */
+    @Override
+    protected boolean extraEquals(Expression that) {
+        return super.extraEquals(that) && returnType.equalsWithPatternTypes(((ParseToVariant) that).returnType);
+    }
+
+    @Override
+    public int computeHashCode() {
+        return Objects.hash(super.computeHashCode(), returnType);
     }
 
     @Override

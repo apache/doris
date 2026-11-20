@@ -458,6 +458,7 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
         if (expr.isStrict()) {
             msg.setIsStrictCast(true);
         }
+        dropVariantTemplates(msg);
         return null;
     }
 
@@ -466,7 +467,34 @@ public class ExprToThriftVisitor extends ExprVisitor<Void, TExprNode> {
         msg.node_type = TExprNodeType.TRY_CAST_EXPR;
         msg.setIsCastNullable(expr.isOriginCastNullable());
         msg.setOpcode(TExprOpcode.TRY_CAST);
+        dropVariantTemplates(msg);
         return null;
+    }
+
+    /**
+     * A cast does not read by a VARIANT's Schema Template: parse_to_variant and a load do. The template rides
+     * on a VARIANT type wherever the type goes (VariantType#toThrift), and the BE hands it to the type's JSON
+     * reader, which a cast of a JSON string to an ARRAY or STRUCT of that VARIANT runs. So it is taken off a
+     * cast's target here: the cast reads what it read before the template rode, and two casts that differ only
+     * in the template, which are one cast to the FE (Cast#equals) and to the BE's condition cache (the target
+     * type's name), stay one cast in what they return.
+     */
+    private static void dropVariantTemplates(TExprNode msg) {
+        dropVariantTemplates(msg.getType());
+        if (msg.isSetFn() && msg.getFn().isSetRetType()) {
+            dropVariantTemplates(msg.getFn().getRetType());
+        }
+    }
+
+    private static void dropVariantTemplates(TTypeDesc type) {
+        if (type == null || !type.isSetTypes()) {
+            return;
+        }
+        for (TTypeNode node : type.getTypes()) {
+            if (node.isSetScalarType() && node.getScalarType().isSetVariantTemplatePaths()) {
+                node.getScalarType().unsetVariantTemplatePaths();
+            }
+        }
     }
 
     @Override
