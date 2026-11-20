@@ -114,6 +114,38 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         self.assertEqual(self.skipped_contexts(), ['TeamCity/feut'])
         self.assertFalse(self.state().get('posts'))
 
+    def run_with_pr(self, pr, changed):
+        prefix = '''teamcity_request(){ python3 "$FIXTURE_ROOT/mock.py" "$@"; }
+curl(){
+    if [[ "$*" == *'/pulls/123'* ]]; then
+        printf '%s\\n' "$MOCK_PR";
+    else
+        python3 "$FIXTURE_ROOT/status_mock.py" "$@";
+    fi
+}
+'''
+        return self.run_shell(prefix + 'trigger_or_skip_build ' + changed + ' 123 master ' + HEAD + ' feut 1',
+                              mock=False, check=False, env={'MOCK_PR': json.dumps(pr)})
+
+    def test_draft_pr_can_trigger_and_skip(self):
+        pr = {'state': 'open', 'draft': True, 'head': {'sha': HEAD}, 'base': {'ref': 'master'}}
+        result = self.run_with_pr(pr, 'true')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.state()['posts']), 1)
+        result = self.run_with_pr(pr, 'false')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.skipped_contexts(), ['TeamCity/feut'])
+
+    def test_closed_or_changed_draft_pr_cannot_trigger_or_skip(self):
+        for change in [{'state': 'closed'}, {'head': {'sha': 'b' * 40}}, {'base': {'ref': 'branch-4.2'}}]:
+            for changed in ['true', 'false']:
+                with self.subTest(change=change, changed=changed):
+                    pr = {'state': 'open', 'draft': True, 'head': {'sha': HEAD}, 'base': {'ref': 'master'}, **change}
+                    result = self.run_with_pr(pr, changed)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(self.state().get('posts'))
+                    self.assertFalse(self.skipped_contexts())
+
     def test_compile_skip_covers_downstream_checks(self):
         self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' compile 1')
         self.assertEqual(self.skipped_contexts(), ['TeamCity/compile', 'TeamCity/p0', 'TeamCity/cloud_p0',
@@ -294,9 +326,26 @@ teamcity_request --fail https://ci.example
             body = self.state()['posts'][0]
             self.assertEqual(body['buildType']['id'], pipeline)
             self.assertEqual({p['name']: p['value'] for p in body['properties']['property']},
-                             {'env.PR_NUMBER': '123', 'env.CI_BRANCH': 'master'})
+                             {'env.PR_NUMBER': '123', 'env.CI_BRANCH': 'master', 'env.CI_REQUESTED_PR_HEAD': HEAD})
             self.assertNotIn('custom-artifact-dependencies', body)
             self.assertEqual(len(self.state()['posts']), 1)
+
+    def test_workflow_dispatch_matrix(self):
+        workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+        conditions = dict(re.findall(r'    - name: "Trigger ([a-z_]+)"\n      if: \$\{\{ (.*?) \}\}', workflow))
+        for branch in ['master', 'branch-4.2', 'branch-4.1']:
+            for command in [*conditions, 'buildall']:
+                selected = set()
+                for lane, condition in conditions.items():
+                    expression = condition.replace('steps.parse.outputs.comment_trigger', "'true'")
+                    expression = expression.replace('steps.parse.outputs.COMMENT_TRIGGER_TYPE', repr(command))
+                    expression = expression.replace('steps.parse.outputs.TARGET_BRANCH', repr(branch)).replace('&&', 'and')
+                    if eval(expression, {'__builtins__': {}, 'fromJSON': json.loads,
+                                         'contains': lambda values, value: value in values}):
+                        selected.add(lane)
+                expected = {'feut', 'beut', 'cloudut', 'compile', 'performance'} if command == 'buildall' else {command}
+                if branch != 'master': expected.discard('performance')
+                self.assertEqual(selected, expected, (branch, command))
 
     def test_exact_revision_submission(self):
         self.trigger()

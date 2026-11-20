@@ -23,6 +23,8 @@ import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
+import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
@@ -378,7 +380,12 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
         }
 
         public <E extends Expression> Optional<E> pushDownExpression(E expression) {
-            if (!expression.containsType(PreferPushDownProject.class)) {
+            // An expression that references a lambda argument cannot be evaluated outside that
+            // lambda: pushing it into the child project leaves the argument without its binding,
+            // and the translated plan then has no value for it. Push the enclosing expression,
+            // which carries the lambda, or nothing.
+            if (!expression.containsType(PreferPushDownProject.class)
+                    || expression.containsType(ArrayItemSlot.class, ArrayItemReference.class)) {
                 return Optional.empty();
             }
             Expression existPushdown = oldExprToNewExpr.get(expression);

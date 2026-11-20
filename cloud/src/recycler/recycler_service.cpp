@@ -40,8 +40,9 @@
 #include "common/defer.h"
 #include "common/http_helper.h"
 #include "common/logging.h"
+#include "common/thread_name.h"
 #include "common/util.h"
-#include "cpp/token_bucket_rate_limiter.h"
+#include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
@@ -298,24 +299,21 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
     msg = ss.str();
 }
 
-void RecyclerServiceImpl::recycle_instance(::google::protobuf::RpcController* controller,
-                                           const ::doris::cloud::RecycleInstanceRequest* request,
-                                           ::doris::cloud::RecycleInstanceResponse* response,
-                                           ::google::protobuf::Closure* done) {
-    auto ctrl = static_cast<brpc::Controller*>(controller);
-    LOG(INFO) << "rpc from " << ctrl->remote_side() << " request=" << request->ShortDebugString();
-    brpc::ClosureGuard closure_guard(done);
+void RecyclerServiceImpl::recycle_instance(const brpc::Controller& ctrl,
+                                           const RecycleInstanceRequest& request,
+                                           RecycleInstanceResponse& response) {
+    LOG(INFO) << "http from " << ctrl.remote_side() << " request=" << request.ShortDebugString();
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg = "OK";
     DORIS_CLOUD_DEFER {
-        response->mutable_status()->set_code(code);
-        response->mutable_status()->set_msg(msg);
+        response.mutable_status()->set_code(code);
+        response.mutable_status()->set_msg(msg);
         LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ") << "recycle_instance"
-                  << " " << ctrl->remote_side() << " " << msg;
+                  << " " << ctrl.remote_side() << " " << msg;
     };
 
     std::vector<InstanceInfoPB> instances;
-    instances.reserve(request->instance_ids_size());
+    instances.reserve(request.instance_ids_size());
 
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -325,7 +323,7 @@ void RecyclerServiceImpl::recycle_instance(::google::protobuf::RpcController* co
         return;
     }
 
-    for (auto& id : request->instance_ids()) {
+    for (const auto& id : request.instance_ids()) {
         InstanceKeyInfo key_info {id};
         std::string key;
         instance_key(key_info, &key);
@@ -527,12 +525,12 @@ void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& 
         return;
     }
     std::thread worker([recycler = std::move(recycler), instance_id] {
+        set_current_thread_name("recycler_worker");
         LOG(INFO) << "manually trigger recycle_copy_jobs on instance " << instance_id;
         recycler->recycle_copy_jobs();
         std::lock_guard lock(s_worker_mtx);
         s_worker.erase(instance_id);
     });
-    pthread_setname_np(worker.native_handle(), "recycler_worker");
     worker.detach();
 }
 
@@ -613,8 +611,8 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
     // Auth
     const auto* token = cntl->http_request().uri().GetQuery("token");
     if (token == nullptr || *token != config::http_token) {
-        std::string msg = "incorrect token, token=" +
-                          (token == nullptr ? std::string("(not given)") : *token);
+        std::string msg =
+                token == nullptr ? "incorrect token, token=(not given)" : "incorrect token";
         cntl->http_response().set_status_code(403);
         cntl->response_attachment().append(msg);
         cntl->response_attachment().append("\n");

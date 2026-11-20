@@ -43,15 +43,28 @@ public class ManifestCacheValue {
     private final List<DataFile> dataFiles;
     private final List<DeleteFile> deleteFiles;
     private final MetaCacheSizeEstimate sizeEstimate;
+    private final boolean cacheable;
 
     private ManifestCacheValue(List<DataFile> dataFiles, List<DeleteFile> deleteFiles, boolean estimateWeight) {
         this.dataFiles = dataFiles == null ? Collections.emptyList() : dataFiles;
         this.deleteFiles = deleteFiles == null ? Collections.emptyList() : deleteFiles;
+        // SDK file-key metadata contains the plaintext key, even when the enclosing manifest is plaintext.
+        this.cacheable = this.dataFiles.stream().noneMatch(file -> file.keyMetadata() != null)
+                && this.deleteFiles.stream().noneMatch(file -> file.keyMetadata() != null);
         this.sizeEstimate = estimateWeight
                 ? MetaCacheSizeEstimator.estimateSafely("iceberg_manifest_estimator_failure",
                         () -> MetaCacheSizeEstimate.complete(
                                 IcebergCacheSizeEstimator.estimateManifestValue(this)))
                 : MetaCacheSizeEstimate.complete(0L);
+    }
+
+    private ManifestCacheValue(ManifestCacheValue source, IcebergPartitionValueAdapter adapter) {
+        dataFiles = Lists.transform(source.dataFiles, adapter::adapt);
+        deleteFiles = Lists.transform(source.deleteFiles, adapter::adapt);
+        // Partition views preserve key metadata. Reclassifying them would eagerly adapt the entire
+        // manifest before a streaming scan can consume even its first file.
+        cacheable = source.cacheable;
+        sizeEstimate = MetaCacheSizeEstimate.complete(0L);
     }
 
     public static ManifestCacheValue forDataFiles(List<DataFile> dataFiles) {
@@ -82,8 +95,7 @@ public class ManifestCacheValue {
             return this;
         }
         IcebergPartitionValueAdapter adapter = new IcebergPartitionValueAdapter(partition.getPartitionType(), target);
-        return new ManifestCacheValue(Lists.transform(dataFiles, adapter::adapt),
-                Lists.transform(deleteFiles, adapter::adapt), false);
+        return new ManifestCacheValue(this, adapter);
     }
 
     public List<DataFile> getDataFiles() {
@@ -96,5 +108,9 @@ public class ManifestCacheValue {
 
     MetaCacheSizeEstimate getSizeEstimate() {
         return sizeEstimate;
+    }
+
+    boolean isCacheable() {
+        return cacheable;
     }
 }

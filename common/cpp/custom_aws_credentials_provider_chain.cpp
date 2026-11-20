@@ -25,7 +25,7 @@
 #include <aws/core/utils/logging/LogMacros.h>
 #include <aws/core/utils/memory/AWSMemory.h>
 
-#include "aws_common.h"
+#include "cpp/obj-storage/auth/aws/aws_credential_provider.h"
 
 namespace doris {
 
@@ -75,4 +75,4 @@ CustomAwsCredentialsProviderChain::CustomAwsCredentialsProviderChain(
         AddProvider(provider);
     }
 }
-}
+} // namespace doris

@@ -103,6 +103,61 @@ public class HiveScanBatchModeTest {
     private static final String OPEN_CSV_SERDE = "org.apache.hadoop.hive.serde2.OpenCSVSerde";
 
     @Test
+    public void statementReuseSeparatesScanLocalCoarseSizes() {
+        HiveScanPlanProvider provider = provider(null, (location, fs) -> Collections.singletonList(
+                new HiveFileStatus(location + "/large.parquet", 35, 1)));
+        ConnectorSession session = new ScopeSession(7L, "coarse-size", new TestStatementScope(),
+                Map.of("enable_external_scan_task_reuse", "true", "file_split_size", "8"));
+        HiveTableHandle handle = parquetHandle(Collections.emptyList());
+        ConnectorScanRequest smaller = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .coarseSplitSize(16).build();
+        List<ConnectorScanRange> first = provider.planScan(session, smaller);
+        List<ConnectorScanRange> second = provider.planScan(session,
+                ConnectorScanRequest.builder(handle, Collections.emptyList()).coarseSplitSize(32).build());
+        Assertions.assertEquals(3, first.size());
+        Assertions.assertEquals(2, second.size());
+        Assertions.assertSame(first, provider.planScan(session, smaller));
+    }
+
+    @Test
+    public void coarseSizesReachSynchronousBatchAndStreamingPlans() throws Exception {
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), (location, fs) -> Collections.singletonList(
+                new HiveFileStatus(location + "/large.parquet", 35, 1)));
+        FakeSession session = new FakeSession(Collections.singletonMap("file_split_size", "8"));
+        String partition = "year=2024/month=01";
+        HiveTableHandle handle = parquetHandle(PART_KEYS).toBuilder()
+                .prunedPartitions(Collections.singletonList(part(partition))).build();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .requiredPartitions(Collections.singletonList(partition)).coarseSplitSize(16).build();
+        List<ConnectorScanRange> synchronous = provider.planScan(session, request);
+        List<ConnectorScanRange> batch = provider.planScanForPartitionBatch(session, request,
+                Collections.singletonList(partition));
+        List<ConnectorScanRange> streaming = new ArrayList<>();
+        try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+            while (source.hasNext()) {
+                streaming.add(source.next());
+            }
+        }
+        List<ConnectorScanRange> cooperative = new ArrayList<>();
+        for (ConnectorSplitSource source : provider.streamPartitionSources(session, request, 1, 1).get()) {
+            try (ConnectorSplitSource current = source) {
+                while (current.hasNext()) {
+                    cooperative.add(current.next());
+                }
+            }
+        }
+        for (List<ConnectorScanRange> ranges : Arrays.asList(synchronous, batch, streaming, cooperative)) {
+            Assertions.assertEquals(3, ranges.size());
+            Assertions.assertEquals(16, ranges.get(0).getLength());
+            Assertions.assertEquals(16, ranges.get(1).getStart());
+            Assertions.assertEquals(3, ranges.get(2).getLength());
+            Assertions.assertTrue(ranges.get(0).supportsBeSplitRefinement());
+        }
+        Assertions.assertEquals(8, HiveScanPlanProvider.selectFeSplitSize(8, HiveFileFormat.TEXT, 16));
+        Assertions.assertEquals(16, HiveScanPlanProvider.selectFeSplitSize(8, HiveFileFormat.ORC, 16));
+    }
+
+    @Test
     public void completedMetadataDependencyMustNotLookLikeEndOfInput() throws Exception {
         Queue<Runnable> metadata = new ArrayDeque<>();
         ConnectorTaskScheduler scheduler = new ConnectorTaskScheduler() {
@@ -139,10 +194,11 @@ public class HiveScanBatchModeTest {
                 Assertions.assertTrue(source.hasNext());
                 Assertions.assertTrue(paths.add(source.next().getPath().orElseThrow()));
             }
+            // Only a read observes directory EOF; readiness must not advance a lazy file cursor.
+            Assertions.assertFalse(source.hasNext());
             CompletableFuture<Void> pending = source.isBlocked();
             Assertions.assertNotNull(pending);
             Assertions.assertFalse(pending.isDone());
-            Assertions.assertFalse(source.hasNext());
 
             // Complete after the empty read, before the caller checks whether it means EOF.
             metadata.remove().run();
@@ -1197,7 +1253,7 @@ public class HiveScanBatchModeTest {
                 Collections.singletonList("year=2024/month=03"));
 
         List<ConnectorScanProfile> profiles = provider.collectScanProfiles(session);
-        Assertions.assertEquals(1, profiles.size());
+        Assertions.assertEquals(2, profiles.size());
         ConnectorScanProfile profile = profiles.get(0);
         Assertions.assertEquals("Connector Metadata Access", profile.getGroupName());
         Assertions.assertTrue(profile.getScanLabel().contains("db.t"));
@@ -1208,6 +1264,11 @@ public class HiveScanBatchModeTest {
         Assertions.assertEquals("3", profile.getMetrics().get("TransportItems"));
         Assertions.assertEquals("2", profile.getMetrics().get("LargestBatchSize"));
         Assertions.assertEquals("1", profile.getMetrics().get("SmallestBatchSize"));
+        ConnectorScanProfile listing = profiles.get(1);
+        Assertions.assertEquals("Hive File Listing", listing.getGroupName());
+        Assertions.assertEquals("3", listing.getMetrics().get("FilesListed"));
+        Assertions.assertEquals("3", listing.getMetrics().get("ListingsPublished"));
+        Assertions.assertEquals("3", listing.getMetrics().get("SizeSummariesPublished"));
         Assertions.assertTrue(provider.collectScanProfiles(session).isEmpty());
     }
 

@@ -20,24 +20,16 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <vector>
 
 #ifdef ADDRESS_SANITIZER
 #include <sanitizer/allocator_interface.h>
 #endif
 
+#include "storage/index/inverted/analysis/common/rune.h"
+#include "storage/index/inverted/analysis/text_stream_contract.h"
+
 namespace doris::segment_v2::inverted_index {
-
-TokenStreamPtr create_icu_tokenizer(const std::string& text, Settings settings = Settings()) {
-    ReaderPtr reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), text.size(), false);
-
-    ICUTokenizerFactory factory;
-    factory.initialize(settings);
-    auto tokenizer = factory.create();
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
-    return tokenizer;
-}
 
 struct ExpectedToken {
     std::string term;
@@ -61,19 +53,18 @@ protected:
 
     void assert_tokenizer_output(const std::string& text,
                                  const std::vector<ExpectedToken>& expected) {
-        auto tokenizer = create_icu_tokenizer(text);
+        ICUTokenizerFactory factory;
+        factory.initialize(Settings());
+        auto tokenizer = factory.create();
+        const std::vector<CollectedToken> tokens = collect_checked(*tokenizer, text);
 
-        Token t;
-        size_t i = 0;
-        while (tokenizer->next(&t)) {
+        for (size_t i = 0; i < tokens.size(); ++i) {
             ASSERT_LT(i, expected.size()) << "More tokens produced than expected";
-            std::string term(t.termBuffer<char>(), t.termLength<char>());
-            EXPECT_EQ(term, expected[i].term) << "Term mismatch at index " << i;
-            EXPECT_EQ(t.getPositionIncrement(), expected[i].pos_inc)
+            EXPECT_EQ(tokens[i].term, expected[i].term) << "Term mismatch at index " << i;
+            EXPECT_EQ(tokens[i].position_increment, expected[i].pos_inc)
                     << "Pos increment mismatch at index " << i;
-            ++i;
         }
-        EXPECT_EQ(i, expected.size()) << "Number of tokens mismatch";
+        EXPECT_EQ(tokens.size(), expected.size()) << "Number of tokens mismatch";
     }
 
 private:
@@ -147,7 +138,7 @@ TEST_F(ICUTokenizerFactoryTest, FactoryInitialization) {
     factory.initialize(settings);
 
     auto tokenizer = factory.create();
-    auto icu_tokenizer = std::dynamic_pointer_cast<ICUTokenizer>(tokenizer);
+    auto* icu_tokenizer = dynamic_cast<ICUTokenizer*>(tokenizer.get());
     ASSERT_NE(icu_tokenizer, nullptr);
 }
 
@@ -158,9 +149,9 @@ TEST_F(ICUTokenizerFactoryTest, FactoryCreateMultipleInstances) {
     auto tokenizer1 = factory.create();
     auto tokenizer2 = factory.create();
 
-    ASSERT_NE(tokenizer1, tokenizer2);
-    ASSERT_NE(tokenizer1, nullptr);
-    ASSERT_NE(tokenizer2, nullptr);
+    ASSERT_NE(tokenizer1.get(), tokenizer2.get());
+    ASSERT_NE(tokenizer1.get(), nullptr);
+    ASSERT_NE(tokenizer2.get(), nullptr);
 }
 
 TEST_F(ICUTokenizerFactoryTest, EdgeCases) {
@@ -188,21 +179,18 @@ TEST_F(ICUTokenizerFactoryTest, LongText) {
     assert_tokenizer_output(long_text, expected);
 }
 
-TEST_F(ICUTokenizerFactoryTest, LargeInputResetUsesBoundedOffsetMemory) {
+TEST_F(ICUTokenizerFactoryTest, LargeInputResetUsesBoundedMemory) {
     constexpr size_t input_size = 4 * 1024 * 1024;
     const std::string input(input_size, 'a');
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(input.data(), static_cast<int32_t>(input.size()), false);
 
     ICUTokenizerFactory factory;
     factory.initialize({});
     auto tokenizer = factory.create();
-    tokenizer->set_reader(reader);
 
 #ifdef ADDRESS_SANITIZER
     const size_t allocated_before = __sanitizer_get_current_allocated_bytes();
 #endif
-    tokenizer->reset();
+    tokenizer->reset(input);
 #ifdef ADDRESS_SANITIZER
     const size_t allocated_after = __sanitizer_get_current_allocated_bytes();
     ASSERT_GE(allocated_after, allocated_before);
@@ -211,78 +199,54 @@ TEST_F(ICUTokenizerFactoryTest, LargeInputResetUsesBoundedOffsetMemory) {
 }
 
 TEST_F(ICUTokenizerFactoryTest, ClipsLongTokensAtUnicodeScalarBoundary) {
-    const std::string expected(LUCENE_MAX_WORD_LEN - 1, 'a');
+    const std::string expected(MAX_WORD_LEN - 1, 'a');
     const std::string text = expected + "\xF0\x90\x90\x80";
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
 
     ICUTokenizerFactory factory;
     factory.initialize({});
     auto tokenizer = factory.create();
-    tokenizer->set_source_byte_offsets_enabled(true);
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
+    tokenizer->set_strict_utf8(true);
 
-    Token token;
-    ASSERT_NE(tokenizer->next(&token), nullptr);
-    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), expected);
-    EXPECT_EQ(token.startOffset(), 0);
-    EXPECT_EQ(token.endOffset(), expected.size());
-    ASSERT_FALSE(tokenizer->get_source_byte_offsets().empty());
-    EXPECT_EQ(tokenizer->get_source_byte_offsets().back(), expected.size());
+    const std::vector<std::string> tokens = collect_terms(*tokenizer, text);
+    ASSERT_FALSE(tokens.empty());
+    EXPECT_EQ(tokens[0], expected);
 
     const std::string reset_text = "reset";
-    reader->init(reset_text.data(), static_cast<int32_t>(reset_text.size()), false);
-    tokenizer->set_reader(reader);
-    tokenizer->reset();
-    ASSERT_NE(tokenizer->next(&token), nullptr);
-    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), reset_text);
-    EXPECT_EQ(token.startOffset(), 0);
-    EXPECT_EQ(token.endOffset(), 5);
+    const std::vector<std::string> reset_tokens = collect_terms(*tokenizer, reset_text);
+    ASSERT_FALSE(reset_tokens.empty());
+    EXPECT_EQ(reset_tokens[0], reset_text);
 }
 
-TEST_F(ICUTokenizerFactoryTest, IndexesMalformedUtf8UnlessOffsetsAreTracked) {
+TEST_F(ICUTokenizerFactoryTest, IndexesMalformedUtf8UnlessStrict) {
     const std::string malformed = std::string("alpha ") + static_cast<char>(0xFF) + " beta";
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(malformed.data(), static_cast<int32_t>(malformed.size()), false);
 
     ICUTokenizerFactory factory;
     factory.initialize({});
     auto tokenizer = factory.create();
-    tokenizer->set_reader(reader);
     // A column may hold malformed bytes, so indexing keeps the valid words around them.
-    ASSERT_NO_THROW(tokenizer->reset());
-    Token malformed_token;
-    ASSERT_NE(tokenizer->next(&malformed_token), nullptr);
-    EXPECT_EQ(std::string(malformed_token.termBuffer<char>(), malformed_token.termLength<char>()),
-              "alpha");
-    ASSERT_NE(tokenizer->next(&malformed_token), nullptr);
-    EXPECT_EQ(std::string(malformed_token.termBuffer<char>(), malformed_token.termLength<char>()),
-              "beta");
+    std::vector<std::string> tokens;
+    ASSERT_NO_THROW(tokens = collect_terms(*tokenizer, malformed));
+    ASSERT_GE(tokens.size(), 1);
+    EXPECT_EQ(tokens[0], "alpha");
+    ASSERT_GE(tokens.size(), 2);
+    EXPECT_EQ(tokens[1], "beta");
 }
 
 TEST_F(ICUTokenizerFactoryTest, RejectsMalformedUtf8AndCanBeReset) {
     const std::string malformed = std::string("alpha ") + static_cast<char>(0xFF) + " beta";
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(malformed.data(), static_cast<int32_t>(malformed.size()), false);
 
     ICUTokenizerFactory factory;
     factory.initialize({});
     auto tokenizer = factory.create();
-    // Malformed bytes have no source span, so the offset-aware path still rejects them.
-    tokenizer->set_source_byte_offsets_enabled(true);
-    tokenizer->set_reader(reader);
-    EXPECT_THROW(tokenizer->reset(), Exception);
+    // Strict mode, which the pinyin filter asks for with ignore_pinyin_offset false, rejects them.
+    tokenizer->set_strict_utf8(true);
+    EXPECT_THROW(tokenizer->reset(malformed), Exception);
 
     const std::string valid = "gamma delta";
-    reader->init(valid.data(), static_cast<int32_t>(valid.size()), false);
-    tokenizer->set_reader(reader);
-    ASSERT_NO_THROW(tokenizer->reset());
-    Token token;
-    ASSERT_NE(tokenizer->next(&token), nullptr);
-    EXPECT_EQ(std::string(token.termBuffer<char>(), token.termLength<char>()), "gamma");
-    EXPECT_EQ(token.startOffset(), 0);
-    EXPECT_EQ(token.endOffset(), 5);
+    std::vector<std::string> tokens;
+    ASSERT_NO_THROW(tokens = collect_terms(*tokenizer, valid));
+    ASSERT_FALSE(tokens.empty());
+    EXPECT_EQ(tokens[0], "gamma");
 }
 
 TEST_F(ICUTokenizerFactoryTest, SpecialCharacters) {

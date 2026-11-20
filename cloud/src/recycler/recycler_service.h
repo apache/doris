@@ -17,11 +17,15 @@
 
 #pragma once
 
-#include <cpp/token_bucket_rate_limiter.h>
+#include <cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "meta-service/txn_lazy_committer.h"
 #include "meta-store/txn_kv.h"
+
+namespace brpc {
+class Controller;
+} // namespace brpc
 
 namespace doris::cloud {
 
@@ -36,10 +40,8 @@ public:
                         std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
     ~RecyclerServiceImpl() override;
 
-    void recycle_instance(::google::protobuf::RpcController* controller,
-                          const ::doris::cloud::RecycleInstanceRequest* request,
-                          ::doris::cloud::RecycleInstanceResponse* response,
-                          ::google::protobuf::Closure* done) override;
+    void recycle_instance(const brpc::Controller& ctrl, const RecycleInstanceRequest& request,
+                          RecycleInstanceResponse& response);
 
     void http(::google::protobuf::RpcController* controller,
               const ::doris::cloud::MetaServiceHttpRequest* request,
@@ -65,7 +67,7 @@ private:
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
-extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+extern int reset_s3_rate_limiter(ObjStorageRateLimitType type, size_t max_speed, size_t max_burst,
                                  size_t limit);
 
 void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,

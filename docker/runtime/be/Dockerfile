@@ -26,7 +26,9 @@
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
 
 # choose a base image
-FROM apache/doris:base-6.0
+ARG JAVA_VERSION=17
+ARG BASE_IMAGE=apache/doris:base-8.0-ubuntu26.04-jdk${JAVA_VERSION}
+FROM ${BASE_IMAGE}
 
 ARG TARGETARCH
 
@@ -39,14 +41,6 @@ RUN groupadd --gid "${DORIS_GID}" doris && \
 
 ENV HOME=/home/doris
 
-
-RUN if echo $DORIS_VERSION | grep -E '^([3-9]|([1-9]([0-9])))|^branch\-([3-9]|([1-9]([0-9])))|master.*' >>/dev/null ; then \
-        ln -s /usr/lib/jvm/jdk-17 /usr/lib/jvm/java && \
-        rm -rf /usr/lib/jvm/jdk-8; \
-    else \
-        ln -s /usr/lib/jvm/jdk-8 /usr/lib/jvm/java && \
-        rm -rf /usr/lib/jvm/jdk-17; \
-    fi;
 
 # set environment variables
 ENV JAVA_HOME=/usr/lib/jvm/java

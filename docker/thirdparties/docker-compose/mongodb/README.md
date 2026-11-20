@@ -65,7 +65,7 @@ the native FE plugin and C++ reader and need no Trino plugin installation.
 Use the same regression configuration above, then run:
 
 ```bash
-bash run-regression-test.sh --run -d external_table_p0/mongodb -s test_mongodb_native
+bash run-regression-test.sh --run -d external_table_p0/mongodb
 ```
 
 The suite covers auto/explicit/document schemas, exact ObjectId and int64 values,
@@ -79,3 +79,126 @@ fixture exercises scalar projection through whole-document validation; the separ
 cursor's 128-name batch boundary. Binary displays and
 analysis use `FROM_BINARY`; direct VARBINARY operations keep Doris's existing
 analysis restrictions.
+
+`test_mongodb_native_acceptance` also checks authentication failure and recovery
+after credential correction, rejection of unsupported read-concern/range policies,
+local SQL case/NULL semantics over a non-simple-collation view, and materialization
+into an internal table with a two-way result difference. Batch-boundary queries
+explicitly set `batch_size=1024`: the default batch size can hold the entire
+2,081-row fixture without issuing a `getMore`.
+
+### Native cursor fault checks
+
+`verify_native_lifecycle.py` exercises real FE-to-BE scans with MongoDB command
+failpoints. Run it separately against an otherwise idle, disposable copy of this
+fixture started with `mongod --setParameter enableTestCommands=1`. It reserves the
+`mongodb_native_lifecycle` catalog, uses the initialized `doris_mongodb_native`
+data, and requires a MongoDB account allowed to configure failpoints and read
+server status. The supplied URI and Doris credentials come from the environment.
+
+Install `pymongo` and `pymysql` in a test virtual environment, then run:
+
+```bash
+export MONGODB_URI='mongodb://<fixture-user>:<fixture-password>@<fixture-host>:<port>/?authSource=admin'
+export DORIS_FE_HOST='<fe-host>'
+export DORIS_FE_PORT='<mysql-port>'
+export DORIS_FE_USER='<test-user>'
+export DORIS_FE_PASSWORD='<test-password>'
+python3 docker/thirdparties/docker-compose/mongodb/verify_native_lifecycle.py --allow-failpoints
+```
+
+The checks cover EOF, repeated LIMIT, decoding errors, an injected `getMore`
+command error, socket/query timeouts, cancellation after a blocked `getMore` has
+actually started, and concurrent reads. Every scenario checks source-side cursor
+closure and a subsequent successful read. Failpoints target this test's application
+name and are disabled in `finally` blocks. The catalog remains available for
+inspection. This is a focused lifecycle check; the release soak and topology/TLS
+matrices remain separate qualification work.
+
+`03-m1-fixtures.js` creates the independent `doris_mongodb_m1` database for
+`test_mongodb_m1`. The suite compares full sorted results with predicate/LIKE/projection
+switches disabled and enabled, and covers dirty scalar/array values, exact int64 and
+Decimal128 literals, UTC date ranges, nested rollback, subtype mismatches, source
+collation, strict errors, residuals, views, time-series scans and statement overrides.
+Its completed Profile check also verifies the selective candidate reduces `MongoRowsRead`
+from ten source documents to one.
+
+## Authenticated common-snapshot matrix
+
+`snapshot_fixture.py` creates an independent Linux host-network fixture with a
+three-member replica set, two single-member shards, a configuration replica set,
+and two mongos routers. It pins `mongo:7.0.28` or `mongo:8.0.20`, enables test commands,
+and uses keyfile authentication. Data is disposable tmpfs; credentials and the
+recorded container names stay in the caller's private state directory. This is a
+functional snapshot fixture; its single-member shards do not qualify shard failover.
+Use an otherwise idle host and reachable advertised address. The fixture reserves
+eight ports after `--base-port`; every process advertises the supplied host.
+
+Install `pymongo` and `pymysql` in a test virtual environment. Supply synthetic
+administrator credentials through the environment, then create and validate a fixture:
+
+```bash
+export MONGODB_SNAPSHOT_ADMIN_USER='<fixture-administrator>'
+export MONGODB_SNAPSHOT_ADMIN_PASSWORD='<fixture-password>'
+python3 docker/thirdparties/docker-compose/mongodb/snapshot_fixture.py \
+  --state-dir '<private-state-directory>' --image mongo:8.0.20 \
+  --base-port 28010 --advertised-host '<reachable-fixture-host>'
+export DORIS_FE_HOST='<fe-host>'
+export DORIS_FE_PORT='<mysql-port>'
+export DORIS_FE_HTTP_ADDRESS='<fe-host>:<http-port>'
+export DORIS_FE_USER='<doris-test-user>'
+export DORIS_FE_PASSWORD='<doris-test-password>'
+python3 docker/thirdparties/docker-compose/mongodb/verify_native_snapshot.py \
+  --fixture-state '<private-state-directory>/state.json' --allow-failpoints --iterations 20
+```
+
+The verifier recreates only `doris_mongodb_snapshot` in this disposable fixture. It
+creates read-only query users with data/metadata access plus the narrow snapshot
+identity privilege (`replSetGetConfig`, or `find` on `config.version`). Administrators
+are used only for fixture control and source-oracle checks. Two 2,081-row collections
+cross source/Doris batch boundaries; an atomic transaction changes both bank balances
+while SQL reads. Each native scan's Profile must report the same T, and the complete
+aggregate tuples must match independent source reads at that exact T. Cross-router
+catalogs exercise one cluster identity. Precision cases retain a 34-significant-digit
+Decimal128, pre-epoch milliseconds, DATETIME(3/6), and four session time zones.
+
+Command failpoints cover getMore failure, SnapshotTooOld propagation, observed
+getMore cancellation/deadline, concurrent transaction visibility, replica-set
+configuration changes, DROP/CREATE replacement, and cleanup/recovery. A one-client-per-BE
+pool with unequal query deadlines verifies that remaining-time differences cannot
+create independent pools. Time-series cases cover logical duplicate timestamps,
+concurrent inserts and observed public-options changes; concurrent drop/rename is
+explicitly outside the qualified time-series source contract. Failpoints are always
+disabled in `finally` blocks. The test does not enable range scans or claim a release
+soak. Repeat using `--image mongo:7.0.28` and a separate state directory/port range.
+
+For the checked-in SQL regression, seed a fresh fixture with the same verifier's
+`--prepare-only` option, then set these private regression settings. Read the query
+URI from `reader_uris[0]` in its mode-0600 state file; do not commit that URI.
+
+```groovy
+enableMongoSnapshotTest = true
+mongodb_snapshot_uri = '<authenticated-replica-set-query-uri>'
+```
+
+```bash
+bash run-regression-test.sh --run -d external_table_p0/mongodb -s test_mongodb_snapshot
+python3 docker/thirdparties/docker-compose/mongodb/snapshot_fixture.py \
+  --state-dir '<private-state-directory>' --remove
+```
+
+`--remove` removes only containers recorded by that fixture. Preserve its state
+privately until cleanup, since it contains credentials. Stop/removal discards data;
+no fixture data volumes are created. The standard standalone suites continue to use
+the separate original fixture and remain required alongside this snapshot matrix.
+
+Run the complete fault matrix with one BE so both competing queries exercise the
+same per-BE pool. To additionally qualify a cluster with at least two BEs, rerun
+the verifier with `--oracle-only --require-cross-backend --iterations 20`. This mode
+requires a query in each deployment's concurrent oracle to execute actual MongoDB
+scanners on at least two distinct BEs, as recorded next to the scanner timestamps
+in completed Profiles. Aggregate-only fragments do not count as native scans.
+The oracle enables the existing all-candidate external-scan spreading policy through
+statement hints, since default single-split placement may choose one BE for both
+collections. Every scan still has to share T and match the source result at T. It deliberately
+omits the per-BE pool-contention fault case in this multi-BE run.

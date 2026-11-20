@@ -21,10 +21,12 @@
 #include <algorithm>
 #include <limits>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include "gen_cpp/PlanNodes_types.h"
 #include "util/coding.h"
+#include "util/defer_op.h"
 
 #if __has_include(<parquet/encryption/encryption_internal.h>)
 #include <arrow/util/secure_string.h>
@@ -51,43 +53,132 @@ using apache::thrift::protocol::TList;
 using apache::thrift::protocol::TMap;
 using apache::thrift::protocol::TProtocolException;
 using apache::thrift::protocol::TSet;
+using apache::thrift::protocol::TType;
 using apache::thrift::transport::TMemoryBuffer;
 
-class BoundedCryptoProtocol final : public TCompactProtocol {
+constexpr size_t MAX_FOOTER_NATIVE_ELEMENT_BYTES =
+        std::max({sizeof(tparquet::ColumnChunk), sizeof(tparquet::SchemaElement),
+                  sizeof(tparquet::RowGroup)});
+constexpr size_t MAX_INDEX_NATIVE_ELEMENT_BYTES =
+        std::max({sizeof(std::string), sizeof(tparquet::PageLocation), sizeof(int64_t)});
+
+class BoundedCryptoProtocol : public TCompactProtocol {
 public:
-    explicit BoundedCryptoProtocol(const std::shared_ptr<TMemoryBuffer>& transport, int limit)
-            : TCompactProtocol(transport, limit, 65536) {}
+    explicit BoundedCryptoProtocol(const std::shared_ptr<TMemoryBuffer>& transport, int limit,
+                                   size_t max_element_size = MAX_FOOTER_NATIVE_ELEMENT_BYTES,
+                                   int container_limit = 65536)
+            : TCompactProtocol(transport, limit, container_limit),
+              _max_element_size(max_element_size) {}
 
 protected:
     void checkReadBytesAvailable(TList& list) override {
         TCompactProtocol::checkReadBytesAvailable(list);
-        charge(list.size_);
+        charge(list.size_, _max_element_size);
     }
     void checkReadBytesAvailable(TSet& set) override {
         TCompactProtocol::checkReadBytesAvailable(set);
-        charge(set.size_);
+        charge(set.size_, _max_element_size);
     }
     void checkReadBytesAvailable(TMap& map) override {
         TCompactProtocol::checkReadBytesAvailable(map);
         // Both the key and value containers contribute to the native allocation budget.
-        charge(map.size_);
-        charge(map.size_);
+        charge(map.size_, _max_element_size);
+        charge(map.size_, _max_element_size);
+    }
+
+    void charge(uint32_t count, size_t element_size) {
+        // Generated readers resize their statically typed vectors without checking the wire element
+        // type: a list advertised as BYTE can still allocate ColumnChunks. Charge every element at
+        // its expected native size, independently of the wire type.
+        if (count > _budget / element_size) {
+            throw TProtocolException(TProtocolException::SIZE_LIMIT);
+        }
+        _budget -= count * element_size;
     }
 
 private:
-    void charge(uint32_t count) {
-        // Generated readers resize their statically typed vectors without checking the wire element
-        // type: a list advertised as BYTE can still allocate ColumnChunks. Charge every element at
-        // the largest native size; trusting the wire type would undercount those allocations.
-        constexpr size_t unit =
-                std::max({sizeof(tparquet::ColumnChunk), sizeof(tparquet::SchemaElement),
-                          sizeof(tparquet::RowGroup)});
-        if (count > _budget / unit) {
-            throw TProtocolException(TProtocolException::SIZE_LIMIT);
-        }
-        _budget -= count * unit;
-    }
+    const size_t _max_element_size;
     size_t _budget = MAX_ENCRYPTED_PARQUET_MODULE_BYTES;
+};
+
+class BoundedIndexProtocol final : public BoundedCryptoProtocol {
+public:
+    BoundedIndexProtocol(const std::shared_ptr<TMemoryBuffer>& transport, int limit,
+                         bool column_index)
+            // A 22,000-page nested column can have 66,000 histogram bins. Index lists are bounded
+            // by native bytes, while the general/footer protocol retains its 65,536-element cap.
+            : BoundedCryptoProtocol(
+                      transport, limit, MAX_INDEX_NATIVE_ELEMENT_BYTES,
+                      static_cast<int>(MAX_ENCRYPTED_PARQUET_MODULE_BYTES / sizeof(int64_t))),
+              _column_index(column_index) {}
+
+protected:
+    using BoundedCryptoProtocol::checkReadBytesAvailable;
+
+    uint32_t readStructBegin_virt(std::string& name) override {
+        const auto bytes = TCompactProtocol::readStructBegin(name);
+        ++_struct_depth;
+        return bytes;
+    }
+    uint32_t readStructEnd_virt() override {
+        const auto bytes = TCompactProtocol::readStructEnd();
+        --_struct_depth;
+        return bytes;
+    }
+    uint32_t readFieldBegin_virt(std::string& name, TType& type, int16_t& id) override {
+        const auto bytes = TCompactProtocol::readFieldBegin(name, type, id);
+        _field_type = type;
+        _field_id = id;
+        return bytes;
+    }
+    uint32_t skip_virt(TType type) override {
+        // Thrift's template skip bypasses the virtual field/depth hooks. Its nested containers
+        // must use the conservative root maximum rather than borrow a known field's smaller unit.
+        const bool previous = std::exchange(_skipping, true);
+        Defer restore {[this, previous] { _skipping = previous; }};
+        return TCompactProtocol::skip(type);
+    }
+    void checkReadBytesAvailable(TList& list) override {
+        TCompactProtocol::checkReadBytesAvailable(list);
+        charge(list.size_, native_element_size());
+    }
+
+private:
+    size_t native_element_size() const {
+        if (_skipping || _struct_depth != 1 || _field_type != apache::thrift::protocol::T_LIST) {
+            return MAX_INDEX_NATIVE_ELEMENT_BYTES;
+        }
+        // These are expected Parquet field IDs, not the untrusted advertised list element type.
+        // Charging i64 histograms as strings would reject 3M counters needing only 24 MiB.
+        if (_column_index) {
+            switch (_field_id) {
+            case 1: // null_pages: conservatively cover the packed bitmap's native words.
+            case 5: // null_counts
+            case 6: // repetition_level_histograms
+            case 7: // definition_level_histograms
+                return sizeof(int64_t);
+            case 2: // min_values
+            case 3: // max_values
+                return sizeof(std::string);
+            default:
+                return MAX_INDEX_NATIVE_ELEMENT_BYTES;
+            }
+        }
+        switch (_field_id) {
+        case 1: // page_locations
+            return sizeof(tparquet::PageLocation);
+        case 2: // unencoded_byte_array_data_bytes
+            return sizeof(int64_t);
+        default:
+            return MAX_INDEX_NATIVE_ELEMENT_BYTES;
+        }
+    }
+
+    const bool _column_index;
+    uint32_t _struct_depth = 0;
+    TType _field_type = apache::thrift::protocol::T_STOP;
+    int16_t _field_id = 0;
+    bool _skipping = false;
 };
 
 template <typename T>
@@ -102,8 +193,16 @@ Status deserialize_bounded(std::span<const uint8_t> bytes, uint32_t* consumed, T
         auto transport = std::make_shared<TMemoryBuffer>(const_cast<uint8_t*>(bytes.data()),
                                                          static_cast<uint32_t>(bytes.size()),
                                                          TMemoryBuffer::OBSERVE, configuration);
-        BoundedCryptoProtocol protocol(transport, static_cast<int>(bytes.size()));
-        metadata->read(&protocol);
+        if constexpr (std::is_same_v<T, tparquet::ColumnIndex> ||
+                      std::is_same_v<T, tparquet::OffsetIndex>) {
+            BoundedIndexProtocol protocol(transport, static_cast<int>(bytes.size()),
+                                          std::is_same_v<T, tparquet::ColumnIndex>);
+            metadata->read(&protocol);
+        } else {
+            // Page headers keep their existing protocol and avoid index-only field tracking.
+            BoundedCryptoProtocol protocol(transport, static_cast<int>(bytes.size()));
+            metadata->read(&protocol);
+        }
         *consumed = static_cast<uint32_t>(bytes.size()) - transport->available_read();
         return Status::OK();
     } catch (const Exception& e) {
@@ -164,6 +263,19 @@ Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* con
 }
 Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
                                    tparquet::PageHeader* metadata) {
+    return deserialize_bounded(bytes, consumed, metadata);
+}
+
+Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
+                                   tparquet::ColumnIndex* metadata) {
+    return deserialize_bounded(bytes, consumed, metadata);
+}
+Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
+                                   tparquet::OffsetIndex* metadata) {
+    return deserialize_bounded(bytes, consumed, metadata);
+}
+Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
+                                   tparquet::BloomFilterHeader* metadata) {
     return deserialize_bounded(bytes, consumed, metadata);
 }
 
@@ -286,6 +398,22 @@ Status ParquetFileCrypto::column_crypto(const tparquet::ColumnChunk& column, int
     } catch (const std::exception&) {
         return Status::NotSupported("File encryption [PME_DEPENDENCY_UNAVAILABLE]");
     }
+#else
+    return Status::NotSupported("File encryption [PME_DEPENDENCY_UNAVAILABLE]");
+#endif
+}
+
+Status ParquetColumnCrypto::decrypt_metadata(ParquetMetadataModule module,
+                                             std::span<const uint8_t> bytes,
+                                             DorisVector<uint8_t>* plaintext) {
+#if __has_include(<parquet/encryption/encryption_internal.h>)
+    // Index and Bloom modules bind the physical column and row group, but have no page ordinal.
+    // In particular, a ColumnIndex (6) cannot authenticate an OffsetIndex (7) for the same column.
+    return decrypt_module(_impl->header.get(), *_impl->key,
+                          ::parquet::encryption::CreateModuleAad(
+                                  _impl->key->file_aad, static_cast<int8_t>(module),
+                                  _impl->row_group, _impl->column, -1),
+                          bytes, plaintext);
 #else
     return Status::NotSupported("File encryption [PME_DEPENDENCY_UNAVAILABLE]");
 #endif

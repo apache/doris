@@ -25,11 +25,21 @@
 # we have support buildx for amd64 and arm64 architecture image build.
 # get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
 
-FROM apache/doris:base-6.0
+ARG JAVA_VERSION=17
+ARG BASE_IMAGE=apache/doris:base-8.0-ubuntu26.04-jdk${JAVA_VERSION}
+FROM ${BASE_IMAGE} AS artifacts
 
 ARG TARGETARCH
 
 ARG DORIS_VERSION="x.x.x"
+
+COPY resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/fe /artifacts/fe
+# Exclude these before the final COPY: deleting them afterwards would leave
+# the bundled private keys and Arthas dependencies in a shipped image layer.
+RUN rm -rf /artifacts/fe/arthas /artifacts/fe/mysql_ssl_default_certificate
+
+FROM ${BASE_IMAGE} AS runtime
+
 ARG DORIS_UID=10001
 ARG DORIS_GID=10001
 
@@ -38,21 +48,13 @@ RUN groupadd --gid "${DORIS_GID}" doris && \
 
 ENV HOME=/home/doris
 
-RUN if echo $DORIS_VERSION | grep -E '^([3-9]|([1-9]([0-9])))|^branch\-([3-9]|([1-9]([0-9])))|master.*' >>/dev/null ; then \
-        ln -s /usr/lib/jvm/jdk-17 /usr/lib/jvm/java && \
-        rm -rf /usr/lib/jvm/jdk-8; \
-    else \
-        ln -s /usr/lib/jvm/jdk-8 /usr/lib/jvm/java && \
-        rm -rf /usr/lib/jvm/jdk-17; \
-    fi;
-
 # set environment variables
 ENV JAVA_HOME=/usr/lib/jvm/java
 ENV PATH=$PATH:$JAVA_HOME/bin:/opt/apache-doris/fe/bin
 
-COPY --chown=${DORIS_UID}:${DORIS_GID} resource/${TARGETARCH:-amd64}/apache-doris-${DORIS_VERSION}-bin-*/fe /opt/apache-doris/fe
+COPY --from=artifacts --chown=${DORIS_UID}:${DORIS_GID} /artifacts/fe /opt/apache-doris/fe
 
-ADD resource/init_fe.sh /usr/local/bin/
+COPY resource/init_fe.sh /usr/local/bin/
 
 COPY resource/fe_*.sh /opt/apache-doris/
 

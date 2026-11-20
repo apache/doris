@@ -208,6 +208,11 @@ public class PaimonScanRange implements ConnectorScanRange {
     }
 
     @Override
+    public boolean supportsBeSplitRefinement() {
+        return isNativeReadRange();
+    }
+
+    @Override
     public long getSelfSplitWeight() {
         return selfSplitWeight;
     }

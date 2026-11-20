@@ -24,12 +24,14 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include <condition_variable>
+#include <vector>
 
 #include "core/block/block.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
 #include "runtime/exec_env.h"
+#include "runtime/frontend_info.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_profile.h"
@@ -37,6 +39,7 @@
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/client_cache.h"
 
 namespace doris::flight {
 
@@ -102,6 +105,57 @@ void ArrowFlightBatchReaderBase::close(const Status& reason) {
     if (_statement->result_addr.hostname == BackendOptions::get_localhost() &&
         _statement->result_addr.port == config::brpc_port) {
         env->result_mgr()->cancel_arrow_flight_query(_statement->query_id, reason);
+    }
+    // A result endpoint can outlive its local fragment. Find the owning FE by buffer ID,
+    // then use its query-wide cancellation route, including for older result BEs.
+    // Only the FE that planned the query holds the route, and the master reaches that FE unless it
+    // has lost the master's heartbeat since. So the FEs the master reaches go first, and those it
+    // reports with process UUID 0 (it cannot reach them, and they stay on the list until dropped)
+    // go last: a stopped FE then delays an early close only when no reachable FE holds the route.
+    std::vector<TNetworkAddress> frontends;
+    std::vector<TNetworkAddress> unknown_state_frontends;
+    for (const auto& [address, info] : env->get_running_frontends()) {
+        (info.info.process_uuid != 0 ? frontends : unknown_state_frontends).push_back(address);
+    }
+    frontends.insert(frontends.end(), unknown_state_frontends.begin(),
+                     unknown_state_frontends.end());
+    for (const auto& address : frontends) {
+        Status status;
+        // One retry: the FE keeps the route when an attempt fails (for example a BE missed the
+        // FE's one-second deadline), and a cached connection to the FE may have gone stale.
+        // Neither applies to an FE that cannot be connected to, so that one gets no retry.
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            // An FE that sorts before the one that planned the query delays every early close on
+            // every BE. So the connection comes from a cache that holds only transports opened
+            // with this 2 s timeout, and acquiring it does not back off (max_retries = 0).
+            FrontendServiceConnection client(env->flight_cancel_frontend_client_cache(), address,
+                                             2000, &status, 0);
+            const bool connected = status.ok();
+            if (connected) {
+                try {
+                    TStatus result;
+                    client->cancelFlightQuery(result, _statement->query_id);
+                    status = Status::create(result);
+                    if (status.ok()) {
+                        return;
+                    }
+                    if (result.status_code == TStatusCode::NOT_FOUND) {
+                        // Only the FE that planned the query holds its route. With two FEs, the
+                        // other one answers NOT_FOUND, so move on to the next FE.
+                        break;
+                    }
+                } catch (const apache::thrift::TException& e) {
+                    status = Status::RpcError("Flight cancellation failed: {}", e.what());
+                    // Discard a transport that may contain an incomplete response.
+                    static_cast<void>(client.reopen(2000));
+                }
+            }
+            LOG(WARNING) << "Failed to cancel Flight result " << print_id(_statement->query_id)
+                         << " through FE " << address << ": " << status;
+            if (!connected) {
+                break;
+            }
+        }
     }
 }
 

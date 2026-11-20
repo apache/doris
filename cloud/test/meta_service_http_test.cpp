@@ -36,8 +36,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "common/config.h"
 #include "common/configbase.h"
@@ -53,6 +56,7 @@
 #include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "resource-manager/resource_manager.h"
+#include "scoped_legacy_instance_rpc.h"
 
 namespace doris::cloud {
 
@@ -954,49 +958,45 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
     {
         AlterClusterRequest req;
         req.set_instance_id(mock_instance);
-        req.mutable_cluster()->set_cluster_name(mock_cluster_name);
+        req.mutable_cluster()->set_cluster_name("rename_cluster_name");
         req.mutable_cluster()->set_cluster_id(mock_cluster_id);
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
         auto node = req.mutable_cluster()->add_nodes();
         node->set_ip("127.0.0.1");
         node->set_heartbeat_port(9999);
         node->set_cloud_unique_id("cloud_unique_id");
-        auto& meta_service = ctx.meta_service_;
-        NodeInfoPB npb;
-        npb.set_heartbeat_port(9999);
-        npb.set_ip("127.0.0.1");
-        npb.set_cloud_unique_id("cloud_unique_id");
-        meta_service->resource_mgr()->node_info_.insert(
-                {"cloud_unique_id", NodeInfo {Role::COMPUTE_NODE, mock_instance,
-                                              "rename_cluster_name", mock_cluster_id, npb}});
+        auto [add_status_code, add_resp] = ctx.forward<MetaServiceResponseStatus>("add_node", req);
+        ASSERT_EQ(add_status_code, 200);
+        ASSERT_EQ(add_resp.code(), MetaServiceCode::OK);
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("decommission_node", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+
+        auto instance = ctx.get_instance_info(mock_instance);
+        ASSERT_EQ(instance.clusters(0).nodes_size(), 1);
+        EXPECT_EQ(instance.clusters(0).nodes(0).status(),
+                  NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
     }
 
     // notify_decommissioned
     {
         AlterClusterRequest req;
         req.set_instance_id(mock_instance);
-        req.mutable_cluster()->set_cluster_name(mock_cluster_name);
+        req.mutable_cluster()->set_cluster_name("rename_cluster_name");
         req.mutable_cluster()->set_cluster_id(mock_cluster_id);
         req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
         auto node = req.mutable_cluster()->add_nodes();
         node->set_ip("127.0.0.1");
-        node->set_heartbeat_port(9996);
+        node->set_heartbeat_port(9999);
         node->set_cloud_unique_id("cloud_unique_id");
-        auto& meta_service = ctx.meta_service_;
-        NodeInfoPB npb;
-        npb.set_heartbeat_port(9996);
-        npb.set_ip("127.0.0.1");
-        npb.set_cloud_unique_id("cloud_unique_id");
-        meta_service->resource_mgr()->node_info_.insert(
-                {"cloud_unique_id", NodeInfo {Role::COMPUTE_NODE, mock_instance,
-                                              "rename_cluster_name", mock_cluster_id, npb}});
         auto [status_code, resp] =
                 ctx.forward<MetaServiceResponseStatus>("notify_decommissioned", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+
+        auto instance = ctx.get_instance_info(mock_instance);
+        ASSERT_EQ(instance.clusters(0).nodes_size(), 1);
+        EXPECT_EQ(instance.clusters(0).nodes(0).status(), NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
     }
 
     // update_cluster_endpoint
@@ -1013,6 +1013,69 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
     }
 }
+
+class NodeStatusWithoutClusterIdHttpTest : public testing::TestWithParam<std::tuple<bool, bool>> {};
+
+TEST_P(NodeStatusWithoutClusterIdHttpTest, PreservesNamedClusterWithoutStoredId) {
+    const auto [explicit_empty_id, notify_decommissioned] = GetParam();
+    HttpContext ctx;
+    CreateInstanceRequest create_req;
+    create_req.set_instance_id("legacy_node_status_instance");
+    create_req.set_user_id("test_user");
+    create_req.set_name("test_name");
+    auto [create_http_status, create_resp] =
+            ctx.forward<MetaServiceResponseStatus>("create_instance", create_req);
+    ASSERT_EQ(create_http_status, 200);
+    ASSERT_EQ(create_resp.code(), MetaServiceCode::OK) << create_resp.msg();
+
+    AlterClusterRequest req;
+    req.set_instance_id(create_req.instance_id());
+    auto* cluster = req.mutable_cluster();
+    cluster->set_type(ClusterPB::COMPUTE);
+    cluster->set_cluster_name("legacy_named_cluster");
+    if (explicit_empty_id) {
+        cluster->set_cluster_id("");
+    }
+    auto* node = cluster->add_nodes();
+    node->set_cloud_unique_id("legacy_node_uid");
+    node->set_ip("127.0.0.1");
+    node->set_heartbeat_port(9050);
+    node->set_status(NodeStatusPB::NODE_STATUS_RUNNING);
+    auto [add_http_status, add_resp] = ctx.forward<MetaServiceResponseStatus>("add_cluster", req);
+    ASSERT_EQ(add_http_status, 200);
+    ASSERT_EQ(add_resp.code(), MetaServiceCode::OK) << add_resp.msg();
+    auto persisted = ctx.get_instance_info(create_req.instance_id());
+    ASSERT_EQ(persisted.clusters_size(), 1);
+    ASSERT_TRUE(persisted.clusters(0).cluster_id().empty());
+    ASSERT_EQ(persisted.clusters(0).has_cluster_id(), explicit_empty_id);
+
+    // Seed an old timestamp so the refresh is observable even within the same second.
+    constexpr int64_t old_mtime = 200;
+    persisted.mutable_clusters(0)->mutable_nodes(0)->set_mtime(old_mtime);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(ctx.meta_service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({create_req.instance_id()}), persisted.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    auto expected = persisted.clusters(0);
+
+    const auto* operation = notify_decommissioned ? "notify_decommissioned" : "decommission_node";
+    auto [http_status, resp] = ctx.forward<MetaServiceResponseStatus>(operation, req);
+    ASSERT_EQ(http_status, 200) << resp.ShortDebugString();
+    ASSERT_EQ(resp.code(), MetaServiceCode::OK) << resp.msg();
+    persisted = ctx.get_instance_info(create_req.instance_id());
+    ASSERT_EQ(persisted.clusters_size(), 1);
+    ASSERT_EQ(persisted.clusters(0).nodes_size(), 1);
+    const auto mtime = persisted.clusters(0).nodes(0).mtime();
+    EXPECT_GT(mtime, old_mtime);
+    auto* expected_node = expected.mutable_nodes(0);
+    expected_node->set_mtime(mtime);
+    expected_node->set_status(notify_decommissioned ? NodeStatusPB::NODE_STATUS_DECOMMISSIONED
+                                                    : NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
+    EXPECT_EQ(persisted.clusters(0).SerializeAsString(), expected.SerializeAsString());
+}
+
+INSTANTIATE_TEST_SUITE_P(StoredClusterId, NodeStatusWithoutClusterIdHttpTest,
+                         testing::Combine(testing::Bool(), testing::Bool()));
 
 TEST(MetaServiceHttpTest, GetClusterTest) {
     HttpContext ctx(true);
@@ -1120,12 +1183,27 @@ TEST(MetaServiceHttpTest, AbortTxnTest) {
     }
 }
 
-TEST(MetaServiceHttpTest, AlterIamTest) {
+TEST(MetaServiceHttpTest, RetiredServiceMethods) {
+    ASSERT_EQ(MetaService::descriptor()->FindMethodByName("alter_iam"), nullptr);
+    ASSERT_EQ(RecyclerService::descriptor()->FindMethodByName("recycle_instance"), nullptr);
+
+    HttpContext ctx;
+    auto [status_code, body] = ctx.query<std::string>("alter_iam", "");
+    ASSERT_EQ(status_code, 404) << body;
+
+    const auto& handlers = get_http_handlers();
+    auto it = handlers.find("recycle_instance");
+    ASSERT_NE(it, handlers.end());
+    ASSERT_EQ(it->second.role, HttpRole::RECYCLER);
+}
+
+TEST(MetaServiceHttpTest, AlterRamUserTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     HttpContext ctx;
 
     brpc::Controller cntl;
     auto cloud_unique_id = "test_cloud_unique_id";
-    std::string instance_id = "alter_iam_test_instance_id";
+    std::string instance_id = "alter_ram_user_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -1200,18 +1278,6 @@ TEST(MetaServiceHttpTest, AlterIamTest) {
             ctx.forward<MetaServiceResponseStatus>("alter_ram_user", alter_ram_user_request);
     ASSERT_EQ(status_code, 200);
     ASSERT_EQ(resp.code(), MetaServiceCode::OK);
-
-    // alter iam
-    {
-        AlterIamRequest alter_iam_request;
-        alter_iam_request.set_ak("new_ak");
-        alter_iam_request.set_sk("new_sk");
-        alter_iam_request.set_account_id("account_id");
-        auto [status_code, resp] =
-                ctx.forward<MetaServiceResponseStatus>("alter_iam", alter_iam_request);
-        ASSERT_EQ(status_code, 200);
-        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
-    }
 
     // get iam and ram user
     ctx.meta_service_->get_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -1527,8 +1593,6 @@ TEST(MetaServiceHttpTest, ToUnknownUrlTest) {
 }
 
 TEST(MetaServiceHttpTest, UnknownFields) {
-    // LOG:
-    // parse http request 'get_tablet_stats': INVALID_ARGUMENT:an_unknown_field: Cannot find field. body="{"table_id": 1, "an_unknown_field": "xxxx"}"
     HttpContext ctx;
     std::string body =
             "{\"table_id\": 1, \"an_unknown_field\": \"xxxx\", \"cloud_unique_id\": "
@@ -1612,8 +1676,337 @@ TEST(MetaServiceHttpTest, InvalidToken) {
     HttpContext ctx(true);
     auto [status_code, content] = ctx.query<std::string>("get_value", "token=invalid_token", "");
     ASSERT_EQ(status_code, 403);
-    const char* invalid_token_output = "incorrect token, token=invalid_token\n";
+    const char* invalid_token_output = "incorrect token\n";
     ASSERT_EQ(content, invalid_token_output);
+}
+
+// Captures what the service logs, skipping the logs this file writes about the requests it sends.
+class ServerLogSink : public google::LogSink {
+public:
+    ServerLogSink() { google::AddLogSink(this); }
+    ~ServerLogSink() override { google::RemoveLogSink(this); }
+
+    void send(google::LogSeverity, const char*, const char* base_filename, int,
+              const google::LogMessageTime&, const char* message,
+              std::size_t message_len) override {
+        if (std::string_view(base_filename) == "meta_service_http_test.cpp") {
+            return;
+        }
+        std::lock_guard lock(mutex_);
+        messages_.emplace_back(message, message_len);
+    }
+
+    std::vector<std::string> messages() {
+        std::lock_guard lock(mutex_);
+        return messages_;
+    }
+
+private:
+    std::mutex mutex_;
+    std::vector<std::string> messages_;
+};
+
+TEST(MetaServiceHttpTest, HttpRequestLogsMaskCredentials) {
+    const int old_vlog_level = google::SetVLOGLevel("meta_service_http", -1);
+    DORIS_CLOUD_DEFER {
+        google::SetVLOGLevel("meta_service_http", old_vlog_level);
+    };
+    std::string origin_token = config::http_token;
+    config::http_token = "ms-http-token-secret";
+    DORIS_CLOUD_DEFER {
+        config::http_token = origin_token;
+    };
+    ServerLogSink sink;
+
+    HttpContext ctx(true);
+    const std::string_view body =
+            R"({"obj":{"ak":"ms-body-access-key","sk":"ms-body-secret","bucket":"review-bucket"}})";
+
+    auto [status_without_debug, ignored] =
+            ctx.query<std::string>("get_value", "token=ms-wrong-token-secret", body);
+    ASSERT_EQ(status_without_debug, 403);
+    bool request_summary_logged = false;
+    for (const auto& message : sink.messages()) {
+        EXPECT_EQ(message.find("http request details from"), std::string::npos) << message;
+        EXPECT_EQ(message.find("review-bucket"), std::string::npos) << message;
+        request_summary_logged |= message.find("/get_value ret=403") != std::string::npos;
+    }
+    EXPECT_TRUE(request_summary_logged);
+
+    google::SetVLOGLevel("meta_service_http", DEBUG);
+    ctx.query<std::string>("get_value", "key_type=InstanceKey&instance_id=not_exist", body);
+    auto [status_code, content] =
+            ctx.query<std::string>("get_value", "token=ms-wrong-token-secret", body);
+    ASSERT_EQ(status_code, 403);
+
+    int request_logs = 0;
+    for (const auto& message : sink.messages()) {
+        for (auto secret : {"ms-http-token-secret", "ms-wrong-token-secret", "ms-body-access-key",
+                            "ms-body-secret"}) {
+            EXPECT_EQ(message.find(secret), std::string::npos) << message;
+        }
+        if (message.find("\ntoken=***") != std::string::npos) {
+            ++request_logs;
+            EXPECT_NE(message.find("review-bucket"), std::string::npos) << message;
+        }
+    }
+    EXPECT_EQ(request_logs, 2);
+}
+
+TEST(MetaServiceHttpTest, MalformedRequestBodyNotLoggedWithoutDebug) {
+    const int old_vlog_level = google::SetVLOGLevel("meta_service_http", -1);
+    DORIS_CLOUD_DEFER {
+        google::SetVLOGLevel("meta_service_http", old_vlog_level);
+    };
+    HttpContext ctx(true);
+    ServerLogSink sink;
+    auto [status_code, body] = ctx.query<std::string>(
+            "get_cluster", "",
+            R"({"cloud_unique_id":"malformed-body-secret","sk":"another-secret")");
+    ASSERT_EQ(status_code, 400);
+    EXPECT_EQ(body.find("malformed-body-secret"), std::string::npos);
+    EXPECT_EQ(body.find("another-secret"), std::string::npos);
+    for (const auto& message : sink.messages()) {
+        EXPECT_EQ(message.find("malformed-body-secret"), std::string::npos) << message;
+        EXPECT_EQ(message.find("another-secret"), std::string::npos) << message;
+        EXPECT_EQ(message.find("http request details from"), std::string::npos) << message;
+    }
+}
+
+TEST(MetaServiceHttpTest, CloudUniqueIdNotLoggedWithoutDebug) {
+    const int old_vlog_level = google::SetVLOGLevel("meta_service_http", -1);
+    DORIS_CLOUD_DEFER {
+        google::SetVLOGLevel("meta_service_http", old_vlog_level);
+    };
+    HttpContext ctx;
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    ClusterPB* cluster = instance.add_clusters();
+    cluster->set_cluster_name(mock_cluster_name);
+    cluster->set_cluster_id(mock_cluster_id);
+    cluster->set_type(ClusterPB::COMPUTE);
+    cluster->set_cluster_status(ClusterStatus::NORMAL);
+    (*cluster->mutable_properties())["cloudUniqueId"] = "node-secret-property";
+    (*cluster->mutable_properties())["review_property"] = "retained-value";
+    cluster->add_nodes()->set_cloud_unique_id(fmt::format("1:{}:node-secret-b", mock_instance));
+    std::string key;
+    instance_key({mock_instance}, &key);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(ctx.meta_service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ServerLogSink sink;
+    GetClusterRequest req;
+    req.set_instance_id(mock_instance);
+    req.set_cloud_unique_id(fmt::format("1:{}:node-secret-a", mock_instance));
+    req.set_cluster_id(mock_cluster_id);
+    auto [status_code, resp] = ctx.forward_with_result<ClusterPB>("get_cluster", req);
+    ASSERT_EQ(status_code, 200);
+    ASSERT_TRUE(resp.result.has_value());
+    ASSERT_EQ(resp.result->nodes(0).cloud_unique_id(),
+              fmt::format("1:{}:node-secret-b", mock_instance));
+
+    AlterClusterRequest alter_req;
+    alter_req.set_instance_id(mock_instance);
+    alter_req.set_op(AlterClusterRequest::SET_CLUSTER_STATUS);
+    alter_req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+    alter_req.mutable_cluster()->set_cluster_status(ClusterStatus::SUSPENDED);
+    auto [alter_code, alter_status] =
+            ctx.forward<MetaServiceResponseStatus>("set_cluster_status", alter_req);
+    ASSERT_EQ(alter_code, 200);
+    ASSERT_EQ(alter_status.code(), MetaServiceCode::OK);
+
+    auto [updated_code, updated] = ctx.forward_with_result<ClusterPB>("get_cluster", req);
+    ASSERT_EQ(updated_code, 200);
+    ASSERT_TRUE(updated.result.has_value());
+    EXPECT_EQ(updated.result->cluster_status(), ClusterStatus::SUSPENDED);
+    EXPECT_EQ(updated.result->properties().at("cloudUniqueId"), "node-secret-property");
+    ASSERT_EQ(updated.result->nodes_size(), 1);
+    EXPECT_EQ(updated.result->nodes(0).cloud_unique_id(),
+              fmt::format("1:{}:node-secret-b", mock_instance));
+
+    bool cluster_update_logged = false;
+    bool rpc_logs_cluster = false;
+    for (const auto& message : sink.messages()) {
+        EXPECT_EQ(message.find("node-secret"), std::string::npos) << message;
+        if (message.find("before update cluster original:") != std::string::npos) {
+            EXPECT_NE(message.find(" after update now: "), std::string::npos) << message;
+            EXPECT_NE(message.find("NORMAL"), std::string::npos) << message;
+            EXPECT_NE(message.find("SUSPENDED"), std::string::npos) << message;
+            EXPECT_NE(message.find("retained-value"), std::string::npos) << message;
+            EXPECT_NE(message.find(R"("cloud_unique_id":"***MASKED***")"), std::string::npos)
+                    << message;
+            EXPECT_NE(message.find(R"("cloudUniqueId":"***MASKED***")"), std::string::npos)
+                    << message;
+            cluster_update_logged = true;
+        }
+        rpc_logs_cluster |=
+                message.find("begin get_cluster ") != std::string::npos &&
+                message.find("cluster_id=" + std::string(mock_cluster_id)) != std::string::npos;
+    }
+    EXPECT_TRUE(rpc_logs_cluster);
+    EXPECT_TRUE(cluster_update_logged);
+}
+
+TEST(MetaServiceHttpTest, AkSkNotLogged) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
+    HttpContext ctx(true);
+    auto* ms = ctx.meta_service_.get();
+    const std::string ak = "AK_ID_VALUE_1234567";
+    const std::string sk = "SK_SECRET_VALUE_42";
+    ServerLogSink sink;
+
+    // Rejected requests are logged, but their status messages only describe the error.
+    AlterObjStoreInfoRequest alter_obj_req;
+    alter_obj_req.set_cloud_unique_id("test_cloud_unique_id");
+    alter_obj_req.set_op(AlterObjStoreInfoRequest::UNKNOWN);
+    alter_obj_req.mutable_obj()->set_ak(ak);
+    alter_obj_req.mutable_obj()->set_sk(sk);
+    {
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        ms->alter_obj_store_info(&cntl, &alter_obj_req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.status().msg(), "unknown alter operation");
+    }
+    {
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        ms->alter_storage_vault(&cntl, &alter_obj_req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.status().msg(), "unknown alter operation");
+    }
+    {
+        AlterRamUserRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_ram_user()->set_ak(ak);
+        req.mutable_ram_user()->set_sk(sk);
+        brpc::Controller cntl;
+        AlterRamUserResponse res;
+        ms->alter_ram_user(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.status().msg(), "ram_user fields must not be empty: user_id");
+    }
+    {
+        InstanceInfoPB instance;
+        instance.set_instance_id(mock_instance);
+        std::string key;
+        instance_key({mock_instance}, &key);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(ms->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+        UpdateAkSkRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_ram_user()->set_ak(ak);
+        req.mutable_ram_user()->set_sk(sk);
+        brpc::Controller cntl;
+        UpdateAkSkResponse res;
+        ms->update_ak_sk(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.status().msg(), "ram_user fields must not be empty: user_id");
+    }
+
+    {
+        AlterRamUserRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_ram_user()->set_user_id("ram_user");
+        brpc::Controller cntl;
+        AlterRamUserResponse res;
+        ms->alter_ram_user(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.status().msg(), "ram_user fields must not be empty: ak, sk");
+    }
+    {
+        UpdateAkSkRequest req;
+        req.set_instance_id(mock_instance);
+        auto* user = req.add_internal_bucket_user();
+        user->set_user_id("bucket_user");
+        user->set_ak(ak);
+        brpc::Controller cntl;
+        UpdateAkSkResponse res;
+        ms->update_ak_sk(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.status().msg(), "internal_bucket_user[0] is missing: sk");
+    }
+
+    for (const auto& message : sink.messages()) {
+        EXPECT_EQ(message.find(sk), std::string::npos) << message;
+        EXPECT_EQ(message.find(ak), std::string::npos) << message;
+    }
+}
+
+TEST(MetaServiceHttpTest, CredentialUpdateLogs) {
+    HttpContext ctx(true);
+    const std::string old_ak = "old-access-key-marker";
+    const std::string old_sk = "old-stored-secret-marker";
+    const std::string update_ak = "update-access-key-marker";
+    const std::string update_sk = "update-secret-marker";
+    const std::string alter_ak = "alter-access-key-marker";
+    const std::string alter_sk = "alter-secret-marker";
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(mock_instance);
+    auto* ram_user = instance.mutable_ram_user();
+    ram_user->set_user_id("ram_user");
+    ram_user->set_ak(old_ak);
+    ram_user->set_sk(old_sk);
+    std::string key;
+    instance_key({mock_instance}, &key);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(ctx.meta_service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+
+    ServerLogSink sink;
+    UpdateAkSkRequest update;
+    update.set_instance_id(mock_instance);
+    update.mutable_ram_user()->set_user_id("ram_user");
+    update.mutable_ram_user()->set_ak(update_ak);
+    update.mutable_ram_user()->set_sk(update_sk);
+    auto [update_http_code, update_status] =
+            ctx.forward<MetaServiceResponseStatus>("update_ak_sk", update);
+    ASSERT_EQ(update_http_code, 200);
+    ASSERT_EQ(update_status.code(), MetaServiceCode::OK);
+    const auto updated_instance = ctx.get_instance_info(mock_instance);
+    ASSERT_EQ(updated_instance.ram_user().ak(), update_ak);
+    ASSERT_FALSE(updated_instance.ram_user().sk().empty());
+
+    AlterRamUserRequest alter;
+    alter.set_instance_id(mock_instance);
+    alter.mutable_ram_user()->set_user_id("ram_user");
+    alter.mutable_ram_user()->set_ak(alter_ak);
+    alter.mutable_ram_user()->set_sk(alter_sk);
+    auto [alter_http_code, alter_status] =
+            ctx.forward<MetaServiceResponseStatus>("alter_ram_user", alter);
+    ASSERT_EQ(alter_http_code, 200);
+    ASSERT_EQ(alter_status.code(), MetaServiceCode::OK);
+    const auto altered_instance = ctx.get_instance_info(mock_instance);
+    ASSERT_EQ(altered_instance.ram_user().ak(), alter_ak);
+    ASSERT_FALSE(altered_instance.ram_user().sk().empty());
+
+    const auto messages = sink.messages();
+    for (auto rpc : {"update_ak_sk", "alter_ram_user"}) {
+        EXPECT_NE(std::ranges::find(messages,
+                                    fmt::format("begin {} instance_id={}", rpc, mock_instance)),
+                  messages.end());
+    }
+    const std::string_view credentials[] = {old_ak,
+                                            old_sk,
+                                            update_ak,
+                                            update_sk,
+                                            alter_ak,
+                                            alter_sk,
+                                            updated_instance.ram_user().sk(),
+                                            altered_instance.ram_user().sk()};
+    for (const auto& message : messages) {
+        for (std::string_view credential : credentials) {
+            EXPECT_EQ(message.find(credential), std::string::npos) << message;
+        }
+    }
 }
 
 TEST(MetaServiceHttpTest, TxnLazyCommit) {
@@ -2293,6 +2686,7 @@ TEST(HttpEncodeKeyTest, ProcessHttpSetValue) {
 }
 
 TEST(MetaServiceHttpTest, CreateInstanceWithIamRoleTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     HttpContext ctx;
 
     brpc::Controller cntl;

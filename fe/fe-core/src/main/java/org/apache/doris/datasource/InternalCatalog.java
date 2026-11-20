@@ -610,56 +610,40 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
-        // check is new db with same name already exist
-        if (!Strings.isNullOrEmpty(newDbName)) {
-            if (getDb(newDbName).isPresent()) {
-                throw new DdlException("Database[" + newDbName + "] already exist.");
-            }
-        } else {
-            if (getDb(dbName).isPresent()) {
-                throw new DdlException("Database[" + dbName + "] already exist.");
-            }
-        }
-
-        Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
-
-        // add db to catalog
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
-        db.writeLock();
-        List<Table> tableList = db.getTablesOnIdOrder();
-        MetaLockUtils.writeLockTables(tableList);
         try {
-            if (!Strings.isNullOrEmpty(newDbName)) {
-                if (fullNameToDb.containsKey(newDbName)) {
-                    throw new DdlException("Database[" + newDbName + "] already exist.");
-                    // it's ok that we do not put db back to CatalogRecycleBin
-                    // cause this db cannot recover any more
-                }
-            } else {
-                if (fullNameToDb.containsKey(db.getFullName())) {
-                    throw new DdlException("Database[" + db.getFullName() + "] already exist.");
-                    // it's ok that we do not put db back to CatalogRecycleBin
-                    // cause this db cannot recover any more
-                }
+            // check is new db with same name already exist
+            String targetDbName = Strings.isNullOrEmpty(newDbName) ? dbName : newDbName;
+            if (getDb(targetDbName).isPresent()) {
+                throw new DdlException("Database[" + targetDbName + "] already exist.");
             }
-            if (!Strings.isNullOrEmpty(newDbName)) {
-                db.setNameWithLock(newDbName);
+
+            Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
+            db.writeLock();
+            List<Table> tableList = db.getTablesOnIdOrder();
+            MetaLockUtils.writeLockTables(tableList);
+            try {
+                if (!Strings.isNullOrEmpty(newDbName)) {
+                    db.setNameWithLock(newDbName);
+                }
+                // add db to catalog
+                fullNameToDb.put(db.getFullName(), db);
+                idToDb.put(db.getId(), db);
+                // log
+                RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
+                Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
+                db.unmarkDropped();
+                registerDbFunctionsToNereids(db);
+            } finally {
+                MetaLockUtils.writeUnlockTables(tableList);
+                db.writeUnlock();
             }
-            fullNameToDb.put(db.getFullName(), db);
-            idToDb.put(db.getId(), db);
-            // log
-            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
-            Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
-            db.unmarkDropped();
-            registerDbFunctionsToNereids(db);
+            LOG.info("recover database[{}]", db.getId());
         } finally {
-            MetaLockUtils.writeUnlockTables(tableList);
-            db.writeUnlock();
             unlock();
         }
-        LOG.info("recover database[{}]", db.getId());
     }
 
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
@@ -2354,7 +2338,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
-                            tbl.variantEnableFlattenNested(),
+                            tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(),
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
                             tbl.getColumnSeqMapping(),
@@ -2777,6 +2761,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         olapTable.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
+
+        try {
+            if (olapTable instanceof MTMV) {
+                List<TableIf> baseTables = Lists.newArrayList();
+                for (BaseTableInfo baseTable : ((MTMV) olapTable).getRelation().getBaseTables()) {
+                    baseTables.add(MTMVUtil.getTable(baseTable));
+                }
+                properties.putAll(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(properties, baseTables, true));
+            }
+            olapTable.setVariantEscapeDotsInKeys(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+            PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                    baseSchema, createTableInfo.getIndexes());
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
 
         boolean variantEnableFlattenNested  = false;
         try {

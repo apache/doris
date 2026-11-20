@@ -282,7 +282,7 @@ ARROW_MD5SUM="66c53bd00baa79034bd2ca167beea436"
 ARROW_ADBC_DOWNLOAD="https://github.com/apache/arrow-adbc/archive/refs/tags/apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
-ARROW_ADBC_MD5SUM="2b2a18e95c33bdfd2bfa33a8b57c78d6"
+ARROW_ADBC_MD5SUM="3d6aaf071d384fe8d3c12a9b5f62aa4e"
 
 # arrow-adbc Flight SQL driver, prebuilt.
 # Upstream writes this driver in Go and publishes no bare shared library, so it is
@@ -393,6 +393,12 @@ BOOTSTRAP_TABLE_CSS_DOWNLOAD="https://unpkg.com/bootstrap-table@1.17.1/dist/boot
 BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
+
+# Alibaba Cloud OSS C++ SDK V2
+OSS_SDK_DOWNLOAD="https://github.com/aliyun/alibabacloud-oss-cpp-sdk-v2/archive/refs/tags/0.2.0.tar.gz"
+OSS_SDK_NAME="alibabacloud-oss-cpp-sdk-v2-0.2.0.tar.gz"
+OSS_SDK_SOURCE="alibabacloud-oss-cpp-sdk-v2-0.2.0"
+OSS_SDK_MD5SUM="56e4c251034670db38e29deff27c0aa3"
 
 # aws sdk
 AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.221.tar.gz"
@@ -633,10 +639,10 @@ LANCE_C_SOURCE="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8"
 LANCE_C_MD5SUM="d1282cff3d63acfc0450db1f00d6ab6f"
 
 # paimon-rust
-PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.5.0-rc1.tar.gz"
-PAIMON_RUST_NAME="paimon-rust-v0.5.0-rc1.tar.gz"
-PAIMON_RUST_SOURCE="paimon-rust-0.5.0-rc1"
-PAIMON_RUST_MD5SUM="fabf721bb26c6a2c165a00b65f074ac4"
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.5.0.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.5.0.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.5.0"
+PAIMON_RUST_MD5SUM="b9288421921d2e018d6c7b1b67285da0"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -691,6 +697,7 @@ export TP_ARCHIVES=(
     'BOOTSTRAP_TABLE_JS'
     'BOOTSTRAP_TABLE_CSS'
     'TSAN_HEADER'
+    'OSS_SDK'
     'AWS_SDK'
     'LZMA'
     'XML2'
