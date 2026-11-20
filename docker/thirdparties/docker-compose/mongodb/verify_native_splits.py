@@ -758,11 +758,12 @@ def join_pool_case(uri, catalog):
     namespace = catalog + "." + DATABASE + ".pool_records"
     expected = ((POOL_ROWS, POOL_ROWS * (POOL_ROWS - 1) // 2, POOL_ROWS * 2048, POOL_ROWS * 2048),)
     for streaming in [False, True]:
-        for strategy in ["single", "range"]:
+        for strategy, split_field in [("single", ""), ("range", ""), ("range", "_id"), ("auto", "_id")]:
             token = "join-pool-" + uuid.uuid4().hex
             # Wide source rows fill the probe queue before EOF. Otherwise the probe can return
             # both pool leases before its consumer blocks on the build, hiding the cycle.
-            statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='" + strategy + "',file_split_size=1,"
+            statement = ("SELECT /*+ SET_VAR(mongodb_split_strategy='" + strategy + "',"
+                         "mongodb_split_field='" + split_field + "',file_split_size=1,"
                          "max_file_split_num=2,max_file_scanners_concurrency=2,min_file_scanners_concurrency=2,"
                          "enable_adaptive_scan=false,parallel_pipeline_task_num=1,runtime_filter_mode='OFF',"
                          "enable_external_scan_task_reuse=false,scan_queue_mem_limit=10485760,query_timeout=30,"
@@ -772,9 +773,9 @@ def join_pool_case(uri, catalog):
             assert snapshot_checks.sql(statement) == expected
             _, text = profile(token)
             counts = re.findall(r"MongoSplitActual:\s*(\d+)", text)
-            assert counts and set(map(int, counts)) == ({2} if strategy == "range" else {1})
+            assert counts and set(map(int, counts)) == ({1} if strategy == "single" else {2})
             scanners = re.findall(r"NumScanners:\s*(\d+)", text)
-            assert scanners and set(map(int, scanners)) == ({2} if strategy == "range" else {1})
+            assert scanners and set(map(int, scanners)) == ({1} if strategy == "single" else {2})
     print("PASS: dependency-blocked probe scans cannot exhaust a two-client pool before the build", flush=True)
 
 

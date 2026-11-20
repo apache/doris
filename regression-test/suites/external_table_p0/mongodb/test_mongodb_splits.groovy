@@ -189,14 +189,16 @@ suite("test_mongodb_splits", "p0,external") {
         for (boolean streaming : [false, true]) {
             def baseline = sql """SELECT count(*),sum(l.seq),sum(length(l.payload)),sum(length(r.payload))
                 FROM ${joinTable} l JOIN [broadcast] ${joinTable} r ON l.seq=r.seq"""
-            def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,
-                max_file_split_num=2,max_file_scanners_concurrency=2,min_file_scanners_concurrency=2,
-                enable_adaptive_scan=false,parallel_pipeline_task_num=1,runtime_filter_mode='OFF',
-                enable_external_scan_task_reuse=false,scan_queue_mem_limit=10485760,query_timeout=30,
-                enable_external_table_batch_mode=${streaming}) */
-                count(*),sum(l.seq),sum(length(l.payload)),sum(length(r.payload))
-                FROM ${joinTable} l JOIN [broadcast] ${joinTable} r ON l.seq=r.seq"""
-            assertEquals(baseline, parallel)
+            for (String splitField : ["", "_id"]) {
+                def parallel = sql """SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,
+                    mongodb_split_field='${splitField}',max_file_split_num=2,max_file_scanners_concurrency=2,
+                    min_file_scanners_concurrency=2,enable_adaptive_scan=false,parallel_pipeline_task_num=1,
+                    runtime_filter_mode='OFF',enable_external_scan_task_reuse=false,scan_queue_mem_limit=10485760,
+                    query_timeout=30,enable_external_table_batch_mode=${streaming}) */
+                    count(*),sum(l.seq),sum(length(l.payload)),sum(length(r.payload))
+                    FROM ${joinTable} l JOIN [broadcast] ${joinTable} r ON l.seq=r.seq"""
+                assertEquals(baseline, parallel)
+            }
         }
         qt_statement_restored "SELECT @@mongodb_split_strategy,length(@@mongodb_split_field)"
     } finally {

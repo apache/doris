@@ -65,7 +65,8 @@ final class MongoRangePlanner {
             return MongoSplitPlan.single(1, 1, "single_strategy");
         }
         String field = options.getOrDefault("mongodb_split_field", "");
-        boolean custom = !field.isEmpty();
+        // Spelling out the default _id must retain its multi-scan contract, including joins.
+        boolean custom = !field.isEmpty() && !"_id".equals(field);
         if (!custom) {
             field = "_id";
         }
@@ -197,6 +198,10 @@ final class MongoRangePlanner {
     static long targetBytes(ConnectorSession session, long logicalBytes) {
         var options = session.getSessionProperties();
         long specified = number(options, "file_split_size", 0);
+        // Only zero selects automatic sizing; a negative explicit override must not be ignored.
+        if (specified < 0) {
+            throw new IllegalArgumentException("MongoDB file_split_size must be nonnegative");
+        }
         if (specified > 0) {
             return specified;
         }
@@ -365,9 +370,10 @@ final class MongoRangePlanner {
             while (true) {
                 checkCancelled(session, context);
                 try {
-                    // An offline auto fallback has no statement pin/deadline. Its private memo
-                    // was completed by this caller; only live statement waiters need timed polling.
-                    return session.getStatementScope() == ConnectorStatementScope.NONE ? selected.get()
+                    // Preserve a completed outcome, especially its source error, if the deadline
+                    // expires before this waiter resumes. Only pending live plans need timed polling.
+                    return selected.isDone() || session.getStatementScope() == ConnectorStatementScope.NONE
+                            ? selected.get()
                             : selected.get(Math.min(50, MongoSnapshot.remainingMillis(session)), TimeUnit.MILLISECONDS);
                 } catch (TimeoutException waiting) {
                     // Poll cancellation while another planner owns the bounded probe.

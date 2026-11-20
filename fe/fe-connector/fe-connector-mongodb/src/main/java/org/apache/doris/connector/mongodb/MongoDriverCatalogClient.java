@@ -192,7 +192,9 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
         try {
             var collection = probeDatabase(table.getDatabase(), deadline, checkCancelled)
                     .getCollection(table.getName());
-            try (MongoCursor<Document> indexes = collection.listIndexes().batchSize(1)
+            // Fetch the bounded index inventory together: one RTT per index can exhaust the
+            // optional probe deadline before a later qualifying ordinary index is reached.
+            try (MongoCursor<Document> indexes = collection.listIndexes().batchSize(128)
                     .timeoutMode(TimeoutMode.CURSOR_LIFETIME).iterator()) {
                 int count = 0;
                 while (true) {
