@@ -19,7 +19,7 @@
 # glibc allocation entry points. Keep it separate from doris_be_test, which
 # run-be-ut.sh builds with USE_JEMALLOC=OFF.
 cmake_minimum_required(VERSION 3.20)
-project(doris_jemalloc_hook_test LANGUAGES CXX)
+project(doris_jemalloc_hook_test LANGUAGES C CXX)
 
 if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
     message(FATAL_ERROR "jemalloc hook tests require Linux/glibc")
@@ -32,11 +32,15 @@ get_filename_component(DORIS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../.." A
 set(THIRDPARTY_DIR "$ENV{DORIS_THIRDPARTY}/installed")
 find_package(Threads REQUIRED)
 
-foreach (LIB_NAME gtest gtest_main jemalloc_doris unwind lzma z)
+foreach (LIB_NAME gtest gtest_main unwind lzma z)
     find_library(${LIB_NAME}_LIBRARY NAMES ${LIB_NAME}
         PATHS "${THIRDPARTY_DIR}/lib" "${THIRDPARTY_DIR}/lib64"
         NO_DEFAULT_PATH REQUIRED)
 endforeach()
+
+add_library(libunwind STATIC IMPORTED)
+set_target_properties(libunwind PROPERTIES IMPORTED_LOCATION "${unwind_LIBRARY}")
+add_subdirectory("${DORIS_SOURCE_DIR}/contrib/jemalloc-cmake" "${CMAKE_CURRENT_BINARY_DIR}/jemalloc")
 
 add_library(jemalloc_hook_test_dso SHARED jemalloc_hook_test_dso.cpp)
 target_compile_options(jemalloc_hook_test_dso PRIVATE -ftls-model=global-dynamic)
@@ -44,7 +48,8 @@ target_compile_options(jemalloc_hook_test_dso PRIVATE -ftls-model=global-dynamic
 add_executable(jemalloc_hook_test
     jemalloc_hook_test.cpp
     "${DORIS_SOURCE_DIR}/be/src/runtime/memory/jemalloc_hook.cpp")
-target_include_directories(jemalloc_hook_test PRIVATE "${THIRDPARTY_DIR}/include")
+target_include_directories(jemalloc_hook_test BEFORE PRIVATE "${JEMALLOC_INCLUDE_DIR}")
+target_include_directories(jemalloc_hook_test SYSTEM PRIVATE "${THIRDPARTY_DIR}/include")
 target_compile_definitions(jemalloc_hook_test PRIVATE
     JEMALLOC_HOOK_TEST_DSO="$<TARGET_FILE:jemalloc_hook_test_dso>")
 # Do not enable ENABLE_EXPORTS: verify the hook also works with the production
@@ -52,7 +57,7 @@ target_compile_definitions(jemalloc_hook_test PRIVATE
 # libunwind's compressed .debug_frame reader needs zlib's uncompress.
 # Keep its compression archives after unwind in the static link order.
 target_link_libraries(jemalloc_hook_test PRIVATE
-    "${gtest_main_LIBRARY}" "${gtest_LIBRARY}" "${jemalloc_doris_LIBRARY}"
+    "${gtest_main_LIBRARY}" "${gtest_LIBRARY}" jemalloc
     "${unwind_LIBRARY}" "${lzma_LIBRARY}" "${z_LIBRARY}"
     Threads::Threads ${CMAKE_DL_LIBS})
 add_dependencies(jemalloc_hook_test jemalloc_hook_test_dso)

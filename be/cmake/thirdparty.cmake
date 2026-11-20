@@ -83,14 +83,21 @@ add_thirdparty(libz LIBNAME "lib/libz.a")
 add_thirdparty(crypto)
 add_thirdparty(openssl LIBNAME "lib/libssl.a")
 add_thirdparty(leveldb)
-if (USE_JEMALLOC)
-    add_thirdparty(jemalloc LIBNAME "lib/libjemalloc_doris.a")
-else()
+if (NOT USE_JEMALLOC)
     add_thirdparty(tcmalloc WHOLELIBPATH ${GPERFTOOLS_HOME}/lib/libtcmalloc.a NOTADD)
 endif()
 
 if (USE_UNWIND)
     add_thirdparty(libunwind LIBNAME "lib64/libunwind.a")
+endif()
+
+if (USE_JEMALLOC)
+    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../contrib/jemalloc-cmake"
+        "${CMAKE_CURRENT_BINARY_DIR}/jemalloc")
+    list(APPEND COMMON_THIRDPARTY jemalloc)
+    # Prefer the generated headers even if an older prebuilt package contains jemalloc.
+    include_directories(BEFORE SYSTEM "${JEMALLOC_INCLUDE_DIR}")
+    link_libraries(jemalloc_headers)
 endif()
 
 add_thirdparty(grpc++_reflection LIB64)

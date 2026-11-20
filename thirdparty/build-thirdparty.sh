@@ -996,11 +996,7 @@ build_rocksdb() {
     if [[ "${KERNEL}" != 'Darwin' ]]; then
         ldflags='-static-libstdc++ -static-libgcc'
     else
-        if [[ "$(uname -m)" != 'x86_64' ]]; then
-            ldflags=''
-        else
-            ldflags="-L${TP_LIB_DIR} -ljemalloc_doris"
-        fi
+        ldflags=''
     fi
 
     # -Wno-range-loop-construct gcc-11
@@ -1283,7 +1279,6 @@ build_arrow() {
         -DSnappy_SOURCE=SYSTEM \
         -DBoost_ROOT="${TP_INSTALL_DIR}" --no-warn-unused-cli \
         -DARROW_JEMALLOC=OFF -DARROW_MIMALLOC=OFF \
-        -DJEMALLOC_HOME="${TP_INSTALL_DIR}" \
         -DARROW_THRIFT_USE_SHARED=OFF \
         -DThrift_SOURCE=SYSTEM \
         -DThrift_ROOT="${TP_INSTALL_DIR}" ..
@@ -1851,68 +1846,6 @@ build_hdfs3() {
     make CXXFLAGS="${libhdfs_cxx17}" -j "${PARALLEL}"
     make install
     strip_lib libhdfs3.a
-}
-
-# jemalloc
-build_jemalloc_doris() {
-    check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
-
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
-    # Build jemalloc --with-lg-page=16 in order to make the wheel work on both 4k and 64k page arm64 systems.
-    # Jemalloc compiled on a system with page size 4K can only run on a system with the same page size 4K.
-    # If it is run on a system with page size > 4K, an error `unsupported system page size`.
-    # Jemalloc compiled on a system with page size 64K can run on a system with page size < 64K,
-    # but this will waste more memory. Jemalloc does not support dynamic adaptation to the page size of the system.
-    # The reason is that jemalloc will perform some optimizations based on the page size when compiling.
-    if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        WITH_LG_PAGE='--with-lg-page=16'
-    else
-        WITH_LG_PAGE=''
-    fi
-
-    # It is not easy to remove `with-jemalloc-prefix`, which may affect the compatibility between third-party and old version codes.
-    # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
-    # Maybe can use alias instead of overwrite.
-    if [[ "${KERNEL}" == 'Darwin' ]]; then
-        # Doris does not build GNU libunwind on macOS, and Apple/LLVM libunwind does not provide
-        # jemalloc's required unw_backtrace symbol. Keep macOS on its original profiler backtrace
-        # path instead of forcing a Linux-only libunwind configuration.
-        CFLAGS="${cflags}" \
-            ../configure --prefix="${TP_INSTALL_DIR}" \
-            --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-            --with-jemalloc-prefix=je --enable-prof \
-            --disable-cxx --disable-libdl --disable-shared
-    else
-        CPPFLAGS="-I${TP_INCLUDE_DIR}" CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR}" \
-            LIBS="-llzma -lz" \
-            ../configure --prefix="${TP_INSTALL_DIR}" \
-            --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-            --with-jemalloc-prefix=je --enable-prof --enable-prof-libunwind \
-            --disable-prof-libgcc --disable-cxx --disable-libdl --disable-shared
-
-        # The stack trace API redirects dl_iterate_phdr to a PHDR cache. On glibc platforms,
-        # jemalloc heap profiling must not silently fall back to libgcc's _Unwind_Backtrace path,
-        # because that path can re-enter the loader-lock implementation while a sampled target
-        # thread is interrupted.
-        if ! grep -qE "result: prof-libunwind +: 1$" config.log; then
-            echo "ERROR: jemalloc prof-libunwind is not enabled; refusing libgcc-backed heap profiles." >&2
-            grep -E "result: prof-(libunwind|libgcc|gcc) +:" config.log >&2 || true
-            exit 1
-        fi
-        if grep -qE "result: prof-libgcc +: 1$" config.log; then
-            echo "ERROR: jemalloc prof-libgcc is enabled; heap profiling must use libunwind only." >&2
-            grep -E "result: prof-(libunwind|libgcc|gcc) +:" config.log >&2 || true
-            exit 1
-        fi
-    fi
-
-    make -j "${PARALLEL}"
-    make install
-    mv "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
 }
 
 # libunwind
@@ -2742,7 +2675,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         brpc
         lzma
         libunwind
-        jemalloc_doris
         rocksdb
         krb5 # before cyrus_sasl
         cyrus_sasl
@@ -2869,7 +2801,6 @@ cleanup_package_source() {
         parallel_hashmap) src_var="PARALLEL_HASHMAP_SOURCE" ;;
         orc)             src_var="ORC_SOURCE" ;;
         cctz)            src_var="CCTZ_SOURCE" ;;
-        jemalloc_doris)  src_var="JEMALLOC_DORIS_SOURCE" ;;
         libunwind)       src_var="LIBUNWIND_SOURCE" ;;
         benchmark)       src_var="BENCHMARK_SOURCE" ;;
         simdjson)        src_var="SIMDJSON_SOURCE" ;;

@@ -17,7 +17,9 @@
 
 #include "service/http/action/jeprofile_actions.h"
 
+#ifdef USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
+#endif
 #include <unistd.h>
 
 #include <cstdint>
