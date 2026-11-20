@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.metastore.paimon.rest;
 
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +27,22 @@ import java.util.Map;
 
 /** T2 parity for the REST backend (legacy {@code PaimonRestMetaStoreProperties} / {@code appendRestOptions}). */
 public class PaimonRestMetaStorePropertiesTest {
+
+    @Test
+    public void uriDiagnosticsMaskEveryAliasWithoutChangingConnectionValues() {
+        String uri = "https://fixture:fixture-uri-secret@api.example.com/";
+        for (String key : new String[] {"uri", "paimon.rest.uri"}) {
+            Map<String, String> raw = Map.of(key, uri, "warehouse", "s3://bucket.example.com/warehouse");
+            PaimonRestMetaStoreProperties properties = PaimonRestMetaStoreProperties.of(raw);
+            Assertions.assertEquals(uri, properties.getUri());
+            Assertions.assertEquals(uri, raw.get(key));
+            String rendered = ConnectorPropertiesUtils.toMaskedString(properties);
+            Assertions.assertFalse(rendered.contains("fixture-uri-secret"), rendered);
+            Assertions.assertTrue(rendered.contains("uri=***"), rendered);
+        }
+        Assertions.assertFalse(ConnectorPropertiesUtils.getSensitiveKeys(PaimonRestMetaStoreProperties.class)
+                .contains("uri"), "The shared URI alias must retain value-aware catalog masking");
+    }
 
     private static Map<String, String> raw(String... kv) {
         Map<String, String> m = new HashMap<>();

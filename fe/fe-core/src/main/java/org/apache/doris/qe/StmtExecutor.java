@@ -1970,6 +1970,10 @@ public class StmtExecutor {
                         isSendFields = true;
                     }
                     for (ByteBuffer row : batch.getBatch().getRows()) {
+                        Status cancelReason = getPendingCancelReason();
+                        if (cancelReason != null) {
+                            throw new UserException(cancelReason.getErrorMsg());
+                        }
                         sender.sendRow(row);
                     }
                     profile.getSummaryProfile().freshWriteResultConsumeTime();

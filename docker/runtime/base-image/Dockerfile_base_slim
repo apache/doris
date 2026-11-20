@@ -19,5 +19,5 @@
 # so both names use the same patched packages, selected JDK and operator tools.
 # Build Dockerfile_base first, or supply its image through BASE_IMAGE.
 ARG JAVA_VERSION=17
-ARG BASE_IMAGE=apache/doris:base-7.0-jdk${JAVA_VERSION}
+ARG BASE_IMAGE=apache/doris:base-8.0-ubuntu26.04-jdk${JAVA_VERSION}
 FROM ${BASE_IMAGE}

@@ -143,8 +143,12 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
 
     // Render the same literal batch in task properties and audit SQL; execution uses file statuses.
     public static String buildFileListUri(List<TBrokerFileStatus> files) {
-        Preconditions.checkArgument(!files.isEmpty(), "S3 task batch must contain files");
-        String[] paths = files.stream().map(TBrokerFileStatus::getPath).toArray(String[]::new);
+        return buildFileListUri(files.stream().map(TBrokerFileStatus::getPath).toArray(String[]::new));
+    }
+
+    // Audit rendering reuses the same literal escaping after sanitizing paths, without mutating file statuses.
+    public static String buildFileListUri(String[] paths) {
+        Preconditions.checkArgument(paths.length > 0, "S3 task batch must contain files");
         String commonPrefix = StringUtils.getCommonPrefix(paths);
         String baseUri = commonPrefix.substring(0, commonPrefix.lastIndexOf('/') + 1);
         String joined = Arrays.stream(paths).map(path -> escapeGlob(path.substring(baseUri.length())))

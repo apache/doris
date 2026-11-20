@@ -80,9 +80,11 @@ public final class ObsFileSystemProperties
             description = "The endpoint of OBS.")
     private String endpoint = "";
 
+    // Access-key aliases must not escape through typed diagnostic rendering.
     @ConnectorProperty(names = {ACCESS_KEY, "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY",
             "access_key", "ACCESS_KEY", "OBS_ACCESS_KEY"},
             required = false,
+            sensitive = true,
             description = "The access key of OBS.")
     private String accessKey = "";
 

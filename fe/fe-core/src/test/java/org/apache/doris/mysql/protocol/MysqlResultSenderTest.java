@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -30,10 +31,13 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.ResultSet;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel;
 import org.apache.doris.qe.protocol.RecordingMysqlChannel.RecordedPacket;
 import org.apache.doris.thrift.TMasterOpRequest;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -301,6 +305,68 @@ public class MysqlResultSenderTest {
         MysqlProtocolAdapter.of(ctx).resultSender(ctx).sendStmtPrepareOK(
                 1, Collections.singletonList("p"), Collections.emptyList());
         return payloads(channel);
+    }
+
+    @Test
+    public void testCancelledIntermediateStatementSendsOneError() throws IOException {
+        RecordingMysqlChannel channel = newChannel(false);
+        channel.setClientMultiStatements();
+        ConnectContext ctx = newContext(channel);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getPendingCancelReason())
+                .thenReturn(new Status(TStatusCode.CANCELLED, "cancelled after last batch"));
+        MysqlProtocolAdapter adapter = MysqlProtocolAdapter.of(ctx);
+        ctx.getState().setEof();
+        adapter.finishStatement(ctx, executor, 0, 2);
+        Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        // executeQuery stops on ERR, but processOnce still finalizes the command.
+        adapter.finishCommand(ctx, executor);
+        Assertions.assertEquals(1, payloads(channel).size());
+        Assertions.assertEquals(0xff, payloads(channel).get(0)[0] & 0xff);
+        ctx.getState().reset();
+        adapter.beforeStatement(ctx);
+        adapter.finishCommand(ctx, null);
+        Assertions.assertEquals(2, payloads(channel).size());
+        Assertions.assertEquals(0, payloads(channel).get(1)[0] & 0xff);
+        Assertions.assertFalse(ctx.isKilled());
+    }
+
+    @Test
+    public void testCancelledLastBatchCannotFinishSuccessfully() throws IOException {
+        RecordingMysqlChannel channel = newChannel(false);
+        ConnectContext ctx = newContext(channel);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getPendingCancelReason())
+                .thenReturn(new Status(TStatusCode.CANCELLED, "cancelled during last batch"));
+        ctx.getState().setEof();
+        MysqlProtocolAdapter.of(ctx).finishCommand(ctx, executor);
+        Assertions.assertEquals(MysqlStateType.ERR, ctx.getState().getStateType());
+        Assertions.assertEquals(0xff, payloads(channel).get(0)[0] & 0xff);
+        Assertions.assertFalse(ctx.isKilled());
+
+        // A subsequent command on the same channel has no old executor's cancellation.
+        ctx.getState().reset();
+        MysqlProtocolAdapter.of(ctx).finishCommand(ctx, null);
+        Assertions.assertEquals(MysqlStateType.OK, ctx.getState().getStateType());
+        Assertions.assertEquals(0, payloads(channel).get(1)[0] & 0xff);
+    }
+
+    @Test
+    public void testLateCancellationDoesNotRewriteOkOrNoop() throws IOException {
+        RecordingMysqlChannel channel = newChannel(false);
+        ConnectContext ctx = newContext(channel);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getPendingCancelReason())
+                .thenReturn(new Status(TStatusCode.CANCELLED, "late cancellation"));
+        // An INSERT may already have committed; cancellation must not turn its OK into an error.
+        MysqlProtocolAdapter.of(ctx).finishCommand(ctx, executor);
+        Assertions.assertEquals(MysqlStateType.OK, ctx.getState().getStateType());
+        Assertions.assertEquals(0, payloads(channel).get(0)[0] & 0xff);
+        // PREPARE has already sent its response and asks finishCommand not to send another.
+        ctx.getState().setNoop();
+        MysqlProtocolAdapter.of(ctx).finishCommand(ctx, executor);
+        Assertions.assertEquals(MysqlStateType.NOOP, ctx.getState().getStateType());
+        Assertions.assertEquals(1, payloads(channel).size());
     }
 
     private List<byte[]> sendEmptyResultSet(boolean cursorFetchRequested, String clientName,
