@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.metastore.iceberg.glue;
 
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -29,6 +31,20 @@ import java.util.Map;
  * (AK/SK-together → endpoint-required → endpoint-https → at-least-one-credential). No warehouse rule.
  */
 public class IcebergGlueMetaStorePropertiesTest {
+
+    @Test
+    public void accessKeyAliasesAreMaskedWithoutChangingConnectionValues() {
+        for (String key : new String[] {"glue.access_key", "aws.glue.access-key",
+                "client.credentials-provider.glue.access_key"}) {
+            Map<String, String> raw = Map.of(key, "fixture-glue-access-key");
+            IcebergGlueMetaStoreProperties properties = IcebergGlueMetaStoreProperties.of(raw);
+            Assertions.assertEquals("fixture-glue-access-key", properties.getGlueAccessKey());
+            Assertions.assertFalse(ConnectorPropertiesUtils.toMaskedString(properties)
+                    .contains("fixture-glue-access-key"));
+            Assertions.assertTrue(ConnectorPropertiesUtils.getSensitiveKeys(IcebergGlueMetaStoreProperties.class)
+                    .contains(key));
+        }
+    }
 
     private static Map<String, String> raw(String... kv) {
         Map<String, String> m = new HashMap<>();

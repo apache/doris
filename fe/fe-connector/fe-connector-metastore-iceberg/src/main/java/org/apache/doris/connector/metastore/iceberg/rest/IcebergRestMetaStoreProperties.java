@@ -61,7 +61,9 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     private static final String TOKEN_MODE_ACCESS_TOKEN = "access_token";
     private static final String TOKEN_MODE_TOKEN_EXCHANGE = "token_exchange";
 
-    @ConnectorProperty(names = {"iceberg.rest.uri", "uri"}, required = false,
+    // URI values may contain credentials; the shared alias still needs value-aware catalog rendering.
+    @ConnectorProperty(names = {"iceberg.rest.uri", "uri"}, required = false, sensitive = true,
+            sensitiveInDiagnosticsOnly = true,
             description = "The endpoint of the iceberg rest catalog service.")
     private String uri = "";
 
@@ -126,7 +128,8 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
             description = "True for Glue/S3Tables/OSS Tables Rest Catalog.")
     private String sigV4Enabled = "";
 
-    @ConnectorProperty(names = {"iceberg.rest.access-key-id"}, required = false,
+    // Access-key identifiers follow the same diagnostic masking rule as their secret key.
+    @ConnectorProperty(names = {"iceberg.rest.access-key-id"}, required = false, sensitive = true,
             description = "The access key ID for the iceberg rest catalog service.")
     private String accessKeyId = "";
 

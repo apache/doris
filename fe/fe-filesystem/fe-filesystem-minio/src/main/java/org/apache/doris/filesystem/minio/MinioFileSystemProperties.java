@@ -57,9 +57,11 @@ public final class MinioFileSystemProperties extends AbstractDelegatingS3Propert
             description = "The region of MinIO.")
     private String region = DEFAULT_REGION;
 
+    // Access-key aliases must not escape through typed diagnostic rendering.
     @ConnectorProperty(names = {ACCESS_KEY, "s3.access-key-id", "AWS_ACCESS_KEY", "ACCESS_KEY",
             "access_key", "s3.access_key"},
             required = false,
+            sensitive = true,
             description = "The access key of MinIO.")
     private String accessKey = "";
 

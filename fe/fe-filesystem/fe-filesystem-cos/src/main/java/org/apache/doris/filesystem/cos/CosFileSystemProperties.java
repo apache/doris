@@ -83,9 +83,11 @@ public final class CosFileSystemProperties
             description = "The region of COS.")
     private String region = "";
 
+    // Access-key aliases must not escape through typed diagnostic rendering.
     @ConnectorProperty(names = {ACCESS_KEY, "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY",
             "access_key", "ACCESS_KEY", "COS_ACCESS_KEY"},
             required = false,
+            sensitive = true,
             description = "The access key of COS.")
     private String accessKey = "";
 
