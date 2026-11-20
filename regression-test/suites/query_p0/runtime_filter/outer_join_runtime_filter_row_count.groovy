@@ -65,4 +65,19 @@ suite("outer_join_runtime_filter_row_count") {
         sql scalarQuery
         exception "Expected EQ 1 to be returned by expression"
     }
+
+    // The build-side projection must evaluate the row with k = 1 before the ancestor join filters it.
+    sql "insert into outer_rf_row_count_left values (1)"
+    def projectQuery = """select l.k, r.checked from outer_rf_row_count_left l
+        left join (
+            select k, assert_true(v > 10, 'bad') as checked from outer_rf_row_count_right
+        ) r on l.k = r.k
+        inner join outer_rf_row_count_build e on l.k = e.k"""
+    for (def expand : [false, true]) {
+        sql "set expand_runtime_filter_by_inner_join = ${expand}"
+        test {
+            sql projectQuery
+            exception "bad"
+        }
+    }
 }

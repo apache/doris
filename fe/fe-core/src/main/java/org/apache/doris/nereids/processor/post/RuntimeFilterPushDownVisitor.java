@@ -430,7 +430,9 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
 
     @Override
     public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, PushDownContext ctx) {
-        if (!project.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
+        // A runtime filter below this project can remove rows that would fail assert_true.
+        if (!project.getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
+                || project.containsNoneMovableFunction()) {
             return false;
         }
         // Rewrite probeExpr through project aliases using v2-style replaceMap
