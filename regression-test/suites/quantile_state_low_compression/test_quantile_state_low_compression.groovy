@@ -31,6 +31,20 @@ suite("test_quantile_state_low_compression", "docker,p1,quantile_state_low_compr
             FROM numbers("number" = "1")
         """
 
+        qt_nullable_const_compression """
+            SELECT quantile_state_to_base64(to_quantile_state(1.0, nullable(cast(128 AS float)))) =
+                   quantile_state_to_base64(to_quantile_state(1.0, 128))
+            FROM numbers("number" = "1")
+        """
+        qt_nullable_129_digest """
+            SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2)
+            FROM (
+                SELECT quantile_union(
+                    to_quantile_state(number, nullable(cast(128 AS float)))) AS s
+                FROM numbers("number" = "129")
+            ) x
+        """
+
         // The fifth serialized byte is the representation tag: 02=EXPLICIT, 03=TDIGEST.
         qt_128_explicit """
             SELECT substr(hex(from_base64(quantile_state_to_base64(s))), 9, 2),

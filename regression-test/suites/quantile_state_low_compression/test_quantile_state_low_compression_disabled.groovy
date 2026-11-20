@@ -20,6 +20,14 @@ suite("test_quantile_state_low_compression_disabled", "quantile_state_low_compre
         sql "SELECT quantile_state_to_base64(to_quantile_state(1.0, 128)) FROM numbers(\"number\" = \"1\")"
         exception "enable_low_compression_quantile_state"
     }
+    test {
+        sql "SELECT quantile_state_to_base64(to_quantile_state(1.0, nullable(cast(128 AS float)))) FROM numbers(\"number\" = \"1\")"
+        exception "enable_low_compression_quantile_state"
+    }
+    test {
+        sql "SELECT quantile_state_to_base64(to_quantile_state(number, nullable(cast(128 AS float)))) FROM numbers(\"number\" = \"1\")"
+        exception "enable_low_compression_quantile_state"
+    }
     qt_high_compression """
         SELECT quantile_percent(to_quantile_state(number, 2048), 0.99)
         FROM numbers("number" = "1")

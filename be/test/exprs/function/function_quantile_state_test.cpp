@@ -20,12 +20,15 @@
 #include <cstring>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/data_type_string.h"
@@ -40,7 +43,9 @@
 namespace doris {
 
 static Status execute_to_quantile_state(float compression, std::vector<uint8_t>& bytes,
-                                        bool constant_values = false) {
+                                        bool constant_values = false,
+                                        bool nullable_compression = false,
+                                        bool null_compression = false) {
     constexpr size_t rows = 3;
     auto values = ColumnFloat64::create();
     if (constant_values) {
@@ -53,7 +58,7 @@ static Status execute_to_quantile_state(float compression, std::vector<uint8_t>&
     auto compression_column = ColumnFloat32::create();
     compression_column->insert_value(compression);
     auto value_type = std::make_shared<DataTypeFloat64>();
-    auto compression_type = std::make_shared<DataTypeFloat32>();
+    DataTypePtr compression_type = std::make_shared<DataTypeFloat32>();
     auto result_type = std::make_shared<DataTypeQuantileState>();
     Block block;
     if (constant_values) {
@@ -61,8 +66,17 @@ static Status execute_to_quantile_state(float compression, std::vector<uint8_t>&
     } else {
         block.insert({std::move(values), value_type, "value"});
     }
-    block.insert({ColumnConst::create(std::move(compression_column), rows), compression_type,
-                  "compression"});
+    if (nullable_compression) {
+        auto null_map = ColumnUInt8::create();
+        null_map->insert_value(null_compression);
+        auto nullable = ColumnNullable::create(std::move(compression_column), std::move(null_map));
+        compression_type = std::make_shared<DataTypeNullable>(compression_type);
+        block.insert(
+                {ColumnConst::create(std::move(nullable), rows), compression_type, "compression"});
+    } else {
+        block.insert({ColumnConst::create(std::move(compression_column), rows), compression_type,
+                      "compression"});
+    }
     auto function = SimpleFunctionFactory::instance().get_function(
             "to_quantile_state", block.get_columns_with_type_and_name(), result_type);
     CHECK(function != nullptr);
@@ -121,6 +135,34 @@ TEST(function_quantile_state_test, low_compression_creation_gate) {
     ASSERT_TRUE(execute_to_quantile_state(128, bytes, true).ok());
     std::memcpy(&actual, bytes.data(), sizeof(actual));
     EXPECT_EQ(128, actual);
+}
+
+TEST(function_quantile_state_test, nullable_compression_constant) {
+    const bool old_setting = config::enable_low_compression_quantile_state;
+    Defer restore([&] { config::enable_low_compression_quantile_state = old_setting; });
+    std::vector<uint8_t> bytes;
+    for (bool constant_values : {false, true}) {
+        config::enable_low_compression_quantile_state = false;
+        auto disabled = execute_to_quantile_state(128, bytes, constant_values, true);
+        EXPECT_FALSE(disabled.ok());
+        EXPECT_NE(std::string::npos,
+                  disabled.to_string().find("enable_low_compression_quantile_state"));
+
+        config::enable_low_compression_quantile_state = true;
+        ASSERT_TRUE(execute_to_quantile_state(128, bytes, constant_values, true).ok());
+        float actual = 0;
+        std::memcpy(&actual, bytes.data(), sizeof(actual));
+        EXPECT_EQ(128, actual);
+
+        config::enable_low_compression_quantile_state = false;
+        for (auto [requested, is_null] :
+             {std::pair {128.0F, true}, std::pair {127.0F, false}, std::pair {2048.0F, false}}) {
+            ASSERT_TRUE(execute_to_quantile_state(requested, bytes, constant_values, true, is_null)
+                                .ok());
+            std::memcpy(&actual, bytes.data(), sizeof(actual));
+            EXPECT_EQ(2048, actual);
+        }
+    }
 }
 
 TEST(function_quantile_state_test, function_quantile_state_to_base64) {

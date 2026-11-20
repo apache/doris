@@ -2,6 +2,12 @@
 -- !singleton_roundtrip --
 true	true
 
+-- !nullable_const_compression --
+true
+
+-- !nullable_129_digest --
+03
+
 -- !128_explicit --
 02	0	127
 
