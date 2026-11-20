@@ -20,7 +20,6 @@
 #include <gtest/gtest.h>
 #include <zstd.h>
 
-#include <avro/Allocation.hh>
 #include <avro/Compiler.hh>
 #include <avro/DataFile.hh>
 #include <avro/Generic.hh>
@@ -50,8 +49,13 @@ constexpr const char* ID_SCHEMA =
 class AvroReaderTest : public testing::Test {
 protected:
     test::ScopedTempDirectory temp {"avro_reader"};
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeState state {TQueryOptions(), [] {
+                            TQueryGlobals globals;
+                            globals.__set_time_zone("UTC");
+                            return globals;
+                        }()};
     RuntimeProfile profile {"AvroReaderTest"};
+    io::FileReaderStats io_stats;
     std::string path = (temp.path() / "data.avro").string();
     std::vector<ColumnDefinition> schema;
     std::shared_ptr<io::FileSystemProperties> properties =
@@ -65,22 +69,56 @@ protected:
             datum.value<::avro::GenericRecord>().fieldAt(0) = ::avro::GenericDatum(int64_t(i));
             writer.write(datum);
             // Force multiple blocks; split correctness must not depend on a single writer buffer.
-            if (i % 2 == 1) writer.flush();
+            if (i % 2 == 1) {
+                writer.flush();
+            }
         }
         writer.close();
     }
 
+    void write_raw_block(const ::avro::ValidSchema& avro_schema, ::avro::Codec codec,
+                         const std::vector<uint8_t>& payload, int64_t count = 1) {
+        {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema, 32,
+                                                                codec);
+            writer.close();
+        }
+        ::avro::DataFileReaderBase header(path.c_str());
+        const auto header_size = header.previousSync();
+        header.close();
+        std::ifstream in(path, std::ios::binary);
+        const std::string original((std::istreambuf_iterator<char>(in)), {});
+        in.close();
+        std::ofstream out(path, std::ios::binary);
+        out.write(original.data(), header_size);
+        auto write_long = [&](uint64_t value) {
+            value *= 2;
+            while (value >= 128) {
+                out.put(static_cast<char>((value & 127) | 128));
+                value >>= 7;
+            }
+            out.put(static_cast<char>(value));
+        };
+        write_long(count);
+        write_long(payload.size());
+        out.write(reinterpret_cast<const char*>(payload.data()), payload.size());
+        out.write(original.data() + header_size - 16, 16);
+    }
+
     std::unique_ptr<AvroReader> reader(int64_t start = 0, int64_t size = -1,
                                        bool timestamp_tz = false, bool varbinary = false,
-                                       std::optional<GlobalRowIdContext> context = std::nullopt) {
+                                       std::optional<GlobalRowIdContext> context = std::nullopt,
+                                       bool hive_compatible = false) {
         properties->system_type = TFileType::FILE_LOCAL;
         auto file = std::make_unique<io::FileDescription>();
         file->path = path;
         file->file_size = std::filesystem::file_size(path);
         file->range_start_offset = start;
         file->range_size = size;
-        return std::make_unique<AvroReader>(properties, file, std::make_shared<io::IOContext>(),
-                                            &profile, timestamp_tz, varbinary, context);
+        auto io_context = std::make_shared<io::IOContext>();
+        io_context->file_reader_stats = &io_stats;
+        return std::make_unique<AvroReader>(properties, file, io_context, &profile, timestamp_tz,
+                                            varbinary, context, hive_compatible);
     }
 
     Status initialize(AvroReader* input) {
@@ -111,7 +149,9 @@ protected:
             size_t rows = 0;
             const auto status = input->get_block(&block, &rows, &eof);
             EXPECT_TRUE(status.ok()) << status;
-            if (!status.ok()) break;
+            if (!status.ok()) {
+                break;
+            }
             for (size_t row = 0; row < rows; ++row) {
                 std::vector<std::string> values;
                 for (size_t i = 0; i < block.columns(); ++i) {
@@ -176,8 +216,10 @@ TEST_F(AvroReaderTest, AdjacentByteRangesOwnEveryBlockExactlyOnce) {
 
 TEST_F(AvroReaderTest, GlobalLocationsAreVisibleThroughTheColumnMapper) {
     write_ids(::avro::NULL_CODEC);
-    auto input =
-            reader(0, -1, false, false, GlobalRowIdContext {GlobalRowLoacationV2::VERSION, 17, 42});
+    auto input = reader(
+            0, -1, false, false,
+            GlobalRowIdContext {
+                    .version = GlobalRowLoacationV2::VERSION, .backend_id = 17, .file_id = 42});
     ASSERT_TRUE(initialize(input.get()).ok());
     ASSERT_EQ(schema.size(), 2);
     auto value = schema[0];
@@ -220,7 +262,9 @@ TEST_F(AvroReaderTest, WideRowsRespectTheBlockByteBudget) {
         ::avro::GenericDatum datum(avro_schema);
         datum.value<::avro::GenericRecord>().fieldAt(0).value<std::string>().assign(1024 * 1024 + 1,
                                                                                     'x');
-        for (int i = 0; i < 4; ++i) writer.write(datum);
+        for (int i = 0; i < 4; ++i) {
+            writer.write(datum);
+        }
         writer.close();
     }
     auto input = reader();
@@ -272,8 +316,10 @@ TEST_F(AvroReaderTest, NegativeCollectionContinuationBlocksAreDecoded) {
 
 TEST_F(AvroReaderTest, SelectedRowsRetainAbsoluteGlobalLocations) {
     write_ids(::avro::SNAPPY_CODEC);
-    auto input =
-            reader(0, -1, false, false, GlobalRowIdContext {GlobalRowLoacationV2::VERSION, 17, 42});
+    auto input = reader(
+            0, -1, false, false,
+            GlobalRowIdContext {
+                    .version = GlobalRowLoacationV2::VERSION, .backend_id = 17, .file_id = 42});
     ASSERT_TRUE(initialize(input.get()).ok());
     auto request = std::make_shared<FileScanRequest>();
     auto block = block_for({0, GLOBAL_ROWID_COLUMN_ID}, request.get());
@@ -299,13 +345,16 @@ TEST_F(AvroReaderTest, SelectedRowsRetainAbsoluteGlobalLocations) {
 }
 
 TEST_F(AvroReaderTest, CountWithoutProjectedColumnsAndEmptyContainer) {
-    for (const size_t count : {0, 8}) {
-        write_ids(::avro::NULL_CODEC, count);
-        auto input = reader();
-        ASSERT_TRUE(initialize(input.get()).ok());
-        auto request = std::make_shared<FileScanRequest>();
-        ASSERT_TRUE(input->open(request).ok());
-        EXPECT_EQ(read_all(input.get(), Block()).size(), count);
+    for (const auto codec :
+         {::avro::NULL_CODEC, ::avro::DEFLATE_CODEC, ::avro::SNAPPY_CODEC, ::avro::ZSTD_CODEC}) {
+        for (const size_t count : {0, 8}) {
+            write_ids(codec, count);
+            auto input = reader();
+            ASSERT_TRUE(initialize(input.get()).ok());
+            auto request = std::make_shared<FileScanRequest>();
+            ASSERT_TRUE(input->open(request).ok());
+            EXPECT_EQ(read_all(input.get(), Block()).size(), count);
+        }
     }
 }
 
@@ -408,6 +457,449 @@ TEST_F(AvroReaderTest, LogicalTypesPreserveNegativeEpochAndDecimalValues) {
               "1969-12-31 23:59:59.999999+00:00");
     EXPECT_EQ(rows[0][3], "1969-12-31 23:59:59.999");
     EXPECT_EQ(rows[0][4], "1969-12-31 23:59:59.999999999");
+}
+
+TEST_F(AvroReaderTest, MapperTimestampProjectionPreservesLoadColumnType) {
+    for (const char* logical : {"timestamp-millis", "timestamp-micros"}) {
+        const auto json = std::string(R"({"type":"record","name":"r","fields":[
+          {"name":"instant","type":{"type":"long","logicalType":")") +
+                          logical + R"("}}]})";
+        const auto avro_schema = ::avro::compileJsonSchemaFromString(json);
+        {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema);
+            ::avro::GenericDatum datum(avro_schema);
+            datum.value<::avro::GenericRecord>().fieldAt(0).value<int64_t>() = 0;
+            writer.write(datum);
+            writer.close();
+        }
+        auto input = reader();
+        ASSERT_TRUE(initialize(input.get()).ok());
+        auto mapper = input->create_column_mapper({.mode = TableColumnMappingMode::BY_NAME});
+        ASSERT_TRUE(mapper->create_mapping(schema, {}, schema).ok());
+        auto request = std::make_shared<FileScanRequest>();
+        ASSERT_TRUE(mapper->create_scan_request({}, schema, request.get(), &state).ok());
+        Block block;
+        for (const auto& mapping : mapper->mappings()) {
+            EXPECT_EQ(remove_nullable(mapping.file_type)->get_primitive_type(), TYPE_DATETIMEV2);
+            block.insert({mapping.file_type->create_column(), mapping.file_type,
+                          mapping.file_column_name});
+        }
+        ASSERT_TRUE(input->open(request).ok());
+        EXPECT_EQ(
+                read_all(input.get(), block),
+                (std::vector<std::vector<std::string>> {{logical == std::string("timestamp-millis")
+                                                                 ? "1970-01-01 00:00:00.000"
+                                                                 : "1970-01-01 00:00:00.000000"}}));
+    }
+}
+
+TEST_F(AvroReaderTest, RejectsInstantNanosecondsWithoutLosingTimezoneOrPrecision) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"instant",
+                "type":{"type":"long","logicalType":"timestamp-nanos"}}]})");
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema);
+        writer.close();
+    }
+    for (const bool timestamp_tz : {false, true}) {
+        auto input = reader(0, -1, timestamp_tz);
+        const auto status = initialize(input.get());
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("timestamp-nanos"), std::string::npos) << status;
+    }
+}
+
+TEST_F(AvroReaderTest, HiveWriterTimezoneAndCalendarStayInTheHivePath) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[
+                {"name":"day","type":{"type":"int","logicalType":"date"}},
+                {"name":"clock","type":{"type":"long","logicalType":"timestamp-millis"}}]})");
+    ::avro::Metadata metadata;
+    const std::string writer_zone = "America/Los_Angeles";
+    metadata["writer.time.zone"] = {writer_zone.begin(), writer_zone.end()};
+    metadata["writer.proleptic"] = {'f', 'a', 'l', 's', 'e'};
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema, 32,
+                                                            ::avro::NULL_CODEC, metadata);
+        ::avro::GenericDatum datum(avro_schema);
+        auto& record = datum.value<::avro::GenericRecord>();
+        record.fieldAt(0).value<int32_t>() = -141428;
+        record.fieldAt(1).value<int64_t>() = 1704182400000LL;
+        writer.write(datum);
+        writer.close();
+    }
+    for (const bool hive : {false, true}) {
+        auto input = reader(0, -1, false, false, std::nullopt, hive);
+        ASSERT_TRUE(initialize(input.get()).ok());
+        auto request = std::make_shared<FileScanRequest>();
+        auto block = block_for({0, 1}, request.get());
+        ASSERT_TRUE(input->open(request).ok());
+        EXPECT_EQ(read_all(input.get(), block),
+                  (std::vector<std::vector<std::string>> {
+                          {hive ? "1582-10-04" : "1582-10-14",
+                           hive ? "2024-01-02 00:00:00.000" : "2024-01-02 08:00:00.000"}}));
+    }
+}
+
+TEST_F(AvroReaderTest, HiveCalendarsCoverOldWritersAndCenturyBoundaries) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[
+                {"name":"day","type":{"type":"int","logicalType":"date"}}]})");
+    for (const int writer_version : {2, 3, 4}) {
+        ::avro::Metadata metadata;
+        if (writer_version >= 3) {
+            metadata["writer.time.zone"] = {'U', 'T', 'C'};
+        }
+        if (writer_version == 4) {
+            metadata["writer.proleptic"] = {'f', 'a', 'l', 's', 'e'};
+        }
+        const std::vector<int32_t> days =
+                writer_version == 3
+                        ? std::vector<int32_t> {-141438, -141427, -171606, -171605, -171605}
+                        : std::vector<int32_t> {-141428, -141427, -171597, -171596, -171595};
+        {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema, 32,
+                                                                ::avro::NULL_CODEC, metadata);
+            for (const auto day : days) {
+                ::avro::GenericDatum datum(avro_schema);
+                datum.value<::avro::GenericRecord>().fieldAt(0).value<int32_t>() = day;
+                writer.write(datum);
+            }
+            writer.close();
+        }
+        auto input = reader(0, -1, false, false, std::nullopt, true);
+        ASSERT_TRUE(initialize(input.get()).ok());
+        auto request = std::make_shared<FileScanRequest>();
+        auto block = block_for({0}, request.get());
+        ASSERT_TRUE(input->open(request).ok());
+        EXPECT_EQ(read_all(input.get(), block),
+                  (std::vector<std::vector<std::string>> {{"1582-10-04"},
+                                                          {"1582-10-15"},
+                                                          {"1500-02-28"},
+                                                          {"1500-03-01"},
+                                                          {"1500-03-01"}}));
+    }
+}
+
+TEST_F(AvroReaderTest, SchemaExpansionIsAdmittedBeforeBuildingColumnTrees) {
+    std::string json = R"({"type":"record","name":"root","fields":[
+        {"name":"n0","type":{"type":"record","name":"N0","fields":[{"name":"v","type":"long"}]}})";
+    for (int i = 1; i <= 15; ++i) {
+        const auto previous = "N" + std::to_string(i - 1);
+        json += ",{\"name\":\"n" + std::to_string(i) +
+                "\",\"type\":{\"type\":\"record\",\"name\":\"N" + std::to_string(i) +
+                "\",\"fields\":[{\"name\":\"a\",\"type\":\"" + previous +
+                "\"},{\"name\":\"b\",\"type\":\"" + previous + "\"}]}}";
+    }
+    json += "]}";
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(
+                path.c_str(), ::avro::compileJsonSchemaFromString(json));
+        writer.close();
+    }
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "avro_schema_limit", 8 * 1024 * 1024);
+    SCOPED_ATTACH_TASK(tracker);
+    auto input = reader();
+    EXPECT_FALSE(initialize(input.get()).ok());
+    EXPECT_TRUE(input->close().ok());
+}
+
+TEST_F(AvroReaderTest, LateRangesAvoidTinyPrefixReads) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"id","type":"long"},
+                {"name":"payload","type":"string"}]})");
+    size_t cut = 0;
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema);
+        for (int64_t i = 0; i < 1024; ++i) {
+            ::avro::GenericDatum datum(avro_schema);
+            auto& record = datum.value<::avro::GenericRecord>();
+            record.fieldAt(0).value<int64_t>() = i;
+            record.fieldAt(1).value<std::string>().assign(4096, 'x');
+            writer.write(datum);
+            writer.flush();
+            if (i == 899) {
+                cut = std::filesystem::file_size(path);
+            }
+        }
+        writer.close();
+    }
+    for (const bool coordinates : {false, true}) {
+        io_stats = {};
+        auto input = reader(cut);
+        ASSERT_TRUE(initialize(input.get()).ok());
+        auto request = std::make_shared<FileScanRequest>();
+        auto block = block_for(coordinates ? std::vector<int32_t> {ROW_POSITION_COLUMN_ID, 0}
+                                           : std::vector<int32_t> {0},
+                               request.get());
+        const auto before = io_stats.read_calls;
+        ASSERT_TRUE(input->open(request).ok());
+        EXPECT_LE(io_stats.read_calls - before, coordinates ? 10 : 2);
+        const auto rows = read_all(input.get(), block);
+        ASSERT_EQ(rows.size(), 124);
+        for (size_t i = 0; i < rows.size(); ++i) {
+            EXPECT_EQ(rows[i].back(), std::to_string(i + 900));
+            if (coordinates) {
+                EXPECT_EQ(rows[i].front(), std::to_string(i + 900));
+            }
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, NullUnionsDoNotReserveUnselectedFixedStorage) {
+    for (const bool null_first : {false, true}) {
+        for (const bool nested : {false, true}) {
+            const std::string large = R"({"type":"fixed","name":"large","size":134217728})";
+            const auto members = null_first ? "\"null\"," + large : large + ",\"null\"";
+            const std::string value_type = "[" + members + "]";
+            const auto type = nested ? "[\"null\",{\"type\":\"record\",\"name\":\"inner\","
+                                       "\"fields\":[{\"name\":\"v\",\"type\":" +
+                                               value_type + "}]}]"
+                                     : value_type;
+            const auto avro_schema = ::avro::compileJsonSchemaFromString(
+                    R"({"type":"record","name":"r","fields":[{"name":"value","type":)" + type +
+                    "}]}");
+            std::vector<uint8_t> payload;
+            if (nested) {
+                payload.push_back(2);
+            }
+            payload.push_back(null_first ? 0 : 2);
+            write_raw_block(avro_schema, ::avro::NULL_CODEC, payload);
+            auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                            "avro_null_union", 8 * 1024 * 1024);
+            SCOPED_ATTACH_TASK(tracker);
+            auto input = reader();
+            ASSERT_TRUE(initialize(input.get()).ok());
+            auto request = std::make_shared<FileScanRequest>();
+            auto block = block_for({0}, request.get());
+            const auto status = input->open(request);
+            ASSERT_TRUE(status.ok()) << status;
+            const auto rows = read_all(input.get(), block);
+            ASSERT_EQ(rows.size(), 1);
+            if (nested) {
+                EXPECT_NE(rows[0][0], "NULL");
+            } else {
+                EXPECT_EQ(rows[0][0], "NULL");
+            }
+        }
+    }
+}
+
+TEST_F(AvroReaderTest, EmptyContainersDoNotAdmitUnmaterializedFixedValues) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"value",
+                "type":{"type":"fixed","name":"large","size":134217728}}]})");
+    for (const auto codec :
+         {::avro::NULL_CODEC, ::avro::DEFLATE_CODEC, ::avro::SNAPPY_CODEC, ::avro::ZSTD_CODEC}) {
+        {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema, 32,
+                                                                codec);
+            writer.close();
+        }
+        auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                        "avro_empty_fixed", 8 * 1024 * 1024);
+        SCOPED_ATTACH_TASK(tracker);
+        auto input = reader();
+        ASSERT_TRUE(initialize(input.get()).ok());
+        auto request = std::make_shared<FileScanRequest>();
+        auto block = block_for({0}, request.get());
+        const auto status = input->open(request);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_TRUE(read_all(input.get(), block).empty());
+    }
+}
+
+TEST_F(AvroReaderTest, RepeatedUnionBranchesReuseTheirAdmittedStorage) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"value",
+                "type":["null",{"type":"fixed","name":"large","size":1048576}]}]})");
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema, 32,
+                                                            ::avro::SNAPPY_CODEC);
+        for (int i = 0; i < 2; ++i) {
+            ::avro::GenericDatum datum(avro_schema);
+            auto& value = datum.value<::avro::GenericRecord>().fieldAt(0);
+            value.selectBranch(1);
+            value.value<::avro::GenericFixed>().value().assign(1048576, 'x');
+            writer.write(datum);
+            writer.flush();
+        }
+        writer.close();
+    }
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "avro_reused_union", 5 * 1024 * 1024);
+    SCOPED_ATTACH_TASK(tracker);
+    auto input = reader();
+    ASSERT_TRUE(initialize(input.get()).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    auto block = block_for({0}, request.get());
+    ASSERT_TRUE(input->open(request).ok());
+    input->set_batch_size(1);
+    const auto rows = read_all(input.get(), block);
+    ASSERT_EQ(rows.size(), 2);
+    EXPECT_EQ(rows[0][0].size(), 1048576);
+    EXPECT_EQ(rows[1][0], rows[0][0]);
+}
+
+TEST_F(AvroReaderTest, DeflateFinishesPendingOutputAfterConsumingItsInput) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"value",
+                "type":{"type":"fixed","name":"s","size":65538}}]})");
+    std::vector<uint8_t> compressed;
+    size_t bits = 0;
+    auto bit = [&](unsigned value) {
+        if (bits % 8 == 0) {
+            compressed.push_back(0);
+        }
+        compressed.back() |= (value & 1) << (bits++ % 8);
+    };
+    auto symbol = [&](unsigned value) {
+        const unsigned length = value <= 143 ? 8 : value <= 255 ? 9 : value <= 279 ? 7 : 8;
+        const unsigned code = value <= 143   ? value + 48
+                              : value <= 255 ? value - 144 + 400
+                              : value <= 279 ? value - 256
+                                             : value - 280 + 192;
+        for (int i = length - 1; i >= 0; --i) {
+            bit(code >> i);
+        }
+    };
+    bit(1);
+    bit(1);
+    bit(0); // Final fixed-Huffman block.
+    for (int i = 0; i < 1034; ++i) {
+        symbol('x');
+    }
+    for (int i = 0; i < 250; ++i) {
+        symbol(285); // Length 258, distance 1.
+        for (int j = 0; j < 5; ++j) {
+            bit(0);
+        }
+    }
+    symbol(258); // The final length-4 match crosses the 64 KiB output boundary.
+    for (int j = 0; j < 5; ++j) {
+        bit(0);
+    }
+    symbol(256);
+    write_raw_block(avro_schema, ::avro::DEFLATE_CODEC, compressed);
+    auto input = reader();
+    ASSERT_TRUE(initialize(input.get()).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    auto block = block_for({0}, request.get());
+    ASSERT_TRUE(input->open(request).ok());
+    const auto rows = read_all(input.get(), block);
+    ASSERT_EQ(rows.size(), 1);
+    EXPECT_EQ(rows[0][0], std::string(65538, 'x'));
+}
+
+TEST_F(AvroReaderTest, EmptyDeflateBlocksReleaseTheirCodecWorkspaces) {
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(
+                path.c_str(), ::avro::compileJsonSchemaFromString(ID_SCHEMA), 32,
+                ::avro::DEFLATE_CODEC);
+        for (int i = 0; i < 40; ++i) {
+            writer.flush();
+        }
+        writer.close();
+    }
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "avro_empty_blocks", 8 * 1024 * 1024);
+    SCOPED_ATTACH_TASK(tracker);
+    auto input = reader();
+    ASSERT_TRUE(initialize(input.get()).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    auto block = block_for({0}, request.get());
+    ASSERT_TRUE(input->open(request).ok());
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = input->get_block(&block, &rows, &eof);
+    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_EQ(rows, 0);
+    EXPECT_TRUE(eof);
+}
+
+TEST_F(AvroReaderTest, ZstandardRequiresAFrameEvenForNullValues) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"value","type":"null"}]})");
+    write_raw_block(avro_schema, ::avro::ZSTD_CODEC, {});
+    auto input = reader();
+    ASSERT_TRUE(initialize(input.get()).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    auto block = block_for({0}, request.get());
+    ASSERT_TRUE(input->open(request).ok());
+    size_t rows = 0;
+    bool eof = false;
+    EXPECT_FALSE(input->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 0);
+}
+
+TEST_F(AvroReaderTest, HiveAcceptsJavaFixedOffsetWriterZones) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"clock",
+                "type":{"type":"long","logicalType":"timestamp-millis"}}]})");
+    const std::vector<std::pair<std::string, std::string>> cases {
+            {"GMT+08:00", "1970-01-01 08:00:00.000"},
+            {"GMT-13:00", "1969-12-31 11:00:00.000"},
+            {"UTC+15:00", "1970-01-01 15:00:00.000"},
+            {"UT+18:00", "1970-01-01 18:00:00.000"},
+            {"-18:00", "1969-12-31 06:00:00.000"},
+            {"+08:00:30", "1970-01-01 08:00:30.000"},
+            {"Z", "1970-01-01 00:00:00.000"},
+            {"GMT+18:00:01", ""},
+            {"+19:00", ""},
+            {"UTC-18:01", ""},
+            {"GMT+08:60", ""}};
+    for (const auto& [zone, expected] : cases) {
+        ::avro::Metadata metadata {{"writer.time.zone", {zone.begin(), zone.end()}},
+                                   {"writer.proleptic", {'t', 'r', 'u', 'e'}}};
+        {
+            ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema, 32,
+                                                                ::avro::NULL_CODEC, metadata);
+            ::avro::GenericDatum datum(avro_schema);
+            writer.write(datum);
+            writer.close();
+        }
+        auto input = reader(0, -1, false, false, std::nullopt, true);
+        const auto status = initialize(input.get());
+        if (expected.empty()) {
+            EXPECT_FALSE(status.ok()) << zone;
+            continue;
+        }
+        ASSERT_TRUE(status.ok()) << zone << ": " << status;
+        auto request = std::make_shared<FileScanRequest>();
+        auto block = block_for({0}, request.get());
+        ASSERT_TRUE(input->open(request).ok());
+        EXPECT_EQ(read_all(input.get(), block),
+                  (std::vector<std::vector<std::string>> {{expected}}));
+    }
+}
+
+TEST_F(AvroReaderTest, OldHiveTimestampsRejectAmbiguousHistoricalTimezoneRules) {
+    const auto avro_schema = ::avro::compileJsonSchemaFromString(
+            R"({"type":"record","name":"r","fields":[{"name":"clock",
+                "type":{"type":"long","logicalType":"timestamp-millis"}}]})");
+    {
+        ::avro::DataFileWriter<::avro::GenericDatum> writer(path.c_str(), avro_schema);
+        ::avro::GenericDatum datum(avro_schema);
+        datum.value<::avro::GenericRecord>().fieldAt(0).value<int64_t>() = -5364644400000LL;
+        writer.write(datum);
+        writer.close();
+    }
+    TQueryGlobals globals;
+    globals.__set_time_zone("America/New_York");
+    RuntimeState historical_state {TQueryOptions(), globals};
+    auto input = reader(0, -1, false, false, std::nullopt, true);
+    ASSERT_TRUE(input->init(&historical_state).ok());
+    ASSERT_TRUE(input->get_schema(&schema).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    auto block = block_for({0}, request.get());
+    ASSERT_TRUE(input->open(request).ok());
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = input->get_block(&block, &rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("1900"), std::string::npos) << status;
+    EXPECT_EQ(rows, 0);
 }
 
 TEST_F(AvroReaderTest, LogicalUuidsAndWideFixedDecimals) {
@@ -607,7 +1099,6 @@ TEST_F(AvroReaderTest, HugeMetadataMapCountsFailBeforeAllocatingNodes) {
     auto input = reader();
     const auto status = initialize(input.get());
     EXPECT_EQ(status.code(), ErrorCode::QUERY_MEMORY_EXCEEDED) << status;
-    EXPECT_EQ(::avro::allocationHook.check, nullptr);
     EXPECT_TRUE(input->close().ok());
 }
 
@@ -643,7 +1134,6 @@ TEST_F(AvroReaderTest, HugeArrayCountsFailTheBudgetBeforeAllocatingElements) {
     bool eof = false;
     const auto status = input->get_block(&block, &rows, &eof);
     EXPECT_EQ(status.code(), ErrorCode::QUERY_MEMORY_EXCEEDED) << status;
-    EXPECT_EQ(::avro::allocationHook.check, nullptr);
     EXPECT_TRUE(input->close().ok());
 }
 
@@ -682,9 +1172,15 @@ TEST_F(AvroReaderTest, FixedAndCompressedBlocksReserveBeforeMaterializing) {
         ASSERT_TRUE(initialize(input.get()).ok());
         auto request = std::make_shared<FileScanRequest>();
         auto block = block_for({0}, request.get());
-        const auto status = input->open(request);
+        auto status = input->open(request);
+        size_t rows = 0;
+        bool eof = false;
+        // Container initialization leaves compressed blocks untouched until the first read.
+        if (status.ok()) {
+            status = input->get_block(&block, &rows, &eof);
+        }
         EXPECT_EQ(status.code(), ErrorCode::QUERY_MEMORY_EXCEEDED) << status;
-        EXPECT_EQ(::avro::allocationHook.check, nullptr);
+        EXPECT_EQ(rows, 0);
         EXPECT_TRUE(input->close().ok());
     }
 }

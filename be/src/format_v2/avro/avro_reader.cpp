@@ -19,13 +19,12 @@
 
 #include <algorithm>
 #include <array>
-#include <avro/Allocation.hh>
-#include <avro/DataFile.hh>
 #include <avro/Generic.hh>
 #include <avro/NodeImpl.hh>
 #include <charconv>
 #include <limits>
 #include <mutex>
+#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -54,86 +53,118 @@
 #include "core/data_type/data_type_varbinary.h"
 #include "core/value/timestamp_ns_value.h"
 #include "core/value/timestamptz_value.h"
+#include "format_v2/avro/avro_container_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/materialized_reader_util.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
+#include "runtime/file_scan_profile.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "storage/utils.h"
+#include "util/timezone_utils.h"
 
 namespace doris::format::avro {
 namespace {
 
-// Avro must use the same filesystem, credentials, cache and cancellation state as other readers.
-// The library owns its stream; the shared physical reader remains alive until the stream closes.
-class NativeInputStream final : public ::avro::SeekableInputStream {
-public:
-    NativeInputStream(io::FileReaderSPtr reader, std::shared_ptr<io::IOContext> io_ctx)
-            : _reader(std::move(reader)), _io_ctx(std::move(io_ctx)) {}
-
-    bool next(const uint8_t** data, size_t* length) override {
-        if (_position == _reader->size()) {
-            return false;
-        }
-        if (_io_ctx != nullptr && _io_ctx->should_stop) {
-            throw Exception(ErrorCode::CANCELLED, "Avro scan cancelled");
-        }
-        const auto requested = std::min(_buffer.size(), _reader->size() - _position);
-        size_t read = 0;
-        auto status =
-                _reader->read_at(_position, Slice(_buffer.data(), requested), &read, _io_ctx.get());
-        if (!status.ok()) {
-            throw Exception(status.code(), status.to_string());
-        }
-        if (read == 0) {
-            throw ::avro::Exception("Truncated Avro input");
-        }
-        *data = reinterpret_cast<const uint8_t*>(_buffer.data());
-        *length = read;
-        _position += read;
-        _last_read = read;
-        return true;
-    }
-
-    void backup(size_t length) override {
-        if (length > _last_read) {
-            throw ::avro::Exception("Invalid Avro stream backup");
-        }
-        _position -= length;
-        _last_read -= length;
-    }
-
-    void skip(size_t length) override {
-        if (length > _reader->size() - _position) {
-            throw ::avro::Exception("Truncated Avro input");
-        }
-        _position += length;
-        _last_read = 0;
-    }
-
-    size_t byteCount() const override { return _position; }
-
-    void seek(int64_t position) override {
-        if (position < 0 || static_cast<uint64_t>(position) > _reader->size()) {
-            throw ::avro::Exception("Invalid Avro stream offset");
-        }
-        _position = position;
-        _last_read = 0;
-    }
-
-private:
-    io::FileReaderSPtr _reader;
-    std::shared_ptr<io::IOContext> _io_ctx;
-    std::array<char, 64 * 1024> _buffer;
-    size_t _position = 0;
-    size_t _last_read = 0;
-};
-
 ::avro::NodePtr resolved_node(const ::avro::NodePtr& node) {
     return node->type() == ::avro::AVRO_SYMBOLIC ? ::avro::resolveSymbol(node) : node;
+}
+
+struct AvroTemporalPolicy {
+    cctz::time_zone timezone = cctz::utc_time_zone();
+    bool legacy_calendar = false;
+    bool legacy_timezone = false;
+};
+
+bool parse_writer_timezone(const std::string& name, cctz::time_zone* zone) {
+    std::string_view offset(name);
+    bool prefixed = false;
+    if (offset.starts_with("GMT") || offset.starts_with("UTC")) {
+        offset.remove_prefix(3);
+        prefixed = true;
+    } else if (offset.starts_with("UT")) {
+        offset.remove_prefix(2);
+        prefixed = true;
+    }
+    if ((prefixed && offset.empty()) || name == "Z") {
+        *zone = cctz::utc_time_zone();
+        return true;
+    }
+    if (offset.empty()) {
+        return false;
+    }
+    if (offset.front() != '+' && offset.front() != '-') {
+        // Hive emits normalized Java ZoneIds. Use named TZDB rules without SQL-only aliases.
+        return cctz::load_time_zone(name, zone);
+    }
+    const bool negative = offset.front() == '-';
+    offset.remove_prefix(1);
+    auto parse = [](std::string_view part, int* value) {
+        if (part.empty() || part.size() > 2 ||
+            !std::ranges::all_of(part, [](char c) { return c >= '0' && c <= '9'; })) {
+            return false;
+        }
+        const auto result = std::from_chars(part.data(), part.data() + part.size(), *value);
+        return result.ec == std::errc() && result.ptr == part.data() + part.size();
+    };
+    int hours = 0, minutes = 0, seconds = 0;
+    const auto colon = offset.find(':');
+    if (!parse(offset.substr(0, colon), &hours)) {
+        return false;
+    }
+    if (colon != std::string_view::npos) {
+        offset.remove_prefix(colon + 1);
+        const auto second_colon = offset.find(':');
+        const auto minute = offset.substr(0, second_colon);
+        if (minute.size() != 2 || !parse(minute, &minutes)) {
+            return false;
+        }
+        if (second_colon != std::string_view::npos) {
+            const auto second = offset.substr(second_colon + 1);
+            if (second.size() != 2 || !parse(second, &seconds)) {
+                return false;
+            }
+        }
+    }
+    // Java ZoneOffset permits +/-18h, unlike the SQL session's -12h/+14h setting.
+    if (hours > 18 || minutes > 59 || seconds > 59 ||
+        (hours == 18 && (minutes != 0 || seconds != 0))) {
+        return false;
+    }
+    const int total = (negative ? -1 : 1) * (hours * 3600 + minutes * 60 + seconds);
+    *zone = TimezoneUtils::create_fixed_offset_time_zone(total);
+    return true;
+}
+
+size_t expanded_schema_bytes(const ::avro::NodePtr& input,
+                             std::unordered_map<const ::avro::Node*, size_t>* sizes,
+                             std::unordered_set<const ::avro::Node*>* ancestors) {
+    const auto node = resolved_node(input);
+    if (ancestors->size() >= 64 || !ancestors->insert(node.get()).second) {
+        throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                        "Recursive or excessively nested Avro schemas are unsupported");
+    }
+    Defer pop([&] { ancestors->erase(node.get()); });
+    if (const auto found = sizes->find(node.get()); found != sizes->end()) {
+        return found->second;
+    }
+    // Named schemas share Avro nodes, but Doris expands each use into a distinct column tree.
+    // Memoize the expanded cost: N_i={a:N_(i-1),b:N_(i-1)} doubles without a deep schema.
+    constexpr size_t max_schema_bytes = 64 * 1024 * 1024;
+    size_t bytes = 1024;
+    for (size_t i = 0; i < node->leaves(); ++i) {
+        const auto child = expanded_schema_bytes(node->leafAt(i), sizes, ancestors);
+        if (child > max_schema_bytes || bytes > max_schema_bytes - child) {
+            throw Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                            "Expanded Avro schema size is unsupported");
+        }
+        bytes += child;
+    }
+    sizes->emplace(node.get(), bytes);
+    return bytes;
 }
 
 std::string lowercase(std::string name) {
@@ -229,6 +260,9 @@ Status build_schema(const ::avro::NodePtr& input, const std::string& name, int32
         type = std::make_shared<DataTypeTimeV2>(logical.type() == Logical::TIME_MILLIS ? 3 : 6);
         break;
     case Logical::TIMESTAMP_NANOS:
+        // TIMESTAMP_NS is a civil clock and TIMESTAMPTZ retains only microseconds. Neither can
+        // represent a nanosecond UTC instant without losing timezone semantics or precision.
+        return Status::NotSupported("Avro timestamp-nanos is unsupported");
     case Logical::LOCAL_TIMESTAMP_NANOS:
         type = std::make_shared<DataTypeTimeStampNs>();
         column->timestamp_is_adjusted_to_utc = logical.type() == Logical::TIMESTAMP_NANOS;
@@ -380,7 +414,12 @@ Status build_schema(const ::avro::NodePtr& input, const std::string& name, int32
         if (selected_roots != nullptr && !selected_roots->contains(static_cast<int32_t>(i))) {
             continue;
         }
-        result->addLeaf(clone_projected_schema(source->leafAt(i), copies));
+        // Null-first datum schemas avoid constructing a large default value merely to read
+        // null from a writer union such as [fixed, null]. The decoder remaps writer indices.
+        const bool swap_union = source->type() == ::avro::AVRO_UNION && source->leaves() == 2 &&
+                                source->leafAt(1)->type() == ::avro::AVRO_NULL;
+        const auto child = swap_union ? 1 - i : i;
+        result->addLeaf(clone_projected_schema(source->leafAt(child), copies));
         if (source->type() == ::avro::AVRO_RECORD) {
             result->addName(source->nameAt(i));
         }
@@ -397,16 +436,8 @@ Status build_schema(const ::avro::NodePtr& input, const std::string& name, int32
 }
 
 void apply_timestamp_projection(ColumnDefinition* column, const LocalColumnIndex& projection) {
-    const auto type = remove_nullable(column->type);
-    if (projection.timestamp_is_adjusted_to_utc.has_value() &&
-        (type->get_primitive_type() == TYPE_DATETIMEV2 ||
-         type->get_primitive_type() == TYPE_TIMESTAMPTZ)) {
+    if (projection.timestamp_is_adjusted_to_utc.has_value()) {
         column->timestamp_is_adjusted_to_utc = projection.timestamp_is_adjusted_to_utc;
-        column->type = make_nullable(
-                *projection.timestamp_is_adjusted_to_utc
-                        ? DataTypePtr(std::make_shared<DataTypeTimeStampTz>(type->get_scale()))
-                        : DataTypePtr(std::make_shared<DataTypeDateTimeV2>(type->get_scale())));
-        return;
     }
     for (const auto& child_projection : projection.children) {
         for (auto& child : column->children) {
@@ -415,20 +446,6 @@ void apply_timestamp_projection(ColumnDefinition* column, const LocalColumnIndex
                 break;
             }
         }
-    }
-    if (type->get_primitive_type() == TYPE_ARRAY) {
-        column->type = make_nullable(std::make_shared<DataTypeArray>(column->children[0].type));
-    } else if (type->get_primitive_type() == TYPE_MAP) {
-        column->type = make_nullable(
-                std::make_shared<DataTypeMap>(column->children[0].type, column->children[1].type));
-    } else if (type->get_primitive_type() == TYPE_STRUCT) {
-        DataTypes types;
-        Strings names;
-        for (const auto& child : column->children) {
-            types.push_back(child.type);
-            names.push_back(child.name);
-        }
-        column->type = make_nullable(std::make_shared<DataTypeStruct>(types, names));
     }
 }
 
@@ -474,17 +491,48 @@ Status append_decimal(const std::vector<uint8_t>& bytes, const DataTypePtr& type
     return Status::OK();
 }
 
+Status rebase_hybrid_day(int64_t* day) {
+    if (*day >= -141427) {
+        return Status::OK();
+    }
+    // Hive's hybrid 1582-10-04 is epoch day -141428. Reinterpret its Julian civil date;
+    // subtracting ten days would be wrong for older centuries and Julian leap years.
+    if (*day < -719530) {
+        return Status::InvalidArgument("Avro date is out of range");
+    }
+    const int64_t c = *day + 2440588 + 32082;
+    const int64_t d = (4 * c + 3) / 1461;
+    const int64_t e = c - 1461 * d / 4;
+    const int64_t m = (5 * e + 2) / 153;
+    const int64_t year = d - 4800 + m / 10;
+    const int64_t month = m + 3 - 12 * (m / 10);
+    const int64_t dom = e - (153 * m + 2) / 5 + 1;
+    DateV2Value<DateV2ValueType> first;
+    if (!first.check_range_and_set_time(static_cast<uint16_t>(year), static_cast<uint8_t>(month), 1,
+                                        0, 0, 0, 0)) {
+        return Status::InvalidArgument("Avro date is out of range");
+    }
+    // Hive normalizes Julian-only leap days through a lenient Gregorian calendar.
+    *day = first.daynr() + dom - 1 - 719528;
+    return Status::OK();
+}
+
 // One visitor preserves the same null/child-offset rules for all Avro value alternatives.
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 Status append_value(const ::avro::GenericDatum& datum, const ColumnDefinition& schema,
-                    IColumn* output, const cctz::time_zone& timezone) {
+                    IColumn* output, const DataTypePtr& output_type,
+                    const AvroTemporalPolicy& temporal) {
     if (datum.type() == ::avro::AVRO_NULL) {
         output->insert_default();
         return Status::OK();
     }
     auto& nullable = assert_cast<ColumnNullable&>(*output);
     auto* column = &nullable.get_nested_column();
-    const auto type = remove_nullable(schema.type);
+    // A load and an Iceberg scan may carry the same adjusted marker but use different physical
+    // types. Insert the representation selected by the actual file block, including nested leaves.
+    const auto type = remove_nullable(output_type);
+    const auto& timezone = temporal.timezone;
+    const bool legacy_calendar = temporal.legacy_calendar;
     using Logical = ::avro::LogicalType;
     const auto logical = datum.logicalType().type();
     if (logical == Logical::DECIMAL) {
@@ -506,7 +554,11 @@ Status append_value(const ::avro::GenericDatum& datum, const ColumnDefinition& s
         column->insert(Field::create_field<TYPE_UUID>(value));
     } else if (logical == Logical::DATE) {
         DateV2Value<DateV2ValueType> date;
-        const int64_t day = static_cast<int64_t>(datum.value<int32_t>()) + 719528;
+        int64_t day = datum.value<int32_t>();
+        if (legacy_calendar) {
+            RETURN_IF_ERROR(rebase_hybrid_day(&day));
+        }
+        day += 719528;
         if (day < 0 || !date.get_date_from_daynr(day)) {
             return Status::InvalidArgument("Avro date is out of range");
         }
@@ -538,6 +590,12 @@ Status append_value(const ::avro::GenericDatum& datum, const ColumnDefinition& s
         }
         const bool adjusted = schema.timestamp_is_adjusted_to_utc.value_or(
                 logical == Logical::TIMESTAMP_MILLIS || logical == Logical::TIMESTAMP_MICROS);
+        if (temporal.legacy_timezone && adjusted && seconds < -2208988800LL) {
+            // Metadata-free Hive 2 timestamps use Java's pre-1900 raw-offset rules; applying
+            // historical tzdb LMT would silently change the civil clock (e.g. by 238s in New York).
+            return Status::NotSupported(
+                    "Hive Avro timestamps before 1900 without writer timezone are unsupported");
+        }
         if (seconds < -62167305600LL || seconds > 253402387199LL) {
             return Status::InvalidArgument("Avro timestamp is out of range");
         }
@@ -552,6 +610,17 @@ Status append_value(const ::avro::GenericDatum& datum, const ColumnDefinition& s
                             6);
         if (!value.is_valid_date()) {
             return Status::InvalidArgument("Avro timestamp is out of range");
+        }
+        if (legacy_calendar) {
+            // Restore the writer-zone civil clock first, then rebase its calendar date.
+            int64_t day = value.daynr() - 719528;
+            RETURN_IF_ERROR(rebase_hybrid_day(&day));
+            DateV2Value<DateV2ValueType> date;
+            if (!date.get_date_from_daynr(day + 719528)) {
+                return Status::InvalidArgument("Avro timestamp is out of range");
+            }
+            value.unchecked_set_time(date.year(), date.month(), date.day(), value.hour(),
+                                     value.minute(), value.second(), value.microsecond());
         }
         if (type->get_primitive_type() == TYPE_TIMESTAMPTZ) {
             column->insert(Field::create_field<TYPE_TIMESTAMPTZ>(TimestampTzValue(value)));
@@ -597,8 +666,9 @@ Status append_value(const ::avro::GenericDatum& datum, const ColumnDefinition& s
             const auto& record = datum.value<::avro::GenericRecord>();
             auto& target = assert_cast<ColumnStruct&>(*column);
             for (size_t i = 0; i < schema.children.size(); ++i) {
-                RETURN_IF_ERROR(append_value(record.fieldAt(i), schema.children[i],
-                                             &target.get_column(i), timezone));
+                RETURN_IF_ERROR(append_value(
+                        record.fieldAt(i), schema.children[i], &target.get_column(i),
+                        assert_cast<const DataTypeStruct&>(*type).get_elements()[i], temporal));
             }
             break;
         }
@@ -608,17 +678,20 @@ Status append_value(const ::avro::GenericDatum& datum, const ColumnDefinition& s
                 auto& target = assert_cast<ColumnMap&>(*column);
                 for (const auto& entry : values) {
                     const auto& record = entry.value<::avro::GenericRecord>();
-                    RETURN_IF_ERROR(append_value(record.fieldAt(0), schema.children[0],
-                                                 &target.get_keys(), timezone));
-                    RETURN_IF_ERROR(append_value(record.fieldAt(1), schema.children[1],
-                                                 &target.get_values(), timezone));
+                    RETURN_IF_ERROR(append_value(
+                            record.fieldAt(0), schema.children[0], &target.get_keys(),
+                            assert_cast<const DataTypeMap&>(*type).get_key_type(), temporal));
+                    RETURN_IF_ERROR(append_value(
+                            record.fieldAt(1), schema.children[1], &target.get_values(),
+                            assert_cast<const DataTypeMap&>(*type).get_value_type(), temporal));
                 }
                 target.get_offsets().push_back(target.get_keys().size());
             } else {
                 auto& target = assert_cast<ColumnArray&>(*column);
                 for (const auto& value : values) {
-                    RETURN_IF_ERROR(
-                            append_value(value, schema.children[0], &target.get_data(), timezone));
+                    RETURN_IF_ERROR(append_value(
+                            value, schema.children[0], &target.get_data(),
+                            assert_cast<const DataTypeArray&>(*type).get_nested_type(), temporal));
                 }
                 target.get_offsets().push_back(target.get_data().size());
             }
@@ -630,8 +703,9 @@ Status append_value(const ::avro::GenericDatum& datum, const ColumnDefinition& s
                 auto& keys = assert_cast<ColumnNullable&>(target.get_keys());
                 keys.get_nested_column().insert_data(key.data(), key.size());
                 keys.get_null_map_data().push_back(0);
-                RETURN_IF_ERROR(
-                        append_value(value, schema.children[1], &target.get_values(), timezone));
+                RETURN_IF_ERROR(append_value(
+                        value, schema.children[1], &target.get_values(),
+                        assert_cast<const DataTypeMap&>(*type).get_value_type(), temporal));
             }
             target.get_offsets().push_back(target.get_keys().size());
             break;
@@ -699,7 +773,11 @@ struct AvroReader::Impl {
     std::shared_ptr<MemTrackerLimiter> memory_tracker;
     DorisVector<ReservedMemoryToken> reservations;
     int64_t accounted_scratch = 0;
+    size_t schema_scratch = 0;
     RuntimeProfile::Counter* scratch_accounting_passes = nullptr;
+    RuntimeProfile::Counter* total_time = nullptr;
+    RuntimeProfile::Counter* decode_materialize_time = nullptr;
+    RuntimeProfile::Counter* filter_time = nullptr;
     size_t small_reservation_available = 0;
     size_t collection_scratch_before_reset = 0;
 
@@ -728,6 +806,21 @@ struct AvroReader::Impl {
         }
     }
 
+    static std::shared_ptr<void> reserve_workspace(size_t bytes) {
+        if (bytes > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
+            throw Exception(ErrorCode::MEM_LIMIT_EXCEEDED, "Avro codec workspace exceeds Int64");
+        }
+        auto* manager = thread_context()->thread_mem_tracker_mgr.get();
+        auto previous = manager->take_reserved_memory();
+        Defer restore([&] { manager->adopt_reserved_memory(std::move(previous)); });
+        const auto status = manager->try_reserve(static_cast<int64_t>(bytes));
+        if (!status.ok()) {
+            throw Exception(status);
+        }
+        // Codec contexts die at block/frame boundaries, including when no row is produced.
+        return std::make_shared<ReservedMemoryToken>(manager->take_reserved_memory());
+    }
+
     static void checkpoint_callback(void* context, const ::avro::GenericDatum& collection,
                                     bool before) {
         auto* self = static_cast<Impl*>(context);
@@ -735,8 +828,8 @@ struct AvroReader::Impl {
         if (before) {
             self->collection_scratch_before_reset = retained;
         } else {
-            // Reset only destroys children from the previously accounted row. These paired callbacks
-            // cannot nest, and newly constructed collections have no children to release.
+            // Collection resets and switches to null release previously-accounted children.
+            // The decoder suppresses union checkpoints for newly constructed branches.
             const auto released =
                     static_cast<int64_t>(self->collection_scratch_before_reset - retained);
             DCHECK_LE(released, self->accounted_scratch);
@@ -746,9 +839,12 @@ struct AvroReader::Impl {
     }
 
     void reconcile_scratch() {
-        COUNTER_UPDATE(scratch_accounting_passes, 1);
-        const size_t retained = (reader ? reader->scratchBytes() + sizeof(NativeInputStream) : 0) +
-                                (datum ? datum_scratch_bytes(*datum) : 0);
+        if (scratch_accounting_passes != nullptr) {
+            COUNTER_UPDATE(scratch_accounting_passes, 1);
+        }
+        const size_t retained =
+                schema_scratch + (reader ? reader->scratchBytes() : 0) +
+                (datum ? sizeof(::avro::GenericDatum) + datum_scratch_bytes(*datum) : 0);
         // Replace conservative transient-growth reservations with retained capacities after every
         // record. Retained codec and datum buffers remain charged between batches until close.
         memory_tracker->consume(static_cast<int64_t>(retained) - accounted_scratch);
@@ -757,14 +853,15 @@ struct AvroReader::Impl {
         small_reservation_available = 0;
     }
 
+    bool hive_compatible = false;
     bool timestamp_tz;
     bool varbinary;
-    cctz::time_zone timezone = cctz::utc_time_zone();
+    AvroTemporalPolicy temporal;
     size_t batch_size = 4096;
     size_t max_block_bytes = std::numeric_limits<size_t>::max();
     std::unordered_set<int32_t> count_placeholders;
     std::unordered_map<int32_t, size_t> projected_ordinals;
-    std::unique_ptr<::avro::DataFileReaderBase> reader;
+    std::unique_ptr<AvroContainerReader> reader;
     std::unique_ptr<::avro::GenericDatum> datum;
     std::vector<ColumnDefinition> schema;
     int64_t header_end = 0;
@@ -778,10 +875,11 @@ AvroReader::AvroReader(std::shared_ptr<io::FileSystemProperties>& system_propert
                        std::unique_ptr<io::FileDescription>& file_description,
                        std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                        bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
-                       std::optional<GlobalRowIdContext> global_rowid_context)
+                       std::optional<GlobalRowIdContext> global_rowid_context, bool hive_compatible)
         : FileReader(system_properties, file_description, std::move(io_ctx), profile),
           _impl(std::make_unique<Impl>()) {
-    _impl->timestamp_tz = enable_mapping_timestamp_tz;
+    _impl->hive_compatible = hive_compatible;
+    _impl->timestamp_tz = enable_mapping_timestamp_tz && !hive_compatible;
     _impl->varbinary = enable_mapping_varbinary;
     _impl->global_rowid_context = global_rowid_context;
 }
@@ -793,10 +891,20 @@ AvroReader::~AvroReader() {
 Status AvroReader::init(RuntimeState* state) {
     _impl->memory_tracker = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr();
     RETURN_IF_ERROR(FileReader::init(state));
-    _impl->scratch_accounting_passes =
-            ADD_COUNTER(_profile, "AvroScratchAccountingPasses", TUnit::UNIT);
+    if (_profile != nullptr) {
+        file_scan_profile::ensure_hierarchy(_profile);
+        _impl->total_time = ADD_CHILD_TIMER_WITH_LEVEL(_profile, "AvroReader",
+                                                       file_scan_profile::FILE_READER, 1);
+        _impl->decode_materialize_time = ADD_CHILD_TIMER_WITH_LEVEL(
+                _profile, "AvroDecodeAndMaterializeTime", "AvroReader", 1);
+        _impl->filter_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(_profile, "AvroFilterTime", "AvroReader", 1);
+        _impl->scratch_accounting_passes = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "AvroScratchAccountingPasses", TUnit::UNIT, "AvroReader", 1);
+    }
+    SCOPED_TIMER(_impl->total_time);
     if (state != nullptr) {
-        _impl->timezone = state->timezone_obj();
+        _impl->temporal.timezone = state->timezone_obj();
         _impl->max_block_bytes = state->preferred_block_size_bytes();
     }
     static std::once_flag register_map;
@@ -807,17 +915,40 @@ Status AvroReader::init(RuntimeState* state) {
         });
     });
     try {
-        ::avro::AllocationCheckScope budget(&Impl::reserve_callback, _impl.get(),
-                                            &Impl::checkpoint_callback);
-        Impl::reserve_callback(_impl.get(), sizeof(NativeInputStream));
-        _impl->reader = std::make_unique<::avro::DataFileReaderBase>(
-                std::make_unique<NativeInputStream>(_tracing_file_reader, _io_ctx));
+        Impl::reserve_callback(_impl.get(), 128 * 1024);
+        _impl->reader = std::make_unique<AvroContainerReader>(
+                _tracing_file_reader, _io_ctx,
+                [this](size_t bytes) { Impl::reserve_callback(_impl.get(), bytes); },
+                [this](const ::avro::GenericDatum& datum, bool before) {
+                    Impl::checkpoint_callback(_impl.get(), datum, before);
+                },
+                &Impl::reserve_workspace, _profile);
+        if (_impl->hive_compatible) {
+            const auto zone = _impl->reader->metadata("writer.time.zone");
+            if (zone && !parse_writer_timezone(*zone, &_impl->temporal.timezone)) {
+                return Status::InvalidArgument("Invalid Avro writer timezone");
+            }
+            _impl->temporal.legacy_timezone = !zone.has_value();
+            const auto proleptic = _impl->reader->metadata("writer.proleptic");
+            if (proleptic && *proleptic != "true" && *proleptic != "false") {
+                return Status::InvalidArgument("Invalid Avro writer calendar");
+            }
+            // Hive 2 has neither key and writes a hybrid calendar. Hive 3 adds its writer zone
+            // and writes proleptic dates; Hive 4 records the calendar choice explicitly.
+            _impl->temporal.legacy_calendar = proleptic ? *proleptic == "false" : !zone.has_value();
+            if (_impl->reader->metadata("writer.zone.conversion.legacy") == "true") {
+                return Status::NotSupported("Legacy Hive Avro timezone conversion is unsupported");
+            }
+        }
         const auto root = _impl->reader->dataSchema().root();
         if (root->type() != ::avro::AVRO_RECORD) {
             return Status::NotSupported("Avro container root must be a record");
         }
-        _impl->header_end = _impl->reader->previousSync();
+        _impl->header_end = _impl->reader->position();
         std::unordered_set<const ::avro::Node*> ancestors;
+        std::unordered_map<const ::avro::Node*, size_t> schema_sizes;
+        _impl->schema_scratch = expanded_schema_bytes(root, &schema_sizes, &ancestors);
+        Impl::reserve_callback(_impl.get(), _impl->schema_scratch);
         ColumnDefinition record;
         RETURN_IF_ERROR(build_schema(root, "row", 0, _impl->timestamp_tz, _impl->varbinary,
                                      &ancestors, &record));
@@ -851,11 +982,10 @@ std::unique_ptr<TableColumnMapper> AvroReader::create_column_mapper(
 // Range ownership and initialization update the same absolute row-position state.
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 Status AvroReader::open(std::shared_ptr<FileScanRequest> request) {
+    SCOPED_TIMER(_impl->total_time);
     RETURN_IF_ERROR(FileReader::open(std::move(request)));
     try {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_impl->memory_tracker);
-        ::avro::AllocationCheckScope budget(&Impl::reserve_callback, _impl.get(),
-                                            &Impl::checkpoint_callback);
         // The mapper communicates per-leaf physical decoding semantics through local projections.
         // Apply them before writing into the file block, whose types already carry these markers.
         auto apply_projection = [&](const LocalColumnIndex& projection) {
@@ -901,47 +1031,15 @@ Status AvroReader::open(std::shared_ptr<FileScanRequest> request) {
             return Status::InvalidArgument("Invalid Avro file range");
         }
         _impl->range_end = size < 0 ? std::numeric_limits<int64_t>::max() : start + size;
-        // A range owns blocks whose start lies in [start,end). Count preceding blocks from their
-        // OCF headers, without decoding payloads, so position deletes retain absolute file rows.
-        int64_t offset = _impl->header_end;
-        while (offset < start && std::cmp_less(offset, _tracing_file_reader->size())) {
-            std::array<uint8_t, 20> bytes;
-            size_t read = 0;
-            RETURN_IF_ERROR(_tracing_file_reader->read_at(
-                    offset,
-                    Slice(bytes.data(),
-                          std::min(bytes.size(), _tracing_file_reader->size() - offset)),
-                    &read, _io_ctx.get()));
-            size_t cursor = 0;
-            auto read_long = [&](int64_t* result) -> Status {
-                uint64_t value = 0;
-                for (unsigned shift = 0; shift < 64 && cursor < read; shift += 7) {
-                    const auto byte = bytes[cursor++];
-                    if (shift == 63 && byte > 1) {
-                        return Status::InvalidArgument("Invalid Avro block header");
-                    }
-                    value |= static_cast<uint64_t>(byte & 127) << shift;
-                    if ((byte & 128) == 0) {
-                        *result =
-                                static_cast<int64_t>(value >> 1) ^ -static_cast<int64_t>(value & 1);
-                        return Status::OK();
-                    }
-                }
-                return Status::InvalidArgument("Truncated Avro block header");
-            };
-            int64_t count = 0, length = 0;
-            RETURN_IF_ERROR(read_long(&count));
-            RETURN_IF_ERROR(read_long(&length));
-            const auto remaining = _tracing_file_reader->size() - offset - cursor;
-            if (count < 0 || length < 0 || remaining < 16 ||
-                static_cast<uint64_t>(length) > remaining - 16 ||
-                count > std::numeric_limits<int64_t>::max() - _impl->row_position) {
-                return Status::InvalidArgument("Invalid Avro block bounds");
-            }
-            _impl->row_position += count;
-            offset += cursor + length + 16;
-        }
-        _eof = offset >= _impl->range_end ||
+        // Position deletes and virtual row ids need absolute coordinates. Ordinary scans can
+        // align directly to a sync marker instead of enumerating all preceding block headers.
+        const bool absolute_positions =
+                _request->row_ids.has_value() ||
+                _request->local_positions.contains(LocalColumnId(ROW_POSITION_COLUMN_ID)) ||
+                _request->local_positions.contains(LocalColumnId(GLOBAL_ROWID_COLUMN_ID));
+        _impl->row_position = _impl->reader->seek_range(start, absolute_positions);
+        const auto offset = _impl->reader->position();
+        _eof = std::cmp_greater_equal(offset, _impl->range_end) ||
                static_cast<uint64_t>(offset) >= _tracing_file_reader->size();
         if (!_eof) {
             // Decode only requested roots. The resolving decoder skips the other writer fields,
@@ -949,7 +1047,6 @@ Status AvroReader::open(std::shared_ptr<FileScanRequest> request) {
             std::unordered_map<const ::avro::Node*, ::avro::NodePtr> copies;
             ::avro::ValidSchema projected_schema(
                     clone_projected_schema(_impl->reader->dataSchema().root(), &copies, &selected));
-            _impl->datum = std::make_unique<::avro::GenericDatum>(projected_schema);
             _impl->reader->init(projected_schema, offset);
         }
         _impl->reconcile_scratch();
@@ -970,6 +1067,7 @@ void AvroReader::set_batch_size(size_t batch_size) {
 // Keep selected-row advancement, block ownership and final filtering in one batch transition.
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
 Status AvroReader::get_block(Block* file_block, size_t* rows, bool* eof) {
+    SCOPED_TIMER(_impl->total_time);
     *rows = 0;
     *eof = _eof;
     if (_eof) {
@@ -977,74 +1075,85 @@ Status AvroReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
     try {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_impl->memory_tracker);
-        ::avro::AllocationCheckScope budget(&Impl::reserve_callback, _impl.get(),
-                                            &Impl::checkpoint_callback);
-        while (*rows < _impl->batch_size &&
-               (*rows == 0 || file_block->bytes() < _impl->max_block_bytes)) {
-            if (_io_ctx != nullptr && _io_ctx->should_stop) {
-                _eof = true;
-                break;
-            }
-            if (_request->row_ids.has_value() &&
-                _impl->next_requested_row == _request->row_ids->size()) {
-                _eof = true;
-                break;
-            }
-            if (!_impl->reader->hasMoreBefore(_impl->range_end)) {
-                _eof = true;
-                break;
-            }
-            ::avro::GenericReader::read(_impl->reader->decoder(), *_impl->datum);
-            _impl->reader->decr();
-            _impl->reconcile_scratch();
-            if (_request->row_ids.has_value()) {
-                if (_impl->row_position != (*_request->row_ids)[_impl->next_requested_row]) {
-                    ++_impl->row_position;
-                    continue;
+        {
+            // Decode and append share one row traversal; time the batch without per-row clocks.
+            SCOPED_TIMER(_impl->decode_materialize_time);
+            while (*rows < _impl->batch_size &&
+                   (*rows == 0 || file_block->bytes() < _impl->max_block_bytes)) {
+                if (_io_ctx != nullptr && _io_ctx->should_stop) {
+                    _eof = true;
+                    break;
                 }
-                ++_impl->next_requested_row;
-            }
-            const auto& record = _impl->datum->value<::avro::GenericRecord>();
-            for (const auto& [id, position] : _request->local_positions) {
-                auto& column =
-                        file_block->get_by_position(position.value()).column->assert_mutable_ref();
-                if (id.value() == ROW_POSITION_COLUMN_ID) {
-                    column.insert(Field::create_field<TYPE_BIGINT>(_impl->row_position));
-                } else if (id.value() == GLOBAL_ROWID_COLUMN_ID) {
-                    if (!_impl->global_rowid_context.has_value()) {
-                        return Status::InvalidArgument(
-                                "Avro global row id requires row id context");
-                    }
-                    if (std::cmp_greater(_impl->row_position,
-                                         std::numeric_limits<uint32_t>::max())) {
-                        return Status::NotSupported("Avro global row position exceeds UInt32");
-                    }
-                    const auto& context = *_impl->global_rowid_context;
-                    const GlobalRowLoacationV2 location(context.version, context.backend_id,
-                                                        context.file_id,
-                                                        static_cast<uint32_t>(_impl->row_position));
-                    auto* output = &column;
-                    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
-                        nullable->get_null_map_data().push_back(0);
-                        output = &nullable->get_nested_column();
-                    }
-                    output->insert_data(reinterpret_cast<const char*>(&location), sizeof(location));
-                } else if (_impl->count_placeholders.contains(id.value())) {
-                    // COUNT(*) needs the physical cardinality, not a potentially lossy value cast.
-                    column.insert_default();
-                } else {
-                    if (id.value() < 0 || static_cast<size_t>(id.value()) >= _impl->schema.size()) {
-                        return Status::InvalidArgument("Unknown Avro file-local column");
-                    }
-                    RETURN_IF_ERROR(
-                            append_value(record.fieldAt(_impl->projected_ordinals.at(id.value())),
-                                         _impl->schema[id.value()], &column, _impl->timezone));
+                if (_request->row_ids.has_value() &&
+                    _impl->next_requested_row == _request->row_ids->size()) {
+                    _eof = true;
+                    break;
                 }
+                if (!_impl->reader->hasMoreBefore(_impl->range_end)) {
+                    _eof = true;
+                    break;
+                }
+                if (_impl->datum == nullptr) {
+                    _impl->datum = _impl->reader->make_datum();
+                    // Publish the admitted skeleton before reset callbacks can release old children.
+                    _impl->reconcile_scratch();
+                }
+                _impl->reader->read(*_impl->datum);
+                _impl->reconcile_scratch();
+                if (_request->row_ids.has_value()) {
+                    if (_impl->row_position != (*_request->row_ids)[_impl->next_requested_row]) {
+                        ++_impl->row_position;
+                        continue;
+                    }
+                    ++_impl->next_requested_row;
+                }
+                const auto& record = _impl->datum->value<::avro::GenericRecord>();
+                for (const auto& [id, position] : _request->local_positions) {
+                    auto& column = file_block->get_by_position(position.value())
+                                           .column->assert_mutable_ref();
+                    if (id.value() == ROW_POSITION_COLUMN_ID) {
+                        column.insert(Field::create_field<TYPE_BIGINT>(_impl->row_position));
+                    } else if (id.value() == GLOBAL_ROWID_COLUMN_ID) {
+                        if (!_impl->global_rowid_context.has_value()) {
+                            return Status::InvalidArgument(
+                                    "Avro global row id requires row id context");
+                        }
+                        if (std::cmp_greater(_impl->row_position,
+                                             std::numeric_limits<uint32_t>::max())) {
+                            return Status::NotSupported("Avro global row position exceeds UInt32");
+                        }
+                        const auto& context = *_impl->global_rowid_context;
+                        const GlobalRowLoacationV2 location(
+                                context.version, context.backend_id, context.file_id,
+                                static_cast<uint32_t>(_impl->row_position));
+                        auto* output = &column;
+                        if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+                            nullable->get_null_map_data().push_back(0);
+                            output = &nullable->get_nested_column();
+                        }
+                        output->insert_data(reinterpret_cast<const char*>(&location),
+                                            sizeof(location));
+                    } else if (_impl->count_placeholders.contains(id.value())) {
+                        // COUNT(*) needs the physical cardinality, not a potentially lossy value cast.
+                        column.insert_default();
+                    } else {
+                        if (id.value() < 0 ||
+                            static_cast<size_t>(id.value()) >= _impl->schema.size()) {
+                            return Status::InvalidArgument("Unknown Avro file-local column");
+                        }
+                        RETURN_IF_ERROR(append_value(
+                                record.fieldAt(_impl->projected_ordinals.at(id.value())),
+                                _impl->schema[id.value()], &column,
+                                file_block->get_by_position(position.value()).type,
+                                _impl->temporal));
+                    }
+                }
+                ++_impl->row_position;
+                ++*rows;
             }
-            ++_impl->row_position;
-            ++*rows;
         }
         _record_scan_rows(*rows);
+        SCOPED_TIMER(_impl->filter_time);
         RETURN_IF_ERROR(
                 apply_materialized_reader_filters(_request.get(), _io_ctx.get(), file_block, rows));
         // A nonempty last batch must be consumed before EOF, including after delete filtering.
@@ -1064,6 +1173,8 @@ Status AvroReader::close() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_impl->memory_tracker);
         _impl->datum.reset();
         _impl->reader.reset();
+        std::vector<ColumnDefinition>().swap(_impl->schema);
+        _impl->schema_scratch = 0;
         _impl->memory_tracker->release(_impl->accounted_scratch);
         _impl->accounted_scratch = 0;
         DorisVector<ReservedMemoryToken>().swap(_impl->reservations);

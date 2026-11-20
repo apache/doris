@@ -43,6 +43,7 @@ public:
 #endif
 
 protected:
+    bool use_hive_avro_semantics() const override { return true; }
     Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
 };
 

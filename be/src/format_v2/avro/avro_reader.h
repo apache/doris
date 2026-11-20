@@ -31,7 +31,8 @@ public:
                std::unique_ptr<io::FileDescription>& file_description,
                std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
-               std::optional<GlobalRowIdContext> global_rowid_context = std::nullopt);
+               std::optional<GlobalRowIdContext> global_rowid_context = std::nullopt,
+               bool hive_compatible = false);
     ~AvroReader() override;
 
     Status init(RuntimeState* state) override;

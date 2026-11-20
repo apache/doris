@@ -834,18 +834,3 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " PARALLEL_HASHMAP " ]]; then
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:
-
-# Avro OCF counts and sizes must be validated before decoding a data block.
-if [[ " ${TP_ARCHIVES[*]} " =~ " AVRO " ]]; then
-    (
-        cd "${TP_SOURCE_DIR}/${AVRO_SOURCE}"
-        if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/avro-1.12.1-block-bounds.patch"
-            touch "${PATCHED_MARK}"
-        fi
-        if [[ ! -f "${PATCHED_MARK}_doris_memory" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/avro-1.12.1-memory-and-zstd.patch"
-            touch "${PATCHED_MARK}_doris_memory"
-        fi
-    )
-fi

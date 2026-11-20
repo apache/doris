@@ -1561,7 +1561,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     if (_format == FileFormat::AVRO) {
         *reader = std::make_unique<format::avro::AvroReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                enable_mapping_timestamp_tz, enable_mapping_varbinary, _global_rowid_context);
+                enable_mapping_timestamp_tz, enable_mapping_varbinary, _global_rowid_context,
+                use_hive_avro_semantics());
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {
