@@ -22,6 +22,7 @@ import org.apache.doris.thrift.TIcebergColumnStats;
 import org.apache.doris.thrift.TIcebergCommitData;
 
 import com.google.common.base.VerifyException;
+import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
@@ -33,6 +34,8 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.expressions.Expression;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
@@ -264,6 +267,111 @@ public class IcebergWriterHelperTest {
         DataFile file = IcebergWriterHelper.convertToWriterResult(tableWith("write.format.default", "orc"),
                 Collections.singletonList(commit), ZoneOffset.UTC).dataFiles()[0];
         Assertions.assertNull(file.splitOffsets());
+    }
+
+    @Test
+    public void convertToWriterResultKeepsNullStringFilterable() throws Exception {
+        for (String fileFormat : Arrays.asList("parquet", "orc")) {
+            Table table = tableWith("write.format.default", fileFormat);
+            table.updateSpec().addField("name").commit();
+            List<String> values = Arrays.asList("null", "null", "ordinary", "");
+            List<String> expected = Arrays.asList("null", null, "ordinary", "");
+            List<TIcebergCommitData> commits = new ArrayList<>();
+            for (int i = 0; i < values.size(); i++) {
+                TIcebergCommitData commit = new TIcebergCommitData();
+                commit.setFilePath("s3://b/db1/t/data-" + i + "." + fileFormat);
+                commit.setFileSize(128L);
+                commit.setRowCount(1L);
+                commit.setFileContent(TFileContent.DATA);
+                commit.setPartitionValues(Collections.singletonList(values.get(i)));
+                commit.setPartitionValuesIsNull(Collections.singletonList(i == 1));
+                commits.add(commit);
+            }
+            DataFile[] files = IcebergWriterHelper.convertToWriterResult(table, commits, ZoneOffset.UTC).dataFiles();
+            AppendFiles append = table.newAppend();
+            for (int i = 0; i < files.length; i++) {
+                Assertions.assertEquals(expected.get(i), files[i].partition().get(0, String.class));
+                append.appendFile(files[i]);
+            }
+            append.commit();
+
+            List<Expression> filters = Arrays.asList(Expressions.equal("name", "null"), Expressions.isNull("name"),
+                    Expressions.equal("name", "ordinary"), Expressions.equal("name", ""));
+            for (int i = 0; i < filters.size(); i++) {
+                List<String> planned = new ArrayList<>();
+                try (CloseableIterable<FileScanTask> tasks = table.newScan().filter(filters.get(i)).planFiles()) {
+                    tasks.forEach(task -> planned.add(task.file().path().toString()));
+                }
+                Assertions.assertEquals(Collections.singletonList(commits.get(i).getFilePath()), planned,
+                        "partition pruning must retain exactly the matching file for " + filters.get(i));
+            }
+        }
+    }
+
+    @Test
+    public void convertToDeleteFilesPreservesNullStringWithBitmapAndJson() {
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("name").build();
+        for (boolean json : new boolean[] {false, true}) {
+            for (String value : Arrays.asList("null", null, "ordinary", "")) {
+                TIcebergCommitData commit = new TIcebergCommitData();
+                commit.setFilePath("s3://b/db1/t/delete.parquet");
+                commit.setFileSize(128L);
+                commit.setRowCount(1L);
+                commit.setFileContent(TFileContent.POSITION_DELETES);
+                if (json) {
+                    commit.setPartitionDataJson(value == null ? "[null]" : "[\"" + value + "\"]");
+                } else {
+                    commit.setPartitionValues(Collections.singletonList(value == null ? "null" : value));
+                    commit.setPartitionValuesIsNull(Collections.singletonList(value == null));
+                }
+                DeleteFile file = IcebergWriterHelper.convertToDeleteFiles(
+                        format, spec, Collections.singletonList(commit), ZoneOffset.UTC).get(0);
+                Assertions.assertEquals(value, file.partition().get(0, String.class));
+            }
+        }
+    }
+
+    @Test
+    public void partitionNullBitmapUsesOptionalField16() throws Exception {
+        String encoded = "{\"5\":{\"lst\":[\"str\",2,\"null\",\"null\"]},"
+                + "\"16\":{\"lst\":[\"tf\",2,0,1]}}";
+        TIcebergCommitData commit = new TIcebergCommitData();
+        new TDeserializer(new TJSONProtocol.Factory()).deserialize(commit, encoded.getBytes(StandardCharsets.UTF_8));
+        Assertions.assertTrue(commit.isSetPartitionValuesIsNull());
+        Assertions.assertEquals(Arrays.asList("null", null), IcebergWriterHelper.extractPartitionValues(commit));
+    }
+
+    @Test
+    public void partitionValuesKeepLegacyNullTokensForOldBeFragments() {
+        TIcebergCommitData commit = new TIcebergCommitData();
+        commit.setPartitionValues(Arrays.asList("null", "NULL", "ordinary", ""));
+        Assertions.assertEquals(Arrays.asList(null, "NULL", "ordinary", ""),
+                IcebergWriterHelper.extractPartitionValues(commit));
+        Assertions.assertFalse(commit.isSetPartitionValuesIsNull());
+    }
+
+    @Test
+    public void partitionValuesRejectMissingOrMismatchedNullBitmapValues() {
+        TIcebergCommitData commit = new TIcebergCommitData();
+        commit.setPartitionValuesIsNull(Collections.singletonList(false));
+        Assertions.assertThrows(VerifyException.class, () -> IcebergWriterHelper.extractPartitionValues(commit));
+        commit.setPartitionValues(Arrays.asList("null", "ordinary"));
+        Assertions.assertThrows(VerifyException.class, () -> IcebergWriterHelper.extractPartitionValues(commit));
+    }
+
+    @Test
+    public void partitionValuesRejectIncompletePartitionSpec() {
+        Table table = tableWith("write.format.default", "parquet");
+        table.updateSpec().addField("name").addField("age").commit();
+        TIcebergCommitData commit = new TIcebergCommitData();
+        commit.setFilePath("s3://b/db1/t/incomplete.parquet");
+        commit.setPartitionValues(Collections.singletonList("null"));
+        commit.setPartitionValuesIsNull(Collections.singletonList(false));
+        Assertions.assertThrows(VerifyException.class, () -> IcebergWriterHelper.convertToWriterResult(
+                table, Collections.singletonList(commit), ZoneOffset.UTC));
+        commit.setFileContent(TFileContent.POSITION_DELETES);
+        Assertions.assertThrows(VerifyException.class, () -> IcebergWriterHelper.convertToDeleteFiles(
+                format, table.spec(), Collections.singletonList(commit), ZoneOffset.UTC));
     }
 
     @Test

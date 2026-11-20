@@ -133,7 +133,8 @@ private:
     std::string _partition_to_writer_key(const doris::iceberg::StructLike& data);
     std::string _partition_to_path(const doris::iceberg::StructLike& data);
     std::string _escape(const std::string& path);
-    std::vector<std::string> _partition_values(const doris::iceberg::StructLike& data);
+    std::vector<std::optional<std::string>> _partition_values(
+            const doris::iceberg::StructLike& data);
 
     // Initialize static partition values from Thrift config
     void _init_static_partition_values();
@@ -197,7 +198,7 @@ private:
     // Pre-computed static partition path prefix (for full static mode, this is the complete path)
     std::string _static_partition_path;
     // Pre-computed static partition value list (for full static mode only)
-    std::vector<std::string> _static_partition_value_list;
+    std::vector<std::optional<std::string>> _static_partition_value_list;
 
     std::unordered_map<std::string, std::shared_ptr<IPartitionWriterBase>> _partitions_to_writers;
     // Rolled writers are no longer active, so retain their physical paths until statement outcome is known.

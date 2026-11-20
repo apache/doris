@@ -466,6 +466,9 @@ struct TIcebergCommitData {
     14: optional i64 affected_rows
     // Parquet data-file row-group starts, independent of column metrics policy.
     15: optional list<i64> split_offsets
+    // In partition_values order. Distinguishes SQL NULL from the literal string "null".
+    // Unset means the sender uses the legacy "null" token for SQL NULL.
+    16: optional list<bool> partition_values_is_null
 }
 
 struct TSortField {

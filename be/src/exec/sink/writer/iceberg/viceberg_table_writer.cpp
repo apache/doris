@@ -355,7 +355,17 @@ void VIcebergTableWriter::_init_static_partition_values() {
 
     // For full static mode, build complete partition value list
     if (_is_full_static_partition) {
-        _static_partition_value_list = _partition_column_static_values;
+        _static_partition_value_list.clear();
+        _static_partition_value_list.reserve(num_cols);
+        for (size_t i = 0; i < num_cols; ++i) {
+            // The textual placeholder for a static SQL NULL is also a valid STRING value.
+            if (iceberg_sink.static_partition_null_keys.contains(
+                        _iceberg_partition_columns[i].field().name())) {
+                _static_partition_value_list.emplace_back(std::nullopt);
+            } else {
+                _static_partition_value_list.emplace_back(_partition_column_static_values[i]);
+            }
+        }
     }
 }
 
@@ -809,17 +819,25 @@ std::string VIcebergTableWriter::_escape(const std::string& path) {
     return IcebergPartitionPath::escape(path);
 }
 
-std::vector<std::string> VIcebergTableWriter::_partition_values(
+std::vector<std::optional<std::string>> VIcebergTableWriter::_partition_values(
         const doris::iceberg::StructLike& data) {
-    std::vector<std::string> partition_values;
+    std::vector<std::optional<std::string>> partition_values;
     partition_values.reserve(_iceberg_partition_columns.size());
     for (size_t i = 0; i < _iceberg_partition_columns.size(); i++) {
         auto& iceberg_partition_column = _iceberg_partition_columns[i];
 
         // In hybrid mode, check if this column is statically specified
         if (_has_static_partition && _partition_column_is_static[i]) {
-            // Use static partition value
-            partition_values.emplace_back(_partition_column_static_values[i]);
+            // Static fields have empty placeholders in data; their NULL state comes from the sink.
+            if (_t_sink.iceberg_table_sink.static_partition_null_keys.contains(
+                        iceberg_partition_column.field().name())) {
+                partition_values.emplace_back(std::nullopt);
+            } else {
+                partition_values.emplace_back(_partition_column_static_values[i]);
+            }
+        } else if (!data.get(i).has_value()) {
+            // Preserve SQL NULL before human rendering can turn it into the literal "null".
+            partition_values.emplace_back(std::nullopt);
         } else {
             // Compute from data (dynamic partition)
             partition_values.emplace_back(
@@ -836,7 +854,7 @@ std::shared_ptr<IPartitionWriterBase> VIcebergTableWriter::_create_partition_wri
         Block* transformed_block, int position, const std::string* file_name, int file_name_index) {
     DORIS_CHECK(_output_location.has_value());
     auto& iceberg_table_sink = _t_sink.iceberg_table_sink;
-    std::vector<std::string> partition_values;
+    std::vector<std::optional<std::string>> partition_values;
     // Relative to the data location, e.g. "year=2023/month=12"; empty when the file goes to the
     // data location itself.
     std::string partition_path;

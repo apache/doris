@@ -1894,6 +1894,45 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void deleteNullStringPartitionDetectsConflictsWithBitmapAndJson() {
+        for (boolean json : new boolean[] {false, true}) {
+            Assertions.assertThrows(DorisConnectorException.class, () -> runNullStringPartitionDelete(json, "null"),
+                    "a concurrent append to the literal null partition must conflict");
+            Assertions.assertDoesNotThrow(() -> runNullStringPartitionDelete(json, null),
+                    "a concurrent append to the SQL NULL partition must remain outside the filter");
+        }
+    }
+
+    private static void runNullStringPartitionDelete(boolean json, String concurrentValue) {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("format-version", "2"));
+        PartitionData partition = new PartitionData(spec.partitionType());
+        partition.set(0, "null");
+        String seedPath = "s3://b/db1/t1/seed.parquet";
+        table.newAppend().appendFile(DataFiles.builder(spec).withPath(seedPath).withFileSizeInBytes(128L)
+                .withRecordCount(5L).withFormat(FileFormat.PARQUET).withPartition(partition).build()).commit();
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", deleteCtx());
+
+        partition.set(0, concurrentValue);
+        catalog.loadTable(id).newAppend().appendFile(DataFiles.builder(spec)
+                .withPath("s3://b/db1/t1/concurrent.parquet").withFileSizeInBytes(128L)
+                .withRecordCount(1L).withFormat(FileFormat.PARQUET).withPartition(partition).build()).commit();
+        TIcebergCommitData del = positionDeleteItem("s3://b/db1/t1/del.parquet", 1L, seedPath);
+        del.setPartitionSpecId(spec.specId());
+        if (json) {
+            del.setPartitionDataJson("[\"null\"]");
+        } else {
+            del.setPartitionValues(Collections.singletonList("null"));
+            del.setPartitionValuesIsNull(Collections.singletonList(false));
+        }
+        txn.addCommitData(commitBytes(del));
+        txn.commit();
+    }
+
+    @Test
     public void deleteNonIdentityPartitionSpecDisablesConflictNarrowing() {
         // parity: when not every partition transform is identity (areAllIdentityPartitions == false), no partition
         // narrowing is applied, so conflict detection falls back to the whole table — a concurrent append in ANY
