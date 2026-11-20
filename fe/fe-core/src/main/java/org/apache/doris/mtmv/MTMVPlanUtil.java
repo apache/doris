@@ -636,6 +636,10 @@ public class MTMVPlanUtil {
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
+            if (statementContext.hasMaxVisiblePartition()) {
+                throw new AnalysisException(
+                        "max_visible_partition() is not supported in materialized view definitions");
+            }
             Plan analyzedPlan = planner.getAnalyzedPlan();
             Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
             Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
