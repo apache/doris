@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -35,16 +36,30 @@ public:
     template <class T>
     T* add(T* t) {
         // TODO: Consider using a lock-free structure.
+        // Take ownership before locking or growing the registry. If registration
+        // fails, unlock first and then destroy the unregistered object.
+        std::unique_ptr<T> owner(t);
         std::lock_guard<std::mutex> l(_lock);
+#ifdef BE_TEST
+        if (_before_register) {
+            _before_register();
+        }
+#endif
         _objects.emplace_back(Element {t, [](void* obj) { delete reinterpret_cast<T*>(obj); }});
-        return t;
+        return owner.release();
     }
 
     template <class T>
     T* add_array(T* t) {
+        std::unique_ptr<T[]> owner(t);
         std::lock_guard<std::mutex> l(_lock);
+#ifdef BE_TEST
+        if (_before_register) {
+            _before_register();
+        }
+#endif
         _objects.emplace_back(Element {t, [](void* obj) { delete[] reinterpret_cast<T*>(obj); }});
-        return t;
+        return owner.release();
     }
 
     void clear() {
@@ -71,6 +86,9 @@ public:
     }
 
 private:
+#ifdef BE_TEST
+    inline static thread_local void (*_before_register)() = nullptr;
+#endif
     /// A generic deletion function pointer. Deletes its first argument.
     using DeleteFn = void (*)(void*);
 

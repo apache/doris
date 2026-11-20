@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <new>
 
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -36,8 +37,95 @@ protected:
 class AggregateDataContainerTest : public testing::Test {
 protected:
     void SetUp() override {}
-    void TearDown() override {}
+    void TearDown() override {
+        AggregateDataContainer::_before_key_registration = nullptr;
+        AggregateDataContainer::_before_value_registration = nullptr;
+    }
+
+    void check_first_registration_failure(bool fail_key);
+    void check_later_registration_failure(bool fail_key);
+    static void fill_first_block(AggregateDataContainer& container);
+    static void check_first_block(AggregateDataContainer& container);
+    static void check_failed_later_registration(AggregateDataContainer& container, char* old_keys,
+                                                AggregateDataPtr old_data);
 };
+
+namespace {
+void fail_container_registration() {
+    throw std::bad_alloc();
+}
+} // namespace
+
+void AggregateDataContainerTest::check_first_registration_failure(bool fail_key) {
+    AggregateDataContainer container(sizeof(uint32_t), sizeof(double));
+    auto& hook = fail_key ? AggregateDataContainer::_before_key_registration
+                          : AggregateDataContainer::_before_value_registration;
+    hook = fail_container_registration;
+    EXPECT_THROW(container.append_data(uint32_t {1}), std::bad_alloc);
+    hook = nullptr;
+    EXPECT_EQ(container.total_count(), 0);
+    EXPECT_EQ(container._key_containers.size(), 0);
+    EXPECT_EQ(container._value_containers.size(), 0);
+    EXPECT_EQ(container._index_in_sub_container, 0);
+    EXPECT_NE(container.append_data(uint32_t {1}), nullptr);
+    EXPECT_EQ(container.total_count(), 1);
+}
+
+void AggregateDataContainerTest::fill_first_block(AggregateDataContainer& container) {
+    for (uint32_t i = 0; i < 8192; ++i) {
+        ASSERT_NE(container.append_data(i), nullptr);
+    }
+}
+
+void AggregateDataContainerTest::check_first_block(AggregateDataContainer& container) {
+    auto it = container.begin();
+    for (uint32_t i = 0; i < 8192; ++i, ++it) {
+        ASSERT_EQ(it.get_key<uint32_t>(), i);
+    }
+}
+
+void AggregateDataContainerTest::check_failed_later_registration(AggregateDataContainer& container,
+                                                                 char* old_keys,
+                                                                 AggregateDataPtr old_data) {
+    EXPECT_EQ(container.total_count(), 8192);
+    EXPECT_EQ(container._key_containers.size(), 1);
+    EXPECT_EQ(container._value_containers.size(), 1);
+    EXPECT_EQ(container._index_in_sub_container, 8192);
+    EXPECT_EQ(container._current_keys, old_keys);
+    EXPECT_EQ(container._current_agg_data, old_data);
+}
+
+void AggregateDataContainerTest::check_later_registration_failure(bool fail_key) {
+    AggregateDataContainer container(sizeof(uint32_t), sizeof(double));
+    fill_first_block(container);
+    auto* old_keys = container._current_keys;
+    auto* old_data = container._current_agg_data;
+    auto& hook = fail_key ? AggregateDataContainer::_before_key_registration
+                          : AggregateDataContainer::_before_value_registration;
+    hook = fail_container_registration;
+    EXPECT_THROW(container.append_data(uint32_t {8192}), std::bad_alloc);
+    hook = nullptr;
+    check_failed_later_registration(container, old_keys, old_data);
+    check_first_block(container);
+    EXPECT_NE(container.append_data(uint32_t {8192}), nullptr);
+    EXPECT_EQ(container.total_count(), 8193);
+}
+
+TEST_F(AggregateDataContainerTest, FailedFirstKeyRegistrationLeavesNoPublishedBlock) {
+    check_first_registration_failure(true);
+}
+
+TEST_F(AggregateDataContainerTest, FailedFirstValueRegistrationLeavesNoPublishedBlock) {
+    check_first_registration_failure(false);
+}
+
+TEST_F(AggregateDataContainerTest, FailedLaterKeyRegistrationKeepsOldBlockAndCursor) {
+    check_later_registration_failure(true);
+}
+
+TEST_F(AggregateDataContainerTest, FailedLaterValueRegistrationKeepsOldBlockAndCursor) {
+    check_later_registration_failure(false);
+}
 
 TEST_F(AggregateDataContainerTest, BasicConstruction) {
     // Test basic construction with different sizes

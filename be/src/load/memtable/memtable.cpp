@@ -550,14 +550,17 @@ void MemTable::_finalize_one_row(RowInBlock* row, MutableBlock& mutable_block, i
             auto* col_ptr = _output_mutable_block.get_column_by_position(i).get();
             function->insert_result_into(agg_place, *col_ptr);
 
-            if constexpr (is_final) {
-                function->destroy(agg_place);
-            } else {
+            if constexpr (!is_final) {
                 function->reset(agg_place);
             }
         }
 
         if constexpr (is_final) {
+            // Keep every state alive until all result columns are produced. If a later
+            // column fails, the row destructor must still be able to destroy each state.
+            for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns; ++i) {
+                _agg_functions[i]->destroy(row->agg_places(i));
+            }
             row->remove_init_agg();
         } else {
             for (size_t i = _tablet_schema->num_key_columns(); i < _num_columns; ++i) {

@@ -293,7 +293,7 @@ TEST(MemTableMemoryTrackingAuxTest, TieMemoryTracking) {
 
 namespace {
 
-template <bool fail_create, bool fail_add>
+template <bool fail_create, bool fail_add, bool fail_result = false>
 struct TestStringMinData : AggregateFunctionMinData<SingleValueDataString> {
     using Base = AggregateFunctionMinData<SingleValueDataString>;
     using Base::change_if_better;
@@ -322,6 +322,13 @@ struct TestStringMinData : AggregateFunctionMinData<SingleValueDataString> {
         } else {
             Base::change_if_better(column, row_num, arena);
         }
+    }
+
+    void insert_result_into(IColumn& to) const {
+        if constexpr (fail_result) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "injected aggregate result failure");
+        }
+        Base::insert_result_into(to);
     }
 
     static void reset_counts() { created = destroyed = added = 0; }
@@ -563,6 +570,35 @@ TEST_F(MemTableWriterFailureTest, SecondStateCreateFailureDestroysOnlyCompletedP
     EXPECT_EQ(Second::created, 0);
     EXPECT_EQ(Second::destroyed, 0);
     EXPECT_EQ(Second::added, 0);
+}
+
+TEST_F(MemTableWriterFailureTest, LaterResultFailureLeavesAllStatesForRowCleanup) {
+    using First = TestStringMinData<false, false>;
+    using Second = TestStringMinData<false, false, true>;
+    init_string_writer();
+    {
+        auto columns = _input.mutate_columns_scoped();
+        int32_t key = 1;
+        const std::string value(1024, 'v');
+        columns.mutable_columns()[0]->insert_data(reinterpret_cast<const char*>(&key), 0);
+        columns.mutable_columns()[1]->insert_data(value.data(), value.size());
+        columns.mutable_columns()[2]->insert_data(value.data(), value.size());
+    }
+    _rows.row_idxs = {0, 1};
+    ASSERT_TRUE(_writer->write(&_input, _rows).ok());
+    replace_string_min<First>(1);
+    replace_string_min<Second>(2);
+
+    std::unique_ptr<Block> output;
+    Status status = _writer->_mem_table->to_block(&output);
+    EXPECT_EQ(status.code(), ErrorCode::INTERNAL_ERROR);
+    EXPECT_EQ(First::destroyed, 0);
+    EXPECT_EQ(Second::destroyed, 0);
+    _writer->_mem_table.reset();
+    EXPECT_EQ(First::created, 1);
+    EXPECT_EQ(First::destroyed, 1);
+    EXPECT_EQ(Second::created, 1);
+    EXPECT_EQ(Second::destroyed, 1);
 }
 
 } // namespace doris

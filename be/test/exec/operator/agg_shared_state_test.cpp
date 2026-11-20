@@ -17,9 +17,16 @@
 
 #include <gtest/gtest.h>
 
+#include <functional>
+#include <new>
+
+#include "common/config.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/common/agg_utils.h"
 #include "exec/pipeline/dependency.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -90,6 +97,28 @@ TEST_F(AggSharedStateTest, TestRefreshTopLimit) {
     EXPECT_EQ(_shared_state->limit_heap.top()._row_id, 4); // 0 should be the top value
     _shared_state->limit_heap.pop();
     EXPECT_EQ(_shared_state->limit_heap.top()._row_id, 3); // -1 should be the top value
+}
+
+TEST_F(AggSharedStateTest, FailedResetRevokesNullableStateBeforeAllocation) {
+    using Method = MethodSingleNullableColumn<MethodOneNumber<UInt32, AggDataNullable<UInt32>>>;
+    auto& method = _shared_state->agg_data->method_variant.emplace<Method>();
+    auto& table = *method.hash_table;
+    char state[sizeof(uint64_t)] {};
+    table.get_null_key_data<AggregateDataPtr>() = state;
+    table.has_null_key_data() = true;
+
+    const bool old_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    Defer restore {[&]() {
+        DebugPoints::instance()->remove("AggSharedState.reset_hash_table.after_destroy");
+        config::enable_debug_points = old_debug_points;
+    }};
+    DebugPoints::instance()->add_with_callback(
+            "AggSharedState.reset_hash_table.after_destroy",
+            std::function<void()>([]() { throw std::bad_alloc(); }));
+    EXPECT_THROW(static_cast<void>(_shared_state->reset_hash_table()), std::bad_alloc);
+    EXPECT_FALSE(table.has_null_key_data());
+    EXPECT_EQ(table.get_null_key_data<AggregateDataPtr>(), nullptr);
 }
 
 } // namespace doris
