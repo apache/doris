@@ -203,8 +203,9 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     void testBothSinksSkipTruncationInContinuousProjectChain() {
         LogicalOlapScan scan = buildMowScan(1, "t");
         LogicalProject<?> rowIdProject = buildRowIdProject(scan, scan.getOutput().subList(0, 2));
-        LogicalProject<?> truncated = truncateLastColumn(rowIdProject, 1);
-        LogicalProject<?> passthrough = new LogicalProject<>(ImmutableList.copyOf(truncated.getOutput()), truncated);
+        LogicalProject<?> truncated = substringLastColumn(rowIdProject, 1, 16);
+        LogicalProject<?> wider = substringLastColumn(truncated, 1, 32);
+        LogicalProject<?> passthrough = new LogicalProject<>(ImmutableList.copyOf(wider.getOutput()), wider);
         String baseline = signatureForNormalizedPlan(buildScanRoot(rowIdProject)).getSha256();
 
         Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildScanRoot(passthrough)).getSha256());
@@ -215,7 +216,7 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     @Test
     void testTruncationBelowRowIdComputationRemainsInSignature() {
         LogicalOlapScan scan = buildMowScan(1, "t");
-        LogicalProject<?> truncated = truncateLastColumn(scan, 1);
+        LogicalProject<?> truncated = substringLastColumn(scan, 1, 16);
         LogicalProject<?> rowIdProject = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
                 .add(new Alias(IvmUtil.buildRowIdHash(truncated.getOutput()), Column.IVM_ROW_ID_COL))
                 .addAll(truncated.getOutput()).build(), truncated);
@@ -228,7 +229,7 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     @Test
     void testNonProjectBreaksSinkProjectChain() {
         LogicalOlapScan scan = buildMowScan(1, "t");
-        LogicalProject<?> truncated = truncateLastColumn(scan, 1);
+        LogicalProject<?> truncated = substringLastColumn(scan, 1, 16);
         LogicalFilter<?> filter = new LogicalFilter<>(
                 ImmutableSet.of(new LessThan(new IntegerLiteral(0), truncated.getOutput().get(0))), truncated);
         String baseline = signatureForNormalizedPlan(truncated).getSha256();
@@ -240,17 +241,17 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     @Test
     void testSubstringStartingAfterFirstCharacterRemainsInSignature() {
         LogicalOlapScan scan = buildMowScan(1, "t");
-        LogicalProject<?> substring = truncateLastColumn(scan, 2);
+        LogicalProject<?> substring = substringLastColumn(scan, 2, 16);
         String baseline = signatureForNormalizedPlan(substring).getSha256();
 
         Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildScanRoot(substring)).getSha256());
         Assertions.assertEquals(baseline, signatureForNormalizedPlan(buildTableSink(scan, substring)).getSha256());
     }
 
-    private LogicalProject<?> truncateLastColumn(Plan child, int start) {
+    private LogicalProject<?> substringLastColumn(Plan child, int start, int length) {
         List<Slot> outputs = child.getOutput();
         Slot input = outputs.get(outputs.size() - 1);
-        Substring substring = new Substring(input, new IntegerLiteral(start), new IntegerLiteral(16));
+        Substring substring = new Substring(input, new IntegerLiteral(start), new IntegerLiteral(length));
         return new LogicalProject<>(ImmutableList.<NamedExpression>builder()
                 .addAll(outputs.subList(0, outputs.size() - 1))
                 .add(new Alias(substring, input.getName()))

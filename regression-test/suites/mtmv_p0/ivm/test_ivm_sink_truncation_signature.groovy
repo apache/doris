@@ -101,7 +101,7 @@ suite("test_ivm_sink_truncation_signature") {
         SELECT Status, IvmRefreshMethod
         FROM tasks('type' = 'mv')
         WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'ivm_sink_truncation_mv'
-        ORDER BY TaskId DESC
+        ORDER BY CreateTime DESC, CAST(TaskId AS BIGINT) DESC
         LIMIT 1
     """
     order_qt_after_incremental "SELECT channel, row_count, total_amount FROM ivm_sink_truncation_mv"
