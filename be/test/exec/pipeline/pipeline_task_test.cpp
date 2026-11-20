@@ -318,6 +318,107 @@ TEST_F(PipelineTaskTest, TEST_OPEN) {
     }
 }
 
+class DependencyConsumerOperator final : public OperatorX<DummyOperatorLocalState> {
+public:
+    DependencyConsumerOperator() : OperatorX<DummyOperatorLocalState>(nullptr, 1, -1) {}
+
+    Status get_block_impl(RuntimeState*, Block*, bool* eos) override {
+        *eos = false;
+        return Status::OK();
+    }
+};
+
+class OpenCountingLocalState final : public PipelineXLocalState<FakeSharedState> {
+public:
+    ENABLE_FACTORY_CREATOR(OpenCountingLocalState);
+    OpenCountingLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<FakeSharedState>(state, parent),
+              dependency(Dependency::create_shared(parent->operator_id(), parent->node_id(),
+                                                   "SourceDependency", true)) {}
+    Status open(RuntimeState* state) override {
+        ++open_calls;
+        return PipelineXLocalState<FakeSharedState>::open(state);
+    }
+    std::vector<Dependency*> dependencies() const override { return {dependency.get()}; }
+    std::shared_ptr<Dependency> dependency;
+    int open_calls = 0;
+};
+
+template <>
+Status OperatorX<OpenCountingLocalState>::setup_local_state(RuntimeState* state,
+                                                            LocalStateInfo& info) {
+    auto local_state = OpenCountingLocalState::create_unique(state, this);
+    RETURN_IF_ERROR(local_state->init(state, info));
+    state->emplace_local_state(operator_id(), std::move(local_state));
+    return Status::OK();
+}
+
+template class OperatorX<OpenCountingLocalState>;
+
+class OpenCountingSource final : public OperatorX<OpenCountingLocalState> {
+public:
+    OpenCountingSource() : OperatorX<OpenCountingLocalState>(nullptr, 0, 0) {}
+    bool is_source() const override { return true; }
+    Status get_block_impl(RuntimeState*, Block*, bool* eos) override {
+        *eos = false;
+        return Status::OK();
+    }
+};
+
+class PipelineSourceOpenTest : public PipelineTaskTest, public testing::WithParamInterface<bool> {};
+
+TEST_P(PipelineSourceOpenTest, DeferSourceOpenUntilConsumerDependencyReady) {
+    auto pipeline = std::make_shared<Pipeline>(0, 1, 1);
+    OperatorPtr source = std::make_shared<OpenCountingSource>();
+    OperatorPtr consumer = std::make_shared<DependencyConsumerOperator>();
+    DataSinkOperatorPtr sink = std::make_shared<DummySinkOperatorX>(2, 2, 3);
+    ASSERT_TRUE(consumer->set_child(source).ok());
+    ASSERT_TRUE(pipeline->add_operator(source, 1).ok());
+    ASSERT_TRUE(pipeline->add_operator(consumer, 1).ok());
+    ASSERT_TRUE(pipeline->set_sink(sink).ok());
+    RuntimeProfile profile("DependencyPipeline");
+    _runtime_state->resize_op_id_to_local_state(-2);
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_states;
+    auto task = std::make_shared<PipelineTask>(pipeline, 0, _runtime_state.get(), _context,
+                                               &profile, shared_states, 0);
+    ASSERT_TRUE(task->prepare({}, 0, TDataSink()).ok());
+    _query_ctx->get_execution_dependency()->set_ready();
+    auto* source_state =
+            &_runtime_state->get_local_state(source->operator_id())->cast<OpenCountingLocalState>();
+    auto* consumer_dep =
+            _runtime_state->get_local_state(consumer->operator_id())->dependencies()[0];
+    consumer_dep->block();
+    bool done = false;
+    ASSERT_TRUE(task->execute(&done).ok());
+    EXPECT_FALSE(done);
+    EXPECT_EQ(source_state->open_calls, 0);
+    EXPECT_FALSE(task->_opened);
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::BLOCKED);
+    EXPECT_EQ(task->_blocked_dep, consumer_dep);
+
+    if (GetParam()) {
+        task->set_wake_up_early();
+        task->unblock_all_dependencies();
+        ASSERT_TRUE(task->execute(&done).ok());
+        EXPECT_TRUE(done);
+        EXPECT_EQ(source_state->open_calls, 0);
+        EXPECT_FALSE(task->_opened);
+        return;
+    }
+    consumer_dep->set_ready();
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
+    // Source readiness is produced by opening the scan, so it must not gate that open.
+    source_state->dependencies()[0]->block();
+    ASSERT_TRUE(task->execute(&done).ok());
+    EXPECT_EQ(source_state->open_calls, 1);
+    EXPECT_TRUE(task->_opened);
+    EXPECT_EQ(task->_blocked_dep, source_state->dependencies()[0]);
+}
+
+INSTANTIATE_TEST_SUITE_P(ResumeAndCancel, PipelineSourceOpenTest, testing::Bool());
+
 TEST_F(PipelineTaskTest, TEST_EXECUTE) {
     auto num_instances = 1;
     auto pip_id = 0;

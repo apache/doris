@@ -266,6 +266,19 @@ Status PipelineTask::_open() {
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_open_timer);
     _dry_run = _sink->should_dry_run(_state);
+    RETURN_IF_ERROR(_extract_dependencies());
+    // Opening a scan starts readers that retain source clients across batches. A join probe
+    // must not borrow every client while its build still needs that same pool to become ready.
+    // Exclude the source's own dependency: producing its first batch requires opening it.
+    if (!_dry_run) {
+        for (size_t i = _read_dependencies.size(); i > 1; --i) {
+            for (auto* dep : _read_dependencies[i - 1]) {
+                if (dep->is_blocked_by(shared_from_this())) {
+                    return Status::OK();
+                }
+            }
+        }
+    }
     for (auto& o : _operators) {
         RETURN_IF_ERROR(_state->get_local_state(o->operator_id())->open(_state));
     }
@@ -563,6 +576,10 @@ Status PipelineTask::execute(bool* done) {
 
         SCOPED_RAW_TIMER(&time_spent);
         RETURN_IF_ERROR(_open());
+        // A downstream build can defer source open; its dependency will resubmit this task.
+        if (!_opened) {
+            return Status::OK();
+        }
     }
 
     while (!fragment_context->is_canceled()) {

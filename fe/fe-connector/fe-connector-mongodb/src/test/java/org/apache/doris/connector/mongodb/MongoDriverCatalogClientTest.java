@@ -72,6 +72,20 @@ class MongoDriverCatalogClientTest {
         }
     }
 
+    @Test
+    void splitProbesRejectNonBtreeComponentsAfterAnOrdinaryPrefix() {
+        for (int direction : List.of(1, -1)) {
+            for (String family : List.of("text", "hashed", "2d", "2dsphere", "columnstore")) {
+                var keys = new Document("sequence", direction).append("suffix", family).append("tail", 1);
+                Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", keys),
+                        "sequence"), keys.toJson());
+            }
+            var text = new Document("sequence", direction).append("_fts", "text").append("_ftsx", 1);
+            Assertions.assertFalse(MongoDriverCatalogClient.eligibleIndex(new Document("key", text),
+                    "sequence"), text.toJson());
+        }
+    }
+
     private static final class RecordingDriver {
         final List<Document> commands = new ArrayList<>();
         int clientCloses;
