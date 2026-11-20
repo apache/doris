@@ -116,10 +116,9 @@ Status VariantV2ColumnWriter::init() {
             *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id());
     // The segment writer selected root values indexes and excluded indexes being merged natively.
     for (const TabletIndex* index : _opts.inverted_indexes) {
-        // RESTOREd or RECOVERed legacy partitions can carry values-index metadata without SNII.
-        if (_opts.index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::SNII) {
-            continue;
-        }
+        DORIS_CHECK(_opts.index_file_writer != nullptr);
+        DORIS_CHECK(variant_util::supports_values_index_format(
+                _opts.index_file_writer->get_storage_format()));
         auto writer = std::make_unique<VariantValuesIndexWriter>(_opts.index_file_writer, index,
                                                                  _opts.is_direct_load);
         RETURN_IF_ERROR(writer->init());

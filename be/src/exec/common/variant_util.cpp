@@ -1162,7 +1162,10 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
     append_empty_key_subcolumn_from_stats(paths_set_info, parent_column, output_schema);
 }
 
-bool VariantCompactionUtil::has_values_index(const TabletSchema& schema) {
+bool VariantCompactionUtil::has_writable_values_index(const TabletSchema& schema) {
+    if (!supports_values_index_format(schema.get_inverted_index_storage_format())) {
+        return false;
+    }
     return std::ranges::any_of(schema.inverted_indexes(), [](const TabletIndex* index) {
         return index->is_variant_values_index() && !index->col_unique_ids().empty();
     });

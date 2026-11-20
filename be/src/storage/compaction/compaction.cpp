@@ -453,7 +453,7 @@ Status Compaction::prepare_merge_input_rowsets_execution(MergeInputRowsetsContex
     if (_should_compact_indexes()) {
         construct_index_compaction_columns(ctx);
     }
-    if (variant_util::VariantCompactionUtil::has_values_index(*_cur_tablet_schema)) {
+    if (variant_util::VariantCompactionUtil::has_writable_values_index(*_cur_tablet_schema)) {
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::plan_values_index_compaction(
                 _input_rowsets, _enable_vertical_compact_variant_subcolumns,
                 ctx.snii_indexes_to_do_compaction, _cur_tablet_schema,
@@ -742,7 +742,7 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // so get_extended_compaction_schema will extended the schema for variant columns
     // for ordered compaction, we don't need to extend the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction &&
-        !variant_util::VariantCompactionUtil::has_values_index(*_cur_tablet_schema)) {
+        !variant_util::VariantCompactionUtil::has_writable_values_index(*_cur_tablet_schema)) {
         auto paths = std::make_shared<VariantCompactionPathsMap>();
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                 _input_rowsets, _cur_tablet_schema, *paths));
@@ -2324,7 +2324,7 @@ Status CloudCompactionMixin::build_basic_info() {
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns &&
-        !variant_util::VariantCompactionUtil::has_values_index(*_cur_tablet_schema)) {
+        !variant_util::VariantCompactionUtil::has_writable_values_index(*_cur_tablet_schema)) {
         auto paths = std::make_shared<VariantCompactionPathsMap>();
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
                 _input_rowsets, _cur_tablet_schema, *paths));

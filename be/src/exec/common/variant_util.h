@@ -183,9 +183,14 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,
                               TabletSchema::SubColumnInfo* sub_column_info);
 
+// RESTORE or RECOVER can leave a logical values index on a legacy segment.
+inline bool supports_values_index_format(InvertedIndexStorageFormatPB format) {
+    return format == InvertedIndexStorageFormatPB::SNII;
+}
+
 class VariantCompactionUtil {
 public:
-    static bool has_values_index(const TabletSchema& schema);
+    static bool has_writable_values_index(const TabletSchema& schema);
     static Status plan_values_index_compaction(
             const std::vector<RowsetSharedPtr>& rowsets, bool expand_subcolumns,
             const std::set<std::pair<int32_t, int64_t>>& native_indexes, TabletSchemaSPtr& schema,

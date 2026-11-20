@@ -27,6 +27,7 @@
 #include <tuple>
 #include <vector>
 
+#include "common/config.h"
 #include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/column/column_nullable.h"
@@ -39,6 +40,7 @@
 #include "exprs/function/parse/variant_string_parse.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
+#include "storage/compaction/full_compaction.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
@@ -50,6 +52,7 @@
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/segment/column_reader.h"
 #include "testutil/index_storage_test_util.h"
+#include "util/defer_op.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -268,7 +271,17 @@ TEST_P(VariantValuesSegmentTestWithFormat, ValuesIndexExistsOnlyInSniiSegments) 
     }
     auto next = write_rowset(spec);
     ASSERT_TRUE(next.has_value()) << next.error();
-    auto compacted = compact_rowsets_and_reload(IndexCompactionKind::FULL, {*rowset, *next});
+    const bool old_vertical_variant = config::enable_vertical_compact_variant_subcolumns;
+    config::enable_vertical_compact_variant_subcolumns = true;
+    DEFER({ config::enable_vertical_compact_variant_subcolumns = old_vertical_variant; });
+    FullCompaction compaction(*storage_engine(), tablet());
+    compaction._input_rowsets = {*rowset, *next};
+    ASSERT_TRUE(compaction.CompactionMixin::execute_compact().ok());
+    if (format != InvertedIndexStorageFormatPB::SNII) {
+        ASSERT_NE(compaction._cur_variant_compaction_paths, nullptr);
+        EXPECT_TRUE(compaction._cur_variant_compaction_paths->contains(2));
+    }
+    auto compacted = reload_rowset(compaction._output_rowset);
     ASSERT_TRUE(compacted.has_value()) << compacted.error();
     auto merged = read_rowsets({*compacted}, read_options);
     ASSERT_TRUE(merged.has_value()) << merged.error();
