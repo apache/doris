@@ -194,6 +194,27 @@ TEST(TimezoneUtilsTest, FindTimezone) {
     EXPECT_FALSE(TimezoneUtils::find_cctz_time_zone(tzname, result));
 }
 
+TEST(TimezoneUtilsTest, UtcZDesignatorResolvesToUtc) {
+    // ISO 8601 / RFC 3339 "Z" is the UTC designator and must resolve without a
+    // legacy "Zulu" tzfile present in the system tzdata (issue #69326).
+    cctz::time_zone zone;
+    EXPECT_TRUE(TimezoneUtils::parse_tz_offset_string("Z", zone));
+    EXPECT_TRUE(TimezoneUtils::parse_tz_offset_string("z", zone));
+
+    for (bool preload : {false, true}) {
+        TimezoneUtils::clear_timezone_caches();
+        if (preload) {
+            TimezoneUtils::load_timezones_to_cache();
+        }
+        EXPECT_TRUE(TimezoneUtils::find_cctz_time_zone("Z", zone));
+        EXPECT_TRUE(TimezoneUtils::find_cctz_time_zone("z", zone));
+        EXPECT_EQ("UTC", zone.name());
+        EXPECT_TRUE(TimezoneUtils::find_cctz_time_zone("zulu", zone));
+    }
+    // restore the normal cache for subsequent tests
+    TimezoneUtils::load_timezones_to_cache();
+}
+
 TEST(TimezoneUtilsTest, OffsetBoundariesWithAndWithoutCache) {
     for (bool preload : {false, true}) {
         TimezoneUtils::clear_timezone_caches();
