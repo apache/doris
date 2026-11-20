@@ -98,7 +98,6 @@ Status VirtualSlotRef::open(RuntimeState* state, VExprContext* context,
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(_virtual_column_expr->open(state, context, scope));
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
-    _open_finished = true;
     return Status::OK();
 }
 

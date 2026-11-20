@@ -55,13 +55,11 @@ public:
                 FunctionContext::FunctionStateScope scope) override {
         DCHECK(_prepare_finished);
         RETURN_IF_ERROR(VExpr::open(state, context, scope));
-        _open_finished = true;
         return Status::OK();
     }
 
     Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
                                size_t count, ColumnPtr& result_column) const override {
-        DCHECK(_open_finished || block == nullptr);
         const int column_position = _get_column_position(context, block);
         if (column_position < 0 || column_position >= block->columns()) {
             return Status::InternalError(
@@ -74,7 +72,6 @@ public:
     }
 
     DataTypePtr execute_type(const Block* block) const override {
-        DCHECK(_open_finished || block == nullptr);
         const int column_position = _get_column_position_without_context(block);
         if (column_position < 0 || column_position >= block->columns()) {
             throw doris::Exception(
