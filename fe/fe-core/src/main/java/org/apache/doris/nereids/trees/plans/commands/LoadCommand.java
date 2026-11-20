@@ -217,7 +217,6 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
     private String comment;
-    private String mysqlLoadId;
     private UserIdentity userIdentity;
 
     /**
@@ -502,9 +501,8 @@ public class LoadCommand extends Command implements NeedAuditEncryption, Forward
                     return;
                 }
                 String loadId = UUID.randomUUID().toString();
-                mysqlLoadId = loadId;
                 LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
-                        .executeMySqlLoadJobFromCommand(ctx, getDataDescriptions().get(0), loadId);
+                        .executeMySqlLoadJobFromCommand(executor, getDataDescriptions().get(0), loadId);
                 ctx.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(), submitResult.toString());
             } else {
                 loadManager.createLoadJobFromCommand(this, executor, ctx);

@@ -623,7 +623,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         }
 
         // The executor changes between statements of a multi-statement command. Resolve it
-        // when a write stalls, and never retain its cancellation state for the next command.
+        // when command I/O stalls, and never retain its cancellation state for the next command.
         channel.setQueryCancelReason(() -> executor == null ? null : executor.getPendingCancelReason());
         try {
             dispatch();

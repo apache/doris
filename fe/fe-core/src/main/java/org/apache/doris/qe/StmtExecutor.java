@@ -261,7 +261,6 @@ public class StmtExecutor {
     private boolean isCached;
     private String stmtName;
     private String prepareStmtName; // for prox
-    private String mysqlLoadId;
     // Handle selects that fe can do without be
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
@@ -1631,6 +1630,11 @@ public class StmtExecutor {
         }
     }
 
+    /** Release completed work. A cancellation already in progress may still invoke its callback. */
+    public void unregisterQueryCancellationCallback(Runnable callback) {
+        queryCancelCallbacks.remove(callback);
+    }
+
     private void runQueryCancellationCallback(Runnable callback) {
         try {
             callback.run();
@@ -1670,9 +1674,6 @@ public class StmtExecutor {
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel(coordinatorCancelReason);
-        }
-        if (mysqlLoadId != null) {
-            Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
         if (cancelableCommand.isPresent() && needWaitCancelComplete) {
             // Wait for the command to run or cancel completion

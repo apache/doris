@@ -254,6 +254,11 @@ public class MysqlChannel implements BytesChannel {
             while (dstBuf.remaining() != 0) {
                 int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf, context.getNetReadTimeout(),
                         TimeUnit.SECONDS);
+                // A cancelled LOCAL INFILE upload still drains to its terminator. A full read timeout
+                // without any bytes means the peer has stopped sending the file; abandon the packet.
+                if (ret == 0 && queryCancelReason.get() != null) {
+                    return 0;
+                }
                 // return -1 when remote peer close the channel
                 if (ret == -1) {
                     decryptData(dstBuf, isHeader);

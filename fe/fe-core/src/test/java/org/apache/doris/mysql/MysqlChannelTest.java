@@ -22,6 +22,7 @@ import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStatusCode;
 
 import org.junit.jupiter.api.Assertions;
@@ -176,6 +177,32 @@ public class MysqlChannelTest {
         Assertions.assertThrows(ConnectionException.class, () -> channel.realNetSend(ByteBuffer.allocate(0)));
     }
 
+
+    @Test
+    public void testStalledFilePacketReadRespectsOnlyTheCurrentCommandCancellation() throws IOException {
+        for (boolean cancelledCommand : new boolean[] {true, false}) {
+            MysqlChannel channel = receivingChannel(ByteBuffer.allocate(0), 16);
+            receivingContext.getSessionVariable().netReadTimeout = 0;
+            StmtExecutor executor = new StmtExecutor(receivingContext, "LOAD DATA");
+            channel.setQueryCancelReason(executor::getPendingCancelReason);
+            executor.cancel(CANCELLED, false);
+            if (!cancelledCommand) {
+                channel.clearQueryCancelReason();
+            }
+            ConduitStreamSourceChannel source = streamConnection.getSourceChannel();
+            Mockito.when(source.read(Mockito.any(ByteBuffer.class))).thenReturn(0).thenAnswer(inv -> {
+                putHeader(inv.getArgument(0), 0, 0);
+                return 4;
+            });
+            if (cancelledCommand) {
+                Assertions.assertNull(channel.fetchOnePacket());
+                Mockito.verify(source).read(Mockito.any(ByteBuffer.class));
+            } else {
+                Assertions.assertEquals(ByteBuffer.allocate(0), channel.fetchOnePacket());
+                Mockito.verify(source, Mockito.times(2)).read(Mockito.any(ByteBuffer.class));
+            }
+        }
+    }
 
     @Test
     public void testOversizedPacketRejectedBeforeBody() throws IOException {
