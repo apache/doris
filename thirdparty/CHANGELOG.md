@@ -2,6 +2,13 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20261120
+
+- Modified: simdjson 3.11.6 -> 5.2.0. The `dom::element_type::BOOL` to `BOOLEAN` rename
+  is carried over as `simdjson-5.2.0.patch`. A BE build directory made with 3.11.6 must be
+  rebuilt from scratch: the BE build does not track third-party headers, and objects built
+  against the old headers crash when linked with the new library.
+
 ## 20261110
 
 - Added Alibaba Cloud OSS C++ SDK V2 0.2.0 for BE and Recycler. To update an existing

@@ -485,10 +485,10 @@ XSIMD_SOURCE=xsimd-14.0.0
 XSIMD_MD5SUM="75c0d34cf7011924ba19978076c76dc1"
 
 # simdjson
-SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.11.6.tar.gz"
-SIMDJSON_NAME=simdjson-3.11.6.tar.gz
-SIMDJSON_SOURCE=simdjson-3.11.6
-SIMDJSON_MD5SUM="e7d9c814a4fdd6e47119ce5cf4240f4e"
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v5.2.0.tar.gz"
+SIMDJSON_NAME=simdjson-5.2.0.tar.gz
+SIMDJSON_SOURCE=simdjson-5.2.0
+SIMDJSON_MD5SUM="1c37622a26e3fedd98a5d4cf1db49867"
 
 # simdutf
 SIMDUTF_DOWNLOAD="https://github.com/simdutf/simdutf/archive/refs/tags/v9.2.0.tar.gz"
