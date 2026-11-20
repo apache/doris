@@ -826,6 +826,13 @@ public:
         }
         auto pattern = assert_cast<const ColumnString*>(argument_columns[1].get())->get_data_at(0);
         auto gram_num = assert_cast<const ColumnInt32*>(argument_columns[2].get())->get_element(0);
+        // FE only rejects a nonpositive gram_num once it is a literal. A constant expression that
+        // FE cannot evaluate (e.g. `crc32('abc') % 3 - 3`) reaches BE unchecked when the whole
+        // call is folded on BE, so validate here before it is used as a substring length.
+        if (gram_num <= 0) {
+            return Status::InvalidArgument(
+                    "ngram_search(text,pattern,gram_num): gram_num must be a positive constant.");
+        }
         const auto* text_col = assert_cast<const ColumnString*>(argument_columns[0].get());
 
         if (col_const[0]) {
