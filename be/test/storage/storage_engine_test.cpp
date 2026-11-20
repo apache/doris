@@ -35,6 +35,7 @@
 #include "storage/data_dir.h"
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta_manager.h"
+#include "storage/txn/txn_manager.h"
 #include "util/threadpool.h"
 
 namespace doris {
@@ -61,6 +62,36 @@ public:
     virtual void TearDown() {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_engine_data_path).ok());
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
+    }
+
+    TabletSharedPtr create_publish_tablet(int64_t tablet_id) {
+        TColumnType col_type;
+        col_type.__set_type(TPrimitiveType::SMALLINT);
+        TColumn col1;
+        col1.__set_column_name("col1");
+        col1.__set_column_type(col_type);
+        col1.__set_is_key(true);
+        std::vector<TColumn> cols;
+        cols.push_back(col1);
+        TTabletSchema tablet_schema;
+        tablet_schema.__set_short_key_column_count(1);
+        tablet_schema.__set_schema_hash(3333);
+        tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
+        tablet_schema.__set_storage_type(TStorageType::COLUMN);
+        tablet_schema.__set_columns(cols);
+        TCreateTabletReq create_tablet_req;
+        create_tablet_req.__set_tablet_schema(tablet_schema);
+        create_tablet_req.__set_tablet_id(tablet_id);
+        create_tablet_req.__set_version(10);
+
+        std::vector<DataDir*> data_dirs;
+        data_dirs.push_back(_data_dir.get());
+        RuntimeProfile profile("CreateTablet");
+        auto st = _storage_engine->tablet_manager()->create_tablet(create_tablet_req, data_dirs,
+                                                                   &profile);
+        EXPECT_EQ(st, Status::OK());
+        TabletSharedPtr tablet = _storage_engine->tablet_manager()->get_tablet(tablet_id);
+        return tablet;
     }
 
     std::unique_ptr<StorageEngine> _storage_engine;
@@ -114,32 +145,9 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     int64_t partition_id = 1;
     int64_t tablet_id = 111;
 
-    TColumnType col_type;
-    col_type.__set_type(TPrimitiveType::SMALLINT);
-    TColumn col1;
-    col1.__set_column_name("col1");
-    col1.__set_column_type(col_type);
-    col1.__set_is_key(true);
-    std::vector<TColumn> cols;
-    cols.push_back(col1);
-    TTabletSchema tablet_schema;
-    tablet_schema.__set_short_key_column_count(1);
-    tablet_schema.__set_schema_hash(3333);
-    tablet_schema.__set_keys_type(TKeysType::AGG_KEYS);
-    tablet_schema.__set_storage_type(TStorageType::COLUMN);
-    tablet_schema.__set_columns(cols);
-    TCreateTabletReq create_tablet_req;
-    create_tablet_req.__set_tablet_schema(tablet_schema);
-    create_tablet_req.__set_tablet_id(tablet_id);
-    create_tablet_req.__set_version(10);
-
-    std::vector<DataDir*> data_dirs;
-    data_dirs.push_back(_data_dir.get());
-    RuntimeProfile profile("CreateTablet");
-    st = _storage_engine->tablet_manager()->create_tablet(create_tablet_req, data_dirs, &profile);
-    EXPECT_EQ(st, Status::OK());
-    TabletSharedPtr tablet = _storage_engine->tablet_manager()->get_tablet(tablet_id);
-    EXPECT_EQ(tablet->max_version().second, 10);
+    auto tablet = create_publish_tablet(tablet_id);
+    ASSERT_NE(tablet, nullptr);
+    ASSERT_EQ(tablet->max_version().second, 10);
 
     for (int64_t i = 5; i < 12; ++i) {
         _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, i * 10);
@@ -184,6 +192,10 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
               config::max_tablet_version_num + 30);
     EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), 90);
 
+    // Keep the oldest transaction alive so this exercises queue trimming at a version gap.
+    ASSERT_TRUE(_storage_engine->txn_manager()
+                        ->prepare_txn(partition_id, *tablet, 90, PUniqueId())
+                        .ok());
     _storage_engine->_process_async_publish();
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(),
               config::max_tablet_version_num);
@@ -196,6 +208,111 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
               config::max_tablet_version_num);
     _storage_engine->_process_async_publish();
     EXPECT_EQ(_storage_engine->_async_publish_tasks.size(), 0);
+}
+
+TEST_F(StorageEngineTest, AsyncPublishRemovesMissingTransactionsAcrossGap) {
+    constexpr int64_t tablet_id = 222;
+    constexpr int64_t partition_id = 2;
+    auto tablet = create_publish_tablet(tablet_id);
+    ASSERT_NE(tablet, nullptr);
+    ASSERT_EQ(tablet->max_version().second, 10);
+
+    // Neither transaction exists locally. Both versions are beyond the next publishable version.
+    _storage_engine->add_async_publish_task(partition_id, tablet_id, 20, 200, false, 2000);
+    _storage_engine->add_async_publish_task(partition_id, tablet_id, 30, 300, false, 3000);
+
+    auto persisted_versions = [&]() {
+        std::vector<int64_t> versions;
+        auto st = TabletMetaManager::traverse_pending_publish(
+                _data_dir->get_meta(), [&](int64_t id, int64_t version, std::string_view) {
+                    if (id == tablet_id) {
+                        versions.push_back(version);
+                    }
+                    return true;
+                });
+        EXPECT_TRUE(st.ok()) << st;
+        return versions;
+    };
+    EXPECT_THAT(persisted_versions(), testing::UnorderedElementsAre(20, 30));
+
+    // Simulate the pending queue being reloaded from metadata after a restart.
+    _storage_engine->_async_publish_tasks.clear();
+    ASSERT_TRUE(TabletMetaManager::traverse_pending_publish(
+                        _data_dir->get_meta(),
+                        [&](int64_t id, int64_t version, std::string_view info) {
+                            PendingPublishInfoPB pb;
+                            EXPECT_TRUE(
+                                    pb.ParseFromArray(info.data(), static_cast<int>(info.size())));
+                            _storage_engine->add_async_publish_task(pb.partition_id(), id, version,
+                                                                    pb.transaction_id(), true,
+                                                                    pb.commit_tso());
+                            return true;
+                        })
+                        .ok());
+    EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), 20);
+
+    _storage_engine->_process_async_publish();
+    EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), 30);
+    EXPECT_THAT(persisted_versions(), testing::ElementsAre(30));
+    _storage_engine->_process_async_publish();
+    EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), INT64_MAX);
+    EXPECT_TRUE(persisted_versions().empty());
+    EXPECT_EQ(tablet->max_version().second, 10);
+    _storage_engine->_process_async_publish();
+    EXPECT_TRUE(_storage_engine->_async_publish_tasks.empty());
+}
+
+TEST_F(StorageEngineTest, AsyncPublishRetainsExistingTransactionUntilCleared) {
+    constexpr int64_t tablet_id = 333;
+    constexpr int64_t partition_id = 3;
+    constexpr int64_t transaction_id = 400;
+    auto tablet = create_publish_tablet(tablet_id);
+    ASSERT_NE(tablet, nullptr);
+    auto* txn_manager = _storage_engine->txn_manager();
+    ASSERT_TRUE(txn_manager->prepare_txn(partition_id, *tablet, transaction_id, PUniqueId()).ok());
+    _storage_engine->add_async_publish_task(partition_id, tablet_id, 40, transaction_id, false,
+                                            4000);
+
+    // An existing transaction must still bound clone while earlier versions are missing.
+    _storage_engine->_process_async_publish();
+    EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), 40);
+    EXPECT_EQ(_storage_engine->_async_publish_tasks.at(tablet_id).size(), 1);
+    EXPECT_EQ(txn_manager->get_txn_state(partition_id, transaction_id, tablet_id,
+                                         tablet->tablet_uid()),
+              TxnState::PREPARED);
+
+    ASSERT_TRUE(txn_manager->delete_txn(partition_id, tablet, transaction_id).ok());
+    _storage_engine->_process_async_publish();
+    EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), INT64_MAX);
+    EXPECT_EQ(tablet->max_version().second, 10);
+}
+
+TEST_F(StorageEngineTest, AsyncPublishChecksTransactionTabletIdentity) {
+    constexpr int64_t tablet_id = 444;
+    constexpr int64_t partition_id = 4;
+    constexpr int64_t transaction_id = 500;
+    auto tablet = create_publish_tablet(tablet_id);
+    ASSERT_NE(tablet, nullptr);
+    auto* txn_manager = _storage_engine->txn_manager();
+    auto old_tablet_uid = UniqueId::gen_uid();
+    ASSERT_NE(old_tablet_uid, tablet->tablet_uid());
+    ASSERT_TRUE(txn_manager
+                        ->prepare_txn(partition_id, transaction_id, tablet_id, old_tablet_uid,
+                                      PUniqueId())
+                        .ok());
+    ASSERT_TRUE(
+            txn_manager->prepare_txn(partition_id + 1, *tablet, transaction_id, PUniqueId()).ok());
+    _storage_engine->add_async_publish_task(partition_id, tablet_id, 50, transaction_id, false,
+                                            5000);
+
+    // A transaction for an old replica or another partition cannot publish this tablet's record.
+    _storage_engine->_process_async_publish();
+    EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), INT64_MAX);
+    EXPECT_EQ(txn_manager->get_txn_state(partition_id, transaction_id, tablet_id, old_tablet_uid),
+              TxnState::PREPARED);
+    EXPECT_EQ(txn_manager->get_txn_state(partition_id + 1, transaction_id, tablet_id,
+                                         tablet->tablet_uid()),
+              TxnState::PREPARED);
 }
 
 } // namespace doris
