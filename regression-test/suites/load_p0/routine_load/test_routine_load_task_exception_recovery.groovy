@@ -50,6 +50,10 @@ suite("test_routine_load_task_exception_recovery", "nonConcurrent") {
             sql """
                 CREATE ROUTINE LOAD ${job} ON ${tableName}
                 COLUMNS TERMINATED BY ","
+                PROPERTIES
+                (
+                    "max_batch_interval" = "5"
+                )
                 FROM KAFKA
                 (
                     "kafka_broker_list" = "${kafka_broker}",
