@@ -28,8 +28,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -65,7 +63,7 @@ import java.util.List;
  * plan instead of changing the normalized-plan signature.
  */
 public class IvmPlanSignatureGenerator {
-    public static final int CURRENT_VERSION = 1;
+    public static final int CURRENT_VERSION = 2;
     @VisibleForTesting
     public static final String DEBUG_POINT_SIGNATURE_SALT =
             "IvmPlanSignatureGenerator.generate.signature_salt";
@@ -79,67 +77,30 @@ public class IvmPlanSignatureGenerator {
 
     public IvmPlanSignature generate(Plan normalizedPlan) {
         CanonicalNode root = CanonicalNode.node("ROOT")
-                .field("plan", canonicalPlan(normalizedPlan, CanonicalContext.ROOT));
+                .field("plan", canonicalPlan(normalizedPlan));
         String canonical = HEADER + "\n" + root.encoded();
         // Test hook for simulating analyzed-plan layout drift without rebuilding a separate plan.
         String debugSalt = DebugPointUtil.getDebugParamOrDefault(DEBUG_POINT_SIGNATURE_SALT, "");
         if (!debugSalt.isEmpty()) {
             canonical = canonical + "\nDEBUG_SIGNATURE_SALT=" + debugSalt;
         }
-        return new IvmPlanSignature(canonical, sha256(canonical));
+        return new IvmPlanSignature(canonical, sha256(canonical), normalizedPlan.treeString());
     }
 
-    private CanonicalNode canonicalPlan(Plan plan, CanonicalContext context) {
-        return plan.accept(canonicalPlanVisitor, context);
+    private CanonicalNode canonicalPlan(Plan plan) {
+        return plan.accept(canonicalPlanVisitor, null);
     }
 
-    private CanonicalNode canonicalProject(LogicalProject<?> project, CanonicalContext context) {
-        if (project.getProjects().stream()
-                .allMatch(expr -> isSignatureNeutralProjection(expr, context.inSinkProjectChain))) {
-            return canonicalPlan(project.child(), context);
-        }
-        // A project that computes values such as row-id ends the sink's passthrough chain.
+    private CanonicalNode canonicalProject(LogicalProject<?> project) {
         return CanonicalNode.node("PROJECT")
                 .field("hiddenOutputs", canonicalHiddenNamedExpressions(project.getProjects()))
-                .field("child", canonicalPlan(project.child(), context.leaveSinkProjectChain()));
+                .field("child", canonicalPlan(project.child()));
     }
 
-    private boolean isSignatureNeutralProjection(NamedExpression expression, boolean allowTruncation) {
-        return isPassthroughExpression(expression) || isIgnorableSinkHiddenProjection(expression)
-                || (allowTruncation && isSameNameSubstring(expression));
-    }
-
-    private boolean isPassthroughExpression(NamedExpression expression) {
-        if (expression instanceof SlotReference) {
-            return true;
-        }
-        if (expression instanceof Alias && ((Alias) expression).child() instanceof SlotReference) {
-            return expression.getName().equals(((SlotReference) ((Alias) expression).child()).getName());
-        }
-        return false;
-    }
-
-    private boolean isIgnorableSinkHiddenProjection(NamedExpression expression) {
-        return IvmUtil.isCommonHiddenSlot(expression.getName());
-    }
-
-    private boolean isSameNameSubstring(NamedExpression expression) {
-        if (!(expression instanceof Alias) || !(((Alias) expression).child() instanceof Substring)) {
-            return false;
-        }
-        Substring substring = (Substring) ((Alias) expression).child();
-        Expression source = substring.getSource();
-        Expression position = substring.getPosition();
-        return source instanceof SlotReference
-                && expression.getName().equals(((SlotReference) source).getName())
-                && position instanceof IntegerLikeLiteral
-                && ((IntegerLikeLiteral) position).getLongValue() == 1;
-    }
-
-    private CanonicalNode canonicalAggregate(LogicalAggregate<?> agg, CanonicalContext childContext) {
+    private CanonicalNode canonicalAggregate(LogicalAggregate<?> agg) {
         return CanonicalNode.node("AGG")
                 .field("hiddenOutputs", canonicalHiddenNamedExpressions(agg.getOutputExpressions()))
-                .field("child", canonicalPlan(agg.child(), childContext));
+                .field("child", canonicalPlan(agg.child()));
     }
 
     private CanonicalNode canonicalScan(LogicalOlapScan scan) {
@@ -148,19 +109,19 @@ public class IvmPlanSignatureGenerator {
                 .field("table", tableIdentity(table, scan.getQualifier()));
     }
 
-    private CanonicalNode canonicalJoin(LogicalJoin<?, ?> join, CanonicalContext childContext) {
+    private CanonicalNode canonicalJoin(LogicalJoin<?, ?> join) {
         return CanonicalNode.node("JOIN")
                 .field("joinType", join.getJoinType().name())
-                .field("left", canonicalPlan(join.left(), childContext))
-                .field("right", canonicalPlan(join.right(), childContext));
+                .field("left", canonicalPlan(join.left()))
+                .field("right", canonicalPlan(join.right()));
     }
 
-    private CanonicalNode canonicalUnion(LogicalUnion union, CanonicalContext childContext) {
+    private CanonicalNode canonicalUnion(LogicalUnion union) {
         CanonicalList arms = CanonicalList.list();
         for (int i = 0; i < union.children().size(); i++) {
             arms.add(CanonicalNode.node("UNION_ARM")
                     .field("index", i)
-                    .field("plan", canonicalPlan(union.child(i), childContext)));
+                    .field("plan", canonicalPlan(union.child(i))));
         }
         return CanonicalNode.node("UNION")
                 .field("hiddenOutputs", canonicalHiddenNamedExpressions(union.getOutputs()))
@@ -417,96 +378,75 @@ public class IvmPlanSignatureGenerator {
         }
     }
 
-    private static final class CanonicalContext {
-        private static final CanonicalContext ROOT = new CanonicalContext(false);
-
-        private final boolean inSinkProjectChain;
-
-        private CanonicalContext(boolean inSinkProjectChain) {
-            this.inSinkProjectChain = inSinkProjectChain;
-        }
-
-        private CanonicalContext enterSink() {
-            if (inSinkProjectChain) {
-                return this;
-            }
-            return new CanonicalContext(true);
-        }
-
-        private CanonicalContext leaveSinkProjectChain() {
-            if (!inSinkProjectChain) {
-                return this;
-            }
-            return new CanonicalContext(false);
-        }
-    }
-
-    private class CanonicalPlanVisitor extends PlanVisitor<CanonicalNode, CanonicalContext> {
+    private class CanonicalPlanVisitor extends PlanVisitor<CanonicalNode, Void> {
         @Override
-        public CanonicalNode visit(Plan plan, CanonicalContext context) {
+        public CanonicalNode visit(Plan plan, Void context) {
             throw new IllegalStateException("Unexpected plan node in IVM layout signature: "
                     + plan.getClass().getSimpleName());
         }
 
         @Override
-        public CanonicalNode visitLogicalResultSink(LogicalResultSink<? extends Plan> sink,
-                CanonicalContext context) {
-            return canonicalPlan(sink.child(), context.enterSink());
+        public CanonicalNode visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, Void context) {
+            return sink.child().accept(this, context);
         }
 
         @Override
-        public CanonicalNode visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink,
-                CanonicalContext context) {
-            return canonicalPlan(sink.child(), context.enterSink());
+        public CanonicalNode visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink, Void context) {
+            CanonicalList columns = CanonicalList.list();
+            for (Slot slot : sink.getTargetTableSlots()) {
+                columns.add(CanonicalNode.node("COLUMN")
+                        .field("name", slot.getName())
+                        .field("type", slot.getDataType().toSql()));
+            }
+            return CanonicalNode.node("TABLE_SINK")
+                    .field("columns", columns)
+                    .field("child", canonicalPlan(sink.child()));
         }
 
         @Override
-        public CanonicalNode visitLogicalFilter(LogicalFilter<? extends Plan> filter, CanonicalContext context) {
-            return canonicalPlan(filter.child(), context.leaveSinkProjectChain());
+        public CanonicalNode visitLogicalFilter(LogicalFilter<? extends Plan> filter, Void context) {
+            return filter.child().accept(this, context);
         }
 
         @Override
-        public CanonicalNode visitLogicalProject(LogicalProject<? extends Plan> project, CanonicalContext context) {
-            return canonicalProject(project, context);
+        public CanonicalNode visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
+            return canonicalProject(project);
         }
 
         @Override
-        public CanonicalNode visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
-                CanonicalContext context) {
-            return canonicalPlan(alias.child(), context.leaveSinkProjectChain());
+        public CanonicalNode visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias, Void context) {
+            return alias.child().accept(this, context);
         }
 
         @Override
-        public CanonicalNode visitLogicalOlapScan(LogicalOlapScan scan, CanonicalContext context) {
+        public CanonicalNode visitLogicalOlapScan(LogicalOlapScan scan, Void context) {
             return canonicalScan(scan);
         }
 
         @Override
-        public CanonicalNode visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation,
-                CanonicalContext context) {
+        public CanonicalNode visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, Void context) {
             return canonicalOneRowRelation(oneRowRelation);
         }
 
         @Override
-        public CanonicalNode visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-                CanonicalContext context) {
-            return canonicalJoin(join, context.leaveSinkProjectChain());
+        public CanonicalNode visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
+            return canonicalJoin(join);
         }
 
         @Override
-        public CanonicalNode visitLogicalUnion(LogicalUnion union, CanonicalContext context) {
-            return canonicalUnion(union, context.leaveSinkProjectChain());
+        public CanonicalNode visitLogicalUnion(LogicalUnion union, Void context) {
+            return canonicalUnion(union);
         }
 
         @Override
-        public CanonicalNode visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, CanonicalContext context) {
-            return canonicalAggregate(agg, context.leaveSinkProjectChain());
+        public CanonicalNode visitLogicalAggregate(LogicalAggregate<? extends Plan> agg, Void context) {
+            return canonicalAggregate(agg);
         }
 
         @Override
-        public CanonicalNode visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, CanonicalContext context) {
+        public CanonicalNode visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat, Void context) {
             return CanonicalNode.node("REPEAT")
-                    .field("child", canonicalPlan(repeat.child(), context.leaveSinkProjectChain()));
+                    .field("child", canonicalPlan(repeat.child()));
         }
     }
 

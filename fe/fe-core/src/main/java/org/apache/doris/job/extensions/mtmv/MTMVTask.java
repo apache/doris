@@ -346,8 +346,8 @@ public class MTMVTask extends AbstractTask {
     // Only the worker thread writes it, and it is read as the worker reports the failure.
     private transient String failureStage = IvmRefreshFailureStage.OTHER.name();
     private long mtmvSchemaChangeVersion;
-    // Published only after a signature-mismatch fallback succeeds and its task result is accepted.
-    private transient String refreshedIvmPlanSignature;
+    // Published when a whole-MV COMPLETE succeeds and its task result is accepted.
+    private transient IvmPlanSignature refreshedIvmPlanSignature;
 
     private Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
@@ -1004,8 +1004,10 @@ public class MTMVTask extends AbstractTask {
         // recorded only if the refresh commits; see captureLatestEpochs.
         Map<String, Long> capturedEpochs = captureLatestEpochs(incrementalScope);
         IvmIncrRefreshResult ivmResult;
+        AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
         try {
             ivmResult = executeWithRetry(() -> {
+                signatureRef.set(null);
                 ConnectContext ivmConnectContext = MTMVPlanUtil.createMTMVContext(mtmv,
                         MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
                 try {
@@ -1014,7 +1016,7 @@ public class MTMVTask extends AbstractTask {
                             ivmConnectContext,
                             getRefreshAuditStmt(RefreshMode.INCREMENTAL, Sets.newHashSet(incrementalScope)),
                             this::recordQueryId,
-                            this::registerExecutor);
+                            createRefreshConsumer(signatureRef));
                     mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
                     return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
                 } finally {
@@ -1027,6 +1029,11 @@ public class MTMVTask extends AbstractTask {
         }
         if (ivmResult.isSuccess()) {
             recordCommitted(IvmRefreshMethod.INCREMENTAL);
+            IvmPlanSignature signature = signatureRef.get();
+            if (signature != null) {
+                mtmv.initializeIvmPlanSignature(signature, mtmvSchemaChangeVersion, getTaskId(),
+                        IvmRefreshMethod.INCREMENTAL);
+            }
             this.partitionSnapshots.putAll(capturedSnapshots);
             recordRefreshCompleted(incrementalScope);
             commitCapturedEpochs(capturedEpochs);
@@ -1379,8 +1386,7 @@ public class MTMVTask extends AbstractTask {
         boolean refreshAllPartitions = Sets.newHashSet(partitions).equals(mtmv.getPartitionNames());
         // A whole-MV COMPLETE resets the stream baselines as it rebuilds the rows. Publish the
         // matching layout signature with that successful baseline, including a capacity change.
-        // A partition refresh cannot publish a signature for partitions it did not rebuild.
-        boolean capturePlanSignature = refreshMode == RefreshMode.COMPLETE && mtmv.isIvm()
+        boolean replacePlanSignature = refreshMode == RefreshMode.COMPLETE && mtmv.isIvm()
                 && !mtmv.isIvmAppendOnlyDupTable();
         IvmPlanSignature refreshedPlanSignature = null;
         for (int i = 0; i < execNum; i++) {
@@ -1409,7 +1415,7 @@ public class MTMVTask extends AbstractTask {
             try {
                 IvmPlanSignature batchPlanSignature = refreshPartitionsWithRetry(
                         execPartitionNames, tableWithPartKey, rewriteContext, refreshMode);
-                if (capturePlanSignature) {
+                if (replacePlanSignature) {
                     batchPlanSignature = Objects.requireNonNull(batchPlanSignature,
                             "IVM COMPLETE refresh did not produce a plan signature");
                     if (refreshedPlanSignature == null) {
@@ -1418,6 +1424,9 @@ public class MTMVTask extends AbstractTask {
                         throw new JobException("IVM COMPLETE refresh generated inconsistent plan signatures, mv="
                                 + mtmv.getName());
                     }
+                } else if (batchPlanSignature != null) {
+                    mtmv.initializeIvmPlanSignature(batchPlanSignature, mtmvSchemaChangeVersion, getTaskId(),
+                            IvmRefreshMethod.PARTITION_REBUILD);
                 }
             } catch (Exception e) {
                 LOG.error("Execution failed after retries, mvName: {}, taskId: {}",
@@ -1451,8 +1460,8 @@ public class MTMVTask extends AbstractTask {
                 commitCapturedEpochs(batchCapturedEpochs);
             }
         }
-        if (capturePlanSignature) {
-            refreshedIvmPlanSignature = refreshedPlanSignature.getSha256();
+        if (replacePlanSignature) {
+            refreshedIvmPlanSignature = refreshedPlanSignature;
         }
         LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
                 mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
@@ -1724,19 +1733,15 @@ public class MTMVTask extends AbstractTask {
             return null;
         }
         return Objects.requireNonNull(signatureRef.get(),
-                "IVM COMPLETE refresh did not produce a plan signature");
+                "IVM refresh did not produce a plan signature");
     }
 
     /**
-     * Builds the executor consumer for a COMPLETE refresh: registers the executing
-     * statement for cancellation, and when the command finishes (consumer invoked with
-     * {@code null}), captures the IVM plan signature into {@code signatureRef} from the
-     * still-registered executor before it is cleared.
+     * Registers the refresh executor for cancellation and captures the plan signature on completion,
+     * before the null callback clears the executor.
      */
     private Consumer<StmtExecutor> createRefreshConsumer(AtomicReference<IvmPlanSignature> signatureRef) {
         return executor -> {
-            // executor == null 且 this.executor 仍注册:executeCommand 的 finally 回调,
-            // 命令已执行完成,在 registerExecutor(null) 清空字段前先摘取 IVM 签名。
             if (executor == null && this.executor != null && this.executor.planner() != null) {
                 ((NereidsPlanner) this.executor.planner())
                         .getCascadesContext()
@@ -2188,7 +2193,7 @@ public class MTMVTask extends AbstractTask {
         return ivmCapturedEpochs == null ? Collections.emptyMap() : Maps.newHashMap(ivmCapturedEpochs);
     }
 
-    public String getRefreshedIvmPlanSignature() {
+    public IvmPlanSignature getRefreshedIvmPlanSignature() {
         return refreshedIvmPlanSignature;
     }
 

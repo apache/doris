@@ -128,24 +128,29 @@ class IvmNormalizeUniqKeysMTMVTest {
     }
 
     @Test
-    void testIvmRewriteContextEnablesNormalizeWithoutSessionVariable() {
-        JobContext jobContext = newJobContextForRoot(scan, false, Collections.emptySet(),
+    void testCreateResultSinkNormalizesWithNoSignature() {
+        Plan sink = new LogicalResultSink<>(ImmutableList.of(scan.getOutput().get(0)), scan);
+        JobContext jobContext = newJobContextForRoot(sink, false, Collections.emptySet(),
                 Optional.of(IvmRewriteContext.create("test_mtmv")));
-        Plan result = new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext);
+        jobContext.getCascadesContext().getStatementContext().getIvmRewriteContext()
+                .orElseThrow().setForceMow(true);
 
-        Assertions.assertInstanceOf(LogicalProject.class, result);
+        Plan result = new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
+
+        Assertions.assertInstanceOf(LogicalResultSink.class, result);
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
-        Assertions.assertNotNull(rewriteResult.getPlanSignature());
+        Assertions.assertNull(rewriteResult.getPlanSignature());
     }
 
     @Test
     void testIncrementalSignatureMismatchThrowsAtNormalize() {
         MTMV mtmv = mockIvmMtmv("stored-signature");
-        JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
+        Plan sink = signatureTestSink(mtmv);
+        JobContext jobContext = newJobContextForRoot(sink, true, Collections.emptySet(),
                 Optional.of(IvmRewriteContext.incremental(mtmv)));
 
         IvmException exception = Assertions.assertThrows(IvmException.class,
-                () -> new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext));
+                () -> new IvmNormalizeMTMV().rewriteRoot(sink, jobContext));
 
         Assertions.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, exception.getFailureReason());
         Assertions.assertTrue(exception.getMessage().contains("storedSignature=stored-signature"));
@@ -153,20 +158,33 @@ class IvmNormalizeUniqKeysMTMVTest {
     }
 
     @Test
-    void testIncrementalSignatureMatchPassesNormalize() {
-        // Normalize once (CREATE mode) to learn the computed signature for this plan.
-        JobContext probe = newJobContextForRoot(scan, true);
-        new IvmNormalizeUniqKeysMTMV().normalize(scan, probe);
-        String signature = probe.getCascadesContext().getIvmRewriteResult().orElseThrow()
-                .getPlanSignature().getSha256();
-
-        MTMV mtmv = mockIvmMtmv(signature);
-        JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
+    void testIncrementalWithoutSignaturePassesNormalize() {
+        MTMV mtmv = mockIvmMtmv(null);
+        Plan sink = signatureTestSink(mtmv);
+        JobContext jobContext = newJobContextForRoot(sink, true, Collections.emptySet(),
                 Optional.of(IvmRewriteContext.incremental(mtmv)));
 
-        Plan result = new IvmNormalizeUniqKeysMTMV().normalize(scan, jobContext);
+        Assertions.assertInstanceOf(LogicalOlapTableSink.class, new IvmNormalizeMTMV().rewriteRoot(sink, jobContext));
+        IvmRewriteResult result = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
+        Assertions.assertNotNull(result.getPlanSignature());
+        Assertions.assertNull(mtmv.getIvmInfo().getPlanSignature());
+    }
 
-        Assertions.assertInstanceOf(LogicalProject.class, result);
+    @Test
+    void testMowNormalizeRejectsRootWithoutSink() {
+        JobContext jobContext = newJobContextForRoot(scan, true, Collections.emptySet(),
+                Optional.of(IvmRewriteContext.incremental(mockIvmMtmv(null))));
+
+        IvmException exception = Assertions.assertThrows(IvmException.class,
+                () -> new IvmNormalizeMTMV().rewriteRoot(scan, jobContext));
+        Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, exception.getFailureReason());
+        Assertions.assertTrue(exception.getMessage().contains("requires a table or result sink"));
+    }
+
+    private Plan signatureTestSink(MTMV mtmv) {
+        return new LogicalOlapTableSink<>(new Database(), mtmv, ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.copyOf(scan.getOutput()), false, TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.INSERT, scan);
     }
 
     private static MTMV mockIvmMtmv(String signature) {
@@ -226,7 +244,6 @@ class IvmNormalizeUniqKeysMTMVTest {
         Assertions.assertFalse(rowId.nullable());
         IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().orElseThrow();
         Assertions.assertTrue(rewriteResult.isDeterministic(rowId));
-        Assertions.assertNotNull(rewriteResult.getPlanSignature());
     }
 
     @Test

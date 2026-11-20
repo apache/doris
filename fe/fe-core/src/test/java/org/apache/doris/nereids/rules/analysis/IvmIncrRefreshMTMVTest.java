@@ -119,7 +119,8 @@ class IvmIncrRefreshMTMVTest {
         RecordingRule rule = new RecordingRule(deltaPlan);
         IvmDryRunLimit dryRunLimit = new IvmDryRunLimit(3, 10);
 
-        Plan result = rule.rewriteRoot(scan, newJobContext(scan,
+        Plan root = new LogicalResultSink<>(ImmutableList.copyOf(scan.getOutput()), scan);
+        Plan result = rule.rewriteRoot(root, newJobContext(root,
                 IvmRewriteContext.incrementalDryRun(mtmv, Optional.of(dryRunLimit)),
                 newRewriteResult(SIGNATURE)));
 
@@ -144,7 +145,8 @@ class IvmIncrRefreshMTMVTest {
                         scan.getOutput().get(0), scan.getOutput().get(0).getName())), scan);
         RecordingRule rule = new RecordingRule(deltaPlan);
 
-        Plan result = rule.rewriteRoot(scan, newJobContext(scan,
+        Plan root = new LogicalResultSink<>(ImmutableList.copyOf(scan.getOutput()), scan);
+        Plan result = rule.rewriteRoot(root, newJobContext(root,
                 IvmRewriteContext.incrementalDryRun(mtmv, Optional.of(dryRunLimit)),
                 newRewriteResult(SIGNATURE)));
 
@@ -162,7 +164,8 @@ class IvmIncrRefreshMTMVTest {
                         scan.getOutput().get(0), scan.getOutput().get(0).getName())), scan);
         RecordingRule rule = new RecordingRule(deltaPlan);
 
-        Plan result = rule.rewriteRoot(scan, newJobContext(scan,
+        Plan root = new LogicalResultSink<>(ImmutableList.copyOf(scan.getOutput()), scan);
+        Plan result = rule.rewriteRoot(root, newJobContext(root,
                 IvmRewriteContext.incrementalDryRun(mtmv, Optional.empty()),
                 newRewriteResult(SIGNATURE)));
 
@@ -311,7 +314,7 @@ class IvmIncrRefreshMTMVTest {
 
     private IvmRewriteResult newRewriteResult(String signature) {
         IvmRewriteResult rewriteResult = new IvmRewriteResult();
-        rewriteResult.setPlanSignature(new IvmPlanSignature("canonical", signature));
+        rewriteResult.setPlanSignature(new IvmPlanSignature("canonical", signature, "plan tree"));
         return rewriteResult;
     }
 

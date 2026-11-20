@@ -81,7 +81,7 @@ suite("test_ivm_sink_truncation_signature") {
         GROUP BY u.channel
     """
 
-    // Check the signature stored by CREATE before COMPLETE can publish a replacement.
+    // Preview the first refresh, then let the actual write establish the signature.
     // The write plan still truncates the STRING union output to the target VARCHAR length.
     explain {
         sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW ivm_sink_truncation_mv INCREMENTAL WITH ALL STREAMS"
@@ -89,20 +89,27 @@ suite("test_ivm_sink_truncation_signature") {
         contains "substring(channel#"
     }
 
-    sql "REFRESH MATERIALIZED VIEW ivm_sink_truncation_mv COMPLETE"
-    waitingMTMVTaskFinishedByMvName("ivm_sink_truncation_mv")
-    order_qt_after_complete "SELECT channel, row_count, total_amount FROM ivm_sink_truncation_mv"
-
-    sql "INSERT INTO ivm_sink_truncation_sales VALUES (106, 'web', 150.00)"
-    sql "INSERT INTO ivm_sink_truncation_refunds VALUES (903, 30.00)"
-    sql "REFRESH MATERIALIZED VIEW ivm_sink_truncation_mv INCREMENTAL"
-    waitingMTMVTaskFinishedByMvName("ivm_sink_truncation_mv")
-    qt_refresh_method """
+    def refreshTaskQuery = """
         SELECT Status, IvmRefreshMethod
         FROM tasks('type' = 'mv')
         WHERE MvDatabaseName = '${context.dbName}' AND MvName = 'ivm_sink_truncation_mv'
         ORDER BY CreateTime DESC, CAST(TaskId AS BIGINT) DESC
         LIMIT 1
     """
+
+    sql "REFRESH MATERIALIZED VIEW ivm_sink_truncation_mv INCREMENTAL"
+    waitingMTMVTaskFinishedByMvName("ivm_sink_truncation_mv")
+    qt_first_refresh_method refreshTaskQuery
+    order_qt_after_first_incremental "SELECT channel, row_count, total_amount FROM ivm_sink_truncation_mv"
+
+    sql "INSERT INTO ivm_sink_truncation_sales VALUES (106, 'web', 150.00)"
+    sql "INSERT INTO ivm_sink_truncation_refunds VALUES (903, 30.00)"
+    // A dry run has no table write projection, even after a write signature exists.
+    ivm_hidden_qt("ivm_sink_truncation_dry_run", """
+        REFRESH MATERIALIZED VIEW ivm_sink_truncation_mv INCREMENTAL WITH DRY RUN
+    """)
+    sql "REFRESH MATERIALIZED VIEW ivm_sink_truncation_mv INCREMENTAL"
+    waitingMTMVTaskFinishedByMvName("ivm_sink_truncation_mv")
+    qt_refresh_method refreshTaskQuery
     order_qt_after_incremental "SELECT channel, row_count, total_amount FROM ivm_sink_truncation_mv"
 }

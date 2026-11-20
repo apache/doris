@@ -1285,7 +1285,8 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         int historySize = mtmv.getHistoryTasks().size();
 
         AlterMTMV result = taskResult(mtmv, TaskStatus.FAILED, taskVersion);
-        Deencapsulation.setField(result.getTask(), "refreshedIvmPlanSignature", "new_signature");
+        Deencapsulation.setField(result.getTask(), "refreshedIvmPlanSignature",
+                new IvmPlanSignature("layout", "new_signature", "plan tree"));
         String planSignature = mtmv.getIvmInfo().getPlanSignature();
 
         Assertions.assertFalse(mtmv.addTaskResult(result, false));
@@ -1342,12 +1343,32 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
     }
 
     @Test
+    public void testPartitionRefreshInitializesButCannotReplacePlanSignature() throws Exception {
+        String db = "ivm_partition_refresh_initial_signature";
+        createPartitionedIvmTableAndMv(db);
+        MTMV mtmv = getMtmv(db);
+        long version = mtmv.getSchemaChangeVersion();
+
+        Assertions.assertNull(mtmv.getIvmInfo().getPlanSignature());
+        IvmPlanSignature first = new IvmPlanSignature("first layout", "first signature", "first plan");
+        mtmv.initializeIvmPlanSignature(first, version + 1, 1, IvmRefreshMethod.PARTITION_REBUILD);
+        Assertions.assertNull(mtmv.getIvmInfo().getPlanSignature());
+
+        mtmv.initializeIvmPlanSignature(first, version, 2, IvmRefreshMethod.PARTITION_REBUILD);
+        IvmPlanSignature second = new IvmPlanSignature("second layout", "second signature", "second plan");
+        mtmv.initializeIvmPlanSignature(second, version, 3, IvmRefreshMethod.PARTITION_REBUILD);
+
+        Assertions.assertEquals(first.getSha256(), mtmv.getIvmInfo().getPlanSignature());
+    }
+
+    @Test
     public void testSuccessfulSignatureFallbackPublishesNewPlanSignature() throws Exception {
         String db = "ivm_successful_signature_fallback";
         createPartitionedIvmTableAndMv(db);
         MTMV mtmv = getMtmv(db);
         AlterMTMV result = taskResult(mtmv, TaskStatus.SUCCESS, mtmv.getSchemaChangeVersion());
-        Deencapsulation.setField(result.getTask(), "refreshedIvmPlanSignature", "new_signature");
+        Deencapsulation.setField(result.getTask(), "refreshedIvmPlanSignature",
+                new IvmPlanSignature("layout", "new_signature", "plan tree"));
         boolean compatibilityMode = Config.enable_check_compatibility_mode;
         try {
             Config.enable_check_compatibility_mode = true;
