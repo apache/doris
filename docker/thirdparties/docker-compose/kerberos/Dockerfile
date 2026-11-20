@@ -17,7 +17,8 @@
 
 # Hive 3.1.3 with krb5 1.18.3-6+deb11u8, built from the pinned recipe in #68440.
 # Keep this branch's entrypoint and health checks in the small layer below.
-FROM doristhirdpartydocker/hive@sha256:b094fbc1a61c65116fbe2f0bca562687a10af418e7a0b2865f8d7b70cd8ad03e
+ARG BASE_IMAGE=doristhirdpartydocker/hive@sha256:b094fbc1a61c65116fbe2f0bca562687a10af418e7a0b2865f8d7b70cd8ad03e
+FROM ${BASE_IMAGE}
 
 USER root
 

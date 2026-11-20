@@ -19,7 +19,7 @@ version: "3.1"
 
 services:
   doris--mariadb:
-    image: mariadb:10.4
+    image: ${THIRDPARTY_MARIADB_IMAGE}
     command: --default-authentication-plugin=mysql_native_password
     restart: always
     environment:

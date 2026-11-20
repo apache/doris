@@ -37,6 +37,9 @@ THIRDPARTY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." &>/dev/null && p
 HOST_OS="$(uname -s)"
 # shellcheck source=../../../docker-command.sh
 . "${THIRDPARTY_ROOT}/docker-command.sh"
+ROOT="${THIRDPARTY_ROOT}"
+. "${ROOT}/custom_settings.env"
+thirdparty_images_init filesystem
 configure_docker_access
 
 docker_cli() {
@@ -67,7 +70,7 @@ docker_cli run --rm --network none --security-opt no-new-privileges \
     -v "${VOLUME_PREFIX}-datanode:/work/datanode:ro" \
     -v "${VOLUME_PREFIX}-pgdata:/work/pgdata:ro" \
     -v "${VOLUME_PREFIX}-state:/snapshot/state:ro" \
-    "${THIRDPARTY_FILESYSTEM_IMAGE:-alpine:3.20}" sh -ec '
+    "${THIRDPARTY_FILESYSTEM_IMAGE}" sh -ec '
         mkdir -p /work/state
         cp -a /snapshot/state/. /work/state/
         rm -f /work/state/baseline.version

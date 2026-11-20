@@ -21,6 +21,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." &>/dev/null && pwd)"
 HOST_OS="$(uname -s)"
 . "${ROOT}/docker-command.sh"
+. "${ROOT}/custom_settings.env"
+thirdparty_images_init filesystem
 configure_docker_access
 
 test_dir="$(mktemp -d /tmp/doris-snapshot-test.XXXXXX)"

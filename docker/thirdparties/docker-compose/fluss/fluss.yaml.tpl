@@ -26,7 +26,7 @@ networks:
 
 services:
   doris--fluss-zookeeper:
-    image: zookeeper:3.9.2
+    image: ${THIRDPARTY_FLUSS_ZOOKEEPER_IMAGE}
     container_name: doris--fluss-zookeeper
     hostname: doris--fluss-zookeeper
     restart: always
@@ -46,7 +46,7 @@ services:
   # Paimon snapshot, rather than accidentally accepting an older readable
   # snapshot plus a Fluss log tail.
   doris--fluss-zookeeper-probe:
-    image: zookeeper:3.9.2
+    image: ${THIRDPARTY_FLUSS_ZOOKEEPER_IMAGE}
     container_name: doris--fluss-zookeeper-probe
     hostname: doris--fluss-zookeeper-probe
     user: "0:0"
@@ -79,7 +79,7 @@ services:
     # bucket below without a second container to do it. From the Doris-owned
     # mirror like the others (#67908): the minio/minio repository on Docker Hub
     # is gone, and quay.io is not a registry the CI agents are known to reach.
-    image: doristhirdpartydocker/minio:RELEASE.2025-01-20T14-49-07Z
+    image: ${THIRDPARTY_DATALAKE_MINIO_IMAGE}
     container_name: doris--fluss-minio
     hostname: doris--fluss-minio
     restart: always

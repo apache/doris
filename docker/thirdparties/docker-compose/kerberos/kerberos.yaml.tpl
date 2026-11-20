@@ -16,10 +16,12 @@
 # under the License.
 
 x-kerberos-image: &kerberos-image
-  image: doris-kerberos-minimal:${CONTAINER_UID}
+  image: ${THIRDPARTY_KERBEROS_IMAGE}
   build:
     context: .
     dockerfile: Dockerfile
+    args:
+      BASE_IMAGE: ${THIRDPARTY_KERBEROS_BASE_IMAGE}
 
 x-kerberos-service: &kerberos-service
   <<: *kerberos-image

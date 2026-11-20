@@ -20,7 +20,7 @@ version: "3.8"
 services:
   # S3 Catalog
   iceberg-rest-s3:
-    image: apache/iceberg-rest-fixture:1.9.2
+    image: ${THIRDPARTY_ICEBERG_REST_FIXTURE_IMAGE}
     container_name: ${CONTAINER_UID}iceberg-rest-s3
     ports:
       - "${ICEBERG_REST_S3_PORT}:8181"
@@ -47,7 +47,7 @@ services:
 
   # OSS Catalog
   iceberg-rest-oss:
-    image: apache/iceberg-rest-fixture:1.9.2
+    image: ${THIRDPARTY_ICEBERG_REST_FIXTURE_IMAGE}
     container_name: ${CONTAINER_UID}iceberg-rest-oss
     ports:
       - "${ICEBERG_REST_OSS_PORT}:8181"
@@ -74,7 +74,7 @@ services:
 
   # COS Catalog  
   iceberg-rest-cos:
-    image: apache/iceberg-rest-fixture:1.9.2
+    image: ${THIRDPARTY_ICEBERG_REST_FIXTURE_IMAGE}
     container_name: ${CONTAINER_UID}iceberg-rest-cos
     ports:
       - "${ICEBERG_REST_COS_PORT}:8181"
@@ -101,7 +101,7 @@ services:
 
   # OBS Catalog
   iceberg-rest-obs:
-    image: apache/iceberg-rest-fixture:1.9.2
+    image: ${THIRDPARTY_ICEBERG_REST_FIXTURE_IMAGE}
     container_name: ${CONTAINER_UID}iceberg-rest-obs
     ports:
       - "${ICEBERG_REST_OBS_PORT}:8181"
@@ -128,7 +128,7 @@ services:
 
   # GCS Catalog
   iceberg-rest-gcs:
-    image: apache/iceberg-rest-fixture:1.9.2
+    image: ${THIRDPARTY_ICEBERG_REST_FIXTURE_IMAGE}
     container_name: ${CONTAINER_UID}iceberg-rest-gcs
     ports:
       - "${ICEBERG_REST_GCS_PORT}:8181"
@@ -155,7 +155,7 @@ services:
 
   # Built-in HDFS NameNode
   hdfs-namenode:
-    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    image: ${THIRDPARTY_HADOOP3_NAMENODE_IMAGE}
     platform: linux/amd64
     container_name: ${CONTAINER_UID}iceberg-hdfs-namenode
     restart: always
@@ -186,7 +186,7 @@ services:
 
   # Built-in HDFS DataNode
   hdfs-datanode:
-    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    image: ${THIRDPARTY_HADOOP3_DATANODE_IMAGE}
     platform: linux/amd64
     container_name: ${CONTAINER_UID}iceberg-hdfs-datanode
     restart: always
@@ -216,7 +216,7 @@ services:
 
   # HDFS Catalog (using built-in HDFS)
   iceberg-rest-hdfs:
-    image: tabulario/iceberg-rest:1.6.0
+    image: ${THIRDPARTY_ICEBERG_REST_LEGACY_IMAGE}
     container_name: ${CONTAINER_UID}iceberg-rest-hdfs
     ports:
       - "${ICEBERG_REST_HDFS_PORT}:8181"
