@@ -17,6 +17,8 @@
 
 #include "exec/sink/writer/iceberg/partition_transformers.h"
 
+#include <fmt/format.h>
+
 #include <any>
 #include <cmath>
 
@@ -35,7 +37,8 @@ std::string floating_point_partition_value_to_string(T value) {
     if (std::isinf(value)) {
         return value > 0 ? "Infinity" : "-Infinity";
     }
-    return std::to_string(value);
+    // Distinct partitions such as 1.0000001 and 1.0000002 must round-trip without rounding.
+    return fmt::format("{}", value);
 }
 
 } // namespace
