@@ -92,6 +92,8 @@ public class OlapTableTest {
                 previousContext.setThreadLocalInfo();
             }
         }
+    }
+
     @Test
     public void testVariantInvertedIndexLookupEncodesLogicalKeys() {
         List<List<String>> paths = List.of(List.of("a.b"), List.of("a", "b"),
