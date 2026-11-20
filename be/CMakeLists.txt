@@ -1185,6 +1185,7 @@ if(NOT BUILD_BENCHMARK)
         ${BASE_DIR}/../conf/asan_suppr.conf
         ${BASE_DIR}/../conf/lsan_suppr.conf
         ${BASE_DIR}/../conf/ubsan_suppr.conf
+        ${BASE_DIR}/../conf/tsan_brpc_suppr.conf
         # Configures the hadoop on BE's system class path, which is what C++ libhdfs uses; the
         # Java plugins log through JniLogging instead. bin/start_be.sh names it with
         # -Dlog4j2.configurationFile, and only when it is present.
