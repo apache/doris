@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -49,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
@@ -58,6 +60,7 @@ import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.List;
 
 class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
@@ -196,6 +199,91 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
 
         IvmPlanSignature sinkSignature = signatureForNormalizedPlan(sink);
         Assertions.assertEquals(baseSignature.getSha256(), sinkSignature.getSha256());
+    }
+
+    @Test
+    void testSinkTruncationAfterRowIdDoesNotChangeSignature() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        LogicalProject<?> rowIdProject = buildRowIdProject(scan, scan.getOutput().subList(0, 2));
+        Slot name = rowIdProject.getOutput().get(2);
+        LogicalProject<?> truncation = new LogicalProject<>(ImmutableList.of(
+                rowIdProject.getOutput().get(0), rowIdProject.getOutput().get(1),
+                truncate(name, 1, 16)), rowIdProject);
+        LogicalProject<?> passthrough = new LogicalProject<>(ImmutableList.of(
+                new Alias(truncation.getOutput().get(2), name.getName()),
+                truncation.getOutput().get(0), truncation.getOutput().get(1)), truncation);
+
+        IvmPlanSignature baseline = signatureForNormalizedPlan(rowIdProject);
+        LogicalOlapTableSink<?> sink = buildBoundStringSink(passthrough, name.getName());
+        Assertions.assertEquals(baseline.getSha256(), signatureForNormalizedPlan(sink).getSha256());
+        Assertions.assertNotEquals(baseline.getSha256(), signatureForNormalizedPlan(truncation).getSha256());
+        IvmPlanSignatureGenerator protectedState = new IvmPlanSignatureGenerator(ImmutableSet.of(name.getName()));
+        Assertions.assertNotEquals(baseline.getSha256(), protectedState.generate(sink).getSha256());
+    }
+
+    @Test
+    void testSinkTruncationDoesNotCrossAnotherComputation() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        Slot id = scan.getOutput().get(0);
+        Slot name = scan.getOutput().get(1);
+        LogicalProject<?> truncation = new LogicalProject<>(ImmutableList.of(id, truncate(name, 1, 16)), scan);
+        LogicalProject<?> rowIdProject = new LogicalProject<>(ImmutableList.of(id,
+                truncation.getOutput().get(1),
+                new Alias(IvmUtil.buildRowIdHash(truncation.getOutput()), Column.IVM_ROW_ID_COL)), truncation);
+
+        IvmPlanSignature baseline = signatureForNormalizedPlan(rowIdProject);
+        Assertions.assertEquals(baseline.getSha256(),
+                signatureForNormalizedPlan(buildBoundStringSink(rowIdProject, name.getName())).getSha256());
+    }
+
+    @Test
+    void testSinkKeepsQueryTruncationBelowInputMapping() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        Slot id = scan.getOutput().get(0);
+        Slot name = scan.getOutput().get(1);
+        LogicalProject<?> query = new LogicalProject<>(ImmutableList.of(id, truncate(name, 1, 16)), scan);
+        LogicalProject<?> inputMapping = new LogicalProject<>(ImmutableList.of(
+                query.getOutput().get(0), query.getOutput().get(1),
+                new Alias(new IntegerLiteral(0), Column.DELETE_SIGN)), query);
+
+        Assertions.assertEquals(signatureForNormalizedPlan(query).getSha256(),
+                signatureForNormalizedPlan(buildBoundStringSink(inputMapping, name.getName())).getSha256());
+    }
+
+    @Test
+    void testSinkOnlySkipsProjectsThatMatchWriteTruncation() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        Slot id = scan.getOutput().get(0);
+        Slot name = scan.getOutput().get(1);
+        List<List<NamedExpression>> outputs = ImmutableList.of(
+                ImmutableList.of(id, truncate(name, 2, 16)),
+                ImmutableList.of(id, truncate(name, 1, 15)),
+                ImmutableList.of(new Alias(new IntegerLiteral(1), id.getName()), truncate(name, 1, 16)));
+        for (List<NamedExpression> expressions : outputs) {
+            LogicalProject<?> project = new LogicalProject<>(expressions, scan);
+            Assertions.assertEquals(signatureForNormalizedPlan(project).getSha256(),
+                    signatureForNormalizedPlan(buildBoundStringSink(project, name.getName())).getSha256());
+        }
+    }
+
+    private Alias truncate(Slot input, int start, int length) {
+        return new Alias(new Substring(input, new IntegerLiteral(start), new IntegerLiteral(length)), input.getName());
+    }
+
+    private LogicalOlapTableSink<?> buildBoundStringSink(Plan child, String stringColumnName) {
+        List<Slot> outputs = child.getOutput();
+        List<Slot> schema = outputs.stream()
+                .map(slot -> slot.getName().equals(stringColumnName) ? new SlotReference(
+                        stringColumnName, VarcharType.createVarcharType(16), slot.nullable()) : slot)
+                .collect(ImmutableList.toImmutableList());
+        OlapTable table = buildMtmvFromPlan(schema.stream()
+                .filter(slot -> !IvmUtil.isCommonHiddenSlot(slot.getName()))
+                .collect(ImmutableList.toImmutableList()));
+        LogicalOlapTableSink<?> sink = new LogicalOlapTableSink<>(new Database(), table, table.getBaseSchema(),
+                ImmutableList.of(), ImmutableList.copyOf(outputs), false, TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.INSERT, child);
+        return (LogicalOlapTableSink<?>) sink.withChildAndUpdateOutput(child, ImmutableList.of(),
+                Collections.emptyMap(), schema);
     }
 
     @Test

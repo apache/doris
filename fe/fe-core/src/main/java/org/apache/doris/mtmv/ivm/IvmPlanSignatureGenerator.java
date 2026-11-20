@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -24,10 +25,13 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -42,16 +46,21 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableListMultimap;
 import org.apache.commons.lang3.StringUtils;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Builds the stable IVM maintenance-layout signature.
@@ -71,8 +80,14 @@ public class IvmPlanSignatureGenerator {
 
     private final CanonicalExpressionVisitor canonicalExpressionVisitor = new CanonicalExpressionVisitor();
     private final CanonicalPlanVisitor canonicalPlanVisitor = new CanonicalPlanVisitor();
+    private final Set<String> maintenanceColumns;
 
     public IvmPlanSignatureGenerator() {
+        this(Collections.emptySet());
+    }
+
+    IvmPlanSignatureGenerator(Set<String> maintenanceColumns) {
+        this.maintenanceColumns = maintenanceColumns;
     }
 
     public IvmPlanSignature generate(Plan normalizedPlan) {
@@ -120,6 +135,77 @@ public class IvmPlanSignatureGenerator {
 
     private boolean isIgnorableSinkHiddenProjection(NamedExpression expression) {
         return IvmUtil.isCommonHiddenSlot(expression.getName());
+    }
+
+    private Plan skipSinkProjects(LogicalOlapTableSink<?> sink) {
+        ImmutableListMultimap.Builder<ExprId, Slot> targets = ImmutableListMultimap.builder();
+        List<Slot> tableSlots = sink.getTargetTableSlots();
+        // BindSink aligns these slots with the sink outputs. IVM may append additional hidden outputs.
+        for (int i = 0; i < tableSlots.size(); i++) {
+            targets.put(sink.getOutputExprs().get(i).getExprId(), tableSlots.get(i));
+        }
+        ImmutableListMultimap<ExprId, Slot> targetsByOutput = targets.build();
+        Plan child = sink.child();
+        while (child instanceof LogicalProject && !((LogicalProject<?>) child).isDistinct()) {
+            LogicalProject<?> project = (LogicalProject<?>) child;
+            ImmutableListMultimap.Builder<ExprId, Slot> targetsByInput = ImmutableListMultimap.builder();
+            boolean fillsSinkHiddenColumns = false;
+            for (NamedExpression output : project.getProjects()) {
+                List<Slot> outputTargets = targetsByOutput.get(output.getExprId());
+                if (isPassthroughExpression(output)) {
+                    Expression input = output instanceof Alias ? ((Alias) output).child() : output;
+                    targetsByInput.putAll(((Slot) input).getExprId(), outputTargets);
+                } else if (isIgnorableSinkHiddenProjection(output)) {
+                    fillsSinkHiddenColumns |= !outputTargets.isEmpty();
+                } else {
+                    Slot input = sinkTruncationInput(sink.getTargetTable(), project, output, outputTargets);
+                    if (input == null) {
+                        return child;
+                    }
+                    targetsByInput.putAll(input.getExprId(), outputTargets);
+                }
+            }
+            child = project.child();
+            // The project filling hidden write columns is the sink's input mapping. A substring
+            // below that mapping belongs to the query, even if it matches the target length.
+            if (fillsSinkHiddenColumns) {
+                break;
+            }
+            targetsByOutput = targetsByInput.build();
+        }
+        return child;
+    }
+
+    private Slot sinkTruncationInput(OlapTable table, LogicalProject<?> project, NamedExpression output,
+            List<Slot> targets) {
+        if (targets.isEmpty() || !(output instanceof Alias) || !(((Alias) output).child() instanceof Substring)) {
+            return null;
+        }
+        Substring substring = (Substring) ((Alias) output).child();
+        if (substring.arity() != 3 || !(substring.child(0) instanceof SlotReference)
+                || !(substring.child(1) instanceof IntegerLikeLiteral)
+                || ((IntegerLikeLiteral) substring.child(1)).getLongValue() != 1
+                || !(substring.child(2) instanceof IntegerLikeLiteral)) {
+            return null;
+        }
+        Slot input = (Slot) substring.child(0);
+        DataType sourceType = input.getDataType();
+        long length = ((IntegerLikeLiteral) substring.child(2)).getLongValue();
+        if (!input.getName().equals(output.getName()) || !project.child().getOutputSet().contains(input)
+                || !sourceType.isStringLikeType() || IvmUtil.isIvmHiddenColumn(input.getName())) {
+            return null;
+        }
+        int sourceLength = ((CharacterType) sourceType).getLen();
+        for (Slot target : targets) {
+            Column column = table.getColumn(target.getName());
+            DataType type = target.getDataType();
+            if (!column.isVisible() || column.isKey() || maintenanceColumns.contains(column.getName())
+                    || !(type.isCharType() || type.isVarcharType()) || length != ((CharacterType) type).getLen()
+                    || length < 0 || (sourceLength >= 0 && sourceLength <= length)) {
+                return null;
+            }
+        }
+        return input;
     }
 
     private CanonicalNode canonicalAggregate(LogicalAggregate<?> agg) {
@@ -417,7 +503,7 @@ public class IvmPlanSignatureGenerator {
 
         @Override
         public CanonicalNode visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink, Void context) {
-            return sink.child().accept(this, context);
+            return canonicalPlan(skipSinkProjects(sink));
         }
 
         @Override
