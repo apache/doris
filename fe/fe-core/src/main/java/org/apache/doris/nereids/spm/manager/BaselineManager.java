@@ -1157,8 +1157,8 @@ public class BaselineManager {
      * deletion marker may be written yet - a marker for a still-live row would make every
      * later load hide that row and re-issue the delete, silently completing a DROP that
      * reported failure. The identity is kept here instead: the marker is appended only
-     * once a readable snapshot PROVES the row is gone (see
-     * resolvePendingMutationFences).
+     * once a readable snapshot proves the row is gone. The fence then stays
+     * confirmed until both tombstone scopes can be read back.
      */
     private static final class PendingMutationFence {
         private final BaselineStatus expectedStatus; // null = the row must be absent
@@ -2712,7 +2712,10 @@ public class BaselineManager {
             // is incomplete. Resume the retained key cleanup before confirming its tombstones. Any unreadable
             // marker keeps the DROP retryable; resumed retirements add their own markers to the same obligation.
             resumePendingDropKeyCleanup(id);
-            if (pendingDropTombstoneConfirmations.containsKey(id)) {
+            PendingMutationFence fence = pendingMutationFences.get(id);
+            if (fence != null && fence.droppedIdentity != null) {
+                confirmObservedDrop(id, fence);
+            } else if (pendingDropTombstoneConfirmations.containsKey(id)) {
                 confirmPendingDropTombstones(id);
             }
             return false;
@@ -3149,6 +3152,9 @@ public class BaselineManager {
         // flip racing with a lookup exactly like an ALTER landing right after the lookup
         // (see findCandidateBaselines); on failure the in-memory flip is reverted.
         synchronized (writerLock) {
+            if (hasObservedDropAwaitingTombstones(id)) {
+                return false;
+            }
             BaselinePlan plan = baselineCache.getById(id);
             if (plan == null) {
                 // ALTER-specific cache-miss reconciliation (the DROP path does the same
@@ -4175,6 +4181,9 @@ public class BaselineManager {
      */
     public BaselinePlan getBaseline(long id) {
         ensureLoaded();
+        if (hasObservedDropAwaitingTombstones(id)) {
+            return null;
+        }
         BaselinePlan cached = baselineCache.getById(id);
         if (cached != null) {
             return cached;
@@ -5663,8 +5672,9 @@ public class BaselineManager {
      * Parameter removed: the row whose delete is unresolved
      */
     private void recordPendingAbsenceFence(BaselinePlan removed) {
-        pendingMutationFences.put(removed.getId(), new PendingMutationFence(null,
-                System.currentTimeMillis(), 0, removed));
+        pendingMutationFences.compute(removed.getId(), (id, prior) ->
+                prior != null && prior.confirmed && prior.droppedIdentity != null ? prior
+                        : new PendingMutationFence(null, System.currentTimeMillis(), 0, removed));
     }
 
     /**
@@ -5717,55 +5727,81 @@ public class BaselineManager {
     }
 
     /**
-     * Resolves / applies the pending mutation fences against a fresh snapshot:
-     * a fence whose expected outcome the snapshot shows is done and is
-     * removed; a fence the snapshot contradicts keeps its id MASKED - neither the stale
-     * row is applied nor the local post-mutation state removed - until the bound expires,
-     * after which the write is presumed lost and the persisted state wins again.
+     * Masks stale snapshot rows until their mutation is visible or an unconfirmed fence expires.
+     * An observed DROP keeps its fence until both tombstone scopes are durable.
      *
      * Parameter persisted: the snapshot about to be applied (not modified)
-     * Returns: the ids whose rows the snapshot contradicts and that stay masked
+     * Returns: the ids masked while applying this snapshot
      */
     private Set<Long> resolvePendingMutationFences(Map<Long, BaselinePlan> persisted) {
-        // The SHARED windows this FE held open for an unreadable committed outcome are
-        // closed here as well: every snapshot publish path (the load and both refresh
-        // appliers) runs this method, and the window must not outlive the first read that
-        // proves the outcome (see resolveHeldMutationWindows).
-        resolveHeldMutationWindows(persisted);
         if (pendingMutationFences.isEmpty()) {
+            resolveHeldMutationWindows(persisted);
             return Collections.emptySet();
         }
         Set<Long> masked = new HashSet<>();
         long now = System.currentTimeMillis();
         for (Map.Entry<Long, PendingMutationFence> entry : pendingMutationFences.entrySet()) {
-            BaselinePlan row = persisted.get(entry.getKey());
-            if (entry.getValue().isSatisfiedBy(row)) {
-                // A CONFIRMED absence completes the DROP's deletion marker
-                // now. The tombstone was deliberately withheld while the DELETE's outcome
-                // was unproven (it could have failed before commit); with the row proven
-                // gone it only guards the DELAYED-commit window left - a demoted master's
-                // in-flight status INSERT committing after the delete.
-                if (entry.getValue().droppedIdentity != null) {
-                    noteDroppedSeqState(entry.getValue().droppedIdentity);
-                    noteDroppedIdState(entry.getKey());
-                    LOG.info("SPM pending delete of baseline {} confirmed absent; the drop"
-                            + " tombstone is appended now",
-                            entry.getKey());
+            long id = entry.getKey();
+            PendingMutationFence fence = entry.getValue();
+            BaselinePlan row = persisted.get(id);
+            if (fence.droppedIdentity != null && (fence.confirmed || fence.isSatisfiedBy(row))) {
+                // Even after confirmation, this snapshot may contain a later status INSERT.
+                boolean durable = tryConfirmObservedDrop(id, fence);
+                if (!durable || row != null) {
+                    masked.add(id);
                 }
-                pendingMutationFences.remove(entry.getKey(), entry.getValue());
                 continue;
             }
-            if (now - entry.getValue().sinceMillis > PENDING_MUTATION_FENCE_MILLIS
-                    && !entry.getValue().confirmed) {
+            if (fence.isSatisfiedBy(row)) {
+                pendingMutationFences.remove(id, fence);
+                continue;
+            }
+            if (fence.isExpired(now)) {
                 LOG.warn("SPM pending mutation fence for baseline {} expired before its"
                         + " durable outcome became visible; the persisted state wins",
-                        entry.getKey());
-                pendingMutationFences.remove(entry.getKey(), entry.getValue());
+                        id);
+                pendingMutationFences.remove(id, fence);
                 continue;
             }
-            masked.add(entry.getKey());
+            masked.add(id);
         }
+        resolveHeldMutationWindows(persisted);
         return masked;
+    }
+
+    /** Confirms both DROP tombstones while the proven absence remains fenced. */
+    private boolean confirmObservedDrop(long id, PendingMutationFence fence) {
+        synchronized (writerLock) {
+            if (pendingMutationFences.get(id) != fence) {
+                return false;
+            }
+            PendingMutationFence confirmed = fence;
+            if (!fence.confirmed) {
+                confirmed = new PendingMutationFence(null, fence.sinceMillis, 0, fence.droppedIdentity, true);
+                if (!pendingMutationFences.replace(id, fence, confirmed)) {
+                    return false;
+                }
+            }
+            confirmDropTombstonesDurable(List.of(confirmed.droppedIdentity), id);
+            pendingMutationFences.remove(id, confirmed);
+            return true;
+        }
+    }
+
+    private boolean tryConfirmObservedDrop(long id, PendingMutationFence fence) {
+        try {
+            return confirmObservedDrop(id, fence);
+        } catch (RuntimeException e) {
+            LOG.warn("SPM keeps baseline {} fenced until its DROP tombstones are readable: {}",
+                    id, e.getMessage());
+            return false;
+        }
+    }
+
+    /** Once absence is proven, later rows for this ID must remain hidden during confirmation. */
+    private boolean hasObservedDropAwaitingTombstones(long id) {
+        PendingMutationFence fence = pendingMutationFences.get(id);
+        return fence != null && fence.confirmed && fence.droppedIdentity != null;
     }
 
     /**
@@ -6374,9 +6410,8 @@ public class BaselineManager {
      * cluster-visible evidence that the DROP is not settled, so every other FE's fence read
      * refuses to conclude - a successor that reads the OLD ENABLED row and reports
      * ALTER... ENABLE as a successful no-op would lose that row when this DELETE publishes.
-     * The window is closed once a snapshot read shows the row ABSENT (see
-     * UnresolvedMutationWindow.isSatisfiedBy with expectedStatus == null) or after
-     * MUTATION_WINDOW_MAX_AGE_SECONDS, when the delete is presumed lost.
+     * The window closes after a read shows absence and any retained DROP tombstones
+     * are readable, or after MUTATION_WINDOW_MAX_AGE_SECONDS.
      *
      * Parameter tick: the window tick the DELETE was dispatched under
      * Parameter id: the baseline id whose row must become absent
@@ -6390,15 +6425,16 @@ public class BaselineManager {
                 mutationWindowNow()));
         LOG.warn("SPM keeps mutation window {} OPEN: the DELETE of baseline {} may still have"
                 + " COMMITTED while no read can prove the row gone, so a successor must not"
-                + " treat the old-status row as final; the window closes once a read shows"
-                + " the row absent (or after its age bound)", tick, id);
+                + " treat the old-status row as final; the window closes after absence and any retained"
+                + " DROP tombstones are confirmed (or after its age bound)", tick, id);
         return true;
     }
 
     /**
      * Probes the ids of every HELD mutation window against the durable table and CLOSES
      * the windows whose committed outcome became readable, BEFORE a snapshot attempt
-     * consults the quiet gate (see readStableRawSnapshot).
+     * consults the quiet gate (see readStableRawSnapshot). A proven DROP also needs both
+     * retained tombstones before its shared window can close.
      *
      * A successful DISABLE whose row appears just after confirmInsertVisible exhausted
      * its probes leaves its shared pending marker visible: the quiet gate rejects that
@@ -6428,13 +6464,17 @@ public class BaselineManager {
             } catch (RuntimeException e) {
                 continue; // the outcome cannot be read: the window stays held
             }
+            PendingMutationFence fence = pendingDropForWindow(held);
+            if (fence != null) {
+                readable = (readable || fence.confirmed) && tryConfirmObservedDrop(held.id, fence);
+            }
             if (!readable) {
                 continue;
             }
             if (unresolvedMutationWindows.remove(entry.getKey(), held)) {
                 endRowMutation(entry.getKey());
                 LOG.info("SPM mutation window {} of baseline {} closed before the snapshot"
-                        + " gate: its committed row is readable now", entry.getKey(), held.id);
+                        + " gate: the mutation outcome is confirmed", entry.getKey(), held.id);
             }
         }
     }
@@ -6457,7 +6497,8 @@ public class BaselineManager {
         for (Map.Entry<Long, UnresolvedMutationWindow> entry
                 : new ArrayList<>(unresolvedMutationWindows.entrySet())) {
             UnresolvedMutationWindow held = entry.getValue();
-            boolean readable = held.isSettled(persisted.get(held.id), persistence);
+            boolean readable = held.isSettled(persisted.get(held.id), persistence)
+                    && pendingDropForWindow(held) == null;
             boolean agedOut = now - held.sinceMillis
                     > MUTATION_WINDOW_MAX_AGE_SECONDS * 1000L;
             if (!readable && !agedOut) {
@@ -6468,6 +6509,17 @@ public class BaselineManager {
             LOG.info("SPM mutation window {} of baseline {} closed: its committed row is {}",
                     entry.getKey(), held.id,
                     readable ? "readable now" : "still unreadable past the window bound");
+        }
+    }
+
+    private PendingMutationFence pendingDropForWindow(UnresolvedMutationWindow held) {
+        if (held.expectedStatus != null) {
+            return null;
+        }
+        // The DELETE can hold its window just before the DROP caller records its local fence.
+        synchronized (writerLock) {
+            PendingMutationFence fence = pendingMutationFences.get(held.id);
+            return fence != null && fence.droppedIdentity != null ? fence : null;
         }
     }
 
@@ -7784,10 +7836,9 @@ public class BaselineManager {
      * of one stable state, so a refresh can read them outside the writer lock and keep only the
      * filter (and its best-effort repair delete) serialized with the writers (see
      * readRawRefreshSnapshot). The pre-attempt settlement probes this FE's HELD mutation windows
-     * and closes the ones whose committed row became readable - the quiet gate of the read would
+     * and closes the ones whose outcome is confirmed - the quiet gate of the read would
      * otherwise reject their pending marker forever (see
-     * settleHeldMutationWindowsBeforeSnapshot); it only closes windows this FE opened itself, so
-     * it belongs to the side-effect-free half.
+     * settleHeldMutationWindowsBeforeSnapshot). Settlement is limited to windows this FE opened.
      */
     private Map<Long, List<BaselinePlan>> readRawSnapshotFromTable() throws Exception {
         return readStableRawSnapshot(BaselineManager::readSnapshotPage,

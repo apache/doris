@@ -36,6 +36,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 /**
  * SESSION-scope baseline storage test (SessionBaselineStore + its wiring into the
  * rewrite matcher).
@@ -99,6 +101,26 @@ public class SessionBaselineStoreTest {
         Assertions.assertFalse(store.updateStatus(id, BaselineStatus.DISABLED));
         Assertions.assertTrue(store.getAllBaselines().isEmpty());
         Assertions.assertEquals(0, store.findCandidateBaselines(digest, hash).size());
+    }
+
+    @Test
+    public void testCreateSkipsImportedSessionId() {
+        SessionBaselineStore store = new SessionBaselineStore();
+        long nextId = store.createBaseline(payloadPlan(1, "seed")) + 1;
+        BaselinePlan imported = payloadPlan(1, "imported");
+        imported.setId(nextId);
+        store.importBaseline(imported);
+
+        BaselinePlan local = payloadPlan(1, "local");
+        long localId = store.createBaseline(local);
+
+        Assertions.assertNotEquals(nextId, localId);
+        Assertions.assertSame(imported, store.getBaseline(nextId));
+        Assertions.assertSame(local, store.getBaseline(localId));
+        Assertions.assertEquals(List.of(imported),
+                store.findCandidateBaselines(imported.getBindSqlDigest(), imported.getBindSqlHash()));
+        Assertions.assertEquals(List.of(local),
+                store.findCandidateBaselines(local.getBindSqlDigest(), local.getBindSqlHash()));
     }
 
     /**
@@ -305,10 +327,14 @@ public class SessionBaselineStoreTest {
         BaselinePlan exactRow = payloadPlan(exactLen, "probe");
         Assertions.assertEquals(budget, SPMForwardedSession.payloadRowChars(exactRow),
                 "the calibration row must hit the accounted budget exactly");
-        exact.createBaseline(exactRow);
+        long id = exact.createBaseline(exactRow);
         Assertions.assertTrue(SPMForwardedSession.serialize(exact).length()
                         <= SPMForwardedSession.MAX_PAYLOAD_CHARS,
                 "a payload of exactly the budget must serialize");
+        exact.updateStatus(id, BaselineStatus.DISABLED);
+        Assertions.assertTrue(SPMForwardedSession.serializeForManagement(exact).length()
+                        <= SPMForwardedSession.MAX_PAYLOAD_CHARS,
+                "the full store remains forwardable after disabling a row");
 
         // one character more must be rejected at REGISTRATION (the serializer would throw)
         SessionBaselineStore over = new SessionBaselineStore();

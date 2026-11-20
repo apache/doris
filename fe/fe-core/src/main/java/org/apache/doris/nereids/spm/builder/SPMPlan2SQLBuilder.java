@@ -1889,15 +1889,9 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     // Empty relation.
 
     /**
-     * PhysicalEmptyRelation: a relation that is statically known to return no rows.
-     * Rendered as a NULL value cast to the column's type (SELECT... FROM (SELECT 1) WHERE FALSE)
-     * so parent
-     * operators can still reference its output columns AND each column keeps its DECLARED
-     * type: defaulting every column to INT 1 (a) makes the frozen text fail to analyze once
-     * the placeholder substitution types another branch (e.g. DATEV2), and (b) lets a
-     * reanalyzed placeholder-bearing UNION widen the branch (INT + DATEV2 -> DATETIMEV2)
-     * and change the result metadata. WHERE FALSE still filters the row out, and CAST(NULL
-     * AS type) is grammar-parseable for every type.
+     * Renders an empty relation as a typed projection filtered by WHERE FALSE. Parent
+     * operators can reference its columns, and set operations keep their original input
+     * types. An untyped NULL column uses bare NULL because NULL is not a SQL cast target.
      */
     @Override
     public SQLRelation visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, Void context) {
@@ -1906,11 +1900,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         for (NamedExpression project : emptyRelation.getProjects()) {
             ExprId id = project.getExprId();
             String name = generatedColumnName(id);
-            selects.add(Pair.of(id, "CAST(NULL AS " + project.getDataType().toSql() + ") AS " + name));
+            String value = project.getDataType().isNullType()
+                    ? "NULL" : "CAST(NULL AS " + project.getDataType().toSql() + ")";
+            selects.add(Pair.of(id, value + " AS " + name));
             relation.registerRef(id, name);
         }
         relation.setSelects(selects);
-        relation.setFrom("(SELECT 1)");
+        relation.setFrom("(SELECT 1) AS empty_input");
         relation.setWhere("FALSE");
         return relation;
     }

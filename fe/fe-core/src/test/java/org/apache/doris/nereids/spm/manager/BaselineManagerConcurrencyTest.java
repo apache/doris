@@ -2465,6 +2465,7 @@ public class BaselineManagerConcurrencyTest {
         private final List<String> dropped = new java.util.concurrent.CopyOnWriteArrayList<>();
         private boolean failDelete;
         private boolean failRead;
+        private boolean failMarkerRead;
         /** When set, every tombstone append fails before landing (the DROP confirmation). */
         private boolean failMarkerAppend;
 
@@ -2476,6 +2477,9 @@ public class BaselineManagerConcurrencyTest {
 
         @Override
         public List<String> droppedMarkers() {
+            if (failMarkerRead) {
+                throw new RuntimeException("spm_baselines_seq read timed out");
+            }
             return new ArrayList<>(dropped);
         }
 
@@ -2560,6 +2564,52 @@ public class BaselineManagerConcurrencyTest {
             Assertions.assertNull(manager.getBaseline(id));
             Assertions.assertFalse(manager.dropBaseline(id),
                     "the retry sees the delete already landed: no durable row is left");
+        } finally {
+            doubles.idAllocatorStore = null;
+            BaselineManagerTestAccess.clear(manager);
+        }
+    }
+
+    @Test
+    public void testObservedDropStaysFencedUntilBothTombstonesAreDurable() {
+        manager = newManager();
+        BaselineManagerTestAccess.clear(manager);
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        try {
+            long id = manager.createBaseline(baseline("d-drop", "p-drop"));
+            BaselinePlan created = manager.getBaseline(id);
+            store.rows.put(id, created);
+            doubles.idAllocatorStore = store;
+            store.failDelete = true;
+            store.failRead = true;
+            Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id));
+
+            store.failRead = false;
+            store.failMarkerRead = true;
+            store.failMarkerAppend = true;
+            store.rows.clear();
+            manager.applyRefreshedBaselines(Map.of());
+            Assertions.assertTrue(BaselineManagerTestAccess.hasPendingMutationFence(manager, id));
+
+            store.failMarkerRead = false;
+            store.rows.put(id, created);
+            Assertions.assertFalse(manager.updateStatus(id, BaselineStatus.DISABLED));
+            store.rows.clear();
+            Assertions.assertThrows(IllegalStateException.class, () -> manager.dropBaseline(id));
+            Assertions.assertTrue(store.dropped.isEmpty());
+
+            store.rows.put(id, created);
+            manager.applyRefreshedBaselines(Map.of(id, created));
+            Assertions.assertNull(manager.getBaseline(id));
+            Assertions.assertTrue(BaselineManagerTestAccess.hasPendingMutationFence(manager, id));
+
+            store.failMarkerAppend = false;
+            manager.applyRefreshedBaselines(Map.of(id, created));
+            Assertions.assertFalse(BaselineManagerTestAccess.hasPendingMutationFence(manager, id));
+            Assertions.assertNull(manager.getBaseline(id), "the settling snapshot still contains the late row");
+            Assertions.assertTrue(store.dropped.contains(id + "||0"));
+            Assertions.assertTrue(store.dropped.stream()
+                    .anyMatch(marker -> marker.startsWith(id + "|" + created.getBindSqlDigest() + "|")));
         } finally {
             doubles.idAllocatorStore = null;
             BaselineManagerTestAccess.clear(manager);

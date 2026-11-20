@@ -34,9 +34,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Serializes enabled SESSION baselines for a forwarded statement and rebuilds them in the receiving context. Query
- * statements carry candidates selected by hash and digest; other statements carry all enabled rows. Imported rows
- * are request-context state, not GLOBAL baselines.
+ * Carries SESSION baselines to the receiving statement context. Query payloads contain enabled candidates.
+ * Management payloads carry the full store and preserve each row's status.
  */
 public final class SPMForwardedSession {
 
@@ -47,12 +46,15 @@ public final class SPMForwardedSession {
      */
     public static final int MAX_PAYLOAD_CHARS = 8 * 1024 * 1024;
 
-    /** Characters used by the JSON array enclosure, included in both admission and serialization accounting. */
-    public static final int PAYLOAD_ENCLOSURE_CHARS = 2;
+    /** Characters reserved for the largest payload enclosure. */
+    public static final int PAYLOAD_ENCLOSURE_CHARS = "{\"baselines\":[]}".length();
 
     private static final Logger LOG = LogManager.getLogger(SPMForwardedSession.class);
 
     private SPMForwardedSession() {
+    }
+
+    private record ManagementPayload(List<Map<String, String>> baselines) {
     }
 
     /**
@@ -79,13 +81,12 @@ public final class SPMForwardedSession {
         if (store == null || store.isEmpty()) {
             return "";
         }
-        return serializeEnabled(store.getAllBaselines(), null);
+        return serializeRows(store.getAllBaselines(), null, false);
     }
 
     /**
-     * Serializes enabled rows with the statement match key when queryMatchKey can compute one. If no key is
-     * available, serializes all enabled rows. Disabled rows are always omitted, including for management
-     * statements.
+     * Serializes enabled rows with the statement match key when available. Batches and other statements
+     * without a match key carry all enabled rows.
      */
     public static String serializeForStatement(SessionBaselineStore store, ConnectContext ctx,
             String sql) {
@@ -96,22 +97,20 @@ public final class SPMForwardedSession {
         if (matchKey == null) {
             return serialize(store);
         }
-        return serializeEnabled(store.getAllBaselines(), matchKey);
+        return serializeRows(store.getAllBaselines(), matchKey, false);
     }
 
-    /**
-     * The JSON of the ENABLED rows, restricted to the given match key when one is
-     * supplied (a row can only be matched on its (hash, digest) pair, so the restriction
-     * preserves the rewrite context of the statement while leaving every non-matching
-     * row out of the master's reconstruction). The payload budget is enforced on the
-     * selected rows alone: a subset of what serialize would carry can only be smaller.
-     */
-    private static String serializeEnabled(List<BaselinePlan> plans, Pair<String, Long> matchKey) {
+    /** Carries every row for baseline commands, including disabled rows addressed by ID. */
+    public static String serializeForManagement(SessionBaselineStore store) {
+        return store == null || store.isEmpty() ? "" : serializeRows(store.getAllBaselines(), null, true);
+    }
+
+    private static String serializeRows(List<BaselinePlan> plans, Pair<String, Long> matchKey, boolean management) {
         Gson gson = new Gson();
         List<Map<String, String>> rows = new ArrayList<>();
-        long payloadChars = PAYLOAD_ENCLOSURE_CHARS; // the enclosing []
+        long payloadChars = PAYLOAD_ENCLOSURE_CHARS;
         for (BaselinePlan plan : plans) {
-            if (plan.getStatus() != BaselineStatus.ENABLED) {
+            if (!management && plan.getStatus() != BaselineStatus.ENABLED) {
                 continue;
             }
             if (matchKey != null
@@ -130,7 +129,7 @@ public final class SPMForwardedSession {
             throw new IllegalStateException("SPM cannot forward this connection's SESSION"
                     + " baselines: the payload exceeds " + MAX_PAYLOAD_CHARS + " characters");
         }
-        return rows.isEmpty() ? "" : gson.toJson(rows);
+        return rows.isEmpty() ? "" : gson.toJson(management ? new ManagementPayload(rows) : rows);
     }
 
     /** One carried row (the payload's field set for a baseline). */
@@ -155,14 +154,14 @@ public final class SPMForwardedSession {
         row.put("queryId", plan.getQueryId() == null ? "" : plan.getQueryId());
         row.put("cost", String.valueOf(plan.getCost()));
         row.put("queryTimeMs", String.valueOf(plan.getQueryTimeMs()));
+        // A status change must not increase the reserved payload size.
+        row.put("enabled", plan.getStatus() == BaselineStatus.DISABLED ? "0" : "1");
         return row;
     }
 
     /**
-     * Clears the receiving context store and imports replayable rows when rewriting is enabled. A null context,
-     * null payload or missing store leaves state unchanged. Empty payloads and disabled rewriting leave the store
-     * empty. Rows with missing SQL or unusable reconstructed trees are skipped. A runtime failure while decoding
-     * or importing logs a warning and stops the remaining import; rows already imported remain.
+     * Replaces the receiving context's store from the request. Query payloads require rewriting to be
+     * enabled. Management payloads are restored regardless of the rewrite setting.
      */
     public static void importInto(ConnectContext ctx, String payload) {
         if (ctx == null || payload == null) {
@@ -176,19 +175,15 @@ public final class SPMForwardedSession {
         if (payload.isEmpty()) {
             return;
         }
-        if (!ctx.getSessionVariable().isEnableSpmRewrite()) {
-            // A statement with rewrite disabled can never consult a baseline, and this
-            // import runs BEFORE StmtExecutor even starts the (timeout-bounded) rewrite
-            // path: restoring every enabled SESSION row - re-parsing each bind AND plan
-            // SQL - would add unbounded work to EVERY forwarded statement of such a
-            // connection, including the many statements that never touch SPM. The store
-            // was cleared above, so the skipped import leaves exactly the empty state a
-            // non-rewriting context is entitled to.
+        boolean management = payload.charAt(0) == '{';
+        if (!management && !ctx.getSessionVariable().isEnableSpmRewrite()) {
             return;
         }
         try {
-            List<Map<String, String>> rows = new Gson().fromJson(payload,
-                    new TypeToken<List<Map<String, String>>>() { }.getType());
+            Gson gson = new Gson();
+            List<Map<String, String>> rows = management
+                    ? gson.fromJson(payload, ManagementPayload.class).baselines()
+                    : gson.fromJson(payload, new TypeToken<List<Map<String, String>>>() { }.getType());
             if (rows == null) {
                 return;
             }
@@ -227,7 +222,7 @@ public final class SPMForwardedSession {
         plan.setCost(parseDouble(row.get("cost")));
         plan.setQueryTimeMs(parseLong(row.get("queryTimeMs")));
         plan.setSource(BaselineSource.USER);
-        plan.setStatus(BaselineStatus.ENABLED);
+        plan.setStatus("0".equals(row.get("enabled")) ? BaselineStatus.DISABLED : BaselineStatus.ENABLED);
         plan.setScope(BaselineScope.SESSION);
         boolean frozen = Boolean.TRUE.equals(plan.getPlanFrozen())
                 || (plan.getPlanFrozen() == null

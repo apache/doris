@@ -961,9 +961,8 @@ public class BaselineManagerMutationClockTest {
      * SEES the row, the ordinary failure used to close the cluster window and dropBaseline
      * recorded only this FE's LOCAL absence fence and no tombstone: a successor read the old
      * ENABLED row, reported ALTER ... ENABLE as a successful no-op, and lost that row when
-     * the delayed DELETE published. The cluster-visible window closes only once a read
-     * proves the row gone (or it ages past its bound), and the matching ALTER is refused
-     * while it is open.
+     * the delayed DELETE published. The matching ALTER is refused while the window is
+     * open. Closing it before both tombstones are readable exposes late writes to other FEs.
      */
     @Test
     public void testAmbiguousDropDeleteKeepsTheSharedAbsenceWindowOpen() throws Exception {
@@ -998,10 +997,18 @@ public class BaselineManagerMutationClockTest {
                             || refusal.getMessage().contains("still in flight"),
                     "the matching ALTER must fail retryably: " + refusal.getMessage());
 
-            // once a snapshot shows the row gone, the absence proves the DELETE landed
-            manager.applyRefreshedBaselines(new java.util.LinkedHashMap<>());
+            store.rows.clear();
+            store.failIdentityMarker = true;
+            BaselineManagerTestAccess.settleHeldMutationWindowsBeforeSnapshot(manager);
+            Assertions.assertTrue(store.markers.contains(id + "||0"));
+            Assertions.assertTrue(BaselineManagerTestAccess.holdsUnresolvedMutationWindow(),
+                    "one readable tombstone is insufficient");
+            Assertions.assertFalse(BaselineManagerTestAccess.snapshotFence(manager).quiet());
+
+            store.failIdentityMarker = false;
+            BaselineManagerTestAccess.settleHeldMutationWindowsBeforeSnapshot(manager);
             Assertions.assertFalse(BaselineManagerTestAccess.holdsUnresolvedMutationWindow(),
-                    "the proven absence closes the held window");
+                    "after the proven absence, both tombstones must be readable to close the window");
             Assertions.assertTrue(BaselineManagerTestAccess.snapshotFence(manager).quiet(),
                     "the closed window no longer poisons the shared clock");
         } finally {
@@ -1166,6 +1173,21 @@ public class BaselineManagerMutationClockTest {
     private static final class AmbiguousDeleteStore
             implements BaselineTestDoubles.IdAllocatorStore {
         private final Map<Long, BaselinePlan> rows = new java.util.LinkedHashMap<>();
+        private final List<String> markers = new ArrayList<>();
+        private boolean failIdentityMarker;
+
+        @Override
+        public void appendDroppedMarker(long id, String bindSqlDigest, long planSqlHash, long atMillis) {
+            if (failIdentityMarker && !bindSqlDigest.isEmpty()) {
+                throw new RuntimeException("identity tombstone append timed out");
+            }
+            markers.add(id + "|" + bindSqlDigest + "|" + planSqlHash);
+        }
+
+        @Override
+        public List<String> droppedMarkers() {
+            return markers;
+        }
 
         @Override
         public long watermark() {

@@ -123,6 +123,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.qe.SqlModeHelper;
@@ -2753,8 +2754,9 @@ public class SPMPlan2SQLBuilderTest {
     public void testEmptyRelationKeepsDeclaredTypes() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         SlotReference d = new SlotReference("d", DateV2Type.INSTANCE);
+        SlotReference n = new SlotReference("n", NullType.INSTANCE);
         PhysicalEmptyRelation empty = Mockito.mock(PhysicalEmptyRelation.class);
-        Mockito.doReturn(List.of((NamedExpression) a, (NamedExpression) d))
+        Mockito.doReturn(List.of((NamedExpression) a, (NamedExpression) d, (NamedExpression) n))
                 .when(empty).getProjects();
         stubAccept(empty);
 
@@ -2763,7 +2765,9 @@ public class SPMPlan2SQLBuilderTest {
                 "the INT column keeps its type: " + sql);
         Assertions.assertTrue(sql.contains("CAST(NULL AS DATEV2)"),
                 "the DATEV2 column keeps its type: " + sql);
+        Assertions.assertTrue(sql.contains("NULL AS c_3"), "the untyped NULL uses no cast: " + sql);
         Assertions.assertTrue(sql.contains("FALSE"), "the branch stays filtered out: " + sql);
+        Assertions.assertDoesNotThrow(() -> new NereidsParser().parseSingle(sql));
     }
 
     // ==================== LIKE ... ESCAPE ====================
