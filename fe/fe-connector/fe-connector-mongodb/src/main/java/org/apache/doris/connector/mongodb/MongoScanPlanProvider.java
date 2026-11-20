@@ -43,6 +43,9 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
+    private static final Set<String> DIAGNOSTIC_KEYS = Set.of("predicate_pushdown", "projection_pushdown", "snapshot",
+            "split_strategy", "split_field", "split_type", "splits_requested", "splits_admitted", "splits_actual",
+            "split_reason");
     private final MongoCatalogProperties properties;
 
     private final Supplier<MongoCatalogClient> client;
@@ -264,6 +267,14 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         // and byte admission here would reject a normal large predicate and ignore KILL QUERY.
         // Resolve diagnostics lazily from the final cancellable plan, without doing any source I/O.
         return new AbstractMap<>() {
+            @Override
+            public String get(Object key) {
+                // Engine initialization also reads static and absent keys. Those lookups must
+                // not rebuild the complete diagnostic snapshot or repeatedly read statement memos.
+                return key instanceof String name && DIAGNOSTIC_KEYS.contains(name)
+                        ? super.get(key) : result.get(key);
+            }
+
             @Override
             public Set<Entry<String, String>> entrySet() {
                 Map<String, String> current = new LinkedHashMap<>(result);

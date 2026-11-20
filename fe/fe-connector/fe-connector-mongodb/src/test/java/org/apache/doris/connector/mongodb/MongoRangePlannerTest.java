@@ -387,6 +387,63 @@ class MongoRangePlannerTest {
     }
 
     @Test
+    void explicitIdRetainsTheDefaultFieldContractAcrossMultipleScans() {
+        for (String strategy : List.of("auto", "range")) {
+            var properties = properties();
+            var policy = new java.util.HashMap<>(options(strategy));
+            policy.put("mongodb_split_field", "_id");
+            var session = session(new MongoSnapshotPlanTest.Scope(), policy);
+            var provider = new MongoScanPlanProvider(properties, Client::new);
+            for (String name : List.of("records", "other_records")) {
+                var table = new MongoTableHandle("sample", new Document("name", name).append("type", "collection")
+                        .append("info", new Document("uuid", new Binary((byte) 4, new byte[16]))), properties);
+                var ranges = provider.planScan(session, ConnectorScanRequest.builder(table, List.of()).build());
+                Assertions.assertTrue(ranges.size() > 1);
+                Assertions.assertEquals("_id", descriptor(ranges.get(0)).getSplit().getField());
+            }
+        }
+    }
+
+    @Test
+    void negativeExplicitSplitSizeCannotSelectAutomaticSizing() {
+        var session = session(new MongoSnapshotPlanTest.Scope(), Map.of("file_split_size", "-1"));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> MongoRangePlanner.targetBytes(session, -1));
+    }
+
+    @Test
+    void completedRangeMemoPreservesItsOutcomeAfterTheStatementDeadline() throws Exception {
+        var properties = properties();
+        var scope = new MongoSnapshotPlanTest.Scope();
+        var session = session(scope, options("range"));
+        MongoSnapshot.prepare(session, properties, table(properties, "collection"), Client::new,
+                "snapshot", "primary", 30000);
+        Object state = scope.getIfPresent("mongodb.statement.snapshot");
+        var deadline = state.getClass().getDeclaredField("deadlineNanos");
+        deadline.setAccessible(true);
+        deadline.setLong(state, System.nanoTime() - TimeUnit.SECONDS.toNanos(1));
+        var type = Class.forName(MongoRangePlanner.class.getName() + "$Memo");
+        var constructor = type.getDeclaredConstructor();
+        constructor.setAccessible(true);
+        var get = type.getDeclaredMethod("get", org.apache.doris.connector.spi.ConnectorSession.class,
+                ConnectorScanContext.class, java.util.function.Supplier.class);
+        get.setAccessible(true);
+        var plan = MongoSplitPlan.single(1, 1, "fixture");
+        var context = new ConnectorScanContext();
+        var failure = new org.apache.doris.connector.spi.DorisConnectorException("fixture source failure");
+        Assertions.assertAll(
+                () -> Assertions.assertSame(plan, get.invoke(constructor.newInstance(), session, context,
+                        (java.util.function.Supplier<MongoSplitPlan>) () -> plan)),
+                () -> {
+                    var wrapper = Assertions.assertThrows(java.lang.reflect.InvocationTargetException.class,
+                            () -> get.invoke(constructor.newInstance(), session, context,
+                                    (java.util.function.Supplier<MongoSplitPlan>) () -> {
+                                        throw failure;
+                                    }));
+                    Assertions.assertSame(failure, wrapper.getCause());
+                });
+    }
+
+    @Test
     void wideDescriptorsCannotMultiplyIntoAnOversizedSplitRpc() throws Exception {
         var properties = MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
                 "mongodb.username", "fixture_reader", "mongodb.password", "fixture测".repeat(200000)));
@@ -493,6 +550,32 @@ class MongoRangePlannerTest {
         provider.planScan(session, ConnectorScanRequest.builder(table, List.of()).build()).get(0);
         Assertions.assertEquals("1700000000:7", explanation.get("snapshot"));
         Assertions.assertEquals(1, client.probes);
+    }
+
+    @Test
+    void staticAndAbsentPropertiesDoNotReadStatementDiagnostics() {
+        var reads = new AtomicInteger();
+        var scope = new MongoSnapshotPlanTest.Scope() {
+            @Override
+            public <T> T getIfPresent(String key) {
+                reads.incrementAndGet();
+                return super.getIfPresent(key);
+            }
+        };
+        var properties = properties();
+        var provider = new MongoScanPlanProvider(properties, Client::new);
+        var session = session(scope, options("range"));
+        var table = table(properties, "collection");
+        var values = provider.getScanNodeProperties(session, table, List.of(), Optional.empty());
+        Assertions.assertEquals("snapshot", values.get("read_concern"));
+        Assertions.assertEquals("collection", values.get("object_kind"));
+        Assertions.assertNull(values.get("file_format_type"));
+        Assertions.assertNull(values.get(null));
+        Assertions.assertEquals(0, reads.get());
+        provider.planScan(session, ConnectorScanRequest.builder(table, List.of()).build());
+        for (var entry : values.entrySet()) {
+            Assertions.assertEquals(entry.getValue(), values.get(entry.getKey()), entry.getKey());
+        }
     }
 
     @Test

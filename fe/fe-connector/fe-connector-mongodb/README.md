@@ -238,7 +238,7 @@ SELECT /*+ SET_VAR(mongodb_read_concern='snapshot', mongodb_split_strategy='rang
 | MongoDB session variable | Default | Meaning |
 | --- | --- | --- |
 | `mongodb_split_strategy` | `single` | `single`, conservative `auto`, or explicit `range` |
-| `mongodb_split_field` | empty | Select `_id`; an explicit top-level field requires exactly one MongoDB scan in the statement |
+| `mongodb_split_field` | empty | Empty or `_id` selects `_id`; other top-level fields require exactly one MongoDB scan in the statement |
 
 Sizing and count admission reuse the existing external-scan settings:
 

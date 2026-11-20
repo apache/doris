@@ -55,6 +55,7 @@ class MongoSplitProbeTest {
         BsonTimestamp pin;
         int limit;
         int batchSize;
+        int indexBatchSize;
         int dataCommands;
         int indexesRead;
         int cursorsClosed;
@@ -85,6 +86,9 @@ class MongoSplitProbeTest {
                 }
                 if ("timeoutMode".equals(method.getName())) {
                     modes.add((TimeoutMode) args[0]);
+                }
+                if ("batchSize".equals(method.getName())) {
+                    indexBatchSize = (int) args[0];
                 }
                 return p;
             });
@@ -182,6 +186,7 @@ class MongoSplitProbeTest {
         Assertions.assertEquals(List.of(TimeoutMode.CURSOR_LIFETIME), driver.modes);
         Assertions.assertEquals(16, driver.limit);
         Assertions.assertEquals(2, driver.batchSize);
+        Assertions.assertEquals(128, driver.indexBatchSize);
         Assertions.assertFalse(driver.aggregate.containsKey("hint"));
         Assertions.assertEquals(0, driver.projection.getInteger("_id"));
         Assertions.assertTrue(driver.projection.get("value", Document.class).containsKey("$cond"));
