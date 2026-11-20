@@ -59,7 +59,9 @@
 #pragma once
 #include <simdjson.h>
 
+#include <cstring>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 
@@ -194,17 +196,36 @@ public:
         }
     }
 
+    // A simdjson parser and a padded copy of the input, kept across calls so that parsing many
+    // documents does not allocate them for each one. Both grow to the largest document parsed.
+    struct ParseBuffers {
+        simdjson::ondemand::parser parser;
+        std::string padded_input;
+    };
+
     // parse a UTF-8 JSON string with length
     // will reset writer before parse
     static Status parse(const char* pch, size_t len, JsonbWriter& writer) {
+        ParseBuffers buffers;
+        return parse(pch, len, writer, buffers);
+    }
+
+    static Status parse(const char* pch, size_t len, JsonbWriter& writer, ParseBuffers& buffers) {
         if (!pch || len == 0) {
             return Status::InvalidArgument("Empty JSON document");
         }
         writer.reset();
         try {
-            simdjson::ondemand::parser simdjson_parser;
-            simdjson::padded_string json_str {pch, len};
-            simdjson::ondemand::document doc = simdjson_parser.iterate(json_str);
+            auto& padded_input = buffers.padded_input;
+            if (padded_input.size() < len + simdjson::SIMDJSON_PADDING) {
+                padded_input.resize(len + simdjson::SIMDJSON_PADDING);
+            }
+            std::memcpy(padded_input.data(), pch, len);
+            // Zero the padding as padded_string does, so that no bytes of a previous document
+            // follow this one.
+            std::memset(padded_input.data() + len, 0, simdjson::SIMDJSON_PADDING);
+            simdjson::ondemand::document doc =
+                    buffers.parser.iterate(padded_input.data(), len, padded_input.size());
             bool root_number_validated_from_raw_token = false;
 
             // simdjson process top level primitive types specially
