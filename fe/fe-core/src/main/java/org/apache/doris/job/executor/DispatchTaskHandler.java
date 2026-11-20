@@ -18,6 +18,7 @@
 package org.apache.doris.job.executor;
 
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.disruptor.TimerJobEvent;
@@ -40,8 +41,11 @@ public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<T
 
     private final Map<JobType, TaskProcessor> disruptorMap;
 
-    public DispatchTaskHandler(Map<JobType, TaskProcessor> disruptorMap) {
+    private final TaskProcessor streamingTaskProcessor;
+
+    public DispatchTaskHandler(Map<JobType, TaskProcessor> disruptorMap, TaskProcessor streamingTaskProcessor) {
         this.disruptorMap = disruptorMap;
+        this.streamingTaskProcessor = streamingTaskProcessor;
     }
 
 
@@ -63,8 +67,10 @@ public class DispatchTaskHandler<T extends AbstractJob> implements WorkHandler<T
                     return;
                 }
                 JobType jobType = event.getJob().getJobType();
+                TaskProcessor processor = event.getJob().getJobConfig().getExecuteType() == JobExecuteType.STREAMING
+                        ? streamingTaskProcessor : disruptorMap.get(jobType);
                 for (AbstractTask task : tasks) {
-                    if (!disruptorMap.get(jobType).addTask(task)) {
+                    if (!processor.addTask(task)) {
                         try {
                             task.cancel(true);
                         } finally {
