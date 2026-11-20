@@ -60,8 +60,8 @@ public:
         } else {
             bucket_size = hash_join_table_calc_bucket_size(num_elem + 1);
         }
-        first.resize(bucket_size + 1);
-        next.resize(num_elem);
+        first.assign(bucket_size + 1, 0);
+        next.assign(num_elem, 0);
 
         if constexpr (JoinOpType == TJoinOp::FULL_OUTER_JOIN ||
                       JoinOpType == TJoinOp::RIGHT_OUTER_JOIN ||
