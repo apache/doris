@@ -89,17 +89,20 @@ public class ConnectorRewriteGroupTaskTest {
             Mockito.when(catalogs.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(catalog);
             environment.when(Env::getCurrentEnv).thenReturn(env);
             ConnectContext parent = new ConnectContext();
+            parent.getSessionVariable().setEnableSqlCache(false);
             parent.setThreadLocalInfo();
             AtomicReference<ConnectContext> execution = new AtomicReference<>();
+            IllegalStateException planningFailure = new IllegalStateException("planning failed");
             ExternalTable table = Mockito.mock(ExternalTable.class);
             Mockito.when(table.getCatalog()).thenAnswer(call -> {
                 execution.set(ConnectContext.get());
-                throw new IllegalStateException("planning failed");
+                throw planningFailure;
             });
             ConnectorRewriteGroupTask task = new ConnectorRewriteGroupTask(
                     new ConnectorRewriteGroup(ImmutableSet.of("s3://bucket/table/a.parquet"), 1, 1024L, 0),
                     7L, Mockito.mock(ConnectorTransaction.class), table, parent, null);
-            Assertions.assertThrows(JobException.class, task::execute);
+            JobException failure = Assertions.assertThrows(JobException.class, task::execute);
+            Assertions.assertSame(planningFailure, failure.getCause());
             Assertions.assertSame(parent, ConnectContext.get());
             Assertions.assertFalse(parent.isClosingOrClosed());
             Assertions.assertNotNull(execution.get());

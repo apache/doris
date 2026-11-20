@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
@@ -37,7 +38,9 @@ public class MTMVCacheContextLifecycleTest {
         ConnectContext savedContext = ConnectContext.get();
         FeConstants.runningUnitTest = true;
         try (MockedStatic<Env> environment = Mockito.mockStatic(Env.class)) {
-            environment.when(Env::getCurrentEnv).thenReturn(Mockito.mock(Env.class));
+            Env env = Mockito.mock(Env.class);
+            Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
+            environment.when(Env::getCurrentEnv).thenReturn(env);
             ConnectContext parent = hasParent ? new ConnectContext() : null;
             ConnectContext cacheContext = new ConnectContext();
             cacheContext.getSessionVariable().enableMaterializedViewRewrite = true;

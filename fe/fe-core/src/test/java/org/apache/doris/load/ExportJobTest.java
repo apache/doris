@@ -23,6 +23,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.ParquetFileFormatProperties;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -61,7 +62,7 @@ public class ExportJobTest {
         job.setWhereExpression(Optional.empty());
         Mockito.doNothing().when(job).updateExportJobState(Mockito.any(), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any());
-        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        Env env = workerEnvironment();
         Mockito.when(env.getCatalogMgr().getCatalog("external").getType()).thenReturn("external");
         ConnectContext caller = new ConnectContext();
         try (AutoCloseConnectContext scope = new AutoCloseConnectContext(caller);
@@ -106,7 +107,7 @@ public class ExportJobTest {
         Mockito.when(job.getTableName()).thenReturn(new TableNameInfo("internal", "db", "t"));
         Mockito.when(job.getSessionVariables()).thenReturn(VariableMgr.newSessionVariable());
         Optional<LogicalPlan> plan = Optional.of(Mockito.mock(LogicalPlan.class));
-        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        Env env = workerEnvironment();
         try (MockedStatic<Env> environment = Mockito.mockStatic(Env.class)) {
             environment.when(Env::getCurrentEnv).thenReturn(env);
             ExportTaskExecutor before = new ExportTaskExecutor(plan, job);
@@ -134,6 +135,15 @@ public class ExportJobTest {
                 Assertions.assertNull(Deencapsulation.getField(running, "stmtExecutor"));
             }
         }
+    }
+
+    private Env workerEnvironment() {
+        Env env = Mockito.mock(Env.class, Mockito.RETURNS_DEEP_STUBS);
+        InternalCatalog internal = Mockito.mock(InternalCatalog.class);
+        Mockito.when(internal.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internal);
+        Mockito.when(env.getCatalogMgr().getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME)).thenReturn(internal);
+        return env;
     }
 
     @Test

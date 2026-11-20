@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -46,7 +47,9 @@ class CascadesContextLifecycleTest {
         ConnectContext parent = hasParent ? new ConnectContext() : null;
         RuntimeException failure = new IllegalStateException("rewrite failed");
         try (MockedStatic<Env> environment = Mockito.mockStatic(Env.class)) {
-            environment.when(Env::getCurrentEnv).thenReturn(Mockito.mock(Env.class));
+            Env env = Mockito.mock(Env.class);
+            Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
+            environment.when(Env::getCurrentEnv).thenReturn(env);
             if (parent == null) {
                 ConnectContext.remove();
             } else {

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVRelation;
@@ -150,6 +151,7 @@ class MetadataGeneratorContextLifecycleTest {
         caller.setThreadLocalInfo();
         AtomicReference<ConnectorStatementScopeImpl> statementScope = new AtomicReference<>();
         Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
         Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
