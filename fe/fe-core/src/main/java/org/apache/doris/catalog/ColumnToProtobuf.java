@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
@@ -61,7 +60,7 @@ public class ColumnToProtobuf {
                 AggStateType aggState = (AggStateType) column.getType();
                 builder.setAggregation(aggState.getFunctionName());
                 builder.setResultIsNullable(aggState.getResultIsNullable());
-                builder.setBeExecVersion(Config.be_exec_version);
+                builder.setBeExecVersion(aggState.getBeExecVersion());
                 if (column.getChildren() != null) {
                     for (Column child : column.getChildren()) {
                         builder.addChildrenColumns(toPb(child, Sets.newHashSet(), Lists.newArrayList()));

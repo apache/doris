@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.base.Preconditions;
@@ -64,6 +65,7 @@ public class AggStateType extends DataType {
     private final List<DataType> subTypes;
     private final List<Boolean> subTypeNullables;
     private final boolean returnNullable;
+    private final int beExecVersion;
 
     /**
      * Constructor for AggStateType
@@ -74,6 +76,12 @@ public class AggStateType extends DataType {
      */
     public AggStateType(String functionName, List<DataType> subTypes,
             List<Boolean> subTypeNullables, boolean returnNullable) {
+        this(functionName, subTypes, subTypeNullables, returnNullable, Config.be_exec_version);
+    }
+
+    /** Preserve the codec version when reconstructing a stored state type. */
+    public AggStateType(String functionName, List<DataType> subTypes,
+            List<Boolean> subTypeNullables, boolean returnNullable, int beExecVersion) {
         // be only supports lowercase function names
         Objects.requireNonNull(functionName, "functionName should not be null");
         functionName = functionName.toLowerCase(Locale.ROOT);
@@ -84,6 +92,7 @@ public class AggStateType extends DataType {
         Preconditions.checkState(subTypes.size() == subTypeNullables.size(),
                 "AggStateType' subTypes.size()!=subTypeNullables.size()");
         this.returnNullable = returnNullable;
+        this.beExecVersion = beExecVersion;
     }
 
     public List<DataType> getSubTypes() {
@@ -98,17 +107,22 @@ public class AggStateType extends DataType {
         return functionName;
     }
 
+    public int getBeExecVersion() {
+        return beExecVersion;
+    }
+
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());
-        return new org.apache.doris.catalog.AggStateType(functionName, returnNullable, types, subTypeNullables);
+        return new org.apache.doris.catalog.AggStateType(
+                functionName, returnNullable, types, subTypeNullables, beExecVersion);
     }
 
     @Override
     public DataType conversion() {
         return new AggStateType(functionName,
                 subTypes.stream().map(DataType::conversion).collect(Collectors.toList()),
-                subTypeNullables, returnNullable);
+                subTypeNullables, returnNullable, beExecVersion);
     }
 
     @Override
@@ -128,6 +142,11 @@ public class AggStateType extends DataType {
         }
 
         AggStateType rhs = (AggStateType) o;
+        // A sink must not treat version 20 state bytes as version 19 bytes.
+        // Keep the cast so that the STATE producer can use the target codec.
+        if (beExecVersion != rhs.beExecVersion) {
+            return false;
+        }
         if (!Objects.equals(functionName, rhs.functionName)) {
             return false;
         }
@@ -154,7 +173,7 @@ public class AggStateType extends DataType {
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), subTypes, subTypeNullables, functionName);
+        return Objects.hash(super.hashCode(), subTypes, subTypeNullables, functionName, beExecVersion);
     }
 
     @Override

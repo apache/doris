@@ -253,6 +253,46 @@ TEST(AggregateFunctionUniqVariantTest, NullableFactorySkipsSqlNullButCountsVaria
     EXPECT_EQ(result(*function, state.place), 4);
 }
 
+TEST(AggregateFunctionUniqVariantTest, NullableByteCodecDoesNotRetainDuplicatePartialKeys) {
+    // One one-byte value and two merges are enough to expose retained duplicate keys.
+    // Check both the version-19 wire codec and the persistent AGG_STATE codec.
+    VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = 1});
+    auto row = builder.begin_row();
+    row.add_string(StringRef("x"));
+    row.finish();
+    auto batch = builder.finish_batch();
+    auto value = ColumnVariantV2::create();
+    value->insert_encoded_batch(batch);
+    auto input = ColumnNullable::create(std::move(value), ColumnUInt8::create(1, 0));
+    auto type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    for (bool persisted : {false, true}) {
+        SCOPED_TRACE(persisted);
+        auto function = AggregateFunctionSimpleFactory::instance().get(
+                "multi_distinct_count", {type}, std::make_shared<DataTypeInt64>(), false,
+                persisted ? 20 : 19);
+        ASSERT_NE(function, nullptr);
+        function = persisted
+                           ? make_agg_state_compatible_function(std::move(function))
+                           : make_nullable_wire_compatible_function(std::move(function), 19, false);
+        AggregateState source(*function);
+        add_column(*function, source, *input);
+        auto serialized = function->create_serialize_column();
+        function->serialize_without_key_to_column(source.place, *serialized);
+
+        AggregateState destination(*function);
+        function->deserialize_and_merge_from_column(destination.place, *serialized,
+                                                    destination.arena);
+        EXPECT_EQ(result(*function, destination.place), 1);
+        const size_t used_after_first_merge = destination.arena.used_size();
+        function->deserialize_and_merge_from_column(destination.place, *serialized,
+                                                    destination.arena);
+        EXPECT_EQ(result(*function, destination.place), 1);
+        // Destroying a scratch hash set does not release its arena bytes. Equal arena use
+        // proves that the repeated partial did not retain a second copy of the key.
+        EXPECT_EQ(destination.arena.used_size(), used_after_first_merge);
+    }
+}
+
 TEST(AggregateFunctionUniqVariantTest, FactoryAcceptsPublicVariantAlias) {
     AggregateFunctionPtr function = AggregateFunctionSimpleFactory::instance().get(
             "multi_distinct_count", {std::make_shared<DataTypeVariant>()},

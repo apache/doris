@@ -162,7 +162,7 @@ public:
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
                                            const size_t num_rows, Arena& arena) const override {
         auto& col = assert_cast<ColumnBitmap&>(*dst);
-        char place[sizeof(Data)];
+        alignas(Data) char place[sizeof(Data)];
         col.resize(num_rows);
         auto* data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
@@ -259,6 +259,15 @@ public:
     using ResultDataType = BitmapValue;
     using ColVecType = ColumnBitmap;
     using ColVecResult = ColumnBitmap;
+
+    // INTERSECT must distinguish no input from a real empty bitmap. For example,
+    // {1} intersect no input stays {1}, but {1} intersect an empty bitmap is empty.
+    // The Bitmap payload does not store is_first. Its byte encoding starts with a
+    // nonzero length-of-varint byte, so the nullable wrapper can reserve [0] for no
+    // input. A real empty bitmap keeps [1, 1, 0]. UNION and XOR use an empty bitmap
+    // as their merge identity and do not need this marker.
+    static constexpr bool needs_empty_input_state_marker =
+            std::is_same_v<Op, AggregateFunctionBitmapIntersectOp>;
 
     String get_name() const override { return Op::name; }
 

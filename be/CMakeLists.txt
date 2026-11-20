@@ -1209,6 +1209,15 @@ if (BUILD_BENCHMARK)
     if (DEFINED ENV{DORIS_BENCHMARK_HEADER} AND NOT "$ENV{DORIS_BENCHMARK_HEADER}" STREQUAL "")
         target_compile_definitions(benchmark_test PRIVATE
             DORIS_BENCHMARK_HEADER="$ENV{DORIS_BENCHMARK_HEADER}")
+    elseif ("$ENV{DORIS_BE_BENCHMARK}" STREQUAL "nullable_aggregation")
+        target_compile_definitions(benchmark_test PRIVATE DORIS_NULLABLE_AGGREGATION_BENCHMARK_ONLY)
+        if ("$ENV{DORIS_BE_BENCHMARK_ALLOCATIONS}" STREQUAL "1" AND NOT APPLE)
+            target_sources(benchmark_test PRIVATE ${BASE_DIR}/benchmark/nullable_allocation_counter.cpp)
+            target_compile_definitions(benchmark_test PRIVATE DORIS_NULLABLE_ALLOCATION_COUNTER)
+            target_link_options(benchmark_test PRIVATE
+                -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc
+                -Wl,--wrap=_Znwm -Wl,--wrap=_Znam)
+        endif()
     endif()
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")
