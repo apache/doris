@@ -107,6 +107,10 @@ public class AggStateType extends DataType {
         return functionName;
     }
 
+    public int getBeExecVersion() {
+        return beExecVersion;
+    }
+
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());
@@ -138,6 +142,11 @@ public class AggStateType extends DataType {
         }
 
         AggStateType rhs = (AggStateType) o;
+        // A sink must not treat version 20 state bytes as version 19 bytes.
+        // Keep the cast so that the STATE producer can use the target codec.
+        if (beExecVersion != rhs.beExecVersion) {
+            return false;
+        }
         if (!Objects.equals(functionName, rhs.functionName)) {
             return false;
         }
@@ -164,7 +173,7 @@ public class AggStateType extends DataType {
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), subTypes, subTypeNullables, functionName);
+        return Objects.hash(super.hashCode(), subTypes, subTypeNullables, functionName, beExecVersion);
     }
 
     @Override

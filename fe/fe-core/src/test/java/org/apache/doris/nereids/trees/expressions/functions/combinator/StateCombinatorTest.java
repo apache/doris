@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.combinator;
 
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
@@ -26,14 +27,20 @@ import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileReservoir;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.AggStateType;
+import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -130,6 +137,45 @@ class StateCombinatorTest {
             PlanChecker.from(MemoTestUtils.createConnectContext())
                     .analyze("select cast(max_state(null) as agg_state<max(int " + nullable + ")>)")
                     .rewrite();
+        }
+    }
+
+    @Test
+    void testStateCastUsesTargetCodecVersion() {
+        int savedVersion = Config.be_exec_version;
+        try {
+            Config.be_exec_version = 20;
+            // One NULL input is enough to distinguish the Bitmap codecs: version 20
+            // can write a no-input marker that the version 19 writer must not emit.
+            for (StateCombinator state : ImmutableList.of(
+                    StateCombinator.create(new BitmapIntersect(new NullLiteral(BitmapType.INSTANCE))),
+                    StateCombinator.create(new Sum(new NullLiteral(BigIntType.INSTANCE))))) {
+                AggStateType source = (AggStateType) state.getDataType();
+                org.apache.doris.catalog.AggStateType catalog =
+                        (org.apache.doris.catalog.AggStateType) source.toCatalogDataType();
+                AggStateType target = new AggStateType(source.getFunctionName(), source.getSubTypes(),
+                        source.getSubTypeNullables(), catalog.getResultIsNullable(), 19);
+                Expression coerced = TypeCoercionUtils.castIfNotSameType(state, target);
+                Assertions.assertInstanceOf(Cast.class, coerced);
+                Cast converted = MoreFieldsThread.keepFunctionSignature(
+                        () -> ConvertAggStateCast.convert((Cast) coerced));
+                Assertions.assertEquals(target, converted.child().getDataType());
+                // Both a cached-signature rewrite and a fresh signature must retain
+                // the sink codec. Neither may select the current query version again.
+                for (boolean keepSignature : ImmutableList.of(false, true)) {
+                    Expression rewritten = MoreFieldsThread.keepFunctionSignature(keepSignature,
+                            () -> converted.child().withChildren(converted.child().children()));
+                    Assertions.assertEquals(target, rewritten.getDataType());
+                    FunctionCallExpr translated = (FunctionCallExpr) ExpressionTranslator.translate(
+                            rewritten, new PlanTranslatorContext());
+                    Assertions.assertEquals(19, ((org.apache.doris.catalog.AggStateType)
+                            translated.getFn().getReturnType()).getBeExecVersion());
+                    Assertions.assertNotEquals(state, rewritten);
+                    Assertions.assertEquals(2, ImmutableSet.of(state, rewritten).size());
+                }
+            }
+        } finally {
+            Config.be_exec_version = savedVersion;
         }
     }
 

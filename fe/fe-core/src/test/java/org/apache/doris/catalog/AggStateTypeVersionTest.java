@@ -63,6 +63,26 @@ public class AggStateTypeVersionTest {
     }
 
     @Test
+    public void testCodecVersionIsPartOfTypeIdentity() {
+        // These types differ only in their codec. Treating them as equal lets a sink
+        // write version 20 bytes into a column whose metadata specifies version 19.
+        AggStateType oldType = new AggStateType("bitmap_intersect", false,
+                List.of(Type.BITMAP), List.of(true), 19);
+        AggStateType newType = new AggStateType("bitmap_intersect", false,
+                List.of(Type.BITMAP), List.of(true), 20);
+        AggStateType oldCopy = new AggStateType("bitmap_intersect", false,
+                List.of(Type.BITMAP), List.of(true), 19);
+        Assertions.assertNotEquals(oldType, newType);
+        Assertions.assertEquals(oldType, oldCopy);
+        Assertions.assertEquals(oldType.hashCode(), oldCopy.hashCode());
+        DataType oldPlannedType = DataType.fromCatalogType(oldType);
+        DataType newPlannedType = DataType.fromCatalogType(newType);
+        Assertions.assertNotEquals(oldPlannedType, newPlannedType);
+        Assertions.assertEquals(oldPlannedType, DataType.fromCatalogType(oldCopy));
+        Assertions.assertEquals(oldPlannedType.hashCode(), DataType.fromCatalogType(oldCopy).hashCode());
+    }
+
+    @Test
     public void testMissingVersionUsesTheLegacyCodec() throws Exception {
         Config.be_exec_version = 19;
         AggStateType type = new AggStateType("bitmap_intersect", false,
@@ -73,10 +93,14 @@ public class AggStateTypeVersionTest {
         Type replayed = GsonUtils.GSON.fromJson(legacy, Type.class);
         Config.be_exec_version = 20;
         checkVersion(replayed, 19);
+        Assertions.assertEquals(type, replayed);
+        Assertions.assertEquals(type.hashCode(), replayed.hashCode());
+        int hash = replayed.hashCode();
         // Retain support for an operator who selects an older per-function codec.
         // An absent field must not force version 19 when the old query version is 16.
         Config.be_exec_version = 16;
         checkVersion(replayed, 16);
+        Assertions.assertEquals(hash, replayed.hashCode());
     }
 
     private void checkVersion(Type type, int expected) throws Exception {
