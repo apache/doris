@@ -60,8 +60,14 @@ import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.MTMVRefreshContext;
+import org.apache.doris.mtmv.MTMVRefreshContext.PreparedPartitionSnapshots;
+import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
+import org.apache.doris.mtmv.MTMVRefreshSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
@@ -2431,6 +2437,7 @@ public class PluginDrivenMvccExternalTableTest {
                 "p20240101", null, Optional.empty());
         Assertions.assertEquals(FRESH_555, snap.getSnapshotVersion(),
                 "a snapshot-id-freshness view must pin the per-partition snapshot id");
+        Assertions.assertEquals(new MTMVSnapshotIdSnapshot(FRESH_555, PINNED_SNAPSHOT_ID), snap);
 
         // Table snapshot stays the connector pin id.
         Assertions.assertEquals(PINNED_SNAPSHOT_ID,
@@ -2439,6 +2446,52 @@ public class PluginDrivenMvccExternalTableTest {
         // An unknown partition still throws (parity with the legacy path).
         Assertions.assertThrows(AnalysisException.class,
                 () -> f.table.getPartitionSnapshot("missing", null, Optional.empty()));
+    }
+
+    @Test
+    public void testRangeViewDataCommitInvalidatesSingleAndBatchPartitionVersions() throws AnalysisException {
+        Fixture f = Fixture.rangeView(rangeView(
+                rangePart("p20240101", "2024-01-01", "2024-01-02", FRESH_555)));
+        Optional<MvccSnapshot> beforePin = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        MTMVSnapshotIf before = f.table.getPartitionSnapshot("p20240101", null, beforePin);
+        Assertions.assertEquals(before,
+                f.table.getPartitionSnapshots(Collections.singleton("p20240101"), null, beforePin).get("p20240101"));
+
+        BaseTableInfo base = new BaseTableInfo(f.table);
+        MTMVRefreshPartitionSnapshot partition = new MTMVRefreshPartitionSnapshot();
+        partition.getPctSnapshot(base).put("p20240101", before);
+        MTMVRefreshSnapshot refresh = new MTMVRefreshSnapshot();
+        refresh.updateSnapshots(Collections.singletonMap("mv_p1", partition), Collections.singleton("mv_p1"));
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getRefreshSnapshot()).thenReturn(refresh);
+        MTMVRefreshContext context = Mockito.mock(MTMVRefreshContext.class);
+        Mockito.when(context.getMtmv()).thenReturn(mtmv);
+        PreparedPartitionSnapshots prepared = Mockito.mock(PreparedPartitionSnapshots.class);
+        Mockito.when(prepared.get(f.table, "p20240101")).thenReturn(before);
+        Assertions.assertTrue(MTMVPartitionUtil.isSyncWithPartitions(
+                context, prepared, "mv_p1", Collections.singleton("p20240101"), f.table));
+
+        // Removing part of a partition leaves its name and live-entry snapshot unchanged. A table
+        // snapshot id may also become numerically smaller; only equality is meaningful here.
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle)).thenReturn(Optional.of(
+                ConnectorMvccSnapshot.builder().snapshotId(PINNED_SNAPSHOT_ID - 1).build()));
+        Optional<MvccSnapshot> afterPin = Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        MTMVSnapshotIf after = f.table.getPartitionSnapshot("p20240101", null, afterPin);
+        MTMVSnapshotIf batchAfter = f.table.getPartitionSnapshots(
+                Collections.singleton("p20240101"), null, afterPin).get("p20240101");
+        Assertions.assertEquals(before.getSnapshotVersion(), after.getSnapshotVersion());
+        Assertions.assertNotEquals(before, after);
+        Assertions.assertEquals(after, batchAfter);
+        Assertions.assertFalse(refresh.equalsWithPct("mv_p1", "p20240101", after, base));
+        Assertions.assertFalse(refresh.equalsWithPct("mv_p1", "p20240101", batchAfter, base));
+        Mockito.when(prepared.get(f.table, "p20240101")).thenReturn(batchAfter);
+        Assertions.assertFalse(MTMVPartitionUtil.isSyncWithPartitions(
+                context, prepared, "mv_p1", Collections.singleton("p20240101"), f.table));
+
+        Assertions.assertEquals(before, f.table.getPartitionSnapshot("p20240101", null, beforePin));
+        Assertions.assertEquals(before,
+                f.table.getPartitionSnapshots(Collections.singleton("p20240101"), null, beforePin).get("p20240101"));
+        Mockito.verify(f.metadata, Mockito.times(2)).beginQuerySnapshot(f.session, f.handle);
     }
 
     @Test
