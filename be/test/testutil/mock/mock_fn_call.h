@@ -49,7 +49,6 @@ public:
     }
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override {
-        _open_finished = true;
         return Status::OK();
     }
 

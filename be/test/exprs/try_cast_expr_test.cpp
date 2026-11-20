@@ -206,7 +206,6 @@ struct TryCastExprTest : public ::testing::Test {
     void SetUp() override {
         try_cast_expr._data_type =
                 std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
-        try_cast_expr._open_finished = true;
 
         try_cast_expr.add_child(std::make_shared<MockVExprForTryCast>());
         try_cast_expr._fn_context_index = 0;

@@ -478,7 +478,6 @@ Status VExpr::open(RuntimeState* state, VExprContext* context,
 void VExpr::reset_prepare_state() {
     _prepared = false;
     _prepare_finished = false;
-    _open_finished = false;
     for (auto& child : _children) {
         child->reset_prepare_state();
     }

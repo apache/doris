@@ -63,7 +63,6 @@ Status VBloomPredicate::open(RuntimeState* state, VExprContext* context,
                              FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
-    _open_finished = true;
     return Status::OK();
 }
 
@@ -74,7 +73,6 @@ void VBloomPredicate::close(VExprContext* context, FunctionContext::FunctionStat
 Status VBloomPredicate::_do_execute(VExprContext* context, const Block* block,
                                     const uint8_t* __restrict filter, const Selector* selector,
                                     size_t count, ColumnPtr& result_column) const {
-    DCHECK(_open_finished || block == nullptr);
     DCHECK(!(filter != nullptr && selector != nullptr))
             << "filter and selector can not be both set";
     DCHECK_EQ(_children.size(), 1);

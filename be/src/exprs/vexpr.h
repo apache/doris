@@ -135,14 +135,6 @@ public:
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope);
 
-    // before execute, check if expr has been parepared+opened.
-    [[maybe_unused]] Status ready_status() const {
-        if (_prepare_finished && _open_finished) {
-            return Status::OK();
-        }
-        return Status::InternalError(expr_name() + " is not ready when execute");
-    }
-
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) const {
         ColumnPtr result_column;
         RETURN_IF_ERROR(execute_column(context, block, nullptr, block->rows(), result_column));
@@ -530,7 +522,6 @@ protected:
     bool _prepared = false; // for base class VExpr
     // for concrete classes
     bool _prepare_finished = false;
-    bool _open_finished = false;
 
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
