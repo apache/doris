@@ -522,6 +522,20 @@ public interface BaselinePersistence {
     default void closeMutationWindow(long windowTick) {
     }
 
+    /** The greatest watermark and tick of expired windows, or zeroes when none exist. */
+    default long[] expiredMutationWindowState() {
+        return new long[] {0L, 0L};
+    }
+
+    /** The greatest readable completed tick that carries at least this watermark. */
+    default long coveringCompletedTick(long lastId) {
+        return 0L;
+    }
+
+    /** Prunes expired windows within the watermark and clock bounds proven by the caller. */
+    default void pruneExpiredMutationWindows(long lastId, long tick) {
+    }
+
     /**
      * Whether the OPEN window just appended is READABLE by other readers (the
      * bounded read-back that makes the statement's dispatch conditional on the window

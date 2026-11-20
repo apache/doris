@@ -33,6 +33,7 @@ suite("test_spm_review_round89", "spm") {
 
     sql """set enable_spm_rewrite = true"""
     sql """set enable_spm_fallback = false"""
+    sql """set enable_sql_cache = false"""
 
     sql """DROP TABLE IF EXISTS spm_r89_t"""
     sql """DROP TABLE IF EXISTS spm_r89_dim"""
@@ -74,14 +75,16 @@ suite("test_spm_review_round89", "spm") {
     }
 
     // ==================== #1: IN subquery ====================
-    String inText = "SELECT k FROM spm_r89_t WHERE k IN (SELECT k FROM spm_r89_dim)" +
+    String inText = "SELECT k FROM spm_r89_t WHERE k IN (SELECT k FROM spm_r89_dim WHERE k > 1)" +
             " ORDER BY k"
-    assertNoInternalMarker(planSqlOf(createBaseline(inText)))
-    order_qt_r89_in_subquery """SELECT k FROM spm_r89_t WHERE k IN (SELECT k FROM spm_r89_dim)
-        ORDER BY k"""
-    // the value variant of the SAME digest: the subquery's literal changes, the rows follow
-    order_qt_r89_in_subquery_variant """SELECT k FROM spm_r89_t
-        WHERE k IN (SELECT k FROM spm_r89_dim WHERE k > 2) ORDER BY k"""
+    long inId = createBaseline(inText)
+    assertNoInternalMarker(planSqlOf(inId))
+    String inVariant = inText.replace("k > 1", "k > 2")
+    for (String query in [inText, inVariant]) {
+        assertTrue(sql("EXPLAIN " + query).toString().contains("SPM baseline hit: id=${inId},"))
+    }
+    order_qt_r89_in_subquery inText
+    order_qt_r89_in_subquery_variant inVariant
 
     // ==================== #1: a scalar subquery ====================
     String scalarText = "SELECT k, (SELECT max(k) FROM spm_r89_dim) AS m FROM spm_r89_t" +

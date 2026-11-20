@@ -8091,10 +8091,19 @@ public final class SPMPlanTreeSupport {
      * This prevents baseline reload and fingerprint parsing from changing the current query's settings.
      */
     public static Plan parseStoredSqlWithoutSetVarSideEffects(String sql, long sqlMode) {
+        return parseStoredSqlWithoutSetVarSideEffects(sql, sqlMode, false);
+    }
+
+    private static LogicalPlan parseStoredSqlWithoutSetVarSideEffects(String sql, long sqlMode,
+            boolean preserveTypedCharacterLiterals) {
         return SelectHintSetVar.withoutParseTimeSetVar(() ->
                 org.apache.doris.qe.SqlModeHelper.withSqlMode(sqlMode,
                         () -> new org.apache.doris.nereids.parser.NereidsParser()
-                                .parseSingleCached(sql)));
+                                .parseSingleCached(sql, preserveTypedCharacterLiterals)));
+    }
+
+    static LogicalPlan parseFrozenSqlWithoutSetVarSideEffects(String sql) {
+        return parseStoredSqlWithoutSetVarSideEffects(sql, org.apache.doris.qe.SqlModeHelper.MODE_DEFAULT, true);
     }
 
     /**

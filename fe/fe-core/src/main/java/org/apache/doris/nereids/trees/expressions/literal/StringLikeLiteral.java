@@ -28,6 +28,7 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -94,6 +95,11 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
 
     public String getStringValue() {
         return value;
+    }
+
+    /** Length inferred for a quoted SQL string after decoding its contents. */
+    public static int sqlLiteralLength(String value) {
+        return Utils.containChinese(value) ? value.length() * CHINESE_CHAR_BYTE_LENGTH : value.length();
     }
 
     @Override

@@ -41,17 +41,21 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Tests cold-read deadlines, refreshed replay metadata and reservation lifecycle ordering. */
 public class SPMManagerContractsTest {
     @Test
-    public void testReservationSqlPrefersResolvedStateAtEqualTimestamp() throws Exception {
+    public void testKeyedReservationSqlOrdersIncarnationsAndLifecycle() throws Exception {
         BaselinePersistence.SeqReservation pending =
                 new BaselinePersistence.SeqReservation(7L, 1_000L, true, false);
         BaselinePersistence.SeqReservation resolved =
                 new BaselinePersistence.SeqReservation(7L, 1_000L, false, false);
-        Assertions.assertTrue(BaselineManager.isNewerReservation(resolved, pending));
-        for (String name : List.of("SELECT_PENDING_SEQ_SQL", "SELECT_COMPACT_SEQ_SQL",
-                "SELECT_COMPACT_SEQ_BATCH_SQL")) {
+        BaselinePersistence.SeqReservation dropped =
+                new BaselinePersistence.SeqReservation(7L, 500L, false, true);
+        BaselinePersistence.SeqReservation newer =
+                new BaselinePersistence.SeqReservation(8L, 100L, false, false);
+        for (String name : List.of("SELECT_COMPACT_SEQ_SQL", "SELECT_COMPACT_SEQ_BATCH_SQL")) {
             java.lang.reflect.Field field = BaselineManager.class.getDeclaredField(name);
             field.setAccessible(true);
-            String sql = ((String) field.get(null)).replaceAll("\\$\\{[^}]+}", "0");
+            String template = (String) field.get(null);
+            Assertions.assertTrue(template.contains("WHERE `id`"), name);
+            String sql = template.replaceAll("\\$\\{[^}]+}", "0");
             Plan plan = new NereidsParser().parseSingle(sql);
             List<OrderKey> orderKeys = new ArrayList<>();
             SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
@@ -60,7 +64,8 @@ public class SPMManagerContractsTest {
                 }
             });
             Assertions.assertFalse(orderKeys.isEmpty(), name);
-            List<BaselinePersistence.SeqReservation> rows = new ArrayList<>(List.of(pending, resolved));
+            List<BaselinePersistence.SeqReservation> rows =
+                    new ArrayList<>(List.of(pending, resolved, dropped, newer));
             rows.sort((left, right) -> {
                 for (OrderKey key : orderKeys) {
                     String column = ((UnboundSlot) key.getExpr()).getName();
@@ -72,8 +77,7 @@ public class SPMManagerContractsTest {
                 }
                 return 0;
             });
-            Assertions.assertSame(resolved, rows.get(0),
-                    name + " must agree with lifecycle reconciliation at equal id and timestamp");
+            Assertions.assertEquals(List.of(newer, dropped, resolved, pending), rows, name);
         }
     }
 

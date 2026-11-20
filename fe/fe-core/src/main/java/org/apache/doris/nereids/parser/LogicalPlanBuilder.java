@@ -1119,7 +1119,6 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
-import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
@@ -1204,15 +1203,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private final Map<Integer, ParserRuleContext> selectHintMap;
     private final Map<Integer, SelectClauseContext> selectHintOwners;
+    private final boolean preserveTypedCharacterLiterals;
 
     // recursive cte is in form of union[all], and in visitSetOperation method, we try to reduceToLogicalPlanTree
     // for UNION. We should not do it for recursive cte, so this flag is to indicate if we meet recursive cte
     private boolean isInRecursiveCteContext = false;
 
     public LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap) {
+        this(selectHintMap, false);
+    }
+
+    LogicalPlanBuilder(Map<Integer, ParserRuleContext> selectHintMap, boolean preserveTypedCharacterLiterals) {
         this.selectHintMap = selectHintMap;
         this.selectHintOwners = selectHintMap == null || selectHintMap.isEmpty()
                 ? Collections.emptyMap() : new HashMap<>();
+        this.preserveTypedCharacterLiterals = preserveTypedCharacterLiterals;
     }
 
     private static String requireNonEmptyColumnIdentifier(ParserRuleContext ctx, String identifier) {
@@ -3535,6 +3540,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             if (dataType.isVarcharType() && ((VarcharType) dataType).isWildcardVarchar()) {
                 return cast;
             }
+            // Frozen SPM SQL spells typed character literals as casts. When the value already
+            // fits, the parser's truncating SUBSTR adds no value and can lose the declared type.
+            if (preserveTypedCharacterLiterals && expression instanceof StringLikeLiteral
+                    && ((StringLikeLiteral) expression).getStringValue().length()
+                            <= ((CharacterType) dataType).getLen()) {
+                return cast;
+            }
             List<Expression> args = ImmutableList.of(
                     cast,
                     new TinyIntLiteral((byte) 1),
@@ -3873,7 +3885,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Literal visitStringLiteral(StringLiteralContext ctx) {
         String s = SqlLiteralUtils.parseStringLiteral(ctx.STRING_LITERAL().getText());
-        int strLength = Utils.containChinese(s) ? s.length() * StringLikeLiteral.CHINESE_CHAR_BYTE_LENGTH : s.length();
+        int strLength = StringLikeLiteral.sqlLiteralLength(s);
         if (strLength > ScalarType.MAX_VARCHAR_LENGTH) {
             return new StringLiteral(s);
         }

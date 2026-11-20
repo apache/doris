@@ -67,6 +67,21 @@ public class SPMRound91GuardTest {
         }
     }
 
+    @Test
+    public void testConditionalContainersAndNthValueKeepResultMarkers() {
+        for (String operand : List.of(
+                "element_at(if(k > 0, array(NULL), array(NULL)), 1)",
+                "element_at(case when k > 0 then [NULL] else [NULL] end, 1)",
+                "element_at(coalesce(map('x', NULL), map('y', NULL)), 'x')",
+                "nth_value(NULL, 1) OVER (ORDER BY k)")) {
+            String query = "SELECT k, k > 0 OR " + operand + " AS c FROM t";
+            List<SpmConstVar> values = markers(query);
+            Assertions.assertTrue(values.stream().anyMatch(marker -> marker.getValue().isNullLiteral()
+                    && marker.getDataType().isBooleanType() || marker.getDataType().isArrayType()), query);
+            Assertions.assertFalse(values.stream().anyMatch(marker -> marker.getDataType().isNullType()), query);
+        }
+    }
+
     /** {@code utc_time()} and {@code utc_date()} read the statement clock like {@code now()}. */
     @Test
     public void testUtcClockFunctionsAreReplayContextExpressions() {

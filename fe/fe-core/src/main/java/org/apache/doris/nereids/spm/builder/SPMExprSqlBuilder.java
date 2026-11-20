@@ -97,6 +97,7 @@ import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.VarBinaryType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.math.BigInteger;
@@ -371,8 +372,12 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // LIKE as a two-child predicate: parameterizing the escape literal fails
             // LIKE's literal-only legality check, so creation fell back to the raw plan and
             // persisted the ALTERED predicate - a column-pattern LIKE replayed without
-            // ESCAPE can match different rows. Render the child recursively.
-            rendered += " ESCAPE " + renderValueOperand(like.child(2), context);
+            // ESCAPE can match different rows. Its syntax requires a bare string literal.
+            Expression escape = like.child(2);
+            if (!(escape instanceof StringLikeLiteral)) {
+                throw new UnsupportedOperationException("SPM decompile: LIKE ESCAPE must be a string literal");
+            }
+            rendered += " ESCAPE " + SPMPlan2SQLBuilder.quoteSqlString(((StringLikeLiteral) escape).getStringValue());
         }
         return rendered;
     }
@@ -622,7 +627,10 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             }).collect(Collectors.joining(", ")));
         }
         if (separatorArgument) {
-            sb.append(" SEPARATOR ").append(print(values.get(1), context));
+            Expression separator = values.get(1);
+            sb.append(" SEPARATOR ").append(separator instanceof StringLikeLiteral
+                    ? SPMPlan2SQLBuilder.quoteSqlString(((StringLikeLiteral) separator).getStringValue())
+                    : print(separator, context));
         }
         return sb.append(")").toString();
     }
@@ -639,6 +647,9 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
             // CAST (isExplicitType = true) is preserved verbatim. The LOWERING's accumulator
             // widening is preserved by renderArgument, which is the only place that knows the
             // cast is the ROOT of an aggregate argument (see preservesLoweredAccumulator).
+            if (cast.child() instanceof StringLikeLiteral && cast.getDataType().isDateLikeType()) {
+                return SPMPlan2SQLBuilder.quoteSqlString(((StringLikeLiteral) cast.child()).getStringValue());
+            }
             return cast.child().accept(this, context);
         }
         return "CAST(" + cast.child().accept(this, context) + " AS " + cast.getDataType().toSql() + ")";
@@ -809,17 +820,17 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     @Override
     public String visitLiteral(Literal literal, SQLRelation context) {
-        if (literal instanceof StringLikeLiteral) {
-            // Generator arguments (LATERAL VIEW / UNNEST) are intentionally NOT
-            // parameterized and reach this method as concrete literals. Their toSql
-            // (StringLikeLiteral.toString) only wraps the SEMANTIC value in quotes, so
-            // a delimiter such as a'b froze invalid split(t.s, 'a'b'): the stored
-            // baseline then had no parseable fallback tree and stopped applying after a
-            // reload. Render through the default-mode-safe quote helper (stored text is
-            // always re-parsed under MODE_DEFAULT).
-            return SPMPlan2SQLBuilder.quoteSqlString(((StringLikeLiteral) literal).getStringValue());
-        }
         DataType type = literal.getDataType();
+        if (literal instanceof StringLikeLiteral) {
+            String value = literal.getStringValue();
+            String quoted = SPMPlan2SQLBuilder.quoteSqlString(value);
+            int length = StringLikeLiteral.sqlLiteralLength(value);
+            if (type instanceof VarcharType && ((VarcharType) type).getLen() == length
+                    || type.isStringType() && length > VarcharType.MAX_VARCHAR_LENGTH) {
+                return quoted;
+            }
+            return typedLiteralSql(quoted, type);
+        }
         if (literal.isNullLiteral()) {
             return type.isNullType() ? "NULL" : typedLiteralSql("NULL", type);
         }

@@ -56,6 +56,12 @@ suite("test_spm_replay_semantics", "spm") {
         PROPERTIES("replication_num" = "1")"""
     sql "INSERT INTO spm_replay_stored_mode VALUES (1, CONCAT('_#TEMP#_', CHAR(92))), (2, 'other')"
 
+    sql "DROP TABLE IF EXISTS spm_replay_ids"
+    sql """CREATE TABLE spm_replay_ids (k INT, v INT)
+        DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+        PROPERTIES("replication_num" = "1")"""
+    sql "INSERT INTO spm_replay_ids VALUES (1, 2)"
+
     sql "SET enable_spm_rewrite = true"
     sql "SET enable_spm_fallback = false"
     sql "SET enable_sql_cache = false"
@@ -396,5 +402,85 @@ suite("test_spm_replay_semantics", "spm") {
         }
     } finally {
         sql "SET sql_mode = '${previousMode}'"
+    }
+
+    String aliased = "SELECT * REPLACE(from_second(0) AS v)" +
+            " FROM (SELECT k,v,7 AS b FROM spm_replay_ids) x"
+    String savedZone = sql("SELECT @@time_zone")[0][0].toString()
+    try {
+        sql "SET time_zone = 'UTC'"
+        for (String scope in ["SESSION", "GLOBAL"]) {
+            long id = sql("CREATE ${scope} BASELINE PLAN \"${aliased}\" WITH \"${aliased} \"")[0][0] as Long
+            try {
+                String variant = aliased.replace("7 AS b", "8 AS b")
+                boolean hits = explainHit(aliased, id) && explainHit(variant, id)
+                quickTest("fresh_replay_ids_${scope.toLowerCase()}_hit", "SELECT ${hits}", false)
+                quickTest("fresh_replay_ids_${scope.toLowerCase()}_rows", aliased, true)
+                quickTest("fresh_replay_ids_${scope.toLowerCase()}_variant", variant, true)
+            } finally {
+                sql "DROP BASELINE PLAN IF EXISTS ${id}"
+            }
+        }
+
+        for (String projection in ["", ", from_second(0) AS v"]) {
+            String path = projection.isEmpty() ? "frozen" : "raw"
+            String temporal = "SELECT * REPLACE(TIMESTAMP '2020-01-01 00:00:00.1' AS k" +
+                    projection + ") FROM spm_replay_ids"
+            String fractionVariant = temporal.replace("00:00:00.1", "00:00:00.2")
+            withBaseline(temporal) { long id ->
+                boolean originalHit = explainHit(temporal, id)
+                boolean variantHit = explainHit(fractionVariant, id)
+                quickTest("concrete_fraction_${path}_hits", "SELECT ${originalHit}, ${variantHit}", false)
+                quickTest("concrete_fraction_${path}_original", temporal, true)
+                quickTest("concrete_fraction_${path}_variant", fractionVariant, true)
+                quickTest("concrete_fraction_${path}_frozen",
+                        "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}", false)
+            }
+        }
+    } finally {
+        sql "SET time_zone = '${savedZone}'"
+    }
+
+    [
+            if_array: "element_at(if(k < 0, array(NULL), array(NULL)), 1)",
+            case_array: "element_at(case when k < 0 then [NULL] else [NULL] end, 1)",
+            coalesce_map: "element_at(coalesce(map('x', NULL), map('x', NULL)), 'x')",
+            nth_value: "nth_value(NULL, 1) OVER (ORDER BY k)"
+    ].each { String name, String operand ->
+        String query = "SELECT k, k < 0 OR ${operand} AS c FROM spm_replay_ids"
+        String variant = query.replace("NULL", "TRUE")
+        withBaseline(query) { long id ->
+            boolean originalHit = explainHit(query, id)
+            boolean variantHit = explainHit(variant, id)
+            quickTest(name + "_hits", "SELECT ${originalHit}, ${variantHit}", false)
+            quickTest(name + "_original_rows", query, true)
+            quickTest(name + "_variant_rows", variant, true)
+        }
+    }
+
+    String characters = "SELECT * REPLACE(CAST('a' AS STRING) AS k, CAST('a' AS VARCHAR(24)) AS v)" +
+            " FROM spm_replay_ids"
+    def nativeCharacterMeta = JdbcUtils.executeToList(context.getConnection(), characters)[1]
+    withBaseline(characters) { long id ->
+        def (rows, meta) = JdbcUtils.executeToList(context.getConnection(), characters)
+        boolean typesMatch = (1..2).every { int column ->
+            meta.getColumnTypeName(column) == nativeCharacterMeta.getColumnTypeName(column) &&
+                    meta.getPrecision(column) == nativeCharacterMeta.getPrecision(column)
+        }
+        boolean hit = explainHit(characters, id)
+        qt_character_values_and_types "SELECT '${rows[0][0]}', '${rows[0][1]}', ${typesMatch}, ${hit}"
+        qt_character_frozen "SELECT plan_frozen FROM __internal_schema.spm_baselines WHERE id = ${id}"
+    }
+
+    String recreate = "SELECT k FROM spm_replay_ids WHERE k > 0"
+    long firstId = create(recreate, recreate)
+    sql "DROP BASELINE PLAN IF EXISTS ${firstId}"
+    qt_drop_state_visible_at_both_keys """SELECT MAX(id < 0), MAX(id > 1)
+        FROM __internal_schema.spm_baselines_seq
+        WHERE baseline_id = ${firstId} AND dropped = 1 AND bind_sql_digest <> ''"""
+    withBaseline(recreate) { long id ->
+        boolean hit = explainHit(recreate, id)
+        qt_recreated_identity_uses_new_id "SELECT ${id > firstId}, ${hit}"
+        order_qt_recreated_identity_rows recreate
     }
 }
