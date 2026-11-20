@@ -152,6 +152,10 @@ public:
         nested_function->set_version(version_);
     }
 
+    void set_check_overflow_for_decimal(bool v) override {
+        nested_function->set_check_overflow_for_decimal(v);
+    }
+
     String get_name() const override {
         /// This is just a wrapper. The function for Nullable arguments is named the same as the nested function itself.
         return "Nullable(" + nested_function->get_name() + ")";
