@@ -19,12 +19,8 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.mtmv.ivm.IvmException;
-import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmNormalizeDupKeysMTMV;
 import org.apache.doris.mtmv.ivm.IvmNormalizeUniqKeysMTMV;
-import org.apache.doris.mtmv.ivm.IvmPlanSignature;
-import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.StatementContext;
@@ -32,9 +28,7 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
-import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.SupportChangelog;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
@@ -83,18 +77,7 @@ public class IvmNormalizeMTMV implements CustomRewriter {
             // pin down.
             result = new IvmNormalizeDupKeysMTMV().normalize(plan, statementContext.getExcludedTriggerTables());
         } else {
-            result = new IvmNormalizeUniqKeysMTMV().normalize(plan, jobContext);
-            if (result instanceof LogicalOlapTableSink) {
-                IvmPlanSignature signature = new IvmPlanSignatureGenerator().generate(result);
-                if (rewriteContext.getMode() == IvmRewriteContext.Mode.INCREMENTAL) {
-                    validatePlanSignature(rewriteContext.getMtmv(), signature);
-                }
-                rewriteResult.setPlanSignature(signature);
-            } else if (!(result instanceof LogicalResultSink)) {
-                throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                        "IVM MOW normalization requires a table or result sink, but found "
-                                + result.getClass().getSimpleName());
-            }
+            result = new IvmNormalizeUniqKeysMTMV().normalizeRoot(plan, jobContext);
         }
         // Whichever normalizer built it, the normalized plan is published here, and only here, so
         // that a statement downstream of this rewrite reads the plan of the model that was chosen.
@@ -106,22 +89,6 @@ public class IvmNormalizeMTMV implements CustomRewriter {
                     result.treeString());
         }
         return result;
-    }
-
-    private void validatePlanSignature(MTMV mtmv, IvmPlanSignature currentSignature) {
-        String storedSignature = mtmv.getIvmInfo().getPlanSignature();
-        if (storedSignature == null || storedSignature.equals(currentSignature.getSha256())) {
-            return;
-        }
-        String detail = "IVM layout signature mismatch for mv=" + mtmv.getName()
-                + ", storedSignature=" + storedSignature
-                + ", currentSignature=" + currentSignature.getSha256()
-                + ", currentCanonical=" + currentSignature.getCanonicalString()
-                + ", currentPlan=" + currentSignature.getPlanTree()
-                + ". Run one REFRESH MATERIALIZED VIEW " + mtmv.getName()
-                + " INCREMENTAL FALLBACK or REFRESH MATERIALIZED VIEW " + mtmv.getName()
-                + " COMPLETE to rebuild the IVM layout baseline and publish its matching signature.";
-        throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }
 
     /**

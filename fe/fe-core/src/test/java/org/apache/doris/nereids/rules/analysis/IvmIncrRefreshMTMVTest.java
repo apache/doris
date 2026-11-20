@@ -99,19 +99,6 @@ class IvmIncrRefreshMTMVTest {
     }
 
     @Test
-    void testNonSinkRootThrows() {
-        RecordingRule rule = new RecordingRule(scan);
-
-        IvmException exception = Assertions.assertThrows(IvmException.class,
-                () -> rule.rewriteRoot(scan, newJobContext(scan,
-                        IvmRewriteContext.incremental(mtmv), newRewriteResult(SIGNATURE))));
-
-        Assertions.assertEquals(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED, exception.getFailureReason());
-        Assertions.assertTrue(exception.getMessage().contains("LogicalOlapTableSink"));
-        Assertions.assertEquals(0, rule.rewriter.callCount);
-    }
-
-    @Test
     void testDryRunRewritesQueryRootAndCapsWithLimit() {
         LogicalProject<Plan> deltaPlan = new LogicalProject<>(
                 ImmutableList.of(new org.apache.doris.nereids.trees.expressions.Alias(

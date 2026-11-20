@@ -26,12 +26,12 @@ import java.util.Objects;
  * IVM row-id or hidden-column layout, such as hidden output expressions, scan
  * identity, join child order, union arm order, and table sink column names and types.
  * The persisted signature stores only the SHA-256 digest. The canonical string and plan
- * tree are kept in memory for diagnostics.
+ * tree are kept in memory for diagnostics during planning and refresh result publication.
  *
  * <p>Example:
  * <pre>
  * canonicalString =
- *   IVM_LAYOUT_SIGNATURE_V2
+ *   IVM_LAYOUT_SIGNATURE_V1
  *   ROOT[plan=TABLE_SINK[columns=[...],child=PROJECT[hiddenOutputs=[...],child=SCAN[table=ctl.db.t]]]]
  * sha256 = 5a3f...e92c
  * </pre>

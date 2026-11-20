@@ -71,7 +71,7 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
 
     private Plan rewriteIncrementalPlan(Plan plan, IvmRewriteResult rewriteResult,
             IvmRewriteContext rewriteContext, ConnectContext connectContext) {
-        if (rewriteContext.isDryRun() && plan instanceof LogicalResultSink) {
+        if (rewriteContext.isDryRun()) {
             Plan rewritten = newDeltaRewriter().generateIncrRefreshPlan(
                     plan.child(0), rewriteResult, rewriteContext, connectContext);
             Optional<IvmDryRunLimit> dryRunLimit = rewriteContext.getDryRunLimit();
@@ -82,11 +82,6 @@ public class IvmIncrRefreshMTMV implements CustomRewriter {
             }
             return new LogicalResultSink<Plan>(
                     ImmutableList.copyOf(rewritten.getOutput()), (LogicalPlan) rewritten);
-        }
-        if (!(plan instanceof LogicalOlapTableSink)) {
-            throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "IVM incremental refresh requires LogicalOlapTableSink root, but found "
-                            + plan.getClass().getSimpleName());
         }
         LogicalOlapTableSink<?> sink = (LogicalOlapTableSink<?>) plan;
         MTMV mtmv = rewriteContext.getMtmv();

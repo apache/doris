@@ -2045,7 +2045,8 @@ public class MTMVTaskTest {
 
         executeCompleteRefresh(task, signature, signature);
 
-        Assertions.assertSame(signature, task.getRefreshedIvmPlanSignature());
+        Assertions.assertSame(signature, task.takeRefreshedIvmPlanSignature());
+        Assertions.assertNull(task.takeRefreshedIvmPlanSignature());
     }
 
     @Test
@@ -2058,7 +2059,7 @@ public class MTMVTaskTest {
                 new IvmPlanSignature("layout_s3", "signature_s3", "plan tree")));
 
         Assertions.assertTrue(exception.getMessage().contains("inconsistent plan signatures"));
-        Assertions.assertNull(task.getRefreshedIvmPlanSignature());
+        Assertions.assertNull(task.takeRefreshedIvmPlanSignature());
     }
 
     @Test
@@ -2069,7 +2070,7 @@ public class MTMVTaskTest {
 
         executeCompleteRefresh(task, signature, signature);
 
-        Assertions.assertSame(signature, task.getRefreshedIvmPlanSignature());
+        Assertions.assertSame(signature, task.takeRefreshedIvmPlanSignature());
     }
 
     @Test
@@ -2079,7 +2080,7 @@ public class MTMVTaskTest {
         IvmPlanSignature signature = new IvmPlanSignature("layout_k4", "signature_k4", "plan tree");
         executeCompleteRefresh(task, signature, signature);
         Assertions.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
-        Assertions.assertSame(signature, task.getRefreshedIvmPlanSignature());
+        Assertions.assertSame(signature, task.takeRefreshedIvmPlanSignature());
     }
 
     @Test

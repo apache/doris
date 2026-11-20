@@ -1290,6 +1290,7 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         String planSignature = mtmv.getIvmInfo().getPlanSignature();
 
         Assertions.assertFalse(mtmv.addTaskResult(result, false));
+        Assertions.assertNull(result.getTask().takeRefreshedIvmPlanSignature());
         Assertions.assertEquals(historySize, mtmv.getHistoryTasks().size());
         Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
         Assertions.assertEquals(planSignature, mtmv.getIvmInfo().getPlanSignature());
@@ -1379,6 +1380,8 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
 
         Assertions.assertEquals("new_signature", mtmv.getIvmInfo().getPlanSignature());
         Assertions.assertEquals("new_signature", result.getIvmInfo().getPlanSignature());
+        Assertions.assertTrue(mtmv.getHistoryTasks().contains(result.getTask()));
+        Assertions.assertNull(result.getTask().takeRefreshedIvmPlanSignature());
         Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
     }
 

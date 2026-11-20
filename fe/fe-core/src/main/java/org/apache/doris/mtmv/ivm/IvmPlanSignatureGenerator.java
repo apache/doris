@@ -63,7 +63,7 @@ import java.util.List;
  * plan instead of changing the normalized-plan signature.
  */
 public class IvmPlanSignatureGenerator {
-    public static final int CURRENT_VERSION = 2;
+    public static final int CURRENT_VERSION = 1;
     @VisibleForTesting
     public static final String DEBUG_POINT_SIGNATURE_SALT =
             "IvmPlanSignatureGenerator.generate.signature_salt";

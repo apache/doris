@@ -105,7 +105,7 @@ suite("test_ivm_sink_truncation_signature") {
     sql "INSERT INTO ivm_sink_truncation_sales VALUES (106, 'web', 150.00)"
     sql "INSERT INTO ivm_sink_truncation_refunds VALUES (903, 30.00)"
     // A dry run has no table write projection, even after a write signature exists.
-    ivm_hidden_qt("ivm_sink_truncation_dry_run", """
+    ivm_hidden_qt("order_ivm_sink_truncation_dry_run", """
         REFRESH MATERIALIZED VIEW ivm_sink_truncation_mv INCREMENTAL WITH DRY RUN
     """)
     sql "REFRESH MATERIALIZED VIEW ivm_sink_truncation_mv INCREMENTAL"

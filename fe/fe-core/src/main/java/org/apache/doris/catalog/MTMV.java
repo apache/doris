@@ -366,6 +366,7 @@ public class MTMV extends OlapTable {
 
     public boolean addTaskResult(AlterMTMV alterMTMV, boolean isReplay) {
         MTMVTask task = alterMTMV.getTask();
+        IvmPlanSignature refreshedIvmPlanSignature = task.takeRefreshedIvmPlanSignature();
         MTMVRelation relation = alterMTMV.getRelation();
         Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots = alterMTMV.getPartitionSnapshots();
         MTMVCache mtmvCacheWithGuard = null;
@@ -448,12 +449,8 @@ public class MTMV extends OlapTable {
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
-                if (!isReplay && ivmInfo.isEnableIvm()) {
-                    IvmPlanSignature refreshedIvmPlanSignature = task.getRefreshedIvmPlanSignature();
-                    if (refreshedIvmPlanSignature != null) {
-                        updateIvmPlanSignature(refreshedIvmPlanSignature,
-                                task.getTaskId(), IvmRefreshMethod.COMPLETE);
-                    }
+                if (!isReplay && ivmInfo.isEnableIvm() && refreshedIvmPlanSignature != null) {
+                    updateIvmPlanSignature(refreshedIvmPlanSignature, task.getTaskId(), IvmRefreshMethod.COMPLETE);
                 }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);

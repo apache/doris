@@ -346,8 +346,8 @@ public class MTMVTask extends AbstractTask {
     // Only the worker thread writes it, and it is read as the worker reports the failure.
     private transient String failureStage = IvmRefreshFailureStage.OTHER.name();
     private long mtmvSchemaChangeVersion;
-    // Published when a whole-MV COMPLETE succeeds and its task result is accepted.
-    private transient IvmPlanSignature refreshedIvmPlanSignature;
+    // Passed to the task result handler and cleared before the task enters history.
+    private transient volatile IvmPlanSignature refreshedIvmPlanSignature;
 
     private Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
 
@@ -1462,6 +1462,10 @@ public class MTMVTask extends AbstractTask {
         }
         if (replacePlanSignature) {
             refreshedIvmPlanSignature = refreshedPlanSignature;
+            // The cancel thread may have recorded the result before this worker finished the last batch.
+            if (getStatus() == TaskStatus.CANCELED) {
+                refreshedIvmPlanSignature = null;
+            }
         }
         LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
                 mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
@@ -2193,8 +2197,10 @@ public class MTMVTask extends AbstractTask {
         return ivmCapturedEpochs == null ? Collections.emptyMap() : Maps.newHashMap(ivmCapturedEpochs);
     }
 
-    public IvmPlanSignature getRefreshedIvmPlanSignature() {
-        return refreshedIvmPlanSignature;
+    public IvmPlanSignature takeRefreshedIvmPlanSignature() {
+        IvmPlanSignature signature = refreshedIvmPlanSignature;
+        refreshedIvmPlanSignature = null;
+        return signature;
     }
 
     public IvmRefreshMethod getIvmRefreshMethod() {
