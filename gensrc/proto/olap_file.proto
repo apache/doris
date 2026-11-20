@@ -200,6 +200,7 @@ message RowsetMetaPB {
     // Real segment ids in rowset position order. Empty means legacy continuous ids [0, num_segments).
     repeated int64 segment_ids = 200;
 
+    optional RowsetVariantDescSummaryPB variant_desc_summary = 201;
 }
 
 message SchemaDictKeyList {
@@ -331,6 +332,18 @@ message RowsetMetaCloudPB {
     // Real segment ids in rowset position order. Empty means legacy continuous ids [0, num_segments).
     repeated int64 segment_ids = 200;
 
+    optional RowsetVariantDescSummaryPB variant_desc_summary = 201;
+}
+
+message RowsetVariantDescSummaryPB {
+    // A mixed-version partial update may preserve unknown fields while appending segments.
+    optional int64 num_segments = 1;
+    // Canonical VariantDescSummaryPB for all segments, including an empty summary.
+    optional bytes columns = 2;
+}
+
+message VariantDescSummaryPB {
+    repeated ColumnPB columns = 1;
 }
 
 message SegmentStatisticsPB {
@@ -338,6 +351,7 @@ message SegmentStatisticsPB {
     optional int64 data_size = 2;
     optional int64 index_size = 3;
     optional KeyBoundsPB key_bounds = 4;
+    optional bytes variant_desc_summary = 5;
 }
 
 // Local-mode only kv value for reclaiming remote rowset.

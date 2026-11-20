@@ -25,6 +25,16 @@
 
 namespace doris::cloud {
 
+static void limit_rowset_desc_summary(RowsetMetaCloudPB* rowset) {
+    // Meta Service stores rowset metadata in an FDB value limited to 100,000
+    // bytes. Leave room for the schema dictionary and publish metadata added
+    // after conversion. An oversized optional summary can be read from segments.
+    constexpr size_t max_meta_with_desc_summary = 64 * 1024;
+    if (rowset->has_variant_desc_summary() && rowset->ByteSizeLong() > max_meta_with_desc_summary) {
+        rowset->clear_variant_desc_summary();
+    }
+}
+
 RowsetMetaCloudPB doris_rowset_meta_to_cloud(const RowsetMetaPB& in) {
     RowsetMetaCloudPB out;
     doris_rowset_meta_to_cloud(&out, in);
@@ -68,6 +78,11 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     }
     out->set_num_segments(in.num_segments());
     out->mutable_segment_ids()->CopyFrom(in.segment_ids());
+    if (in.has_variant_desc_summary()) {
+        out->mutable_variant_desc_summary()->CopyFrom(in.variant_desc_summary());
+    } else {
+        out->clear_variant_desc_summary();
+    }
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -134,6 +149,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_table_id()) {
         out->set_table_id(in.table_id());
     }
+    limit_rowset_desc_summary(out);
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -167,6 +183,11 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     out->set_num_segments(in.num_segments());
     out->mutable_segment_ids()->Swap(in.mutable_segment_ids());
+    if (in.has_variant_desc_summary()) {
+        out->mutable_variant_desc_summary()->Swap(in.mutable_variant_desc_summary());
+    } else {
+        out->clear_variant_desc_summary();
+    }
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -235,6 +256,7 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     if (in.has_table_id()) {
         out->set_table_id(in.table_id());
     }
+    limit_rowset_desc_summary(out);
 }
 
 RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
@@ -280,6 +302,11 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     }
     out->set_num_segments(in.num_segments());
     out->mutable_segment_ids()->CopyFrom(in.segment_ids());
+    if (in.has_variant_desc_summary()) {
+        out->mutable_variant_desc_summary()->CopyFrom(in.variant_desc_summary());
+    } else {
+        out->clear_variant_desc_summary();
+    }
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());
@@ -379,6 +406,11 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     out->set_num_segments(in.num_segments());
     out->mutable_segment_ids()->Swap(in.mutable_segment_ids());
+    if (in.has_variant_desc_summary()) {
+        out->mutable_variant_desc_summary()->Swap(in.mutable_variant_desc_summary());
+    } else {
+        out->clear_variant_desc_summary();
+    }
     out->set_rowset_id_v2(in.rowset_id_v2());
     out->set_resource_id(in.resource_id());
     out->set_newest_write_timestamp(in.newest_write_timestamp());

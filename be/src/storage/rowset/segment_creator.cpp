@@ -194,6 +194,7 @@ Status SegmentFlusher::_flush_segment_writer(
     uint64_t common_index_size;
     segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(writer->finalize_columns(&common_index_size));
+    auto variant_desc_summary = writer->variant_desc_summary();
     RETURN_IF_ERROR(writer->finalize_footer(&segment_file_size, &index_file_cache_info));
     finalize_timer.stop();
 
@@ -232,6 +233,7 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.data_size = segment_file_size;
     segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
+    segstat.variant_desc_summary = std::move(variant_desc_summary);
 
     writer.reset();
     _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);

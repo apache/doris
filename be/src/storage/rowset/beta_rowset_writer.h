@@ -267,6 +267,8 @@ protected:
     // TODO rowset Zonemap
 
     std::map<uint32_t, SegmentStatistics> _segid_statistics_map;
+    // Vertical compaction finalizes segments without SegmentStatistics.
+    std::vector<std::string> _vertical_variant_desc_summaries;
     mutable std::mutex _segid_statistics_map_mutex;
 
     bool _is_pending = false;

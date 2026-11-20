@@ -107,6 +107,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/segment/column_reader.h"
+#include "storage/segment/variant/variant_desc_schema.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_manager.h"
@@ -1340,11 +1341,12 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                         continue;
                     }
                     auto tablet = res.value();
-                    auto rowsets = tablet->get_snapshot_rowset();
-                    auto schema =
-                            variant_util::VariantCompactionUtil::calculate_variant_extended_schema(
-                                    rowsets, tablet->tablet_schema());
-                    tablet_schemas.push_back(schema);
+                    TabletSchemaSPtr base_schema;
+                    auto rowsets = tablet->get_snapshot_rowset(false, &base_schema);
+                    if (!rowsets.empty()) {
+                        tablet_schemas.push_back(variant_util::calculate_variant_extended_schema(
+                                rowsets, base_schema));
+                    }
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all

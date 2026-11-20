@@ -374,34 +374,21 @@ static bool has_different_structure_in_same_path(const PathInData::Parts& lhs,
 }
 
 Status check_variant_has_no_ambiguous_paths(const PathsInData& tuple_paths) {
-    // Group paths by their string representation to reduce comparisons
-    std::unordered_map<std::string, std::vector<size_t>> path_groups;
-
+    // The existing check only compares parts with the same text and part count.
+    // Comparing with the first such path catches every structural mismatch.
+    phmap::flat_hash_map<std::pair<std::string_view, size_t>, size_t> representatives;
     for (size_t i = 0; i < tuple_paths.size(); ++i) {
-        // same path should have same structure, so we group them by path
-        path_groups[tuple_paths[i].get_path()].push_back(i);
-        // print part of tuple_paths[i]
-        VLOG_DEBUG << "tuple_paths[i]: " << tuple_paths[i].get_path();
-    }
-
-    // Only compare paths within the same group
-    for (const auto& [path_str, indices] : path_groups) {
-        if (indices.size() <= 1) {
-            continue; // No conflicts possible
-        }
-
-        // Compare all pairs within this group
-        for (size_t i = 0; i < indices.size(); ++i) {
-            for (size_t j = 0; j < i; ++j) {
-                if (has_different_structure_in_same_path(tuple_paths[indices[i]].get_parts(),
-                                                         tuple_paths[indices[j]].get_parts())) {
-                    return Status::DataQualityError(
-                            "Ambiguous paths: {} vs {} with different nested part {} vs {}",
-                            tuple_paths[indices[i]].get_path(), tuple_paths[indices[j]].get_path(),
-                            tuple_paths[indices[i]].has_nested_part(),
-                            tuple_paths[indices[j]].has_nested_part());
-                }
-            }
+        const auto& current = tuple_paths[i];
+        auto [it, inserted] = representatives.try_emplace(
+                std::pair<std::string_view, size_t>(current.get_path(), current.get_parts().size()),
+                i);
+        const auto& first = tuple_paths[it->second];
+        if (!inserted &&
+            has_different_structure_in_same_path(current.get_parts(), first.get_parts())) {
+            return Status::DataQualityError(
+                    "Ambiguous paths: {} vs {} with different nested part {} vs {}",
+                    current.get_path(), first.get_path(), current.has_nested_part(),
+                    first.has_nested_part());
         }
     }
     return Status::OK();
@@ -1503,86 +1490,6 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
         }
     }
     return false;
-}
-
-TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
-        const std::vector<RowsetSharedPtr>& rowsets, const TabletSchemaSPtr& base_schema) {
-    if (rowsets.empty()) {
-        return nullptr;
-    }
-
-    std::vector<TabletSchemaSPtr> schemas;
-    for (const auto& rs : rowsets) {
-        if (rs->num_segments() == 0) {
-            continue;
-        }
-        const auto& tablet_schema = rs->tablet_schema();
-        SegmentCacheHandle segment_cache;
-        auto st = SegmentLoader::instance()->load_segments(std::static_pointer_cast<BetaRowset>(rs),
-                                                           &segment_cache);
-        if (!st.ok()) {
-            return base_schema;
-        }
-        for (const auto& segment : segment_cache.get_segments()) {
-            TabletSchemaSPtr schema = tablet_schema->copy_without_variant_extracted_columns();
-            for (const auto& column : tablet_schema->columns()) {
-                if (!column->is_variant_type()) {
-                    continue;
-                }
-                std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
-                OlapReaderStatistics stats;
-                StorageReadOptions read_options(stats);
-                st = segment->get_variant_root_reader(*column, read_options,
-                                                      &variant_column_reader);
-                if (st.is<ErrorCode::NOT_FOUND>()) {
-                    // Old segments predating an ALTER-added VARIANT have no physical subcolumn
-                    // metadata, so only newer segments contribute to the calculated schema.
-                    continue;
-                }
-                if (!st.ok()) {
-                    LOG(WARNING) << "Failed to get VARIANT root reader for column: "
-                                 << column->name() << " error: " << st.to_string();
-                    // Extended-schema collection is best-effort per segment. Skip this column but
-                    // preserve metadata already collected from the remaining readable segments.
-                    continue;
-                }
-                DORIS_CHECK(variant_column_reader != nullptr);
-                // load external meta before getting subcolumn meta info
-                st = variant_column_reader->load_external_meta_once();
-                if (!st.ok()) {
-                    LOG(WARNING) << "Failed to load external meta for column: " << column->name()
-                                 << " error: " << st.to_string();
-                    continue;
-                }
-                const auto* subcolumn_meta_info = variant_column_reader->get_subcolumns_meta_info();
-                for (const auto& entry : *subcolumn_meta_info) {
-                    if (entry->path.empty()) {
-                        continue;
-                    }
-                    const std::string& column_name =
-                            column->name_lower_case() + "." + entry->path.get_path();
-                    const DataTypePtr& data_type = entry->data.file_column_type;
-                    PathInDataBuilder full_path_builder;
-                    auto full_path = full_path_builder.append(column->name_lower_case(), false)
-                                             .append(entry->path.get_parts(), false)
-                                             .build();
-                    TabletColumn subcolumn =
-                            get_column_by_type(data_type, column_name,
-                                               ExtraInfo {.unique_id = -1,
-                                                          .parent_unique_id = column->unique_id(),
-                                                          .path_info = full_path});
-                    schema->append_column(subcolumn);
-                }
-            }
-            schemas.emplace_back(schema);
-        }
-    }
-    TabletSchemaSPtr least_common_schema;
-    auto st = get_least_common_schema(schemas, base_schema, least_common_schema, false);
-    if (!st.ok()) {
-        return base_schema;
-    }
-    return least_common_schema;
 }
 
 bool inherit_index(const std::vector<const TabletIndex*>& parent_indexes,

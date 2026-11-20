@@ -309,7 +309,28 @@ public:
         return _rowset_meta_pb.num_segments();
     }
 
-    void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
+    void set_num_segments(int64_t num_segments) {
+        if (num_segments != _rowset_meta_pb.num_segments()) {
+            _rowset_meta_pb.clear_variant_desc_summary();
+        }
+        _rowset_meta_pb.set_num_segments(num_segments);
+    }
+
+    bool has_variant_desc_summary() const {
+        const auto& summary = _rowset_meta_pb.variant_desc_summary();
+        return summary.has_columns() && summary.num_segments() == num_segments();
+    }
+
+    const std::string& variant_desc_summary() const {
+        return _rowset_meta_pb.variant_desc_summary().columns();
+    }
+
+    void set_variant_desc_summary(std::string summary) {
+        auto* desc = _rowset_meta_pb.mutable_variant_desc_summary();
+        desc->set_num_segments(num_segments());
+        desc->set_columns(std::move(summary));
+    }
+    void clear_variant_desc_summary() { _rowset_meta_pb.clear_variant_desc_summary(); }
 
     bool has_segment_ids() const { return _rowset_meta_pb.segment_ids_size() > 0; }
 

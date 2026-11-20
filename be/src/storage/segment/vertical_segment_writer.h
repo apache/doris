@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <map>
 #include <memory> // unique_ptr
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -153,6 +154,8 @@ public:
     // its index sections, and the key indexes if it holds the key columns. Ends
     // with clear(), so the next init() can follow.
     Status finalize_columns(uint64_t* index_size);
+    // Take the summary before finalize_footer externalizes the column metadata.
+    std::optional<std::string> variant_desc_summary() const;
     // Ends the segment, once every group is in.
     Status finalize_footer(uint64_t* segment_file_size,
                            SegmentIndexFileCacheInfo* index_file_cache_info = nullptr);

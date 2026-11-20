@@ -344,6 +344,7 @@ void RowsetMeta::_validate_segment_ids() const {
 }
 
 void RowsetMeta::set_segment_ids(const std::vector<int64_t>& segment_ids) {
+    _rowset_meta_pb.clear_variant_desc_summary();
     _rowset_meta_pb.mutable_segment_ids()->Assign(segment_ids.begin(), segment_ids.end());
     set_num_segments(cast_set<int64_t>(segment_ids.size()));
     _validate_segment_ids();
