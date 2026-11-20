@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
@@ -40,6 +41,9 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.scheduler.disruptor.TaskDisruptor;
+import org.apache.doris.scheduler.disruptor.TaskEvent;
+import org.apache.doris.scheduler.disruptor.TaskHandler;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.thrift.TStatusCode;
@@ -350,6 +354,72 @@ public class ConnectorRewriteDriverTest {
             Mockito.verify(taskConstruction.constructed().get(0), Mockito.atLeastOnce()).cancel();
             Mockito.verify(harness.txnManager).rollback(7L);
             Mockito.verify(harness.txnManager, Mockito.never()).commit(7L);
+        }
+    }
+
+    @Test
+    public void firstPublicationFailureRollsBackWithoutLeavingRegisteredTask() throws Exception {
+        assertPublicationFailureRollsBack(0);
+    }
+
+    @Test
+    public void partialPublicationFailureReclaimsRejectedAndDrainedTasks() throws Exception {
+        assertPublicationFailureRollsBack(1);
+    }
+
+    private void assertPublicationFailureRollsBack(int acceptedCount) throws Exception {
+        RewriteDrainHarness harness = newDrainHarness();
+        TransientTaskManager manager = new TransientTaskManager();
+        TaskDisruptor disruptor = Mockito.mock(TaskDisruptor.class);
+        Deencapsulation.setField(manager, "disruptor", disruptor);
+        Mockito.when(harness.env.getTransientTaskManager()).thenReturn(manager);
+        AtomicInteger attempts = new AtomicInteger();
+        JobException publicationFailure = new JobException("queue full");
+        Mockito.doAnswer(invocation -> {
+            if (attempts.getAndIncrement() == acceptedCount) {
+                throw publicationFailure;
+            }
+            return null;
+        }).when(disruptor).tryPublishTask(Mockito.anyLong());
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
+                        ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
+                            Mockito.when(task.getId()).thenReturn((long) constructionContext.getCount());
+                            Mockito.when(task.awaitTerminal(Mockito.anyLong(), Mockito.any())).thenReturn(true);
+                        })) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(harness.env);
+
+            UserException error = Assertions.assertThrows(UserException.class, harness.driver::run);
+            Assertions.assertTrue(error.getMessage().contains("Failed to submit rewrite tasks"));
+            Assertions.assertTrue(error.getMessage().contains("queue full"));
+            Assertions.assertInstanceOf(JobException.class, error.getCause());
+            Assertions.assertSame(publicationFailure, error.getCause().getCause());
+            Assertions.assertEquals(acceptedCount + 1, attempts.get());
+            Assertions.assertEquals(2, taskConstruction.constructed().size());
+            Mockito.verify(harness.txnManager).rollback(7L);
+            Mockito.verify(harness.txnManager, Mockito.never()).commit(7L);
+            Mockito.verify(harness.rewriteTx, Mockito.never()).registerRewriteSourceFiles(Mockito.any());
+
+            for (int i = 0; i < taskConstruction.constructed().size(); i++) {
+                ConnectorRewriteGroupTask task = taskConstruction.constructed().get(i);
+                if (i < acceptedCount) {
+                    InOrder order = Mockito.inOrder(task, harness.txnManager);
+                    order.verify(task).cancel();
+                    order.verify(task).awaitTerminal(Mockito.anyLong(), Mockito.any());
+                    order.verify(harness.txnManager).rollback(7L);
+                    // The accepted event still belongs to the consumer, which reclaims its registration.
+                    Assertions.assertSame(task, manager.getMemoryTaskExecutor(task.getId()));
+                    TaskEvent event = new TaskEvent();
+                    event.setId(task.getId());
+                    new TaskHandler().onTransientTaskHandle(event);
+                    Mockito.verify(task).execute();
+                } else {
+                    Mockito.verify(task, Mockito.never()).cancel();
+                    Mockito.verify(task, Mockito.never()).execute();
+                }
+                Assertions.assertNull(manager.getMemoryTaskExecutor(task.getId()));
+            }
         }
     }
 

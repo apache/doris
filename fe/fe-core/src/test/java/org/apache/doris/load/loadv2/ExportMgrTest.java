@@ -28,11 +28,15 @@ import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.ExportMgr;
+import org.apache.doris.load.ExportTaskExecutor;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.scheduler.disruptor.TaskDisruptor;
+import org.apache.doris.scheduler.exception.JobException;
+import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,9 +44,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExportMgrTest {
     private final ExportMgr exportMgr = new ExportMgr();
@@ -269,6 +275,54 @@ public class ExportMgrTest {
             Assertions.fail("Expected the running job to keep the label reserved");
         } catch (LabelAlreadyUsedException expected) {
             // Expected: the running job still owns the label.
+        }
+    }
+
+    @Test
+    public void testFirstTaskPublicationFailureCancelsExport() throws Exception {
+        assertPublicationFailureCancelsExport(0);
+    }
+
+    @Test
+    public void testPartialTaskPublicationFailureCancelsExport() throws Exception {
+        assertPublicationFailureCancelsExport(1);
+    }
+
+    private void assertPublicationFailureCancelsExport(int acceptedCount) throws Exception {
+        TransientTaskManager manager = new TransientTaskManager();
+        TaskDisruptor disruptor = Mockito.mock(TaskDisruptor.class);
+        Deencapsulation.setField(manager, "disruptor", disruptor);
+        AtomicInteger attempts = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            if (attempts.getAndIncrement() == acceptedCount) {
+                throw new JobException("queue full");
+            }
+            return null;
+        }).when(disruptor).tryPublishTask(Mockito.anyLong());
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getTransientTaskManager()).thenReturn(manager);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            ExportJob job = makeExportJob(100, "publication_failure");
+            List<ExportTaskExecutor> tasks = new ArrayList<>();
+            for (long id = 1; id <= 3; id++) {
+                ExportTaskExecutor task = Mockito.mock(ExportTaskExecutor.class);
+                Mockito.when(task.getId()).thenReturn(id);
+                tasks.add(task);
+            }
+            Deencapsulation.setField(job, "jobExecutorList", new ArrayList<>(tasks));
+
+            exportMgr.addExportJobAndRegisterTask(job);
+
+            Assertions.assertEquals(ExportJobState.CANCELLED, job.getState());
+            Assertions.assertTrue(job.getFailMsg().getMsg().contains("queue full"));
+            Assertions.assertEquals(acceptedCount + 1, attempts.get());
+            Assertions.assertTrue(exportMgr.getJobs().contains(job));
+            for (int i = 0; i < tasks.size(); i++) {
+                Assertions.assertNull(manager.getMemoryTaskExecutor(tasks.get(i).getId()));
+                Mockito.verify(tasks.get(i), Mockito.times(i < acceptedCount ? 1 : 0)).cancel();
+            }
         }
     }
 
