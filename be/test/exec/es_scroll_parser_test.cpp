@@ -22,7 +22,9 @@
 #include <re2/re2.h>
 
 #include <cstring>
+#include <map>
 #include <string>
+#include <tuple>
 
 #include "core/assert_cast.h"
 #include "core/column/column_array.h"
@@ -30,6 +32,7 @@
 #include "format/table/es/es_scroll_query.h"
 #include "runtime/descriptors.h"
 #include "util/jsonb_utils.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 
@@ -60,18 +63,30 @@ public:
 
     static Status read_scalar(TPrimitiveType::type type, const std::string& json,
                               MutableColumnPtr* column, bool array = false,
-                              const cctz::time_zone& time_zone = cctz::utc_time_zone()) {
+                              const cctz::time_zone& time_zone = cctz::utc_time_zone(),
+                              const std::string& date_format = "", bool docvalues = false) {
         auto descriptor = value_slot(type, array);
         descriptor.nullIndicatorBit = 0;
         SlotDescriptor slot(descriptor);
-        ScrollParser parser(false);
-        RETURN_IF_ERROR(
-                parser.parse(R"({"hits":{"hits":[{"_source":{"value":)" + json + "}}]}}", true));
+        ScrollParser parser(docvalues);
+        if (!date_format.empty()) {
+            RETURN_IF_ERROR(parser.set_date_format_context("{\"test\":{\"value\":\"" + date_format +
+                                                           "\"}}"));
+        }
+        const std::string field = docvalues ? "fields" : "_source";
+        const std::string value = docvalues && !array ? "[" + json + "]" : json;
+        RETURN_IF_ERROR(parser.parse(R"({"hits":{"hits":[{"_index":"test",")" + field +
+                                             R"(":{"value":)" + value + "}}]}}",
+                                     true));
         std::vector<SlotDescriptor*> slots {&slot};
         std::vector<MutableColumnPtr> columns;
         columns.push_back(slot.type()->create_column());
         bool eof = false;
-        RETURN_IF_ERROR(parser.fill_columns(slots, columns, &eof, {}, time_zone));
+        std::map<std::string, std::string> docvalue_context;
+        if (docvalues) {
+            docvalue_context.emplace("value", "value");
+        }
+        RETURN_IF_ERROR(parser.fill_columns(slots, columns, &eof, docvalue_context, time_zone));
         *column = std::move(columns[0]);
         return Status::OK();
     }
@@ -80,6 +95,178 @@ public:
         return value_slot(TPrimitiveType::BOOLEAN, array);
     }
 };
+
+TEST_F(EsScrollParserTest, DateStringsHonorMappedFormatOrder) {
+    for (auto type : {TPrimitiveType::DATE, TPrimitiveType::DATETIME, TPrimitiveType::DATEV2,
+                      TPrimitiveType::DATETIMEV2}) {
+        SlotDescriptor slot(value_slot(type));
+        for (const auto& [format, input, expected] :
+             std::vector<std::tuple<std::string, std::string, std::string>> {
+                     {"basic_date", "20240101", "2024-01-01 00:00:00"},
+                     {"yyyyMMdd", "20240101", "2024-01-01 00:00:00"},
+                     {"basic_date||epoch_millis", "20240101", "2024-01-01 00:00:00"},
+                     {"epoch_millis||basic_date", "20240101", "1970-01-01 05:37:20"},
+                     {"epoch_millis", "2024", "1970-01-01 00:00:02"},
+                     {"epoch_millis||strict_date_optional_time", "2024", "1970-01-01 00:00:02"},
+                     {"strict_date_optional_time||epoch_millis", "2024", "2024-01-01 00:00:00"},
+                     {"yyyy-MM-dd||epoch_millis", "20240101", "1970-01-01 05:37:20"},
+                     {"yyyy-MM-dd||epoch_millis", "2024-01-01", "2024-01-01 00:00:00"}}) {
+            SCOPED_TRACE(format + ":" + input);
+            std::vector<std::string> tokens {"\"" + input + "\""};
+            if (input.find_first_not_of("0123456789") == std::string::npos) {
+                tokens.push_back(input);
+            }
+            for (const auto& token : tokens) {
+                MutableColumnPtr column;
+                ASSERT_TRUE(read_scalar(type, token, &column, false, cctz::utc_time_zone(), format)
+                                    .ok());
+                const bool date_only =
+                        type == TPrimitiveType::DATE || type == TPrimitiveType::DATEV2;
+                EXPECT_EQ(date_only ? expected.substr(0, 10) : expected,
+                          slot.type()->to_string(
+                                  assert_cast<const ColumnNullable&>(*column).get_nested_column(),
+                                  0));
+            }
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, DateFormatContextUsesEachHitsBackingIndex) {
+    SlotDescriptor slot(value_slot(TPrimitiveType::DATETIMEV2));
+    ScrollParser parser(false);
+    ASSERT_TRUE(
+            parser.set_date_format_context(
+                          R"({"calendar":{"value":"basic_date"},"epoch":{"value":"epoch_millis"}})")
+                    .ok());
+    ASSERT_TRUE(parser.parse(R"({"hits":{"hits":[
+        {"_index":"calendar","_source":{"value":"20240101"}},
+        {"_index":"epoch","_source":{"value":"20240101"}}
+    ]}})",
+                             true)
+                        .ok());
+    std::vector<SlotDescriptor*> slots {&slot};
+    std::vector<MutableColumnPtr> columns;
+    columns.push_back(slot.type()->create_column());
+    bool eof = false;
+    for (int row = 0; row < 2; ++row) {
+        ASSERT_TRUE(parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone()).ok());
+    }
+    EXPECT_EQ("2024-01-01 00:00:00", slot.type()->to_string(*columns[0], 0));
+    EXPECT_EQ("1970-01-01 05:37:20", slot.type()->to_string(*columns[0], 1));
+}
+
+TEST_F(EsScrollParserTest, NumericDocvaluesRemainEpochWithMappedCalendarFormats) {
+    SlotDescriptor slot(value_slot(TPrimitiveType::DATETIMEV2));
+    ScrollParser parser(true);
+    ASSERT_TRUE(parser.set_date_format_context(R"({"test":{"value":"basic_date"}})").ok());
+    ASSERT_TRUE(
+            parser.parse(R"({"hits":{"hits":[{"_index":"test","fields":{"value":[20240101]}}]}})",
+                         true)
+                    .ok());
+    std::vector<SlotDescriptor*> slots {&slot};
+    std::vector<MutableColumnPtr> columns;
+    columns.push_back(slot.type()->create_column());
+    bool eof = false;
+    ASSERT_TRUE(
+            parser.fill_columns(slots, columns, &eof, {{"value", "value"}}, cctz::utc_time_zone())
+                    .ok());
+    EXPECT_EQ("1970-01-01 05:37:20", slot.type()->to_string(*columns[0], 0));
+}
+
+TEST_F(EsScrollParserTest, LegacyIsoDocvaluesIgnoreSourceDateFormat) {
+    for (auto type : {TPrimitiveType::DATE, TPrimitiveType::DATETIME, TPrimitiveType::DATEV2,
+                      TPrimitiveType::DATETIMEV2}) {
+        SlotDescriptor slot(value_slot(type));
+        for (const auto* format :
+             {"yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss", "epoch_millis||yyyy-MM-dd"}) {
+            for (const auto& [zone, expected] : std::vector<std::pair<std::string, std::string>> {
+                         {"UTC", "2024-01-01 23:00:00"},
+                         {"+08:00", "2024-01-02 07:00:00"},
+                         {"-04:00", "2024-01-01 19:00:00"}}) {
+                SCOPED_TRACE(std::string(format) + ":" + zone);
+                cctz::time_zone time_zone;
+                ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, time_zone));
+                MutableColumnPtr column;
+                auto status = read_scalar(type, R"("2024-01-01T23:00:00.000Z")", &column, false,
+                                          time_zone, format, true);
+                ASSERT_TRUE(status.ok()) << status.to_string();
+                const bool date_only =
+                        type == TPrimitiveType::DATE || type == TPrimitiveType::DATEV2;
+                EXPECT_EQ(date_only ? expected.substr(0, 10) : expected,
+                          slot.type()->to_string(
+                                  assert_cast<const ColumnNullable&>(*column).get_nested_column(),
+                                  0));
+            }
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, LegacyIsoDocvalueArraysIgnoreSourceDateFormat) {
+    for (auto type : {TPrimitiveType::DATEV2, TPrimitiveType::DATETIMEV2}) {
+        SlotDescriptor slot(value_slot(type));
+        for (const auto* format : {"yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss"}) {
+            MutableColumnPtr column;
+            auto status =
+                    read_scalar(type, R"(["2024-01-01T23:00:00.000Z","2024-01-02T00:00:00.000Z"])",
+                                &column, true, cctz::utc_time_zone(), format, true);
+            ASSERT_TRUE(status.ok()) << status.to_string();
+            const auto& array = assert_cast<const ColumnArray&>(
+                    assert_cast<const ColumnNullable&>(*column).get_nested_column());
+            ASSERT_EQ(array.get_offsets()[0], 2);
+            const auto& dates =
+                    assert_cast<const ColumnNullable&>(array.get_data()).get_nested_column();
+            EXPECT_EQ(type == TPrimitiveType::DATEV2 ? "2024-01-01" : "2024-01-01 23:00:00",
+                      slot.type()->to_string(dates, 0));
+            EXPECT_EQ(type == TPrimitiveType::DATEV2 ? "2024-01-02" : "2024-01-02 00:00:00",
+                      slot.type()->to_string(dates, 1));
+        }
+    }
+}
+
+TEST_F(EsScrollParserTest, NonIsoDocvaluesRetainMappedAndNumericSemantics) {
+    for (const auto& [format, input, expected] :
+         std::vector<std::tuple<std::string, std::string, std::string>> {
+                 {"basic_date", R"("20240101")", "2024-01-01 00:00:00"},
+                 {"epoch_millis||strict_date_optional_time", R"("2024")", "1970-01-01 00:00:02"},
+                 {"strict_date_optional_time||epoch_millis", R"("2024")", "2024-01-01 00:00:00"},
+                 {"yyyy-MM-dd", "2024", "1970-01-01 00:00:02"}}) {
+        SCOPED_TRACE(format + ":" + input);
+        MutableColumnPtr column;
+        auto status = read_scalar(TPrimitiveType::DATETIMEV2, input, &column, false,
+                                  cctz::utc_time_zone(), format, true);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        SlotDescriptor slot(value_slot(TPrimitiveType::DATETIMEV2));
+        EXPECT_EQ(expected,
+                  slot.type()->to_string(
+                          assert_cast<const ColumnNullable&>(*column).get_nested_column(), 0));
+    }
+}
+
+TEST_F(EsScrollParserTest, SourceIsoDatesStillHonorExplicitMapping) {
+    for (const auto* format : {"yyyy-MM-dd", "yyyy-MM-dd HH:mm:ss", "epoch_millis"}) {
+        MutableColumnPtr column;
+        EXPECT_FALSE(read_scalar(TPrimitiveType::DATETIMEV2, R"("2024-01-01T23:00:00.000Z")",
+                                 &column, false, cctz::utc_time_zone(), format)
+                             .ok());
+    }
+}
+
+TEST_F(EsScrollParserTest, LegacyIsoDocvaluesRejectInvalidTimestamps) {
+    for (const auto* input : {R"("2024-30-01T23:00:00.000Z")", R"("2024-01-01T23:00:00.000Zjunk")",
+                              R"("10000-01-01T00:00:00.000Z")"}) {
+        MutableColumnPtr column;
+        EXPECT_FALSE(read_scalar(TPrimitiveType::DATETIMEV2, input, &column, false,
+                                 cctz::utc_time_zone(), "yyyy-MM-dd", true)
+                             .ok());
+    }
+}
+
+TEST_F(EsScrollParserTest, RejectsMalformedDateFormatContexts) {
+    for (const auto* context : {"[", "[]", R"({"test":42})", R"({"test":{"value":42}})"}) {
+        ScrollParser parser(false);
+        EXPECT_FALSE(parser.set_date_format_context(context).ok());
+    }
+}
 
 TEST_F(EsScrollParserTest, DateSourceEpochMillisStrings) {
     for (auto type : {TPrimitiveType::DATE, TPrimitiveType::DATETIME, TPrimitiveType::DATEV2,
@@ -464,6 +651,8 @@ TEST_F(EsScrollParserTest, BooleanSourceRepresentations) {
                                                     {R"("false")", false},
                                                     {R"("true")", true},
                                                     {"false", false},
+                                                    {"0", false},
+                                                    {"1", true},
                                                     {"true", true}}) {
         ScrollParser parser(false);
         auto status =
@@ -508,6 +697,20 @@ TEST_F(EsScrollParserTest, InvalidBooleanSourceIsRejected) {
     columns.push_back(slot.type()->create_column());
     bool eof = false;
     EXPECT_FALSE(parser.fill_columns(slots, columns, &eof, {}, cctz::utc_time_zone()).ok());
+}
+
+TEST_F(EsScrollParserTest, UnsupportedBooleanSourceTypesAreRejected) {
+    for (bool array : {false, true}) {
+        for (const std::string value :
+             {"1.25", "2147483648", "9223372036854775808", "{}", R"({"x":1})"}) {
+            SCOPED_TRACE(value);
+            SCOPED_TRACE(array);
+            MutableColumnPtr column;
+            EXPECT_FALSE(read_scalar(TPrimitiveType::BOOLEAN, array ? "[" + value + "]" : value,
+                                     &column, array)
+                                 .ok());
+        }
+    }
 }
 
 // Test timezone pattern matching for ES datetime parsing fix

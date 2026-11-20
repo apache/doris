@@ -1035,19 +1035,61 @@ class EsScanPlanProviderTest {
     }
 
     @Test
-    void sourceModeStillPushesNumericAndHitMetadataPredicates() {
+    void sourceModeKeepsNumericPredicatesLocalAndPushesHitMetadata() {
         String mapping = mappingWithField("{\"type\":\"keyword\",\"ignore_above\":4}")
                 .replace("\"b\":{\"type\":\"keyword\"}", "\"b\":{\"type\":\"long\"}");
         ConnectorExpression number = new ConnectorComparison(ConnectorComparison.Operator.EQ,
                 new ConnectorColumnRef("b", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(1));
         ScanNodePropertiesResult numeric = propertiesForMapping(mapping, number);
         Assertions.assertEquals("0", numeric.getProperties().get("doc_values_mode"));
-        Assertions.assertTrue(numeric.getNotPushedConjunctIndices().isEmpty());
-        Assertions.assertTrue(numeric.getProperties().get("query_dsl").contains("\"b\":1"));
+        Assertions.assertEquals(Collections.singleton(0), numeric.getNotPushedConjunctIndices());
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), numeric.getProperties().get("query_dsl"));
         ScanNodePropertiesResult id = propertiesForMapping(mapping, sourceEquals("_id", "doc-1"));
         Assertions.assertEquals("0", id.getProperties().get("doc_values_mode"));
         Assertions.assertTrue(id.getNotPushedConjunctIndices().isEmpty());
         Assertions.assertEquals("{\"term\":{\"_id\":\"doc-1\"}}", id.getProperties().get("query_dsl"));
+    }
+
+    @Test
+    void sourceJsonbNullPredicatesRemainLocal() {
+        String mapping = mappingWithField("{\"type\":\"keyword\",\"normalizer\":\"lowercase\"}")
+                .replace("\"b\":{\"type\":\"keyword\"}", "\"b\":{\"type\":\"flattened\"}");
+        for (boolean negated : new boolean[]{false, true}) {
+            ConnectorExpression predicate = new ConnectorIsNull(
+                    new ConnectorColumnRef("b", ConnectorType.of("JSONB")), negated);
+            ScanNodePropertiesResult result = propertiesForMapping(mapping, predicate);
+            Assertions.assertEquals(Collections.singleton(0), result.getNotPushedConjunctIndices());
+            Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getProperties().get("query_dsl"));
+        }
+    }
+
+    @Test
+    void schemaInferenceUsesTheRequestedTypeAcrossAliasBackings() {
+        CountingRestClient client = new CountingRestClient() {
+            @Override
+            public String getMapping(String indexName) {
+                return "{\"a\":{\"mappings\":{\"empty\":{},\"wanted\":{\"properties\":"
+                        + "{\"x\":{\"type\":\"long\"}}}}},\"b\":{\"mappings\":{\"other\":{\"properties\":"
+                        + "{\"y\":{\"type\":\"long\"}}}}}}";
+            }
+        };
+        Map<String, String> properties = minimalPropertyMap();
+        properties.put(EsCatalogProperties.MAPPING_TYPE, "wanted");
+        EsConnectorMetadata metadata = new EsConnectorMetadata(client, EsCatalogProperties.of(properties));
+        Assertions.assertEquals("x", metadata.getTableSchema(EMPTY_SESSION,
+                new EsTableHandle("alias")).getColumns().get(0).getName());
+    }
+
+    @Test
+    void dateFormatsReachTheReaderWithTheirBackingIndex() {
+        String mapping = mappingWithField("{\"type\":\"date\",\"format\":\"epoch_millis\"}");
+        ScanNodePropertiesResult result = propertiesForMapping(mapping, sourceEquals("b", "cat"));
+        Assertions.assertEquals("{\"test\":{\"a\":\"epoch_millis\"}}",
+                result.getProperties().get("date_format_context"));
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        new EsScanPlanProvider(null, minimalProps()).populateScanLevelParams(params, result.getProperties());
+        Assertions.assertEquals(result.getProperties().get("date_format_context"),
+                params.getEsProperties().get("date_format_context"));
     }
 
     @Test
@@ -1204,7 +1246,13 @@ class EsScanPlanProviderTest {
 
         String overridden = mapping.replace("\"b\":{\"type\":\"long\"}",
                 "\"b\":{\"type\":\"long\",\"ignore_malformed\":false}");
-        Assertions.assertTrue(propertiesForMapping(overridden, predicate).getNotPushedConjunctIndices().isEmpty());
+        // The override restores docvalues; numeric source predicates still use the conservative guard.
+        Assertions.assertEquals(Collections.singleton(0),
+                propertiesForMapping(overridden, predicate).getNotPushedConjunctIndices());
+        ScanNodePropertiesResult docvalue = propertiesForMapping(overridden, predicate,
+                Collections.singletonList(new NamedColumnHandle("b")), minimalProps());
+        Assertions.assertEquals("1", docvalue.getProperties().get("doc_values_mode"));
+        Assertions.assertTrue(docvalue.getNotPushedConjunctIndices().isEmpty());
         String safe = mapping.replace("\"ignore_malformed\":\"true\"", "\"ignore_malformed\":\"false\"");
         String alias = safe.substring(0, safe.length() - 1) + ",\"second\":"
                 + mapping.substring("{\"test\":".length(), mapping.length() - 1) + "}";

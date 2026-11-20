@@ -26,9 +26,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -54,6 +56,9 @@ public final class EsMappingUtils {
             "byte", "short", "integer", "long", "unsigned_long", "float", "double", "half_float", "scaled_float",
             "boolean", "date", "date_nanos", "ip", "geo_point", "geo_shape"));
 
+    private static final Set<String> SOURCE_NUMERIC_TYPES = new HashSet<>(Arrays.asList(
+            "byte", "short", "integer", "long", "unsigned_long", "float", "double", "half_float", "scaled_float"));
+
     private EsMappingUtils() {
     }
 
@@ -61,16 +66,31 @@ public final class EsMappingUtils {
      * Parse the top-level "mappings" node from an index mapping JSON response.
      */
     public static ObjectNode getMapping(String indexMapping) {
+        return getMapping(indexMapping, null);
+    }
+
+    public static ObjectNode getMapping(String indexMapping, String mappingType) {
         try {
             ObjectNode jsonNodes = (ObjectNode) MAPPER.readTree(indexMapping);
+            ObjectNode fallback = null;
             // Alias mapping response order is unspecified. A bare/typed empty backing can appear
             // first; select a populated schema without discarding its _meta array annotations.
             for (JsonNode index : jsonNodes) {
                 ObjectNode mapping = (ObjectNode) index.get("mappings");
-                ObjectNode root = getRootSchema(mapping.deepCopy(), null, new ArrayList<>(), true);
+                ObjectNode root = getRootSchema(mapping.deepCopy(), mappingType, new ArrayList<>(), true);
                 if (root.path("properties").size() > 0) {
-                    return mapping;
+                    // An ES5 alias can expose several types. Prefer the requested type even when
+                    // another backing's unrelated type appears first in the mapping response.
+                    if (mappingType == null || mapping.has(mappingType)) {
+                        return mapping;
+                    }
+                    if (fallback == null) {
+                        fallback = mapping;
+                    }
                 }
+            }
+            if (fallback != null) {
+                return fallback;
             }
             // Preserve the existing diagnostic when no backing index provides a usable schema.
             return (ObjectNode) jsonNodes.iterator().next().get("mappings");
@@ -137,7 +157,7 @@ public final class EsMappingUtils {
      */
     public static ObjectNode getMappingProps(String sourceIndex, String indexMapping,
             String mappingType) {
-        ObjectNode mappings = getMapping(indexMapping);
+        ObjectNode mappings = getMapping(indexMapping, mappingType);
         ObjectNode rootSchema = getRootSchema(mappings, mappingType, new ArrayList<>());
         ObjectNode properties = (ObjectNode) rootSchema.get("properties");
         if (properties == null) {
@@ -216,11 +236,31 @@ public final class EsMappingUtils {
                 resolveKeywordFields(context, field, column, field.path("type").asText());
             }
             Set<String> unsafeDocValues = new HashSet<>();
-            for (JsonNode index : indices) {
+            Iterator<Map.Entry<String, JsonNode>> backings = indices.fields();
+            while (backings.hasNext()) {
+                Map.Entry<String, JsonNode> backing = backings.next();
+                JsonNode index = backing.getValue();
                 ObjectNode root = getRootSchema((ObjectNode) index.get("mappings"), mappingType,
                         new ArrayList<>(), true);
                 JsonNode mappingDefaults = index.path("settings").path("index").path("mapping");
                 JsonNode properties = root.path("properties");
+                Map<String, String> dateFormats = new HashMap<>();
+                for (String column : columns) {
+                    JsonNode field = properties.path(column);
+                    if ("alias".equals(field.path("type").asText())) {
+                        field = properties.path(field.path("path").asText());
+                    }
+                    if ("date".equals(field.path("type").asText())
+                            || "date_nanos".equals(field.path("type").asText())) {
+                        // Preserve the mapping's order: basic_date and epoch_millis interpret the
+                        // same numeric text differently. Each alias backing keeps its own formats.
+                        dateFormats.put(column, field.path("format")
+                                .asText("strict_date_optional_time||epoch_millis"));
+                    }
+                }
+                if (!dateFormats.isEmpty()) {
+                    context.getDateFormatContext().put(backing.getKey(), dateFormats);
+                }
                 if (isSourceDisabled(root.path("_source"))) {
                     // A source projection fails on disabled backings; full source preserves the
                     // enabled backings of a mixed alias while disabled hits remain NULL.
@@ -282,9 +322,12 @@ public final class EsMappingUtils {
 
     private static boolean requiresSourcePredicateEvaluation(JsonNode field) {
         String type = field.path("type").asText();
-        // A default date may be a date-only source string read as local midnight, unlike its UTC index value.
-        return "scaled_float".equals(type) || "half_float".equals(type) || "alias".equals(type)
-                || field.hasNonNull("script") || ("date".equals(type) && !field.has("format"));
+        // Source numeric tokens can round differently from ES indexing (e.g. 0.9999999999999999
+        // becomes integer 1 after JSON decoding). Keep their predicates local only in source mode.
+        // Source dates use the session time zone, including epoch_millis in explicit formats,
+        // so their local value can differ from the UTC value used by an ES predicate.
+        return SOURCE_NUMERIC_TYPES.contains(type) || "alias".equals(type)
+                || field.hasNonNull("script") || "date".equals(type);
     }
 
     private static boolean isSearchable(JsonNode field) {

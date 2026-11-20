@@ -94,7 +94,7 @@ public class EsConnectorMetadata implements ConnectorMetadata {
             String mapping = EsStatementScope.sharedIndexMapping(
                     session, idx, () -> restClient.getMapping(idx));
             List<ConnectorColumn> columns = EsTypeMapping.parseMapping(
-                    idx, mapping, props.isMappingEsId());
+                    idx, mapping, props.isMappingEsId(), props.getMappingType());
             return new ConnectorTableSchema(idx, columns, "ELASTICSEARCH",
                     Collections.emptyMap());
         });

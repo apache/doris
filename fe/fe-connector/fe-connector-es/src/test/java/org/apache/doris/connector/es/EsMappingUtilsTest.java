@@ -30,6 +30,28 @@ import java.util.Map;
 
 public class EsMappingUtilsTest {
 
+    @Test
+    void aliasBackingSelectionHonorsTheRequestedLegacyType() {
+        String mapping = "{\"a\":{\"mappings\":{\"empty\":{},\"wanted\":{\"properties\":"
+                + "{\"x\":{\"type\":\"long\"}}}}},\"b\":{\"mappings\":{\"other\":{\"properties\":"
+                + "{\"y\":{\"type\":\"long\"}}}}}}";
+        Assertions.assertEquals("long", EsMappingUtils.getMappingProps("alias", mapping, "wanted")
+                .path("x").path("type").asText());
+        Assertions.assertEquals("long", EsMappingUtils.resolveFieldContext(
+                Collections.singletonList("x"), "alias", mapping, "wanted").getColumn2typeMap().get("x"));
+    }
+
+    @Test
+    void sourceNumericPredicatesStayLocalWithoutDisablingDocvalues() {
+        for (String type : Arrays.asList("byte", "short", "integer", "long", "unsigned_long", "float", "double")) {
+            String mapping = "{\"test\":{\"mappings\":{\"properties\":{\"n\":{\"type\":\"" + type + "\"}}}}}";
+            EsFieldContext fields = EsMappingUtils.resolveFieldContext(
+                    Collections.singletonList("n"), "test", mapping, null);
+            Assertions.assertTrue(fields.getSourceModeUnsafeFields().contains("n"), type);
+            Assertions.assertEquals("n", fields.getDocValueFieldsContext().get("n"), type);
+        }
+    }
+
     // ES 6.x style mapping with explicit mapping type "doc"
     private static final String MAPPING_ES6 = "{"
             + "\"test\": {"
@@ -202,6 +224,19 @@ public class EsMappingUtilsTest {
         ObjectNode root = EsMappingUtils.getRootSchema(mapping, null, new ArrayList<>());
         Assertions.assertTrue(root.has("runtime"));
         Assertions.assertEquals("long", root.path("runtime").path("properties").path("type").asText());
+    }
+
+    @Test
+    void explicitDateFormatsRequireSourcePredicateEvaluation() {
+        for (String format : Arrays.asList("yyyy-MM-dd||epoch_millis",
+                "yyyy-MM-dd HH:mm:ss||epoch_millis")) {
+            String mapping = "{\"test\":{\"mappings\":{\"properties\":{"
+                    + "\"d\":{\"type\":\"date\",\"format\":\"" + format + "\"}}}}}";
+            EsFieldContext context = EsMappingUtils.resolveFieldContext(
+                    Collections.singletonList("d"), "test", mapping, null);
+            Assertions.assertTrue(context.getSourceModeUnsafeFields().contains("d"), format);
+            Assertions.assertTrue(context.getDocValueFieldsContext().containsKey("d"), format);
+        }
     }
 
     @Test
