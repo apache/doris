@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * The neutral definition of a connector view: its stored SQL text, the SQL dialect that text is
@@ -35,13 +36,23 @@ public final class ConnectorViewDefinition {
     private final String sql;
     private final String dialect;
     private final List<ConnectorColumn> columns;
+    private final Optional<String> defaultCatalog;
+    private final Optional<List<String>> defaultNamespace;
 
     public ConnectorViewDefinition(String sql, String dialect, List<ConnectorColumn> columns) {
+        this(sql, dialect, columns, null, null);
+    }
+
+    public ConnectorViewDefinition(String sql, String dialect, List<ConnectorColumn> columns,
+            String defaultCatalog, List<String> defaultNamespace) {
         this.sql = Objects.requireNonNull(sql, "sql");
         this.dialect = Objects.requireNonNull(dialect, "dialect");
         this.columns = columns == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(new ArrayList<>(columns));
+        this.defaultCatalog = Optional.ofNullable(defaultCatalog);
+        this.defaultNamespace = defaultNamespace == null ? Optional.empty()
+                : Optional.of(Collections.unmodifiableList(new ArrayList<>(defaultNamespace)));
     }
 
     /** The stored view SQL text. */
@@ -59,6 +70,16 @@ public final class ConnectorViewDefinition {
         return columns;
     }
 
+    /** The saved catalog, or the owning catalog when absent. */
+    public Optional<String> getDefaultCatalog() {
+        return defaultCatalog;
+    }
+
+    /** The saved namespace; an absent value uses the view's database, while an empty list has no default database. */
+    public Optional<List<String>> getDefaultNamespace() {
+        return defaultNamespace;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -70,12 +91,14 @@ public final class ConnectorViewDefinition {
         ConnectorViewDefinition that = (ConnectorViewDefinition) o;
         return sql.equals(that.sql)
                 && dialect.equals(that.dialect)
-                && columns.equals(that.columns);
+                && columns.equals(that.columns)
+                && defaultCatalog.equals(that.defaultCatalog)
+                && defaultNamespace.equals(that.defaultNamespace);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(sql, dialect, columns);
+        return Objects.hash(sql, dialect, columns, defaultCatalog, defaultNamespace);
     }
 
     @Override
