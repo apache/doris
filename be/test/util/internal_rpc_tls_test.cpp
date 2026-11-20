@@ -44,12 +44,15 @@
 
 #include "common/config.h"
 #include "exec/sink/load_stream_stub.h"
+#include "exec/sink/writer/maxcompute/vmc_table_writer.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "gen_cpp/function_service.pb.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "testutil/scoped_temp_dir.h"
 #include "util/brpc_client_cache.h"
 #include "util/client_cache.h"
@@ -266,6 +269,32 @@ public:
         done->Run();
     }
 };
+
+TEST_F(InternalRpcTlsTest, JavaWriterCallbacksUseLocalPolicyInsteadOfSinkProperties) {
+    auto* env = ExecEnv::GetInstance();
+    ClusterInfo cluster;
+    auto* previous = env->cluster_info();
+    env->set_cluster_info(&cluster);
+    Defer restore {[&] { env->set_cluster_info(previous); }};
+    RuntimeState state;
+    state.set_exec_env(env);
+    TMaxComputeTableSink sink;
+    sink.__set_properties({{"fe_rpc_tls_enabled", "false"},
+                           {"fe_rpc_tls_certificate_path", "untrusted-property"}});
+    TDataSink descriptor;
+    descriptor.__set_max_compute_table_sink(sink);
+    VMCTableWriter writer(descriptor, {}, nullptr, nullptr);
+    writer._state = &state;
+    auto options = writer._build_base_writer_params();
+    ASSERT_EQ(options.at("fe_rpc_tls_enabled"), "true");
+    EXPECT_EQ(options.at("fe_rpc_tls_certificate_path"), config::tls_certificate_path);
+    EXPECT_EQ(options.at("fe_rpc_tls_private_key_path"), config::tls_private_key_path);
+    EXPECT_EQ(options.at("fe_rpc_tls_ca_certificate_path"), config::tls_ca_certificate_path);
+    EXPECT_EQ(options.at("fe_rpc_connect_timeout_ms"),
+              std::to_string(static_cast<int64_t>(config::thrift_connect_timeout_seconds) * 1000));
+    config::tls_excluded_protocols += ",thrift";
+    EXPECT_EQ(writer._build_base_writer_params().at("fe_rpc_tls_enabled"), "false");
+}
 
 TEST_F(InternalRpcTlsTest, LazySplitClientAuthenticatesBothPeers) {
     EXPECT_TRUE(exchange("fe"));

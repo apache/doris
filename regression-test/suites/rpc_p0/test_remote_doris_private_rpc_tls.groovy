@@ -24,6 +24,11 @@ import java.sql.SQLException
 import java.util.concurrent.TimeUnit
 
 suite("test_remote_doris_private_rpc_tls", "p0,nonConcurrent") {
+    // PID ownership uses Linux procfs; unsupported hosts must return before even the helper tests.
+    if (!System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux")) {
+        logger.info("Private RPC TLS fixture requires Linux; skipping on this host")
+        return
+    }
     def logRoot = new File(System.getProperty("DORIS_HOME"), "regression-test/log").toPath()
     Files.createDirectories(logRoot)
     def logs = Files.createTempDirectory(logRoot, "private-rpc-tls-").toFile()

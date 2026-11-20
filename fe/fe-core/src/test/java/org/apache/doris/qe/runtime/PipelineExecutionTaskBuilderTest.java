@@ -30,9 +30,11 @@ import org.apache.doris.qe.JobProcessor;
 import org.apache.doris.rpc.BackendServiceClient;
 import org.apache.doris.rpc.BackendServiceClientChannelProvider;
 import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.rpc.BackendServiceProxy.BackendRpcTarget;
 import org.apache.doris.rpc.OssBackendServiceClientChannelProvider;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDetailedReportParams;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TPipelineInstanceParams;
@@ -56,6 +58,53 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 class PipelineExecutionTaskBuilderTest {
+    private static CoordinatorContext contextWithTargets() {
+        CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+        Deencapsulation.setField(context, "rpcTargets", new java.util.concurrent.ConcurrentHashMap<>());
+        Mockito.when(context.getBackendRpcTarget(Mockito.any())).thenCallRealMethod();
+        return context;
+    }
+
+    @Test
+    void oneWorkerBindingServesEveryExecutionAndFetchPhase() throws Exception {
+        CoordinatorContext context = contextWithTargets();
+        Deencapsulation.setField(context, "queryId", new TUniqueId(1, 2));
+        Backend backend = new Backend(1, "127.0.0.1", 9050);
+        backend.setBrpcPort(8060);
+        BackendWorker worker = new BackendWorker(InternalCatalog.INTERNAL_CATALOG_ID, backend);
+        BackendServiceProxy selected = Mockito.mock(BackendServiceProxy.class);
+        SettableFuture<InternalService.PCancelPlanFragmentResult> pending = SettableFuture.create();
+        Mockito.when(selected.cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(pending);
+        try (MockedStatic<BackendServiceProxy> factory =
+                Mockito.mockStatic(BackendServiceProxy.class, Mockito.CALLS_REAL_METHODS)) {
+            factory.when(BackendServiceProxy::getInstance).thenReturn(selected);
+            BackendRpcTarget target = context.getBackendRpcTarget(worker);
+            Assertions.assertSame(target, context.getBackendRpcTarget(
+                    new BackendWorker(InternalCatalog.INTERNAL_CATALOG_ID, backend)));
+            MultiFragmentsPipelineTask task = new MultiFragmentsPipelineTask(context, backend, target,
+                    ByteString.EMPTY, Collections.emptyMap());
+            org.apache.doris.qe.ResultReceiver receiver = new org.apache.doris.qe.ResultReceiver(
+                    context.queryId, new TUniqueId(3, 4), backend.getId(),
+                    context.getBackendRpcTarget(worker), Long.MAX_VALUE, 1 << 20, false);
+            task.sendPhaseOneRpc(false);
+            task.sendPhaseTwoRpc();
+            Status reason = new Status(TStatusCode.CANCELLED, "fixture cancellation");
+            task.cancelExecute(reason);
+            receiver.createFuture(null);
+            receiver.createFuture(null);
+            task.removeProxy();
+            TNetworkAddress address = backend.getBrpcAddress();
+            Mockito.verify(selected).execPlanFragmentsAsync(address, ByteString.EMPTY, false);
+            Mockito.verify(selected).execPlanFragmentStartAsync(Mockito.eq(address), Mockito.any());
+            Mockito.verify(selected).cancelPipelineXPlanFragmentAsync(address, context.queryId, reason);
+            Mockito.verify(selected, Mockito.times(2)).fetchDataAsyncWithCallback(
+                    Mockito.eq(address), Mockito.any(), Mockito.isNull());
+            Mockito.verify(selected).removeProxy(address);
+            factory.verify(BackendServiceProxy::getInstance, Mockito.times(1));
+        }
+    }
+
     @Test
     void mixedPrivateAndRemoteWorkersFailBeforeCreatingAnyTask() {
         boolean previousTls = Config.enable_tls;
@@ -63,7 +112,7 @@ class PipelineExecutionTaskBuilderTest {
         try {
             Config.enable_tls = true;
             Config.tls_excluded_protocols = "http,mysql,arrowflight,bdbje";
-            CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+            CoordinatorContext context = contextWithTargets();
             Deencapsulation.setField(context, "timeoutDeadline", (java.util.function.Supplier<Long>) () -> Long.MAX_VALUE);
             Mockito.when(context.getJobProcessor()).thenReturn(Mockito.mock(JobProcessor.class));
             Backend backend = new Backend(1, "127.0.0.1", 9050);
@@ -73,6 +122,8 @@ class PipelineExecutionTaskBuilderTest {
             params.put(new BackendWorker(9, backend),
                     new TPipelineFragmentParamsList().setParamsList(Collections.emptyList()));
             try (MockedStatic<BackendServiceProxy> factory = Mockito.mockStatic(BackendServiceProxy.class)) {
+                factory.when(() -> BackendServiceProxy.bindTarget(Mockito.any(TNetworkAddress.class), Mockito.anyLong()))
+                        .thenCallRealMethod();
                 factory.when(BackendServiceProxy::getInstance).thenReturn(Mockito.mock(BackendServiceProxy.class));
                 factory.when(() -> BackendServiceProxy.getInstance(false))
                         .thenReturn(Mockito.mock(BackendServiceProxy.class));
@@ -126,7 +177,7 @@ class PipelineExecutionTaskBuilderTest {
                     new BackendWorker(9, new Backend(1, "127.0.0.1", 9050)),
                     new TPipelineFragmentParamsList().setParamsList(Collections.emptyList()));
             IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
-                    () -> PipelineExecutionTaskBuilder.build(Mockito.mock(CoordinatorContext.class), remote));
+                    () -> PipelineExecutionTaskBuilder.build(contextWithTargets(), remote));
             Assertions.assertTrue(failure.getMessage().contains("use_arrow_flight=true"));
             factory.verifyNoInteractions();
         }
@@ -136,10 +187,12 @@ class PipelineExecutionTaskBuilderTest {
     void localWorkersAndProviderSupportedRemoteGraphsRemainUsable() {
         try (MockedStatic<BackendServiceClient> policy = Mockito.mockStatic(BackendServiceClient.class);
                 MockedStatic<BackendServiceProxy> factory = Mockito.mockStatic(BackendServiceProxy.class)) {
+            factory.when(() -> BackendServiceProxy.bindTarget(Mockito.any(TNetworkAddress.class), Mockito.anyLong()))
+                    .thenCallRealMethod();
             factory.when(BackendServiceProxy::getInstance).thenReturn(Mockito.mock(BackendServiceProxy.class));
             factory.when(() -> BackendServiceProxy.getInstance(false))
                     .thenReturn(Mockito.mock(BackendServiceProxy.class));
-            CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+            CoordinatorContext context = contextWithTargets();
             Deencapsulation.setField(context, "timeoutDeadline", (java.util.function.Supplier<Long>) () -> Long.MAX_VALUE);
             Mockito.when(context.getJobProcessor()).thenReturn(Mockito.mock(JobProcessor.class));
             Backend backend = new Backend(1, "127.0.0.1", 9050);
@@ -157,7 +210,7 @@ class PipelineExecutionTaskBuilderTest {
 
     @Test
     void cancellationAndFailedChannelRemovalUseTheTaskProxy() throws Exception {
-        CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+        CoordinatorContext context = contextWithTargets();
         Deencapsulation.setField(context, "queryId", new TUniqueId(1, 2));
         Backend backend = new Backend(1, "127.0.0.1", 9050);
         BackendServiceProxy selected = Mockito.mock(BackendServiceProxy.class);
@@ -178,19 +231,21 @@ class PipelineExecutionTaskBuilderTest {
 
     @Test
     void localAndRemoteWorkersWithMatchingIdsAndAddressesUseSeparateProxies() {
-        CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+        CoordinatorContext context = contextWithTargets();
         Backend backend = new Backend(1, "127.0.0.1", 9050);
         BackendWorker local = new BackendWorker(InternalCatalog.INTERNAL_CATALOG_ID, backend);
         BackendWorker remote = new BackendWorker(9, backend);
         Map<DistributedPlanWorker, TPipelineFragmentParamsList> params = new LinkedHashMap<>();
         params.put(local, new TPipelineFragmentParamsList().setParamsList(Collections.emptyList()));
         params.put(remote, new TPipelineFragmentParamsList().setParamsList(Collections.emptyList()));
-        BackendServiceProxy privateProxy = new BackendServiceProxy();
         Map<BackendWorker, MultiFragmentsPipelineTask> tasks = Deencapsulation.invoke(
-                new PipelineExecutionTaskBuilder(context), "buildMultiFragmentTasks", context, privateProxy, params);
-        BackendServiceProxy localProxy = Deencapsulation.getField(tasks.get(local), "backendClientProxy");
-        BackendServiceProxy remoteProxy = Deencapsulation.getField(tasks.get(remote), "backendClientProxy");
-        Assertions.assertSame(privateProxy, localProxy);
+                new PipelineExecutionTaskBuilder(context), "buildMultiFragmentTasks", context, params);
+        BackendRpcTarget localTarget = Deencapsulation.getField(tasks.get(local), "target");
+        BackendRpcTarget remoteTarget = Deencapsulation.getField(tasks.get(remote), "target");
+        Assertions.assertSame(context.getBackendRpcTarget(local), localTarget);
+        Assertions.assertSame(context.getBackendRpcTarget(remote), remoteTarget);
+        BackendServiceProxy localProxy = Deencapsulation.getField(localTarget, "proxy");
+        BackendServiceProxy remoteProxy = Deencapsulation.getField(remoteTarget, "proxy");
         Assertions.assertNotSame(localProxy, remoteProxy);
         Assertions.assertTrue((Boolean) Deencapsulation.getField(localProxy, "internalRpc"));
         Assertions.assertFalse((Boolean) Deencapsulation.getField(remoteProxy, "internalRpc"));

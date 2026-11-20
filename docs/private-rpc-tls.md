@@ -24,6 +24,11 @@ Thrift RPC between nodes. Both ends require a certificate issued by the configur
 CA. Configuring TLS never falls back to plaintext after an authentication or
 connection failure. `enable_tls=false` preserves the existing plaintext behavior.
 
+MaxCompute writers also call the local FE from the BE's embedded JVM to allocate
+block IDs, including after block rotation and FE master redirection. These
+callbacks use the BE's internal Thrift TLS policy and node identity. MaxCompute
+catalog properties cannot override that local policy.
+
 External RPC functions retain plaintext for both FE validation and BE execution.
 Broker heartbeats and filesystem clients on FE and BE also retain their existing
 plaintext policy. Remote Doris catalogs also retain their existing plaintext
@@ -52,6 +57,8 @@ The default P0/nonConcurrent `rpc_p0/test_remote_doris_private_rpc_tls` regressi
 provisions two independent loopback clusters: private TLS enabled locally and
 plaintext RPC remotely. It uses Linux FE/BE packages and the pipeline's MySQL CLI
 on the regression host.
+Unsupported operating systems skip this Linux fixture before starting helper
+tests or engines; the standard Linux NonConcurrent run keeps it enabled by default.
 `privateRpcTlsPackageHome` defaults to `DORIS_HOME`; both a source checkout's
 `output/` and an installed package with `fe/` and `be/` are supported. Certificates
 and unused ports are generated automatically, without a test-specific enable flag

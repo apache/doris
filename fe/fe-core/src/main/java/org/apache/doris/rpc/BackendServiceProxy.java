@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.scan.FileScanEncryptionGuard;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.proto.InternalService;
@@ -51,6 +52,7 @@ import org.apache.thrift.protocol.TCompactProtocol;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -104,6 +106,46 @@ public class BackendServiceProxy {
 
     public static BackendServiceProxy getInstance(boolean internalRpc) {
         return internalRpc ? getInstance() : Holder.get(false);
+    }
+
+    public static BackendRpcTarget bindTarget(TNetworkAddress address, long catalogId) {
+        return new BackendRpcTarget(address, catalogId == InternalCatalog.INTERNAL_CATALOG_ID
+                ? getInstance() : getInstance(false));
+    }
+
+    /** A query's worker identity and cache shard stay fixed while channels can reconnect or change IP. */
+    public static final class BackendRpcTarget {
+        private final TNetworkAddress address;
+        private final BackendServiceProxy proxy;
+
+        public BackendRpcTarget(TNetworkAddress address, BackendServiceProxy proxy) {
+            this.address = Objects.requireNonNull(address).deepCopy();
+            this.proxy = Objects.requireNonNull(proxy);
+        }
+
+        public Future<InternalService.PExecPlanFragmentResult> prepare(ByteString fragments, boolean twoPhase)
+                throws RpcException {
+            return proxy.execPlanFragmentsAsync(address, fragments, twoPhase);
+        }
+
+        public Future<InternalService.PExecPlanFragmentResult> start(
+                InternalService.PExecPlanFragmentStartRequest request) throws RpcException {
+            return proxy.execPlanFragmentStartAsync(address, request);
+        }
+
+        public ListenableFuture<InternalService.PCancelPlanFragmentResult> cancel(TUniqueId queryId, Status reason)
+                throws RpcException {
+            return proxy.cancelPipelineXPlanFragmentAsync(address, queryId, reason);
+        }
+
+        public Future<InternalService.PFetchDataResult> fetch(InternalService.PFetchDataRequest request,
+                FutureCallback<InternalService.PFetchDataResult> callback) throws RpcException {
+            return proxy.fetchDataAsyncWithCallback(address, request, callback);
+        }
+
+        public void remove() {
+            proxy.removeProxy(address);
+        }
     }
 
     private class BackendServiceClientExtIp {

@@ -37,6 +37,7 @@ class ThriftServer;
 namespace doris::rpc_tls {
 
 bool enabled(std::string_view protocol);
+bool enabled_for_java_thrift();
 Status configure_channel(brpc::ChannelOptions* options);
 Status configure_server(brpc::ServerOptions* options);
 Status configure_thrift_server(ThriftServer* server, const std::string& address, int port);

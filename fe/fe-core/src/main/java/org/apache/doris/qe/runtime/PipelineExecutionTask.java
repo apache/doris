@@ -73,11 +73,16 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
             CoordinatorContext coordinatorContext,
             BackendServiceProxy backendServiceProxy,
             Map<BackendWorker, MultiFragmentsPipelineTask> fragmentTasks) {
+        this(coordinatorContext, fragmentTasks);
+        Objects.requireNonNull(backendServiceProxy, "backendServiceProxy can not be null");
+    }
+
+    public PipelineExecutionTask(
+            CoordinatorContext coordinatorContext,
+            Map<BackendWorker, MultiFragmentsPipelineTask> fragmentTasks) {
         // insert into stmt need latch to wait finish, but query stmt not need because result receiver can wait finish
         super(new ChildrenRuntimeTasks<>(fragmentTasks));
         this.coordinatorContext = Objects.requireNonNull(coordinatorContext, "coordinatorContext can not be null");
-        // Each worker task owns the proxy for its endpoint policy; retain this constructor's null contract.
-        Objects.requireNonNull(backendServiceProxy, "backendServiceProxy can not be null");
         this.timeoutDeadline = coordinatorContext.timeoutDeadline.get();
 
         // flatten to fragment tasks to quickly index by BackendFragmentId, when receive the report message

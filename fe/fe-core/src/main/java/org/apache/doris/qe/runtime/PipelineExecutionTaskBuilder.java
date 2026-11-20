@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWor
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.qe.protocol.TFastSerializer;
 import org.apache.doris.rpc.BackendServiceClient;
-import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineFragmentParamsList;
@@ -66,18 +65,16 @@ public class PipelineExecutionTaskBuilder {
             throw new IllegalStateException("Private RPC TLS requires local query workers; set "
                     + "use_arrow_flight=true on the remote Doris catalog to read its results into local workers");
         }
-        BackendServiceProxy backendServiceProxy = BackendServiceProxy.getInstance();
         PipelineExecutionTask pipelineExecutionTask = new PipelineExecutionTask(
                 coordinatorContext,
-                backendServiceProxy,
-                buildMultiFragmentTasks(coordinatorContext, backendServiceProxy, workerToFragmentsParam)
+                buildMultiFragmentTasks(coordinatorContext, workerToFragmentsParam)
         );
         coordinatorContext.getJobProcessor().setPipelineExecutionTask(pipelineExecutionTask);
         return pipelineExecutionTask;
     }
 
     private Map<BackendWorker, MultiFragmentsPipelineTask> buildMultiFragmentTasks(
-            CoordinatorContext coordinatorContext, BackendServiceProxy backendServiceProxy,
+            CoordinatorContext coordinatorContext,
             Map<DistributedPlanWorker, TPipelineFragmentParamsList> workerToFragmentsParam) {
 
         Map<DistributedPlanWorker, ByteString> workerToSerializeFragments = serializeFragments(workerToFragmentsParam);
@@ -90,13 +87,12 @@ public class PipelineExecutionTaskBuilder {
             ByteString serializeFragments = workerToSerializeFragments.get(worker);
 
             Backend backend = worker.getBackend();
-            // Remote catalog workers keep their independent cluster's channel policy.
             fragmentTasks.put(
                     worker,
                     new MultiFragmentsPipelineTask(
                             coordinatorContext,
                             backend,
-                            isInternalWorker(worker) ? backendServiceProxy : BackendServiceProxy.getInstance(false),
+                            coordinatorContext.getBackendRpcTarget(worker),
                             serializeFragments,
                             buildSingleFragmentPipelineTask(
                                     coordinatorContext.executionProfile, backend, fragmentParamsList)

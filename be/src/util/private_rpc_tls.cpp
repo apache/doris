@@ -251,6 +251,15 @@ bool enabled(std::string_view protocol) {
                                 [&](const auto& value) { return trim(value) == protocol; });
 }
 
+bool enabled_for_java_thrift() {
+    // Only the built-in provider can project this PEM policy into an isolated Java plugin.
+#ifdef DORIS_OSS_PRIVATE_RPC_PROVIDERS
+    return enabled("thrift");
+#else
+    return false;
+#endif
+}
+
 Status configure_channel(brpc::ChannelOptions* options) {
     if (!enabled("brpc")) {
         return Status::OK();

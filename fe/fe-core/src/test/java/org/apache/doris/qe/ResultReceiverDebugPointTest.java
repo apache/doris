@@ -73,6 +73,24 @@ public class ResultReceiverDebugPointTest {
     }
 
     @Test
+    void repeatedFetchesKeepTheSameProxyBinding() throws Exception {
+        BackendServiceProxy first = Mockito.mock(BackendServiceProxy.class);
+        BackendServiceProxy other = Mockito.mock(BackendServiceProxy.class);
+        TNetworkAddress address = new TNetworkAddress("127.0.0.1", 8060);
+        try (MockedStatic<BackendServiceProxy> factory = Mockito.mockStatic(BackendServiceProxy.class)) {
+            factory.when(BackendServiceProxy::getInstance).thenReturn(first, other);
+            factory.when(() -> BackendServiceProxy.getInstance(true)).thenReturn(first, other);
+            ResultReceiver receiver = new ResultReceiver(new TUniqueId(1, 2), new TUniqueId(3, 4),
+                    1L, address, Long.MAX_VALUE, 1 << 20, false);
+            receiver.createFuture(null);
+            receiver.createFuture(null);
+            Mockito.verify(first, Mockito.times(2)).fetchDataAsyncWithCallback(
+                    Mockito.eq(address), Mockito.any(), Mockito.isNull());
+            Mockito.verifyNoInteractions(other);
+        }
+    }
+
+    @Test
     void resultFetchUsesTheWorkerEndpointPolicyAndPreservesTheLegacyDefault() throws Exception {
         BackendServiceProxy internal = Mockito.mock(BackendServiceProxy.class);
         BackendServiceProxy remote = Mockito.mock(BackendServiceProxy.class);
@@ -88,6 +106,7 @@ public class ResultReceiverDebugPointTest {
         TNetworkAddress address = new TNetworkAddress("127.0.0.1", 8060);
         try (MockedStatic<BackendServiceProxy> factory = Mockito.mockStatic(BackendServiceProxy.class)) {
             factory.when(BackendServiceProxy::getInstance).thenReturn(internal);
+            factory.when(() -> BackendServiceProxy.getInstance(true)).thenReturn(internal);
             factory.when(() -> BackendServiceProxy.getInstance(false)).thenReturn(remote);
             new ResultReceiver(new TUniqueId(1, 2), new TUniqueId(3, 4), 1L, address,
                     Long.MAX_VALUE, 1 << 20, false, false).createFuture(callback);
