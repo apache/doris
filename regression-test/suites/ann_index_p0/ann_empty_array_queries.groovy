@@ -152,19 +152,21 @@ suite("ann_empty_array_queries", "nonConcurrent") {
                         }
                     }
                     sql "SET ann_index_candidate_rows_threshold = 1000000"
-                    // Use the exact scalar function as an independent oracle as well as forcing
-                    // the approximate function's scalar path with the candidate threshold.
-                    def scalarResults = queries.collect { sql(it.replace(fn, metric)) }
-                    queries.eachWithIndex { statement, position ->
-                        assertEquals(scalarResults[position], sql(statement))
+                    // Record every execution path in .out so a shared scalar/index regression
+                    // cannot pass merely because both paths return the same wrong result.
+                    def checkQueries = { phase, exact = false ->
+                        queries.eachWithIndex { statement, position ->
+                            quickTest("${indexType}_${metric}_${phase}_${position}",
+                                      exact ? statement.replace(fn, metric) : statement)
+                        }
                     }
+                    checkQueries('exact', true)
+                    checkQueries('scalar_fallback')
                     sql "SET ann_index_candidate_rows_threshold = 0"
                     sql "SET enable_ann_index_result_cache = true"
                     // Repeat to cover cached range results as well as the initial search.
                     for (def iteration : 0..1) {
-                        queries.eachWithIndex { statement, position ->
-                            assertEquals(scalarResults[position], sql(statement))
-                        }
+                        checkQueries("cached_${iteration}")
                     }
                     qt_missing_count """SELECT count(*), count(${fn}(vec, ${query})),
                         count(${fn}(vec, CAST(NULL AS ARRAY<FLOAT>))),
@@ -177,17 +179,11 @@ suite("ann_empty_array_queries", "nonConcurrent") {
                     sql "SET enable_ann_index_result_cache = false"
                     def direction = metric == 'l2_distance' ? 'ASC' : 'DESC'
                     reloadIndexes()
-                    queries.eachWithIndex { statement, position ->
-                        assertEquals(scalarResults[position], sql(statement))
-                    }
+                    checkQueries('reload')
                     trigger_and_wait_compaction('ann_empty_array_queries', 'full')
-                    queries.eachWithIndex { statement, position ->
-                        assertEquals(scalarResults[position], sql(statement))
-                    }
+                    checkQueries('compacted')
                     setBeConfigTemporary([enable_ann_index_empty_array: false]) {
-                        queries.eachWithIndex { statement, position ->
-                            assertEquals(scalarResults[position], sql(statement))
-                        }
+                        checkQueries('write_disabled')
                     }
                     // No nonempty row exists anywhere: IVF must persist/reload without training.
                     sql "TRUNCATE TABLE ann_empty_array_queries"
@@ -219,8 +215,8 @@ suite("ann_empty_array_queries", "nonConcurrent") {
                     }
                     qt_mixed_segments """SELECT id FROM ann_empty_array_queries
                         WHERE ${fn}(vec, ${query}) >= 90 ORDER BY id"""
-                    assertEquals(sql("SELECT id FROM ann_empty_array_queries WHERE ${metric}(vec, ${query}) >= 90 ORDER BY id"),
-                                 sql("SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${query}) >= 90 ORDER BY id"))
+                    qt_mixed_segments_exact """SELECT id FROM ann_empty_array_queries
+                        WHERE ${metric}(vec, ${query}) >= 90 ORDER BY id"""
                 } finally {
                     sql "SET enable_sql_cache = DEFAULT"
                     sql "SET enable_condition_cache = DEFAULT"

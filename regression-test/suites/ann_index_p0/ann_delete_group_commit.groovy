@@ -51,8 +51,10 @@ suite("ann_delete_group_commit", "nonConcurrent") {
                 sql "DELETE FROM ann_delete_group_commit WHERE abs(value) = 20"
                 sql """DELETE FROM ann_delete_group_commit t USING ann_delete_group_commit s
                        WHERE t.id = s.id AND s.id = 3"""
-                assertEquals(sql("SELECT id FROM ann_delete_group_commit ORDER BY l2_distance(Vec, [1,2,3]) LIMIT 1"),
-                             sql("SELECT id FROM ann_delete_group_commit ORDER BY l2_distance_approximate(Vec, [1,2,3]) LIMIT 1"))
+                qt_after_delete_topn_exact """SELECT id FROM ann_delete_group_commit
+                    ORDER BY l2_distance(Vec, [1,2,3]) LIMIT 1"""
+                qt_after_delete_topn """SELECT id FROM ann_delete_group_commit
+                    ORDER BY l2_distance_approximate(Vec, [1,2,3]) LIMIT 1"""
 
                 qt_after_delete "SELECT * FROM ann_delete_group_commit ORDER BY id"
 
@@ -221,7 +223,8 @@ suite("ann_delete_group_commit", "nonConcurrent") {
                 qt_final_rows "SELECT * FROM ann_delete_group_commit ORDER BY id"
                 setBeConfigTemporary([enable_ann_index_empty_array: false]) {
                     // Querying existing indexes does not check the writer flag.
-                    sql "SELECT id FROM ann_delete_group_commit ORDER BY l2_distance_approximate(Vec, [1,2,3]) LIMIT 1"
+                    qt_write_disabled_topn """SELECT id FROM ann_delete_group_commit
+                        ORDER BY l2_distance_approximate(Vec, [1,2,3]) LIMIT 1"""
                 }
             } finally {
                 sql "SET group_commit = off_mode"

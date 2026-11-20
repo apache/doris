@@ -53,8 +53,8 @@ suite("ann_empty_array_mow", "nonConcurrent") {
                     sql "INSERT INTO ann_empty_array_mow VALUES (100, [], 100), (101, [], 101)"
 
                     def checkRows = {
-                        assertEquals(sql("SELECT id FROM ann_empty_array_mow WHERE l2_distance(vec, [0,0,0]) <= 3 ORDER BY id"),
-                                     sql("SELECT id FROM ann_empty_array_mow WHERE l2_distance_approximate(vec, [0,0,0]) <= 3 ORDER BY id"))
+                        qt_mow_range_exact """SELECT id FROM ann_empty_array_mow
+                            WHERE l2_distance(vec, [0,0,0]) <= 3 ORDER BY id"""
                         qt_mow_rows "SELECT * FROM ann_empty_array_mow WHERE id < 4 OR id >= 100 ORDER BY id"
                         // Distances are distinct, so TopN IDs are stable. Empty rows are tested
                         // separately rather than adding an id sort key that could disable ANN TopN.
