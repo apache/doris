@@ -23,30 +23,20 @@ import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DataFiles;
-import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.Metrics;
-import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.expressions.Evaluator;
 import org.apache.iceberg.expressions.Expression;
-import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
-import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.nio.ByteBuffer;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 public class IcebergPredicateConverterCoverageTest {
     private static final List<ConnectorComparison.Operator> OPERATORS = Arrays.asList(
@@ -106,32 +96,12 @@ public class IcebergPredicateConverterCoverageTest {
     }
 
     @Test
-    @Disabled("Known issue: stripping a DECIMAL-to-DOUBLE cast can prune matching rows and files.")
-    public void decimalToDoubleComparisonMustNotPruneMatchingRows() {
-        Types.DecimalType type = Types.DecimalType.of(38, 0);
-        Schema schema = schema(type);
-        BigDecimal row = new BigDecimal("9007199254740993");
-        double literal = 9007199254740992d;
-        Assertions.assertTrue(row.doubleValue() == literal);
-        // The engine removes the column's DOUBLE cast; pruning must preserve its many-to-one equality.
-        ConnectorComparison comparison = new ConnectorComparison(ConnectorComparison.Operator.EQ,
-                new ConnectorColumnRef("value", ConnectorType.of("DECIMALV3", 38, 0)),
-                new ConnectorLiteral(ConnectorType.of("DOUBLE"), literal));
-        List<Expression> converted = new IcebergPredicateConverter(schema, ZoneOffset.UTC).convert(comparison);
-        Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1, Conversions.toByteBuffer(type, row));
-        Metrics metrics = new Metrics(1L, null, Collections.singletonMap(1, 1L),
-                Collections.singletonMap(1, 0L), null, bounds, bounds);
-        DataFile file = DataFiles.builder(PartitionSpec.unpartitioned())
-                .withPath("data/decimal-double.parquet").withFormat(FileFormat.PARQUET)
-                .withFileSizeInBytes(1024L).withMetrics(metrics).build();
-        // Dropping the predicate is safe; every predicate that is pushed must retain this matching file.
-        for (Expression predicate : converted) {
-            Assertions.assertAll(
-                    () -> Assertions.assertTrue(new Evaluator(schema.asStruct(), predicate)
-                            .eval(new SingleValueRow(row)), "a matching row must survive pruning"),
-                    () -> Assertions.assertTrue(new InclusiveMetricsEvaluator(schema, predicate).eval(file),
-                            "a file containing a matching row must survive pruning"));
-        }
+    public void castPredicatesRequireEngineEvaluation() {
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(new RecordingIcebergCatalogOps(),
+                IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
+        // A DECIMAL-to-DOUBLE cast can equate distinct decimals. Reject it before the engine's
+        // neutral converter loses the CAST; the connector cannot reconstruct it from a bare column.
+        Assertions.assertFalse(metadata.supportsCastPredicatePushdown(null));
     }
 
     @Test

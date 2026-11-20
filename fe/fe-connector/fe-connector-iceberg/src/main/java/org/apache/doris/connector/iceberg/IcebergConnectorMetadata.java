@@ -2485,20 +2485,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     // ========== Predicate pushdown ==========
 
     /**
-     * Iceberg accepts CAST-bearing predicates ({@code true}, the SPI default, stated here rather than
-     * inherited).
-     *
-     * <p>This is a conscious acceptance of the risk the SPI documents, not a claim of safety: the residual
-     * predicate is converted by {@code IcebergPredicateConverter} and handed to the {@code TableScan}, so it
-     * prunes manifests and data files AT THE SOURCE, and the engine has already unwrapped the CAST — a
-     * comparison whose literal iceberg binds differently than Doris coerced it can skip files that hold
-     * matching rows, which BE cannot recover. It stays {@code true} for parity with the legacy
-     * {@code IcebergScanNode}, which pushed the same converted predicate; no defect has been observed. A
-     * connector added later should default to {@code false} instead (see the SPI javadoc).</p>
+     * Keep CAST predicates in Doris: the neutral converter unwraps CASTs, so source-side pruning
+     * would compare the original column values instead of the cast results. For example, adjacent
+     * DECIMAL values can become equal after conversion to DOUBLE; comparing the uncast values can
+     * discard a file containing matching rows. Independent predicates without CAST remain pushable.
      */
     @Override
     public boolean supportsCastPredicatePushdown(ConnectorSession session) {
-        return true;
+        return false;
     }
 
     @Override
