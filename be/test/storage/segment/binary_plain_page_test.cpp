@@ -27,6 +27,7 @@
 #include "storage/olap_common.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 
 namespace doris {
@@ -88,6 +89,55 @@ public:
 TEST_F(BinaryPlainPageTest, TestBinaryPlainPageBuilderSeekByValueSmallPage) {
     TestBinarySeekByValueSmallPage<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>,
                                    BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>();
+}
+
+static void check_segment_bitmap(const BitmapValue& row, const Slice& expected) {
+    EXPECT_FALSE(row.needs_optimization());
+    std::string bytes;
+    row.serialize(bytes);
+    EXPECT_EQ(bytes, expected.to_string());
+    BitmapValue external;
+    ASSERT_TRUE(external.deserialize(bytes.data()));
+    EXPECT_TRUE(external.needs_optimization());
+}
+
+TEST_F(BinaryPlainPageTest, BitmapSegmentReadsPreserveOptimizedRepresentation) {
+    constexpr auto type = FieldType::OLAP_FIELD_TYPE_BITMAP;
+    auto source = ColumnBitmap::create();
+    for (uint64_t base : {uint64_t {0}, uint64_t {1} << 40}) {
+        auto& bitmap = source->get_data().emplace_back();
+        for (uint64_t i = 0; i < 1024; ++i) {
+            bitmap.add(base + i);
+        }
+    }
+    StorageBuffers buffers;
+    const auto* cells = StorageLayout<type>::column_to_storage(*source, 0, 2, buffers);
+    PageBuilderOptions options;
+    PageBuilder* builder = nullptr;
+    ASSERT_TRUE(BinaryPlainPageBuilder<type>::create(&builder, options).ok());
+    std::unique_ptr<PageBuilder> page(builder);
+    size_t count = 2;
+    ASSERT_TRUE(page->add(cells, &count).ok());
+    ASSERT_EQ(count, 2);
+    OwnedSlice encoded;
+    ASSERT_TRUE(page->finish(&encoded).ok());
+    BinaryPlainPageDecoder<type> decoder(encoded.slice());
+    ASSERT_TRUE(decoder.init().ok());
+
+    MutableColumnPtr dst = ColumnBitmap::create();
+    ASSERT_TRUE(decoder.next_batch(&count, dst).ok());
+    ASSERT_EQ(count, 2);
+    rowid_t ids[] = {1};
+    count = 1;
+    ASSERT_TRUE(decoder.read_by_rowids(ids, 0, &count, dst).ok());
+    ASSERT_EQ(count, 1);
+    auto& rows = assert_cast<ColumnBitmap&>(*dst).get_data();
+    ASSERT_EQ(rows.size(), 3);
+    check_segment_bitmap(rows[0], buffers.cells[0]);
+    check_segment_bitmap(rows[1], buffers.cells[1]);
+    check_segment_bitmap(rows[2], buffers.cells[1]);
+    rows[2].remove(uint64_t {1} << 40);
+    EXPECT_TRUE(rows[2].needs_optimization());
 }
 
 } // namespace segment_v2

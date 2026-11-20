@@ -39,9 +39,13 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_array.h"
+#include "core/column/column_complex.h"
 #include "core/column/column_const.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nothing.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
@@ -1044,6 +1048,57 @@ Status Block::filter_block(Block* block, size_t filter_column_id, size_t column_
     return filter_block(block, columns_to_filter, filter_column_id, column_to_keep);
 }
 
+// Return a replacement only for branches that contain an unoptimized bitmap.
+static ColumnPtr compact_bitmap_column(const IColumn& column) {
+    if (const auto* bitmaps = check_and_get_column<ColumnBitmap>(column)) {
+        const auto& values = bitmaps->get_data();
+        if (std::ranges::none_of(values, &BitmapValue::needs_optimization)) {
+            return nullptr;
+        }
+        auto compact = ColumnBitmap::create();
+        compact->get_data() = values;
+        for (auto& value : compact->get_data()) {
+            value.optimize();
+        }
+        return compact;
+    }
+    if (const auto* constant = check_and_get_column<ColumnConst>(column)) {
+        auto nested = compact_bitmap_column(constant->get_data_column());
+        return nested ? ColumnConst::create(nested, constant->size()) : nullptr;
+    }
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        auto nested = compact_bitmap_column(nullable->get_nested_column());
+        return nested ? ColumnNullable::create(nested, nullable->get_null_map_column_ptr())
+                      : nullptr;
+    }
+    if (const auto* array = check_and_get_column<ColumnArray>(column)) {
+        auto nested = compact_bitmap_column(array->get_data());
+        return nested ? ColumnArray::create(nested, array->get_offsets_ptr()) : nullptr;
+    }
+    if (const auto* map = check_and_get_column<ColumnMap>(column)) {
+        auto keys = compact_bitmap_column(map->get_keys());
+        auto values = compact_bitmap_column(map->get_values());
+        if (!keys && !values) {
+            return nullptr;
+        }
+        return ColumnMap::create(keys ? keys : map->get_keys_ptr(),
+                                 values ? values : map->get_values_ptr(), map->get_offsets_ptr());
+    }
+    if (const auto* tuple = check_and_get_column<ColumnStruct>(column)) {
+        Columns fields;
+        for (size_t i = 0; i < tuple->tuple_size(); ++i) {
+            if (auto field = compact_bitmap_column(tuple->get_column(i))) {
+                if (fields.empty()) {
+                    fields = tuple->get_columns_copy();
+                }
+                fields[i] = std::move(field);
+            }
+        }
+        return fields.empty() ? nullptr : ColumnStruct::create(fields);
+    }
+    return nullptr;
+}
+
 Status Block::serialize(int be_exec_version, PBlock* pblock,
                         /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
                         size_t* compressed_bytes, int64_t* compress_time,
@@ -1054,14 +1109,23 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
+    Columns compact_columns;
     RETURN_IF_CATCH_EXCEPTION({
-        for (const auto& c : *this) {
+        for (size_t i = 0; i < columns(); ++i) {
+            const auto& c = data[i];
             PColumnMeta* pcm = pblock->add_column_metas();
             c.to_pb_column_meta(pcm);
             DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
-            // get serialized size
-            content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(
-                    *(c.column), pblock->be_exec_version());
+            const IColumn* column = c.column.get();
+            if (auto compact = compact_bitmap_column(*column)) {
+                if (compact_columns.empty()) {
+                    compact_columns.resize(columns());
+                }
+                column = compact.get();
+                compact_columns[i] = std::move(compact);
+            }
+            content_uncompressed_size +=
+                    c.type->get_uncompressed_serialized_bytes(*column, pblock->be_exec_version());
         }
     });
 
@@ -1080,8 +1144,10 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     char* buf = column_values.data();
 
     RETURN_IF_CATCH_EXCEPTION({
-        for (const auto& c : *this) {
-            buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
+        for (size_t i = 0; i < columns(); ++i) {
+            const auto& column = !compact_columns.empty() && compact_columns[i] ? compact_columns[i]
+                                                                                : data[i].column;
+            buf = data[i].type->serialize(*column, buf, pblock->be_exec_version());
         }
     });
     *uncompressed_bytes = content_uncompressed_size;

@@ -232,13 +232,24 @@ const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_CHAR>::column_to_storage
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_BITMAP>::column_to_storage(
         const IColumn& column, size_t row_pos, size_t n, StorageBuffers& buffers) {
-    return storage_layout_detail::serialize_batch<ColumnBitmap>(
-            column, row_pos, n, buffers,
-            [](const BitmapValue& value) { return value.getSizeInBytes(); },
-            [](const BitmapValue& value, uint8_t* out) {
-                value.write_to(reinterpret_cast<char*>(out));
-                return value.getSizeInBytes();
-            });
+    const auto& values = assert_cast<const ColumnBitmap&>(column).get_data();
+    auto& [bytes, cells] = buffers;
+    bytes.clear();
+    cells.resize(n);
+    for (size_t i = 0; i < n; ++i) {
+        cells[i].size = values[row_pos + i].write_optimized([&](size_t size) {
+            const size_t start = bytes.size();
+            bytes.resize(start + size);
+            return reinterpret_cast<char*>(bytes.data() + start);
+        });
+    }
+    // The buffer may move while appending values. Set the cell pointers after the last resize.
+    auto* out = reinterpret_cast<char*>(bytes.data());
+    for (auto& cell : cells) {
+        cell.data = out;
+        out += cell.size;
+    }
+    return reinterpret_cast<const uint8_t*>(cells.data());
 }
 
 const uint8_t* StorageLayout<FieldType::OLAP_FIELD_TYPE_HLL>::column_to_storage(

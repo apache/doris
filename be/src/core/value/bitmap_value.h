@@ -798,14 +798,18 @@ public:
      * This function is unsafe in the sense that if you provide bad data,
      * many bytes could be read, possibly causing a buffer overflow. See also readSafe.
      */
-    static Roaring64Map read(const char* buf) {
+    static Roaring64Map read(const char* buf, size_t* bytes_read = nullptr) {
         Roaring64Map result;
+        const char* start = buf;
 
         bool is_v1 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP64 == *buf;
         bool is_bitmap32 = BitmapTypeCode::BITMAP32 == *buf || BitmapTypeCode::BITMAP32_V2 == *buf;
         bool is_bitmap64 = BitmapTypeCode::BITMAP64 == *buf || BitmapTypeCode::BITMAP64_V2 == *buf;
         if (is_bitmap32) {
             roaring::Roaring read = roaring::Roaring::read(buf + 1, is_v1);
+            if (bytes_read != nullptr) {
+                *bytes_read = 1 + read.getSizeInBytes(is_v1);
+            }
             result.emplaceOrInsert(0, std::move(read));
             return result;
         }
@@ -825,9 +829,13 @@ public:
             buf += sizeof(uint32_t);
             // read map value Roaring
             roaring::Roaring read_var = roaring::Roaring::read(buf, is_v1);
-            // forward buffer past the last Roaring Bitmap
-            buf += read_var.getSizeInBytes(is_v1);
+            if (lcv + 1 < map_size || bytes_read != nullptr) {
+                buf += read_var.getSizeInBytes(is_v1);
+            }
             result.emplaceOrInsert(key, std::move(read_var));
+        }
+        if (bytes_read != nullptr) {
+            *bytes_read = buf - start;
         }
         return result;
     }
@@ -1306,21 +1314,20 @@ class BitmapValueIterator;
 class BitmapValue {
 public:
     // Construct an empty bitmap.
-    BitmapValue() : _sv(0), _bitmap(nullptr), _type(EMPTY), _is_shared(false) { _set.clear(); }
+    BitmapValue() = default;
 
     // Construct a bitmap with one element.
-    explicit BitmapValue(uint64_t value)
-            : _sv(value), _bitmap(nullptr), _type(SINGLE), _is_shared(false) {}
+    explicit BitmapValue(uint64_t value) : _sv(value), _type(SINGLE) {}
 
     // Construct a bitmap from serialized data.
-    explicit BitmapValue(const char* src) : _is_shared(false) {
+    explicit BitmapValue(const char* src) {
         bool res = deserialize(src);
         DCHECK(res);
     }
 
-    // !FIXME: We should rethink the logic here
     BitmapValue(const BitmapValue& other) {
         _type = other._type;
+        _is_optimized = other._is_optimized;
         switch (other._type) {
         case EMPTY:
             break;
@@ -1334,18 +1341,11 @@ public:
             _set = other._set;
             break;
         }
-
-        if (other._type == BITMAP) {
-            _is_shared = true;
-            // should also set other's state to shared, so that other bitmap value will
-            // create a new bitmap when it wants to modify it.
-            other._is_shared = true;
-        }
     }
 
-    // !FIXME: We should rethink the logic here
     BitmapValue(BitmapValue&& other) noexcept {
         _type = other._type;
+        _is_optimized = other._is_optimized;
         switch (other._type) {
         case EMPTY:
             break;
@@ -1360,18 +1360,16 @@ public:
             _set = std::move(other._set);
             break;
         }
-        _is_shared = other._is_shared;
         other._type = EMPTY;
-        other._is_shared = false;
     }
 
-    // !FIXME: We should rethink the logic here
     BitmapValue& operator=(const BitmapValue& other) {
         if (this == &other) {
             return *this;
         }
         reset();
         _type = other._type;
+        _is_optimized = other._is_optimized;
         switch (other._type) {
         case EMPTY:
             break;
@@ -1384,13 +1382,6 @@ public:
         case SET:
             _set = other._set;
             break;
-        }
-
-        if (other._type == BITMAP) {
-            _is_shared = true;
-            // should also set other's state to shared, so that other bitmap value will
-            // create a new bitmap when it wants to modify it.
-            other._is_shared = true;
         }
         return *this;
     }
@@ -1404,6 +1395,7 @@ public:
         reset();
 
         _type = other._type;
+        _is_optimized = other._is_optimized;
         switch (other._type) {
         case EMPTY:
             break;
@@ -1418,20 +1410,18 @@ public:
             _set = std::move(other._set);
             break;
         }
-        _is_shared = other._is_shared;
         other._type = EMPTY;
-        other._is_shared = false;
         return *this;
     }
 
     // Construct a bitmap from given elements.
     template <typename T, typename = std::enable_if_t<std::is_integral_v<T>>>
-    explicit BitmapValue(const std::vector<T>& bits) : _is_shared(false) {
+    explicit BitmapValue(const std::vector<T>& bits) {
         _type = EMPTY;
         this->add_many(bits.data(), bits.size());
     }
 
-    explicit BitmapValue(const std::vector<uint64_t>& bits) : _is_shared(false) {
+    explicit BitmapValue(const std::vector<uint64_t>& bits) {
         _type = EMPTY;
         add_many(bits.data(), bits.size());
     }
@@ -1661,7 +1651,6 @@ public:
     // EMPTY  -> SINGLE
     // EMPTY  -> BITMAP
     // SINGLE -> BITMAP
-    // !FIXME: We should rethink the logic here
     BitmapValue& operator|=(const BitmapValue& rhs) {
         switch (rhs._type) {
         case EMPTY:
@@ -1673,14 +1662,11 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
-                rhs._is_shared = true;
-                _is_shared = true;
+                _is_optimized = rhs._is_optimized;
                 _type = BITMAP;
                 break;
             case SINGLE:
                 _bitmap = rhs._bitmap;
-                rhs._is_shared = true;
-                _is_shared = true;
                 _prepare_bitmap_for_write();
                 _bitmap->add(_sv);
                 _type = BITMAP;
@@ -1810,7 +1796,6 @@ public:
                     _sv = rhs._sv;
                 }
                 _bitmap.reset();
-                _is_shared = false;
                 break;
             case SET:
                 if (!_set.contains(rhs._sv)) {
@@ -1867,7 +1852,6 @@ public:
                 }
                 _type = SET;
                 _bitmap.reset();
-                _is_shared = false;
                 _convert_to_smaller_type();
                 break;
             case SET:
@@ -1891,7 +1875,6 @@ public:
     // SINGLE -> EMPTY
     // BITMAP -> EMPTY
     // BITMAP -> SINGLE
-    // !FIXME: We should rethink the logic here
     BitmapValue& operator^=(const BitmapValue& rhs) {
         switch (rhs._type) {
         case EMPTY:
@@ -1929,14 +1912,11 @@ public:
             switch (_type) {
             case EMPTY:
                 _bitmap = rhs._bitmap;
-                rhs._is_shared = true;
-                _is_shared = true;
+                _is_optimized = rhs._is_optimized;
                 _type = BITMAP;
                 break;
             case SINGLE:
                 _bitmap = rhs._bitmap;
-                rhs._is_shared = true;
-                _is_shared = true;
                 _type = BITMAP;
                 _prepare_bitmap_for_write();
                 if (!rhs._bitmap->contains(_sv)) {
@@ -2400,9 +2380,51 @@ public:
         return 0;
     }
 
+    bool needs_optimization() const { return _type == BITMAP && !_is_optimized; }
+
+    void optimize() {
+        if (needs_optimization()) {
+            _prepare_bitmap_for_write();
+            _bitmap->runOptimize();
+            _bitmap->shrinkToFit();
+            _is_optimized = true;
+        }
+    }
+
+    // Aggregate results can share the optimized value across multiple output rows.
+    template <typename Writer>
+    void with_optimized_value(Writer&& write) const {
+        if (needs_optimization()) {
+            BitmapValue copy(*this);
+            copy.optimize();
+            write(std::as_const(copy));
+        } else {
+            write(*this);
+        }
+    }
+
+    // Request exactly enough destination space for the representation that will be written.
+    template <typename Allocate>
+    size_t write_optimized(Allocate&& allocate) const {
+        if (needs_optimization()) {
+            detail::Roaring64Map optimized(*_bitmap);
+            optimized.runOptimize();
+            optimized.shrinkToFit();
+            const auto version = config::bitmap_serialize_version;
+            return optimized.write(allocate(optimized.getSizeInBytes(version)), version);
+        }
+        return write_to(allocate(getSizeInBytes()));
+    }
+
+    void serialize_optimized(std::string& dst) const {
+        write_optimized([&](size_t size) {
+            dst.resize(size);
+            return dst.data();
+        });
+    }
+
     // Return how many bytes are required to serialize this bitmap.
     // See BitmapTypeCode for the serialized format.
-    // !FIXME: We should rethink the logic here
     size_t getSizeInBytes() const {
         size_t res = 0;
         switch (_type) {
@@ -2417,9 +2439,6 @@ public:
             }
             break;
         case BITMAP:
-            _prepare_bitmap_for_write();
-            _bitmap->runOptimize();
-            _bitmap->shrinkToFit();
             res = _bitmap->getSizeInBytes(config::bitmap_serialize_version);
             break;
         case SET:
@@ -2430,22 +2449,23 @@ public:
         return res;
     }
 
-    // Serialize the bitmap value to dst, which should be large enough.
+    // Serialize the bitmap value to dst and return the number of bytes written.
     // Client should call `getSizeInBytes` first to get the serialized size.
-    void write_to(char* dst) const {
+    size_t write_to(char* dst) const {
         switch (_type) {
         case EMPTY:
             *dst = BitmapTypeCode::EMPTY;
-            break;
+            return 1;
         case SINGLE:
             if (_sv <= std::numeric_limits<uint32_t>::max()) {
                 *(dst++) = BitmapTypeCode::SINGLE32;
                 encode_fixed32_le(reinterpret_cast<uint8_t*>(dst), static_cast<uint32_t>(_sv));
+                return 1 + sizeof(uint32_t);
             } else {
                 *(dst++) = BitmapTypeCode::SINGLE64;
                 encode_fixed64_le(reinterpret_cast<uint8_t*>(dst), _sv);
+                return 1 + sizeof(uint64_t);
             }
-            break;
         case SET:
             DCHECK(config::enable_set_in_bitmap_value);
             *dst = BitmapTypeCode::SET;
@@ -2461,52 +2481,63 @@ public:
                     dst += sizeof(uint64_t);
                 }
             }
-            break;
+            return 2 + sizeof(uint64_t) * _set.size();
         case BITMAP:
-            _bitmap->write(dst, config::bitmap_serialize_version);
-            break;
+            return _bitmap->write(dst, config::bitmap_serialize_version);
         }
+        __builtin_unreachable();
+    }
+
+    void serialize(std::string& dst) const {
+        dst.resize(getSizeInBytes());
+        write_to(dst.data());
     }
 
     // Deserialize a bitmap value from `src`.
     // Return false if `src` begins with unknown type code, true otherwise.
-    bool deserialize(const char* src) {
+    bool deserialize(const char* src) { return _deserialize<false>(src) != 0; }
+
+    bool deserialize_from_segment(const char* src) { return _deserialize<false, true>(src) != 0; }
+
+    // Return the number of bytes consumed from src, or zero on decode failure.
+    size_t deserialize_with_size(const char* src) { return _deserialize<true>(src); }
+
+private:
+    // A nonzero result means success. Only callers requesting the length use its value.
+    template <bool NeedSize, bool FromSegment = false>
+    size_t _deserialize(const char* src) {
         reset();
         switch (*src) {
         case BitmapTypeCode::EMPTY:
             _type = EMPTY;
-            break;
+            return 1;
         case BitmapTypeCode::SINGLE32:
+        case BitmapTypeCode::SINGLE64: {
+            const bool single32 = *src == BitmapTypeCode::SINGLE32;
+            const auto* payload = reinterpret_cast<const uint8_t*>(src + 1);
             _type = SINGLE;
-            _sv = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
+            _sv = single32 ? decode_fixed32_le(payload) : decode_fixed64_le(payload);
             if (config::enable_set_in_bitmap_value) {
                 _type = SET;
-                _set.clear();
                 _set.insert(_sv);
             }
-            break;
-        case BitmapTypeCode::SINGLE64:
-            _type = SINGLE;
-            _sv = decode_fixed64_le(reinterpret_cast<const uint8_t*>(src + 1));
-            if (config::enable_set_in_bitmap_value) {
-                _type = SET;
-                _set.clear();
-                _set.insert(_sv);
-            }
-            break;
+            return 1 + (single32 ? sizeof(uint32_t) : sizeof(uint64_t));
+        }
         case BitmapTypeCode::BITMAP32:
         case BitmapTypeCode::BITMAP64:
         case BitmapTypeCode::BITMAP32_V2:
         case BitmapTypeCode::BITMAP64_V2:
             _type = BITMAP;
-            _is_shared = false;
             try {
-                _bitmap = std::make_shared<detail::Roaring64Map>(detail::Roaring64Map::read(src));
+                size_t consumed = 1;
+                _bitmap = std::make_shared<detail::Roaring64Map>(
+                        detail::Roaring64Map::read(src, NeedSize ? &consumed : nullptr));
+                _is_optimized = FromSegment;
+                return consumed;
             } catch (const std::runtime_error& e) {
                 LOG(ERROR) << "Decode roaring bitmap failed, " << e.what();
-                return false;
+                return 0;
             }
-            break;
         case BitmapTypeCode::SET: {
             _type = SET;
             ++src;
@@ -2520,12 +2551,10 @@ public:
                 throw Exception(ErrorCode::INTERNAL_ERROR,
                                 "bitmap value with duplicated set values, count: {}", count);
             }
-            src += sizeof(uint64_t) * count;
-
             if (!config::enable_set_in_bitmap_value) {
                 _convert_set_to_bitmap();
             }
-            break;
+            return 1 + sizeof(count) + sizeof(uint64_t) * count;
         }
         case BitmapTypeCode::SET_V2: {
             uint32_t size = decode_fixed32_le(reinterpret_cast<const uint8_t*>(src + 1));
@@ -2539,23 +2568,22 @@ public:
                     std::vector<uint64_t> values(size);
                     decode_fixed64_le_array(values.data(), src, size);
                     _bitmap->addMany(size, values.data());
-                    src += sizeof(uint64_t) * size;
                 }
             } else {
                 _type = SET;
                 _set.read(src, size, true);
             }
-            break;
+            return 1 + sizeof(size) + sizeof(uint64_t) * size;
         }
         default:
             LOG(ERROR) << "BitmapTypeCode invalid, should between: " << BitmapTypeCode::EMPTY
                        << " and " << BitmapTypeCode::BITMAP64 << " actual is "
                        << static_cast<int>(*src);
-            return false;
+            return 0;
         }
-        return true;
     }
 
+public:
     int64_t minimum() const {
         switch (_type) {
         case SINGLE:
@@ -2876,9 +2904,9 @@ public:
 
     void reset() {
         _type = EMPTY;
+        _is_optimized = false;
         _sv = 0;
         _set.clear();
-        _is_shared = false;
         _bitmap = nullptr;
     }
     // Implement an iterator for convenience
@@ -2941,24 +2969,13 @@ private:
         return result;
     }
 
-    void _prepare_bitmap_for_write() const {
+    void _prepare_bitmap_for_write() {
+        _is_optimized = false;
         if (!_bitmap) {
             _bitmap = std::make_shared<detail::Roaring64Map>();
-            _is_shared = false;
-            return;
+        } else if (_bitmap.use_count() > 1) {
+            _bitmap = std::make_shared<detail::Roaring64Map>(*_bitmap);
         }
-
-        if (!_is_shared) {
-            // the state is not shared, not need to check use count any more
-            return;
-        }
-
-        if (_bitmap.use_count() > 1) {
-            auto new_one = std::make_shared<detail::Roaring64Map>();
-            *new_one = *_bitmap;
-            _bitmap = new_one;
-        }
-        _is_shared = false;
     }
 
     // Promote the current SET payload to roaring. Use this only when the caller has already
@@ -2977,13 +2994,11 @@ private:
         BITMAP = 2, // more than one elements
         SET = 3     // elements count less or equal than 32
     };
-    uint64_t _sv = 0; // store the single value when _type == SINGLE
-    // !FIXME: We should rethink the logic about _bitmap and _is_shared
-    mutable std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
+    uint64_t _sv = 0;                              // store the single value when _type == SINGLE
+    std::shared_ptr<detail::Roaring64Map> _bitmap; // used when _type == BITMAP
     BitmapSmallSet _set;
     BitmapDataType _type {EMPTY};
-    // Indicate whether the state is shared among multi BitmapValue object
-    mutable bool _is_shared = true;
+    bool _is_optimized = false;
     static constexpr uint64_t SET_TYPE_THRESHOLD = 32;
 };
 
