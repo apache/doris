@@ -25,6 +25,7 @@ import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.properties.HadoopStorageProperties;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.foundation.security.ExecutionAuthenticator;
@@ -331,6 +332,13 @@ public final class StorageAdapter {
     /** The raw user properties this adapter was bound from. */
     public Map<String, String> getOrigProps() {
         return origProps;
+    }
+
+    /** The requested reader or writer and the provider selected by the properties must agree. */
+    public void checkStorageKind(StorageKind expected) {
+        if (spi.kind() != expected) {
+            throw new IllegalArgumentException("Expected " + expected + " storage properties, got " + spi.kind());
+        }
     }
 
     public StorageTypeId getType() {

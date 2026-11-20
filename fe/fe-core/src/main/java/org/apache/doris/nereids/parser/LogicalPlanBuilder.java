@@ -65,6 +65,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.scan.FileCacheAdmissionManager;
+import org.apache.doris.datasource.storage.StatementStorageProperties;
 import org.apache.doris.dictionary.LayoutType;
 import org.apache.doris.info.TableRefInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
@@ -1461,6 +1462,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitInsertIntoTVF(InsertIntoTVFContext ctx) {
         String tvfName = ctx.tvfName.getText();
         Map<String, String> properties = visitPropertyItemList(ctx.tvfProperties);
+        StatementStorageProperties.check(properties);
         Optional<String> labelName = ctx.labelName == null
                 ? Optional.empty() : Optional.of(ctx.labelName.getText());
         LogicalPlan plan = visitQuery(ctx.query());
@@ -2264,6 +2266,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         BrokerDesc brokerDesc = null;
 
         Map<String, String> brokerPropertiesMap = visitPropertyItemList(ctx.brokerProperties);
+        StatementStorageProperties.check(brokerPropertiesMap);
 
         if (ctx.S3() != null) {
             brokerDesc = new BrokerDesc("S3", StorageBackend.StorageType.S3, brokerPropertiesMap);
@@ -4575,6 +4578,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Map<String, String> properties = ImmutableMap.of();
         if (ctx.propertyClause() != null) {
             properties = visitPropertyClause(ctx.propertyClause());
+            StatementStorageProperties.check(properties);
         }
         Literal filePath = (Literal) visit(ctx.filePath);
         return new LogicalFileSink<>(filePath.getStringValue(), format, properties, ImmutableList.of(), plan);

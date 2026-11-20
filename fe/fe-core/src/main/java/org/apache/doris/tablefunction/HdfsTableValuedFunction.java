@@ -22,6 +22,7 @@ import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.storage.StorageAdapter;
+import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.thrift.TFileType;
 
 import org.apache.log4j.LogManager;
@@ -47,6 +48,7 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
         // 2. analyze uri
         try {
             this.storageAdapter = StorageAdapter.of(props);
+            storageAdapter.checkStorageKind(StorageKind.HDFS_COMPATIBLE);
             backendConnectProperties.putAll(storageAdapter.getBackendConfigProperties());
             String uri = storageAdapter.validateAndGetUri(props);
             filePath = storageAdapter.validateAndNormalizeUri(uri);

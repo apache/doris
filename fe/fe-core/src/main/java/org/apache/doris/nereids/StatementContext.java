@@ -380,6 +380,7 @@ public class StatementContext implements Closeable {
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
 
     private boolean privChecked;
+    private String adminStorageProperty;
 
     // if greater than 0 means the duration has used
     private long materializedViewRewriteDuration = 0L;
@@ -511,6 +512,7 @@ public class StatementContext implements Closeable {
      *   <li>the placeholder real expressions bound by this EXECUTE (the protocol layer fills
      *       them on the previous context before this method runs) and the placeholder list;</li>
      *   <li>the placeholder to comparison-slot registry used by the short-circuit fast path;</li>
+     *   <li>the storage property that requires an execution-time ADMIN privilege check;</li>
      *   <li>the short-circuit and nondeterministic flags that gate the short-circuit fast path
      *       before this execution re-plans.</li>
      * </ul>
@@ -521,6 +523,7 @@ public class StatementContext implements Closeable {
         StatementContext next = copyExpressionState(connectContext, showQuery);
         // Carry over the short-circuit state used to execute the cached prepared plan.
         next.idToComparisonSlot.putAll(idToComparisonSlot);
+        next.adminStorageProperty = adminStorageProperty;
         next.isShortCircuitQuery = isShortCircuitQuery;
         next.hasNondeterministic = hasNondeterministic;
         return next;
@@ -2301,6 +2304,15 @@ public class StatementContext implements Closeable {
     public void setGroupCommitMergeBackend(
             Backend groupCommitMergeBackend) {
         this.groupCommitMergeBackend = groupCommitMergeBackend;
+    }
+
+    public void setAdminStorageProperty(String property) {
+        adminStorageProperty = property;
+        getSqlCacheContext().ifPresent(cache -> cache.setHasUnsupportedTables(true));
+    }
+
+    public String getAdminStorageProperty() {
+        return adminStorageProperty;
     }
 
     public boolean isPrivChecked() {

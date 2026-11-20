@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.FileFormatConstants;
+import org.apache.doris.datasource.storage.StatementStorageProperties;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
 import org.apache.doris.filesystem.FileEntry;
@@ -163,6 +164,7 @@ public class ParquetMetadataTableValuedFunction extends MetadataTableValuedFunct
     private final String bloomLiteral;
 
     public ParquetMetadataTableValuedFunction(Map<String, String> params) throws AnalysisException {
+        StatementStorageProperties.check(params);
         Map<String, String> normalizedParams = params.entrySet().stream().collect(Collectors.toMap(
                 entry -> entry.getKey().toLowerCase(),
                 Map.Entry::getValue,
