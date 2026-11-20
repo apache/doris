@@ -52,12 +52,21 @@ namespace doris {
 
 static const int kLibShardNum = 128;
 
+struct UserFunctionCacheTombstones {
+    std::mutex mutex;
+    std::unordered_map<int64_t, const UserFunctionCacheEntry*> entries;
+};
+
 // function cache entry, store information for
 struct UserFunctionCacheEntry {
     ENABLE_FACTORY_CREATOR(UserFunctionCacheEntry);
     UserFunctionCacheEntry(int64_t fid_, const std::string& checksum_, const std::string& lib_file_,
-                           LibType type)
-            : function_id(fid_), checksum(checksum_), lib_file(lib_file_), type(type) {}
+                           LibType type, std::shared_ptr<UserFunctionCacheTombstones> tombstones)
+            : function_id(fid_),
+              checksum(checksum_),
+              lib_file(lib_file_),
+              type(type),
+              tombstones(std::move(tombstones)) {}
     ~UserFunctionCacheEntry();
 
     std::string debug_string() {
@@ -79,8 +88,7 @@ struct UserFunctionCacheEntry {
     // make it atomic variable instead of holding a lock
     std::atomic<bool> is_loaded {false};
 
-    // Set to true when this library is not needed.
-    // e.g. deleting some unused library to re
+    // Delete files when the last entry reference is released.
     std::atomic<bool> should_delete_library {false};
 
     // lock to make sure only one can load this cache
@@ -101,31 +109,41 @@ struct UserFunctionCacheEntry {
     std::unordered_map<std::string, void*> fptr_map;
 
     LibType type;
+    // Entries retained by processes may outlive UserFunctionCache itself.
+    std::shared_ptr<UserFunctionCacheTombstones> tombstones;
 };
 
 UserFunctionCacheEntry::~UserFunctionCacheEntry() {
-    // close lib_handle if it was opened
+    // Last reference: close library -> delete files -> remove tombstone.
     if (lib_handle != nullptr) {
         dynamic_close(lib_handle);
         lib_handle = nullptr;
     }
 
-    // delete library file if should_delete_library is set
     if (should_delete_library.load()) {
-        WARN_IF_ERROR(
-                io::global_local_filesystem()->delete_directory_or_file(lib_file),
-                "failed to delete unzipped directory of python udf library, lib_file=" + lib_file);
+        // Restored ZIP entries keep the archive path until their first use.
+        const auto cache_path = type == LibType::PY_ZIP && !is_unziped
+                                        ? lib_file.substr(0, lib_file.size() - 4)
+                                        : lib_file;
+        WARN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(cache_path),
+                      "failed to delete unzipped directory of python udf library, lib_file=" +
+                              cache_path);
 
         if (type == LibType::PY_ZIP) {
-            // For Python UDF, we need to delete both the unzipped directory and the original zip file.
-            std::string zip_file = lib_file + ".zip";
+            std::string zip_file = cache_path + ".zip";
             WARN_IF_ERROR(io::global_local_filesystem()->delete_directory_or_file(zip_file),
                           "failed to delete zip file of python udf library, lib_file=" + zip_file);
+            std::scoped_lock lock(tombstones->mutex);
+            auto it = tombstones->entries.find(function_id);
+            if (it != tombstones->entries.end() && it->second == this) {
+                tombstones->entries.erase(it);
+            }
         }
     }
 }
 
-UserFunctionCache::UserFunctionCache() = default;
+UserFunctionCache::UserFunctionCache()
+        : _tombstones(std::make_shared<UserFunctionCacheTombstones>()) {}
 
 UserFunctionCache::~UserFunctionCache() {
     std::lock_guard<std::mutex> l(_cache_lock);
@@ -159,7 +177,7 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
         lib_type = LibType::SO;
     } else if (ends_with(file, ".jar")) {
         lib_type = LibType::JAR;
-    } else if (ends_with(file, ".zip") && _check_cache_is_python_udf(dir, file)) {
+    } else if (ends_with(file, ".zip")) {
         lib_type = LibType::PY_ZIP;
     } else {
         return Status::InternalError(
@@ -187,16 +205,9 @@ Status UserFunctionCache::_load_entry_from_lib(const std::string& dir, const std
 
     std::string full_path = dir + "/" + file;
     // create a cache entry and put it into entry map
-    std::shared_ptr<UserFunctionCacheEntry> entry =
-            UserFunctionCacheEntry::create_shared(function_id, checksum, full_path, lib_type);
+    std::shared_ptr<UserFunctionCacheEntry> entry = UserFunctionCacheEntry::create_shared(
+            function_id, checksum, full_path, lib_type, _tombstones);
     entry->is_downloaded = true;
-
-    // For Python UDF, _check_cache_is_python_udf has already unzipped the file.
-    // Set lib_file to the unzipped directory.
-    if (lib_type == LibType::PY_ZIP) {
-        entry->lib_file = full_path.substr(0, full_path.size() - 4);
-        entry->is_unziped = true;
-    }
 
     _entry_map[function_id] = entry;
 
@@ -235,12 +246,21 @@ Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,
     std::string file_name = _get_file_name_from_url(url);
     {
         std::lock_guard<std::mutex> l(_cache_lock);
+        {
+            std::scoped_lock tombstone_lock(_tombstones->mutex);
+            // Reject acquisition until the old entry's destructor finishes file cleanup.
+            if (_tombstones->entries.contains(fid)) {
+                return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
+                        "Python UDF function {} is being deleted", fid);
+            }
+        }
         auto it = _entry_map.find(fid);
         if (it != _entry_map.end()) {
             entry = it->second;
         } else {
             entry = UserFunctionCacheEntry::create_shared(
-                    fid, checksum, _make_lib_file(fid, checksum, type, file_name), type);
+                    fid, checksum, _make_lib_file(fid, checksum, type, file_name), type,
+                    _tombstones);
             _entry_map.emplace(fid, entry);
         }
     }
@@ -289,28 +309,6 @@ Status UserFunctionCache::_load_cache_entry(const std::string& url,
         return Status::InvalidArgument(
                 "Unsupported lib type! Make sure your lib type is one of 'so' and 'jar' and "
                 "python 'zip'!");
-    }
-    return Status::OK();
-}
-
-Status UserFunctionCache::_check_cache_is_python_udf(const std::string& dir,
-                                                     const std::string& file) {
-    const std::string& full_path = dir + "/" + file;
-    RETURN_IF_ERROR(_unzip_lib(full_path));
-    std::string unzip_dir = full_path.substr(0, full_path.size() - 4);
-
-    bool has_python_file = false;
-
-    auto scan_cb = [&has_python_file](const io::FileInfo& file) {
-        if (file.is_file && ends_with(file.file_name, ".py")) {
-            has_python_file = true;
-            return false; // Stop iteration once we find a Python file
-        }
-        return true;
-    };
-    RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(unzip_dir, scan_cb));
-    if (!has_python_file) {
-        return Status::InternalError("No Python file found in the unzipped directory.");
     }
     return Status::OK();
 }
@@ -498,10 +496,14 @@ Status UserFunctionCache::get_jarpath(int64_t fid, const std::string& url,
 }
 
 Status UserFunctionCache::get_pypath(int64_t fid, const std::string& url,
-                                     const std::string& checksum, std::string* libpath) {
+                                     const std::string& checksum, std::string* libpath,
+                                     std::shared_ptr<UserFunctionCacheEntry>* cache_entry) {
     std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
     RETURN_IF_ERROR(_get_cache_entry(fid, url, checksum, entry, LibType::PY_ZIP));
     *libpath = entry->lib_file;
+    if (cache_entry != nullptr) {
+        *cache_entry = std::move(entry);
+    }
     return Status::OK();
 }
 
@@ -567,6 +569,17 @@ Status UserFunctionCache::_check_and_return_default_java_udf_url(const std::stri
     return Status::OK();
 }
 
+std::set<int64_t> UserFunctionCache::collect_pyudf_ids() {
+    std::set<int64_t> ids;
+    std::scoped_lock lock(_cache_lock);
+    for (const auto& [id, entry] : _entry_map) {
+        if (entry->type == LibType::PY_ZIP) {
+            ids.insert(id);
+        }
+    }
+    return ids;
+}
+
 void UserFunctionCache::drop_function_cache(int64_t fid) {
     std::shared_ptr<UserFunctionCacheEntry> entry = nullptr;
     {
@@ -576,20 +589,22 @@ void UserFunctionCache::drop_function_cache(int64_t fid) {
             return;
         }
         entry = it->second;
+        // Mark files for deletion -> add tombstone -> remove entry -> remove pool.
+        entry->should_delete_library.store(true);
+        if (entry->type == LibType::PY_ZIP) {
+            std::scoped_lock tombstone_lock(_tombstones->mutex);
+            _tombstones->entries.emplace(fid, entry.get());
+        }
         _entry_map.erase(it);
     }
 
-    // For Python UDF, clear module cache in Python server before deleting files
-    if (entry->type == LibType::PY_ZIP && !entry->lib_file.empty()) {
-        auto status = PythonServerManager::instance().clear_module_cache(entry->lib_file);
-        if (!status.ok()) [[unlikely]] {
-            LOG(WARNING) << "drop_function_cache: failed to clear Python module cache for "
-                         << entry->lib_file << ": " << status.to_string();
-        }
+    if (entry->type == LibType::PY_ZIP) {
+        PythonServerManager::instance().drop_function(fid);
     }
+}
 
-    // Mark for deletion, destructor will delete the files
-    entry->should_delete_library.store(true);
+bool UserFunctionCache::is_pending_deletion(const UserFunctionCacheEntry& entry) {
+    return entry.should_delete_library.load();
 }
 
 } // namespace doris

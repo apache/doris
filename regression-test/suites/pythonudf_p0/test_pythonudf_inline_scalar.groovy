@@ -19,6 +19,16 @@ suite("test_pythonudf_inline_basic") {
     // Test basic Python UDF using Inline mode
     
     def runtime_version = getPythonUdfRuntimeVersion()
+    for (def invalidPoolSize : ["0", "-1", "abc", "1.5", "2147483648"]) {
+        test {
+            sql """CREATE FUNCTION py_invalid_pool_size(INT) RETURNS INT PROPERTIES (
+                "type" = "PYTHON_UDF", "auto_suspend"="0", "symbol" = "evaluate",
+                "runtime_version" = "${runtime_version}", "pool_size" = "${invalidPoolSize}"
+            ) AS \$\$def evaluate(x): return x\$\$"""
+            exception "pool_size must be a positive integer"
+        }
+    }
+
     try {
         // Test 1: Simple integer addition
         sql """ DROP FUNCTION IF EXISTS py_add(INT, INT); """
@@ -27,8 +37,10 @@ suite("test_pythonudf_inline_basic") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
             "symbol" = "evaluate",
-            "runtime_version" = "${runtime_version}"
+            "runtime_version" = "${runtime_version}",
+            "pool_size" = "2"
         )
         AS \$\$
 def evaluate(a, b):
@@ -45,8 +57,10 @@ def evaluate(a, b):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
             "symbol" = "evaluate",
-            "runtime_version" = "${runtime_version}"
+            "runtime_version" = "${runtime_version}",
+            "pool_size" = "1"
         )
         AS \$\$
 def evaluate(s1, s2):
@@ -66,8 +80,10 @@ def evaluate(s1, s2):
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
             "symbol" = "evaluate",
-            "runtime_version" = "${runtime_version}"
+            "runtime_version" = "${runtime_version}",
+            "pool_size" = "1"
         )
         AS \$\$
 def evaluate(x):
@@ -87,8 +103,10 @@ def evaluate(x):
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
             "symbol" = "evaluate",
-            "runtime_version" = "${runtime_version}"
+            "runtime_version" = "${runtime_version}",
+            "pool_size" = "1"
         )
         AS \$\$
 def evaluate(num):
@@ -109,8 +127,10 @@ def evaluate(num):
         RETURNS LARGEINT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
             "symbol" = "evaluate",
-            "runtime_version" = "${runtime_version}"
+            "runtime_version" = "${runtime_version}",
+            "pool_size" = "1"
         )
         AS \$\$
 def evaluate(val):

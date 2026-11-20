@@ -37,6 +37,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_moving_average",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -56,6 +58,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_ewma",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -75,6 +79,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.detect_anomalies_zscore",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -94,6 +100,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_trend",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -134,6 +142,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_percentiles",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -153,6 +163,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_statistics",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -172,6 +184,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_correlation",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -194,6 +208,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_rfm_score",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -241,6 +257,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_ltv",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -262,6 +280,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_churn_probability",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -309,6 +329,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_npv",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -330,6 +352,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_irr",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -349,6 +373,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.calculate_sharpe_ratio",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -368,6 +394,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.normalize_values",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -389,6 +417,8 @@ suite("test_python_udf_business_logic") {
             "file" = "file://${pyPath}",
             "symbol" = "business_logic.bin_values",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
         """

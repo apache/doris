@@ -20,6 +20,7 @@
 #include <butil/fd_utility.h>
 #include <signal.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -36,16 +37,95 @@
 #endif
 
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
 
 #ifdef BE_TEST
+static constexpr std::chrono::milliseconds PROCESS_START_TIMEOUT {500};
 static constexpr std::chrono::milliseconds PROCESS_TERMINATE_TIMEOUT {100};
 #else
+static constexpr std::chrono::milliseconds PROCESS_START_TIMEOUT {5000};
 static constexpr std::chrono::milliseconds PROCESS_TERMINATE_TIMEOUT {1000};
 #endif
 static constexpr std::chrono::milliseconds BACKGROUND_REAP_INTERVAL {1000};
+
+Status PythonUDFProcess::create(const PythonVersion& version, ProcessPtr* process) {
+    std::vector<std::string> args = {"-u", get_fight_server_path(), get_base_unix_socket_path()};
+    boost::process::environment env = boost::this_process::environment();
+    boost::process::ipstream child_output;
+    // Test synchronization precedes child creation so it cannot consume readiness timeout.
+#ifdef BE_TEST
+    TEST_SYNC_POINT_CALLBACK("PythonUDFProcess::create:before_process_start", &version);
+#endif
+    try {
+        boost::process::child c(
+                version.get_executable_path(), args, boost::process::std_out > child_output,
+                boost::process::env = env,
+                boost::process::on_exit([](int exit_code, const std::error_code& ec) {
+                    if (ec) {
+                        LOG(WARNING) << "Python UDF server exited with error: " << ec.message();
+                    }
+                }));
+
+        // A child may start without creating its Flight socket; bound the readiness wait.
+        pid_t child_pid = c.id();
+        std::string expected_socket_path = get_unix_socket_file_path(child_pid);
+        bool started_successfully = false;
+        std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+
+        while (std::chrono::steady_clock::now() - start < PROCESS_START_TIMEOUT) {
+            struct stat buffer;
+            if (stat(expected_socket_path.c_str(), &buffer) == 0) {
+                started_successfully = true;
+                break;
+            }
+            if (!c.running()) {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        if (!started_successfully) {
+            int exit_status = 0;
+            if (c.running()) {
+                // Bound termination as well: boost::process::wait() can block indefinitely.
+                ::kill(child_pid, SIGTERM);
+                auto wait_result =
+                        wait_child_exit(child_pid, PROCESS_TERMINATE_TIMEOUT, &exit_status);
+                if (wait_result == ChildExitWaitResult::TIMEOUT ||
+                    wait_result == ChildExitWaitResult::ERROR) {
+                    LOG(WARNING) << "Python server start timeout and terminate timeout exceeded,"
+                                 << " sending SIGKILL to pid=" << child_pid;
+                    ::kill(child_pid, SIGKILL);
+                    wait_result =
+                            wait_child_exit(child_pid, PROCESS_TERMINATE_TIMEOUT, &exit_status);
+                    if (wait_result == ChildExitWaitResult::TIMEOUT ||
+                        wait_result == ChildExitWaitResult::ERROR) [[unlikely]] {
+                        // Retain waitpid ownership until the child exits after SIGKILL.
+                        enqueue_child_for_reap(child_pid);
+                        c.detach();
+                        return Status::InternalError(
+                                "Python server start failed: process did not exit after SIGKILL, "
+                                "pid={}",
+                                child_pid);
+                    }
+                }
+            } else {
+                wait_child_exit(child_pid, std::chrono::milliseconds(0), &exit_status);
+            }
+            c.detach();
+            return Status::InternalError("Python server start failed: socket file not found at {}",
+                                         expected_socket_path);
+        }
+
+        *process = std::make_shared<PythonUDFProcess>(std::move(c), std::move(child_output));
+    } catch (const std::exception& e) {
+        return Status::InternalError("Failed to start Python UDF server: {}", e.what());
+    }
+    return Status::OK();
+}
 
 #ifdef BE_TEST
 static std::atomic<int> FORCED_CHILD_EXIT_TIMEOUTS {0};

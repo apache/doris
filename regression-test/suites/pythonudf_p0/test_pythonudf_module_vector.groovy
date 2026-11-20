@@ -61,6 +61,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_add_with_constant",
             "runtime_version" = "${runtime_version}",
@@ -85,6 +87,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_multiply_and_round",
             "runtime_version" = "${runtime_version}",
@@ -109,6 +113,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_string_concat_with_separator",
             "runtime_version" = "${runtime_version}",
@@ -133,6 +139,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_string_title_case",
             "runtime_version" = "${runtime_version}",
@@ -156,6 +164,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_conditional_value",
             "runtime_version" = "${runtime_version}",
@@ -180,6 +190,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_percentage_calculation",
             "runtime_version" = "${runtime_version}",
@@ -204,6 +216,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_is_in_range",
             "runtime_version" = "${runtime_version}",
@@ -227,6 +241,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_safe_divide",
             "runtime_version" = "${runtime_version}",
@@ -251,6 +267,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_exponential_decay",
             "runtime_version" = "${runtime_version}",
@@ -275,6 +293,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_string_extract_first_word",
             "runtime_version" = "${runtime_version}",
@@ -298,6 +318,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_abs_difference",
             "runtime_version" = "${runtime_version}",
@@ -322,6 +344,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_power",
             "runtime_version" = "${runtime_version}",
@@ -345,6 +369,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_boolean_and",
             "runtime_version" = "${runtime_version}",
@@ -369,6 +395,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS BOOLEAN 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_boolean_or",
             "runtime_version" = "${runtime_version}",
@@ -393,6 +421,8 @@ suite("test_pythonudf_module_vector") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${pyPath}",
             "symbol" = "python_udf_vector_ops.vec_clip_values",
             "runtime_version" = "${runtime_version}",

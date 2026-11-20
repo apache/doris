@@ -27,8 +27,10 @@
 #include "udf/python/python_udf_meta.h"
 
 namespace doris {
+class PythonFunctionRuntime;
 
 class RuntimeState;
+struct UserFunctionCacheEntry;
 
 /**
  * Aggregate state data for Python UDAF
@@ -178,6 +180,7 @@ private:
     PythonUDFMeta _func_meta;
     PythonVersion _python_version;
     cctz::time_zone _timezone_obj;
+    std::shared_ptr<PythonFunctionRuntime> _runtime;
     // Arrow Flight schema: [argument_types..., places: int64, binary_data: binary]
     // Used for all UDAF RPC operations
     // - places column is always present (NULL in single-place mode, actual place_id values in GROUP BY mode)

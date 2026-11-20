@@ -38,6 +38,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.one_to_one",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -76,6 +78,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.one_to_many",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -114,6 +118,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.one_to_zero",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -152,6 +158,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.one_to_variable",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -195,6 +203,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.aggregate_pattern",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -235,6 +245,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.explosive",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -274,6 +286,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.conditional",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -312,6 +326,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.all_or_nothing",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -354,6 +370,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.empty_input",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """
@@ -389,6 +407,8 @@ suite("test_pythonudtf_io_patterns_module") {
             "file" = "file://${pyPath}",
             "symbol" = "pyudtf_module.io_patterns_udtf.batch_process",
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "runtime_version" = "${runtime_version}"
         );
         """

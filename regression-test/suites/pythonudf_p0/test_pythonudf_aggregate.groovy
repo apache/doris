@@ -27,6 +27,8 @@ suite("test_pythonudf_aggregate") {
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}",
             "volatility" = "immutable"
@@ -120,6 +122,8 @@ def evaluate(score):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtime_version}",
             "volatility" = "immutable"

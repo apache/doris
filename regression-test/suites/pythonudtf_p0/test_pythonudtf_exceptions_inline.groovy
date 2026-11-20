@@ -33,6 +33,8 @@ suite("test_pythonudtf_exceptions_inline") {
         RETURNS ARRAY<STRUCT<numerator:INT, denominator:INT, result:DOUBLE, error_msg:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "safe_divide",
             "runtime_version" = "${runtime_version}"
         )
@@ -84,6 +86,8 @@ def safe_divide(a, b):
         RETURNS ARRAY<STRUCT<original:BIGINT, doubled:BIGINT, status:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "check_overflow",
             "runtime_version" = "${runtime_version}"
         )
@@ -144,6 +148,8 @@ def check_overflow(value):
         RETURNS ARRAY<STRUCT<input:STRING, parsed:DOUBLE, is_valid:BOOLEAN>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "parse_number",
             "runtime_version" = "${runtime_version}"
         )
@@ -196,6 +202,8 @@ def parse_number(text):
         RETURNS ARRAY<STRUCT<value:STRING, type_name:STRING, length:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "check_type",
             "runtime_version" = "${runtime_version}"
         )
@@ -251,6 +259,8 @@ def check_type(value):
         RETURNS ARRAY<STRUCT<arr_size:INT, target_pos:INT, value:INT, status:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "safe_array_access",
             "runtime_version" = "${runtime_version}"
         )
@@ -303,6 +313,8 @@ def safe_array_access(arr, position):
         RETURNS ARRAY<STRUCT<count:INT, total:BIGINT, avg:DOUBLE, status:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "compute_stats",
             "runtime_version" = "${runtime_version}"
         )
@@ -358,6 +370,8 @@ def compute_stats(arr):
         RETURNS ARRAY<STRUCT<has_name:BOOLEAN, has_age:BOOLEAN, name_val:STRING, age_val:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "access_struct_fields",
             "runtime_version" = "${runtime_version}"
         )
@@ -415,6 +429,8 @@ def access_struct_fields(person):
         RETURNS ARRAY<STRUCT<original:STRING, start_pos:INT, end_pos:INT, slice:STRING, status:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "slice_string",
             "runtime_version" = "${runtime_version}"
         )
@@ -476,6 +492,8 @@ def slice_string(text, start, end):
         RETURNS ARRAY<STRUCT<text:STRING, byte_length:INT, char_length:INT, has_unicode:BOOLEAN>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "check_text_encoding",
             "runtime_version" = "${runtime_version}"
         )
@@ -531,6 +549,8 @@ def check_text_encoding(text):
         RETURNS ARRAY<STRUCT<input:INT, category:STRING, result:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "process_conditional",
             "runtime_version" = "${runtime_version}"
         )
@@ -588,6 +608,8 @@ def process_conditional(value):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "conditional_yield",
             "runtime_version" = "${runtime_version}"
         )
@@ -639,6 +661,8 @@ def conditional_yield(value):
         RETURNS ARRAY<STRUCT<value:DOUBLE, magnitude:STRING, is_finite:BOOLEAN>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "classify_number_range",
             "runtime_version" = "${runtime_version}"
         )
@@ -701,6 +725,8 @@ def classify_number_range(value):
         RETURNS ARRAY<STRUCT<input_date:DATE, year:INT, is_leap_year:BOOLEAN, status:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "validate_date",
             "runtime_version" = "${runtime_version}"
         )

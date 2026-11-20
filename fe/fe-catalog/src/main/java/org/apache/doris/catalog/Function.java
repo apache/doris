@@ -41,6 +41,8 @@ import java.util.Objects;
  */
 public class Function implements Writable {
 
+    public static final long DEFAULT_AUTO_SUSPEND_SECONDS = 14400;
+
     public enum NullableMode {
         // Whether output column is nullable is depend on the input column is nullable
         DEPEND_ON_ARGUMENT,
@@ -112,6 +114,10 @@ public class Function implements Writable {
     protected long expirationTime = 360; // default 6 hours;
     @SerializedName("rv")
     protected String runtimeVersion;
+    @SerializedName("ps")
+    protected int poolSize = 3;
+    @SerializedName("as")
+    protected long autoSuspend = DEFAULT_AUTO_SUSPEND_SECONDS;
     @SerializedName("fc")
     protected String functionCode;
     @SerializedName("vol")
@@ -175,6 +181,8 @@ public class Function implements Writable {
         this.isStaticLoad = other.isStaticLoad;
         this.expirationTime = other.expirationTime;
         this.runtimeVersion = other.runtimeVersion;
+        this.poolSize = other.poolSize;
+        this.autoSuspend = other.autoSuspend;
         this.functionCode = other.functionCode;
         this.volatility = other.getVolatility();
     }
@@ -286,6 +294,22 @@ public class Function implements Writable {
 
     public void setGlobal(boolean global) {
         isGlobal = global;
+    }
+
+    public int getPoolSize() {
+        return poolSize;
+    }
+
+    public void setPoolSize(int poolSize) {
+        this.poolSize = poolSize;
+    }
+
+    public long getAutoSuspend() {
+        return autoSuspend;
+    }
+
+    public void setAutoSuspend(long autoSuspend) {
+        this.autoSuspend = autoSuspend;
     }
 
     public String getRuntimeVersion() {

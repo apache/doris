@@ -48,6 +48,8 @@ suite("test_pythonudf_boolean") {
             "file"="file://${pyPath}",
             "symbol"="boolean_test.evaluate",
             "type"="PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         ); """

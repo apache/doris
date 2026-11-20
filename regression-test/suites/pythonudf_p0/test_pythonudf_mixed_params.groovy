@@ -68,6 +68,8 @@ suite("test_pythonudf_mixed_params") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_multiply_constant",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -100,6 +102,8 @@ def py_vec_multiply_constant(values: pd.Series, multiplier: float) -> pd.Series:
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_calc_total",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -136,6 +140,8 @@ def py_vec_calc_total(price: pd.Series, quantity: pd.Series, tax_rate: float) ->
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_apply_discount",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -170,6 +176,8 @@ def py_vec_apply_discount(price: pd.Series, discount_rate: pd.Series) -> pd.Seri
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_complex_calc",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -211,6 +219,8 @@ def py_vec_complex_calc(price: pd.Series, quantity: pd.Series, discount_rate: pd
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_add_prefix",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -244,6 +254,8 @@ def py_vec_add_prefix(categories: pd.Series, prefix: str) -> pd.Series:
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_add_int_inline",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -277,6 +289,8 @@ def py_vec_add_int_inline(quantities: pd.Series, bonus: int) -> pd.Series:
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_conditional_discount",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -317,6 +331,8 @@ def py_vec_conditional_discount(price: pd.Series, discount_rate: pd.Series, thre
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_scale_and_add",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -352,6 +368,8 @@ def py_vec_scale_and_add(scale_factor: float, prices: pd.Series, quantities: pd.
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_alternating",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
@@ -394,6 +412,8 @@ def py_vec_alternating(prices: pd.Series, markup: float, quantities: pd.Series, 
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "py_vec_multi_scalar",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
