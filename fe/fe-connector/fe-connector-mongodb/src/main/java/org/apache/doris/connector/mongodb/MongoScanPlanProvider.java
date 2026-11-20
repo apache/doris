@@ -143,7 +143,7 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
                 split.setReason(plan.reason());
                 if (!plan.family().isEmpty()) {
                     range.setVersion(2);
-                    split.setFilterBson(MongoSplitPlan.encode(plan.partition(index)));
+                    split.setFilterBson(plan.partitionBytes(index));
                 }
                 range.setSplit(split);
                 if (snapshot != null) {

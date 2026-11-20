@@ -126,10 +126,17 @@ suite("test_mongodb_splits", "p0,external") {
                 JOIN ${namespace}.date_records r ON l.seq=r.seq"""
             exception "exactly one MongoDB scan"
         }
-        String plan = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1,max_file_split_num=8," +
-            "mongodb_split_field='split_key') */ count(*) FROM ${namespace}.duplicate_records").toString()
-        assertTrue(plan.contains("requested/admitted/actual: 8/8/2"))
-        assertTrue(plan.contains("type: integer"))
+        // Without an internal boundary, custom fields must not publish two unbounded collection scans.
+        for (boolean streaming : [false, true]) {
+            for (List spec : [["duplicate_records", 8], ["integer_records", 2], ["date_records", 2]]) {
+                String plan = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='range',file_split_size=1," +
+                    "max_file_split_num=${spec[1]},mongodb_split_field='split_key'," +
+                    "enable_external_table_batch_mode=${streaming}) */ count(*) FROM ${namespace}.${spec[0]}").toString()
+                assertTrue(plan.contains("requested/admitted/actual: ${spec[1]}/${spec[1]}/1"))
+                assertTrue(plan.contains("MongoDB splits: single;"))
+                assertTrue(plan.contains("reason: insufficient_boundaries"))
+            }
+        }
         String one = sql("EXPLAIN SELECT /*+ SET_VAR(mongodb_split_strategy='range'," +
             "file_split_size=2147483647,max_file_split_num=8) */ count(*) FROM ${namespace}.integer_records").toString()
         assertTrue(one.contains("requested/admitted/actual: 1/1/1"))

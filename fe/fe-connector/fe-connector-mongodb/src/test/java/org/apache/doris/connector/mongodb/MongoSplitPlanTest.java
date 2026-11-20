@@ -132,7 +132,8 @@ class MongoSplitPlanTest {
 
     @Test
     void partitionsAreOwnedAndUnsupportedFamiliesFail() {
-        var plan = MongoSplitPlan.ranges("sequence", "integer", List.of(new BsonInt32(1)), 3, 3);
+        var plan = MongoSplitPlan.ranges("sequence", "integer",
+                List.of(new BsonInt32(1), new BsonInt32(2), new BsonInt32(3)), 3, 3);
         plan.partition(0).clear();
         Assertions.assertFalse(plan.partition(0).isEmpty());
         for (String family : List.of("decimal", "double", "string", "array", "timestamp")) {
@@ -178,6 +179,57 @@ class MongoSplitPlanTest {
                 for (BsonValue value : values) {
                     Assertions.assertEquals(1, matches(plan, value));
                 }
+            }
+        }
+    }
+
+    @Test
+    void customFieldWithOnlyOneAdmittedRangeUsesACompleteSingleScan() {
+        var samples = List.<BsonValue>of(new BsonInt64(Long.MIN_VALUE), new BsonInt64(-1),
+                new BsonInt64(9007199254740993L), new BsonInt64(Long.MAX_VALUE));
+        var plan = MongoSplitPlan.ranges("sequence", "integer", samples, 8, 2);
+        Assertions.assertEquals(1, plan.size());
+        Assertions.assertEquals("insufficient_boundaries", plan.reason());
+        Assertions.assertEquals("", plan.family());
+        Assertions.assertEquals(new BsonDocument(), plan.partition(0));
+    }
+
+    @Test
+    void identicalCustomFieldSamplesNeverPublishTwoUnboundedTypeScans() {
+        for (BsonValue value : List.of(new BsonInt64(9007199254740993L),
+                new BsonDateTime(Long.MIN_VALUE), new BsonObjectId(new ObjectId("800000000000000000000001")))) {
+            String family = value.isInt64() ? "integer" : value.isDateTime() ? "date" : "objectId";
+            for (int admitted : new int[] {2, 3, 8, 256}) {
+                var plan = MongoSplitPlan.ranges("sequence", family, List.of(value, value, value), 256, admitted);
+                Assertions.assertEquals(1, plan.size(), family + ":" + admitted);
+                Assertions.assertEquals("insufficient_boundaries", plan.reason());
+                Assertions.assertEquals(new BsonDocument(), plan.partition(0));
+            }
+        }
+    }
+
+    @Test
+    void encodedPartitionsAreExactAndOwnedByEachDescriptor() {
+        for (String family : List.of("integer", "date", "objectId")) {
+            List<BsonValue> values = switch (family) {
+                case "integer" -> List.of(new BsonInt64(Long.MIN_VALUE), new BsonInt64(9007199254740993L),
+                        new BsonInt64(Long.MAX_VALUE));
+                case "date" -> List.of(new BsonDateTime(Long.MIN_VALUE), new BsonDateTime(-1),
+                        new BsonDateTime(Long.MAX_VALUE));
+                default -> List.of(new BsonObjectId(new ObjectId("000000000000000000000001")),
+                        new BsonObjectId(new ObjectId("800000000000000000000001")),
+                        new BsonObjectId(new ObjectId("ffffffffffffffffffffffff")));
+            };
+            var plan = MongoSplitPlan.ranges("_id", family, values, 3, 3);
+            var budgeted = plan.withDescriptorBudget(1024);
+            for (int index = 0; index < plan.size(); index++) {
+                byte[] expected = MongoSplitPlan.encode(plan.partition(index));
+                byte[] exposed = budgeted.partitionBytes(index);
+                Assertions.assertArrayEquals(expected, exposed);
+                java.util.Arrays.fill(exposed, (byte) 0);
+                Assertions.assertArrayEquals(expected, plan.partitionBytes(index));
+                Assertions.assertArrayEquals(expected, budgeted.partitionBytes(index));
+                Assertions.assertArrayEquals(expected, MongoSplitPlan.encode(plan.partition(index)));
             }
         }
     }
