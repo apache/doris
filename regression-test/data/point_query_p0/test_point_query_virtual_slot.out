@@ -2,3 +2,9 @@
 -- !point_query_virtual_slot --
 601	1202	1202
 
+-- !point_query_nested_virtual_slot --
+601	2404	2404
+
+-- !point_query_virtual_slot_partial --
+601	1202	1202
+

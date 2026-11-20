@@ -32,6 +32,7 @@
 #include <ostream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -104,12 +105,14 @@ public:
     // delete sign idx in block
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
 
-    // Point-query blocks use real typed columns. Materialize virtual slots
-    // explicitly after row-store decoding instead of relying on ColumnNothing
-    // as an implicit lazy-expression marker.
+    // Materialize virtual slots after physical row data has been decoded and
+    // before output expressions are evaluated.
     Status materialize_virtual_columns(Block* block) const;
 
 private:
+    Status materialize_virtual_column(int pos, Block* block,
+                                      std::unordered_set<int>& materialized,
+                                      std::unordered_set<int>& visiting) const;
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
     DescriptorTbl* _desc_tbl = nullptr;

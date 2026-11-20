@@ -52,5 +52,46 @@ suite("test_point_query_virtual_slot") {
 
     qt_point_query_virtual_slot query
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    // Validate a derived column whose input is not included in the row-store
+    // projection and therefore must still be available for expression evaluation.
+    sql "SET enable_short_circuit_query_access_column_store = true"
+    sql "DROP TABLE IF EXISTS point_query_virtual_slot_partial"
+    sql """
+        CREATE TABLE point_query_virtual_slot_partial (
+            key_col INT NOT NULL,
+            value_col INT NOT NULL
+        ) UNIQUE KEY(key_col)
+        DISTRIBUTED BY HASH(key_col) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "row_store_columns" = "key_col",
+            "enable_unique_key_merge_on_write" = "true"
+        )
+    """
+    sql "INSERT INTO point_query_virtual_slot_partial VALUES (601, 601)"
+
+    // Validate a nested derived expression and ensure that all expression
+    // dependencies are resolved before the final value is produced. Run this
+    // independently of the physical-column coverage below.
+    def nestedQuery = """
+        SELECT key_col,
+               (key_col + value_col) + (key_col + value_col) AS nested_value,
+               (key_col + value_col) + (key_col + value_col) AS nested_value_again
+        FROM point_query_virtual_slot_partial
+        WHERE key_col = 601
+    """
+    order_qt_point_query_nested_virtual_slot nestedQuery
+
+    def partialQuery = """
+        SELECT key_col,
+               key_col + value_col AS computed_value,
+               key_col + value_col AS computed_value_again
+        FROM point_query_virtual_slot_partial
+        WHERE key_col = 601
+    """
+    explain {
+        sql partialQuery
+        contains "SHORT-CIRCUIT"
+    }
+    order_qt_point_query_virtual_slot_partial partialQuery
 }
