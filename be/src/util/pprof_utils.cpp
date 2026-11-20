@@ -35,15 +35,17 @@ extern std::string pprof_profile_dir;
 
 Status PprofUtils::get_pprof_cmd(std::string* cmd) {
     AgentUtils util;
-    // check if pprof cmd exist
-    const static std::string tools_path = std::string(std::getenv("DORIS_HOME")) + "/tools/bin/";
+    // The startup script sets DORIS_HOME before the BE starts.
+    const char* doris_home = std::getenv("DORIS_HOME");
+    DORIS_CHECK(doris_home != nullptr);
+    const std::string tools_path = std::string(doris_home) + "/tools/bin/";
     std::string pprof_cmd = tools_path + "pprof";
     std::string msg;
-    bool rc = util.exec_cmd(pprof_cmd + " --version", &msg);
+    bool rc = util.exec_cmd(AgentUtils::shell_quote(pprof_cmd) + " --version", &msg);
     if (!rc) {
         // not found in BE tools dir, found in system
         pprof_cmd = "pprof";
-        rc = util.exec_cmd(pprof_cmd + " --version", &msg);
+        rc = util.exec_cmd(AgentUtils::shell_quote(pprof_cmd) + " --version", &msg);
         if (!rc) {
             return Status::NotSupported(
                     "pprof: command not found in systemp PATH or be/tools/bin/. Install gperftools "
@@ -59,7 +61,7 @@ Status PprofUtils::get_perf_cmd(std::string* cmd) {
     // check if perf cmd exist
     std::string perf_cmd = "perf";
     std::string msg;
-    bool rc = util.exec_cmd(perf_cmd + " --version", &msg);
+    bool rc = util.exec_cmd(AgentUtils::shell_quote(perf_cmd) + " --version", &msg);
     if (!rc) {
         return Status::NotSupported("perf: command not found in systemp PATH");
     }
@@ -111,13 +113,16 @@ Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool
 
     // parse raw with "pprof --text cmdline raw_file"
     std::string cmd_output;
-    std::string final_cmd = pprof_cmd + absl::Substitute(" --text $0 $1", self_cmdline, final_file);
+    // Quote each path. For example, "log;pwd/profile" is one path, not two commands.
+    std::string final_cmd = absl::Substitute(
+            "$0 --text -- $1 $2", AgentUtils::shell_quote(pprof_cmd),
+            AgentUtils::shell_quote(self_cmdline), AgentUtils::shell_quote(final_file));
     AgentUtils util;
     LOG(INFO) << "begin to run command: " << final_cmd;
     bool rc = util.exec_cmd(final_cmd, &cmd_output, false);
 
     // delete raw file
-    static_cast<void>(io::global_local_filesystem()->delete_file(file_or_content));
+    static_cast<void>(io::global_local_filesystem()->delete_file(final_file));
 
     if (!rc) {
         return Status::InternalError("Failed to execute command: {}", cmd_output);
@@ -153,8 +158,9 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
 
     // sample
     std::stringstream cmd;
-    cmd << perf_cmd << " record -m 2 -g -p " << getpid() << " -o " << tmp_file.str() << " -- sleep "
-        << sample_seconds;
+    // Keep configured paths as arguments, including paths with spaces or shell syntax.
+    cmd << AgentUtils::shell_quote(perf_cmd) << " record -m 2 -g -p " << getpid() << " -o "
+        << AgentUtils::shell_quote(tmp_file.str()) << " -- sleep " << sample_seconds;
 
     AgentUtils util;
     std::string cmd_output;
@@ -173,8 +179,12 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         graph_file << config::pprof_profile_dir << "/flamegraph." << getpid() << "." << rand()
                    << ".svg";
         std::stringstream gen_cmd;
-        gen_cmd << perf_cmd << " script -i " << tmp_file.str() << " | " << stackcollapse_perf_pl
-                << " | " << flamegraph_pl << " > " << graph_file.str();
+        // Only these fixed pipe and redirection operators are shell syntax.
+        gen_cmd << AgentUtils::shell_quote(perf_cmd) << " script -i "
+                << AgentUtils::shell_quote(tmp_file.str()) << " | "
+                << AgentUtils::shell_quote(stackcollapse_perf_pl) << " | "
+                << AgentUtils::shell_quote(flamegraph_pl) << " > "
+                << AgentUtils::shell_quote(graph_file.str());
         LOG(INFO) << "begin to run command: " << gen_cmd.str();
         rc = util.exec_cmd(gen_cmd.str(), &res_content);
         if (!rc) {
@@ -185,8 +195,10 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         *svg_file_or_content = graph_file.str();
     } else {
         std::stringstream gen_cmd;
-        gen_cmd << perf_cmd << " script -i " << tmp_file.str() << " | " << stackcollapse_perf_pl
-                << " | " << flamegraph_pl;
+        gen_cmd << AgentUtils::shell_quote(perf_cmd) << " script -i "
+                << AgentUtils::shell_quote(tmp_file.str()) << " | "
+                << AgentUtils::shell_quote(stackcollapse_perf_pl) << " | "
+                << AgentUtils::shell_quote(flamegraph_pl);
         LOG(INFO) << "begin to run command: " << gen_cmd.str();
         rc = util.exec_cmd(gen_cmd.str(), &res_content, false);
         if (!rc) {
