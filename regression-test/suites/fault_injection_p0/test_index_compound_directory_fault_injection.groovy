@@ -178,10 +178,10 @@ suite("test_index_compound_directory_fault_injection", "nonConcurrent") {
                 res = sql "select COUNT() from ${test_index_compound_directory} where request match 'gif'"
                 try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
             } catch(Exception ex) {
-                // _tablet_reader->init() now returns the underlying error verbatim and only
-                // appends the tablet/backend context (no longer the misleading
-                // "failed to initialize storage reader" wording).
-                assertTrue(ex.toString().contains("tablet=") && ex.toString().contains("backend="))
+                // The read error comes back as the storage layer reports it; where init() reads
+                // the first rows (VCollectIterator), _open_impl() also appends the tablet and the
+                // backend.
+                assertTrue(ex.toString().contains("CLuceneError occur when init idx file"))
                 logger.info("_mock_append_data_error_in_fsindexoutput_flushBuffer,  result: " + ex)
             } finally {
                 GetDebugPoint().disableDebugPointForAllBEs("DorisFSDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
