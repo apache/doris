@@ -39,7 +39,8 @@ public class HealthAction extends RestBaseController {
     @RequestMapping(path = "/api/health", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
         // Health endpoint is public - no authentication required
-        if (!FeConstants.runningUnitTest && !DorisFE.isServerReady()) {
+        if (!FeConstants.runningUnitTest
+                && (!DorisFE.isServerReady() || !Env.getCurrentEnv().isReady())) {
             return ResponseEntityBuilder.serviceUnavailable("Server is not ready");
         }
 

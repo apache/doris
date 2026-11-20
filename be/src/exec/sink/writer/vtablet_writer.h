@@ -394,8 +394,13 @@ protected:
     std::atomic<int> _pending_batches_num {0}; // reuse for vectorized
 
     std::shared_ptr<PBackendService_Stub> _stub;
-    // because we have incremantal open, we should keep one relative closure for one request. it's similarly for adding block.
-    std::vector<std::shared_ptr<DummyBrpcCallback<PTabletWriterOpenResult>>> _open_callbacks;
+    struct OpenRpc {
+        std::shared_ptr<DummyBrpcCallback<PTabletWriterOpenResult>> callback;
+        // An owned copy is needed because _open_internal releases borrowed id/schema fields.
+        std::shared_ptr<PTabletWriterOpenRequest> retry_request;
+        int64_t retry_deadline_ms = 0;
+    };
+    std::vector<OpenRpc> _open_rpcs;
 
     std::vector<TTabletWithPartition> _all_tablets;
     std::vector<TTabletWithPartition> _tablets_wait_open;

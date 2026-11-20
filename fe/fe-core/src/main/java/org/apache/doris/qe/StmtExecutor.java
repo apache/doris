@@ -42,6 +42,7 @@ import org.apache.doris.cloud.proto.Cloud.ClusterStatus;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuditLog;
+import org.apache.doris.common.CatalogNotReadyException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -170,6 +171,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -715,6 +717,7 @@ public class StmtExecutor {
     }
 
     private void executeWithReplanRetries(TUniqueId queryId) throws Exception {
+        long queryStartNanos = System.nanoTime();
         TUniqueId firstQueryId = queryId;
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
@@ -733,6 +736,20 @@ public class StmtExecutor {
                     execute(queryId);
                 }
                 return;
+            } catch (CatalogNotReadyException e) {
+                // No query has been sent or executed when the local catalog readiness check fails.
+                // Re-enter routing after the election, since this FE may now be the master.
+                if (!isQuery() || ((Queriable) parsedStmt).hasOutFileClause()) {
+                    throw e;
+                }
+                // The failed forward has no result; do not retain it if the retry executes locally.
+                masterOpExecutor = null;
+                isForwardedToMaster = null;
+                LOG.info("waiting for FE catalog readiness before retrying {}", context.getQueryIdentifier());
+                waitForCatalogReady(queryStartNanos);
+                context.getState().reset();
+                // Election waits have their own query deadline, independent of replan attempts.
+                i--;
             } catch (UserException e) {
                 profile.getSummaryProfile().recordFailedAttempt(context.queryId());
                 if (!SystemInfoService.needRetryWithReplan(e.getMessage()) || i == retryTime) {
@@ -780,6 +797,31 @@ public class StmtExecutor {
                 profile.clearPlan();
             } catch (Exception e) {
                 profile.getSummaryProfile().recordFailedAttempt(context.queryId());
+                throw e;
+            }
+        }
+    }
+
+    private void waitForCatalogReady(long queryStartNanos) throws Exception {
+        long timeoutNanos = TimeUnit.SECONDS.toNanos(Math.max(0, context.getExecTimeoutS()));
+        while (true) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Interrupted while waiting for FE catalog readiness");
+            }
+            if (pendingCoordinatorCancelReason.get() != null || context.isKilled()) {
+                throw new UserException("Query cancelled while waiting for FE catalog readiness");
+            }
+            long remainingNanos = timeoutNanos - (System.nanoTime() - queryStartNanos);
+            if (remainingNanos <= 0) {
+                throw new QueryTimeoutException();
+            }
+            if (context.getEnv().isReady()) {
+                return;
+            }
+            try {
+                TimeUnit.NANOSECONDS.sleep(Math.min(remainingNanos, TimeUnit.MILLISECONDS.toNanos(50)));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 throw e;
             }
         }
@@ -1363,6 +1405,10 @@ public class StmtExecutor {
                         } catch (InterruptedException e) {
                             LOG.info("stmt executor sleep wait InterruptedException: ", e);
                         }
+                    } else if (VariableMgr.getDefaultSessionVariable().enableGracefulShutdown) {
+                        // A heartbeat can precede network convergence after a pod restart.
+                        // Preserve the existing safe-to-retry checks and result-sent guard below.
+                        Thread.sleep(Math.min(1000L * i, 3000L));
                     }
                 }
                 if (i > 0) {
@@ -1643,9 +1689,10 @@ public class StmtExecutor {
         if (delegate != null) {
             delegate.accept(cancelReason);
         }
-        if (masterOpExecutor != null) {
+        MasterOpExecutor forwardingExecutor = masterOpExecutor;
+        if (forwardingExecutor != null) {
             try {
-                masterOpExecutor.cancel();
+                forwardingExecutor.cancel();
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }

@@ -1458,6 +1458,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnBeginResult loadTxnBegin(TLoadTxnBeginRequest request) throws TException {
+        try (TxnRpcAdmissionController.Guard guard = TxnRpcAdmissionController.INSTANCE.tryEnter()) {
+            if (guard == null) {
+                TStatus status = new TStatus(TStatusCode.FE_SHUTTING_DOWN);
+                status.addToErrorMsgs("FE is shutting down; retry this RPC on the current master");
+                return new TLoadTxnBeginResult().setStatus(status);
+            }
+            return loadTxnBeginWithAdmission(request);
+        }
+    }
+
+    private TLoadTxnBeginResult loadTxnBeginWithAdmission(TLoadTxnBeginRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive txn begin request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
@@ -1687,6 +1698,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnCommitResult loadTxnPreCommit(TLoadTxnCommitRequest request) throws TException {
+        try (TxnRpcAdmissionController.Guard guard = TxnRpcAdmissionController.INSTANCE.tryEnter()) {
+            if (guard == null) {
+                TStatus status = new TStatus(TStatusCode.FE_SHUTTING_DOWN);
+                status.addToErrorMsgs("FE is shutting down; retry this RPC on the current master");
+                return new TLoadTxnCommitResult().setStatus(status);
+            }
+            return loadTxnPreCommitWithAdmission(request);
+        }
+    }
+
+    private TLoadTxnCommitResult loadTxnPreCommitWithAdmission(TLoadTxnCommitRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive txn pre-commit request: {}, backend: {}",
@@ -1831,6 +1853,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxn2PCResult loadTxn2PC(TLoadTxn2PCRequest request) throws TException {
+        try (TxnRpcAdmissionController.Guard guard = TxnRpcAdmissionController.INSTANCE.tryEnter()) {
+            if (guard == null) {
+                TStatus status = new TStatus(TStatusCode.FE_SHUTTING_DOWN);
+                status.addToErrorMsgs("FE is shutting down; retry this RPC on the current master");
+                return new TLoadTxn2PCResult().setStatus(status);
+            }
+            return loadTxn2PCWithAdmission(request);
+        }
+    }
+
+    private TLoadTxn2PCResult loadTxn2PCWithAdmission(TLoadTxn2PCRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive txn 2PC request: {}, backend: {}", ThriftLogHelper.requestForLog(request), clientAddr);
@@ -1921,6 +1954,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnCommitResult loadTxnCommit(TLoadTxnCommitRequest request) throws TException {
+        try (TxnRpcAdmissionController.Guard guard = TxnRpcAdmissionController.INSTANCE.tryEnter()) {
+            if (guard == null) {
+                TStatus status = new TStatus(TStatusCode.FE_SHUTTING_DOWN);
+                status.addToErrorMsgs("FE is shutting down; retry this RPC on the current master");
+                return new TLoadTxnCommitResult().setStatus(status);
+            }
+            return loadTxnCommitWithAdmission(request);
+        }
+    }
+
+    private TLoadTxnCommitResult loadTxnCommitWithAdmission(TLoadTxnCommitRequest request) throws TException {
         multiTableFragmentInstanceIdIndexMap.remove(request.getTxnId());
         deleteMultiTableStreamLoadJobIndex(request.getTxnId());
         String clientAddr = getClientAddrAsString();
@@ -2166,6 +2210,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TLoadTxnRollbackResult loadTxnRollback(TLoadTxnRollbackRequest request) throws TException {
+        try (TxnRpcAdmissionController.Guard guard = TxnRpcAdmissionController.INSTANCE.tryEnter()) {
+            if (guard == null) {
+                TStatus status = new TStatus(TStatusCode.FE_SHUTTING_DOWN);
+                status.addToErrorMsgs("FE is shutting down; retry this RPC on the current master");
+                return new TLoadTxnRollbackResult().setStatus(status);
+            }
+            return loadTxnRollbackWithAdmission(request);
+        }
+    }
+
+    private TLoadTxnRollbackResult loadTxnRollbackWithAdmission(TLoadTxnRollbackRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive txn rollback request: {}, backend: {}",
@@ -3104,6 +3159,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TStreamLoadPutResult streamLoadPut(TStreamLoadPutRequest request) {
+        try (TxnRpcAdmissionController.Guard guard = TxnRpcAdmissionController.INSTANCE.tryEnter()) {
+            if (guard == null) {
+                TStatus status = new TStatus(TStatusCode.FE_SHUTTING_DOWN);
+                status.addToErrorMsgs("FE is shutting down; retry this RPC on the current master");
+                return new TStreamLoadPutResult().setStatus(status);
+            }
+            return streamLoadPutWithAdmission(request);
+        }
+    }
+
+    private TStreamLoadPutResult streamLoadPutWithAdmission(TStreamLoadPutRequest request) {
         String clientAddr = getClientAddrAsString();
         if (LOG.isDebugEnabled()) {
             LOG.debug("receive stream load put request: {}, backend: {}",

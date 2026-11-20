@@ -612,6 +612,17 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
 
+        if (!ctx.startMysqlCommand()) {
+            return;
+        }
+        // Account for planning and FE-local statements too: they may have no Coordinator.
+        // Refuse new packets by closing the socket so a connection pool can reconnect.
+        if (!QueryAdmissionController.INSTANCE.tryAcquire()) {
+            ctx.setKilled();
+            ctx.finishMysqlCommand();
+            channel.close();
+            return;
+        }
         // The executor changes between statements of a multi-statement command. Resolve it
         // when a write stalls, and never retain its cancellation state for the next command.
         channel.setQueryCancelReason(() -> executor == null ? null : executor.getPendingCancelReason());
@@ -620,11 +631,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             finalizeCommand();
         } finally {
             channel.clearQueryCancelReason();
+            ctx.finishMysqlCommand();
+            ctx.clear();
+            executor = null;
+            QueryAdmissionController.INSTANCE.release();
         }
-
-        ctx.setCommand(MysqlCommand.COM_SLEEP);
-        ctx.clear();
-        executor = null;
     }
 
     // When any request is completed, it will generally need to send a response packet to the client

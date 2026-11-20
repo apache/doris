@@ -23,11 +23,13 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/status.h"
 
@@ -63,6 +65,9 @@ public:
 
     // get ip by hostname
     Status get(const std::string& hostname, std::string* ip);
+
+    // Force a lookup after a socket fault, keeping the last IP as DNS-failure fallback.
+    void invalidate(const std::string& hostname);
 
 private:
     // Resolve hostname to IP address.
@@ -147,6 +152,9 @@ private:
     std::unordered_map<std::string, std::string> cache;
     // hostname -> consecutive resolution failure bookkeeping
     std::unordered_map<std::string, FailureState> failure_count;
+    std::unordered_set<std::string> _refresh_pending;
+    std::unordered_set<std::string> _refresh_inflight;
+    std::unordered_map<std::string, std::shared_ptr<std::mutex>> _refresh_locks;
     // hostname -> eviction timestamp; effective deadline is computed as
     // eviction_time + dns_cache_negative_ttl_seconds to honor live config changes.
     std::unordered_map<std::string, std::chrono::steady_clock::time_point> _negative_cache;

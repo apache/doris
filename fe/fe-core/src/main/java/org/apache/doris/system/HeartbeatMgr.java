@@ -158,6 +158,12 @@ public class HeartbeatMgr extends MasterDaemon {
                 }
             });
         }
+        // Derive the temporary interval without overwriting the operator's configured value.
+        int heartbeatSeconds = Config.heartbeat_interval_second;
+        if (org.apache.doris.qe.VariableMgr.getDefaultSessionVariable().enableGracefulShutdown) {
+            heartbeatSeconds = Math.min(heartbeatSeconds, 3);
+        }
+        setInterval(heartbeatSeconds * 1000L);
         if (Config.isCloudMode() && masterInfo.get() != null) {
             masterInfo.get().setMetaServiceEndpoint(Config.meta_service_endpoint);
         }
@@ -360,6 +366,8 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setBackendId(backendId);
                 copiedMasterInfo.setFrontendInfos(feInfos);
                 copiedMasterInfo.setAuthToken(Env.getCurrentEnv().getTokenManager().acquireToken());
+                copiedMasterInfo.setInGracefulShutdown(
+                        org.apache.doris.qe.VariableMgr.getDefaultSessionVariable().enableGracefulShutdown);
                 if (Config.isCloudMode()) {
                     String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
                     copiedMasterInfo.setCloudUniqueId(cloudUniqueId);
