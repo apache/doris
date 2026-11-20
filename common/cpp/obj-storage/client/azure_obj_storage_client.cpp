@@ -176,6 +176,9 @@ struct AzureBatchDeleter {
             return resp;
         }
 
+        size_t deleted_count = 0;
+        std::unique_ptr<int, std::function<void(int*)>> defer(
+                (int*)0x01, [&](int*) { client_bvar::s3_deleted_objects_total << deleted_count; });
         for (auto&& deferred : deferred_resps) {
             try {
                 auto r = deferred.response.GetResponse();
@@ -187,6 +190,7 @@ struct AzureBatchDeleter {
                             .http_code = 0,
                             .request_id = ""};
                 }
+                ++deleted_count;
             } catch (Azure::Core::RequestFailedException& e) {
                 if (Azure::Core::Http::HttpStatusCode::NotFound == e.StatusCode &&
                     0 == strcmp(e.ErrorCode.c_str(), BlobNotFound)) {
@@ -605,6 +609,7 @@ ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& op
                     .request_id = "",
             };
         }
+        client_bvar::s3_deleted_objects_total << 1;
         return ObjStorageResponse::OK();
     } catch (Azure::Core::RequestFailedException& e) {
         if (e.StatusCode == Azure::Core::Http::HttpStatusCode::NotFound &&

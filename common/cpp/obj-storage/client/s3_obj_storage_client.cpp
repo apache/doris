@@ -526,6 +526,9 @@ ObjStorageResponse S3ObjStorageClient::delete_objects(const ObjStoragePath& opts
                     .http_code = static_cast<int>(delete_outcome.GetError().GetResponseCode()),
                     .request_id = delete_outcome.GetError().GetRequestId()};
         }
+        const size_t deleted_in_batch =
+                (end - begin) - delete_outcome.GetResult().GetErrors().size();
+        client_bvar::s3_deleted_objects_total << deleted_in_batch;
         if (!delete_outcome.GetResult().GetErrors().empty()) {
             const auto& error = delete_outcome.GetResult().GetErrors().front();
             LOG(WARNING) << fmt::format(
