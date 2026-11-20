@@ -36,6 +36,9 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.SetMultimap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -46,7 +49,6 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -123,7 +125,7 @@ public class AgentTaskCleanupDaemonTest {
 
         // Further offline checks must not discard or finish the retained publish tasks either.
         daemon.runAfterCatalogReady();
-        for (PublishVersionTask task : List.of(publishTask, anotherPublishTask)) {
+        for (PublishVersionTask task : ImmutableList.of(publishTask, anotherPublishTask)) {
             Assertions.assertSame(task, AgentTaskQueue.getTask(BACKEND_ID, TTaskType.PUBLISH_VERSION,
                     task.getSignature()));
             Assertions.assertFalse(task.isFinished());
@@ -137,12 +139,12 @@ public class AgentTaskCleanupDaemonTest {
             Deencapsulation.invoke(ReportHandler.class, "taskReport", BACKEND_ID, Collections.emptyMap(), 0L);
             ArgumentCaptor<AgentBatchTask> batch = ArgumentCaptor.forClass(AgentBatchTask.class);
             executor.verify(() -> AgentTaskExecutor.submit(batch.capture()));
-            Assertions.assertEquals(Set.of(publishTask, anotherPublishTask),
-                    Set.copyOf(batch.getValue().getAllTasks()));
+            Assertions.assertEquals(ImmutableSet.of(publishTask, anotherPublishTask),
+                    ImmutableSet.copyOf(batch.getValue().getAllTasks()));
 
             executor.reset();
-            Map<TTaskType, Set<Long>> runningTasks = Map.of(TTaskType.PUBLISH_VERSION,
-                    Set.of(publishTask.getSignature(), anotherPublishTask.getSignature()));
+            Map<TTaskType, Set<Long>> runningTasks = ImmutableMap.of(TTaskType.PUBLISH_VERSION,
+                    ImmutableSet.of(publishTask.getSignature(), anotherPublishTask.getSignature()));
             Deencapsulation.invoke(ReportHandler.class, "taskReport", BACKEND_ID, runningTasks, 2L);
             executor.verifyNoInteractions();
         }
@@ -151,8 +153,8 @@ public class AgentTaskCleanupDaemonTest {
     @Test
     public void testOfflineCleanupPreservesPartialPublishResult() {
         PublishVersionTask task = newPublishTask(BACKEND_ID, TRANSACTION_ID);
-        task.setSuccTablets(Map.of(10L, 3L));
-        task.addErrorTablets(List.of(11L));
+        task.setSuccTablets(ImmutableMap.of(10L, 3L));
+        task.addErrorTablets(ImmutableList.of(11L));
         task.setErrorCode(TStatusCode.RUNTIME_ERROR);
         task.setFinished(true);
         AgentTaskQueue.addTask(task);
@@ -164,9 +166,9 @@ public class AgentTaskCleanupDaemonTest {
                 task.getSignature()));
         Assertions.assertTrue(task.isFinished());
         Assertions.assertEquals(TStatusCode.RUNTIME_ERROR, task.getErrorCode());
-        Assertions.assertEquals(Map.of(10L, 3L), task.getSuccTablets());
-        Assertions.assertEquals(List.of(11L), task.getErrorTablets());
-        Assertions.assertEquals(List.of(task), AgentTaskQueue.getDiffTasks(BACKEND_ID, Collections.emptyMap()));
+        Assertions.assertEquals(ImmutableMap.of(10L, 3L), task.getSuccTablets());
+        Assertions.assertEquals(ImmutableList.of(11L), task.getErrorTablets());
+        Assertions.assertEquals(ImmutableList.of(task), AgentTaskQueue.getDiffTasks(BACKEND_ID, Collections.emptyMap()));
     }
 
     @Test
@@ -255,7 +257,7 @@ public class AgentTaskCleanupDaemonTest {
         PublishVersionTask task = newPublishTask(BACKEND_ID, TRANSACTION_ID);
         PublishVersionTask anotherBackendTask = newPublishTask(HEALTHY_BACKEND_ID, TRANSACTION_ID);
         PublishVersionTask otherDbTask = new PublishVersionTask(BACKEND_ID, TRANSACTION_ID + 1, 2L,
-                List.of(new TPartitionVersionInfo(2L, 3L, 0L)), 0L);
+                ImmutableList.of(new TPartitionVersionInfo(2L, 3L, 0L)), 0L);
         DropReplicaTask dropTask = new DropReplicaTask(BACKEND_ID, 10L, 20L, 0, false);
         AgentTaskQueue.addTask(task);
         AgentTaskQueue.addTask(anotherBackendTask);
@@ -265,7 +267,7 @@ public class AgentTaskCleanupDaemonTest {
         database.markDropped();
         env.eraseDatabase(1L, false);
         Mockito.verify(transactionMgr).removeDatabaseTransactionMgr(1L);
-        for (PublishVersionTask removed : List.of(task, anotherBackendTask)) {
+        for (PublishVersionTask removed : ImmutableList.of(task, anotherBackendTask)) {
             Assertions.assertFalse(AgentTaskQueue.contains(removed));
             Assertions.assertTrue(removed.isFinished());
             Assertions.assertEquals(TStatusCode.ABORTED, removed.getErrorCode());
@@ -370,26 +372,26 @@ public class AgentTaskCleanupDaemonTest {
         PublishVersionTask task = newPublishTask(BACKEND_ID, TRANSACTION_ID);
         task.setFinished(true);
         task.setErrorCode(TStatusCode.RUNTIME_ERROR);
-        task.addErrorTablets(List.of(10L));
+        task.addErrorTablets(ImmutableList.of(10L));
         AgentTaskQueue.addTask(task);
         SetMultimap<Long, TPartitionVersionInfo> updates = HashMultimap.create();
         updates.put(TRANSACTION_ID, failedPartition);
         updates.put(TRANSACTION_ID, newPartition);
         try (MockedStatic<AgentTaskExecutor> executor = Mockito.mockStatic(AgentTaskExecutor.class)) {
-            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", Map.of(1L, updates), BACKEND_ID);
+            Deencapsulation.invoke(ReportHandler.class, "handleRepublishVersionInfo", ImmutableMap.of(1L, updates), BACKEND_ID);
             ArgumentCaptor<AgentBatchTask> batch = ArgumentCaptor.forClass(AgentBatchTask.class);
             executor.verify(() -> AgentTaskExecutor.submit(batch.capture()));
             Assertions.assertEquals(1, batch.getValue().getAllTasks().size());
             PublishVersionTask dispatched = (PublishVersionTask) batch.getValue().getAllTasks().get(0);
-            Assertions.assertEquals(Set.of(failedPartition, newPartition),
-                    Set.copyOf(dispatched.getPartitionVersionInfos()));
+            Assertions.assertEquals(ImmutableSet.of(failedPartition, newPartition),
+                    ImmutableSet.copyOf(dispatched.getPartitionVersionInfos()));
             Assertions.assertSame(task, AgentTaskQueue.getTask(BACKEND_ID, TTaskType.PUBLISH_VERSION, TRANSACTION_ID));
-            Assertions.assertEquals(List.of(failedPartition), task.getPartitionVersionInfos());
+            Assertions.assertEquals(ImmutableList.of(failedPartition), task.getPartitionVersionInfos());
 
             executor.reset();
             Deencapsulation.invoke(ReportHandler.class, "taskReport", BACKEND_ID, Collections.emptyMap(), 0L);
             executor.verify(() -> AgentTaskExecutor.submit(batch.capture()));
-            Assertions.assertEquals(List.of(task), batch.getValue().getAllTasks());
+            Assertions.assertEquals(ImmutableList.of(task), batch.getValue().getAllTasks());
         }
     }
 
@@ -400,20 +402,20 @@ public class AgentTaskCleanupDaemonTest {
         transaction.setTransactionStatus(TransactionStatus.COMMITTED);
         AgentBatchTask batch = new AgentBatchTask();
         Deencapsulation.invoke(new PublishVersionDaemon(), "addPublishVersionTask",
-                Set.of(BACKEND_ID, HEALTHY_BACKEND_ID), TRANSACTION_ID, transaction,
-                List.of(new TPartitionVersionInfo(2L, 3L, 0L)), Collections.emptyMap(), 0L, batch);
+                ImmutableSet.of(BACKEND_ID, HEALTHY_BACKEND_ID), TRANSACTION_ID, transaction,
+                ImmutableList.of(new TPartitionVersionInfo(2L, 3L, 0L)), Collections.emptyMap(), 0L, batch);
         PublishVersionTask rejected = transaction.getPublishVersionTasks().get(BACKEND_ID).get(0);
         Assertions.assertTrue(rejected.isFinished());
         Assertions.assertEquals(TStatusCode.ABORTED, rejected.getErrorCode());
         Assertions.assertTrue(rejected.getSuccTablets().isEmpty());
         Assertions.assertFalse(AgentTaskQueue.contains(rejected));
         PublishVersionTask accepted = transaction.getPublishVersionTasks().get(HEALTHY_BACKEND_ID).get(0);
-        Assertions.assertEquals(List.of(accepted), batch.getAllTasks());
+        Assertions.assertEquals(ImmutableList.of(accepted), batch.getAllTasks());
         Assertions.assertTrue(AgentTaskQueue.contains(accepted));
     }
 
     private TransactionState newTransaction() {
-        return new TransactionState(1L, List.of(), TRANSACTION_ID, "publish_test", null,
+        return new TransactionState(1L, ImmutableList.of(), TRANSACTION_ID, "publish_test", null,
                 TransactionState.LoadJobSourceType.FRONTEND,
                 new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, 0, "127.0.0.1", 0L),
                 -1L, 10000L);
@@ -431,11 +433,11 @@ public class AgentTaskCleanupDaemonTest {
     private Map<Long, SetMultimap<Long, TPartitionVersionInfo>> republishInfo() {
         SetMultimap<Long, TPartitionVersionInfo> transactions = HashMultimap.create();
         transactions.put(TRANSACTION_ID, new TPartitionVersionInfo(2L, 3L, 0L));
-        return Map.of(1L, transactions);
+        return ImmutableMap.of(1L, transactions);
     }
 
     private PublishVersionTask newPublishTask(long backendId, long transactionId) {
         return new PublishVersionTask(backendId, transactionId, 1L,
-                List.of(new TPartitionVersionInfo(2L, 3L, 0L)), 0L);
+                ImmutableList.of(new TPartitionVersionInfo(2L, 3L, 0L)), 0L);
     }
 }
