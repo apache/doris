@@ -18,6 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -34,5 +36,42 @@ public class InfoSchemaDbTest {
         db.unregisterTable("authors");
         Assertions.assertThrows(IOException.class, () -> db.write(null));
         Assertions.assertNull(db.getTableNullable("authors"));
+    }
+
+    @Test
+    public void testMysqlTableSchemaRoundTrip() {
+        boolean original = GlobalVariable.showFullDbNameInInfoSchemaDb;
+        try {
+            for (boolean showFullName : new boolean[] {false, true}) {
+                GlobalVariable.showFullDbNameInInfoSchemaDb = showFullName;
+                for (String dbName : new String[] {"db", "gold.reporting", "a.b.c", "ctl.db"}) {
+                    for (String catalogName : new String[] {InternalCatalog.INTERNAL_CATALOG_NAME, "ctl"}) {
+                        String schemaName = InfoSchemaDb.getMysqlTableSchema(catalogName, dbName);
+                        Assertions.assertEquals(dbName,
+                                InfoSchemaDb.getDbNameFromMysqlTableSchema(catalogName, schemaName),
+                                "showFullName=" + showFullName + ", catalog=" + catalogName);
+                    }
+                }
+            }
+        } finally {
+            GlobalVariable.showFullDbNameInInfoSchemaDb = original;
+        }
+    }
+
+    @Test
+    public void testDbNameFromMysqlTableSchemaKeepsDottedName() {
+        boolean original = GlobalVariable.showFullDbNameInInfoSchemaDb;
+        try {
+            GlobalVariable.showFullDbNameInInfoSchemaDb = false;
+            Assertions.assertEquals("gold.reporting",
+                    InfoSchemaDb.getDbNameFromMysqlTableSchema("iceberg_ctl", "gold.reporting"));
+
+            GlobalVariable.showFullDbNameInInfoSchemaDb = true;
+            Assertions.assertEquals("gold.reporting",
+                    InfoSchemaDb.getDbNameFromMysqlTableSchema("iceberg_ctl", "iceberg_ctl.gold.reporting"));
+            Assertions.assertEquals("db", InfoSchemaDb.getDbNameFromMysqlTableSchema("ctl", "db"));
+        } finally {
+            GlobalVariable.showFullDbNameInInfoSchemaDb = original;
+        }
     }
 }
