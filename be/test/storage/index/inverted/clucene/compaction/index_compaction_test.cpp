@@ -18,6 +18,7 @@
 #include <gmock/gmock.h>
 
 #include <iterator>
+#include <set>
 
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/clucene/compaction/util/index_compaction_utils.h"
@@ -92,7 +93,7 @@ protected:
     IndexCompactionTest() = default;
     ~IndexCompactionTest() override = default;
 
-    void _build_tablet() {
+    void _build_tablet(bool support_phrase = true) {
         // tablet_schema
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(KeysType::DUP_KEYS);
@@ -104,6 +105,10 @@ protected:
                                                "v1_index", 1, "STRING", "v1");
         std::map<std::string, std::string> properties;
         properties.emplace(INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_UNICODE);
+        // Native compaction needs stored frequencies for this norms-bearing index.
+        properties.emplace(INVERTED_INDEX_PARSER_PHRASE_SUPPORT_KEY,
+                           support_phrase ? INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES
+                                          : INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO);
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10002,
                                                "v2_index", 2, "STRING", "v2", properties);
         IndexCompactionUtils::construct_column(schema_pb.add_column(), schema_pb.add_index(), 10003,
@@ -623,17 +628,15 @@ protected:
             if (keys_type == KeysType::UNIQUE_KEYS) {
                 EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
                           _tablet_schema->num_columns() - 1);
-                EXPECT_EQ(ctx.columns_to_do_index_compaction.size(),
-                          _tablet_schema->num_columns() - 1);
             } else {
                 EXPECT_EQ(compaction._cur_tablet_schema->inverted_indexes().size(),
                           _tablet_schema->num_columns());
-                EXPECT_EQ(ctx.columns_to_do_index_compaction.size(), _tablet_schema->num_columns());
             }
-            EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(0));
-            EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
-            EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
-            EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(3));
+            // Phrase-enabled analyzed columns and untokenized columns merge natively.
+            // The phrase-disabled groups (5-8, 13-16, 21-24, 29-32) rebuild their norms.
+            const std::set<int32_t> native_columns = {0,  1,  2,  3,  4,  9,  10, 11, 12, 17, 18,
+                                                      19, 20, 25, 26, 27, 28, 33, 34, 35, 36};
+            EXPECT_EQ(ctx.columns_to_do_index_compaction, native_columns);
             EXPECT_EQ(compaction._output_rowset->num_segments(), output_rowset_segment_number)
                     << compaction._output_rowset->num_segments();
         };
@@ -886,6 +889,62 @@ TEST_F(IndexCompactionTest, tes_write_index_normally) {
             {0, {{"99", "66", "56", "87", "85", "96", "20000"}, {21, 25, 22, 18, 14, 18, 0}}},
             {3, {{"99", "66", "56", "87", "85", "96", "10000"}, {12, 20, 25, 23, 16, 24, 0}}},
             {1, {{"good", "maybe", "great", "null"}, {197, 191, 194, 0}}},
+            {2, {{"musicstream.com", "http", "https", "null"}, {191, 799, 1201, 0}}}};
+    IndexCompactionUtils::check_meta_and_file(output_rowset_index, _tablet_schema, query_map);
+    IndexCompactionUtils::check_meta_and_file(output_rowset_normal, _tablet_schema, query_map);
+}
+
+TEST_F(IndexCompactionTest, test_phrase_disabled_index_rebuilds_from_column) {
+    _build_tablet(false);
+    ASSERT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
+    const std::vector<std::string> data_files = {
+            _current_dir + "/be/test/storage/index/inverted/data/data1.csv",
+            _current_dir + "/be/test/storage/index/inverted/data/data2.csv"};
+    std::vector<RowsetSharedPtr> rowsets(data_files.size());
+    auto check_indexes = [](const int32_t& size) { EXPECT_EQ(size, 4); };
+    IndexCompactionUtils::build_rowsets<IndexCompactionUtils::DataRow>(
+            _data_dir, _tablet_schema, _tablet, _engine_ref, rowsets, data_files, _inc_id,
+            check_indexes);
+
+    auto check_native_columns = [](const BaseCompaction& compaction,
+                                   const RowsetWriterContext& ctx) {
+        // The untokenized column still merges natively; the Unicode column must rebuild.
+        EXPECT_EQ(ctx.columns_to_do_index_compaction, (std::set<int32_t> {1}));
+        EXPECT_EQ(compaction._output_rowset->num_segments(), 1);
+    };
+    RowsetSharedPtr output_rowset_index;
+    auto st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, true,
+                                                  output_rowset_index, check_native_columns);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    auto check_raw_rebuild = [](const BaseCompaction& compaction, const RowsetWriterContext& ctx) {
+        EXPECT_TRUE(ctx.columns_to_do_index_compaction.empty());
+        EXPECT_EQ(compaction._output_rowset->num_segments(), 1);
+    };
+    RowsetSharedPtr output_rowset_normal;
+    st = IndexCompactionUtils::do_compaction(rowsets, _engine_ref, _tablet, false,
+                                             output_rowset_normal, check_raw_rebuild);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    const auto& index_path = output_rowset_index->segment_path(0);
+    ASSERT_TRUE(index_path.has_value()) << index_path.error();
+    auto index_reader = IndexCompactionUtils::init_index_file_reader(
+            output_rowset_index, index_path.value(),
+            _tablet_schema->get_inverted_index_storage_format());
+    const auto& normal_path = output_rowset_normal->segment_path(0);
+    ASSERT_TRUE(normal_path.has_value()) << normal_path.error();
+    auto normal_reader = IndexCompactionUtils::init_index_file_reader(
+            output_rowset_normal, normal_path.value(),
+            _tablet_schema->get_inverted_index_storage_format());
+    auto index_dir = index_reader->_open(10002, "");
+    ASSERT_TRUE(index_dir.has_value()) << index_dir.error();
+    auto normal_dir = normal_reader->_open(10002, "");
+    ASSERT_TRUE(normal_dir.has_value()) << normal_dir.error();
+    st = IndexCompactionUtils::check_idx_file_correctness(index_dir->get(), normal_dir->get());
+    EXPECT_TRUE(st.ok()) << st.to_string();
+
+    const std::map<int, QueryData> query_map = {
             {2, {{"musicstream.com", "http", "https", "null"}, {191, 799, 1201, 0}}}};
     IndexCompactionUtils::check_meta_and_file(output_rowset_index, _tablet_schema, query_map);
     IndexCompactionUtils::check_meta_and_file(output_rowset_normal, _tablet_schema, query_map);
