@@ -16,6 +16,24 @@
 // under the License.
 
 suite("test_array_distance_functions") {
+    // Constant folding only changes this connection; keep it outside nonConcurrent ANN suites.
+    try {
+        for (def foldByBe : [false, true]) {
+            sql "SET enable_fold_constant_by_be = ${foldByBe}"
+            for (def fn : ['l1_distance', 'l2_distance', 'inner_product', 'cosine_distance',
+                          'cosine_similarity', 'l2_distance_approximate', 'inner_product_approximate']) {
+                for (def missing : ['CAST(NULL AS ARRAY<FLOAT>)', 'CAST([] AS ARRAY<FLOAT>)']) {
+                    qt_constant_missing "SELECT ${fn}(${missing}, [1,2,3]), ${fn}([1,2,3], ${missing}), ${fn}(${missing}, ${missing})"
+                }
+                test {
+                    sql "SELECT ${fn}(CAST([] AS ARRAY<FLOAT>), CAST([1,NULL,3] AS ARRAY<FLOAT>))"
+                    exception 'cannot'
+                }
+            }
+        }
+    } finally {
+        sql "SET enable_fold_constant_by_be = DEFAULT"
+    }
     qt_sql "SELECT l1_distance([0, 0, 0], [1, 2, 3])"
     qt_sql "SELECT l2_distance([1, 2, 3], [0, 0, 0])"
     qt_sql "SELECT cosine_distance([1, 2, 3], [3, 5, 7])"

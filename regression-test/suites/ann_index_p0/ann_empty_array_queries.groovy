@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// This suite changes BE-wide writer settings and clears shared index caches.
+// Constant and unindexed distance checks run in test_array_distance_functions.
 suite("ann_empty_array_queries", "nonConcurrent") {
     def reloadIndexes = {
         def hosts = [:]
@@ -33,24 +35,6 @@ suite("ann_empty_array_queries", "nonConcurrent") {
                 }
             }
         }
-    }
-    // Keep constant-folding coverage outside the index matrix: these expressions have no table.
-    try {
-        for (def foldByBe : [false, true]) {
-            sql "SET enable_fold_constant_by_be = ${foldByBe}"
-            for (def fn : ['l1_distance', 'l2_distance', 'inner_product', 'cosine_distance',
-                          'cosine_similarity', 'l2_distance_approximate', 'inner_product_approximate']) {
-                for (def missing : ['CAST(NULL AS ARRAY<FLOAT>)', 'CAST([] AS ARRAY<FLOAT>)']) {
-                    qt_constant_missing "SELECT ${fn}(${missing}, [1,2,3]), ${fn}([1,2,3], ${missing}), ${fn}(${missing}, ${missing})"
-                }
-                test {
-                    sql "SELECT ${fn}(CAST([] AS ARRAY<FLOAT>), CAST([1,NULL,3] AS ARRAY<FLOAT>))"
-                    exception 'cannot'
-                }
-            }
-        }
-    } finally {
-        sql "SET enable_fold_constant_by_be = DEFAULT"
     }
     setBeConfigTemporary([enable_ann_index_empty_array: true, ann_index_build_min_segment_rows: 0]) {
         for (def indexType : ['hnsw', 'ivf', 'ivf_on_disk']) {

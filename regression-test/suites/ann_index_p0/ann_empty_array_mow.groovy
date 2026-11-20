@@ -16,6 +16,7 @@
 // under the License.
 
 // Keep write-path checks separate from the larger query/metric matrix.
+// Empty-array writes and compaction require BE-wide settings; serialize this suite.
 suite("ann_empty_array_mow", "nonConcurrent") {
     setBeConfigTemporary([enable_ann_index_empty_array: true, ann_index_build_min_segment_rows: 0]) {
         try {

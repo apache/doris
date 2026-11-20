@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// Toggling BE-wide validation affects other loads; serialize this suite.
 suite("ann_delete_group_commit", "nonConcurrent") {
     setBeConfigTemporary([enable_ann_index_empty_array: true, ann_index_build_min_segment_rows: 0]) {
         for (def indexType : ['hnsw', 'ivf', 'ivf_on_disk']) {
