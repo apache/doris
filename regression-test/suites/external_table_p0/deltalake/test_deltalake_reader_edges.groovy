@@ -72,18 +72,9 @@ suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
             compare("matching_id", "select logical_x from ${db}.id_correct", "select 701")
             compare("wrong_id", "select logical_x from ${db}.id_old_id", "select cast(null as bigint)")
             compare("name_mapping", "select logical_x from ${db}.name_untagged", "select 705")
-            checkCase("missing_id") { tag ->
-                // For a file without field IDs the protocol permits NULL or refusal to read the file.
-                try {
-                    quickTest(tag, "select cast(null as bigint)",
-                            "select logical_x from ${db}.id_untagged")
-                } catch (java.sql.SQLException e) {
-                    boolean mentionsIds = (e.message =~ /(?i)(?:field|column)[ _-]?ids?/).find()
-                    boolean missing = (e.message =~ /(?i)missing|absent|without|no |not |lack|requir|doesn't/).find()
-                    if (!(mentionsIds && missing)) {
-                        throw e
-                    }
-                }
+            test {
+                sql "select logical_x from ${db}.id_untagged"
+                exception "Delta id mapping requires Parquet field IDs"
             }
 
             String bothIds = "select 1 as id union all select 2 order by id"
