@@ -40,6 +40,7 @@
 #include <fstream>
 #include <iterator>
 #include <mutex>
+#include <optional>
 #include <string_view>
 #include <type_traits>
 #include <vector>
@@ -176,37 +177,51 @@ struct AzureBatchDeleter {
             return resp;
         }
 
+        int64_t deleted_count = 0;
+        std::optional<ObjStorageResponse> first_error;
         for (auto&& deferred : deferred_resps) {
             try {
                 auto r = deferred.response.GetResponse();
                 if (!r.Value.Deleted) {
-                    auto msg = build_azure_batch_delete_failure_message(_opts, deferred.key);
-                    LOG(WARNING) << msg;
-                    return {.status = ObjStorageStatus {ObjStorageStatus::INTERNAL_ERROR,
-                                                        std::move(msg)},
-                            .http_code = 0,
-                            .request_id = ""};
+                    if (!first_error.has_value()) {
+                        auto msg = build_azure_batch_delete_failure_message(_opts, deferred.key);
+                        LOG(WARNING) << msg;
+                        first_error = ObjStorageResponse {
+                                .status = ObjStorageStatus {ObjStorageStatus::INTERNAL_ERROR,
+                                                            std::move(msg)},
+                                .http_code = 0,
+                                .request_id = ""};
+                    }
+                    continue;
                 }
+                ++deleted_count;
             } catch (Azure::Core::RequestFailedException& e) {
                 if (Azure::Core::Http::HttpStatusCode::NotFound == e.StatusCode &&
                     0 == strcmp(e.ErrorCode.c_str(), BlobNotFound)) {
                     continue;
                 }
                 doris::record_object_request_failed(static_cast<int>(e.StatusCode));
-                auto msg = fmt::format(
-                        "Azure request failed, http code {}, path msg {}{}",
-                        static_cast<int>(e.StatusCode),
-                        wrap_object_storage_path_msg(with_object_key(_opts, deferred.key)),
-                        build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
-                                                     _tls_debug_context));
-                LOG(WARNING) << msg;
-                return {.status = obj_storage_status_from_http_code(static_cast<int>(e.StatusCode),
-                                                                    std::move(msg)),
-                        .http_code = static_cast<int>(e.StatusCode),
-                        .request_id = std::move(e.RequestId)};
+                if (!first_error.has_value()) {
+                    auto msg = fmt::format(
+                            "Azure request failed, http code {}, path msg {}{}",
+                            static_cast<int>(e.StatusCode),
+                            wrap_object_storage_path_msg(with_object_key(_opts, deferred.key)),
+                            build_azure_tls_debug_suffix(fmt::format("{} {}", e.what(), e.Message),
+                                                         _tls_debug_context));
+                    LOG(WARNING) << msg;
+                    first_error = ObjStorageResponse {
+                            .status = obj_storage_status_from_http_code(
+                                    static_cast<int>(e.StatusCode), std::move(msg)),
+                            .http_code = static_cast<int>(e.StatusCode),
+                            .request_id = std::move(e.RequestId)};
+                }
             }
         }
 
+        client_bvar::s3_deleted_objects_total << deleted_count;
+        if (first_error.has_value()) {
+            return std::move(*first_error);
+        }
         return ObjStorageResponse::OK();
     }
 
