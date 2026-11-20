@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -16,105 +16,133 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# get parameters from command line
-# convert tags
-# build fe, be, ms
-# find cpu arch
-# download binary tar package.
-# extract archive
-#
+set -euo pipefail
 
 usage() {
-    echo "$0 <options>
-    -v                    specify version to build.
-    Eg:
-    $0 -v x.x.x           build the "x.x.x" version and the binary will download from https://doris.apache.org/zh-CN/download/ to download binary."
+    echo "Usage: $0 -v <version>"
+    echo "Build FE, BE and optional MS/Broker with a verified release archive."
+    echo "See docker/runtime/README.md for architecture and artifact overrides."
 }
 
 version=
-
-OPTS="$(getopt -n "$0" -o 'v:' -- "$*")"
-eval set -- "${OPTS}"
-while true; do
+while [[ $# -gt 0 ]]; do
     case "$1" in
         -v|--version)
-        version="$2"
-        shift 2
-        ;;
-        --)
-        shift
-        break
-        ;;
+            version=${2:?Missing version}
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
         *)
-        usage
-        shift
-        exit 1
-        ;;
-
+            usage >&2
+            exit 1
+            ;;
     esac
 done
-
-version=$(echo $version | sed 's/\s//g')
-
-if [[ "x$version" == "x" ]]; then
-    usage
+if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-._][a-zA-Z0-9._-]+)?$ ]]; then
+    usage >&2
     exit 1
 fi
 
-ARCH=$(uname -m)
+runtime_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+work_dir=${DORIS_IMAGE_WORK_DIR:-"${runtime_dir}/../../output/runtime-images"}
+mkdir -p "${work_dir}"
+work_dir=$(cd "${work_dir}" && pwd)
+staging_dir=$(mktemp -d "${work_dir}/staging.XXXXXX")
+trap 'rm -rf "$staging_dir"' EXIT
 
-url_arch=
-sub_path=
-if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
-    url_arch="arm64"
-    sub_path="arm64"
-else
-    url_arch="x64"
-    sub_path="amd64"
-fi
-
-if [[ "$url_arch" == "x64" ]]; then
-    avx=$(cat /proc/cpuinfo | grep avx2 | wc -l)
-    if [[ $avx -le 0 ]]; then
-        url_arch=$url_arch"-noavx2"
+case "${DORIS_ARCH:-$(uname -m)}" in
+    amd64|x86_64) arch=amd64; url_arch=x64 ;;
+    arm64|aarch64) arch=arm64; url_arch=arm64 ;;
+    *) echo "Unsupported architecture" >&2; exit 1 ;;
+esac
+if [[ "${arch}" == amd64 ]]; then
+    if [[ "${DORIS_NO_AVX2:-0}" == 1 ]] || \
+        { [[ "$(uname -m)" == x86_64 && -f /proc/cpuinfo ]] && ! grep -qw avx2 /proc/cpuinfo; }; then
+        url_arch=x64-noavx2
     fi
 fi
 
-URL="https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${version}-bin-${url_arch}.tar.gz"
+major_version=${version%%.*}
+java_version=8
+if (( 10#${major_version} >= 3 )); then
+    java_version=17
+fi
+base_image=${DORIS_BASE_IMAGE:-"apache/doris:base-7.0-jdk${java_version}"}
+package_name="apache-doris-${version}-bin-${url_arch}"
+archive_name="${package_name}.tar.gz"
+download_base=${DORIS_DOWNLOAD_BASE_URL:-https://apache-doris-releases.oss-accelerate.aliyuncs.com}
+expected_sha512=${DORIS_ARCHIVE_SHA512:-}
 
-echo "wget the archive binary in current directory!"
-wget $URL
+# Read only the checksum, not paths or commands from the checksum document.
+if [[ -z "${expected_sha512}" ]]; then
+    curl --fail --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
+        --tlsv1.2 "${download_base}/${archive_name}.sha512" -o "${staging_dir}/archive.sha512"
+    expected_sha512=$(awk '{
+        for (i = 1; i <= NF; i++) {
+            if (length($i) == 128 && $i !~ /[^0-9a-fA-F]/) {
+                print tolower($i)
+                count++
+            }
+        }
+    } END { if (count != 1) exit 1 }' "${staging_dir}/archive.sha512")
+fi
+if [[ ! "${expected_sha512}" =~ ^[a-fA-F0-9]{128}$ ]]; then
+    echo "Expected exactly one SHA512 digest for ${archive_name}" >&2
+    exit 1
+fi
+archive=${DORIS_ARCHIVE:-"${work_dir}/${archive_name}"}
+if [[ -z "${DORIS_ARCHIVE:-}" ]]; then
+    curl --fail --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
+        --tlsv1.2 "${download_base}/${archive_name}" -o "${archive}.part"
+    mv "${archive}.part" "${archive}"
+fi
+if command -v sha512sum >/dev/null 2>&1; then
+    actual_sha512=$(sha512sum "${archive}")
+else
+    actual_sha512=$(shasum -a 512 "${archive}")
+fi
+actual_sha512=${actual_sha512%% *}
+expected_sha512=$(printf '%s' "${expected_sha512}" | tr '[:upper:]' '[:lower:]')
+if [[ "${actual_sha512}" != "${expected_sha512}" ]]; then
+    echo "SHA512 verification failed for ${archive}" >&2
+    exit 1
+fi
+echo "Verified SHA512 for ${archive_name}"
+tar -xzf "${archive}" -C "${staging_dir}"
 
-echo "extract archive"
+base_args=(--build-arg "JAVA_VERSION=${java_version}")
+for arg in UBUNTU_IMAGE JDK17_IMAGE JDK8_IMAGE GO_IMAGE; do
+    if [[ -n "${!arg:-}" ]]; then
+        base_args+=(--build-arg "${arg}=${!arg}")
+    fi
+done
+docker build --pull --no-cache --platform "linux/${arch}" \
+    "${base_args[@]}" \
+    -t "${base_image}" -f "${runtime_dir}/base-image/Dockerfile_base" "${runtime_dir}/base-image"
 
-tar zxf "apache-doris-${version}-bin-${url_arch}.tar.gz"
-
-echo "distribute binary to corresponding path."
-mkdir -p fe/resource/${sub_path}/apache-doris-${version}-bin-${url_arch}
-mkdir -p be/resource/${sub_path}/apache-doris-${version}-bin-${url_arch}
-mkdir -p ms/resource/${sub_path}/apache-doris-${version}-bin-${url_arch}
-mkdir -p broker/resource/${sub_path}/apache-doris-${version}-bin-${url_arch}
-
-mv -f apache-doris-${version}-bin-${url_arch}/fe fe/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
-mv -f apache-doris-${version}-bin-${url_arch}/be be/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
-mv -f apache-doris-${version}-bin-${url_arch}/ms ms/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
-mv -f apache-doris-${version}-bin-${url_arch}/extensions broker/resource/$sub_path/apache-doris-${version}-bin-${url_arch}/
-
-echo "docker build base iamge,tag=apache/doris:base-latest"
-cd base-image/ && docker build -t apache/doris:base-latest -f Dockerfile_base .
-cd -
-
-echo "docker build fe image,tag=doris.fe:${version}"
-cd fe/ && docker build -t doris.fe:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} .
-cd -
-
-echo "docker build be image,tag=doris.be:${version}"
-cd be/ && docker build -t doris.be:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} .
-cd -
-
-echo "docker build ms image,tag=doris.ms:${version}"
-cd ms/ && docker build -t doris.ms:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} .
-cd -
-
-echo "docker build broker image,tag=doris.broker:${version}"
-cd broker/ && docker build -t doris.broker:${version} -f Dockerfile --build-arg DORIS_VERSION=${version} .
+# Consume the base just built. --pull here would fetch a registry tag instead.
+for role in fe be ms broker; do
+    if [[ "${role}" == ms && ! -d "${staging_dir}/${package_name}/ms" ]]; then
+        continue
+    fi
+    component=${role}
+    if [[ "${role}" == broker ]]; then
+        if [[ ! -d "${staging_dir}/${package_name}/extensions/apache_hdfs_broker" ]]; then
+            continue
+        fi
+        component=extensions
+    fi
+    context="${staging_dir}/${role}"
+    mkdir -p "${context}/resource/${arch}/${package_name}"
+    cp "${runtime_dir}/${role}/Dockerfile" "${context}/Dockerfile"
+    cp "${runtime_dir}/${role}/resource/"*.sh "${context}/resource/"
+    mv "${staging_dir}/${package_name}/${component}" "${context}/resource/${arch}/${package_name}/"
+    image="${DORIS_IMAGE_PREFIX:-doris}.${role}:${version}"
+    docker build --no-cache --platform "linux/${arch}" \
+        --build-arg "BASE_IMAGE=${base_image}" --build-arg "JAVA_VERSION=${java_version}" \
+        --build-arg "DORIS_VERSION=${version}" -t "${image}" "${context}"
+    docker image inspect "${image}" > "${work_dir}/${role}-${version}-${arch}.image.json"
+done
