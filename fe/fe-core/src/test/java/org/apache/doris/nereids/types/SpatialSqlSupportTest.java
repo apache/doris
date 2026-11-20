@@ -27,8 +27,9 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 public class SpatialSqlSupportTest extends TestWithFeService {
+    private static final String POINT_WKB = "'0101000000000000000000F03F0000000000000040'";
     private static final String SHAPES = "with shapes as (select id, st_geometryfromwkbtyped(encoded) as shape, "
-            + "array(st_geogfromwkb(encoded)) as nested_shape from spatial_input) ";
+            + "st_geogfromwkb(encoded) as geog, array(st_geogfromwkb(encoded)) as nested_shape from spatial_input) ";
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -59,8 +60,29 @@ public class SpatialSqlSupportTest extends TestWithFeService {
                 "select l.id from shapes l, shapes r where l.shape = r.shape",
                 "select l.id from shapes l join shapes r on l.nested_shape = r.nested_shape",
                 "select l.shape in (select r.shape from shapes r) from shapes l")) {
-            assertRejected(SHAPES + query, "JOIN equality does not support spatial keys");
+            assertRejected(SHAPES + query, "comparison predicate does not support spatial arguments");
         }
+    }
+
+    @Test
+    public void testOrdinarySpatialComparisonsAreRejected() {
+        String point = "st_geogfromwkb(" + POINT_WKB + ")";
+        for (String query : List.of(
+                "select geog = " + point + " from shapes",
+                "select id from shapes where shape < st_geometryfromwkbtyped(" + POINT_WKB + ")",
+                "select nested_shape <=> array(" + point + ") from shapes")) {
+            assertRejected(SHAPES + query, "comparison predicate does not support spatial arguments");
+        }
+    }
+
+    @Test
+    public void testArrayComparisonKeysRejectSpatialArguments() {
+        for (String function : List.of("array_sort", "array_reverse_sort", "array_compact")) {
+            assertRejected(SHAPES + "select " + function + "(nested_shape) from shapes",
+                    function + " does not support");
+        }
+        assertRejected(SHAPES + "select array_sortby(array(id), nested_shape) from shapes",
+                "array_sortby does not support");
     }
 
     @Test
@@ -79,7 +101,8 @@ public class SpatialSqlSupportTest extends TestWithFeService {
         for (String query : List.of(
                 "select l.id, l.shape from shapes l join shapes r on l.id = r.id order by l.id limit 2",
                 "select shape, first_value(shape) over (order by id) from shapes order by st_x(shape)",
-                "select group_concat(st_astext(shape) order by id) from shapes")) {
+                "select group_concat(st_astext(shape) order by id) from shapes",
+                "select array_sortby(array(geog), array(id)), st_x(shape) = id from shapes")) {
             PlanChecker.from(connectContext).analyze(SHAPES + query).rewrite();
         }
         PlanChecker.from(connectContext).analyze("select cast(null as array<geometry>)");

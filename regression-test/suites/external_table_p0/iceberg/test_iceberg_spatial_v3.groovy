@@ -797,7 +797,7 @@ public class CreateIcebergSpatialV3Table {
         test {
             sql """select count(*) from geometry_values l
                 join [broadcast] geometry_values r on l.${column} = r.${column}"""
-            exception "JOIN equality does not support spatial keys"
+            exception "comparison predicate does not support spatial arguments"
         }
         for (String operator : ["in", "not in"]) {
             test {
@@ -1176,7 +1176,7 @@ public class CreateIcebergSpatialV3Table {
         test {
             sql """select count(*) from spatial_nested_source l
                 join [broadcast] spatial_nested_source r on l.${column} = r.${column}"""
-            exception "JOIN equality does not support spatial keys"
+            exception "comparison predicate does not support spatial arguments"
         }
     }
     // MAP/STRUCT equality is rejected by existing analysis, independently of runtime filters.

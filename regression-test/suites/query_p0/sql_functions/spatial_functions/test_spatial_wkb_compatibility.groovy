@@ -99,6 +99,28 @@ suite("test_spatial_wkb_compatibility") {
             when 0 then null when 1 then '${point1}'
             else '00000000013FF00000000000004000000000000000' end) as shape
             from numbers("number" = "6")"""
+        // A scan produces both WKB byte orders for the same point.
+        def pointLiteral = "${constructor}('${point1}')"
+        for (String query : [
+                "select shape = ${pointLiteral} from shapes",
+                "select id from shapes where shape < ${pointLiteral}",
+                "select array(shape) <=> array(${pointLiteral}) from shapes"]) {
+            test {
+                sql "with shapes as (${encodedShapes}) ${query}"
+                exception "comparison predicate does not support spatial arguments"
+            }
+        }
+        for (String function : ["array_sort", "array_reverse_sort", "array_compact"]) {
+            test {
+                sql "with shapes as (${encodedShapes}) select ${function}(array(shape, ${pointLiteral})) from shapes"
+                exception "${function} does not support"
+            }
+        }
+        test {
+            sql """with shapes as (${encodedShapes})
+                select array_sortby(array(id, id + 1), array(shape, ${pointLiteral})) from shapes"""
+            exception "array_sortby does not support"
+        }
         for (String operation : ["union", "union distinct", "intersect", "except"]) {
             test {
                 sql """with shapes as (${encodedShapes})
@@ -164,7 +186,7 @@ suite("test_spatial_wkb_compatibility") {
             test {
                 sql """with shapes as (${nullableShapes})
                     select count(*) from shapes l join shapes r on l.shape ${operator} r.shape"""
-                exception "JOIN equality does not support spatial keys"
+                exception "comparison predicate does not support spatial arguments"
             }
         }
         for (String query : [
