@@ -22,10 +22,16 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
+#include <stdexcept>
 #include <string>
 
-#if defined(__SSE4_2__)
-#include <nmmintrin.h>
+#if defined(__aarch64__)
+#include "util/simd/bits.h"
+#endif
+
+#if defined(__SSE2__) || defined(__aarch64__)
+#include "util/sse_util.hpp"
 #endif
 
 /** find_first_symbols<c1, c2, ...>(begin, end):
@@ -66,7 +72,7 @@ struct SearchSymbols {
 
         char tmp_safety_buffer[BUFFER_SIZE] = {0};
 
-        memcpy(tmp_safety_buffer, str.data(), str.size());
+        std::memcpy(tmp_safety_buffer, str.data(), str.size());
 
         simd_vector = _mm_loadu_si128(reinterpret_cast<const __m128i*>(tmp_safety_buffer));
 #endif
@@ -94,20 +100,18 @@ static bool is_in(char c, const char* symbols, size_t num_chars) {
     return false;
 }
 
+#if defined(__SSE2__) || defined(__aarch64__)
+template <char... symbols>
+inline __m128i mm_is_in(__m128i bytes) {
+    __m128i matches = _mm_setzero_si128();
+    for (char symbol : std::array<char, sizeof...(symbols)> {symbols...}) {
+        matches = _mm_or_si128(matches, _mm_cmpeq_epi8(bytes, _mm_set1_epi8(symbol)));
+    }
+    return matches;
+}
+#endif
+
 #if defined(__SSE2__)
-template <char s0>
-inline __m128i mm_is_in(__m128i bytes) {
-    __m128i eq0 = _mm_cmpeq_epi8(bytes, _mm_set1_epi8(s0));
-    return eq0;
-}
-
-template <char s0, char s1, char... tail>
-inline __m128i mm_is_in(__m128i bytes) {
-    __m128i eq0 = _mm_cmpeq_epi8(bytes, _mm_set1_epi8(s0));
-    __m128i eq = mm_is_in<s1, tail...>(bytes);
-    return _mm_or_si128(eq0, eq);
-}
-
 inline __m128i mm_is_in(__m128i bytes, const char* symbols, size_t num_chars) {
     __m128i accumulator = _mm_setzero_si128();
     for (size_t i = 0; i < num_chars; ++i) {
@@ -163,14 +167,38 @@ template <bool positive, ReturnMode return_mode, char... symbols>
 inline const char* find_first_symbols_sse2(const char* const begin, const char* const end) {
     const char* pos = begin;
 
-#if defined(__SSE2__)
-    for (; pos + 15 < end; pos += 16) {
+#if defined(__aarch64__)
+    // Check the first byte before the vector-length test to keep immediate matches cheap.
+    if (pos != end) {
+        if (maybe_negate<positive>(is_in<symbols...>(*pos))) {
+            return pos;
+        }
+        // Keep full vector blocks aligned with begin; skip the checked byte only in the tail.
+        if (end - pos < 16) {
+            ++pos;
+        }
+    }
+#endif
+
+#if defined(__SSE2__) || defined(__aarch64__)
+    for (; end - pos >= 16; pos += 16) {
         __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
 
         __m128i eq = mm_is_in<symbols...>(bytes);
 
+#if defined(__aarch64__)
+        auto bit_mask = doris::simd::get_nibble_mask(vreinterpretq_u8_s64(eq));
+        if constexpr (!positive) {
+            bit_mask = ~bit_mask;
+        }
+        // Each matching byte occupies four bits, so convert the bit index to a byte index.
+        if (bit_mask) {
+            return pos + (__builtin_ctzll(bit_mask) >> 2);
+        }
+#else
         uint16_t bit_mask = maybe_negate<positive>(uint16_t(_mm_movemask_epi8(eq)));
         if (bit_mask) return pos + __builtin_ctz(bit_mask);
+#endif
     }
 #endif
 
@@ -207,26 +235,50 @@ template <bool positive, ReturnMode return_mode, char... symbols>
 inline const char* find_last_symbols_sse2(const char* const begin, const char* const end) {
     const char* pos = end;
 
-#if defined(__SSE2__)
-    for (; pos - 16 >= begin;
-         pos -=
-         16) /// Assuming the pointer cannot overflow. Assuming we can compare these pointers.
-    {
+#if defined(__aarch64__)
+    // Check the last byte before the vector-length test to keep immediate matches cheap.
+    if (pos != begin) {
+        if (maybe_negate<positive>(is_in<symbols...>(pos[-1]))) {
+            return pos - 1;
+        }
+        // Keep full vector blocks aligned with end; skip the checked byte only in the tail.
+        if (pos - begin < 16) {
+            --pos;
+        }
+    }
+#endif
+
+#if defined(__SSE2__) || defined(__aarch64__)
+    for (; pos - begin >= 16; pos -= 16) {
         __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos - 16));
 
         __m128i eq = mm_is_in<symbols...>(bytes);
 
+#if defined(__aarch64__)
+        auto bit_mask = doris::simd::get_nibble_mask(vreinterpretq_u8_s64(eq));
+        if constexpr (!positive) {
+            bit_mask = ~bit_mask;
+        }
+        // Four mask bits per byte also let clz locate a suffix such as the dot in ".com".
+        if (bit_mask) {
+            return pos - 1 - (__builtin_clzll(bit_mask) >> 2);
+        }
+#else
         uint16_t bit_mask = maybe_negate<positive>(uint16_t(_mm_movemask_epi8(eq)));
         if (bit_mask)
             return pos - 1 -
                    (__builtin_clz(bit_mask) -
                     16); /// because __builtin_clz works with mask as uint32.
+#endif
     }
 #endif
 
-    --pos;
-    for (; pos >= begin; --pos)
-        if (maybe_negate<positive>(is_in<symbols...>(*pos))) return pos;
+    while (pos != begin) {
+        --pos;
+        if (maybe_negate<positive>(is_in<symbols...>(*pos))) {
+            return pos;
+        }
+    }
 
     return return_mode == ReturnMode::End ? end : nullptr;
 }
@@ -337,12 +389,12 @@ inline const char* find_first_symbols_dispatch(const char* begin, const char* en
     requires(0 <= sizeof...(symbols) && sizeof...(symbols) <= 16)
 {
 #if defined(__SSE4_2__)
-    if (sizeof...(symbols) >= 5)
+    if constexpr (sizeof...(symbols) >= 5) {
         return find_first_symbols_sse42<positive, return_mode, sizeof...(symbols), symbols...>(
                 begin, end);
-    else
+    }
 #endif
-        return find_first_symbols_sse2<positive, return_mode, symbols...>(begin, end);
+    return find_first_symbols_sse2<positive, return_mode, symbols...>(begin, end);
 }
 
 template <bool positive, ReturnMode return_mode>
