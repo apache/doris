@@ -715,6 +715,7 @@ extern BvarStatusWithTag<int64_t> g_bvar_recycler_recycle_restore_job_earlest_ts
 // recycler's mbvars
 extern bvar::Status<int64_t> g_bvar_recycler_task_max_concurrency;
 extern mBvarIntAdder g_bvar_recycler_instance_recycle_task_status;
+extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_task_active;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycle_duration;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts;
