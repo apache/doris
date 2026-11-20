@@ -57,12 +57,15 @@
 #include "io/fs/read_ahead_metrics.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
+#include "storage/predicate/block_column_predicate.h"
+#include "storage/predicate/null_predicate.h"
 #include "storage/segment/column_read_ahead_controller.h"
 #include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/segment/read_ahead_file_column_iterator.h"
+#include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
@@ -971,6 +974,44 @@ protected:
 private:
     bool _old_disable_storage_page_cache = false;
 };
+
+TEST_F(ColumnReaderTest, DictionaryEncodingProbeDefersDictionaryLoad) {
+    const bool old_low_cardinality = config::enable_low_cardinality_optimize;
+    Defer restore {[&] { config::enable_low_cardinality_optimize = old_low_cardinality; }};
+    config::enable_low_cardinality_optimize = true;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr file;
+    ASSERT_TRUE(create_dict_column_file(1, &meta, &file).ok());
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(ColumnReader::create({}, meta, 1, file, &reader).ok());
+    FileColumnIterator iter(reader);
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(iter.init({.is_predicate_column = true,
+                           .file_reader = file.get(),
+                           .stats = &stats,
+                           .io_ctx = {.reader_type = ReaderType::READER_QUERY}})
+                        .ok());
+    ASSERT_TRUE(iter.is_all_dict_encoding());
+    EXPECT_EQ(iter._dict_decoder, nullptr);
+
+    AndBlockColumnPredicate predicates;
+    predicates.add_column_predicate(SingleColumnBlockPredicate::create_unique(
+            NullPredicate::create_shared(0, "s", false, TYPE_VARCHAR)));
+    auto ranges = RowRanges::create_single(1);
+    ASSERT_TRUE(iter.get_row_ranges_by_dict(&predicates, &ranges).ok());
+    EXPECT_EQ(ranges.count(), 1);
+    EXPECT_EQ(iter._dict_decoder, nullptr);
+
+    ASSERT_TRUE(iter.seek_to_ordinal(0).ok());
+    ASSERT_NE(iter._dict_decoder, nullptr);
+    MutableColumnPtr output = ColumnString::create();
+    size_t rows = 1;
+    bool has_null = false;
+    ASSERT_TRUE(iter.next_batch(&rows, output, &has_null).ok());
+    ASSERT_EQ(rows, 1);
+    EXPECT_FALSE(has_null);
+    EXPECT_EQ(output->get_data_at(0).to_string(), "a");
+}
 
 TEST_F(ColumnReaderTest, ReadAheadSubclassPreservesDictionaryInitAndOffsetAccessPaths) {
     const bool old_low_cardinality = config::enable_low_cardinality_optimize;

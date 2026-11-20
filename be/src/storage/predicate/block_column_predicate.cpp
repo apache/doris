@@ -190,10 +190,17 @@ bool AndBlockColumnPredicate::evaluate_and(const segment_v2::BloomFilter* bf) co
     return true;
 }
 
+bool AndBlockColumnPredicate::supports_dictionary_pruning() const {
+    return std::ranges::any_of(_block_column_predicate_vec, [](const auto& predicate) {
+        return predicate->supports_dictionary_pruning();
+    });
+}
+
 bool AndBlockColumnPredicate::evaluate_and(const StringRef* dict_words,
                                            const size_t dict_num) const {
     for (auto& predicate : _block_column_predicate_vec) {
-        if (!predicate->evaluate_and(dict_words, dict_num)) {
+        if (predicate->supports_dictionary_pruning() &&
+            !predicate->evaluate_and(dict_words, dict_num)) {
             return false;
         }
     }

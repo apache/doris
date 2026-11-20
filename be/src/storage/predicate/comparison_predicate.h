@@ -306,6 +306,8 @@ public:
         }
     }
 
+    bool supports_dictionary_pruning() const override { return is_string_type(Type); }
+
     bool evaluate_and(const StringRef* dict_words, const size_t count) const override {
         if constexpr (is_string_type(Type)) {
             for (size_t i = 0; i != count; ++i) {
