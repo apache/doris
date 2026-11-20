@@ -30,10 +30,10 @@ import java.util.concurrent.TimeUnit
 // request) is handed out with no location and redeemed on the connection that issued the ticket, while a
 // query's result keeps its BE address. setFeConfigTemporary changes every FE, so the suite runs alone.
 suite("test_fe_result_empty_location", "arrow_flight_sql,nonConcurrent") {
-    def table = "test_fe_result_empty_location_t"
-    sql "DROP TABLE IF EXISTS ${table}"
-    sql """CREATE TABLE ${table} (id INT) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")"""
-    sql "INSERT INTO ${table} VALUES (1), (2), (3)"
+    sql "DROP TABLE IF EXISTS test_fe_result_empty_location_t"
+    sql """CREATE TABLE test_fe_result_empty_location_t (id INT)
+            DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")"""
+    sql "INSERT INTO test_fe_result_empty_location_t VALUES (1), (2), (3)"
 
     def config = context.config.otherConfigs
     def feLocation = Location.forGrpcInsecure(config.get("extArrowFlightSqlHost"),
@@ -70,7 +70,7 @@ suite("test_fe_result_empty_location", "arrow_flight_sql,nonConcurrent") {
                         assertTrue(countRows(flight, endpoint) > 0)
                     }
                     // A query's result stays on a BE and keeps the BE's address whatever the setting.
-                    def query = client.execute("SELECT id FROM ${context.dbName}.${table}", options)
+                    def query = client.execute("SELECT id FROM ${context.dbName}.test_fe_result_empty_location_t", options)
                     assertFalse(query.getEndpoints().isEmpty())
                     int queryRows = 0
                     query.getEndpoints().each { endpoint ->
@@ -113,5 +113,4 @@ suite("test_fe_result_empty_location", "arrow_flight_sql,nonConcurrent") {
     assertEquals("false", getFeConfig("arrow_flight_fe_result_empty_location"))
     checkPlainClient(false)
     checkJdbcDriver()
-    sql "DROP TABLE IF EXISTS ${table}"
 }
