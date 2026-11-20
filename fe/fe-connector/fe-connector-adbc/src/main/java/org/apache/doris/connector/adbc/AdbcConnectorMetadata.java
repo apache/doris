@@ -183,7 +183,7 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     // ========= internals =========
 
     private List<AdbcNamespace> readNamespaces() {
-        if (AdbcDorisMetadata.isDorisSource(client)) {
+        if (AdbcDorisMetadata.isDorisSource(client, dialect)) {
             return client.withConnection(AdbcDorisMetadata::readNamespaces);
         }
         return client.withConnection(connection -> {
@@ -226,7 +226,7 @@ public class AdbcConnectorMetadata implements ConnectorMetadata {
     }
 
     private List<String> readTableNames(AdbcNamespace namespace) {
-        if (AdbcDorisMetadata.isDorisSource(client)) {
+        if (AdbcDorisMetadata.isDorisSource(client, dialect)) {
             return client.withConnection(connection -> AdbcDorisMetadata.readTableNames(connection, namespace));
         }
         return client.withConnection(connection -> {

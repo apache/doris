@@ -39,6 +39,8 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -82,17 +84,38 @@ class AdbcDorisMetadataTest {
     }
 
     @Test
-    void unavailableVendorDoesNotTurnAnSqlOverrideIntoSourceIdentification() {
+    void unavailableVendorKeepsStandardMetadataWithoutADorisOverride() {
         try (RecordingClient client = new RecordingClient("main", List.of())) {
             client.vendorFailure = new AdbcException("vendor not supported", null,
                     AdbcStatusCode.NOT_IMPLEMENTED, null, 0);
             client.standardMetadata = true;
-            AdbcConnectorMetadata metadata = metadata(client);
+            AdbcConnectorMetadata metadata = metadata(client, "");
             Assertions.assertEquals(List.of("main"),
                     Assertions.assertDoesNotThrow(() -> metadata.listDatabaseNames(null)));
             Assertions.assertEquals(List.of("base_table"), metadata.listTableNames(null, "main"));
             Assertions.assertTrue(client.queries.isEmpty());
             Assertions.assertEquals(AnsiDialect.NAME, new AdbcDialectSelector("").select(() -> client).name());
+            Assertions.assertEquals(1, client.vendorProbes);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void unavailableVendorUsesExplicitDorisDialectForScopedDiscovery(boolean nativeDefault) {
+        try (RecordingClient client = new RecordingClient("internal", List.of(List.of("db_one")))) {
+            if (nativeDefault) {
+                client.vendorName = "Flight SQL";
+            } else {
+                client.vendorFailure = new AdbcException("vendor not supported", null,
+                        AdbcStatusCode.NOT_IMPLEMENTED, null, 0);
+            }
+            AdbcConnectorMetadata metadata = metadata(client);
+            Assertions.assertEquals(List.of("db_one"), metadata.listDatabaseNames(null));
+            client.rows = List.of(List.of("base_table", "BASE TABLE"), List.of("view_table", "VIEW"));
+            Assertions.assertEquals(List.of("base_table"), metadata.listTableNames(null, "db_one"));
+            Assertions.assertEquals(List.of("SELECT CURRENT_CATALOG()", "SHOW DATABASES FROM `internal`",
+                    "SHOW FULL TABLES FROM `internal`.`db_one`"), client.queries);
+            Assertions.assertEquals(0, client.standardMetadataReads);
             Assertions.assertEquals(1, client.vendorProbes);
         }
     }

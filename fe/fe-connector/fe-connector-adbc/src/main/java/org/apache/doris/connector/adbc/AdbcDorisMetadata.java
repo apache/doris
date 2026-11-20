@@ -28,7 +28,9 @@ import org.apache.arrow.vector.ipc.ArrowReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /** Metadata confined to the remote catalog that the ADBC connection uses for SQL execution. */
 final class AdbcDorisMetadata {
@@ -37,9 +39,14 @@ final class AdbcDorisMetadata {
     private AdbcDorisMetadata() {
     }
 
-    static boolean isDorisSource(AdbcClient client) {
-        // sql_dialect changes SQL rendering, not the remote vendor's metadata capabilities.
-        return client.vendorName().map(String::trim).filter(DIALECT::matchesVendor).isPresent();
+    static boolean isDorisSource(AdbcClient client, Supplier<AdbcDialect> dialect) {
+        Optional<String> vendor = client.vendorName().map(String::trim).filter(name -> !name.isEmpty());
+        if (vendor.isPresent() && !"Flight SQL".equalsIgnoreCase(vendor.get())) {
+            return DIALECT.matchesVendor(vendor.get());
+        }
+        // Older Flight servers lack SQL info; the native driver can return its generic vendor default.
+        // An explicit Doris dialect opts into scoped discovery so GetObjects cannot reenter the source catalog.
+        return DorisDialect.NAME.equals(dialect.get().name());
     }
 
     static List<AdbcNamespace> readNamespaces(AdbcConnection connection) throws AdbcException, IOException {
