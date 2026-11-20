@@ -56,6 +56,16 @@ public class CollectPredicateOnScan implements RewriteRuleFactory {
                                 .getHboPlanInfoProvider().putScanToFilterMap(queryId, scanToFilterMap);
                     }
                     scanToFilterMap.put(scan.getRelationId(), filter.getConjuncts());
+                    // the table a relation id is bound to is part of the alignment a learned entry needs,
+                    // and it has to be recorded before the optimizer runs (the read side asks for it)
+                    Map<RelationId, Long> relationTableIds = Env.getCurrentEnv()
+                            .getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                            .getRelationTableIds(queryId);
+                    if (relationTableIds.isEmpty()) {
+                        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                                .putRelationTableIds(queryId, relationTableIds);
+                    }
+                    relationTableIds.put(scan.getRelationId(), scan.getTable().getId());
                     return filter;
                 })),
 
@@ -73,6 +83,16 @@ public class CollectPredicateOnScan implements RewriteRuleFactory {
                                 .getHboPlanInfoProvider().putScanToFilterMap(queryId, scanToFilterMap);
                     }
                     scanToFilterMap.put(scan.getRelationId(), filter.getConjuncts());
+                    // the table a relation id is bound to is part of the alignment a learned entry needs,
+                    // and it has to be recorded before the optimizer runs (the read side asks for it)
+                    Map<RelationId, Long> relationTableIds = Env.getCurrentEnv()
+                            .getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                            .getRelationTableIds(queryId);
+                    if (relationTableIds.isEmpty()) {
+                        Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                                .putRelationTableIds(queryId, relationTableIds);
+                    }
+                    relationTableIds.put(scan.getRelationId(), scan.getTable().getId());
                     return filter;
                 }))
         );
