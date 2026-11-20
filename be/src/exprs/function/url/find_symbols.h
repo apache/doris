@@ -26,6 +26,10 @@
 #include <stdexcept>
 #include <string>
 
+#if defined(__aarch64__)
+#include "util/simd/bits.h"
+#endif
+
 #if defined(__SSE2__) || defined(__aarch64__)
 #include "util/sse_util.hpp"
 #endif
@@ -163,14 +167,38 @@ template <bool positive, ReturnMode return_mode, char... symbols>
 inline const char* find_first_symbols_sse2(const char* const begin, const char* const end) {
     const char* pos = begin;
 
+#if defined(__aarch64__)
+    // Check the first byte before the vector-length test to keep immediate matches cheap.
+    if (pos != end) {
+        if (maybe_negate<positive>(is_in<symbols...>(*pos))) {
+            return pos;
+        }
+        // Keep full vector blocks aligned with begin; skip the checked byte only in the tail.
+        if (end - pos < 16) {
+            ++pos;
+        }
+    }
+#endif
+
 #if defined(__SSE2__) || defined(__aarch64__)
     for (; end - pos >= 16; pos += 16) {
         __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos));
 
         __m128i eq = mm_is_in<symbols...>(bytes);
 
+#if defined(__aarch64__)
+        auto bit_mask = doris::simd::get_nibble_mask(vreinterpretq_u8_s64(eq));
+        if constexpr (!positive) {
+            bit_mask = ~bit_mask;
+        }
+        // Each matching byte occupies four bits, so convert the bit index to a byte index.
+        if (bit_mask) {
+            return pos + (__builtin_ctzll(bit_mask) >> 2);
+        }
+#else
         uint16_t bit_mask = maybe_negate<positive>(uint16_t(_mm_movemask_epi8(eq)));
         if (bit_mask) return pos + __builtin_ctz(bit_mask);
+#endif
     }
 #endif
 
@@ -207,17 +235,41 @@ template <bool positive, ReturnMode return_mode, char... symbols>
 inline const char* find_last_symbols_sse2(const char* const begin, const char* const end) {
     const char* pos = end;
 
+#if defined(__aarch64__)
+    // Check the last byte before the vector-length test to keep immediate matches cheap.
+    if (pos != begin) {
+        if (maybe_negate<positive>(is_in<symbols...>(pos[-1]))) {
+            return pos - 1;
+        }
+        // Keep full vector blocks aligned with end; skip the checked byte only in the tail.
+        if (pos - begin < 16) {
+            --pos;
+        }
+    }
+#endif
+
 #if defined(__SSE2__) || defined(__aarch64__)
     for (; pos - begin >= 16; pos -= 16) {
         __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(pos - 16));
 
         __m128i eq = mm_is_in<symbols...>(bytes);
 
+#if defined(__aarch64__)
+        auto bit_mask = doris::simd::get_nibble_mask(vreinterpretq_u8_s64(eq));
+        if constexpr (!positive) {
+            bit_mask = ~bit_mask;
+        }
+        // Four mask bits per byte also let clz locate a suffix such as the dot in ".com".
+        if (bit_mask) {
+            return pos - 1 - (__builtin_clzll(bit_mask) >> 2);
+        }
+#else
         uint16_t bit_mask = maybe_negate<positive>(uint16_t(_mm_movemask_epi8(eq)));
         if (bit_mask)
             return pos - 1 -
                    (__builtin_clz(bit_mask) -
                     16); /// because __builtin_clz works with mask as uint32.
+#endif
     }
 #endif
 
