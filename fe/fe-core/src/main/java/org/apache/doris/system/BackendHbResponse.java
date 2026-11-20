@@ -49,6 +49,9 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private long lastFragmentUpdateTime;
     @SerializedName(value = "isShutDown")
     private boolean isShutDown = false;
+    // Master's recovery decision. Legacy heartbeat logs omit this field and remain ready.
+    @SerializedName("readyForScheduling")
+    private boolean readyForScheduling = true;
     // The physical memory available for use by BE.
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
@@ -148,6 +151,14 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
 
     public boolean isShutDown() {
         return isShutDown;
+    }
+
+    public boolean isReadyForScheduling() {
+        return readyForScheduling;
+    }
+
+    public void setReadyForScheduling(boolean ready) {
+        readyForScheduling = ready;
     }
 
     public long getBeMemory() {

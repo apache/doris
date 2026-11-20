@@ -59,6 +59,7 @@ import org.apache.doris.clone.TabletSchedulerStat;
 import org.apache.doris.cloud.snapshot.CloudSnapshotHandler;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CatalogNotReadyException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
@@ -7998,7 +7999,7 @@ public class Env {
             }
         }
 
-        throw new Exception(sb.toString());
+        throw new CatalogNotReadyException(sb.toString());
     }
 
     public void checkReadyOrThrowTException() throws TException {
