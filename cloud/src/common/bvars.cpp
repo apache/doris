@@ -202,6 +202,11 @@ BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_rowset_plan_count(
 BvarStatusWithTag<int64_t> g_bvar_recycler_batch_delete_failures(
         "recycler", "batch_delete_failures");
 
+mBvarInt64Adder g_bvar_compaction_recycle_rowset_kv_put_total(
+        "compaction_recycle_rowset_kv_put_total", {"instance_id"});
+mBvarInt64Adder g_bvar_compaction_recycle_rowset_kv_remove_total(
+        "compaction_recycle_rowset_kv_remove_total", {"instance_id"});
+
 // Operation Log Recycler BVars
 mBvarStatus<int64_t> g_bvar_recycler_oplog_last_round_total_num(
         "recycler_oplog_last_round_total_num", {"instance_id"});

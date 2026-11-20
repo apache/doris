@@ -5824,6 +5824,7 @@ int InstanceRecycler::recycle_rowsets() {
     };
 
     std::vector<std::string> rowset_keys;
+    int64_t num_compacted_in_batch = 0;
     std::vector<std::string> rowset_keys_to_mark_recycled;
     std::vector<std::string> rowset_keys_to_abort_job;
     // rowset_id -> rowset_meta
@@ -5993,7 +5994,9 @@ int InstanceRecycler::recycle_rowsets() {
                 return -1;
             }
         } else {
-            num_compacted += rowset.type() == RecycleRowsetPB::COMPACT;
+            bool is_compacted = rowset.type() == RecycleRowsetPB::COMPACT;
+            num_compacted += is_compacted;
+            num_compacted_in_batch += is_compacted;
             rowset_keys.emplace_back(k);
             rowsets.emplace(rowset_meta->rowset_id_v2(), std::move(*rowset_meta));
             if (rowset_meta->num_segments() <= 0) { // Skip empty rowset
@@ -6011,6 +6014,7 @@ int InstanceRecycler::recycle_rowsets() {
         std::vector<std::string> mark_keys_to_process;
         std::vector<std::string> abort_job_keys_to_process;
         rowset_keys_to_delete.swap(rowset_keys);
+        int64_t compacted_rowsets_to_delete = std::exchange(num_compacted_in_batch, 0);
         rowsets_to_delete.swap(rowsets);
         mark_keys_to_process.swap(rowset_keys_to_mark_recycled);
         abort_job_keys_to_process.swap(rowset_keys_to_abort_job);
@@ -6023,7 +6027,8 @@ int InstanceRecycler::recycle_rowsets() {
                                                &num_recycled);
         }
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
-                             rowsets_to_delete = std::move(rowsets_to_delete)]() mutable {
+                             rowsets_to_delete = std::move(rowsets_to_delete),
+                             compacted_rowsets_to_delete]() mutable {
             std::vector<std::vector<std::string>> versioned_delete_bitmap_key_groups;
             if (delete_rowset_data(rowsets_to_delete, RowsetRecyclingState::FORMAL_ROWSET,
                                    metrics_context, &versioned_delete_bitmap_key_groups) != 0) {
@@ -6042,6 +6047,10 @@ int InstanceRecycler::recycle_rowsets() {
                 return;
             }
             num_recycled.fetch_add(rowset_keys_to_delete.size(), std::memory_order_relaxed);
+            if (compacted_rowsets_to_delete > 0) {
+                g_bvar_compaction_recycle_rowset_kv_remove_total.put(
+                        {instance_id_}, compacted_rowsets_to_delete);
+            }
         });
         return 0;
     };
@@ -6449,6 +6458,9 @@ int InstanceRecycler::recycle_versioned_rowsets() {
                         task.recycle_rowset_key = k;
                         if (recycle_rowset_meta_and_data(task) != 0) {
                             return;
+                        }
+                        if (is_compacted) {
+                            g_bvar_compaction_recycle_rowset_kv_remove_total.put({instance_id_}, 1);
                         }
                         num_compacted += is_compacted;
                         num_recycled.fetch_add(1, std::memory_order_relaxed);

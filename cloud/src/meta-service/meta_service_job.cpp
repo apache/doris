@@ -1022,7 +1022,8 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
                             FinishTabletJobResponse* response, TabletJobInfoPB& recorded_job,
                             std::string& instance_id, std::string& job_key, bool& need_commit,
                             std::string& use_version, bool is_versioned_read,
-                            bool is_versioned_write, TxnKv* txn_kv, ResourceManager* resource_mgr) {
+                            bool is_versioned_write, TxnKv* txn_kv, ResourceManager* resource_mgr,
+                            int64_t& compaction_recycle_rowset_kv_put_count) {
     //==========================================================================
     //                                check
     //==========================================================================
@@ -1348,6 +1349,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         } else {
             auto recycle_val = recycle_rowset.SerializeAsString();
             txn->put(recycle_key, recycle_val);
+            ++compaction_recycle_rowset_kv_put_count;
             INSTANCE_LOG(INFO) << "put recycle rowset, tablet_id=" << tablet_id
                                << " key=" << hex(recycle_key);
         }
@@ -2218,11 +2220,13 @@ void _finish_tablet_job(const FinishTabletJobRequest* request, FinishTabletJobRe
                 delete_bitmap_lock_white_list->get_delete_bitmap_lock_version(instance_id);
         LOG(INFO) << "finish_tablet_job instance_id=" << instance_id
                   << " use_version=" << use_version;
+        int64_t compaction_recycle_rowset_kv_put_count = 0;
         if (!request->job().compaction().empty()) {
             // Process compaction commit
             process_compaction_job(code, msg, ss, txn, request, response, recorded_job, instance_id,
                                    job_key, need_commit, use_version, is_versioned_read,
-                                   is_versioned_write, txn_kv, resource_mgr);
+                                   is_versioned_write, txn_kv, resource_mgr,
+                                   compaction_recycle_rowset_kv_put_count);
         } else if (request->job().has_schema_change()) {
             // Process schema change commit
             process_schema_change_job(code, msg, ss, txn, request, response, recorded_job,
@@ -2259,6 +2263,10 @@ void _finish_tablet_job(const FinishTabletJobRequest* request, FinishTabletJobRe
             ss << "failed to commit job kv, err=" << err;
             msg = ss.str();
             return;
+        }
+        if (compaction_recycle_rowset_kv_put_count > 0) {
+            g_bvar_compaction_recycle_rowset_kv_put_total.put(
+                    {instance_id}, compaction_recycle_rowset_kv_put_count);
         }
         break;
     }
