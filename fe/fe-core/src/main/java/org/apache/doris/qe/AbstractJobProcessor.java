@@ -59,8 +59,15 @@ public abstract class AbstractJobProcessor implements JobProcessor {
         this.backendFragmentTasks = Optional.empty();
     }
 
+    /**
+     * Process a report and invoke {@code updateStatus} before any completion notification.
+     * Load reports must aggregate their results under fragment report deduplication before invoking
+     * the callback: publishing an error status can immediately release load waiters. Normal completion
+     * is notified only afterward. Reports rejected as incomplete or duplicate must still invoke the
+     * callback so their error status is not lost.
+     */
     protected abstract void doProcessReportExecStatus(
-            TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask);
+            TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask, Runnable updateStatus);
 
     @Override
     public final void setPipelineExecutionTask(PipelineExecutionTask pipelineExecutionTask) {
@@ -115,6 +122,11 @@ public abstract class AbstractJobProcessor implements JobProcessor {
             return false;
         }
 
+        doProcessReportExecStatus(params, fragmentTask, () -> updateReportStatus(params));
+        return !CommitDataSerializer.hasCommitData(params) || fragmentTask.isDone();
+    }
+
+    private void updateReportStatus(TReportExecStatusParams params) {
         TUniqueId queryId = coordinatorContext.queryId;
         Status status = new Status(params.status);
         // for now, abort the query if we see any error except if the error is cancelled
@@ -137,8 +149,6 @@ public abstract class AbstractJobProcessor implements JobProcessor {
                 coordinatorContext.updateStatusIfOk(status);
             }
         }
-        doProcessReportExecStatus(params, fragmentTask);
-        return !CommitDataSerializer.hasCommitData(params) || fragmentTask.isDone();
     }
 
     private Map<BackendFragmentId, SingleFragmentPipelineTask> buildBackendFragmentTasks(
