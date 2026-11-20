@@ -116,6 +116,9 @@ private:
 
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
+    // Whether each segment should be scanned by a scanner of its own.
+    bool _use_scan_parallelism_by_per_segment();
+
     Status _build_key_ranges_and_filters();
 
     std::vector<std::unique_ptr<TPaloScanRange>> _scan_ranges;
