@@ -240,6 +240,18 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    void testSignedZeroFoldsEqual() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
+        ));
+        // a folded -0.0 is the same value as +0.0 for BE, so = and IN must fold to TRUE
+        assertRewriteAfterTypeCoercion("ceil(CAST(-0.5 AS DOUBLE)) = CAST(0 AS DOUBLE)", "true");
+        assertRewriteAfterTypeCoercion("round(CAST(-0.4 AS DOUBLE)) = CAST(0 AS DOUBLE)", "true");
+        assertRewriteAfterTypeCoercion("ceil(CAST(-0.5 AS DOUBLE)) in (CAST(0 AS DOUBLE), 1)", "true");
+        assertRewriteAfterTypeCoercion("ceil(CAST(-0.5 AS DOUBLE)) != CAST(0 AS DOUBLE)", "false");
+    }
+
+    @Test
     void testLogicalFold() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(FoldConstantRuleOnFE.VISITOR_INSTANCE)
