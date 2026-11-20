@@ -328,7 +328,7 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    public void testSemiJoinCommuteInRewrite() {
+    public void testConvertRightJoinToLeftJoinInRewrite() {
         for (JoinType joinType : ImmutableList.of(
                 JoinType.RIGHT_OUTER_JOIN, JoinType.RIGHT_SEMI_JOIN, JoinType.RIGHT_ANTI_JOIN)) {
             ConnectContext connectContext = MemoTestUtils.createConnectContext();
@@ -362,7 +362,7 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    public void testSemiJoinCommuteInMvPreRewrite() {
+    public void testConvertRightJoinToLeftJoinInMvPreRewrite() {
         for (JoinType joinType : ImmutableList.of(
                 JoinType.RIGHT_OUTER_JOIN, JoinType.RIGHT_SEMI_JOIN, JoinType.RIGHT_ANTI_JOIN)) {
             ConnectContext connectContext = MemoTestUtils.createConnectContext();
