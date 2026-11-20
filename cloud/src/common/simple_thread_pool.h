@@ -18,22 +18,20 @@
 #pragma once
 
 #include <atomic>
-#include <condition_variable>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "common/thread_name.h"
+#include "common/thread_pool.h"
 #include "simple_sync_queue.h"
 
 namespace doris::cloud {
 
-class SimpleThreadPool {
+class SimpleThreadPool : public ThreadPool {
 private:
-    using JobType = std::function<void()>;
     // a lock based sync queue
     std::shared_ptr<SimpleSyncQueue<JobType>> _job_queue;
 
@@ -41,6 +39,7 @@ private:
     std::atomic<bool> _is_running;
     size_t _pool_size;
     std::string _pool_name;
+    std::atomic<size_t> _active_threads {0};
 
 public:
     SimpleThreadPool(size_t size, const std::string& name = "")
@@ -55,7 +54,7 @@ public:
      *
      * @return 0 if succeeded
      */
-    int submit(JobType f) {
+    int submit(JobType f) override {
         if (!_is_running) {
             // not started
             return -1;
@@ -72,7 +71,7 @@ public:
      *         -1 if thread pool not start yet
      *         -2 if time out
      */
-    int submit_with_timeout(JobType f, int timeout) {
+    int submit_with_timeout(JobType f, int timeout) override {
         if (!_is_running) {
             // not started
             return -1;
@@ -87,7 +86,7 @@ public:
      *
      * @return always 0
      */
-    int start() {
+    int start() override {
         _is_running = true;
         _worker_thread_group.clear();
         _pool_name = _pool_name.empty() ? "simple_thread_pool" : _pool_name;
@@ -106,7 +105,7 @@ public:
      *
      * @return 0 if succeed, otherwise non-zero value returned
      */
-    int stop() {
+    int stop() override {
         if (!_is_running) {
             // already stopped
             return -1;
@@ -125,7 +124,24 @@ public:
      *
      * @return the thread number(pool size) in the thread pool
      */
-    size_t size() const { return _pool_size; }
+    size_t size() const override { return _pool_size; }
+
+    /**
+     * Gets number of currently running worker threads executing jobs
+     */
+    size_t active_threads() const override {
+        return _active_threads.load(std::memory_order_relaxed);
+    }
+
+    /**
+     * Gets number of pending jobs in queue
+     */
+    size_t queue_size() const override { return _job_queue ? _job_queue->size() : 0; }
+
+    /**
+     * Gets name of the pool
+     */
+    const std::string& name() const override { return _pool_name; }
 
     /**
      * Terminates the thread pool immediately, jobs in the queue will not be done
@@ -133,7 +149,7 @@ public:
      *
      * @return 0 if succeed, otherwise non-zero value returned
      */
-    int terminate() {
+    int terminate() override {
         if (!_is_running) {
             // not running
             return -1;
@@ -146,7 +162,7 @@ public:
         return 0;
     }
 
-    ~SimpleThreadPool() {
+    ~SimpleThreadPool() override {
         if (_is_running) {
             stop();
         }
@@ -162,6 +178,7 @@ private:
             if (!_job_queue->get_with_timeout(&job, 10)) {
                 continue;
             }
+            _active_threads.fetch_add(1, std::memory_order_relaxed);
             try {
                 job();
             } catch (const std::exception& e) {
@@ -169,6 +186,7 @@ private:
             } catch (...) {
                 std::cerr << "exception happened when execute job." << std::endl;
             }
+            _active_threads.fetch_sub(1, std::memory_order_relaxed);
         }
     }
 };

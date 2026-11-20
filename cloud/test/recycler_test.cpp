@@ -32,6 +32,7 @@
 #include <cstdlib>
 #include <exception>
 #include <future>
+#include <limits>
 #include <memory>
 #include <numeric>
 #include <random>
@@ -39,6 +40,7 @@
 #include <string_view>
 #include <thread>
 
+#include "common/adaptive_thread_pool.h"
 #include "common/bvars.h"
 #include "common/config.h"
 #include "common/defer.h"
@@ -166,6 +168,155 @@ int main(int argc, char** argv) {
 }
 
 namespace doris::cloud {
+
+namespace {
+
+constexpr auto kWaitTimeout = std::chrono::seconds(5);
+
+TEST(AdaptiveThreadPoolTest, ResizeClampsTargetToBounds) {
+    AdaptiveThreadPool pool(3, "adaptive_pool", 2, 5);
+    ASSERT_EQ(0, pool.start());
+
+    ASSERT_EQ(0, pool.resize(4));
+    EXPECT_EQ(4, pool.size());
+    ASSERT_EQ(0, pool.resize(100));
+    EXPECT_EQ(5, pool.size());
+    ASSERT_EQ(0, pool.resize(0));
+    EXPECT_EQ(2, pool.size());
+}
+
+TEST(AdaptiveThreadPoolTest, AdjustByCountHandlesSignedDeltas) {
+    AdaptiveThreadPool pool(3, "adaptive_pool", 2, 6);
+    ASSERT_EQ(0, pool.start());
+
+    ASSERT_EQ(0, pool.adjust_by_count(2));
+    EXPECT_EQ(5, pool.size());
+    ASSERT_EQ(0, pool.adjust_by_count(-1));
+    EXPECT_EQ(4, pool.size());
+    ASSERT_EQ(0, pool.adjust_by_count(0));
+    EXPECT_EQ(4, pool.size());
+    ASSERT_EQ(0, pool.adjust_by_count(std::numeric_limits<int64_t>::max()));
+    EXPECT_EQ(6, pool.size());
+    ASSERT_EQ(0, pool.adjust_by_count(std::numeric_limits<int64_t>::min()));
+    EXPECT_EQ(2, pool.size());
+}
+
+TEST(AdaptiveThreadPoolTest, AdjustByRatioRoundsAndClampsTarget) {
+    AdaptiveThreadPool pool(3, "adaptive_pool", 2, 6);
+    ASSERT_EQ(0, pool.start());
+
+    ASSERT_EQ(0, pool.adjust_by_ratio(1.5));
+    EXPECT_EQ(5, pool.size());
+    ASSERT_EQ(0, pool.adjust_by_ratio(0.5));
+    EXPECT_EQ(3, pool.size());
+    ASSERT_EQ(0, pool.adjust_by_ratio(0.1));
+    EXPECT_EQ(2, pool.size());
+    ASSERT_EQ(0, pool.adjust_by_ratio(10.0));
+    EXPECT_EQ(6, pool.size());
+}
+
+TEST(AdaptiveThreadPoolTest, AdjustByRatioRejectsNonpositiveAndNonfiniteValues) {
+    AdaptiveThreadPool pool(3, "adaptive_pool", 2, 6);
+    ASSERT_EQ(0, pool.start());
+
+    for (double ratio : {0.0, -1.0, std::numeric_limits<double>::infinity(),
+                         std::numeric_limits<double>::quiet_NaN()}) {
+        SCOPED_TRACE(ratio);
+        EXPECT_EQ(-1, pool.adjust_by_ratio(ratio));
+        EXPECT_EQ(3, pool.size());
+    }
+}
+
+TEST(AdaptiveThreadPoolTest, ResizeOperationsRequireRunningPool) {
+    AdaptiveThreadPool pool(3, "adaptive_pool", 2, 6);
+
+    EXPECT_EQ(-1, pool.resize(4));
+    EXPECT_EQ(-1, pool.adjust_by_count(2));
+    EXPECT_EQ(-1, pool.adjust_by_ratio(2.0));
+    EXPECT_EQ(3, pool.size());
+}
+
+TEST(AdaptiveThreadPoolTest, ScaleUpStartsWorkerForQueuedJob) {
+    std::promise<void> worker_started;
+    auto started = worker_started.get_future();
+    std::promise<void> job_completed;
+    auto completed = job_completed.get_future();
+    AdaptiveThreadPool pool(1, "adaptive_pool", 1, 2);
+    EXPECT_EQ(4, pool.queue_capacity());
+    // Destroy the release promise before the pool so a failed assertion also unblocks workers.
+    std::promise<void> release_worker;
+    auto release = release_worker.get_future().share();
+    ASSERT_EQ(0, pool.start());
+    ASSERT_EQ(0, pool.submit_with_timeout(
+                         [&worker_started, release] {
+                             worker_started.set_value();
+                             release.wait();
+                         },
+                         0));
+    ASSERT_EQ(std::future_status::ready, started.wait_for(kWaitTimeout));
+    ASSERT_EQ(0, pool.submit_with_timeout([&job_completed] { job_completed.set_value(); }, 0));
+
+    ASSERT_EQ(0, pool.resize(2));
+    EXPECT_EQ(4, pool.queue_capacity());
+    EXPECT_EQ(std::future_status::ready, completed.wait_for(kWaitTimeout));
+    release_worker.set_value();
+}
+
+TEST(AdaptiveThreadPoolTest, ScaleDownKeepsQueueCapacityAndPendingJobs) {
+    std::array<std::promise<void>, 2> workers_started;
+    std::atomic<int> completed_jobs {0};
+    AdaptiveThreadPool pool(2, "adaptive_pool", 1, 3);
+    // Keep the release promise after the pool so early returns release blocked workers.
+    std::promise<void> release_workers;
+    auto release = release_workers.get_future().share();
+    ASSERT_EQ(0, pool.start());
+    for (auto& worker_started : workers_started) {
+        auto started = worker_started.get_future();
+        ASSERT_EQ(0, pool.submit_with_timeout(
+                             [&worker_started, release] {
+                                 worker_started.set_value();
+                                 release.wait();
+                             },
+                             0));
+        ASSERT_EQ(std::future_status::ready, started.wait_for(kWaitTimeout));
+    }
+
+    auto job = [&completed_jobs] { ++completed_jobs; };
+    for (int i = 0; i < 5; ++i) {
+        ASSERT_EQ(0, pool.submit_with_timeout(job, 0));
+    }
+    ASSERT_EQ(0, pool.resize(1));
+    EXPECT_EQ(1, pool.size());
+    EXPECT_EQ(2, pool.active_threads());
+    EXPECT_EQ(6, pool.queue_capacity());
+    EXPECT_EQ(5, pool.queue_size());
+    ASSERT_EQ(0, pool.submit_with_timeout(job, 0));
+    EXPECT_EQ(-2, pool.submit_with_timeout([] {}, 0));
+
+    release_workers.set_value();
+    ASSERT_EQ(0, pool.stop());
+    EXPECT_EQ(6, completed_jobs.load());
+    EXPECT_EQ(0, pool.active_threads());
+    EXPECT_EQ(0, pool.queue_size());
+}
+
+TEST(AdaptiveThreadPoolTest, FactoriesSelectConfiguredPoolType) {
+    auto shared_adaptive = create_shared_thread_pool(true, 1, "shared_adaptive", 2, 3);
+    auto shared_simple = create_shared_thread_pool(false, 1, "shared_simple", 2, 3);
+    auto unique_adaptive = create_unique_thread_pool(true, 4, "unique_adaptive", 2, 3);
+    auto unique_simple = create_unique_thread_pool(false, 4, "unique_simple", 2, 3);
+
+    EXPECT_EQ(2, shared_adaptive->size());
+    EXPECT_EQ("shared_adaptive", shared_adaptive->name());
+    EXPECT_EQ(1, shared_simple->size());
+    EXPECT_EQ("shared_simple", shared_simple->name());
+    EXPECT_EQ(3, unique_adaptive->size());
+    EXPECT_EQ("unique_adaptive", unique_adaptive->name());
+    EXPECT_EQ(4, unique_simple->size());
+    EXPECT_EQ("unique_simple", unique_simple->name());
+}
+
+} // namespace
 
 TEST(RecyclerTest, WhiteBlackList) {
     WhiteBlackList filter;
