@@ -53,6 +53,7 @@ suite("test_paimon_write_variant_dml", "p0,external,paimon") {
     sql """DROP CATALOG IF EXISTS ${catalogName}"""
     sql """
         CREATE CATALOG ${catalogName} PROPERTIES (
+            'paimon.allow-unsafe-writes' = 'true',
             'type' = 'paimon',
             'paimon.catalog.type' = 'filesystem',
             'warehouse' = 's3://warehouse/wh',

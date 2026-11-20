@@ -31,6 +31,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
     def saved = settings.collectEntries { [(it): sql("select @@${it}")[0][0]] }
     sql "DROP CATALOG IF EXISTS ${catalog}"
     sql """CREATE CATALOG ${catalog} PROPERTIES (
+        'paimon.allow-unsafe-writes' = 'true',
         'type'='paimon', 'paimon.catalog.type'='filesystem', 'fs.s3.support'='true',
         'warehouse'='s3://warehouse/wh', 's3.endpoint'='http://${endpoint}:${port}',
         's3.access_key'='admin', 's3.secret_key'='password',
@@ -88,6 +89,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                 // selector unit tests: on master they change the catalog's effective credentials,
                 // so deliberately invalid values cannot form a readable regression fixture.
                 sql """CREATE CATALOG ${crossedCatalog} PROPERTIES (
+                    'paimon.allow-unsafe-writes' = 'true',
                     'type'='paimon', 'paimon.catalog.type'='filesystem', 'fs.s3.support'='true',
                     'warehouse'='s3://warehouse/wh', 's3.endpoint'='http://${endpoint}:${port}',
                     's3.access_key'='admin', 's3.secret_key'='password',

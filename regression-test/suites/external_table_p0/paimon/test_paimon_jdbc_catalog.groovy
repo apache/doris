@@ -239,7 +239,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
     try {
         sql """switch internal"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
-        // Paimon requires a catalog lock for safe concurrent snapshot commits on object storage.
+        // JDBC leases do not fence expired owners; default admission is tested before enabling the SDK stress cases.
         sql """
             CREATE CATALOG ${catalogName} PROPERTIES (
                 'type' = 'paimon',
@@ -289,6 +289,15 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
                 'bucket' = '2'
             )
         """
+
+        test {
+            sql """INSERT INTO paimon_jdbc_tbl VALUES (99, 'rejected', DATE '2025-01-01')"""
+            exception "the Paimon JDBC lease lock does not fence an expired lock holder"
+        }
+        // The following bounded stress cases exercise SDK behavior without injecting lease expiry.
+        // Explicitly bypass admission for these tests; they do not qualify JDBC as a supported
+        // default commit mechanism. PaimonPublicationContractTest covers expired-owner takeover.
+        sql """ALTER CATALOG ${catalogName} SET PROPERTIES ('paimon.allow-unsafe-writes'='true')"""
 
         def tables = sql """SHOW TABLES"""
         assertTrue(tables.toString().contains("paimon_jdbc_tbl"))

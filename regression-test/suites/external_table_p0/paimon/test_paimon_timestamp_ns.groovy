@@ -29,6 +29,7 @@ suite("test_paimon_timestamp_ns", "p0,external,paimon") {
     try {
         sql "DROP CATALOG IF EXISTS ${catalog}"
         sql """CREATE CATALOG ${catalog} PROPERTIES (
+            'paimon.allow-unsafe-writes' = 'true',
             "type"="paimon", "paimon.catalog.type"="filesystem", "warehouse"="s3://warehouse/wh",
             "s3.endpoint"="http://${host}:${minioPort}", "s3.access_key"="admin",
             "s3.secret_key"="password", "s3.region"="us-east-1", "s3.path.style.access"="true")"""
