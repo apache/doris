@@ -54,6 +54,7 @@ public class HiveTableFormatDetectionTest {
     private static final String PARQUET = "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat";
     private static final String ORC = "org.apache.hadoop.hive.ql.io.orc.OrcInputFormat";
     private static final String TEXT = "org.apache.hadoop.mapred.TextInputFormat";
+    private static final String AVRO = "org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat";
     private static final String HUDI = "org.apache.hudi.hadoop.HoodieParquetInputFormat";
 
     // ===== detect(): pure format classification =====
@@ -74,6 +75,7 @@ public class HiveTableFormatDetectionTest {
         Assertions.assertEquals(HiveTableType.HIVE, HiveTableFormatDetector.detect(hiveTable(PARQUET)));
         Assertions.assertEquals(HiveTableType.HIVE, HiveTableFormatDetector.detect(hiveTable(ORC)));
         Assertions.assertEquals(HiveTableType.HIVE, HiveTableFormatDetector.detect(hiveTable(TEXT)));
+        Assertions.assertEquals(HiveTableType.HIVE, HiveTableFormatDetector.detect(hiveTable(AVRO)));
         Assertions.assertEquals(HiveTableType.HUDI, HiveTableFormatDetector.detect(hiveTable(HUDI)));
         Assertions.assertEquals(HiveTableType.ICEBERG, HiveTableFormatDetector.detect(icebergTable()));
     }
@@ -115,6 +117,8 @@ public class HiveTableFormatDetectionTest {
 
     @Test
     public void supportedFormatsResolveHandle() {
+        Assertions.assertEquals(HiveTableType.HIVE,
+                ((HiveTableHandle) handleFor(hiveTable(AVRO)).get()).getTableType());
         Assertions.assertEquals(HiveTableType.HIVE,
                 ((HiveTableHandle) handleFor(hiveTable(PARQUET)).get()).getTableType());
         // An LZO-text table now resolves instead of failing loud.

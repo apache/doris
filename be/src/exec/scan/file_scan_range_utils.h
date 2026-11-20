@@ -82,11 +82,6 @@ inline Status validate_file_scan_support(const TFileScanRangeParams& params,
     if (range != nullptr && range->__isset.table_format_params) {
         RETURN_IF_ERROR(validate_table(range->table_format_params));
     }
-    const auto format = range != nullptr && range->__isset.format_type ? range->format_type
-                                                                       : params.format_type;
-    if (format == TFileFormatType::FORMAT_AVRO) {
-        return Status::NotSupported("Avro file reads are no longer supported");
-    }
     return Status::OK();
 }
 

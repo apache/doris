@@ -1352,12 +1352,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * PARQUET and PUFFIN both read through BE's parquet path; ORC through the orc one. AVRO position-delete
-     * files have no native reader — fail loud rather than mis-route. Message text mirrors legacy exactly.
+     * PUFFIN deletion vectors travel through the Parquet path; ordinary delete files retain their format.
      */
     private static TFileFormatType getNativePositionDeleteFileFormat(FileFormat fileFormat) {
         if (fileFormat == FileFormat.PARQUET || fileFormat == FileFormat.PUFFIN) {
             return TFileFormatType.FORMAT_PARQUET;
+        } else if (fileFormat == FileFormat.AVRO) {
+            return TFileFormatType.FORMAT_AVRO;
         } else if (fileFormat == FileFormat.ORC) {
             return TFileFormatType.FORMAT_ORC;
         }
@@ -2015,9 +2016,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // Validate the physical format before publishing a native range. An unsupported data file must
         // fail here, rather than inherit the scan-level Parquet default and reach the wrong reader.
         // Metadata tables legitimately use JNI and take a separate path; normal data ranges always
-        // carry their own explicit Parquet/ORC format, including mixed-format snapshots.
+        // carry their own explicit Parquet/ORC/Avro format, including mixed-format snapshots.
         String fileFormat = dataFile.format().name().toLowerCase(Locale.ROOT);
-        if (!"parquet".equals(fileFormat) && !"orc".equals(fileFormat)) {
+        if (!"parquet".equals(fileFormat) && !"orc".equals(fileFormat) && !"avro".equals(fileFormat)) {
             throw new IllegalStateException(
                     String.format("Unsupported format name: %s for iceberg table.", fileFormat));
         }
@@ -2148,12 +2149,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Map an iceberg delete-file format to BE's file-format type, mirroring legacy {@code setDeleteFileFormat}:
-     * only parquet/orc are emitted; any other format (notably {@code PUFFIN} deletion vectors) leaves the
+     * parquet/orc/avro are emitted; any other format (notably {@code PUFFIN} deletion vectors) leaves the
      * thrift {@code file_format} unset ({@code null} here).
      */
     private static TFileFormatType deleteFileFormat(FileFormat format) {
         if (format == FileFormat.PARQUET) {
             return TFileFormatType.FORMAT_PARQUET;
+        } else if (format == FileFormat.AVRO) {
+            return TFileFormatType.FORMAT_AVRO;
         } else if (format == FileFormat.ORC) {
             return TFileFormatType.FORMAT_ORC;
         }

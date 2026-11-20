@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.property.fileformat.AvroFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.OrcFileFormatProperties;
@@ -290,7 +291,8 @@ public class NereidsBrokerFileGroup {
 
     public boolean isBinaryFileFormat() {
         return fileFormatProperties instanceof ParquetFileFormatProperties
-                || fileFormatProperties instanceof OrcFileFormatProperties;
+                || fileFormatProperties instanceof OrcFileFormatProperties
+                || fileFormatProperties instanceof AvroFileFormatProperties;
     }
 
     public FileFormatProperties getFileFormatProperties() {

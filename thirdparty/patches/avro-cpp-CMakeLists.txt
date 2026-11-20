@@ -1,0 +1,43 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+cmake_minimum_required(VERSION 3.21)
+project(DorisAvroCpp LANGUAGES CXX)
+
+# Keep Avro's optional FetchContent fallback and host-package discovery out of the build.
+unset(DORIS_AVRO_INCLUDE_DIR CACHE)
+find_path(DORIS_AVRO_INCLUDE_DIR NAMES fmt/format.h
+          PATHS "${CMAKE_INSTALL_PREFIX}/include" NO_DEFAULT_PATH NO_CACHE REQUIRED)
+foreach(codec z snappy zstd)
+    unset(DORIS_AVRO_${codec}_LIBRARY CACHE)
+    find_library(DORIS_AVRO_${codec}_LIBRARY NAMES ${codec}
+                 PATHS "${CMAKE_INSTALL_PREFIX}/lib" "${CMAKE_INSTALL_PREFIX}/lib64"
+                 NO_DEFAULT_PATH NO_CACHE REQUIRED)
+endforeach()
+file(GLOB AVRO_SOURCES CONFIGURE_DEPENDS impl/*.cc impl/parsing/*.cc impl/json/*.cc)
+list(FILTER AVRO_SOURCES EXCLUDE REGEX "/avrogencpp\\.cc$")
+add_library(avrocpp_s STATIC ${AVRO_SOURCES})
+target_compile_features(avrocpp_s PUBLIC cxx_std_17)
+target_compile_definitions(avrocpp_s PRIVATE
+    AVRO_SOURCE FMT_HEADER_ONLY SNAPPY_CODEC_AVAILABLE ZSTD_CODEC_AVAILABLE)
+target_include_directories(avrocpp_s PRIVATE include/avro "${DORIS_AVRO_INCLUDE_DIR}"
+    "${DORIS_AVRO_INCLUDE_DIR}/zstd")
+target_link_libraries(avrocpp_s PRIVATE ${DORIS_AVRO_z_LIBRARY}
+    ${DORIS_AVRO_snappy_LIBRARY} ${DORIS_AVRO_zstd_LIBRARY})
+set_target_properties(avrocpp_s PROPERTIES POSITION_INDEPENDENT_CODE ON)
+install(TARGETS avrocpp_s ARCHIVE DESTINATION lib)
+install(DIRECTORY include/avro DESTINATION include FILES_MATCHING PATTERN "*.hh")

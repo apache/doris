@@ -83,6 +83,8 @@ void LoadUtil::parse_format(const std::string& format_str, const std::string& co
         *format_type = TFileFormatType::FORMAT_JSON;
     } else if (iequal(format_str, "PARQUET")) {
         *format_type = TFileFormatType::FORMAT_PARQUET;
+    } else if (iequal(format_str, "AVRO")) {
+        *format_type = TFileFormatType::FORMAT_AVRO;
     } else if (iequal(format_str, "ORC")) {
         *format_type = TFileFormatType::FORMAT_ORC;
     } else if (iequal(format_str, "WAL")) {

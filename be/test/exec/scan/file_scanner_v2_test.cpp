@@ -274,8 +274,8 @@ TEST(FileScannerV2Test, OpenErrorsNameSelectedRangeBeforePreparingReader) {
     RuntimeProfile profile("open_error_context");
     TFileScanRangeParams params;
     TScanRangeParams split;
-    auto range = range_with_format("", TFileFormatType::FORMAT_AVRO);
-    range.__set_path("s3://test-bucket/unsupported.avro");
+    auto range = range_with_format("lakesoul", TFileFormatType::FORMAT_PARQUET);
+    range.__set_path("s3://test-bucket/unsupported.file");
     split.scan_range.ext_scan_range.file_scan_range.ranges.push_back(range);
     FileScannerV2 scanner(&state, &profile, nullptr);
     scanner._params = &params;
@@ -283,8 +283,9 @@ TEST(FileScannerV2Test, OpenErrorsNameSelectedRangeBeforePreparingReader) {
             std::make_shared<LocalSplitSourceConnector>(std::vector<TScanRangeParams> {split}, 1);
     const auto status = scanner._open_impl(&state);
     EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
-    EXPECT_NE(status.to_string().find("Avro file reads"), std::string::npos) << status;
-    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/unsupported.avro"),
+    EXPECT_NE(status.to_string().find("LakeSoul reads are no longer supported"), std::string::npos)
+            << status;
+    EXPECT_NE(status.to_string().find(". cur path: s3://test-bucket/unsupported.file"),
               std::string::npos)
             << status;
     EXPECT_EQ(scanner.get_current_scan_range_name(), range.path);

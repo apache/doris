@@ -3703,17 +3703,13 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void planScanPositionDeletesRejectsAvroDeleteFile() {
-        // WHY: there is no native AVRO position-delete reader. Failing loud beats mis-routing the range to
-        // the parquet reader, which would fault or return garbage. Message text is pinned by upstream's own
-        // unit test (assertEquals, not contains). MUTATION: defaulting an unknown format to FORMAT_PARQUET
-        // -> no throw -> red.
+    public void planScanPositionDeletesPreservesAvroFileFormat() {
         Table table = tableWithPositionDelete(
                 positionDeleteFile("s3://b/db/t1/pos.avro", FileFormat.AVRO, null, null));
-
-        UnsupportedOperationException e = Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> planPositionDeletes(table, Collections.emptyList()));
-        Assertions.assertEquals("Unsupported Iceberg position delete file format: AVRO", e.getMessage());
+        TFileRangeDesc range = positionDeleteRangeDesc(planPositionDeletes(table, Collections.emptyList()));
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, range.getFormatType());
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO,
+                range.getTableFormatParams().getIcebergParams().getDeleteFiles().get(0).getFileFormat());
     }
 
     @Test
@@ -4598,22 +4594,28 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void planScanRejectsUnsupportedFileFormatFailLoud() {
-        // Legacy IcebergScanNode.getFileFormatType() throws DdlException("Unsupported format name: <fmt> ...") at plan
-        // start for a non-orc/parquet table; the connector must keep that fail-loud guard instead of silently
-        // shipping the file to BE's iceberg JNI reader (which expects a serialized system-table split).
-        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+    public void planScanPreservesAvroAndMixedDataFileFormats() {
+        Table table = createTable("avro_data", SCHEMA, PartitionSpec.unpartitioned());
         table.newAppend()
-                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f.avro", 512, null, null, FileFormat.AVRO))
+                .appendFile(dataFile(table.spec(), "s3://b/db/avro_data/f.avro", 512, null, null, FileFormat.AVRO))
+                .appendFile(dataFile(table.spec(), "s3://b/db/avro_data/f.parquet", 512, null, null, FileFormat.PARQUET))
                 .commit();
-        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
-
-        // MUTATION: leaving the else-branch silent (FORMAT_JNI default) -> no throw -> red.
-        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class, () -> provider.planScan(null,
-                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "t1"), Collections.emptyList())
-                .build()));
-        Assertions.assertTrue(ex.getMessage().contains("Unsupported format name: avro"),
-                "message should mirror legacy: " + ex.getMessage());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(null,
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "avro_data"), Collections.emptyList())
+                        .build());
+        Assertions.assertEquals(2, ranges.size());
+        Assertions.assertEquals("avro", byPath(ranges, ".avro").getFileFormat());
+        Assertions.assertEquals("parquet", byPath(ranges, ".parquet").getFileFormat());
+        for (ConnectorScanRange range : ranges) {
+            TFileRangeDesc descriptor = new TFileRangeDesc();
+            descriptor.setFormatType(TFileFormatType.FORMAT_PARQUET);
+            range.populateRangeParams(new TTableFormatFileDesc(), descriptor);
+            Assertions.assertEquals("avro".equals(range.getFileFormat())
+                    ? TFileFormatType.FORMAT_AVRO : TFileFormatType.FORMAT_PARQUET,
+                    descriptor.getFormatType());
+        }
     }
 
     // --- FIX-M3 streaming (file-count) split generation ---------------------------------------------------

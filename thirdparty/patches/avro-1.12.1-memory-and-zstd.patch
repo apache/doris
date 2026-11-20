@@ -1,0 +1,472 @@
+--- a/lang/c++/impl/DataFile.cc
++++ b/lang/c++/impl/DataFile.cc
+@@ -17,9 +17,11 @@
+  */
+
+ #include "DataFile.hh"
++#include "Allocation.hh"
+ #include "Compiler.hh"
+ #include "Exception.hh"
+
++#include <array>
+ #include <random>
+ #include <sstream>
+
+@@ -28,6 +30,7 @@
+ #endif
+
+ #ifdef ZSTD_CODEC_AVAILABLE
++#define ZSTD_STATIC_LINKING_ONLY
+ #include <zstd.h>
+ #endif
+
+@@ -334,9 +337,15 @@
+     readDataBlock();
+ }
+
+-void DataFileReaderBase::init(const ValidSchema &readerSchema) {
++void DataFileReaderBase::init(const ValidSchema &readerSchema, int64_t startOffset) {
+     readerSchema_ = readerSchema;
+     dataDecoder_ = (readerSchema_.toJson(true) != dataSchema_.toJson(true)) ? resolvingDecoder(dataSchema_, readerSchema_, binaryDecoder()) : binaryDecoder();
++    if (startOffset >= 0) {
++        decoder_->init(*stream_);
++        auto* input = dynamic_cast<SeekableInputStream*>(stream_.get());
++        if (input == nullptr) throw Exception("Avro range requires a seekable input");
++        input->seek(startOffset);
++    }
+     readDataBlock();
+ }
+
+@@ -359,8 +368,12 @@
+ }
+
+ bool DataFileReaderBase::hasMore() {
++    return hasMoreBefore(INT64_MAX);
++}
++
++bool DataFileReaderBase::hasMoreBefore(int64_t position) {
+     for (;;) {
+-        if (eof_) {
++        if (eof_ || blockStart_ >= position) {
+             return false;
+         } else if (objectCount_ != 0) {
+             return true;
+@@ -373,6 +386,13 @@
+         avro::decode(*decoder_, s);
+         if (s != sync_) {
+             throw Exception("Sync mismatch");
++        }
++        // Flush decoder lookahead so byteCount is the next block's exact start. Validate the
++        // owned block's sync marker before stopping, without decompressing an unowned block.
++        decoder_->init(*stream_);
++        if (stream_->byteCount() >= static_cast<uint64_t>(position)) {
++            eof_ = true;
++            return false;
+         }
+         readDataBlock();
+     }
+@@ -453,6 +473,7 @@
+         const uint8_t *data;
+         size_t len;
+         while (st->next(&data, &len)) {
++            checkedGrowth(compressed_.capacity(), checkedCount(compressed_.size(), len));
+             compressed_.insert(compressed_.end(), data, data + len);
+         }
+         len = compressed_.size();
+@@ -465,11 +486,12 @@
+         int b4 = compressed_[len - 1] & 0xFF;
+
+         checksum = (b1 << 24) + (b2 << 16) + (b3 << 8) + (b4);
+-        if (!snappy::Uncompress(reinterpret_cast<const char *>(compressed_.data()),
+-                                len - 4, &uncompressed)) {
+-            throw Exception(
+-                "Snappy Compression reported an error when decompressing");
+-        }
++        size_t uncompressedSize = 0;
++        if (!snappy::GetUncompressedLength(compressed_.data(), len - 4, &uncompressedSize))
++            throw Exception("Invalid Avro Snappy block");
++        uncompressed.resize(checkedGrowth(uncompressed.capacity(), uncompressedSize));
++        if (!snappy::RawUncompress(compressed_.data(), len - 4, uncompressed.data()))
++            throw Exception("Snappy decompression failed");
+         auto c = crc32(0, reinterpret_cast<const Bytef *>(uncompressed.c_str()),
+                        static_cast<uInt>(uncompressed.size()));
+         if (checksum != c) {
+@@ -491,31 +513,42 @@
+         const uint8_t *data;
+         size_t len;
+         while (st->next(&data, &len)) {
++            checkedGrowth(compressed_.capacity(), checkedCount(compressed_.size(), len));
+             compressed_.insert(compressed_.end(), data, data + len);
+         }
+
+-        // Get the decompressed size
+-        size_t decompressed_size = ZSTD_getFrameContentSize(
+-            reinterpret_cast<const char *>(compressed_.data()), compressed_.size());
+-        if (decompressed_size == ZSTD_CONTENTSIZE_ERROR) {
+-            throw Exception("ZSTD: Not a valid compressed frame");
+-        } else if (decompressed_size == ZSTD_CONTENTSIZE_UNKNOWN) {
+-            throw Exception("ZSTD: Unable to determine decompressed size");
+-        }
+-
+-        // Decompress the data
+         uncompressed.clear();
+-        uncompressed.resize(decompressed_size);
+-        size_t result = ZSTD_decompress(
+-            uncompressed.data(), decompressed_size,
+-            reinterpret_cast<const char *>(compressed_.data()), compressed_.size());
+-
+-        if (ZSTD_isError(result)) {
+-            throw Exception("ZSTD decompression error: {}", ZSTD_getErrorName(result));
+-        }
+-        if (result != decompressed_size) {
+-            throw Exception("ZSTD: Decompressed size mismatch: expected {}, got {}",
+-                            decompressed_size, result);
++        size_t offset = 0;
++        while (offset < compressed_.size()) {
++            const char* frame = compressed_.data() + offset;
++            const size_t available = compressed_.size() - offset;
++            const size_t frameSize = ZSTD_findFrameCompressedSize(frame, available);
++            if (ZSTD_isError(frameSize)) throw Exception("Invalid Avro Zstandard frame");
++            const size_t workspace = ZSTD_estimateDStreamSize_fromFrame(frame, frameSize);
++            if (ZSTD_isError(workspace)) throw Exception("Invalid Avro Zstandard window");
++            checkedGrowth(0, workspace);
++            std::unique_ptr<ZSTD_DStream, decltype(&ZSTD_freeDStream)> stream(
++                ZSTD_createDStream(), &ZSTD_freeDStream);
++            if (!stream || ZSTD_isError(ZSTD_initDStream(stream.get())))
++                throw Exception("Cannot initialize Avro Zstandard decoder");
++            const auto contentSize = ZSTD_getFrameContentSize(frame, frameSize);
++            if (contentSize != ZSTD_CONTENTSIZE_UNKNOWN && contentSize != ZSTD_CONTENTSIZE_ERROR) {
++                uncompressed.reserve(checkedGrowth(uncompressed.capacity(),
++                    checkedCount(uncompressed.size(), contentSize)));
++            }
++            ZSTD_inBuffer input {frame, frameSize, 0};
++            std::array<char, 64 * 1024> chunk;
++            size_t remaining = 1;
++            while (input.pos < input.size || remaining != 0) {
++                ZSTD_outBuffer output {chunk.data(), chunk.size(), 0};
++                remaining = ZSTD_decompressStream(stream.get(), &output, &input);
++                if (ZSTD_isError(remaining)) throw Exception("Avro Zstandard decompression failed");
++                checkedGrowth(uncompressed.capacity(), checkedCount(uncompressed.size(), output.pos));
++                uncompressed.append(chunk.data(), output.pos);
++                if (input.pos == input.size && remaining != 0 && output.pos == 0)
++                    throw Exception("Truncated Avro Zstandard frame");
++            }
++            offset += frameSize;
+         }
+
+         std::unique_ptr<InputStream> in = memoryInputStream(
+@@ -542,6 +575,8 @@
+                 throw Exception("Failed to initialize inflate, error: {}", ret);
+             }
+
++            // Reservations and corrupt blocks may throw while zlib still owns its window.
++            std::unique_ptr<z_stream, decltype(&inflateEnd)> cleanup(&zs, &inflateEnd);
+             const uint8_t *data;
+             size_t len;
+             while (ret != Z_STREAM_END && st->next(&data, &len)) {
+@@ -549,7 +584,7 @@
+                 zs.next_in = const_cast<Bytef *>(data);
+                 do {
+                     if (zs.total_out == uncompressed.size()) {
+-                        uncompressed.resize(uncompressed.size() + zlibBufGrowSize);
++                        uncompressed.resize(checkedGrowth(uncompressed.capacity(), checkedCount(uncompressed.size(), zlibBufGrowSize)));
+                     }
+                     zs.avail_out = static_cast<uInt>(uncompressed.size() - zs.total_out);
+                     zs.next_out = reinterpret_cast<Bytef *>(uncompressed.data() + zs.total_out);
+@@ -563,8 +598,11 @@
+                 } while (zs.avail_out == 0);
+             }
+
++            // C++ writers may flush an empty buffer as a zero-byte, zero-row block.
++            if (ret != Z_STREAM_END && (objectCount_ != 0 || byteCount != 0))
++                throw Exception("Truncated Avro deflate block");
+             uncompressed.resize(zs.total_out);
+-            (void) inflateEnd(&zs);
++
+         }
+
+         std::unique_ptr<InputStream> in = memoryInputStream(
+--- a/lang/c++/impl/BinaryDecoder.cc
++++ b/lang/c++/impl/BinaryDecoder.cc
+@@ -17,6 +17,7 @@
+  */
+
+ #include "Decoder.hh"
++#include "Allocation.hh"
+ #include "Exception.hh"
+ #include "Zigzag.hh"
+ #include <memory>
+@@ -115,7 +116,7 @@
+
+ void BinaryDecoder::decodeString(std::string &value) {
+     size_t len = doDecodeLength();
+-    value.resize(len);
++    value.resize(checkedGrowth(value.capacity(), len));
+     if (len > 0) {
+         in_.readBytes(const_cast<uint8_t *>(
+                           reinterpret_cast<const uint8_t *>(value.c_str())),
+@@ -130,7 +131,7 @@
+
+ void BinaryDecoder::decodeBytes(std::vector<uint8_t> &value) {
+     size_t len = doDecodeLength();
+-    value.resize(len);
++    value.resize(checkedGrowth(value.capacity(), len));
+     if (len > 0) {
+         in_.readBytes(value.data(), len);
+     }
+@@ -142,7 +143,7 @@
+ }
+
+ void BinaryDecoder::decodeFixed(size_t n, std::vector<uint8_t> &value) {
+-    value.resize(n);
++    value.resize(checkedGrowth(value.capacity(), n));
+     if (n > 0) {
+         in_.readBytes(value.data(), n);
+     }
+@@ -213,6 +214,7 @@
+             throw Exception("Invalid Avro varint");
+         }
+         u = in_.read();
++        if (shift == 63 && (u & 0x7f) > 1) throw Exception("Avro varint overflows");
+         encoded |= static_cast<uint64_t>(u & 0x7f) << shift;
+         shift += 7;
+     } while (u & 0x80);
+--- a/lang/c++/impl/Generic.cc
++++ b/lang/c++/impl/Generic.cc
+@@ -17,7 +17,9 @@
+  */
+
+ #include "Generic.hh"
++#include "Allocation.hh"
+ #include <utility>
++#include <type_traits>
+
+ namespace avro {
+
+@@ -103,10 +105,13 @@
+             auto &v = datum.value<GenericArray>();
+             vector<GenericDatum> &r = v.value();
+             const NodePtr &nn = v.schema()->leafAt(0);
++            // Account only this subtree: visiting the whole row for every nested array is quadratic.
++            allocationCheckpoint(datum, true);
+             r.resize(0);
++            allocationCheckpoint(datum, false);
+             size_t start = 0;
+             for (size_t m = d.arrayStart(); m != 0; m = d.arrayNext()) {
+-                r.resize(r.size() + m);
++                r.resize(checkedGrowth(r.capacity(), checkedCount(r.size(), m), sizeof(std::remove_reference_t<decltype(r)>::value_type)));
+                 for (; start < r.size(); ++start) {
+                     r[start] = GenericDatum(nn);
+                     read(r[start], d, isResolving);
+@@ -117,10 +122,13 @@
+             auto &v = datum.value<GenericMap>();
+             GenericMap::Value &r = v.value();
+             const NodePtr &nn = v.schema()->leafAt(1);
++            // Account only this subtree: visiting the whole row for every nested array is quadratic.
++            allocationCheckpoint(datum, true);
+             r.resize(0);
++            allocationCheckpoint(datum, false);
+             size_t start = 0;
+             for (size_t m = d.mapStart(); m != 0; m = d.mapNext()) {
+-                r.resize(r.size() + m);
++                r.resize(checkedGrowth(r.capacity(), checkedCount(r.size(), m), sizeof(std::remove_reference_t<decltype(r)>::value_type)));
+                 for (; start < r.size(); ++start) {
+                     d.decodeString(r[start].first);
+                     r[start].second = GenericDatum(nn);
+--- a/lang/c++/impl/GenericDatum.cc
++++ b/lang/c++/impl/GenericDatum.cc
+@@ -59,27 +59,35 @@
+             value_ = double();
+             break;
+         case AVRO_STRING:
++            checkedGrowth(0, sizeof(std::string));
+             value_ = string();
+             break;
+         case AVRO_BYTES:
++            checkedGrowth(0, sizeof(std::vector<uint8_t>));
+             value_ = vector<uint8_t>();
+             break;
+         case AVRO_FIXED:
++            checkedGrowth(0, sizeof(GenericFixed));
+             value_ = GenericFixed(sc);
+             break;
+         case AVRO_RECORD:
++            checkedGrowth(0, sizeof(GenericRecord));
+             value_ = GenericRecord(sc);
+             break;
+         case AVRO_ENUM:
++            checkedGrowth(0, sizeof(GenericEnum));
+             value_ = GenericEnum(sc);
+             break;
+         case AVRO_ARRAY:
++            checkedGrowth(0, sizeof(GenericArray));
+             value_ = GenericArray(sc);
+             break;
+         case AVRO_MAP:
++            checkedGrowth(0, sizeof(GenericMap));
+             value_ = GenericMap(sc);
+             break;
+         case AVRO_UNION:
++            checkedGrowth(0, sizeof(GenericUnion));
+             value_ = GenericUnion(sc);
+             break;
+         default:
+@@ -88,7 +96,7 @@
+ }
+
+ GenericRecord::GenericRecord(const NodePtr &schema) : GenericContainer(AVRO_RECORD, schema) {
+-    fields_.resize(schema->leaves());
++    fields_.resize(checkedGrowth(fields_.capacity(), schema->leaves(), sizeof(GenericDatum)));
+     for (size_t i = 0; i < schema->leaves(); ++i) {
+         fields_[i] = GenericDatum(schema->leafAt(i));
+     }
+--- a/lang/c++/include/avro/DataFile.hh
++++ b/lang/c++/include/avro/DataFile.hh
+@@ -248,10 +248,21 @@
+      */
+     Decoder &decoder() { return *dataDecoder_; }
+
++    // Retained bulk scratch storage; the embedding reader accounts it until close.
++    size_t scratchBytes() const {
++        size_t bytes = compressed_.capacity() + uncompressed.capacity();
++        for (const auto& entry : metadata_)
++            bytes += sizeof(entry) + 3 * sizeof(void*) + entry.first.capacity() + entry.second.capacity();
++        return bytes;
++    }
++
+     /**
+      * Returns true if and only if there is more to read.
+      */
+     bool hasMore();
++
++    // Permanently finish this range before loading a block at or beyond the given offset.
++    bool hasMoreBefore(int64_t position);
+
+     /**
+      * Decrements the number of objects yet to read.
+@@ -284,7 +295,7 @@
+      * This must be called exactly once after constructing the
+      * DataFileReaderBase object.
+      */
+-    void init(const ValidSchema &readerSchema);
++    void init(const ValidSchema &readerSchema, int64_t startOffset = -1);
+
+     /**
+      * Returns the schema for this object.
+--- a/lang/c++/include/avro/GenericDatum.hh
++++ b/lang/c++/include/avro/GenericDatum.hh
+@@ -26,6 +26,7 @@
+ #include <vector>
+
+ #include "LogicalType.hh"
++#include "Allocation.hh"
+ #include "Node.hh"
+ #include "ValidSchema.hh"
+
+@@ -505,7 +506,7 @@
+      * which should be of Avro type fixed.
+      */
+     explicit GenericFixed(const NodePtr &schema) : GenericContainer(AVRO_FIXED, schema) {
+-        value_.resize(schema->fixedSize());
++        value_.resize(checkedGrowth(value_.capacity(), schema->fixedSize()));
+     }
+
+     GenericFixed(const NodePtr &schema, const std::vector<uint8_t> &v);
+--- a/lang/c++/include/avro/Specific.hh
++++ b/lang/c++/include/avro/Specific.hh
+@@ -26,6 +26,7 @@
+ #include <vector>
+
+ #include "AvroTraits.hh"
++#include "Allocation.hh"
+ #include "Config.hh"
+ #include "Decoder.hh"
+ #include "Encoder.hh"
+@@ -305,6 +306,8 @@
+     static void decode(Decoder &d, std::map<std::string, T> &s) {
+         s.clear();
+         for (size_t n = d.mapStart(); n != 0; n = d.mapNext()) {
++            // OCF metadata maps also allocate nodes outside the generic-datum reader.
++            checkedGrowth(0, n, sizeof(typename std::map<std::string, T>::value_type) + 3 * sizeof(void*));
+             for (size_t i = 0; i < n; ++i) {
+                 std::string k;
+                 avro::decode(d, k);
+--- /dev/null
++++ b/lang/c++/include/avro/Allocation.hh
+@@ -0,0 +1,76 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *     https://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++#pragma once
++
++#include <algorithm>
++#include <cstddef>
++#include <limits>
++
++#include "Exception.hh"
++
++namespace avro {
++
++class GenericDatum;
++
++using AllocationCheck = void (*)(void*, size_t);
++using AllocationCheckpoint = void (*)(void*, const GenericDatum&, bool);
++struct AllocationHook {
++    AllocationCheck check = nullptr;
++    void* context = nullptr;
++    AllocationCheckpoint checkpoint = nullptr;
++};
++inline thread_local AllocationHook allocationHook;
++
++// The embedding reader owns reservations. Scoped TLS keeps independent scans and writers isolated.
++class AllocationCheckScope {
++    AllocationHook previous_;
++public:
++    AllocationCheckScope(AllocationCheck check, void* context, AllocationCheckpoint checkpoint = nullptr) : previous_(allocationHook) {
++        allocationHook = {check, context, checkpoint};
++    }
++    ~AllocationCheckScope() { allocationHook = previous_; }
++    AllocationCheckScope(const AllocationCheckScope&) = delete;
++    AllocationCheckScope& operator=(const AllocationCheckScope&) = delete;
++};
++
++inline size_t checkedCount(size_t current, size_t added) {
++    if (added > std::numeric_limits<size_t>::max() - current)
++        throw Exception("Avro collection count overflows");
++    return current + added;
++}
++
++inline size_t checkedGrowth(size_t capacity, size_t count, size_t itemSize = 1) {
++    if (count > std::numeric_limits<size_t>::max() / itemSize / 2)
++        throw Exception("Avro allocation size overflows");
++    if (count > capacity && allocationHook.check != nullptr) {
++        // libstdc++/libc++ may double capacity. The reader already accounts the old allocation;
++        // reserve the new-capacity bound as well to cover a temporary old-plus-new peak.
++        const size_t grown = capacity > std::numeric_limits<size_t>::max() / 2
++                               ? count : std::max(count, capacity * 2);
++        allocationHook.check(allocationHook.context, grown * itemSize);
++    }
++    return count;
++}
++
++inline void allocationCheckpoint(const GenericDatum& datum, bool before) {
++    if (allocationHook.checkpoint != nullptr)
++        allocationHook.checkpoint(allocationHook.context, datum, before);
++}
++
++} // namespace avro

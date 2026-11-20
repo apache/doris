@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.thrift.TFileFormatType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,12 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class UtilTest {
+
+    @Test
+    public void avroLoadFormatIsRecognizedByNameAndSuffix() {
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, Util.getFileFormatTypeFromName("AvRo"));
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, Util.getFileFormatTypeFromPath("data.AVRO"));
+    }
 
     @Test
     public void getRootCauseWithSuppressedMessageRootCauseWithMessageNoSuppressed() {

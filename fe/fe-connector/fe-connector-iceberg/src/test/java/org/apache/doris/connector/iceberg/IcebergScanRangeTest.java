@@ -152,6 +152,16 @@ public class IcebergScanRangeTest {
     }
 
     @Test
+    public void populateAvroRangeOverridesScanLevelParquet() {
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://bucket/data.avro").fileFormat("avro").build();
+        TFileRangeDesc desc = new TFileRangeDesc();
+        desc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+        populate(range, desc);
+        Assertions.assertEquals(TFileFormatType.FORMAT_AVRO, desc.getFormatType());
+    }
+
+    @Test
     public void populateRangeParamsV2PartitionedDataFile() {
         Map<String, String> parts = new LinkedHashMap<>();
         parts.put("p", "1");
