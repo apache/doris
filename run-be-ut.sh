@@ -339,6 +339,10 @@ if [[ -z "${USE_AVX2}" ]]; then
     USE_AVX2='ON'
 fi
 
+if [[ -z "${USE_AVX512}" ]]; then
+    USE_AVX512='OFF'
+fi
+
 if [[ -z "${ARM_MARCH}" ]]; then
     ARM_MARCH='armv8-a+crc'
 fi
@@ -379,6 +383,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DBUILD_FILE_CACHE_MICROBENCH_TOOL=OFF \
     -DUSE_JEMALLOC=OFF \
     -DUSE_AVX2="${USE_AVX2}" \
+    -DUSE_AVX512="${USE_AVX512}" \
     -DARM_MARCH="${ARM_MARCH}" \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
     -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
