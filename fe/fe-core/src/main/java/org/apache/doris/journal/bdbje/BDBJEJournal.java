@@ -43,8 +43,6 @@ import com.sleepycat.je.StatsConfig;
 import com.sleepycat.je.Transaction;
 import com.sleepycat.je.TransactionConfig;
 import com.sleepycat.je.rep.InsufficientLogException;
-import com.sleepycat.je.rep.NetworkRestore;
-import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.ReplicaConsistencyException;
 import com.sleepycat.je.rep.ReplicaWriteException;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
@@ -556,44 +554,14 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
                 break;
             } catch (InsufficientLogException insufficientLogEx) {
-                reSetupBdbEnvironment(insufficientLogEx);
+                // the environment is already opened and may be used by other threads, exit and restore after restart.
+                BDBEnvironment.exitForNetworkRestore(insufficientLogEx, "open bdbje journal");
             } catch (RollbackException rollbackEx) {
                 LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
                 bdbEnvironment.close();
                 bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
             }
         }
-    }
-
-    private void reSetupBdbEnvironment(InsufficientLogException insufficientLogEx) {
-        LOG.warn("catch insufficient log exception. will recover and try again.", insufficientLogEx);
-        // Copy the missing log files from a member of the replication group who owns
-        // the files
-        // ATTN: here we use `getServingEnv()`, because only serving catalog has
-        // helper nodes.
-        HostInfo helperNode = Env.getServingEnv().getHelperNode();
-
-        for (int i = 0; i < RETRY_TIME; i++) {
-            try {
-                NetworkRestore restore = new NetworkRestore();
-                NetworkRestoreConfig config = new NetworkRestoreConfig();
-                config.setRetainLogFiles(false);
-                restore.execute(insufficientLogEx, config);
-                break;
-            } catch (Exception e) {
-                LOG.warn("retry={}, reSetupBdbEnvironment exception:", i, e);
-                try {
-                    Thread.sleep(5 * 1000);
-                    LOG.warn("after sleep insufficientLogEx:", insufficientLogEx);
-                } catch (InterruptedException e1) {
-                    LOG.warn("InterruptedException", e1);
-                }
-            }
-        }
-
-        bdbEnvironment.close();
-        bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
-                NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), helperNode.getPort()));
     }
 
     private void truncateRecoveryJournalsIfNeeded(boolean metadataFailureRecovery) {
@@ -738,18 +706,15 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 break;
             } catch (InsufficientLogException insufficientLogEx) {
                 /*
-                 * If this is not a checkpoint thread, which means this maybe the FE startup
-                 * thread,
-                 * or a replay thread. We will reopen bdbEnvironment for these 2 cases to get
-                 * valid log
-                 * from helper nodes.
+                 * This may be called by the FE startup thread, the replay thread, and also http/rpc threads.
+                 * All of them get the same exception from the invalidated environment. Do not restore the log
+                 * files in this process, exit and restore them when opening the environment after restart.
                  *
                  * The checkpoint thread will only run on Master FE. And Master FE should not
-                 * encounter
-                 * these exception. So if it happens, throw exception out.
+                 * encounter these exception. So if it happens, throw exception out.
                  */
                 if (!Env.isCheckpointThread()) {
-                    reSetupBdbEnvironment(insufficientLogEx);
+                    BDBEnvironment.exitForNetworkRestore(insufficientLogEx, "get database names");
                 } else {
                     throw insufficientLogEx;
                 }
