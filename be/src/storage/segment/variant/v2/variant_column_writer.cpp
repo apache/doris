@@ -33,7 +33,6 @@
 #include "exprs/function/parse/variant_jsonb_parse.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
-#include "storage/segment/variant/binary_column_reader.h"
 #include "storage/segment/variant/v2/variant_assembler.h"
 #include "storage/segment/variant/v2/variant_shredder.h"
 #include "storage/segment/variant/v2/variant_values_index_writer.h"
@@ -298,9 +297,10 @@ Status VariantV2ColumnWriter::_write_values_indexes(const VariantShreddedColumns
         }
     }
     auto assembler = DORIS_TRY(variant_v2::VariantAssembler::create(std::move(options)));
-    std::vector<const IColumn*> buckets;
+    std::vector<const ColumnMap*> buckets;
+    buckets.reserve(shredded.binary_buckets.size());
     for (const auto& bucket : shredded.binary_buckets) {
-        buckets.push_back(bucket.column.get());
+        buckets.push_back(assert_cast<const ColumnMap*>(bucket.column.get()));
     }
     std::vector<size_t> positions(shredded.materialized.size(), 0);
     for (size_t begin = 0; begin < _num_rows; begin += kBatchRows) {
@@ -318,20 +318,14 @@ Status VariantV2ColumnWriter::_write_values_indexes(const VariantShreddedColumns
                 owners.push_back(std::move(column));
             }
         }
-        // A single bucket must keep exactly the reader's stored order, even for dotted keys.
-        // Multiple buckets use the same row-wise ordering function as the read iterator.
-        MutableColumnPtr map;
-        if (buckets.size() == 1) {
-            map = IColumn::mutate(buckets.front()->cut(begin, n));
-        } else {
-            map = variant_util::create_variant_binary_column();
-            combine_variant_binary_buckets(buckets, begin, n, *map);
-        }
+        auto map = variant_util::create_variant_binary_column();
+        auto* storage_map = assert_cast<ColumnMap*>(map.get());
+        variant_v2::append_variant_binary_bucket_range(buckets, begin, n, *storage_map);
         variant_v2::VariantAssemblerBatchView batch;
         batch.num_rows = n;
         batch.root_jsonb = root.get();
         batch.materialized_columns = materialized;
-        batch.storage_map = assert_cast<const ColumnMap*>(map.get());
+        batch.storage_map = storage_map;
         ColumnNullable::MutablePtr assembled;
         RETURN_IF_ERROR(assembler->assemble(batch, &assembled));
         const auto& values = assert_cast<const ColumnVariantV2&>(assembled->get_nested_column());
