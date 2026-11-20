@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <boost/regex.hpp>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -51,6 +52,7 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
+#include "cpp/sync_point.h"
 #include "exec/common/stringop_substring.h"
 #include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function.h"
@@ -437,6 +439,362 @@ public:
                                                   regexp_result_null_map<check_null>(
                                                           std::move(null_map), input_rows_count));
                 });
+    }
+};
+
+struct RegexpPositionRow {
+    StringRef haystack;
+    StringRef pattern;
+    Int64 position;
+    Int64 occurrence;
+    Int64 return_option;
+    StringRef flags;
+    Int64 subexpression;
+};
+
+struct RegexpPositionFlags {
+    bool case_insensitive = false;
+    bool multiline = false;
+    bool dot_matches_newline = false;
+};
+
+static Status parse_regexp_position_flags(StringRef flags, RegexpPositionFlags* parsed) {
+    for (size_t i = 0; i < flags.size; ++i) {
+        switch (flags.data[i]) {
+        case 'i':
+            parsed->case_insensitive = true;
+            break;
+        case 'c':
+            parsed->case_insensitive = false;
+            break;
+        case 'm':
+        case 'n':
+            parsed->multiline = true;
+            break;
+        case 's':
+            parsed->dot_matches_newline = true;
+            break;
+        default:
+            return Status::InvalidArgument(
+                    "Invalid regexp_position flag (byte {}): expected lowercase i, c, m, n, or s",
+                    static_cast<unsigned int>(static_cast<unsigned char>(flags.data[i])));
+        }
+    }
+    return Status::OK();
+}
+
+static std::string prepare_regexp_position_pattern(StringRef pattern, StringRef flags,
+                                                   const RegexpPositionFlags& parsed) {
+    // An unflagged empty literal must stay empty for its byte-by-byte search path; even
+    // flags="c" needs a prefix so the same literal uses the general RE2 path.
+    if (flags.size == 0) {
+        return {pattern.data, pattern.size};
+    }
+
+    std::string prepared = "(?";
+    if (parsed.case_insensitive) {
+        prepared += 'i';
+    }
+    if (parsed.multiline) {
+        prepared += 'm';
+    }
+    if (parsed.dot_matches_newline) {
+        prepared += 's';
+    }
+    if (!parsed.case_insensitive) {
+        prepared += "-i";
+    }
+    prepared += ')';
+    prepared.append(pattern.data, pattern.size);
+    return prepared;
+}
+
+class RegexpPositionVectorReader {
+public:
+    RegexpPositionVectorReader(const Block& block, const ColumnNumbers& arguments) {
+        for (size_t i = 0; i < 7; ++i) {
+            const auto* column = block.get_by_position(arguments[i]).column.get();
+            if (const auto* constant = check_and_get_column<ColumnConst>(column)) {
+                _columns[i] = &constant->get_data_column();
+                _is_const[i] = true;
+            } else {
+                _columns[i] = column;
+                _is_const[i] = false;
+            }
+            if (const auto* nullable = check_and_get_column<ColumnNullable>(_columns[i])) {
+                _null_maps[i] = &nullable->get_null_map_data();
+                _columns[i] = &nullable->get_nested_column();
+            }
+        }
+    }
+
+    bool is_null_at(size_t argument, size_t row) const {
+        return _null_maps[argument] && (*_null_maps[argument])[_is_const[argument] ? 0 : row];
+    }
+
+    bool is_null_at(size_t row) const {
+        for (size_t argument = 0; argument < 7; ++argument) {
+            if (is_null_at(argument, row)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    RegexpPositionRow read(size_t row) {
+        // Delay the first read so a NULL constant haystack can be skipped by the row NULL check.
+        if (_is_const[0] && !_constant_haystack_read) {
+            _constant_haystack = _columns[0]->get_data_at(0);
+            _constant_haystack_read = true;
+        }
+        auto haystack = _is_const[0] ? _constant_haystack : _columns[0]->get_data_at(row);
+        // An empty column string may have a NULL data pointer. Use the same stable
+        // non-NULL base for RE2 matches and offset subtraction, e.g. for ("", "").
+        if (haystack.size == 0) {
+            haystack.data = "";
+        }
+        return {.haystack = haystack,
+                .pattern = _columns[1]->get_data_at(_is_const[1] ? 0 : row),
+                .position = _columns[2]->get_int(_is_const[2] ? 0 : row),
+                .occurrence = _columns[3]->get_int(_is_const[3] ? 0 : row),
+                .return_option = _columns[4]->get_int(_is_const[4] ? 0 : row),
+                .flags = _columns[5]->get_data_at(_is_const[5] ? 0 : row),
+                .subexpression = _columns[6]->get_int(_is_const[6] ? 0 : row)};
+    }
+
+private:
+    const IColumn* _columns[7];
+    bool _is_const[7];
+    const NullMap* _null_maps[7] = {};
+    StringRef _constant_haystack;
+    bool _constant_haystack_read = false;
+};
+
+class FunctionRegexpPosition : public IFunction {
+private:
+    struct State {
+        std::unique_ptr<re2::RE2> compiled_pattern;
+        int capturing_groups = 0;
+        std::vector<re2::StringPiece> matches;
+    };
+
+public:
+    static constexpr auto name = "regexp_position";
+
+    static FunctionPtr create() { return std::make_shared<FunctionRegexpPosition>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 7; }
+
+    ColumnNumbers get_arguments_that_are_always_constant() const override { return {1, 5}; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        auto result_type = std::make_shared<DataTypeInt64>();
+        const bool nullable = std::ranges::any_of(arguments, [](const DataTypePtr& type) {
+            return type->is_nullable() || type->is_null_literal();
+        });
+        if (nullable) {
+            return make_nullable(result_type);
+        }
+        return result_type;
+    }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
+            context->set_function_state(scope, std::make_shared<State>());
+        }
+        return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        RegexpPositionVectorReader reader(block, arguments);
+        auto result_data_column = ColumnInt64::create(input_rows_count);
+        const bool result_nullable = block.get_by_position(result).type->is_nullable();
+        ColumnUInt8::MutablePtr result_null_map;
+        if (result_nullable) {
+            result_null_map = ColumnUInt8::create(input_rows_count, 0);
+        }
+        auto* state = static_cast<State*>(
+                context->get_function_state(FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        DORIS_CHECK(state);
+        for (size_t row = 0; row < input_rows_count; ++row) {
+            // A NULL in any argument makes the whole row NULL; nested placeholders may contain
+            // invalid values, so skip every nested read before processing that row.
+            if (reader.is_null_at(row)) {
+                DORIS_CHECK(result_nullable);
+                result_null_map->get_data()[row] = 1;
+                continue;
+            }
+            auto values = reader.read(row);
+            if (!state->compiled_pattern) {
+                RETURN_IF_ERROR(compile_pattern(values, state));
+            }
+            RETURN_IF_ERROR(validate_numeric_arguments(values, state->capturing_groups));
+            // Validate every numeric argument before returning 0 for an out-of-range start.
+            // position=size+1 still permits an empty match at the end of the haystack.
+            if (std::cmp_greater(values.position - 1, values.haystack.size)) {
+                result_data_column->get_data()[row] = 0;
+                continue;
+            }
+            re2::StringPiece match;
+            if (!match_from_position(values, *state, &match)) {
+                result_data_column->get_data()[row] = 0;
+                continue;
+            }
+            RETURN_IF_ERROR(
+                    get_return_position(values, match, &result_data_column->get_data()[row]));
+        }
+        if (result_nullable) {
+            block.get_by_position(result).column = ColumnNullable::create(
+                    std::move(result_data_column), std::move(result_null_map));
+        } else {
+            block.get_by_position(result).column = std::move(result_data_column);
+        }
+        return Status::OK();
+    }
+
+private:
+    static Status compile_pattern(const RegexpPositionRow& values, State* state) {
+        // Constant flags are meaningful only after a complete row exists. For example,
+        // flags='Z' must not fail a block where every haystack is NULL.
+        RegexpPositionFlags flags;
+        RETURN_IF_ERROR(parse_regexp_position_flags(values.flags, &flags));
+        const std::string prepared_pattern =
+                prepare_regexp_position_pattern(values.pattern, values.flags, flags);
+        re2::RE2::Options options;
+        options.set_log_errors(false);
+        options.set_dot_nl(false);
+        TEST_SYNC_POINT_CALLBACK("FunctionRegexpPosition::compile_pattern");
+        auto compiled_pattern = std::make_unique<re2::RE2>(
+                re2::StringPiece(prepared_pattern.data(), prepared_pattern.size()), options);
+        // Malformed UTF-8 pattern bytes can be valid Latin-1 pattern bytes. Retry only
+        // this RE2 error; a syntax error such as an unmatched '(' must still fail.
+        if (compiled_pattern->error_code() == re2::RE2::ErrorBadUTF8) {
+            options.set_encoding(re2::RE2::Options::EncodingLatin1);
+            compiled_pattern = std::make_unique<re2::RE2>(
+                    re2::StringPiece(prepared_pattern.data(), prepared_pattern.size()), options);
+        }
+        if (!compiled_pattern->ok()) {
+            return Status::InvalidArgument("Invalid regexp_position pattern: {}",
+                                           compiled_pattern->error());
+        }
+        // Match the 1024-group limit of the ClickHouse regexpPosition wrapper.
+        constexpr int max_capturing_groups = 1024;
+        const int capturing_groups = compiled_pattern->NumberOfCapturingGroups();
+        if (capturing_groups > max_capturing_groups) {
+            return Status::InvalidArgument(
+                    "Invalid regexp_position pattern: {} capturing groups exceed the {} "
+                    "limit",
+                    capturing_groups, max_capturing_groups);
+        }
+        state->capturing_groups = capturing_groups;
+        state->matches.resize(capturing_groups + 1);
+        // Publish only after compilation and group validation succeed. The thread-local
+        // state then reuses the regex and match storage for subsequent input blocks.
+        state->compiled_pattern = std::move(compiled_pattern);
+        return Status::OK();
+    }
+
+    static Status get_return_position(const RegexpPositionRow& values,
+                                      const re2::StringPiece& match, Int64* result) {
+        // The target returns 0 for participating empty groups, such as group 1 in
+        // a() on "a"; the unflagged empty literal still returns its byte boundary.
+        if (values.subexpression > 0 && match.empty()) {
+            *result = 0;
+            return Status::OK();
+        }
+        const auto signed_match_offset = match.data() - values.haystack.data;
+        DCHECK_GE(signed_match_offset, 0);
+        const auto match_offset = static_cast<size_t>(signed_match_offset);
+        DCHECK_LE(match_offset, values.haystack.size);
+        DCHECK_LE(match.size(), values.haystack.size - match_offset);
+        const auto return_offset = match_offset + (values.return_option == 1 ? match.size() : 0);
+        // A zero-based offset of INT64_MAX would overflow the 1-based BIGINT result.
+        // Compare before adding one or converting the unsigned byte offset.
+        if (std::cmp_greater_equal(return_offset, std::numeric_limits<Int64>::max())) {
+            return Status::InvalidArgument("regexp_position result exceeds the BIGINT range");
+        }
+        *result = static_cast<Int64>(return_offset) + 1;
+        return Status::OK();
+    }
+
+    static bool match_from_position(const RegexpPositionRow& values, State& state,
+                                    re2::StringPiece* match) {
+        const re2::StringPiece input(values.haystack.data, values.haystack.size);
+        auto search_offset = static_cast<size_t>(values.position - 1);
+        auto remaining_occurrences = values.occurrence;
+        // Only the unflagged empty literal counts every byte boundary: on "abc",
+        // occurrences 1 through 4 match, but occurrence 5 must stop at the end.
+        if (values.pattern.size == 0 && values.flags.size == 0) {
+            // occurrence=INT64_MAX on a short input has no match. Check the distance
+            // first, without adding one to the input length or iterating occurrence times.
+            const auto boundary_distance = remaining_occurrences - 1;
+            if (std::cmp_greater(boundary_distance, input.size() - search_offset)) {
+                return false;
+            }
+            search_offset += static_cast<size_t>(boundary_distance);
+            *match = re2::StringPiece(input.data() + search_offset, 0);
+            return true;
+        }
+        // Keep the original input around the offset: starting at byte 2 of "abc" must
+        // not let ^bc or \\bbc treat "bc" as a new input string.
+        const int match_count = state.capturing_groups + 1;
+        auto& matches = state.matches;
+        while (state.compiled_pattern->Match(input, search_offset, input.size(),
+                                             re2::RE2::UNANCHORED, matches.data(), match_count)) {
+            const auto& full_match = matches[0];
+            // The target ClickHouse version treats an empty full RE2 match as no match:
+            // ^ on "abc" and a* on "ba" return 0 even for the first occurrence. Stop
+            // here rather than advancing to a later nonempty match.
+            if (full_match.empty()) {
+                return false;
+            }
+            if (--remaining_occurrences == 0) {
+                // Count complete matches before selecting a group: for "a1b2" and
+                // ([a-z])([0-9]), occurrence=2 and subexpression=2 selects "2".
+                *match = matches[values.subexpression];
+                // An unmatched optional group has a NULL pointer: (a)?b on "b" with
+                // subexpression=1 must return 0 before any offset calculation.
+                return match->data() != nullptr;
+            }
+            // Resume after the entire match: "aaa" contains only one non-overlapping "aa".
+            search_offset =
+                    static_cast<size_t>(full_match.data() - input.data()) + full_match.size();
+        }
+        return false;
+    }
+
+    static Status validate_numeric_arguments(const RegexpPositionRow& values,
+                                             int capturing_groups) {
+        // Compile the constant pattern first, so its error wins when position is also invalid.
+        if (values.position < 1) {
+            return Status::InvalidArgument(
+                    "Invalid regexp_position position: expected at least 1, got {}",
+                    values.position);
+        }
+        // occurrence=0 or a negative value cannot identify a 1-based match occurrence.
+        if (values.occurrence < 1) {
+            return Status::InvalidArgument(
+                    "Invalid regexp_position occurrence: expected at least 1, got {}",
+                    values.occurrence);
+        }
+        // Only 0 (start) and 1 (end) identify a supported return position.
+        if (values.return_option != 0 && values.return_option != 1) {
+            return Status::InvalidArgument(
+                    "Invalid regexp_position return_option: expected 0 or 1, got {}",
+                    values.return_option);
+        }
+        // Negative indices and indices beyond the compiled groups cannot select a match.
+        if (values.subexpression < 0 || values.subexpression > capturing_groups) {
+            return Status::InvalidArgument(
+                    "Invalid regexp_position subexpression: expected a value from 0 to {}, got {}",
+                    capturing_groups, values.subexpression);
+        }
+        return Status::OK();
     }
 };
 
@@ -1064,6 +1422,7 @@ void register_function_regexp_extract(SimpleFunctionFactory& factory) {
     factory.register_function<
             FunctionRegexpFunctionality<RegexpExtractAllImpl<RegexpExtractAllArrayOutput>>>();
     factory.register_function<FunctionRegexpCount>();
+    factory.register_function<FunctionRegexpPosition>();
 }
 
 } // namespace doris
