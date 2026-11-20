@@ -1948,6 +1948,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
+                .coarseSplitSize(coarseSplitSizeForBeRefinement())
                 .aggregatePushdown(getPushDownAggNoGroupingOp() != TPushAggOp.NONE)
                 .backendCapabilities(commonBackendCapabilities(backendPolicy.getBackends()))
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
@@ -2359,6 +2360,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         pinRewriteFileScope();
         queryFinishCleanup.bind(resolveScanProvider());
         return ConnectorScanRequest.builder(currentHandle, columns).filter(remainingFilter)
+                .coarseSplitSize(isTableLevelCountStarPushdown() ? -1 : coarseSplitSizeForBeRefinement())
                 .scanContext(splitAssignment.getScanContext()).build();
     }
 
@@ -2599,6 +2601,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 }
             }
         };
+    }
+
+    @Override
+    protected boolean supportsBeSplitRefinement(FileSplit split) {
+        return ((PluginDrivenSplit) split).getConnectorScanRange().supportsBeSplitRefinement();
     }
 
     @Override

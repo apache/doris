@@ -7168,7 +7168,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowCharset(ShowCharsetContext ctx) {
-        return new ShowCharsetCommand();
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                return new ShowCharsetCommand(
+                        SqlLiteralUtils.parseStringLiteral(ctx.wildWhere().STRING_LITERAL().getText()), null);
+            }
+            return new ShowCharsetCommand(null, getExpression(ctx.wildWhere().expression()));
+        }
+        return new ShowCharsetCommand(null, null);
     }
 
     @Override

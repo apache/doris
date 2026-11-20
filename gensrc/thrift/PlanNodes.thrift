@@ -981,6 +981,8 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // Target size for coalescing physical children; absent/nonpositive does not disable refinement.
+    17: optional i64 target_split_size;
 }
 
 struct TSplitSource {

@@ -210,6 +210,41 @@ public class ConfigTest {
     }
 
     @Test
+    public void testSensitivePropertyRegexIsValidatedDuringStartupAndCustomLoading() throws Exception {
+        String original = Config.datasource_sensitive_property_pattern;
+        try {
+            Config config = new Config();
+            config.init(configFile("datasource_sensitive_property_pattern=custom[.]value\n").toString());
+            Assertions.assertEquals("custom[.]value", Config.datasource_sensitive_property_pattern);
+            Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> config.init(configFile("datasource_sensitive_property_pattern=[\n").toString()));
+            Assertions.assertEquals("custom[.]value", Config.datasource_sensitive_property_pattern);
+            Path custom = configFile("datasource_sensitive_property_pattern=(?!)\n");
+            config.initCustom(custom.toString());
+            Assertions.assertEquals("(?!)", Config.datasource_sensitive_property_pattern);
+            Files.writeString(custom, "datasource_sensitive_property_pattern=[\n");
+            Assertions.assertThrows(IllegalArgumentException.class, () -> config.initCustom(custom.toString()));
+            Assertions.assertEquals("(?!)", Config.datasource_sensitive_property_pattern);
+            config.init(configFile("datasource_sensitive_property_pattern=\n").toString());
+            Assertions.assertEquals("", Config.datasource_sensitive_property_pattern);
+        } finally {
+            Config.datasource_sensitive_property_pattern = original;
+        }
+    }
+
+    @Test
+    public void testRegexValidationUsesTheValueAfterConfigTrimming() throws Exception {
+        String original = Config.datasource_sensitive_property_pattern;
+        try {
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("datasource_sensitive_property_pattern", "\\ "));
+            Assertions.assertEquals(original, Config.datasource_sensitive_property_pattern);
+        } finally {
+            Config.datasource_sensitive_property_pattern = original;
+        }
+    }
+
+    @Test
     public void testSetEmptyArray() throws ConfigException {
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "a,b,c");
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "");

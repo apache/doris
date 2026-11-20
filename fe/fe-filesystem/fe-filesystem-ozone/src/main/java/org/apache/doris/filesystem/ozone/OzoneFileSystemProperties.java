@@ -58,9 +58,11 @@ public final class OzoneFileSystemProperties extends AbstractDelegatingS3Propert
             description = "The region of the Ozone S3 Gateway.")
     private String region = DEFAULT_REGION;
 
+    // Keep the Ozone access-key identifier masked like the S3 aliases accepted by this field.
     @ConnectorProperty(names = {ACCESS_KEY, "s3.access_key", "s3.access-key-id",
             "AWS_ACCESS_KEY"},
             required = false,
+            sensitive = true,
             description = "The access key of the Ozone S3 Gateway.")
     private String accessKey = "";
 

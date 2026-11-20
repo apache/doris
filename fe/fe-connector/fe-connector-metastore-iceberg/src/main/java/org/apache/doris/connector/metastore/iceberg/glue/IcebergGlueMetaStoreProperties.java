@@ -35,9 +35,10 @@ import java.util.Map;
  */
 public final class IcebergGlueMetaStoreProperties extends AbstractMetaStoreProperties {
 
+    // Access-key identifiers follow the diagnostic masking policy of the secret key.
     @ConnectorProperty(names = {"glue.access_key", "aws.glue.access-key",
             "client.credentials-provider.glue.access_key"},
-            required = false, description = "The access key of the AWS Glue.")
+            required = false, sensitive = true, description = "The access key of the AWS Glue.")
     private String glueAccessKey = "";
 
     @ConnectorProperty(names = {"glue.secret_key", "aws.glue.secret-key",
