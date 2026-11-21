@@ -100,11 +100,8 @@ public abstract class BaseIcebergAction {
      * Runs the procedure body and wraps its single row into a {@link ConnectorProcedureResult}. Enforces the
      * legacy single-row contract: the row width must equal the declared schema width.
      *
-     * <p>{@code session} carries the connector execution context (most importantly the session time zone for
-     * {@code rollback_to_timestamp}); the seven non-time-zone procedures ignore it. The legacy
-     * {@code BaseExecuteAction} read the time zone from the thread-local {@code ConnectContext}; the connector
-     * cannot, so it threads {@link ConnectorSession} here instead — the SPI ({@code ConnectorProcedureOps})
-     * and factory signatures are unchanged.
+     * <p>{@code session} carries the connector execution context, including the time zone used by timestamp
+     * arguments.</p>
      */
     public final ConnectorProcedureResult execute(Table table, ConnectorSession session) {
         List<String> resultRow = executeAction(table, session);
@@ -143,8 +140,8 @@ public abstract class BaseIcebergAction {
 
     /**
      * Runs the procedure against the loaded iceberg SDK table and returns its single result row (or
-     * {@code null} when there is no result). {@code session} provides the execution context (e.g. the session
-     * time zone consumed by {@code rollback_to_timestamp}); most procedures do not use it.
+     * {@code null} when there is no result). {@code session} provides the execution context, including the time
+     * zone used by timestamp arguments.
      */
     protected abstract List<String> executeAction(Table table, ConnectorSession session);
 
