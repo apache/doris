@@ -71,7 +71,7 @@ suite("dotted_key_escape_semantics", "p0,nonConcurrent") {
     order_qt_search_percent "select id from dotted_key_escape_values where search('v.pct%25:percent')"
 
     // LIKE and SHOW CREATE carry the table policy; final NestedGroup must remain disabled.
-    def oldNestedGroup = sql("show variables like 'debug_variant_enable_nested_group'")[0][1]
+    def oldNestedGroup = sql("select @@debug_variant_enable_nested_group")[0][0]
     try {
         sql "set debug_variant_enable_nested_group=false"
         sql "drop table if exists dotted_key_escape_like"

@@ -19,7 +19,7 @@ suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
     setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     sql "set debug_variant_enable_doc_mode=false"
-    def oldNested = sql("show variables like 'debug_variant_enable_nested_group'")[0][1]
+    def oldNested = sql("select @@debug_variant_enable_nested_group")[0][0]
     try {
         [false, true].each { nestedDefault ->
             sql "set debug_variant_enable_nested_group=${nestedDefault}"
