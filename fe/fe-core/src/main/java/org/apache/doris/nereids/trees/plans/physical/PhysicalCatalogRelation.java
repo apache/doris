@@ -63,6 +63,8 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     protected final ImmutableList<String> qualifier;
     protected final ImmutableList<Slot> operativeSlots;
     protected final String tableAlias;
+    // whether the operative slot list is a derivation result, see CatalogRelation#isOperativeSlotsDerived
+    private boolean operativeSlotsDerived;
 
     /**
      * Constructor for PhysicalCatalogRelation.
@@ -123,6 +125,20 @@ public abstract class PhysicalCatalogRelation extends PhysicalRelation implement
     @Override
     public TableIf getTable() {
         return table;
+    }
+
+    @Override
+    public boolean isOperativeSlotsDerived() {
+        return operativeSlotsDerived;
+    }
+
+    /**
+     * Records that {@link #getOperativeSlots()} is the result of a derivation, set once by the
+     * implementation rule that converts the logical relation, because a physical relation is
+     * replaced by the plan it was converted from and is never copied afterwards.
+     */
+    public void markOperativeSlotsDerived() {
+        this.operativeSlotsDerived = true;
     }
 
     @Override

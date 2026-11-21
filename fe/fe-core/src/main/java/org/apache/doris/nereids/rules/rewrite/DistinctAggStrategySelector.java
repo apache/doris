@@ -162,7 +162,7 @@ public class DistinctAggStrategySelector extends DefaultPlanRewriter<DistinctSel
         double row = childStats.getRowCount();
         if (agg.getGroupByExpressions().isEmpty()) {
             for (Expression distinctArgument : agg.getDistinctArguments()) {
-                ColumnStatistic columnStatistic = childStats.findColumnStatistics(distinctArgument);
+                ColumnStatistic columnStatistic = childStats.findColumnStatisticsOrNull(distinctArgument);
                 if (columnStatistic == null || columnStatistic.isUnKnown) {
                     return false;
                 }
